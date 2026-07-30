@@ -14,6 +14,34 @@ public enum MediaPlaybackTrackKind
 }
 
 /// <summary>
+/// Provider-neutral timed-metadata kind. Values intentionally match WinUI's
+/// TimedMetadataKind projection.
+/// </summary>
+public enum MediaPlaybackTimedMetadataKind
+{
+    Caption = 0,
+    Chapter = 1,
+    Custom = 2,
+    Data = 3,
+    Description = 4,
+    Subtitle = 5,
+    ImageSubtitle = 6,
+    Speech = 7
+}
+
+/// <summary>
+/// Provider-neutral presentation policy for one timed-metadata track. Values
+/// intentionally match WinUI's TimedMetadataTrackPresentationMode projection.
+/// </summary>
+public enum MediaPlaybackTimedMetadataPresentationMode
+{
+    Disabled = 0,
+    Hidden = 1,
+    ApplicationPresented = 2,
+    PlatformPresented = 3
+}
+
+/// <summary>
 /// Describes whether the active native provider can decode and present a
 /// track. Unknown is retained for providers whose platform API does not expose
 /// a reliable support query.
@@ -56,7 +84,10 @@ public readonly record struct MediaPlaybackTrackDescriptor(
     string Language,
     MediaPlaybackTrackEncoding Encoding,
     MediaPlaybackTrackSupport Support =
-        MediaPlaybackTrackSupport.Unknown);
+        MediaPlaybackTrackSupport.Unknown,
+    MediaPlaybackTimedMetadataKind TimedMetadataKind =
+        MediaPlaybackTimedMetadataKind.Custom,
+    string DispatchType = "");
 
 /// <summary>
 /// Immutable snapshot of the tracks associated with the currently opened
@@ -244,6 +275,8 @@ public sealed class MediaPlaybackTracksSnapshot
                 Name = descriptor.Name ?? string.Empty,
                 Label = descriptor.Label ?? string.Empty,
                 Language = descriptor.Language ?? string.Empty,
+                DispatchType =
+                    descriptor.DispatchType ?? string.Empty,
                 Encoding = descriptor.Encoding with
                 {
                     Subtype =
@@ -302,6 +335,143 @@ public sealed class MediaPlaybackTracksChangedEventArgs :
 }
 
 /// <summary>
+/// Immutable provider-neutral binary timed-metadata payload. Construction
+/// copies B bytes in O(B) time and storage; reads are allocation-free O(1).
+/// Native providers may transfer an already-owned managed copy through the
+/// internal ownership constructor.
+/// </summary>
+public sealed class MediaPlaybackTimedMetadataCueData
+{
+    private readonly byte[] _bytes;
+
+    public MediaPlaybackTimedMetadataCueData(
+        ReadOnlySpan<byte> bytes)
+    {
+        _bytes = bytes.ToArray();
+    }
+
+    private MediaPlaybackTimedMetadataCueData(
+        byte[] ownedBytes)
+    {
+        _bytes = ownedBytes ??
+            throw new ArgumentNullException(
+                nameof(ownedBytes));
+    }
+
+    public ReadOnlySpan<byte> Bytes => _bytes;
+
+    internal static MediaPlaybackTimedMetadataCueData
+        TakeOwnership(byte[] ownedBytes) =>
+            new(ownedBytes);
+}
+
+/// <summary>
+/// Immutable provider-neutral timed-metadata cue. A null Data value describes
+/// text; a non-null value describes a binary cue. Providers publish complete
+/// per-track snapshots when cue membership or timing changes.
+/// </summary>
+public readonly record struct
+    MediaPlaybackTimedMetadataCueDescriptor(
+        string CueId,
+        TimeSpan StartTime,
+        TimeSpan Duration,
+        string Text,
+        MediaPlaybackTimedTextCuePresentation?
+            Presentation = null,
+        MediaPlaybackTimedMetadataCueData? Data = null);
+
+/// <summary>
+/// Immutable cue snapshot for one provider timed-metadata track.
+/// Publication is O(C) time and storage for C cues.
+/// </summary>
+public sealed class MediaPlaybackTimedMetadataCueSnapshot
+{
+    private readonly ReadOnlyCollection<
+        MediaPlaybackTimedMetadataCueDescriptor> _cues;
+
+    public MediaPlaybackTimedMetadataCueSnapshot(
+        string providerTrackId,
+        IReadOnlyList<
+            MediaPlaybackTimedMetadataCueDescriptor>? cues)
+    {
+        if (string.IsNullOrWhiteSpace(providerTrackId))
+        {
+            throw new ArgumentException(
+                "A provider track identifier is required.",
+                nameof(providerTrackId));
+        }
+
+        ProviderTrackId = providerTrackId;
+        if (cues is null || cues.Count == 0)
+        {
+            _cues = Array.AsReadOnly(
+                Array.Empty<
+                    MediaPlaybackTimedMetadataCueDescriptor>());
+            return;
+        }
+
+        var copy =
+            new MediaPlaybackTimedMetadataCueDescriptor[
+                cues.Count];
+        var cueIds = new HashSet<string>(
+            StringComparer.Ordinal);
+        for (int index = 0; index < copy.Length; index++)
+        {
+            MediaPlaybackTimedMetadataCueDescriptor cue =
+                cues[index];
+            if (string.IsNullOrWhiteSpace(cue.CueId) ||
+                !cueIds.Add(cue.CueId))
+            {
+                throw new ArgumentException(
+                    "Provider cue identifiers must be non-empty and unique within a track snapshot.",
+                    nameof(cues));
+            }
+            if (cue.StartTime < TimeSpan.Zero ||
+                cue.Duration < TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(cues),
+                    "Cue timing must be non-negative.");
+            }
+            if (cue.Data is not null &&
+                cue.Presentation is not null)
+            {
+                throw new ArgumentException(
+                    "A binary timed-metadata cue cannot carry a timed-text presentation.",
+                    nameof(cues));
+            }
+            copy[index] = cue with
+            {
+                Text = cue.Text ?? string.Empty
+            };
+        }
+        _cues = Array.AsReadOnly(copy);
+    }
+
+    public string ProviderTrackId { get; }
+    public IReadOnlyList<
+        MediaPlaybackTimedMetadataCueDescriptor> Cues =>
+        _cues;
+}
+
+public sealed class
+    MediaPlaybackTimedMetadataCuesChangedEventArgs :
+    EventArgs
+{
+    public MediaPlaybackTimedMetadataCuesChangedEventArgs(
+        MediaPlaybackTimedMetadataCueSnapshot snapshot)
+    {
+        Snapshot = snapshot ??
+            throw new ArgumentNullException(nameof(snapshot));
+    }
+
+    public MediaPlaybackTimedMetadataCueSnapshot Snapshot
+    {
+        get;
+    }
+}
+
+/// <summary>
 /// Optional provider capability for selecting one audio or video track.
 /// Implementations return false without mutating native state when the
 /// requested selection is unsupported.
@@ -311,4 +481,16 @@ public interface IMediaPlaybackTrackProvider
     bool TrySelectTrack(
         MediaPlaybackTrackKind kind,
         int index);
+}
+
+/// <summary>
+/// Optional provider capability for changing the presentation policy of one
+/// timed-metadata track. Implementations return false without mutating native
+/// state when the requested policy is unsupported.
+/// </summary>
+public interface IMediaPlaybackTimedMetadataProvider
+{
+    bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode);
 }

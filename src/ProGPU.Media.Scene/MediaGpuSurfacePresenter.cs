@@ -170,6 +170,52 @@ public sealed class MediaGpuSurfacePresenter : IDisposable
             in options);
     }
 
+    /// <summary>
+    /// Records into explicit typed host state, composing its outer transform
+    /// exactly once. Framework integration packages can obtain this state
+    /// from a package-neutral native context through
+    /// ProGpuDrawingContextState.TryCreate. The operation is allocation-free
+    /// and O(C) for the bounded number of commands emitted.
+    /// </summary>
+    public bool Record(
+        in ProGpuDrawingContextState state,
+        WgpuContext requiredContext,
+        Rect bounds)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        ValidateState(in state);
+        MediaVideoPresentationOptions options =
+            _presentationOptions;
+        return RecordHostContext(
+            in state,
+            requiredContext,
+            bounds,
+            in options);
+    }
+
+    /// <summary>
+    /// Records explicit presentation options into typed host state. No
+    /// framework adapter is retained and no allocation is performed.
+    /// </summary>
+    public bool Record(
+        in ProGpuDrawingContextState state,
+        WgpuContext requiredContext,
+        Rect bounds,
+        in MediaVideoPresentationOptions options)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        ValidateState(in state);
+        return RecordHostContext(
+            in state,
+            requiredContext,
+            bounds,
+            in options);
+    }
+
     public void RequestInvalidation()
     {
         if (Volatile.Read(ref _disposed) != 0 ||
@@ -280,5 +326,16 @@ public sealed class MediaGpuSurfacePresenter : IDisposable
             commands[index] = command;
         }
         return true;
+    }
+
+    private static void ValidateState(
+        in ProGpuDrawingContextState state)
+    {
+        if (state.DrawingContext is null)
+        {
+            throw new ArgumentException(
+                "Drawing context state must contain a typed ProGPU drawing context.",
+                nameof(state));
+        }
     }
 }

@@ -13,7 +13,9 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Android.Media, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Apple.Media, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="ProGPU.Linux.Media, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.WinUI, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="ProGPU.Windows.Media, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>

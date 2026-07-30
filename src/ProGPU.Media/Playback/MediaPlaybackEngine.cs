@@ -51,6 +51,9 @@ public sealed class MediaPlaybackEngine : IDisposable
     public event EventHandler<MediaPlaybackChangedEventArgs>? Changed;
     public event EventHandler<MediaPlaybackTracksChangedEventArgs>?
         TracksChanged;
+    public event EventHandler<
+        MediaPlaybackTimedMetadataCuesChangedEventArgs>?
+        TimedMetadataCuesChanged;
     public event EventHandler? Opened;
     public event EventHandler? Ended;
     public event EventHandler? SeekCompleted;
@@ -708,6 +711,40 @@ public sealed class MediaPlaybackEngine : IDisposable
         }
     }
 
+    public void SetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        IMediaPlaybackProvider? provider;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (!Enum.IsDefined(mode))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(mode));
+            }
+            if ((uint)index >=
+                (uint)_tracks.TimedMetadataTracks.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(index));
+            }
+            provider = _provider;
+        }
+
+        if (provider is not IMediaPlaybackTimedMetadataProvider
+            timedMetadataProvider ||
+            !timedMetadataProvider
+                .TrySetTimedMetadataPresentationMode(
+                    index,
+                    mode))
+        {
+            throw new NotSupportedException(
+                $"The active media provider cannot set timed metadata track index {index} to {mode}.");
+        }
+    }
+
     public void AddEffect(
         string activatableClassId,
         MediaEffectKind kind,
@@ -907,6 +944,45 @@ public sealed class MediaPlaybackEngine : IDisposable
                 new MediaPlaybackTracksChangedEventArgs(value);
         }
         TracksChanged?.Invoke(this, change);
+    }
+
+    private void AcceptTimedMetadataCues(
+        long generation,
+        MediaPlaybackTimedMetadataCueSnapshot value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        MediaPlaybackTimedMetadataCuesChangedEventArgs? change =
+            null;
+        lock (_gate)
+        {
+            if (!IsCurrent(generation))
+            {
+                return;
+            }
+
+            IReadOnlyList<MediaPlaybackTrackDescriptor> tracks =
+                _tracks.TimedMetadataTracks;
+            bool found = false;
+            for (int index = 0; index < tracks.Count; index++)
+            {
+                if (StringComparer.Ordinal.Equals(
+                        tracks[index].ProviderTrackId,
+                        value.ProviderTrackId))
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                return;
+            }
+
+            change =
+                new MediaPlaybackTimedMetadataCuesChangedEventArgs(
+                    value);
+        }
+        TimedMetadataCuesChanged?.Invoke(this, change);
     }
 
     private void AcceptOpened(
@@ -1373,6 +1449,12 @@ public sealed class MediaPlaybackEngine : IDisposable
         public void UpdateTracks(
             MediaPlaybackTracksSnapshot tracks) =>
             _owner.AcceptTracks(_generation, tracks);
+
+        public void UpdateTimedMetadataCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot) =>
+            _owner.AcceptTimedMetadataCues(
+                _generation,
+                snapshot);
 
         public void Opened(in MediaPlaybackSnapshot snapshot) =>
             _owner.AcceptOpened(_generation, snapshot);

@@ -32,15 +32,19 @@ public sealed class
     private readonly LinuxNativeMediaCapabilitySnapshot
         _capabilities;
     private readonly MediaEffectRegistry _effects;
+    private readonly ILinuxAacEncoderFactory?
+        _audioEncoderFactory;
 
     public LinuxV4l2PreciseMediaCompositionExportProvider(
         LinuxNativeMediaCapabilitySnapshot capabilities,
         int priority = 100,
-        MediaEffectRegistry? effects = null)
+        MediaEffectRegistry? effects = null,
+        ILinuxAacEncoderFactory? audioEncoderFactory = null)
     {
         _capabilities = capabilities;
         Priority = priority;
         _effects = effects ?? MediaEffectRegistry.Default;
+        _audioEncoderFactory = audioEncoderFactory;
     }
 
     public string Id => ProviderId;
@@ -65,7 +69,8 @@ public sealed class
             HasNativeH264Path(),
             HasNativeH264EncoderPath(),
             gpuAvailable,
-            _effects);
+            _effects,
+            _audioEncoderFactory);
     }
 
     internal static bool CanRenderRequest(
@@ -74,9 +79,14 @@ public sealed class
         bool hasNativeH264Path,
         bool hasNativeTwoPlaneH264EncoderPath,
         bool gpuAvailable,
-        MediaEffectRegistry? effectRegistry = null)
+        MediaEffectRegistry? effectRegistry = null,
+        ILinuxAacEncoderFactory?
+            audioEncoderFactory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
+        MediaEffectRegistry effects =
+            effectRegistry ??
+            MediaEffectRegistry.Default;
         bool audioRequested =
             request.EncodingProfile.AudioSubtype is
                 not null;
@@ -84,8 +94,6 @@ public sealed class
             request.TrimmingMode !=
                 MediaCompositionTrimmingMode.Precise ||
             request.Clips.Count == 0 ||
-            request.BackgroundAudioTracks.Count != 0 ||
-            request.OverlayLayers.Count != 0 ||
             audioRequested &&
             !string.Equals(
                 request.EncodingProfile.AudioSubtype,
@@ -115,6 +123,9 @@ public sealed class
         bool hasUriClip = false;
         bool hasDeclaredAac = false;
         bool hasUnknownAudioMetadata = false;
+        bool requiresAudioTranscode =
+            audioRequested &&
+            RequiresAudioTranscode(request);
         bool requiresGpu =
             request.Clips.Count > 1;
         for (int index = 0;
@@ -125,8 +136,7 @@ public sealed class
                 request.Clips[index];
             if (!TryGetVideoEffectPlan(
                     clip,
-                    effectRegistry ??
-                        MediaEffectRegistry.Default,
+                    effects,
                     out LinuxGpuVideoEffectPlan
                         effectPlan))
             {
@@ -136,7 +146,7 @@ public sealed class
                 !effectPlan.IsIdentity;
             bool hasSource =
                 clip.SourceUri is
-                    { IsFile: true };
+                { IsFile: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             bool scaling =
@@ -161,24 +171,51 @@ public sealed class
                 }
                 else
                 {
-                    if (!string.Equals(
+                    bool isAac =
+                        string.Equals(
                             clip.SourceAudioSubtype,
                             "AAC",
                             StringComparison
-                                .OrdinalIgnoreCase) ||
-                        clip.SourceAudioBitrate !=
-                            request.EncodingProfile
-                                .AudioBitrate ||
-                        clip.SourceAudioSampleRate !=
-                            request.EncodingProfile
-                                .AudioSampleRate ||
-                        clip.SourceAudioChannelCount !=
-                            request.EncodingProfile
-                                .AudioChannelCount)
+                                .OrdinalIgnoreCase);
+                    bool isPcm =
+                        string.Equals(
+                            clip.SourceAudioSubtype,
+                            "PCM",
+                            StringComparison
+                                .OrdinalIgnoreCase);
+                    if (isAac)
+                    {
+                        if (clip.SourceAudioBitrate !=
+                                request.EncodingProfile
+                                    .AudioBitrate ||
+                            clip.SourceAudioSampleRate !=
+                                request.EncodingProfile
+                                    .AudioSampleRate ||
+                            clip.SourceAudioChannelCount !=
+                                request.EncodingProfile
+                                    .AudioChannelCount)
+                        {
+                            return false;
+                        }
+                        hasDeclaredAac = true;
+                    }
+                    else if (isPcm)
+                    {
+                        if (clip.SourceAudioSampleRate !=
+                                request.EncodingProfile
+                                    .AudioSampleRate ||
+                            clip.SourceAudioChannelCount !=
+                                request.EncodingProfile
+                                    .AudioChannelCount)
+                        {
+                            return false;
+                        }
+                        requiresAudioTranscode = true;
+                    }
+                    else
                     {
                         return false;
                     }
-                    hasDeclaredAac = true;
                 }
             }
             if (hasSource == hasColor ||
@@ -192,10 +229,7 @@ public sealed class
                     TimeSpan.Zero ||
                 clip.TrimTimeFromStart +
                     clip.TrimTimeFromEnd >=
-                    clip.OriginalDuration ||
-                clip.Volume != 1d ||
-                clip.AudioEffectDefinitions.Count !=
-                    0)
+                    clip.OriginalDuration)
             {
                 return false;
             }
@@ -207,9 +241,36 @@ public sealed class
                 scaling;
         }
 
+        if (!LinuxMediaOverlayPlanner.TryCapture(
+                request,
+                effects,
+                out LinuxMediaOverlayPlan[]
+                    overlays))
+        {
+            return false;
+        }
+        for (int index = 0;
+             index < overlays.Length;
+             index++)
+        {
+            hasUriClip |= overlays[index].IsUri;
+        }
+        requiresGpu |= overlays.Length != 0;
+
         if (audioRequested &&
             !hasDeclaredAac &&
             !hasUnknownAudioMetadata)
+        {
+            requiresAudioTranscode = true;
+        }
+        if (requiresAudioTranscode &&
+            (!CanUseBuiltInPcmSources(request) ||
+             !LinuxAacCompositionEncoder.TryPrepare(
+                 request,
+                 effects,
+                 audioEncoderFactory,
+                 out _,
+                 out _)))
         {
             return false;
         }
@@ -239,13 +300,16 @@ public sealed class
         }
         return GetCapabilitiesForRequest(
             request,
-            _effects);
+            _effects,
+            _audioEncoderFactory);
     }
 
     internal static MediaCompositionExportCapabilities
         GetCapabilitiesForRequest(
             MediaCompositionExportRequest request,
-            MediaEffectRegistry? effectRegistry = null)
+            MediaEffectRegistry? effectRegistry = null,
+            ILinuxAacEncoderFactory?
+                audioEncoderFactory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         bool effects = false;
@@ -264,6 +328,22 @@ public sealed class
                         effectPlan) &&
                 !effectPlan.IsIdentity;
         }
+        if (LinuxMediaOverlayPlanner.TryCapture(
+                request,
+                effectRegistry ??
+                    MediaEffectRegistry.Default,
+                out LinuxMediaOverlayPlan[]
+                    overlays))
+        {
+            for (int index = 0;
+                 index < overlays.Length;
+                 index++)
+            {
+                effects |=
+                    !overlays[index]
+                        .EffectPlan.IsIdentity;
+            }
+        }
         bool gpuComposition =
             RequiresGpuComposition(
                 request,
@@ -276,11 +356,9 @@ public sealed class
                     .GpuCopy
                 : MediaCompositionExportVideoPath
                     .NativeGpuSurface,
-            request.EncodingProfile.AudioSubtype is
-                null
-                ? MediaCompositionExportAudioPath.None
-                : MediaCompositionExportAudioPath
-                    .CompressedSampleCopy,
+            GetAudioPath(
+                request,
+                audioEncoderFactory),
             HardwareVideoEncoderRequested: true,
             HardwareVideoEncoderGuaranteed: false,
             EffectsBakedOnGpu: effects,
@@ -293,11 +371,18 @@ public sealed class
                 "zero-copy WebGPU lane. A single native-size identity URI " +
                 "clip retains direct " +
                 "decoder-to-encoder DMA-BUF transfer; ordered timelines " +
-                "use one GPU normalization pass. Matching selected AAC " +
+                "and standard positioned/opacity URI or color overlays use " +
+                "bounded V4L2 decoders and retained WebGPU passes in " +
+                "declared order. Matching selected AAC " +
                 "tracks remain compressed; edit lists retain exact trims " +
-                "and silent source/color spans. Audio gain/effects, " +
-                "background audio, overlays, and spatial effects are " +
-                "not yet accepted.");
+                "and silent source/color spans. When an application " +
+                "explicitly supplies an ILinuxAacEncoderFactory, signed " +
+                "sowt/twos PCM main clips, background tracks, audible " +
+                "overlays, volume, and registered gain/balance effects " +
+                "stream through fixed 1,024-frame blocks into a " +
+                "transactional ProGPU-owned AAC/MP4 spool. Linux does not " +
+                "guarantee a system AAC encoder, and custom compositors " +
+                "remain unsupported.");
     }
 
     public async ValueTask<MediaCompositionExportFailure>
@@ -328,6 +413,9 @@ public sealed class
         string spool = Path.Combine(
             directory,
             $".{Path.GetFileName(destination)}.{token}.h264-spool");
+        string audioSpool = Path.Combine(
+            directory,
+            $".{Path.GetFileName(destination)}.{token}.aac-spool");
         string temporary = Path.Combine(
             directory,
             $".{Path.GetFileName(destination)}.{token}.tmp");
@@ -338,6 +426,7 @@ public sealed class
                     () => Transcode(
                         request,
                         spool,
+                        audioSpool,
                         temporary,
                         progress,
                         cancellationToken),
@@ -376,6 +465,7 @@ public sealed class
         }
         finally
         {
+            TryDelete(audioSpool);
             TryDelete(spool);
         }
     }
@@ -383,19 +473,27 @@ public sealed class
     private void Transcode(
         MediaCompositionExportRequest request,
         string spoolPath,
+        string audioSpoolPath,
         string temporaryPath,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        if (!LinuxMediaOverlayPlanner.TryCapture(
+                request,
+                _effects,
+                out LinuxMediaOverlayPlan[]
+                    overlays))
+        {
+            throw new InvalidDataException(
+                "The Linux overlay plan is invalid.");
+        }
         IsoBmffCompositionTrack? audioTrack =
-            request.EncodingProfile.AudioSubtype is
-                null
-                ? null
-                : IsoBmffPreciseAacTimelinePlanner
-                    .Create(
-                        request,
-                        cancellationToken);
-        if (request.Clips.Count > 1)
+            CreateAudioTrack(
+                request,
+                audioSpoolPath,
+                cancellationToken);
+        if (request.Clips.Count > 1 ||
+            overlays.Length != 0)
         {
             if (!TryGetActiveVulkanDawnContext(
                     out DawnGpuContext? timelineDawn) ||
@@ -407,6 +505,7 @@ public sealed class
             TranscodeTimeline(
                 request,
                 timelineDawn,
+                overlays,
                 audioTrack,
                 spoolPath,
                 temporaryPath,
@@ -855,6 +954,8 @@ public sealed class
     private void TranscodeTimeline(
         MediaCompositionExportRequest request,
         DawnGpuContext dawn,
+        IReadOnlyList<LinuxMediaOverlayPlan>
+            overlays,
         IsoBmffCompositionTrack? audioTrack,
         string spoolPath,
         string temporaryPath,
@@ -888,6 +989,11 @@ public sealed class
 
         using (frameSink)
         {
+            using var overlayRuntime =
+                new LinuxMediaOverlayRuntime(
+                    overlays,
+                    _capabilities.VideoDecoders,
+                    frameSink.Context);
             TimeSpan timelineOffset =
                 TimeSpan.Zero;
             for (int clipIndex = 0;
@@ -922,6 +1028,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
+                        overlayRuntime,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -936,6 +1043,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
+                        overlayRuntime,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -975,6 +1083,7 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
+        LinuxMediaOverlayRuntime overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -990,10 +1099,14 @@ public sealed class
                     checked(
                         timelineOffset.Ticks +
                         frameOffset));
+            overlays.Prepare(
+                presentationTime.Ticks,
+                cancellationToken);
             if (frameSink.TryProcessColorFrame(
                     argbColor,
                     presentationTime,
                     effectPlan,
+                    overlays,
                     encoder))
             {
                 ReportTimelineProgress(
@@ -1029,6 +1142,7 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
+        LinuxMediaOverlayRuntime overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -1161,12 +1275,16 @@ public sealed class
                             pendingFrame
                                 .PresentationTime,
                             trimStart);
+                    overlays.Prepare(
+                        outputTime.Ticks,
+                        cancellationToken);
                     try
                     {
                         if (frameSink.TryProcessFrame(
                                 in pendingFrame,
                                 outputTime,
                                 effectPlan,
+                                overlays,
                                 encoder))
                         {
                             pendingFrame = default;
@@ -1516,6 +1634,293 @@ public sealed class
         track.Height !=
             request.EncodingProfile.Height;
 
+    private IsoBmffCompositionTrack?
+        CreateAudioTrack(
+            MediaCompositionExportRequest request,
+            string spoolPath,
+            CancellationToken cancellationToken)
+    {
+        if (request.EncodingProfile.AudioSubtype is
+            null)
+        {
+            return null;
+        }
+
+        if (ShouldEncodeAudio(request))
+        {
+            return EncodeAudioTrack(
+                request,
+                spoolPath,
+                cancellationToken);
+        }
+
+        try
+        {
+            return IsoBmffPreciseAacTimelinePlanner
+                .Create(
+                    request,
+                    cancellationToken);
+        }
+        catch (NotSupportedException)
+            when (_audioEncoderFactory is not null &&
+                  CanUseBuiltInPcmSources(request))
+        {
+            return EncodeAudioTrack(
+                request,
+                spoolPath,
+                cancellationToken);
+        }
+    }
+
+    private IsoBmffCompositionTrack
+        EncodeAudioTrack(
+            MediaCompositionExportRequest request,
+            string spoolPath,
+            CancellationToken cancellationToken)
+    {
+        if (_audioEncoderFactory is null ||
+            !CanUseBuiltInPcmSources(request))
+        {
+            throw new NotSupportedException(
+                "The requested Linux composition audio requires an explicitly supplied AAC encoder and matching signed PCM sources.");
+        }
+        return LinuxAacCompositionEncoder.Encode(
+            request,
+            _effects,
+            _audioEncoderFactory,
+            spoolPath,
+            cancellationToken);
+    }
+
+    private static bool ShouldEncodeAudio(
+        MediaCompositionExportRequest request) =>
+        request.EncodingProfile.AudioSubtype is
+            not null &&
+        (RequiresAudioTranscode(request) ||
+         !HasDeclaredCompatibleAac(request) &&
+         !HasPotentialUnknownAudio(request));
+
+    private static MediaCompositionExportAudioPath
+        GetAudioPath(
+            MediaCompositionExportRequest request,
+            ILinuxAacEncoderFactory? audioEncoderFactory)
+    {
+        if (request.EncodingProfile.AudioSubtype is
+            null)
+        {
+            return MediaCompositionExportAudioPath.None;
+        }
+        if (ShouldEncodeAudio(request))
+        {
+            return audioEncoderFactory is null
+                ? MediaCompositionExportAudioPath
+                    .Unknown
+                : MediaCompositionExportAudioPath
+                    .CpuBuffer;
+        }
+        return HasDeclaredCompatibleAac(request)
+            ? MediaCompositionExportAudioPath
+                .CompressedSampleCopy
+            : MediaCompositionExportAudioPath.Unknown;
+    }
+
+    private static bool RequiresAudioTranscode(
+        MediaCompositionExportRequest request)
+    {
+        if (request.EncodingProfile.AudioSubtype is
+            null)
+        {
+            return false;
+        }
+        if (request.BackgroundAudioTracks.Count != 0)
+        {
+            return true;
+        }
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                request.Clips[index];
+            if (clip.Volume != 1d ||
+                clip.AudioEffectDefinitions.Count !=
+                    0 ||
+                string.Equals(
+                    clip.SourceAudioSubtype,
+                    "PCM",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<
+                MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[
+                        layerIndex].Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex <
+                    overlays.Count;
+                 overlayIndex++)
+            {
+                MediaCompositionExportOverlay overlay =
+                    overlays[overlayIndex];
+                if (overlay.AudioEnabled &&
+                    overlay.Clip.SourceUri is not
+                        null)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static bool CanUseBuiltInPcmSources(
+        MediaCompositionExportRequest request)
+    {
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                request.Clips[index];
+            if (clip.SourceUri is not null &&
+                !IsPcmSourceCompatible(
+                    clip,
+                    request.EncodingProfile))
+            {
+                return false;
+            }
+        }
+        for (int index = 0;
+             index <
+                request.BackgroundAudioTracks.Count;
+             index++)
+        {
+            MediaCompositionExportAudioTrack track =
+                request.BackgroundAudioTracks[index];
+            if (track.SourceAudioSubtype is not
+                    null &&
+                (!string.Equals(
+                    track.SourceAudioSubtype,
+                    "PCM",
+                    StringComparison.OrdinalIgnoreCase) ||
+                 track.SourceAudioSampleRate !=
+                    request.EncodingProfile
+                        .AudioSampleRate ||
+                 track.SourceAudioChannelCount !=
+                    request.EncodingProfile
+                        .AudioChannelCount))
+            {
+                return false;
+            }
+        }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<
+                MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[
+                        layerIndex].Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex <
+                    overlays.Count;
+                 overlayIndex++)
+            {
+                MediaCompositionExportOverlay overlay =
+                    overlays[overlayIndex];
+                if (overlay.AudioEnabled &&
+                    overlay.Clip.SourceUri is
+                        not null &&
+                    !IsPcmSourceCompatible(
+                        overlay.Clip,
+                        request.EncodingProfile))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static bool IsPcmSourceCompatible(
+        MediaCompositionExportClip clip,
+        MediaCompositionEncodingProfile profile)
+    {
+        if (clip.SourceAudioSubtype is null)
+        {
+            return true;
+        }
+        return
+            string.Equals(
+                clip.SourceAudioSubtype,
+                "PCM",
+                StringComparison.OrdinalIgnoreCase) &&
+            clip.SourceAudioSampleRate ==
+                profile.AudioSampleRate &&
+            clip.SourceAudioChannelCount ==
+                profile.AudioChannelCount;
+    }
+
+    private static bool HasDeclaredCompatibleAac(
+        MediaCompositionExportRequest request)
+    {
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                request.Clips[index];
+            if (clip.SourceUri is not null &&
+                string.Equals(
+                    clip.SourceAudioSubtype,
+                    "AAC",
+                    StringComparison.OrdinalIgnoreCase) &&
+                clip.SourceAudioBitrate ==
+                    request.EncodingProfile
+                        .AudioBitrate &&
+                clip.SourceAudioSampleRate ==
+                    request.EncodingProfile
+                        .AudioSampleRate &&
+                clip.SourceAudioChannelCount ==
+                    request.EncodingProfile
+                        .AudioChannelCount)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasPotentialUnknownAudio(
+        MediaCompositionExportRequest request)
+    {
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            MediaCompositionExportClip clip =
+                request.Clips[index];
+            if (clip.SourceUri is not null &&
+                clip.SourceAudioSubtype is null &&
+                (clip.SourceVideoWidth == 0 ||
+                 clip.SourceVideoHeight == 0))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static IsoBmffCompositionPlan
         CreateCompositionPlan(
             IsoBmffH264AccessUnitSpool videoSpool,
@@ -1674,7 +2079,8 @@ public sealed class
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects)
     {
-        if (request.Clips.Count > 1)
+        if (request.Clips.Count > 1 ||
+            request.OverlayLayers.Count != 0)
         {
             return true;
         }

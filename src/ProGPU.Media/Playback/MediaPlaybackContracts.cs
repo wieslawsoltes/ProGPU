@@ -199,6 +199,8 @@ public interface IMediaPlaybackSink
 {
     void Update(in MediaPlaybackSnapshot snapshot);
     void UpdateTracks(MediaPlaybackTracksSnapshot tracks);
+    void UpdateTimedMetadataCues(
+        MediaPlaybackTimedMetadataCueSnapshot snapshot);
     void Opened(in MediaPlaybackSnapshot snapshot);
     void Ended();
     void SeekCompleted(TimeSpan position);

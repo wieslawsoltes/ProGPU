@@ -29,6 +29,112 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserSampleShipsTypedAudioWorkletRuntimeGate()
+    {
+        string browserProject = Read(
+            "src",
+            "ProGPU.Samples.Browser",
+            "ProGPU.Samples.Browser.csproj");
+        string worklet = Read(
+            "src",
+            "ProGPU.Samples.Browser",
+            "wwwroot",
+            "progpu-audio-worklet-smoke.js");
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string playback = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+        string export = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuMediaCompositionExportProvider.cs");
+
+        Assert.Contains(
+            "wwwroot/progpu-audio-worklet-smoke.js",
+            browserProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "registerProcessor(\n  'progpu-smoke-gain'",
+            worklet.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Time complexity: O(F * C)",
+            worklet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "no application allocation per",
+            worklet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioWorkletNodeCreationCount++",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "modulePromises,\n  workletState)",
+            browserAsset.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getBrowserMediaAudioWorkletNodeCreationCount",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new OfflineAudioContext(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "await context.startRendering()",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "only the scalar maximum error crosses the WASM boundary",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "runBrowserMediaAudioWorkletSignalSmoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpuMediaPlaybackAudioWorkletSignalMaximumError",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserAudioWorkletEffectFactory(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RunAudioWorkletSignalCoreAsync(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AudioWorkletSignalTolerance",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AwaitAudioWorkletNodeAsync(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_audioWorkletRegistration",
+            export,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "completed without creating its application-supplied AudioWorklet node",
+            export,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DesktopNativeAotPreservesPrebuiltDylibsWithoutDisablingStrip()
     {
         string desktop = Read(
@@ -365,12 +471,28 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
-            "effect is not IMediaAudioGraphEffect",
+            "IBrowserAudioWorkletEffect",
             browserProvider,
             StringComparison.Ordinal);
         Assert.Contains(
             "ConfigureAudioEffectCore(",
             browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConfigureAudioWorkletEffectCore(",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configureBrowserMediaAudioWorkletEffect",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioContext.audioWorklet.addModule(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AudioWorkletNode(",
+            browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
             "new MediaAudioGainEffectFactory(",
@@ -387,6 +509,70 @@ public sealed class SampleProjectSplitTests
         Assert.DoesNotContain(
             "SampleAudioGainEffect",
             mediaPlayerSample,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        BrowserMediaProjectsNativeTextTracksThroughWinUiCueContracts()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string browserProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "captureBrowserMediaTextTracks(entry)",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "track.addEventListener('cuechange'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "video.textTracks.addEventListener(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "setBrowserMediaTimedMetadataMode",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'disabled'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'hidden'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode !== 'showing'",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".Disabled => \"disabled\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".PlatformPresented => \"showing\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_ => \"hidden\"",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sink.UpdateTimedMetadataCues(",
+            browserProvider,
             StringComparison.Ordinal);
     }
 
@@ -832,12 +1018,20 @@ public sealed class SampleProjectSplitTests
             audioGraphResolver,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryCaptureBuiltInGraph(",
+            "BrowserAudioEffectResolver",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
             "WriteAudioGraph(",
             provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"audioWorklet\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "createAudioWorkletEffectNode(",
+            browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
             "\"audioGraph\"",

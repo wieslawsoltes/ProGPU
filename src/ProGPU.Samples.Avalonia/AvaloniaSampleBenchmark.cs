@@ -303,7 +303,8 @@ internal sealed partial class AvaloniaSampleBenchmark : IDisposable
         CollectRetainedMemory();
         _process.Refresh();
         GCMemoryInfo gcInfo = GC.GetGCMemoryInfo();
-        ProcessMemorySnapshot memory = ProcessMemorySnapshot.Capture(_process);
+        ProcessMemorySnapshot memory =
+            ProcessMemorySnapshot.CaptureCurrent();
         WgpuNativeResourceSnapshot nativeGpu = default;
         _ = WgpuContext.TryGetFirstActiveContext(out WgpuContext? context) &&
             context.TryCaptureNativeResourceSnapshot(out nativeGpu);

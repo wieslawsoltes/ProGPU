@@ -13,18 +13,30 @@ namespace ProGPU.Linux.Media;
 /// </summary>
 /// <remarks>
 /// Rendering and readback are O(P) for P output pixels. Native state is one
-/// RGBA target, one aligned readback buffer, and two transient imported plane
-/// views. Managed pixel storage is one tightly packed RGBA result. The final
-/// WebGPU map means this type does not provide a zero-copy encoded result.
+/// RGBA target, one aligned readback buffer, two transient imported plane
+/// views, and at most two lazy RGBA snapshots for the scheduler's
+/// previous/current candidates. Overlay state adds one lazy color source, one
+/// retained compositor, and samples the bounded URI textures owned by the
+/// shared overlay runtime. Managed pixel storage is one tightly packed RGBA
+/// result. The final WebGPU map means this type does not provide a zero-copy
+/// encoded result.
 /// </remarks>
 internal sealed unsafe class
     LinuxWebGpuCompositionThumbnailRenderer :
         IDisposable
 {
+    private const int SnapshotSlotCount = 2;
     private readonly WgpuContext _context;
     private readonly GpuTexture _target;
     private readonly GpuTexture _blurSource;
     private readonly GpuTexture _blurIntermediate;
+    private GpuTexture? _overlaySource;
+    private GpuTextureLayerCompositor?
+        _layerCompositor;
+    private readonly GpuTexture?[] _snapshots =
+        new GpuTexture?[SnapshotSlotCount];
+    private readonly bool[] _snapshotInUse =
+        new bool[SnapshotSlotCount];
     private readonly GpuTextureReadbackBuffer _readback;
     private readonly uint _width;
     private readonly uint _height;
@@ -51,7 +63,8 @@ internal sealed unsafe class
                     height,
                     TextureFormat.Rgba8Unorm,
                     TextureUsage.RenderAttachment |
-                    TextureUsage.CopySrc,
+                    TextureUsage.CopySrc |
+                    TextureUsage.CopyDst,
                     "Linux Media Composition Thumbnail RGBA");
             blurSource =
                 new GpuTexture(
@@ -93,6 +106,8 @@ internal sealed unsafe class
             throw;
         }
     }
+
+    internal WgpuContext Context => _context;
 
     internal static bool TryCreate(
         DawnGpuContext dawn,
@@ -140,11 +155,192 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] RenderFrame(
         in V4l2DecodedFrame frame,
+        LinuxGpuVideoEffectPlan effectPlan) =>
+        RenderFrameCore(
+            in frame,
+            effectPlan,
+            overlays: null,
+            compositionTicks: 0);
+
+    internal byte[] RenderFrame(
+        in V4l2DecodedFrame frame,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime overlays,
+        long compositionTicks)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        return RenderFrameCore(
+            in frame,
+            effectPlan,
+            overlays,
+            compositionTicks);
+    }
+
+    private byte[] RenderFrameCore(
+        in V4l2DecodedFrame frame,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime? overlays,
+        long compositionTicks)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        RenderDecodedFrame(
+            in frame,
+            effectPlan,
+            _target);
+        if (overlays is not null)
+        {
+            CompositeOverlays(
+                overlays,
+                compositionTicks);
+        }
+        return ReadTarget();
+    }
+
+    /// <summary>
+    /// Consumes one decoded-frame lease and retains its processed RGBA result
+    /// in one of two bounded previous/current candidate slots.
+    /// </summary>
+    internal int CaptureFrame(
+        in V4l2DecodedFrame frame,
         LinuxGpuVideoEffectPlan effectPlan)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
+        int slot;
+        try
+        {
+            slot = AcquireSnapshotSlot();
+        }
+        catch
+        {
+            frame.Owner.Dispose();
+            throw;
+        }
+        try
+        {
+            RenderDecodedFrame(
+                in frame,
+                effectPlan,
+                _snapshots[slot]!);
+            return slot;
+        }
+        catch
+        {
+            _snapshotInUse[slot] = false;
+            throw;
+        }
+    }
+
+    internal byte[] RenderSnapshot(
+        int slot,
+        LinuxMediaOverlayRuntime overlays,
+        long compositionTicks)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        GpuTexture snapshot =
+            GetActiveSnapshot(slot);
+        _target.CopyBaseLevelFrom(snapshot);
+        CompositeOverlays(
+            overlays,
+            compositionTicks);
+        return ReadTarget();
+    }
+
+    internal void ReleaseSnapshot(int slot)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        _ = GetActiveSnapshot(slot);
+        _snapshotInUse[slot] = false;
+    }
+
+    internal byte[] RenderColor(
+        uint argbColor,
+        LinuxGpuVideoEffectPlan effectPlan) =>
+        RenderColorCore(
+            argbColor,
+            effectPlan,
+            overlays: null,
+            compositionTicks: 0);
+
+    internal byte[] RenderColor(
+        uint argbColor,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime overlays,
+        long compositionTicks)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        return RenderColorCore(
+            argbColor,
+            effectPlan,
+            overlays,
+            compositionTicks);
+    }
+
+    private byte[] RenderColorCore(
+        uint argbColor,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime? overlays,
+        long compositionTicks)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        Color color =
+            ApplyEffects(
+                argbColor,
+                effectPlan.ColorTransform);
+        GpuTextureClearer.Clear(
+            _target,
+            color);
+        if (overlays is not null)
+        {
+            CompositeOverlays(
+                overlays,
+                compositionTicks);
+        }
+        return ReadTarget();
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(
+                ref _disposed,
+                1) != 0)
+        {
+            return;
+        }
+        _readback.Dispose();
+        _layerCompositor?.Dispose();
+        _overlaySource?.Dispose();
+        _layerCompositor = null;
+        _overlaySource = null;
+        for (int index = 0;
+             index < _snapshots.Length;
+             index++)
+        {
+            _snapshots[index]?.Dispose();
+            _snapshots[index] = null;
+            _snapshotInUse[index] = false;
+        }
+        _blurIntermediate.Dispose();
+        _blurSource.Dispose();
+        _target.Dispose();
+        _context.CleanupPendingResources();
+    }
+
+    private void RenderDecodedFrame(
+        in V4l2DecodedFrame frame,
+        LinuxGpuVideoEffectPlan effectPlan,
+        GpuTexture destination)
+    {
         if (frame.PixelFormat !=
                 V4l2DecodedPixelFormat.Nv12 ||
             !frame.TryCreatePlanarExternalDescriptors(
@@ -160,7 +356,8 @@ internal sealed unsafe class
 
         GpuTexture? luma = null;
         GpuTexture? chroma = null;
-        var owner = new SharedOwnerRoot(frame.Owner);
+        var owner =
+            new SharedOwnerRoot(frame.Owner);
         SharedOwnerLease? lumaOwner =
             owner.CreateLease();
         SharedOwnerLease? chromaOwner =
@@ -197,8 +394,8 @@ internal sealed unsafe class
                 GpuTextureGaussianBlur.Blur(
                     _blurSource,
                     _blurIntermediate,
-                    _target.ViewPtr,
-                    _target.Format,
+                    destination.ViewPtr,
+                    destination.Format,
                     effectPlan.BlurStandardDeviation,
                     effectPlan.ColorTransform);
             }
@@ -207,20 +404,10 @@ internal sealed unsafe class
                 GpuNv12Processor.ProcessToRgba(
                     luma,
                     chroma,
-                    _target,
+                    destination,
                     effectPlan.ColorTransform,
                     inFlightSlot: 0);
             }
-            byte[] pixels =
-                GC.AllocateUninitializedArray<byte>(
-                    checked(
-                        (int)_width *
-                        (int)_height *
-                        4));
-            _target.ReadPixels(
-                pixels,
-                _readback);
-            return pixels;
         }
         finally
         {
@@ -232,20 +419,51 @@ internal sealed unsafe class
         }
     }
 
-    internal byte[] RenderColor(
-        uint argbColor,
-        LinuxGpuVideoEffectPlan effectPlan)
+    private int AcquireSnapshotSlot()
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
-        Color color =
-            ApplyEffects(
-                argbColor,
-                effectPlan.ColorTransform);
-        GpuTextureClearer.Clear(
-            _target,
-            color);
+        for (int index = 0;
+             index < _snapshots.Length;
+             index++)
+        {
+            if (_snapshotInUse[index])
+            {
+                continue;
+            }
+            _snapshots[index] ??=
+                new GpuTexture(
+                    _context,
+                    _width,
+                    _height,
+                    TextureFormat.Rgba8Unorm,
+                    TextureUsage.TextureBinding |
+                    TextureUsage.RenderAttachment |
+                    TextureUsage.CopySrc,
+                    $"Linux Media Thumbnail Candidate {index}",
+                    alphaMode:
+                        GpuTextureAlphaMode.Straight);
+            _snapshotInUse[index] = true;
+            return index;
+        }
+        throw new InvalidOperationException(
+            "Linux thumbnail scheduling exceeded the bounded previous/current GPU candidate set.");
+    }
+
+    private GpuTexture GetActiveSnapshot(int slot)
+    {
+        if ((uint)slot >=
+                (uint)_snapshots.Length ||
+            !_snapshotInUse[slot] ||
+            _snapshots[slot] is not
+                GpuTexture snapshot)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(slot));
+        }
+        return snapshot;
+    }
+
+    private byte[] ReadTarget()
+    {
         byte[] pixels =
             GC.AllocateUninitializedArray<byte>(
                 checked(
@@ -256,21 +474,6 @@ internal sealed unsafe class
             pixels,
             _readback);
         return pixels;
-    }
-
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(
-                ref _disposed,
-                1) != 0)
-        {
-            return;
-        }
-        _readback.Dispose();
-        _blurIntermediate.Dispose();
-        _blurSource.Dispose();
-        _target.Dispose();
-        _context.CleanupPendingResources();
     }
 
     private static Color ApplyEffects(
@@ -311,5 +514,89 @@ internal sealed unsafe class
             A = ((argbColor >> 24) & 0xff) *
                 scale
         };
+    }
+
+    private void CompositeOverlays(
+        LinuxMediaOverlayRuntime overlays,
+        long compositionTicks)
+    {
+        ReadOnlySpan<LinuxMediaOverlayPlan>
+            plans = overlays.Plans;
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            LinuxMediaOverlayPlan plan =
+                plans[index];
+            if (!plan.IsActive(compositionTicks))
+            {
+                continue;
+            }
+
+            GpuTexture source;
+            GpuTextureColorTransform transform;
+            if (plan.IsUri)
+            {
+                if (!overlays.TryGetUriTexture(
+                        index,
+                        out GpuTexture? uriSource) ||
+                    uriSource is null)
+                {
+                    continue;
+                }
+                source = uriSource;
+                transform =
+                    GpuTextureColorTransform
+                        .Identity;
+            }
+            else
+            {
+                if (plan.ArgbColor is not uint color)
+                {
+                    throw new InvalidDataException(
+                        "The overlay plan has no renderable source.");
+                }
+                EnsureColorOverlaySource();
+                source = _overlaySource!;
+                GpuTextureClearer.Clear(
+                    source,
+                    ApplyEffects(
+                        color,
+                        GpuTextureColorTransform
+                            .Identity));
+                transform =
+                    plan.EffectPlan
+                        .ColorTransform;
+            }
+            EnsureOverlayCompositor();
+            _layerCompositor!.Composite(
+                source,
+                _target.ViewPtr,
+                plan.Placement,
+                transform);
+        }
+    }
+
+    private void EnsureOverlayCompositor()
+    {
+        _layerCompositor ??=
+            new GpuTextureLayerCompositor(
+                _context,
+                TextureFormat.Rgba8Unorm);
+    }
+
+    private void EnsureColorOverlaySource()
+    {
+        _overlaySource ??=
+            new GpuTexture(
+                _context,
+                _width,
+                _height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+                "Linux Media Thumbnail Color Overlay",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
     }
 }

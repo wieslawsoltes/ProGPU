@@ -135,7 +135,8 @@ public sealed class AndroidMediaPlaybackProviderFactory :
 internal sealed class AndroidMediaPlaybackProvider :
     IMediaPlaybackProvider,
     IMediaPlaybackConfigurationProvider,
-    IMediaPlaybackTrackProvider
+    IMediaPlaybackTrackProvider,
+    IMediaPlaybackTimedMetadataProvider
 {
     private const int ImageRingSize = 3;
     private const string ImportDiagnostic =
@@ -148,6 +149,7 @@ internal sealed class AndroidMediaPlaybackProvider :
     private readonly HandlerThread _thread;
     private readonly Handler _handler;
     private readonly object _audioEffectGate = new();
+    private readonly object _timedMetadataGate = new();
     private readonly List<AudioGraphEffectBinding>
         _audioEffects = [];
     private readonly TaskCompletionSource _opened =
@@ -165,6 +167,10 @@ internal sealed class AndroidMediaPlaybackProvider :
         MediaPlaybackTracksSnapshot.Empty;
     private int[] _audioTrackNativeIndices = [];
     private int[] _videoTrackNativeIndices = [];
+    private int[] _timedMetadataTrackNativeIndices = [];
+    private MediaPlaybackTimedTextCueAccumulator?[]
+        _timedTextCueAccumulators = [];
+    private int _selectedTimedMetadataTrack = -1;
     private double _volume = 1d;
     private double _balance;
     private double _rate = 1d;
@@ -367,6 +373,107 @@ internal sealed class AndroidMediaPlaybackProvider :
         return true;
     }
 
+    public bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        if (!Enum.IsDefined(mode) ||
+            mode ==
+                MediaPlaybackTimedMetadataPresentationMode
+                    .PlatformPresented)
+        {
+            // MediaPlayer.TimedText is an application-rendered callback.
+            // Android exposes encoded SubtitleData separately and does not
+            // provide a native subtitle view anchored to this GPU surface.
+            return false;
+        }
+
+        int nativeIndex;
+        MediaPlaybackTimedTextCueAccumulator accumulator;
+        bool disable;
+        lock (_timedMetadataGate)
+        {
+            ThrowIfDisposed();
+            if (_player is null ||
+                (uint)index >=
+                    (uint)_timedMetadataTrackNativeIndices
+                        .Length ||
+                _timedTextCueAccumulators[index] is not
+                    { } parsedAccumulator)
+            {
+                return false;
+            }
+
+            disable =
+                mode ==
+                MediaPlaybackTimedMetadataPresentationMode
+                    .Disabled;
+            if (!disable &&
+                _selectedTimedMetadataTrack >= 0 &&
+                _selectedTimedMetadataTrack != index)
+            {
+                // MediaPlayer permits only the most recently selected text
+                // track of a type. Preserve WinUI's independent mode model
+                // by requiring the active track to be disabled first.
+                return false;
+            }
+
+            nativeIndex =
+                _timedMetadataTrackNativeIndices[index];
+            accumulator = parsedAccumulator;
+            if (disable)
+            {
+                if (_selectedTimedMetadataTrack != index)
+                {
+                    return true;
+                }
+                _selectedTimedMetadataTrack = -1;
+            }
+            else
+            {
+                _selectedTimedMetadataTrack = index;
+            }
+        }
+
+        Post(() =>
+        {
+            if (_player is not { } player)
+            {
+                return;
+            }
+            try
+            {
+                if (disable)
+                {
+                    player.DeselectTrack(nativeIndex);
+                    TimeSpan position = TimeSpan.FromMilliseconds(
+                        Math.Max(0, player.CurrentPosition));
+                    _sink.UpdateTimedMetadataCues(
+                        accumulator.Flush(position));
+                }
+                else
+                {
+                    player.SelectTrack(nativeIndex);
+                }
+            }
+            catch (Exception exception)
+            {
+                lock (_timedMetadataGate)
+                {
+                    if (_selectedTimedMetadataTrack == index)
+                    {
+                        _selectedTimedMetadataTrack = -1;
+                    }
+                }
+                _sink.Failed(
+                    MediaPlaybackFailure.Decode,
+                    $"Android could not change timed-text track {index} to {mode}: {exception.Message}",
+                    exception);
+            }
+        });
+        return true;
+    }
+
     public void AddEffect(IMediaEffect effect, bool optional)
     {
         ArgumentNullException.ThrowIfNull(effect);
@@ -521,6 +628,7 @@ internal sealed class AndroidMediaPlaybackProvider :
             player.SeekComplete += OnSeekCompleted;
             player.BufferingUpdate += OnBufferingUpdate;
             player.Error += OnError;
+            player.TimedText += OnTimedText;
             using AudioAttributes attributes =
                 CreateAudioAttributes(_configuration.AudioCategory);
             player.SetAudioAttributes(attributes);
@@ -587,8 +695,21 @@ internal sealed class AndroidMediaPlaybackProvider :
     {
         _ = sender;
         _ = eventArgs;
-        if (!_looping &&
-            Volatile.Read(ref _disposed) == 0)
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        MediaPlaybackTimedMetadataCueSnapshot?
+            timedTextSnapshot =
+                FlushSelectedTimedText(
+                    _snapshot.NaturalDuration);
+        if (timedTextSnapshot is not null)
+        {
+            _sink.UpdateTimedMetadataCues(
+                timedTextSnapshot);
+        }
+        if (!_looping)
         {
             _sink.Ended();
         }
@@ -601,10 +722,55 @@ internal sealed class AndroidMediaPlaybackProvider :
         if (Volatile.Read(ref _disposed) == 0 &&
             _player is { } player)
         {
-            _sink.SeekCompleted(
-                TimeSpan.FromMilliseconds(
-                    Math.Max(0, player.CurrentPosition)));
+            TimeSpan position = TimeSpan.FromMilliseconds(
+                Math.Max(0, player.CurrentPosition));
+            MediaPlaybackTimedMetadataCueSnapshot?
+                timedTextSnapshot =
+                    FlushSelectedTimedText(position);
+            if (timedTextSnapshot is not null)
+            {
+                _sink.UpdateTimedMetadataCues(
+                    timedTextSnapshot);
+            }
+            _sink.SeekCompleted(position);
         }
+    }
+
+    private void OnTimedText(
+        object? sender,
+        global::Android.Media.MediaPlayer.TimedTextEventArgs
+            args)
+    {
+        _ = sender;
+        if (Volatile.Read(ref _disposed) != 0 ||
+            _player is not { } player)
+        {
+            return;
+        }
+
+        MediaPlaybackTimedMetadataCueSnapshot? snapshot;
+        lock (_timedMetadataGate)
+        {
+            int selected = _selectedTimedMetadataTrack;
+            if ((uint)selected >=
+                    (uint)_timedTextCueAccumulators.Length ||
+                _timedTextCueAccumulators[selected] is not
+                    { } accumulator)
+            {
+                return;
+            }
+
+            TimeSpan position = TimeSpan.FromMilliseconds(
+                Math.Max(0, player.CurrentPosition));
+            string? text = args.Text?.Text;
+            snapshot = string.IsNullOrEmpty(text)
+                ? accumulator.Flush(position)
+                : accumulator.Update(
+                    position,
+                    [text],
+                    _snapshot.NaturalDuration);
+        }
+        _sink.UpdateTimedMetadataCues(snapshot);
     }
 
     private void OnBufferingUpdate(
@@ -741,8 +907,12 @@ internal sealed class AndroidMediaPlaybackProvider :
             new List<MediaPlaybackTrackDescriptor>();
         var video =
             new List<MediaPlaybackTrackDescriptor>();
+        var timedMetadata =
+            new List<MediaPlaybackTrackDescriptor>();
         var audioNative = new List<int>();
         var videoNative = new List<int>();
+        var timedMetadataNative = new List<int>();
+        var timedTextParsed = new List<bool>();
         try
         {
             for (int nativeIndex = 0;
@@ -767,6 +937,17 @@ internal sealed class AndroidMediaPlaybackProvider :
                     destination = video;
                     nativeDestination = videoNative;
                 }
+                else if (trackType is
+                    MediaTrackType.Timedtext or
+                    MediaTrackType.Subtitle)
+                {
+                    kind =
+                        MediaPlaybackTrackKind
+                            .TimedMetadata;
+                    destination = timedMetadata;
+                    nativeDestination =
+                        timedMetadataNative;
+                }
                 else
                 {
                     continue;
@@ -774,6 +955,9 @@ internal sealed class AndroidMediaPlaybackProvider :
 
                 MediaFormat? format = info.Format;
                 string language = info.Language ?? string.Empty;
+                string mime = ReadFormatString(
+                    format,
+                    MediaFormat.KeyMime);
                 uint frameRate =
                     ReadFormatUInt(format, MediaFormat.KeyFrameRate);
                 destination.Add(
@@ -782,14 +966,14 @@ internal sealed class AndroidMediaPlaybackProvider :
                         kind,
                         kind == MediaPlaybackTrackKind.Audio
                             ? $"Audio {destination.Count + 1}"
-                            : $"Video {destination.Count + 1}",
+                            : kind ==
+                                MediaPlaybackTrackKind.Video
+                                ? $"Video {destination.Count + 1}"
+                                : $"Timed text {destination.Count + 1}",
                         language,
                         language,
                         new MediaPlaybackTrackEncoding(
-                            Subtype:
-                                ReadFormatString(
-                                    format,
-                                    MediaFormat.KeyMime),
+                            Subtype: mime,
                             Bitrate:
                                 ReadFormatUInt(
                                     format,
@@ -813,8 +997,32 @@ internal sealed class AndroidMediaPlaybackProvider :
                                 ReadFormatUInt(
                                     format,
                                     MediaFormat.KeyChannelCount)),
-                        MediaPlaybackTrackSupport.Supported));
+                        trackType ==
+                            MediaTrackType.Subtitle
+                            ? MediaPlaybackTrackSupport
+                                .Unsupported
+                            : MediaPlaybackTrackSupport
+                                .Supported,
+                        kind ==
+                            MediaPlaybackTrackKind
+                                .TimedMetadata
+                            ? MediaPlaybackTimedMetadataKind
+                                .Subtitle
+                            : MediaPlaybackTimedMetadataKind
+                                .Custom,
+                        kind ==
+                            MediaPlaybackTrackKind
+                                .TimedMetadata
+                            ? mime
+                            : string.Empty));
                 nativeDestination.Add(nativeIndex);
+                if (kind ==
+                    MediaPlaybackTrackKind.TimedMetadata)
+                {
+                    timedTextParsed.Add(
+                        trackType ==
+                            MediaTrackType.Timedtext);
+                }
             }
         }
         finally
@@ -837,6 +1045,60 @@ internal sealed class AndroidMediaPlaybackProvider :
             videoNative.IndexOf(selectedVideoNative);
         int[] audioIndices = audioNative.ToArray();
         int[] videoIndices = videoNative.ToArray();
+        int[] timedMetadataIndices =
+            timedMetadataNative.ToArray();
+        lock (_timedMetadataGate)
+        {
+            int[] previousIndices =
+                _timedMetadataTrackNativeIndices;
+            MediaPlaybackTimedTextCueAccumulator?[]
+                previousAccumulators =
+                    _timedTextCueAccumulators;
+            var accumulators =
+                new MediaPlaybackTimedTextCueAccumulator?[
+                    timedMetadataIndices.Length];
+            for (int index = 0;
+                 index < accumulators.Length;
+                 index++)
+            {
+                if (!timedTextParsed[index])
+                {
+                    continue;
+                }
+
+                int previousIndex = Array.IndexOf(
+                    previousIndices,
+                    timedMetadataIndices[index]);
+                accumulators[index] =
+                    previousIndex >= 0 &&
+                    previousIndex <
+                        previousAccumulators.Length
+                        ? previousAccumulators[
+                            previousIndex]
+                        : null;
+                accumulators[index] ??=
+                    new MediaPlaybackTimedTextCueAccumulator(
+                        timedMetadata[index]
+                            .ProviderTrackId);
+            }
+
+            if (_selectedTimedMetadataTrack >= 0)
+            {
+                int selectedNative =
+                    _selectedTimedMetadataTrack <
+                        previousIndices.Length
+                        ? previousIndices[
+                            _selectedTimedMetadataTrack]
+                        : -1;
+                _selectedTimedMetadataTrack =
+                    Array.IndexOf(
+                        timedMetadataIndices,
+                        selectedNative);
+            }
+            _timedMetadataTrackNativeIndices =
+                timedMetadataIndices;
+            _timedTextCueAccumulators = accumulators;
+        }
         Volatile.Write(
             ref _audioTrackNativeIndices,
             audioIndices);
@@ -847,8 +1109,24 @@ internal sealed class AndroidMediaPlaybackProvider :
             audio,
             selectedAudio,
             video,
-            selectedVideo);
+            selectedVideo,
+            timedMetadata);
         _sink.UpdateTracks(_tracks);
+    }
+
+    private MediaPlaybackTimedMetadataCueSnapshot?
+        FlushSelectedTimedText(TimeSpan position)
+    {
+        lock (_timedMetadataGate)
+        {
+            int selected = _selectedTimedMetadataTrack;
+            return (uint)selected <
+                    (uint)_timedTextCueAccumulators.Length &&
+                _timedTextCueAccumulators[selected] is
+                    { } accumulator
+                    ? accumulator.Flush(position)
+                    : null;
+        }
     }
 
     private static string ReadFormatString(
@@ -1067,6 +1345,7 @@ internal sealed class AndroidMediaPlaybackProvider :
             player.SeekComplete -= OnSeekCompleted;
             player.BufferingUpdate -= OnBufferingUpdate;
             player.Error -= OnError;
+            player.TimedText -= OnTimedText;
             try
             {
                 player.Stop();
@@ -1076,6 +1355,12 @@ internal sealed class AndroidMediaPlaybackProvider :
             }
             player.Release();
             player.Dispose();
+        }
+        lock (_timedMetadataGate)
+        {
+            _selectedTimedMetadataTrack = -1;
+            _timedMetadataTrackNativeIndices = [];
+            _timedTextCueAccumulators = [];
         }
         reader?.Close();
         reader?.Dispose();

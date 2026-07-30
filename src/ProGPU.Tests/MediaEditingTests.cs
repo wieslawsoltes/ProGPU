@@ -703,9 +703,10 @@ public sealed class MediaEditingTests
                 Windows.UI.Color.FromArgb(255, 1, 2, 3),
                 TimeSpan.FromSeconds(4)));
             BackgroundAudioTrack background =
-                BackgroundAudioTrack.CreateFromUri(
+                BackgroundAudioTrack.CreateFromUriCore(
                     new Uri("https://example.test/music.m4a"),
-                    TimeSpan.FromSeconds(20));
+                    TimeSpan.FromSeconds(20),
+                    sourceAudioTrackIndex: 3);
             background.TrimTimeFromStart =
                 TimeSpan.FromSeconds(1);
             background.TrimTimeFromEnd =
@@ -806,6 +807,10 @@ public sealed class MediaEditingTests
                 loaded.BackgroundAudioTracks[0]
                     .GetAudioEncodingProperties()
                     .SampleRate);
+            Assert.Equal(
+                3u,
+                loaded.BackgroundAudioTracks[0]
+                    .ProGpuSourceAudioTrackIndex);
             Assert.Equal(
                 "music",
                 loaded.BackgroundAudioTracks[0]
@@ -1007,9 +1012,10 @@ public sealed class MediaEditingTests
         sourceClip.SelectedEmbeddedAudioTrackIndex = 1;
         composition.Clips.Add(sourceClip);
         BackgroundAudioTrack background =
-            BackgroundAudioTrack.CreateFromUri(
-                new Uri("https://example.test/music.m4a"),
-                TimeSpan.FromSeconds(8));
+            BackgroundAudioTrack
+                .CreateFromEmbeddedAudioTrack(
+                    sourceClip
+                        .EmbeddedAudioTracks[1]);
         background.Delay = TimeSpan.FromSeconds(3);
         composition.BackgroundAudioTracks.Add(background);
         var layer = new MediaOverlayLayer();
@@ -1066,6 +1072,26 @@ public sealed class MediaEditingTests
         Assert.Equal(
             TimeSpan.FromSeconds(3),
             provider.Request.BackgroundAudioTracks[0].Delay);
+        Assert.Equal(
+            "AAC",
+            provider.Request.BackgroundAudioTracks[0]
+                .SourceAudioSubtype);
+        Assert.Equal(
+            1u,
+            provider.Request.BackgroundAudioTracks[0]
+                .SourceAudioTrackIndex);
+        Assert.Equal(
+            128_000u,
+            provider.Request.BackgroundAudioTracks[0]
+                .SourceAudioBitrate);
+        Assert.Equal(
+            48_000u,
+            provider.Request.BackgroundAudioTracks[0]
+                .SourceAudioSampleRate);
+        Assert.Equal(
+            2u,
+            provider.Request.BackgroundAudioTracks[0]
+                .SourceAudioChannelCount);
 
         MediaEncodingProfile profile =
             MediaComposition.CreateDefaultEncodingProfile();

@@ -131,10 +131,12 @@ public sealed record MediaCompositionExportClip(
     public uint SourceAudioChannelCount { get; init; }
 
     public IReadOnlyList<MediaCompositionEffectDefinition>
-        AudioEffectDefinitions { get; init; } = [];
+        AudioEffectDefinitions
+    { get; init; } = [];
 
     public IReadOnlyList<MediaCompositionEffectDefinition>
-        VideoEffectDefinitions { get; init; } = [];
+        VideoEffectDefinitions
+    { get; init; } = [];
 }
 
 /// <summary>
@@ -159,8 +161,19 @@ public sealed record MediaCompositionExportAudioTrack(
     double Volume,
     IReadOnlyDictionary<string, string> UserData)
 {
+    public string? SourceAudioSubtype { get; init; }
+
+    public uint SourceAudioTrackIndex { get; init; }
+
+    public uint SourceAudioBitrate { get; init; }
+
+    public uint SourceAudioSampleRate { get; init; }
+
+    public uint SourceAudioChannelCount { get; init; }
+
     public IReadOnlyList<MediaCompositionEffectDefinition>
-        AudioEffectDefinitions { get; init; } = [];
+        AudioEffectDefinitions
+    { get; init; } = [];
 }
 
 public sealed record MediaCompositionExportOverlay(
@@ -177,7 +190,8 @@ public sealed record MediaCompositionExportOverlayLayer(
     IReadOnlyList<MediaCompositionExportOverlay> Overlays)
 {
     public MediaCompositionEffectDefinition?
-        CustomCompositorDefinition { get; init; }
+        CustomCompositorDefinition
+    { get; init; }
 }
 
 public sealed record MediaCompositionExportRequest(
@@ -188,10 +202,12 @@ public sealed record MediaCompositionExportRequest(
     IReadOnlyDictionary<string, string> UserData)
 {
     public IReadOnlyList<MediaCompositionExportAudioTrack>
-        BackgroundAudioTracks { get; init; } = [];
+        BackgroundAudioTracks
+    { get; init; } = [];
 
     public IReadOnlyList<MediaCompositionExportOverlayLayer>
-        OverlayLayers { get; init; } = [];
+        OverlayLayers
+    { get; init; } = [];
 }
 
 /// <summary>

@@ -38,6 +38,83 @@ public readonly record struct MediaAudioProcessContext(
     TimeSpan PresentationTime);
 
 /// <summary>
+/// Finite, format-specific timing declared by an audio processor.
+/// </summary>
+/// <remarks>
+/// Latency is the number of input frames by which audible output is delayed.
+/// Tail is the maximum number of additional output frames which may remain
+/// audible after the final non-silent input frame, excluding latency.
+/// Providers query timing during graph preparation, never from a real-time
+/// callback. The zero value describes a block-local processor.
+/// </remarks>
+public readonly record struct MediaAudioProcessorTiming
+{
+    public MediaAudioProcessorTiming(
+        int latencyFrameCount,
+        int tailFrameCount)
+    {
+        if (latencyFrameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(latencyFrameCount));
+        }
+        if (tailFrameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(tailFrameCount));
+        }
+
+        LatencyFrameCount = latencyFrameCount;
+        TailFrameCount = tailFrameCount;
+    }
+
+    public static MediaAudioProcessorTiming Zero =>
+        default;
+
+    public int LatencyFrameCount { get; }
+
+    public int TailFrameCount { get; }
+
+    internal static MediaAudioProcessorTiming Sum<TProcessor>(
+        ReadOnlySpan<TProcessor> processors,
+        in MediaAudioFormat format)
+        where TProcessor : class, IMediaAudioProcessor
+    {
+        long latency = 0;
+        long tail = 0;
+        for (int index = 0;
+             index < processors.Length;
+             index++)
+        {
+            if (processors[index] is not
+                IMediaAudioProcessorTiming timed)
+            {
+                continue;
+            }
+
+            MediaAudioProcessorTiming timing =
+                timed.GetTiming(in format);
+            latency = checked(
+                latency +
+                timing.LatencyFrameCount);
+            tail = checked(
+                tail +
+                timing.TailFrameCount);
+            if (latency > int.MaxValue ||
+                tail > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "The serial audio processor timing exceeds the supported finite frame range.");
+            }
+        }
+
+        return new MediaAudioProcessorTiming(
+            (int)latency,
+            (int)tail);
+    }
+}
+
+/// <summary>
 /// Processes native callback storage in place. Implementations run on a
 /// real-time audio thread and must not allocate, block, dispatch, log, perform
 /// I/O, acquire locks, or throw.
@@ -47,6 +124,20 @@ public interface IMediaAudioProcessor
     void Process(
         Span<float> interleavedSamples,
         in MediaAudioProcessContext context);
+}
+
+/// <summary>
+/// Optional setup-time timing contract for an audio processor.
+/// </summary>
+/// <remarks>
+/// Implementations must return deterministic finite timing for the supplied
+/// format without mutating callback state. Processors which do not implement
+/// this interface are block-local and have zero latency and zero tail.
+/// </remarks>
+public interface IMediaAudioProcessorTiming
+{
+    MediaAudioProcessorTiming GetTiming(
+        in MediaAudioFormat format);
 }
 
 /// <summary>
@@ -75,6 +166,21 @@ public sealed class MediaAudioProcessorChain
 
     public void Clear() =>
         Volatile.Write(ref _processors, []);
+
+    /// <summary>
+    /// Returns the serial sum of the current snapshot's finite latency and
+    /// tail declarations. This setup operation is O(P) and is not callback
+    /// safe.
+    /// </summary>
+    public MediaAudioProcessorTiming GetTiming(
+        in MediaAudioFormat format)
+    {
+        IMediaAudioProcessor[] processors =
+            Volatile.Read(ref _processors);
+        return MediaAudioProcessorTiming.Sum(
+            processors,
+            in format);
+    }
 
     public void Process(
         Span<float> interleavedSamples,

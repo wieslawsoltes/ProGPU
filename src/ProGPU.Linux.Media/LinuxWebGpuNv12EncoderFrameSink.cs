@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Numerics;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using Silk.NET.WebGPU;
@@ -34,6 +35,8 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
     private GpuTexture? _rgbaSource;
     private GpuTexture? _blurIntermediate;
     private GpuTexture? _blurOutput;
+    private GpuTexture? _overlaySource;
+    private GpuTextureLayerCompositor? _layerCompositor;
 
     private LinuxWebGpuNv12EncoderFrameSink(
         LinuxGbmDevice device,
@@ -51,6 +54,8 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
             _available.Enqueue(index);
         }
     }
+
+    internal WgpuContext Context => _context;
 
     internal static bool TryCreate(
         DawnGpuContext dawn,
@@ -140,6 +145,35 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
         in V4l2DecodedFrame frame,
         TimeSpan presentationTime,
         LinuxGpuVideoEffectPlan effectPlan,
+        V4l2StatefulVideoEncoder encoder) =>
+        TryProcessFrameCore(
+            in frame,
+            presentationTime,
+            effectPlan,
+            overlays: null,
+            encoder);
+
+    internal bool TryProcessFrame(
+        in V4l2DecodedFrame frame,
+        TimeSpan presentationTime,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime overlays,
+        V4l2StatefulVideoEncoder encoder)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        return TryProcessFrameCore(
+            in frame,
+            presentationTime,
+            effectPlan,
+            overlays,
+            encoder);
+    }
+
+    private bool TryProcessFrameCore(
+        in V4l2DecodedFrame frame,
+        TimeSpan presentationTime,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime? overlays,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -198,24 +232,49 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
             }
             chromaOwner = null;
 
-            if (effectPlan.HasSpatialEffect)
+            bool hasOverlays =
+                overlays?.HasActive(
+                    presentationTime.Ticks) ==
+                true;
+            if (effectPlan.HasSpatialEffect ||
+                hasOverlays)
             {
                 EnsureSpatialTextures();
+                GpuTexture rgbaSource =
+                    _rgbaSource!;
                 GpuNv12Processor.ProcessToRgba(
                     sourceLuma,
                     sourceChroma,
-                    _rgbaSource!,
-                    GpuTextureColorTransform.Identity,
+                    rgbaSource,
+                    effectPlan.HasSpatialEffect
+                        ? GpuTextureColorTransform
+                            .Identity
+                        : effectPlan.ColorTransform,
                     slot.Index);
-                GpuTextureGaussianBlur.Blur(
-                    _rgbaSource!,
-                    _blurIntermediate!,
-                    _blurOutput!.ViewPtr,
-                    _blurOutput.Format,
-                    effectPlan.BlurStandardDeviation,
-                    effectPlan.ColorTransform);
+                GpuTexture rgbaOutput =
+                    rgbaSource;
+                if (effectPlan.HasSpatialEffect)
+                {
+                    GpuTexture blurOutput =
+                        _blurOutput!;
+                    GpuTextureGaussianBlur.Blur(
+                        rgbaSource,
+                        _blurIntermediate!,
+                        blurOutput.ViewPtr,
+                        blurOutput.Format,
+                        effectPlan.BlurStandardDeviation,
+                        effectPlan.ColorTransform);
+                    rgbaOutput = blurOutput;
+                }
+                if (hasOverlays)
+                {
+                    CompositeOverlays(
+                        rgbaOutput,
+                        overlays!,
+                        presentationTime.Ticks);
+                }
                 GpuNv12Processor.ProcessRgbaToNv12(
-                    _blurOutput,
+                    rgbaOutput,
                     slot.LumaAccess.Texture,
                     slot.ChromaAccess.Texture,
                     slot.Index);
@@ -255,6 +314,35 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
         uint argbColor,
         TimeSpan presentationTime,
         LinuxGpuVideoEffectPlan effectPlan,
+        V4l2StatefulVideoEncoder encoder) =>
+        TryProcessColorFrameCore(
+            argbColor,
+            presentationTime,
+            effectPlan,
+            overlays: null,
+            encoder);
+
+    internal bool TryProcessColorFrame(
+        uint argbColor,
+        TimeSpan presentationTime,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime overlays,
+        V4l2StatefulVideoEncoder encoder)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        return TryProcessColorFrameCore(
+            argbColor,
+            presentationTime,
+            effectPlan,
+            overlays,
+            encoder);
+    }
+
+    private bool TryProcessColorFrameCore(
+        uint argbColor,
+        TimeSpan presentationTime,
+        LinuxGpuVideoEffectPlan effectPlan,
+        LinuxMediaOverlayRuntime? overlays,
         V4l2StatefulVideoEncoder encoder)
     {
         ArgumentNullException.ThrowIfNull(encoder);
@@ -279,11 +367,36 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
         bool submissionStarted = false;
         try
         {
-            GpuNv12Processor.RenderSolidColor(
-                slot.LumaAccess.Texture,
-                slot.ChromaAccess.Texture,
-                argbColor,
-                effectPlan.ColorTransform);
+            if (overlays?.HasActive(
+                    presentationTime.Ticks) ==
+                true)
+            {
+                EnsureSpatialTextures();
+                GpuTexture rgbaSource =
+                    _rgbaSource!;
+                GpuTextureClearer.Clear(
+                    rgbaSource,
+                    ApplyColor(
+                        argbColor,
+                        effectPlan.ColorTransform));
+                CompositeOverlays(
+                    rgbaSource,
+                    overlays,
+                    presentationTime.Ticks);
+                GpuNv12Processor.ProcessRgbaToNv12(
+                    rgbaSource,
+                    slot.LumaAccess.Texture,
+                    slot.ChromaAccess.Texture,
+                    slot.Index);
+            }
+            else
+            {
+                GpuNv12Processor.RenderSolidColor(
+                    slot.LumaAccess.Texture,
+                    slot.ChromaAccess.Texture,
+                    argbColor,
+                    effectPlan.ColorTransform);
+            }
             submissionStarted = true;
             SubmitRenderedSlot(
                 slot,
@@ -427,6 +540,119 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
                 "Linux Media Gaussian Output");
     }
 
+    private void CompositeOverlays(
+        GpuTexture destination,
+        LinuxMediaOverlayRuntime overlays,
+        long presentationTicks)
+    {
+        EnsureOverlayCompositor();
+        ReadOnlySpan<LinuxMediaOverlayPlan>
+            plans = overlays.Plans;
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            LinuxMediaOverlayPlan plan =
+                plans[index];
+            if (!plan.IsActive(presentationTicks))
+            {
+                continue;
+            }
+
+            GpuTexture source;
+            GpuTextureColorTransform transform;
+            if (plan.IsUri)
+            {
+                if (!overlays.TryGetUriTexture(
+                        index,
+                        out GpuTexture? uriSource) ||
+                    uriSource is null)
+                {
+                    continue;
+                }
+                source = uriSource;
+                transform =
+                    GpuTextureColorTransform
+                        .Identity;
+            }
+            else
+            {
+                if (plan.ArgbColor is not uint color)
+                {
+                    throw new InvalidDataException(
+                        "The overlay plan has no renderable source.");
+                }
+                EnsureColorOverlaySource();
+                source = _overlaySource!;
+                GpuTextureClearer.Clear(
+                    source,
+                    ToWebGpuColor(color));
+                transform =
+                    plan.EffectPlan
+                        .ColorTransform;
+            }
+            _layerCompositor!.Composite(
+                source,
+                destination.ViewPtr,
+                plan.Placement,
+                transform);
+        }
+    }
+
+    private void EnsureOverlayCompositor()
+    {
+        EnsureSpatialTextures();
+        _layerCompositor ??=
+            new GpuTextureLayerCompositor(
+                _context,
+                TextureFormat.Rgba8Unorm);
+    }
+
+    private void EnsureColorOverlaySource()
+    {
+        _overlaySource ??=
+            CreateSpatialTexture(
+                "Linux Media Color Overlay Source");
+    }
+
+    private static Color ApplyColor(
+        uint argbColor,
+        GpuTextureColorTransform transform)
+    {
+        Color source =
+            ToWebGpuColor(argbColor);
+        Vector3 processed =
+            transform.Transform(
+                new Vector3(
+                    (float)source.R,
+                    (float)source.G,
+                    (float)source.B));
+        return new Color
+        {
+            R = Math.Clamp(processed.X, 0f, 1f),
+            G = Math.Clamp(processed.Y, 0f, 1f),
+            B = Math.Clamp(processed.Z, 0f, 1f),
+            A = source.A
+        };
+    }
+
+    private static Color ToWebGpuColor(
+        uint argbColor)
+    {
+        const double scale =
+            1d / byte.MaxValue;
+        return new Color
+        {
+            R = ((argbColor >> 16) & 0xff) *
+                scale,
+            G = ((argbColor >> 8) & 0xff) *
+                scale,
+            B = (argbColor & 0xff) * scale,
+            A = ((argbColor >> 24) & 0xff) *
+                scale
+        };
+    }
+
     private GpuTexture CreateSpatialTexture(
         string label) =>
         new(
@@ -529,9 +755,13 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
         _rgbaSource?.Dispose();
         _blurIntermediate?.Dispose();
         _blurOutput?.Dispose();
+        _layerCompositor?.Dispose();
+        _overlaySource?.Dispose();
         _rgbaSource = null;
         _blurIntermediate = null;
         _blurOutput = null;
+        _overlaySource = null;
+        _layerCompositor = null;
         for (int index = 0;
              index < _slots.Length;
              index++)
@@ -623,9 +853,11 @@ internal sealed unsafe class LinuxWebGpuNv12EncoderFrameSink :
         internal WgpuContext Context { get; }
         internal LinuxGbmNv12Buffer Buffer { get; }
         internal DawnExplicitSharedTextureAccess
-            LumaAccess { get; }
+            LumaAccess
+        { get; }
         internal DawnExplicitSharedTextureAccess
-            ChromaAccess { get; }
+            ChromaAccess
+        { get; }
         internal DawnSyncFdEndAccessResult LumaFence { get; } =
             new();
         internal DawnSyncFdEndAccessResult ChromaFence { get; } =
@@ -890,7 +1122,8 @@ internal sealed class LinuxGbmNv12Buffer : IDisposable
     internal ProGpuDmaBufPlane Luma { get; }
     internal ProGpuDmaBufPlane Chroma { get; }
     internal ProGpuDmaBufDescriptor
-        EncoderDescriptor { get; }
+        EncoderDescriptor
+    { get; }
 
     internal ProGpuExternalTextureDescriptor
         CreateLumaDescriptor()

@@ -88,6 +88,9 @@ internal static unsafe partial class WindowsMediaNative
 
         [FieldOffset(8)]
         internal long Int64;
+
+        [FieldOffset(8)]
+        internal nint Pointer;
     }
 
     internal static nint CreateTranscodeSourceReader(
@@ -309,6 +312,565 @@ internal static unsafe partial class WindowsMediaNative
         {
             Release(mediaType);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Creates one MF-owned aligned PCM16 sample from a wide mix accumulator.
+    /// Saturation is applied exactly once while writing the native buffer.
+    /// </summary>
+    internal static nint CreatePcm16Sample(
+        ReadOnlySpan<long> accumulator)
+    {
+        if (accumulator.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A PCM16 sample must contain at least one value.",
+                nameof(accumulator));
+        }
+        uint byteLength =
+            checked((uint)accumulator.Length * 2);
+        nint sample = 0;
+        nint buffer = 0;
+        byte* bytes = null;
+        bool locked = false;
+        try
+        {
+            ThrowIfFailed(
+                MFCreateSample(&sample),
+                "create a PCM16 Media Foundation sample");
+            ThrowIfFailed(
+                MFCreateAlignedMemoryBuffer(
+                    byteLength,
+                    31,
+                    &buffer),
+                "create a 32-byte-aligned PCM16 media buffer");
+
+            delegate* unmanaged[Stdcall]<
+                nint,
+                byte**,
+                uint*,
+                uint*,
+                int> lockBuffer =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    byte**,
+                    uint*,
+                    uint*,
+                    int>)VTable(buffer)[3];
+            uint maximumLength = 0;
+            ThrowIfFailed(
+                lockBuffer(
+                    buffer,
+                    &bytes,
+                    &maximumLength,
+                    null),
+                "lock an output PCM16 media buffer");
+            locked = true;
+            if (maximumLength < byteLength)
+            {
+                throw new InvalidDataException(
+                    "Media Foundation returned an undersized PCM16 buffer.");
+            }
+            WindowsPcm16Mixer.WriteSaturated(
+                accumulator,
+                new Span<short>(
+                    bytes,
+                    accumulator.Length));
+
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                int> setCurrentLength =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int>)VTable(buffer)[6];
+            ThrowIfFailed(
+                setCurrentLength(
+                    buffer,
+                    byteLength),
+                "set the output PCM16 media buffer length");
+
+            delegate* unmanaged[Stdcall]<
+                nint,
+                nint,
+                int> addBuffer =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint,
+                    int>)VTable(sample)[42];
+            ThrowIfFailed(
+                addBuffer(sample, buffer),
+                "add an output PCM16 buffer to its sample");
+            nint result = sample;
+            sample = 0;
+            return result;
+        }
+        finally
+        {
+            if (locked)
+            {
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    int> unlockBuffer =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        int>)VTable(buffer)[4];
+                ThrowIfFailed(
+                    unlockBuffer(buffer),
+                    "unlock an output PCM16 media buffer");
+            }
+            Release(buffer);
+            Release(sample);
+        }
+    }
+
+    internal static int GetPcm16SampleFrameCount(
+        nint sample,
+        uint channelCount)
+    {
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+        uint bufferCount = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint*,
+            int> getBufferCount =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int>)VTable(sample)[39];
+        ThrowIfFailed(
+            getBufferCount(sample, &bufferCount),
+            "get the PCM16 sample buffer count");
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            nint*,
+            int> getBuffer =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                nint*,
+                int>)VTable(sample)[40];
+        ulong totalBytes = 0;
+        for (uint index = 0;
+             index < bufferCount;
+             index++)
+        {
+            nint buffer = 0;
+            try
+            {
+                ThrowIfFailed(
+                    getBuffer(
+                        sample,
+                        index,
+                        &buffer),
+                    "get a PCM16 media buffer");
+                uint currentLength = 0;
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint*,
+                    int> getCurrentLength =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint*,
+                        int>)VTable(buffer)[5];
+                ThrowIfFailed(
+                    getCurrentLength(
+                        buffer,
+                        &currentLength),
+                    "get a PCM16 media buffer length");
+                totalBytes =
+                    checked(
+                        totalBytes +
+                        currentLength);
+            }
+            finally
+            {
+                Release(buffer);
+            }
+        }
+        ulong bytesPerFrame =
+            checked(channelCount * 2u);
+        if (totalBytes == 0 ||
+            totalBytes % bytesPerFrame != 0 ||
+            totalBytes / bytesPerFrame >
+                int.MaxValue)
+        {
+            throw new InvalidDataException(
+                "A PCM16 sample must contain complete interleaved frames.");
+        }
+        return checked(
+            (int)(totalBytes / bytesPerFrame));
+    }
+
+    internal static void MixPcm16Sample(
+        nint sample,
+        int sourceFrameOffset,
+        int frameCount,
+        uint channelCount,
+        in WindowsPcm16MixLevels levels,
+        Span<long> destination,
+        int destinationFrameOffset)
+    {
+        if (sourceFrameOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceFrameOffset));
+        }
+        if (frameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frameCount));
+        }
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+        int channels = checked((int)channelCount);
+        int sourceSampleOffset =
+            checked(sourceFrameOffset * channels);
+        int requestedSamples =
+            checked(frameCount * channels);
+        int destinationSampleOffset =
+            checked(destinationFrameOffset * channels);
+        if (destinationSampleOffset < 0 ||
+            destinationSampleOffset >
+                destination.Length ||
+            requestedSamples >
+                destination.Length -
+                destinationSampleOffset)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destinationFrameOffset));
+        }
+        if (requestedSamples == 0 ||
+            levels.Left == 0 &&
+            levels.Right == 0)
+        {
+            return;
+        }
+
+        uint bufferCount = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint*,
+            int> getBufferCount =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int>)VTable(sample)[39];
+        ThrowIfFailed(
+            getBufferCount(sample, &bufferCount),
+            "get the PCM16 sample buffer count");
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            nint*,
+            int> getBuffer =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                nint*,
+                int>)VTable(sample)[40];
+        int globalSampleOffset = 0;
+        int copiedSamples = 0;
+        for (uint index = 0;
+             index < bufferCount &&
+             copiedSamples < requestedSamples;
+             index++)
+        {
+            nint buffer = 0;
+            byte* bytes = null;
+            bool locked = false;
+            try
+            {
+                ThrowIfFailed(
+                    getBuffer(
+                        sample,
+                        index,
+                        &buffer),
+                    "get a PCM16 media buffer");
+                uint currentLength = 0;
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    byte**,
+                    uint*,
+                    uint*,
+                    int> lockBuffer =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        byte**,
+                        uint*,
+                        uint*,
+                        int>)VTable(buffer)[3];
+                ThrowIfFailed(
+                    lockBuffer(
+                        buffer,
+                        &bytes,
+                        null,
+                        &currentLength),
+                    "lock a PCM16 media buffer for mixing");
+                locked = true;
+                if ((currentLength & 1) != 0)
+                {
+                    throw new InvalidDataException(
+                        "A PCM16 media buffer has an odd byte length.");
+                }
+                int bufferSamples =
+                    checked(
+                        (int)(currentLength / 2));
+                int localStart =
+                    Math.Max(
+                        0,
+                        sourceSampleOffset -
+                        globalSampleOffset);
+                int available =
+                    Math.Max(
+                        0,
+                        bufferSamples -
+                        localStart);
+                int take =
+                    Math.Min(
+                        available,
+                        requestedSamples -
+                        copiedSamples);
+                var sourceValues =
+                    new ReadOnlySpan<short>(
+                        bytes,
+                        bufferSamples);
+                for (int sampleIndex = 0;
+                     sampleIndex < take;
+                     sampleIndex++)
+                {
+                    int sourceIndex =
+                        localStart + sampleIndex;
+                    int absoluteIndex =
+                        sourceSampleOffset +
+                        copiedSamples +
+                        sampleIndex;
+                    int fixedLevel =
+                        channels == 1
+                            ? Math.Max(
+                                levels.Left,
+                                levels.Right)
+                            : (absoluteIndex & 1) == 0
+                                ? levels.Left
+                                : levels.Right;
+                    destination[
+                        destinationSampleOffset +
+                        copiedSamples +
+                        sampleIndex] +=
+                        (long)sourceValues[sourceIndex] *
+                        fixedLevel /
+                        32_768;
+                }
+                copiedSamples += take;
+                globalSampleOffset =
+                    checked(
+                        globalSampleOffset +
+                        bufferSamples);
+            }
+            finally
+            {
+                if (locked)
+                {
+                    delegate* unmanaged[Stdcall]<
+                        nint,
+                        int> unlockBuffer =
+                        (delegate* unmanaged[Stdcall]<
+                            nint,
+                            int>)VTable(buffer)[4];
+                    ThrowIfFailed(
+                        unlockBuffer(buffer),
+                        "unlock a PCM16 media buffer after mixing");
+                }
+                Release(buffer);
+            }
+        }
+        if (copiedSamples != requestedSamples)
+        {
+            throw new InvalidDataException(
+                "A PCM16 sample ended before the requested frame range.");
+        }
+    }
+
+    /// <summary>
+    /// Copies one frame interval from MF-owned PCM16 buffers into normalized
+    /// caller-owned float storage for an explicitly registered typed effect.
+    /// Buffers are borrowed only for the duration of each direct span copy.
+    /// </summary>
+    internal static void CopyPcm16SampleToFloat(
+        nint sample,
+        int sourceFrameOffset,
+        int frameCount,
+        uint channelCount,
+        Span<float> destination)
+    {
+        if (sourceFrameOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceFrameOffset));
+        }
+        if (frameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frameCount));
+        }
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+        int channels = checked((int)channelCount);
+        int sourceSampleOffset =
+            checked(sourceFrameOffset * channels);
+        int requestedSamples =
+            checked(frameCount * channels);
+        if (destination.Length < requestedSamples)
+        {
+            throw new ArgumentException(
+                "The float destination is smaller than the requested PCM interval.",
+                nameof(destination));
+        }
+        if (requestedSamples == 0)
+        {
+            return;
+        }
+
+        uint bufferCount = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint*,
+            int> getBufferCount =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int>)VTable(sample)[39];
+        ThrowIfFailed(
+            getBufferCount(sample, &bufferCount),
+            "get the PCM16 sample buffer count");
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            nint*,
+            int> getBuffer =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                nint*,
+                int>)VTable(sample)[40];
+        int globalSampleOffset = 0;
+        int copiedSamples = 0;
+        for (uint index = 0;
+             index < bufferCount &&
+             copiedSamples < requestedSamples;
+             index++)
+        {
+            nint buffer = 0;
+            byte* bytes = null;
+            bool locked = false;
+            try
+            {
+                ThrowIfFailed(
+                    getBuffer(
+                        sample,
+                        index,
+                        &buffer),
+                    "get a PCM16 media buffer");
+                uint currentLength = 0;
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    byte**,
+                    uint*,
+                    uint*,
+                    int> lockBuffer =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        byte**,
+                        uint*,
+                        uint*,
+                        int>)VTable(buffer)[3];
+                ThrowIfFailed(
+                    lockBuffer(
+                        buffer,
+                        &bytes,
+                        null,
+                        &currentLength),
+                    "lock a PCM16 media buffer for typed processing");
+                locked = true;
+                if ((currentLength & 1) != 0)
+                {
+                    throw new InvalidDataException(
+                        "A PCM16 media buffer has an odd byte length.");
+                }
+                int bufferSamples =
+                    checked(
+                        (int)(currentLength / 2));
+                int localStart =
+                    Math.Max(
+                        0,
+                        sourceSampleOffset -
+                        globalSampleOffset);
+                int available =
+                    Math.Max(
+                        0,
+                        bufferSamples -
+                        localStart);
+                int take =
+                    Math.Min(
+                        available,
+                        requestedSamples -
+                        copiedSamples);
+                var sourceValues =
+                    new ReadOnlySpan<short>(
+                        bytes,
+                        bufferSamples);
+                for (int sampleIndex = 0;
+                     sampleIndex < take;
+                     sampleIndex++)
+                {
+                    destination[
+                        copiedSamples +
+                        sampleIndex] =
+                        sourceValues[
+                            localStart +
+                            sampleIndex] /
+                        32_768f;
+                }
+                copiedSamples += take;
+                globalSampleOffset =
+                    checked(
+                        globalSampleOffset +
+                        bufferSamples);
+            }
+            finally
+            {
+                if (locked)
+                {
+                    delegate* unmanaged[Stdcall]<
+                        nint,
+                        int> unlockBuffer =
+                        (delegate* unmanaged[Stdcall]<
+                            nint,
+                            int>)VTable(buffer)[4];
+                    ThrowIfFailed(
+                        unlockBuffer(buffer),
+                        "unlock a PCM16 media buffer after typed processing");
+                }
+                Release(buffer);
+            }
+        }
+        if (copiedSamples != requestedSamples)
+        {
+            throw new InvalidDataException(
+                "A PCM16 sample ended before the requested frame range.");
         }
     }
 
@@ -1026,6 +1588,20 @@ internal static unsafe partial class WindowsMediaNative
         nint surface,
         uint subresourceIndex,
         [MarshalAs(UnmanagedType.Bool)] bool bottomUpWhenLinear,
+        nint* buffer);
+
+    [LibraryImport("mfplat.dll")]
+    [UnmanagedCallConv(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int MFCreateSample(
+        nint* sample);
+
+    [LibraryImport("mfplat.dll")]
+    [UnmanagedCallConv(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int MFCreateAlignedMemoryBuffer(
+        uint maximumLength,
+        uint alignment,
         nint* buffer);
 
     [LibraryImport("mfplat.dll")]

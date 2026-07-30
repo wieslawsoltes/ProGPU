@@ -43,6 +43,25 @@ namespace Windows.Media.Core
         SpatialAudioNotSupported = 2
     }
 
+    public enum TimedMetadataKind
+    {
+        Caption = 0,
+        Chapter = 1,
+        Custom = 2,
+        Data = 3,
+        Description = 4,
+        Subtitle = 5,
+        ImageSubtitle = 6,
+        Speech = 7
+    }
+
+    public interface IMediaCue
+    {
+        TimeSpan Duration { get; set; }
+        string Id { get; set; }
+        TimeSpan StartTime { get; set; }
+    }
+
     public interface IMediaTrack
     {
         string Id { get; }
@@ -250,6 +269,413 @@ namespace Windows.Media.Core
                 new VideoTrackOpenFailedEventArgs(error));
     }
 
+    public sealed class MediaCueEventArgs : EventArgs
+    {
+        internal MediaCueEventArgs(IMediaCue cue)
+        {
+            Cue = cue ??
+                throw new ArgumentNullException(nameof(cue));
+        }
+
+        public IMediaCue Cue { get; }
+    }
+
+    public sealed class TimedMetadataTrackFailedEventArgs :
+        EventArgs
+    {
+        internal TimedMetadataTrackFailedEventArgs(
+            Exception error)
+        {
+            Error = error ??
+                throw new ArgumentNullException(nameof(error));
+        }
+
+        public Exception Error { get; }
+    }
+
+    public sealed class TimedMetadataTrack :
+        IMediaTrack,
+        IMediaTimedCueTimelineClient<IMediaCue>
+    {
+        private readonly MediaTimedCueTimeline<IMediaCue>
+            _timeline;
+        private readonly Dictionary<string, IMediaCue>
+            _providerCues = new(StringComparer.Ordinal);
+        private readonly bool _providerOwned;
+        private MediaPlaybackTrackDescriptor _descriptor;
+        private MediaSource? _sourceOwner;
+        private MediaPlaybackItem? _playbackItem;
+        private string _label;
+        private bool _applyingProviderCues;
+
+        public TimedMetadataTrack(
+            string id,
+            string language,
+            TimedMetadataKind kind)
+            : this(
+                playbackItem: null,
+                new MediaPlaybackTrackDescriptor(
+                    id ?? throw new ArgumentNullException(
+                        nameof(id)),
+                    MediaPlaybackTrackKind.TimedMetadata,
+                    string.Empty,
+                    string.Empty,
+                    language ?? throw new ArgumentNullException(
+                        nameof(language)),
+                    MediaPlaybackTrackEncoding.Empty,
+                    MediaPlaybackTrackSupport.Unknown,
+                    ToProviderKind(kind)),
+                providerOwned: false)
+        {
+        }
+
+        internal TimedMetadataTrack(
+            MediaPlaybackItem? playbackItem,
+            in MediaPlaybackTrackDescriptor descriptor,
+            bool providerOwned = true)
+        {
+            if (descriptor.Kind !=
+                MediaPlaybackTrackKind.TimedMetadata)
+            {
+                throw new ArgumentException(
+                    "A timed metadata track requires a timed-metadata descriptor.",
+                    nameof(descriptor));
+            }
+
+            _playbackItem = playbackItem;
+            _providerOwned = providerOwned;
+            _descriptor = descriptor;
+            _label = descriptor.Label;
+            _timeline =
+                new MediaTimedCueTimeline<IMediaCue>(this);
+        }
+
+        public IReadOnlyList<IMediaCue> ActiveCues =>
+            _timeline.ActiveCues;
+        public IReadOnlyList<IMediaCue> Cues =>
+            _timeline.Cues;
+        public string DispatchType =>
+            _descriptor.DispatchType;
+        public string Id => _descriptor.ProviderTrackId;
+        public string Label
+        {
+            get => _label;
+            set => _label = value ?? string.Empty;
+        }
+        public string Language => _descriptor.Language;
+        public string Name => _descriptor.Name;
+        public MediaPlaybackItem? PlaybackItem =>
+            _playbackItem;
+        public TimedMetadataKind TimedMetadataKind =>
+            ToPublicKind(_descriptor.TimedMetadataKind);
+        public MediaTrackKind TrackKind =>
+            MediaTrackKind.TimedMetadata;
+
+        public event TypedEventHandler<
+            TimedMetadataTrack,
+            MediaCueEventArgs>? CueEntered;
+        public event TypedEventHandler<
+            TimedMetadataTrack,
+            MediaCueEventArgs>? CueExited;
+        public event TypedEventHandler<
+            TimedMetadataTrack,
+            TimedMetadataTrackFailedEventArgs>? TrackFailed;
+
+        public void AddCue(IMediaCue cue)
+        {
+            ArgumentNullException.ThrowIfNull(cue);
+            if (_timeline.AddCue(cue))
+            {
+                SubscribeCueTiming(cue);
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        public void RemoveCue(IMediaCue cue)
+        {
+            ArgumentNullException.ThrowIfNull(cue);
+            if (_timeline.RemoveCue(cue))
+            {
+                UnsubscribeCueTiming(cue);
+                if (_providerOwned)
+                {
+                    string? providerCueId = null;
+                    foreach (KeyValuePair<string, IMediaCue>
+                                 pair in _providerCues)
+                    {
+                        if (ReferenceEquals(
+                                pair.Value,
+                                cue))
+                        {
+                            providerCueId = pair.Key;
+                            break;
+                        }
+                    }
+                    if (providerCueId is not null)
+                    {
+                        _providerCues.Remove(providerCueId);
+                    }
+                }
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        internal void ApplyProviderCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            if (!_providerOwned ||
+                !StringComparer.Ordinal.Equals(
+                    Id,
+                    snapshot.ProviderTrackId))
+            {
+                return;
+            }
+
+            var retainedIds = new HashSet<string>(
+                StringComparer.Ordinal);
+            bool changed = false;
+            _applyingProviderCues = true;
+            try
+            {
+                for (int index = 0;
+                     index < snapshot.Cues.Count;
+                     index++)
+                {
+                    MediaPlaybackTimedMetadataCueDescriptor
+                        descriptor = snapshot.Cues[index];
+                    retainedIds.Add(descriptor.CueId);
+                    bool hasCue =
+                        _providerCues.TryGetValue(
+                            descriptor.CueId,
+                            out IMediaCue? cue);
+                    bool typeMatches =
+                        descriptor.Data is null
+                            ? cue is TimedTextCue
+                            : cue is DataCue;
+                    if (!hasCue || !typeMatches)
+                    {
+                        if (cue is not null)
+                        {
+                            _timeline.RemoveCue(cue);
+                            UnsubscribeCueTiming(cue);
+                        }
+                        cue = CreateProviderCue(
+                            in descriptor);
+                        _providerCues[descriptor.CueId] =
+                            cue;
+                        _timeline.AddCue(cue);
+                        SubscribeCueTiming(cue);
+                        changed = true;
+                    }
+                    else
+                    {
+                        changed |= ApplyProviderCueState(
+                            cue!,
+                            in descriptor);
+                    }
+                }
+
+                if (_providerCues.Count != retainedIds.Count)
+                {
+                    string[] removedIds = _providerCues.Keys
+                        .Where(id => !retainedIds.Contains(id))
+                        .ToArray();
+                    for (int index = 0;
+                         index < removedIds.Length;
+                         index++)
+                    {
+                        IMediaCue cue =
+                            _providerCues[removedIds[index]];
+                        _providerCues.Remove(removedIds[index]);
+                        _timeline.RemoveCue(cue);
+                        UnsubscribeCueTiming(cue);
+                        changed = true;
+                    }
+                }
+            }
+            finally
+            {
+                _applyingProviderCues = false;
+            }
+
+            if (changed)
+            {
+                _timeline.InvalidateSchedule();
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        private static IMediaCue CreateProviderCue(
+            in MediaPlaybackTimedMetadataCueDescriptor
+                descriptor)
+        {
+            IMediaCue cue = descriptor.Data is null
+                ? new TimedTextCue()
+                : new DataCue();
+            cue.Id = descriptor.CueId;
+            ApplyProviderCueState(
+                cue,
+                in descriptor);
+            return cue;
+        }
+
+        private static bool ApplyProviderCueState(
+            IMediaCue cue,
+            in MediaPlaybackTimedMetadataCueDescriptor
+                descriptor)
+        {
+            if (cue is DataCue dataCue &&
+                descriptor.Data is not null)
+            {
+                return dataCue.ApplyProviderState(
+                    in descriptor);
+            }
+            if (cue is TimedTextCue timedTextCue &&
+                descriptor.Data is null)
+            {
+                return timedTextCue.ApplyProviderState(
+                    in descriptor);
+            }
+            throw new InvalidOperationException(
+                "The provider cue type does not match its immutable descriptor.");
+        }
+
+        internal bool Update(
+            in MediaPlaybackTrackDescriptor descriptor)
+        {
+            if (_descriptor == descriptor)
+            {
+                return false;
+            }
+            _descriptor = descriptor;
+            return true;
+        }
+
+        internal void RaiseCueEntered(IMediaCue cue) =>
+            CueEntered?.Invoke(
+                this,
+                new MediaCueEventArgs(cue));
+
+        internal void RaiseCueExited(IMediaCue cue) =>
+            CueExited?.Invoke(
+                this,
+                new MediaCueEventArgs(cue));
+
+        internal void RaiseTrackFailed(Exception error) =>
+            TrackFailed?.Invoke(
+                this,
+                new TimedMetadataTrackFailedEventArgs(error));
+
+        internal void AttachToSource(
+            MediaSource source,
+            MediaPlaybackItem? playbackItem)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (_sourceOwner is not null &&
+                !ReferenceEquals(_sourceOwner, source))
+            {
+                throw new InvalidOperationException(
+                    "A timed-metadata track can belong to only one MediaSource.");
+            }
+            _sourceOwner = source;
+            _playbackItem = playbackItem;
+        }
+
+        internal void SetPlaybackItem(
+            MediaPlaybackItem? playbackItem) =>
+            _playbackItem = playbackItem;
+
+        internal void DetachFromSource(MediaSource source)
+        {
+            if (!ReferenceEquals(_sourceOwner, source))
+            {
+                return;
+            }
+            _timeline.Reset();
+            _sourceOwner = null;
+            _playbackItem = null;
+        }
+
+        internal void Synchronize(
+            TimeSpan position,
+            bool enabled) =>
+            _timeline.Synchronize(position, enabled);
+
+        internal void ResetTimeline() =>
+            _timeline.Reset();
+
+        TimeSpan
+            IMediaTimedCueTimelineClient<IMediaCue>.GetStartTime(
+                IMediaCue cue) =>
+            cue.StartTime;
+
+        TimeSpan
+            IMediaTimedCueTimelineClient<IMediaCue>.GetDuration(
+                IMediaCue cue) =>
+            cue.Duration;
+
+        void
+            IMediaTimedCueTimelineClient<IMediaCue>.OnCueEntered(
+                IMediaCue cue) =>
+            RaiseCueEntered(cue);
+
+        void
+            IMediaTimedCueTimelineClient<IMediaCue>.OnCueExited(
+                IMediaCue cue) =>
+            RaiseCueExited(cue);
+
+        private void OnCueTimingChanged(
+            object? sender,
+            EventArgs args)
+        {
+            _timeline.InvalidateSchedule();
+            if (!_applyingProviderCues)
+            {
+                _playbackItem?.RequestTimedMetadataRefresh();
+            }
+        }
+
+        private void SubscribeCueTiming(IMediaCue cue)
+        {
+            if (cue is DataCue dataCue)
+            {
+                dataCue.TimingChanged += OnCueTimingChanged;
+            }
+            else if (cue is TimedTextCue timedTextCue)
+            {
+                timedTextCue.TimingChanged += OnCueTimingChanged;
+            }
+        }
+
+        private void UnsubscribeCueTiming(IMediaCue cue)
+        {
+            if (cue is DataCue dataCue)
+            {
+                dataCue.TimingChanged -= OnCueTimingChanged;
+            }
+            else if (cue is TimedTextCue timedTextCue)
+            {
+                timedTextCue.TimingChanged -= OnCueTimingChanged;
+            }
+        }
+
+        private static TimedMetadataKind ToPublicKind(
+            MediaPlaybackTimedMetadataKind kind) =>
+            (TimedMetadataKind)(int)kind;
+
+        private static MediaPlaybackTimedMetadataKind
+            ToProviderKind(TimedMetadataKind kind)
+        {
+            if (!Enum.IsDefined(kind))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(kind));
+            }
+            return (MediaPlaybackTimedMetadataKind)(int)kind;
+        }
+    }
+
     internal static class TrackSupportMapping
     {
         internal static MediaDecoderStatus ToDecoderStatus(
@@ -279,6 +705,38 @@ namespace Windows.Media.Playback
 {
     using Windows.Media.Core;
 
+    public enum TimedMetadataTrackPresentationMode
+    {
+        Disabled = 0,
+        Hidden = 1,
+        ApplicationPresented = 2,
+        PlatformPresented = 3
+    }
+
+    public sealed class
+        TimedMetadataPresentationModeChangedEventArgs :
+        EventArgs
+    {
+        internal TimedMetadataPresentationModeChangedEventArgs(
+            TimedMetadataTrack track,
+            TimedMetadataTrackPresentationMode
+                oldPresentationMode,
+            TimedMetadataTrackPresentationMode
+                newPresentationMode)
+        {
+            Track = track ??
+                throw new ArgumentNullException(nameof(track));
+            OldPresentationMode = oldPresentationMode;
+            NewPresentationMode = newPresentationMode;
+        }
+
+        public TimedMetadataTrack Track { get; }
+        public TimedMetadataTrackPresentationMode
+            OldPresentationMode { get; }
+        public TimedMetadataTrackPresentationMode
+            NewPresentationMode { get; }
+    }
+
     internal sealed class PlaybackTrackSelectionRequestedEventArgs :
         EventArgs
     {
@@ -292,6 +750,26 @@ namespace Windows.Media.Playback
 
         public MediaPlaybackTrackKind Kind { get; }
         public int Index { get; }
+    }
+
+    internal sealed class
+        PlaybackTimedMetadataPresentationModeRequestedEventArgs :
+        EventArgs
+    {
+        public
+            PlaybackTimedMetadataPresentationModeRequestedEventArgs(
+                int index,
+                MediaPlaybackTimedMetadataPresentationMode mode)
+        {
+            Index = index;
+            Mode = mode;
+        }
+
+        public int Index { get; }
+        public MediaPlaybackTimedMetadataPresentationMode Mode
+        {
+            get;
+        }
     }
 
     internal sealed class PlaybackTrackVectorChangedEventArgs :
@@ -638,5 +1116,345 @@ namespace Windows.Media.Playback
                 descriptors,
             int selectedIndex) =>
             _state.Update(descriptors, selectedIndex);
+    }
+
+    public sealed class MediaPlaybackTimedMetadataTrackList :
+        IReadOnlyList<TimedMetadataTrack>
+    {
+        private readonly MediaPlaybackItem _owner;
+        private TimedMetadataTrack[] _providerItems = [];
+        private TimedMetadataTrack[] _externalItems = [];
+        private TimedMetadataTrack[] _items = [];
+        private TimedMetadataTrackPresentationMode[] _modes = [];
+
+        internal MediaPlaybackTimedMetadataTrackList(
+            MediaPlaybackItem owner)
+        {
+            _owner = owner;
+        }
+
+        public int Count => _items.Length;
+        public uint Size => checked((uint)_items.Length);
+        public TimedMetadataTrack this[int index] =>
+            index >= 0 && index < _items.Length
+                ? _items[index]
+                : throw new ArgumentOutOfRangeException(
+                    nameof(index));
+
+        public event TypedEventHandler<
+            MediaPlaybackTimedMetadataTrackList,
+            TimedMetadataPresentationModeChangedEventArgs>?
+            PresentationModeChanged;
+
+        public TimedMetadataTrack GetAt(uint index) =>
+            index < (uint)_items.Length
+                ? _items[(int)index]
+                : throw new ArgumentOutOfRangeException(
+                    nameof(index));
+
+        public uint GetMany(
+            uint startIndex,
+            TimedMetadataTrack[] items)
+        {
+            ArgumentNullException.ThrowIfNull(items);
+            int start = checked((int)startIndex);
+            if (start >= _items.Length || items.Length == 0)
+            {
+                return 0;
+            }
+
+            int count = Math.Min(
+                items.Length,
+                _items.Length - start);
+            Array.Copy(_items, start, items, 0, count);
+            return checked((uint)count);
+        }
+
+        public TimedMetadataTrackPresentationMode
+            GetPresentationMode(uint index) =>
+            index < (uint)_modes.Length
+                ? _modes[(int)index]
+                : throw new ArgumentOutOfRangeException(
+                    nameof(index));
+
+        public bool IndexOf(
+            TimedMetadataTrack value,
+            out uint index)
+        {
+            int found = Array.IndexOf(_items, value);
+            index = found < 0 ? 0u : checked((uint)found);
+            return found >= 0;
+        }
+
+        public void SetPresentationMode(
+            uint index,
+            TimedMetadataTrackPresentationMode value)
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value));
+            }
+            if (index >= (uint)_items.Length)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(index));
+            }
+
+            int itemIndex = checked((int)index);
+            TimedMetadataTrackPresentationMode oldValue =
+                _modes[itemIndex];
+            if (oldValue == value)
+            {
+                return;
+            }
+
+            if (itemIndex < _providerItems.Length)
+            {
+                _owner.RequestTimedMetadataPresentationMode(
+                    itemIndex,
+                    (MediaPlaybackTimedMetadataPresentationMode)
+                        (int)value);
+            }
+            _modes[itemIndex] = value;
+            PresentationModeChanged?.Invoke(
+                this,
+                new TimedMetadataPresentationModeChangedEventArgs(
+                    _items[itemIndex],
+                    oldValue,
+                    value));
+            _owner.RequestTimedMetadataRefresh();
+        }
+
+        public IEnumerator<TimedMetadataTrack> GetEnumerator() =>
+            ((IEnumerable<TimedMetadataTrack>)_items)
+            .GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+
+        internal IReadOnlyList<IVectorChangedEventArgs> Update(
+            IReadOnlyList<MediaPlaybackTrackDescriptor>
+                descriptors)
+        {
+            ArgumentNullException.ThrowIfNull(descriptors);
+            var changes = new List<IVectorChangedEventArgs>();
+            if (HaveSameProviderIdentity(descriptors))
+            {
+                for (int index = 0;
+                     index < _providerItems.Length;
+                     index++)
+                {
+                    MediaPlaybackTrackDescriptor descriptor =
+                        descriptors[index];
+                    if (_providerItems[index].Update(
+                            in descriptor))
+                    {
+                        changes.Add(
+                            new PlaybackTrackVectorChangedEventArgs(
+                                CollectionChange.ItemChanged,
+                                checked((uint)index)));
+                    }
+                }
+            }
+            else
+            {
+                int previousProviderCount =
+                    _providerItems.Length;
+                for (int index = 0;
+                     index < _providerItems.Length;
+                     index++)
+                {
+                    _providerItems[index].ResetTimeline();
+                }
+                _providerItems =
+                    CreateProviderTracks(descriptors);
+                RebuildCombinedItems();
+
+                if (previousProviderCount == 0 &&
+                    _externalItems.Length == 0)
+                {
+                    for (int index = 0;
+                         index < _providerItems.Length;
+                         index++)
+                    {
+                        changes.Add(
+                            new
+                                PlaybackTrackVectorChangedEventArgs(
+                                    CollectionChange.ItemInserted,
+                                    checked((uint)index)));
+                    }
+                }
+                else
+                {
+                    changes.Add(
+                        new PlaybackTrackVectorChangedEventArgs(
+                            CollectionChange.Reset,
+                            0));
+                }
+            }
+            return changes;
+        }
+
+        internal IVectorChangedEventArgs
+            UpdateExternalTracks(
+                IReadOnlyList<TimedMetadataTrack> tracks,
+                IVectorChangedEventArgs change)
+        {
+            ArgumentNullException.ThrowIfNull(tracks);
+            ArgumentNullException.ThrowIfNull(change);
+            _externalItems = new TimedMetadataTrack[tracks.Count];
+            for (int index = 0;
+                 index < _externalItems.Length;
+                 index++)
+            {
+                _externalItems[index] = tracks[index];
+            }
+            RebuildCombinedItems();
+            return new PlaybackTrackVectorChangedEventArgs(
+                change.CollectionChange,
+                change.CollectionChange ==
+                    CollectionChange.Reset
+                    ? 0u
+                    : checked(
+                        (uint)_providerItems.Length +
+                        change.Index));
+        }
+
+        internal void InitializeExternalTracks(
+            IReadOnlyList<TimedMetadataTrack> tracks)
+        {
+            ArgumentNullException.ThrowIfNull(tracks);
+            _externalItems = new TimedMetadataTrack[tracks.Count];
+            for (int index = 0;
+                 index < _externalItems.Length;
+                 index++)
+            {
+                _externalItems[index] = tracks[index];
+            }
+            RebuildCombinedItems();
+        }
+
+        internal void Synchronize(TimeSpan position)
+        {
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                _items[index].Synchronize(
+                    position,
+                    _modes[index] !=
+                        TimedMetadataTrackPresentationMode
+                            .Disabled);
+            }
+        }
+
+        internal void ApplyProviderCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            for (int index = 0;
+                 index < _providerItems.Length;
+                 index++)
+            {
+                TimedMetadataTrack track =
+                    _providerItems[index];
+                if (StringComparer.Ordinal.Equals(
+                        track.Id,
+                        snapshot.ProviderTrackId))
+                {
+                    track.ApplyProviderCues(snapshot);
+                    return;
+                }
+            }
+        }
+
+        internal void ResetTimelines()
+        {
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                _items[index].ResetTimeline();
+            }
+        }
+
+        private TimedMetadataTrack[] CreateProviderTracks(
+            IReadOnlyList<MediaPlaybackTrackDescriptor>
+                descriptors)
+        {
+            var result =
+                new TimedMetadataTrack[descriptors.Count];
+            for (int index = 0;
+                 index < result.Length;
+                 index++)
+            {
+                MediaPlaybackTrackDescriptor descriptor =
+                    descriptors[index];
+                result[index] =
+                    new TimedMetadataTrack(
+                        _owner,
+                        in descriptor);
+            }
+            return result;
+        }
+
+        private bool HaveSameProviderIdentity(
+            IReadOnlyList<MediaPlaybackTrackDescriptor>
+                descriptors)
+        {
+            if (_providerItems.Length != descriptors.Count)
+            {
+                return false;
+            }
+            for (int index = 0;
+                 index < _providerItems.Length;
+                 index++)
+            {
+                if (!StringComparer.Ordinal.Equals(
+                        _providerItems[index].Id,
+                        descriptors[index].ProviderTrackId))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void RebuildCombinedItems()
+        {
+            TimedMetadataTrack[] previousItems = _items;
+            TimedMetadataTrackPresentationMode[] previousModes =
+                _modes;
+            _items = new TimedMetadataTrack[
+                _providerItems.Length + _externalItems.Length];
+            Array.Copy(
+                _providerItems,
+                0,
+                _items,
+                0,
+                _providerItems.Length);
+            Array.Copy(
+                _externalItems,
+                0,
+                _items,
+                _providerItems.Length,
+                _externalItems.Length);
+            _modes =
+                new TimedMetadataTrackPresentationMode[
+                    _items.Length];
+            for (int index = 0;
+                 index < _items.Length;
+                 index++)
+            {
+                int previousIndex =
+                    Array.IndexOf(previousItems, _items[index]);
+                if (previousIndex >= 0)
+                {
+                    _modes[index] =
+                        previousModes[previousIndex];
+                }
+            }
+        }
     }
 }

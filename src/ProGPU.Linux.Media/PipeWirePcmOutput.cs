@@ -353,8 +353,24 @@ internal sealed class PipeWirePcmOutput :
         IEnumerable<IMediaAudioProcessor>
             processors)
     {
-        _processorChain.SetProcessors(
-            processors);
+        ArgumentNullException.ThrowIfNull(processors);
+        IMediaAudioProcessor[] snapshot =
+            processors.ToArray();
+        for (int index = 0;
+             index < snapshot.Length;
+             index++)
+        {
+            if (snapshot[index] is
+                    IMediaAudioProcessorTiming timed &&
+                timed.GetTiming(
+                    in _mediaFormat) !=
+                MediaAudioProcessorTiming.Zero)
+            {
+                throw new NotSupportedException(
+                    "Live PipeWire playback does not compensate custom audio processor latency or drain effect tails.");
+            }
+        }
+        _processorChain.SetProcessors(snapshot);
     }
 
     internal void ClearProcessors()

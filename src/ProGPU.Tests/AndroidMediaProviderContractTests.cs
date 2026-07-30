@@ -333,6 +333,66 @@ public sealed class AndroidMediaProviderContractTests
     }
 
     [Fact]
+    public void AndroidPlaybackProjectsOnlyParsedNativeTimedTextAsCues()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaTrackType.Timedtext or",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaTrackType.Subtitle",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.TimedText += OnTimedText;",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "args.Text?.Text",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTimedTextCueAccumulator",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sink.UpdateTimedMetadataCues(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTrackSupport\n                                .Unsupported",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mode ==\n                MediaPlaybackTimedMetadataPresentationMode\n                    .PlatformPresented",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "OnSubtitleData",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AndroidPreciseExporterUsesNativeSurfaceCodecAndMuxer()
     {
         string provider = ReadRepoFile(
@@ -343,6 +403,30 @@ public sealed class AndroidMediaProviderContractTests
             "src",
             "ProGPU.Android.Media",
             "AndroidMediaCodecCompositionAudio.cs");
+        string timelineMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecAudioTimelineMixer.cs");
+        string pcmMixer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidPcm16Mixer.cs");
+        string overlayPlanner = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecOverlayPlanner.cs");
+        string videoEffectPlanner = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecVideoEffectPlanner.cs");
+        string overlayComposer = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecOverlayFrameComposer.cs");
+        string gpuSink = ReadRepoFile(
+            "src",
+            "ProGPU.Android.Media",
+            "AndroidMediaCodecGpuEncoderFrameSink.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Android.Media",
@@ -423,11 +507,11 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "MediaCompositionVideoEffectResolver",
-            provider,
+            videoEffectPlanner,
             StringComparison.Ordinal);
         Assert.Contains(
             ".TryCapturePlan(",
-            provider,
+            videoEffectPlanner,
             StringComparison.Ordinal);
         Assert.Contains(
             "u_red_transform",
@@ -478,8 +562,52 @@ public sealed class AndroidMediaProviderContractTests
                     StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaCompositionExportAudioPath" +
+            ".CpuBuffer",
+            provider.Replace(
+                "\r",
+                string.Empty,
+                StringComparison.Ordinal)
+                .Replace(
+                    "\n",
+                    string.Empty,
+                    StringComparison.Ordinal)
+                .Replace(
+                    " ",
+                    string.Empty,
+                    StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "BakeAudioTimeline(",
             provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.BackgroundAudioTracks.Count != 0)",
+            audio,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.BackgroundAudioTracks.Count;",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "request.OverlayLayers.Count != 0",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AndroidMediaCodecOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AndroidMediaCodecOverlayFrameComposer(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "request.Clips.Count == 0 ||\n" +
+            "            request.OverlayLayers.Count != 0",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
             ".android.audio.tmp.mp4",
@@ -491,31 +619,35 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "decoder.GetOutputBuffer(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "encoder.GetInputBuffer(",
-            audio,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "input.Put(source);",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "JNIEnv.GetDirectBufferAddress(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
-            "QueueSilenceToFrame(",
-            audio,
+            "AndroidPcm16Mixer.FramesPerBlock",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
-            ".GetDurationFrameCountCeiling(",
-            audio,
+            "stackalloc long[",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "stackalloc float[",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioEffectProcessorChain",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "GetWritableDirectPcm16Span(",
-            audio,
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
             "MediaAudioGraphEffectResolver" +
@@ -526,20 +658,106 @@ public sealed class AndroidMediaProviderContractTests
                 StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
-            "MediaPcm16StereoProcessor.ApplyStereo(",
+            "AndroidPcm16Mixer.WriteSaturated(",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AndroidPcm16Mixer.AddProcessed(",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "overlay.AudioEnabled",
             audio,
             StringComparison.Ordinal);
         Assert.Contains(
-            "extractor.Release();",
+            "request.OverlayLayers.Count;",
             audio,
             StringComparison.Ordinal);
         Assert.Contains(
-            "decoder.Release();",
-            audio,
+            "AudioEnabled: true",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Tests",
+                "AndroidMediaAudioPlannerTests.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "destination[\n",
+            pcmMixer.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_extractor?.Release();",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_decoder?.Release();",
+            timelineMixer,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Marshal.Copy",
-            audio,
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Activator.",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Assembly.Load",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerPlacement",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "layer.CustomCompositorDefinition is not null",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Array order is the declared layer/overlay back-to-front order",
+            overlayPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaCodec.CreateDecoderByType(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private int _heldOutputIndex = -1;",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sink.UpdateOverlayDecoderInput(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Input.HasCurrentImage",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sink.CompositeDecodedLayer(",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Marshal.Copy",
+            overlayComposer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerCompositor",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateOverlayDecoderInput(",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "updateFromProducer: false",
+            gpuSink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Android Media Overlay Effect Output",
+            gpuSink,
             StringComparison.Ordinal);
         Assert.Contains(
             "ShaderResource.Load(",
@@ -679,6 +897,36 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "HasSpatialEffects(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AndroidMediaCodecOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AndroidMediaCodecOverlayFrameComposer(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Array.Sort(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "orderedPositions",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderer.DrawFrame(\n" +
+            "                        presentationTimeMicroseconds,\n" +
+            "                        effectPlan,\n" +
+            "                        overlays,",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "composition.OverlayLayers.Count != 0 ||",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(

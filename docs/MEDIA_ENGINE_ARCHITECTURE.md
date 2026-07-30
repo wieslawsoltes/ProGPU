@@ -94,6 +94,130 @@ design.
   value is projected from the active provider snapshot only onto the current
   list item, remains in the documented 0–1 range, and starts complete for a
   local file URI.
+- [`MediaSource.ExternalTimedMetadataTracks`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.mediasource.externaltimedmetadatatracks),
+  [`MediaSource.ExternalTimedTextSources`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.mediasource.externaltimedtextsources),
+  [`TimedTextSource`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsource),
+  [`TimedTextSource.Resolved`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsource.resolved),
+  [`TimedMetadataTrack.ActiveCues`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.activecues),
+  [`CueEntered`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack.cueentered),
+  [`TimedTextCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextcue),
+  [`TimedTextLine`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextline),
+  [`TimedTextSubformat`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextsubformat),
+  [`TimedTextStyle`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextstyle),
+  [`TimedTextRuby`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextruby),
+  [`TimedTextRegion`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion),
+  [`TimedTextRegion.Position`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.position),
+  [`TimedTextRegion.Extent`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.extent),
+  [`TimedTextRegion.ScrollMode`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedtextregion.scrollmode),
+  and
+  [`DataCue`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.datacue)
+  establish caller-owned external tracks, source-resolved timed-text tracks,
+  the active-cue view, cue lifecycle events, and binary custom metadata.
+  Microsoft's
+  [media items, playlists, and tracks guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-playback-with-mediasource)
+  establishes that `Disabled` suppresses cue events while `Hidden`,
+  `ApplicationPresented`, and `PlatformPresented` continue scheduling them.
+  ProGPU adopts that lifecycle contract without claiming a platform caption
+  renderer where none is connected.
+- The current Windows SDK public metadata defines the complete WinUI timed-text
+  object graph: retained cue and line collections, substring subformats,
+  cue-level style and region objects, pixel/percentage value structs, writing,
+  flow, alignment, wrapping and scrolling enums, and the newer ruby and bouten
+  style children. ProGPU exposes those same public type names and property
+  types under `Windows.Media.Core`. Native providers publish immutable
+  package-neutral lines, UTF-16 spans, sparse style state, and cue-layout DTOs
+  through `ProGPU.Media`; the WinUI layer mutates retained projection objects
+  in O(L + S) time for L lines and S subformats. This keeps Avalonia,
+  LibreWPF, and LibreWinForms consumers independent of WinUI while avoiding
+  reflection, boxed adapters, or parsing in the audio/video frame path.
+- The
+  [WHATWG media/text-track model](https://html.spec.whatwg.org/multipage/media.html)
+  and the browser
+  [`TextTrack.mode`](https://developer.mozilla.org/en-US/docs/Web/API/TextTrack/mode)
+  and
+  [`cuechange`](https://developer.mozilla.org/en-US/docs/Web/API/TextTrack/cuechange_event)
+  contracts establish that `disabled` suppresses cue loading/events,
+  `hidden` keeps cues active without native rendering, and `showing` enables
+  native presentation. The browser provider maps WinUI `Disabled` to
+  `disabled`, both `Hidden` and `ApplicationPresented` to `hidden`, and
+  `PlatformPresented` to `showing`. It observes dynamic track membership and
+  cue changes, publishes complete typed per-track snapshots, and preserves
+  stable managed `TimedTextCue` identity by provider cue ID. Snapshot
+  publication and reconciliation are O(C) time and storage for C cues;
+  steady playback scheduling remains allocation-free after warmup. This
+  clean-room adapter does not parse WebVTT text or duplicate the browser's
+  native cue loader.
+- Apple's
+  [subtitle and alternative-track selection guidance](https://developer.apple.com/documentation/avfoundation/selecting-subtitles-and-alternative-audio-tracks),
+  [`AVPlayerItemLegibleOutput`](https://developer.apple.com/documentation/avfoundation/avplayeritemlegibleoutput),
+  and
+  [legible-output callback contract](https://developer.apple.com/documentation/avfoundation/avplayeritemlegibleoutputpushdelegate/legibleoutput%28_%3Adidoutputattributedstrings%3Anativesamplebuffers%3Aforitemtime%3A%29)
+  establish mutually exclusive legible media options, native selection,
+  output suppression, sequence flushes, and attributed-string delivery at
+  item time. The Apple provider projects each option as a stable timed-text
+  track, disables AVPlayer's automatic criteria so WinUI presentation modes
+  own selection, and accumulates push snapshots into deterministic cue IDs.
+  A later callback closes the preceding active cue; seeking reuses its
+  provider ID instead of duplicating it. Updating a native snapshot is
+  O(C + A + N) time and O(C) retained storage for C known cues, A active cues,
+  and N delivered strings. AVFoundation remains responsible for parsing and
+  styled native presentation; ProGPU publishes only text and timing to the
+  reusable application-presented path.
+- Android's
+  [`MediaPlayer.TrackInfo`](https://developer.android.com/reference/android/media/MediaPlayer.TrackInfo),
+  [`MediaPlayer.OnTimedTextListener`](https://developer.android.com/reference/android/media/MediaPlayer.OnTimedTextListener),
+  [`TimedText`](https://developer.android.com/reference/android/media/TimedText),
+  and
+  [`SubtitleData`](https://developer.android.com/reference/android/media/SubtitleData)
+  contracts distinguish parsed, display-ready timed text from encoded subtitle
+  bytes. The Android provider enumerates both native track types, but projects
+  cues only from the platform-parsed `TimedText` callback. A null text closes
+  the active cue at the current media position; seek, disable, and completion
+  flush it through the shared deterministic accumulator. `Hidden` and
+  `ApplicationPresented` select this application-rendered lane.
+  `PlatformPresented` is rejected because the reusable `ImageReader`/WebGPU
+  surface has no native subtitle view, and raw `SubtitleData` tracks are
+  reported unsupported until a typed binary-data or native-view contract
+  exists. ProGPU therefore adopts Android's native parsing and selection while
+  rejecting an external subtitle parser and any false platform-rendering
+  claim. Track publication is O(T), and each native cue update retains the
+  shared accumulator's O(C) cue storage.
+- Microsoft's
+  [`MFGetService`](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-mfgetservice),
+  [`IMFTimedText`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nn-mfmediaengine-imftimedtext),
+  [`IMFTimedTextNotify`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nn-mfmediaengine-imftimedtextnotify),
+  [`IMFTimedTextTrack`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nn-mfmediaengine-imftimedtexttrack),
+  [`IMFTimedTextCue`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nn-mfmediaengine-imftimedtextcue),
+  [`IMFTimedTextCue::GetData`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imftimedtextcue-getdata),
+  and
+  [`IMFTimedTextBinary::GetData`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imftimedtextbinary-getdata)
+  contracts establish that Media Engine timed text is a service rather than
+  an `IMFMediaEngine` interface, that track membership and selection are
+  native operations, and that active/inactive/clear cue notifications carry
+  parsed text or binary data, source timing, and stable native identifiers.
+  The Windows
+  provider registers one typed `IMFTimedTextNotify` callback before loading
+  the source, copies strings, bounded binary bytes, and timing while the
+  callback-owned COM cue is valid, and queues only provider-neutral values to
+  its existing playback worker. Binary data is capped at 64 MiB, copied once
+  from the callback-owned pointer into an immutable provider payload, and
+  copied into a retained WinRT-shaped `Buffer` only when that cue payload
+  changes. ABI order, interface identifiers, and ownership annotations were
+  independently verified against Microsoft's
+  [Win32Metadata `mfmediaengine.idl`](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/mfmediaengine.idl).
+  Initial native text selection is cleared after metadata loads so the
+  WinUI-aligned default is `Disabled`. Subtitle and caption tracks support
+  `Hidden` and `ApplicationPresented`; data tracks use the same selection
+  lifecycle and project retained WinUI `DataCue` objects. `Disabled`
+  deselects the native track.
+  `PlatformPresented` is rejected because frame-server output has no native
+  caption or binary-metadata presenter. Track
+  reconciliation is O(T + S) for T native tracks and S retained per-track cue
+  states; cue upsert is average O(1), publishing the complete stable snapshot
+  is O(C), and a new binary payload costs O(B) time and storage for B bytes
+  with no polling- or frame-path work. ProGPU adopts Media
+  Foundation's parser and scheduling while rejecting an external parser,
+  reflection, callback-thread rendering, and retained COM cue ownership.
 - [`MediaPlaybackSession.NormalizedSourceRect`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.normalizedsourcerect),
   [`IsMirroring`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.ismirroring),
   [`PlaybackRotation`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacksession.playbackrotation),
@@ -176,6 +300,18 @@ reflection-based activation and Windows-native types in the portable core.
   writer. Effect samples receive one D3D11 GPU copy into a three-slot shared
   source ring, one fused WebGPU affine color render into a three-slot
   encoder-target ring, and no ProGPU CPU readback/upload.
+  Standard video overlays flatten the WinUI layer/overlay collections in
+  their declared back-to-front order. Each URI overlay retains one BGRA
+  Source Reader and advances monotonically during export; generated-color
+  overlays reuse the source ring. A retained WebGPU layer pipeline applies
+  normalized placement, the folded affine transform, source alpha, and
+  opacity, then uses premultiplied source-over blending into the existing
+  encoder target. A blurred URI overlay lazily adds one second effect-output
+  texture so the two-axis blur can complete before placement without sampling
+  and rendering the same subresource. Decoded overlay pixels remain on
+  DXGI/WebGPU. When AAC output is requested, audible URI-overlay audio enters
+  the same native composition mixer as main-clip and background-track audio;
+  the video and audio lanes retain independent monotonic readers.
   Solid-color clips use a WebGPU render-pass clear on the same bounded source
   ring, so their effect values remain GPU-baked without allocating or
   uploading a full-frame bitmap. Their rational frame clock carries the
@@ -268,28 +404,77 @@ reflection-based activation and Windows-native types in the portable core.
   accepts an `IMFTransform`/`IMFActivate` and applies insertion on the next
   source load; ProGPU therefore does not claim arbitrary live PCM processing
   until its original registered-MFT or Source Reader/WASAPI lane is present.
-  Precise export now accepts per-clip 0–2× gain and stereo balance from the
-  WinUI editing contract. The Source Reader already produces signed PCM16, so
-  ProGPU walks each native sample buffer directly using
+  Microsoft's
+  [custom audio-effects guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/custom-audio-effects)
+  defines ordered `AudioEffectDefinition` entries backed by `IBasicAudioEffect`
+  instances. Precise offline export adopts that public class-ID/property-set
+  shape but adapts activation to ProGPU's explicit typed registry: a
+  non-foldable definition must create an `IMediaAudioEffect` before native
+  rendering begins. This avoids WinRT activation, reflection, assembly
+  scanning, and foreign implementation code while preserving declaration
+  order and deterministic ownership.
+  Precise export now accepts the WinUI editing audio timeline: main-clip
+  volume, signed
+  [`BackgroundAudioTrack.Delay`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.backgroundaudiotrack.delay),
+  [`MediaOverlay.Delay`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.mediaoverlay.delay),
+  [`MediaOverlay.AudioEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.mediaoverlay.audioenabled),
+  and registered 0–2× gain/stereo-balance definitions. A negative background
+  delay advances its source trim; a positive delay inserts leading silence.
+  All source intervals are clipped to the main composition duration before a
+  native reader is opened.
+
+  The implementation follows Media Foundation's
+  [timestamp and duration guidance for mixers](https://learn.microsoft.com/en-us/windows/win32/medfound/time-stamps-and-durations):
+  the output stream is one continuous, unbroken PCM timeline and gaps are
+  materialized as silence. Each active source has a lazily created
+  [Source Reader](https://learn.microsoft.com/en-us/windows/win32/medfound/source-reader)
+  configured through
+  [`IMFSourceReader::SetCurrentMediaType`](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-imfsourcereader-setcurrentmediatype);
+  the documented Windows 8+ audio processing lane decodes and resamples it to
+  the requested mono/stereo 44.1/48-kHz PCM16 profile. Source timestamps from
+  [`ReadSample`](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-imfsourcereader-readsample)
+  are mapped with exact directional integer rounding at half-open source and
+  destination boundaries.
+
+  Output is partitioned into at most 1,024 frames. A stereo block uses a
+  fixed 16-KiB stack-resident signed 64-bit accumulator, so source order
+  cannot change the practical result. ProGPU walks every native decoded
+  buffer directly using
   [`IMFSample::GetBufferByIndex`](https://learn.microsoft.com/en-us/windows/win32/api/mfobjects/nf-mfobjects-imfsample-getbufferbyindex)
   and the official
   [`IMFMediaBuffer::Lock`](https://learn.microsoft.com/en-us/windows/win32/api/mfobjects/nf-mfobjects-imfmediabuffer-lock)/
   [`Unlock`](https://learn.microsoft.com/en-us/windows/win32/api/mfobjects/nf-mfobjects-imfmediabuffer-unlock)
-  lifetime. Left and right Q15 levels are computed once per native buffer and
-  samples are modified in place with O(S) work and O(1) managed storage.
-  Interleaved channel phase is carried across native buffer boundaries; mono
-  output uses the common peak so balance remains a no-op while gain is
-  retained.
-  Amplified samples use a deterministic saturating clamp; the 2× bound keeps
-  every PCM16 × Q15 product within signed 32-bit arithmetic. Separate buffers
-  are not joined, and mixing and arbitrary effects remain rejected rather
-  than silently omitted or copied. Serialized WinUI-aligned
-  audio-effect definitions now use the shared typed
-  `MediaAudioGraphEffectResolver`: registered `Gain` and `StereoBalance` nodes
-  are snapshotted before native export begins, folded with
-  `MediaClip.Volume`, validated against the per-channel 0–2× range, and then
-  passed to that same PCM16 native-buffer loop. Unregistered, unsupported,
-  non-finite, and greater-than-2× graphs fail capability selection.
+  lifetime. Left and right Q15 levels are computed once per source. Foldable
+  gain/balance graphs remain entirely on this direct native-buffer fast path.
+  A registered non-foldable block-local graph borrows the same buffers for
+  only its overlapping interval, converts directly into one reusable
+  stack-resident float span of at most 1,024 stereo frames, executes its
+  preactivated typed chain in declaration order, rejects non-finite output,
+  and wide-accumulates the result with the source volume. Effect headroom is
+  therefore retained until the final mix rather than clipped per source.
+  Saturation
+  happens exactly once while the final block is written directly into an
+  MF-owned, 32-byte-aligned buffer created by
+  [`MFCreateAlignedMemoryBuffer`](https://learn.microsoft.com/en-us/windows/win32/api/mfapi/nf-mfapi-mfcreatealignedmemorybuffer);
+  no managed PCM array or duration-sized PCM store exists. The capability
+  report changes from `NativeBuffer` to `CpuBuffer` when this bounded typed
+  span boundary is present.
+
+  Schedule capture is O(C + B + O + E) time and O(C + B + O + E) storage for
+  main clips, background tracks, overlays, and copied effect definitions.
+  Rendering is O(F × (L + E)) for F output frames, L active layers, and E
+  active typed effect stages; managed working storage is O(A) for A scheduled
+  sources, while Media Foundation owns decoder queues and the final sample
+  buffers. The shared `MediaAudioGraphEffectResolver` snapshots ordered
+  `Gain` and `StereoBalance` nodes before native export begins; other complete
+  graphs are accepted only when every definition activates as a typed audio
+  effect. The shared optional timing contract is visible during preparation,
+  but this Windows lane explicitly rejects a nonzero declaration until its
+  Source Reader schedule can compensate look-ahead and drain tails.
+  Unregistered, unsupported, non-finite, greater-than-2× folded, and timed
+  custom graphs fail explicitly. Arbitrary MFT/WASAPI live processing is still
+  unclaimed, and Windows codec/runtime, audible-output, latency, and allocation
+  evidence remains a hardware gate.
 - Apple
   [`AVAssetReaderOutput`](https://developer.apple.com/documentation/avfoundation/avassetreaderoutput)
   explicitly supports disabling unnecessary sample-data copies. Apple
@@ -449,26 +634,37 @@ reflection-based activation and Windows-native types in the portable core.
   pixel is read into managed memory. Compatible AAC remains compressed and is
   remuxed only when its sample rate, channels, bitrate, and codec-specific
   configuration match every clip and the requested profile.
-  For a timeline with `MediaClip.Volume` or registered gain/stereo-balance
-  definitions, the exporter follows the documented
+  For a timeline with `MediaClip.Volume`, WinUI-compatible
+  [`BackgroundAudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.backgroundaudiotrack),
+  or registered gain/stereo-balance definitions, the exporter follows the
+  documented
   [`MediaCodec.getOutputBuffer`](https://developer.android.com/reference/android/media/MediaCodec#getOutputBuffer(int))
   and
   [`MediaCodec.getInputBuffer`](https://developer.android.com/reference/android/media/MediaCodec#getInputBuffer(int))
-  ownership boundaries: decoder output is treated as read-only, copied
-  directly into a writable native AAC-encoder input buffer, and processed
-  there as interleaved PCM16. The requested
+  ownership boundaries: each active source owns no more than one dequeued
+  read-only decoder buffer and releases it as soon as its samples have entered
+  the current block. Main clips and background tracks are scheduled on one
+  exact integer PCM clock. The official
+  [`BackgroundAudioTrack.Delay`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.backgroundaudiotrack.delay)
+  contract permits negative values, so negative delay advances the source
+  trim while positive delay advances the destination start. Every background
+  interval is clipped to the sequential main-composition duration before a
+  native decoder is created. The requested
   [`MediaFormat.KEY_PCM_ENCODING`](https://developer.android.com/reference/android/media/MediaFormat#KEY_PCM_ENCODING)
   is validated after decoder format negotiation. Because
   [`MediaMuxer`](https://developer.android.com/reference/android/media/MediaMuxer)
   requires every final track to be added before `start`, the effect-bearing
   audio timeline is first encoded into a transactional AAC-only staging MP4,
   then its compressed access units are copied into the final video muxer.
-  This adopts the native buffer lifecycle and muxer ordering contracts while
-  rejecting a managed PCM boundary, mutable decoder output, and unbounded
-  encoded-sample buffering. Processing is O(A + S) for A access units and S
-  PCM samples with O(1) managed working storage; it is a native-buffer copy
-  path, not a decoded-audio zero-copy claim. Identity AAC keeps the existing
-  compressed remux lane.
+  A fixed block of at most 1,024 frames accumulates scaled PCM16 inputs in
+  signed 64-bit lanes and saturates exactly once into the direct AAC-encoder
+  input buffer. This rejects managed PCM arrays, duration-sized storage,
+  mutable decoder output, per-source clipping, and unbounded encoded-sample
+  buffering. Processing is O(F * L) for F output frames and L active layers;
+  managed storage is O(P) for P scheduled sources plus at most 16 KiB of stack
+  accumulator storage for stereo. It is a native-buffer mix path, not a
+  decoded-audio zero-copy claim. Identity AAC keeps the existing compressed
+  remux lane when no background or effect requires composition.
   [`MediaCodecInfo.isHardwareAccelerated`](https://developer.android.com/reference/android/media/MediaCodecInfo#isHardwareAccelerated())
   and video capability size/rate checks select the encoder; runtime selection
   is still reported as requested rather than guaranteed until device
@@ -491,6 +687,30 @@ reflection-based activation and Windows-native types in the portable core.
   targets into EGL, waits on each detached fence, renders one terminal encoder
   blit, and retains `eglPresentationTimeANDROID` for exact composition
   timestamps.
+  Standard overlays additionally follow Android's official
+  [`SurfaceTexture`](https://developer.android.com/reference/android/graphics/SurfaceTexture)
+  ownership and threading contract. A `Surface` created from each retained
+  overlay `SurfaceTexture` is configured as that overlay decoder's output;
+  `updateTexImage` runs only after the export EGL context is current, and the
+  documented per-image transform matrix is refreshed for every selected
+  output. The current external-OES image remains native and reusable while
+  one later MediaCodec output buffer may remain client-owned. This permits a
+  lower-frame-rate overlay to be sampled across several main frames without
+  decoding it again or allocating a duration-sized texture cache.
+  [`MediaCodec.releaseOutputBuffer`](https://developer.android.com/reference/android/media/MediaCodec#releaseOutputBuffer(int,%20boolean))
+  returns discarded preroll immediately and renders only selected half-open
+  source-timeline frames. The selected external image crosses the existing
+  shared AHardwareBuffer/SyncFD ring, then
+  `GpuTextureLayerCompositor` applies normalized WinUI position, opacity,
+  folded affine color state, optional clamped Gaussian output, and
+  source-over blending in declared layer/overlay order. Color overlays use a
+  WebGPU clear on the same source ring. There is no decoded-video readback or
+  per-overlay RGBA allocation. This adopts WinUI's documented
+  [`MediaOverlay`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.mediaoverlay)
+  delay/position/opacity/audio contract and
+  [declared z-order](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-compositions-and-editing);
+  custom compositor definitions remain rejected because approximating them
+  would change output.
   Android's
   [`MediaPlayer.setVolume`](https://developer.android.com/reference/android/media/MediaPlayer#setVolume(float,%20float))
   accepts independent raw left/right scalars from zero through one. The
@@ -567,6 +787,65 @@ reflection-based activation and Windows-native types in the portable core.
   spans. Rejected: frame-boundary timestamp shifting, synthetic compressed
   silence, and claiming the requested gain/effects were applied while merely
   copying AAC.
+  Linux transformed-audio planning is now independent of the eventual codec:
+  it snapshots sequential main clips, signed-delay background tracks, and
+  audio-enabled URI overlays into half-open source/destination intervals,
+  preserving the selected embedded-track index and folding registered typed
+  gain/stereo-balance nodes in declaration order. Those linear graphs remain
+  on the existing Q15 fast path. A non-foldable graph is accepted only when
+  every definition activates through the explicit typed registry as an
+  `IMediaAudioEffect`; one ordered processor chain is prepared per source
+  before mixing, then runs in-place on one shared pooled float workspace.
+  Effect activation never occurs in the block loop, and no reflection,
+  assembly scan, or implicit codec lookup is used. An effect may additionally
+  implement `IMediaAudioProcessorTiming`. Its format-specific finite latency
+  and tail are summed in serial declaration order during preparation.
+  Processors without that optional interface remain block-local.
+  Linux export caps either declaration at ten minutes, rejects a timing change
+  between capability preparation and activation, shifts each input path by the
+  global maximum latency, discards the common preroll, and feeds bounded zero
+  blocks through the declared tail. The AAC presentation timeline grows only
+  by the maximum source tail; no PCM storage grows with latency, tail, or
+  composition duration.
+  A fixed 1,024-frame PCM16 kernel accumulates Q15-scaled sources into signed
+  64-bit lanes and saturates once after all contributors. The existing bounded
+  `sowt`/`twos` reader can materialize pooled PCM16 directly from signed 16-,
+  24-, or 32-bit samples with no steady-read allocation. A monotonic ISO-BMFF
+  source adapter retains the sample index and one converted media sample,
+  crosses sample boundaries without concatenation, fills declared timestamp
+  gaps with silence, and streams blocks directly to a typed AAC encoder
+  callback. Planning is O(C + B + O + E); base mixing is O(S) for S scalar
+  samples, custom effects add O(E × S), and working storage remains
+  O(1,024 × channels) pooled accumulator/output/float storage plus bounded
+  per-source demux metadata and effect instances, with no duration-sized PCM
+  store.
+
+  PipeWire's official
+  [audio design](https://pipewire.pages.freedesktop.org/pipewire/page_audio.html)
+  defines a low-latency processing/transport graph, while its
+  [format parameters](https://pipewire.pages.freedesktop.org/pipewire/group__spa__param.html)
+  include encoded AAC negotiation. WirePlumber documents encoded audio as
+  [device pass-through](https://pipewire.pages.freedesktop.org/wireplumber/resources/releases.html),
+  not as a portable offline PCM-to-AAC encoder. ProGPU therefore adopts
+  PipeWire raw-PCM transport and explicit encoded-format negotiation, but
+  rejects the inference that the presence of an AAC format enum constitutes
+  an AAC transform. The Linux kernel's
+  [MPEG audio-encoding control](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/ext-ctrls-codec.html)
+  also states that its AAC selector is specific to multiplexed MPEG streams;
+  it is not a general memory-to-memory PCM encoder contract. The WinUI
+  `CreateMp4` contract is H.264 plus AAC, so ProGPU does not write `sowt` PCM
+  under an AAC profile or silently select a process dependency.
+  Instead, `ILinuxAacEncoderFactory` is an explicit application-supplied codec
+  boundary. Capability selection remains false without it. A selected factory
+  receives sequential interleaved PCM16 blocks and emits raw AAC access units
+  plus one MPEG-4 AudioSpecificConfig into a synchronous ProGPU sink. ProGPU
+  validates object type, sample rate, channel configuration, priming, access
+  unit duration, ordering, and bounded padding; spools payload directly to
+  disk; builds the `mp4a`/`esds` sample entry and version-1 edit; and owns the
+  final transactional ISO-BMFF mux. This connects gain/effects, background
+  audio, audible overlays, and PCM main clips without making an untrue
+  built-in-codec claim. Compatible identity AAC still uses the compressed
+  edit-list lane.
   The effect lane follows the kernel's
   [`DMA_BUF_IOCTL_IMPORT_SYNC_FILE`](https://docs.kernel.org/driver-api/dma-buf.html)
   explicit-to-implicit synchronization contract and Dawn's
@@ -603,6 +882,46 @@ reflection-based activation and Windows-native types in the portable core.
   [Wayland surface contract](https://dawn.googlesource.com/dawn/%2B/579447cf71643bde5652e5bd5e81eb55538e1ba0/src/dawn/native/webgpu/SwapChainWGPU.cpp)
   also informs the desktop sample's borrowed Wayland display/surface
   presentation path; X11 uses the equivalent Xlib surface contract.
+
+  **Audio processor latency and tail research checkpoint.** The timing
+  contract was designed clean-room from host-facing specifications, not from
+  another engine's implementation. Apple's Audio Unit programming guide
+  requires an effect to report latency so a host can compensate it and defines
+  tail time as audible output after latency once input becomes silent;
+  variable values report their maximum. Steinberg's official VST3
+  `IAudioProcessor` contract likewise expresses group delay/look-ahead in
+  samples and a maximum finite tail for offline drain. Media Foundation's
+  asynchronous MFT contract requires a drain operation to emit all remaining
+  output and calls out reverb/echo audio tails. Web Audio defines tail-time as
+  continued non-silent output caused by prior input.
+
+  - Adopted: format-specific integer frame counts, serial latency/tail sums,
+    host-side common-delay compensation, and explicit zero-input tail drain.
+  - Adapted: infinite/unknown tails are deliberately excluded from the
+    portable contract; each provider accepts only a finite resource-bounded
+    declaration. Linux offline export currently implements compensation, with
+    a ten-minute per-path limit.
+  - Rejected: duration-sized delay buffers, per-frame timing queries, hidden
+    truncation, and treating declared latency as metadata without changing
+    scheduling. Apple playback/export taps, Windows export, Android export,
+    and live PipeWire therefore reject nonzero timing until their native
+    schedules implement the same semantics.
+
+  Primary contracts:
+  [Apple Audio Unit latency/tail guidance](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioUnitProgrammingGuide/TheAudioUnit/TheAudioUnit.html),
+  [VST3 `IAudioProcessor`](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/classSteinberg_1_1Vst_1_1IAudioProcessor.html),
+  [Media Foundation asynchronous MFT drain](https://learn.microsoft.com/en-us/windows/win32/medfound/asynchronous-mfts),
+  and [Web Audio tail-time](https://www.w3.org/TR/webaudio-1.1/#AudioNode-tail-time).
+
+  For `P` paths, `E` serial effects, `F` output frames, and `C` channels,
+  preparation is `O(P × E)` time and `O(P)` timing metadata. The Linux
+  streaming render remains `O(P × (F + D + T) × E × C)` in the simple bounded
+  scan for global latency `D` and maximum tail `T`; workspace remains
+  `O(1,024 × C)`. Focused tests use a deterministic two-frame-latency,
+  two-frame-tail impulse/echo graph, verify sample alignment and encoder
+  duration, retain the existing zero-allocation warm block gates, and make no
+  physical-device latency or throughput claim.
+
 - The current
   [WebGPU specification](https://gpuweb.github.io/gpuweb/#texture-formats-tier1)
   gates `r16unorm` and `rg16unorm` behind
@@ -660,8 +979,22 @@ reflection-based activation and Windows-native types in the portable core.
   center contract is aligned while intermediate amplitudes remain
   browser-defined rather than pretending to be bit-identical to the linear
   Apple/Linux PCM implementation. Cross-origin media that is not CORS-enabled
-  remains subject to the Web Audio security rule and may produce silence;
-  arbitrary custom processors require an explicit AudioWorklet extension.
+  remains subject to the Web Audio security rule and may produce silence.
+  Application-specific processors use the typed
+  `IBrowserAudioWorkletEffect` extension. Its immutable state identifies an
+  app-supplied module, registered processor name, and bounded JSON
+  `AudioWorkletNodeOptions`. ProGPU loads each module once per `AudioContext`,
+  constructs the worklet only after `addModule()` resolves, retains declared
+  effect order while an asynchronous module loads, and closes the worklet
+  message port when a node is replaced or disposed. The
+  [W3C AudioWorklet contract](https://www.w3.org/TR/webaudio-1.1/#AudioWorklet)
+  defines module registration and off-main-thread audio rendering, while
+  [`AudioWorkletNodeOptions`](https://www.w3.org/TR/webaudio-1.1/#AudioWorkletNodeOptions)
+  defines the structured-cloned `parameterData` and `processorOptions`
+  boundary adopted here. ProGPU does not run a managed PCM callback on the
+  browser UI thread or copy PCM through WASM. A module-load or node-creation
+  failure removes an optional effect or reports a non-optional playback/export
+  failure.
   The browser composition exporter also follows Chromium's official
   [autoplay guidance](https://www.chromium.org/audio-video/autoplay/) by
   constructing and resuming its `AudioContext` before the first asynchronous
@@ -687,6 +1020,54 @@ reflection-based activation and Windows-native types in the portable core.
   a re-entrant .NET-to-JavaScript promise; download fallback destinations are
   resolved synchronously while native file-system pickers retain their
   asynchronous user-gesture contract.
+
+### Browser AudioWorklet extensibility checkpoint
+
+The clean-room browser extension follows the W3C
+[AudioWorklet processing model](https://www.w3.org/TR/webaudio-1.1/#AudioWorklet),
+[`AudioWorkletNode` construction contract](https://www.w3.org/TR/webaudio-1.1/#AudioWorkletNode),
+and
+[`AudioWorkletNodeOptions` dictionary](https://www.w3.org/TR/webaudio-1.1/#AudioWorkletNodeOptions).
+The functional signal gate additionally follows the W3C
+[`OfflineAudioContext.startRendering()` contract](https://www.w3.org/TR/webaudio-1.1/#dom-offlineaudiocontext-startrendering)
+and inspects the returned browser-owned
+[`AudioBuffer` channel data](https://www.w3.org/TR/webaudio-1.1/#dom-audiobuffer-getchanneldata).
+It adopts per-context module registration, off-main-thread sample processing,
+structured-cloned node options, and declared graph order. It adapts these
+through `BrowserAudioWorkletEffectFactory` so official WinUI-aligned
+activatable-class IDs and property sets remain the public composition/player
+entry point. It rejects main-thread managed PCM callbacks, reflection-based
+module discovery, inline foreign processor source, and claims that an
+application-supplied module has been runtime-validated when only its typed
+descriptor has been gated.
+
+The configuration path validates a maximum 64-KiB JSON object before crossing
+interop. Module loads are deduplicated per `AudioContext`; a rejected load is
+removed from the cache so a later state update can retry. Playback retains a
+placeholder at the effect's map position while loading, closes stale/replaced
+nodes and message ports, and distinguishes optional from required failures.
+Composition awaits the same module/node creation before connecting the
+source-volume tail. Configuration is O(E + J) time and O(E + J) storage for E
+effects and J option bytes; ProGPU adds no per-render-quantum allocation or PCM
+transfer.
+
+Validation on the final Release sources includes zero-warning
+`ProGPU.Browser` and non-AOT browser-WASM sample builds, JavaScript syntax
+checking, focused browser/sample contract tests, the complete managed suite,
+and the package/documentation gate. The secure-context device/runtime gate was
+then run from the linked Release browser-WASM sample in headless Chromium 150
+on macOS. The user-activated playback flow loaded the app-owned processor,
+rendered 512 deterministic frames across two channels through a closed offline
+worklet node, and reported maximum numeric error `0` without copying PCM into
+WASM. It then created a distinct live player node, completed
+play/pause/seek/replay with result `0`, and returned its DOM media-element count
+to zero. The fresh playback page therefore reported two constructed nodes. A
+fresh user-activated nonlinear-editor effect/audio export created exactly one
+worklet node in the ordered clip graph and completed with result `0`. Both runs
+reported WebGPU and AudioWorklet availability and emitted zero console warnings
+or errors. This is functional numeric-DSP, graph-construction, and lifetime
+evidence; it is not a physical-device latency, throughput, power, zero-copy, or
+audible-output measurement.
 
 Adopted: explicit frame ownership, bounded latest-frame retention, provider
 capability reporting, hardware-first selection, and real-time audio callback
@@ -754,6 +1135,28 @@ readback for ordinary presentation, and unbounded decoded-frame queues.
   shaping/layout state is independent of video decode and remains reusable
   CPU state. No media frame invalidation may flush text, glyph, or layout
   caches.
+- [Skia `SkCanvas::drawImageRect`](https://api.skia.org/classSkCanvas.html)
+  establishes source-to-destination rectangle sampling, while save layers
+  isolate opacity/effect composition. Direct2D's
+  [composite effect](https://learn.microsoft.com/en-us/windows/win32/direct2d/composite)
+  defines source-over ordering, and its
+  [alpha-mode contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes)
+  distinguishes straight source pixels from premultiplied blend inputs.
+  WebGPU's
+  [blend-state equations](https://gpuweb.github.io/gpuweb/#blend-state)
+  provide the portable fixed-function realization. ProGPU adopts rectangle
+  sampling and declared back-to-front order, transforms straight RGB,
+  multiplies alpha by overlay opacity, premultiplies exactly once, and blends
+  with `One` / `OneMinusSrcAlpha`. It rejects source/destination aliasing and
+  custom compositor definitions rather than hiding an intermediate copy or
+  silently changing output.
+- WebRender's retained display-list/resource-binding split and Vello's
+  target-independent scene construction inform the retained overlay plan:
+  timeline DTOs and native readers remain outside the GPU pipeline, stable
+  texture views retain bind groups, and only active layers submit work.
+  HarfBuzz, Skia shaping, DirectWrite, and Parley remain deliberately
+  unaffected because overlay advancement does not invalidate text layout or
+  glyph caches.
 
 The effect implementation is clean-room. `MediaVideoColorTransform` is an
 original immutable three-row affine value with fixed O(1) composition.
@@ -1010,29 +1413,59 @@ cursor. The sample player exercises the same item metadata path before native
 playback. Automatic embedded-tag extraction and platform SMTC publication are
 not fabricated where a host has no system transport service; the public
 contracts remain typed extension points for those hosts.
-`MediaPlaybackItem.AudioTracks` and `VideoTracks` expose the official
+`MediaPlaybackItem.AudioTracks`, `VideoTracks`, and `TimedMetadataTracks`
+expose the official
 read-only
 [`MediaPlaybackAudioTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist)
 and
 [`MediaPlaybackVideoTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackvideotracklist)
+and
+[`MediaPlaybackTimedMetadataTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacktimedmetadatatracklist)
 projections, including `Size`, `GetAt`, `GetMany`, `IndexOf`,
 `ISingleSelectMediaTrackList.SelectedIndex`, and the documented selected-index
 event. Provider-neutral immutable descriptors carry stable native IDs,
-language, label/name, encoding facts, and decoder support. An open or changed
-provider snapshot updates membership first and publishes typed
+language, label/name, encoding facts, decoder support, timed-metadata kind,
+and dispatch type. Timed metadata uses the official per-track `Disabled`,
+`Hidden`, `ApplicationPresented`, and `PlatformPresented` modes instead of
+being forced into the audio/video single-selection model. Mode requests flow
+through an optional typed provider contract and publish
+`PresentationModeChanged` only after the active provider accepts the request.
+Caller-created tracks in `MediaSource.ExternalTimedMetadataTracks` retain
+their exact object identity in the playback item and do not require a native
+provider mode call. URI/stream `TimedTextSource` values resolve into that same
+observable collection and publish the official `Resolved` event with either
+the inserted tracks or a typed `TimedMetadataTrackError`. Removing the source
+transactionally removes only the tracks it generated. `DataCue` provides the
+official binary buffer and property
+bag surface. Its timing changes invalidate the shared schedule immediately;
+custom mutable `IMediaCue` implementations should be removed and re-added
+after changing timing because the official interface has no change event.
+The reusable `MediaTimedCueTimeline<TCue>` in `ProGPU.Media` owns scheduling
+independently of WinUI. It keeps half-open `[start, start + duration)` active
+intervals, suppresses all events while disabled, reconciles backward seeks,
+and drops fully skipped cue windows rather than synthesizing stale events.
+Cue insertion is O(C); warmed steady forward updates are O(E + A) with zero
+managed allocation, and seek/schedule reconciliation is O(C * A), for C
+cues, E crossed boundaries, and A active cues.
+An open or changed provider snapshot updates membership first and publishes typed
 `IVectorChangedEventArgs`; selection-only updates preserve the existing
-`AudioTrack`/`VideoTrack` object identities and caller-edited labels. Source
+`AudioTrack`/`VideoTrack`/`TimedMetadataTrack` object identities and
+caller-edited labels. Source
 replacement resets the active item's engine snapshot, and item-to-player
-selection subscriptions detach when the current item changes or the player is
-disposed, preventing a stale item from selecting tracks on a later provider.
+selection and presentation-mode subscriptions detach when the current item
+changes or the player is disposed, preventing a stale item from changing a
+later provider.
 Publication is O(T) time and storage for T tracks and does not enter the
 per-frame playback path. The shared GPU Media Player sample presents the
-reported audio/video tracks in selectors and drives the same official
-`SelectedIndex` properties used by applications.
+reported audio, video, and timed-metadata tracks in selectors and drives the
+same official `SelectedIndex` and per-track presentation-mode properties used
+by applications.
 
 This track design adopts the public WinUI
 [`AudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.audiotrack),
 [`VideoTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.videotrack),
+[`TimedMetadataTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack),
+[`TimedMetadataTrackPresentationMode`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.timedmetadatatrackpresentationmode),
 and
 [`ISingleSelectMediaTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.isingleselectmediatracklist)
 contracts. Apple enumeration and switching use the public
@@ -1046,11 +1479,35 @@ and the documented
 audio lane; Android's contract does not promise video selection, so alternate
 video selection is rejected rather than simulated. Linux publishes the
 ISO-BMFF tracks parsed by its bounded sample-table reader and marks only the
-currently executable V4L2/PipeWire lane selected. Windows Media Engine and
-browser HTML media currently publish their active audio/video stream facts;
-enumerating and switching every alternate stream remains pending until their
-typed native stream-selection lanes are implemented. No provider claims
-multi-track selection from only a `HasAudio`/`HasVideo` probe.
+currently executable V4L2/PipeWire lane selected. Windows Media Engine
+enumerates native audio/video streams through
+[`IMFMediaEngineEx::GetNumberOfStreams`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-getnumberofstreams),
+classifies them from copied stream attributes, and queries their selected
+state. Switching batches same-kind deselection and selection through
+[`SetStreamSelection`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setstreamselection)
+before one
+[`ApplyStreamSelections`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-applystreamselections)
+call, so the published WinUI single-select list cannot expose an intermediate
+native state. The copied `PROPVARIANT` is always cleared, enumeration is O(T)
+time/storage for T streams, and switching is O(K) for K same-kind streams with
+no per-frame work. The browser publishes native HTML text tracks and complete
+WebVTT cue snapshots. Apple publishes AVFoundation
+legible media-selection options and accumulated attributed-text cue snapshots;
+its media-selection group is mutually exclusive. Enabling a second Apple
+legible option is rejected until the current option is disabled, so the
+managed modes never claim two native selections. Android publishes parsed
+`TimedText` payloads for application presentation and rejects encoded
+`SubtitleData` plus platform presentation. Windows projects native parsed text
+and bounded binary metadata; Linux projects in-band WebVTT text. Other native
+provider payload kinds remain capability-gated. Until a provider implements
+the relevant typed lane it must reject presentation-mode changes rather than
+treating native track selection as proof that cue payloads or
+platform-rendered captions are available. External application cues already
+use the shared playback clock and remain available to Avalonia, LibreWPF, and
+LibreWinForms through the neutral scheduler without placing cue-list mutations
+on the playback frame path. Platform-styled captions remain host/native-view
+owned on Apple and browser owned on the web; the reusable GPU surface consumes
+application-presented text instead of duplicating either native styling engine.
 The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay
@@ -1133,9 +1590,14 @@ occupying an official WinUI member with incomplete behavior:
   native `GainNode` or `StereoPannerNode` values after the clip,
   background-track, or overlay volume node. This intentionally preserves
   multiple panner nodes rather than algebraically collapsing Web Audio's
-  specified equal-power law into ProGPU's linear PCM balance. Other declared
-  unsupported effects and custom compositors are rejected rather than
-  silently omitted.
+  specified equal-power law into ProGPU's linear PCM balance. Registered
+  `IBrowserAudioWorkletEffect` definitions instead serialize the validated
+  module/name/options descriptor; the browser deduplicates module promises per
+  export context and inserts each `AudioWorkletNode` at its declared position.
+  Configuration is O(E + J) for E effects and J option bytes. Runtime work and
+  storage are owned by the supplied processor and browser audio graph; ProGPU
+  adds no PCM readback or duration-sized buffer. Other declared unsupported
+  effects and custom compositors are rejected rather than silently omitted.
   A runtime-probed H.264/AAC `MediaRecorder` performs real-time encoding and
   MP4 muxing. Output is written directly as a Blob to the selected browser
   file handle, avoiding a Blob-to-WASM-to-Blob round trip.
@@ -1161,9 +1623,10 @@ delivery is zero-copy, because both specifications expose copy/encoding
 boundaries and leave the underlying browser implementation opaque.
 
 `WindowsMediaFoundationCompositionThumbnailProvider` reuses the precise
-exporter's Media Foundation/DXGI/WebGPU lane. A batch owns one source reader
+exporter’s Media Foundation/DXGI/WebGPU lane. A batch owns one source reader
 per URI clip, one D3D11 device and DXGI manager, the existing three-source/
-three-target keyed-mutex WebGPU ring, and one retained staging texture.
+three-target keyed-mutex WebGPU ring, one retained reader per URI overlay,
+the flattened layer plan, and one retained staging texture.
 Media Foundation seeks to the key frame at or before a requested position;
 nearest-frame requests then decode forward and choose the closer surrounding
 sample, while nearest-key-frame requests retain the first decoded sample.
@@ -1175,7 +1638,10 @@ so each axis performs one center plus at most 96 mirrored samples. Constant
 color clips skip the spatial passes because clamp-to-edge blur leaves a
 constant field unchanged. Only the final BGRA target is copied to the retained
 `D3D11_USAGE_STAGING` texture, mapped row-by-row, and passed to the
-dependency-free PNG boundary.
+dependency-free PNG boundary. Active overlays seek through their retained
+readers for each arbitrary thumbnail position, apply the same effect and
+source-over layer pipelines as export, and preserve WinUI layer/overlay order
+before that single required final readback.
 
 This Windows design was derived clean-room from Microsoft's
 [`MF_SOURCE_READER_D3D_MANAGER` contract](https://learn.microsoft.com/en-us/windows/win32/medfound/mf-source-reader-d3d-manager),
@@ -1208,6 +1674,98 @@ adapts the existing reusable NV12 shader with an RGBA output entry point, and
 rejects random decoder resets, CPU NV12 conversion, unbounded frame caches,
 and zero-copy claims across encoded PNG delivery.
 
+Linux in-band WebVTT support was designed clean-room from the W3C
+[in-band ISO-BMFF text-track mapping](https://dev.w3.org/html5/html-sourcing-inband-tracks/#mpeg-4),
+the MP4 Registration Authority
+[`wvtt` registration](https://mp4ra.org/registered-types/codecs), and the W3C
+[WebVTT data model](https://www.w3.org/TR/webvtt1/). The implementation adopts
+the specified `text` handler plus `wvtt` sample entry, sources cue identifiers
+from `iden`, cue settings from `sttg`, cue text from `payl`, and timing from the
+ISO-BMFF sample presentation time and duration. The W3C cue-settings grammar
+is parsed once into provider-neutral line/position/size/alignment/vertical and
+region state. Cue text is decoded into display text plus combined bold,
+italic, underline, and ruby UTF-16 subformat runs; ruby annotation descendants
+are excluded from display text and retained on the matching base ranges. The
+six named WebVTT character references and CR/LF line boundaries are normalized
+without an external parser. These immutable values project into retained
+WinUI `TimedTextLine`, `TimedTextSubformat`, `TimedTextStyle`,
+`TimedTextRuby`, and `TimedTextRegion` objects. Parsing remains an open-time
+O(S + B + U + R log R) pass for S samples, B nested boxes, U UTF-8/UTF-16
+units, and R emitted runs, with a 16-MiB per-sample,
+256-MiB retained-input, and one-million-cue bound. Duplicate `iden`, `sttg`, or
+`payl` children, invalid UTF-8, malformed box sizes, and invalid public DTO
+ranges fail explicitly. WebVTT class/voice/language CSS, timestamp components,
+in-band region configuration, external `STYLE` blocks, `tx3g`, and TTML remain
+future extensions. `PlatformPresented` is still rejected because a reusable
+WebGPU frame-server surface has no native Linux caption presenter.
+
+External WebVTT uses the same clean-room cue-settings and cue-text parser
+below the WinUI facade. The separate document parser validates the `WEBVTT`
+signature, normalizes CR/LF, skips `NOTE` and currently unapplied `STYLE`
+blocks, parses cue identifiers and millisecond timestamps, and recovers from
+malformed cue blocks without accepting a malformed document signature.
+`REGION` definitions are collected before the first cue with W3C defaults,
+bounded to 10,000 definitions, and resolved by the last matching identifier.
+Ruby spans accept one or more base/`rt` annotation pairs, including the
+permitted omitted final `rt` end tag. Annotation text and named character
+references are retained in immutable provider-neutral ruby descriptors while
+only base text enters the cue line. The WinUI projection mutates the retained
+`TimedTextRuby` child with the WebVTT defaults `Before`, `None`, and `Center`;
+applying a later non-ruby snapshot clears all four retained ruby properties so
+pooled cue objects cannot expose stale annotations.
+The provider-neutral region snapshot preserves width, line count, both region
+and viewport anchor pairs, and scroll-up intent exactly. Valid vertical,
+explicit-line, and non-100%-size settings remove a cue from its region before
+projection as required by WebVTT. The retained WinUI `TimedTextRegion`
+projects the exact name, percentage width and horizontal anchor, viewport
+vertical anchor, clipping/wrapping, and pop-on/roll-up state. Its percentage
+height remains zero because WebVTT height is a line count, not a percentage;
+the exact line count and vertical region anchor remain on the internal typed
+provider snapshot for a renderer with actual font metrics rather than being
+silently assigned the wrong unit. Stream factories snapshot at most 64 MiB
+while preserving the caller's random-access cursor; file and network URI
+factories use bounded built-in .NET streaming I/O and strict UTF-8. Resolution
+is expected O(B + U + C + D + R log R) time and
+O(B + U + C + D + R) retained
+control-plane storage for B bytes, U decoded units, C cues, D region
+definitions, and R style runs; only adversarial region-dictionary collisions
+raise lookup work toward O(C * D). It never enters video decode, WebGPU
+recording, or the audio callback. Indexed image subtitles, TTML, `tx3g`, and
+CSS application from `STYLE` fail or remain unprojected explicitly instead of
+loading an external codec library.
+
+Linux alternate-track selection follows the official WinUI
+[`MediaPlaybackAudioTrackList.SelectedIndex`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist.selectedindex)
+and
+[media-track selection guidance](https://learn.microsoft.com/en-us/windows/apps/develop/media-playback/media-playback-with-mediasource).
+The provider enumerates native ISO-BMFF indices once in O(T) time for T
+tracks, reports support from the probed V4L2/PipeWire capabilities, and
+coalesces each audio/video selection kind into one O(1) worker request.
+Video changes apply the Linux kernel
+[stateful-decoder seek model](https://docs.kernel.org/userspace-api/media/v4l/dev-decoder.html#seek):
+the old decoder is stopped, the selected track restarts at the preceding sync
+sample for the current presentation time, stale output is discarded by
+timestamp, and a failed open restores the previous decoder at that same
+position. Audio changes start and position the replacement PipeWire stream
+before atomically publishing it and retiring the prior stream. This keeps
+native lifetime transitions off the UI thread, preserves one selected track
+per kind, and adds no work or allocation to steady frame presentation or the
+PipeWire realtime callback.
+
+Linux frame stepping preserves the intentionally asymmetric official WinUI
+contracts:
+[`StepForwardOneFrame`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplayer.stepforwardoneframe)
+selects the next composition-time frame, while
+[`StepBackwardOneFrame`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplayer.stepbackwardoneframe)
+moves the playback position backward by 42 milliseconds regardless of encoded
+frame rate. A fixed 64-entry ring records UI requests without per-call
+allocation. The playback worker pauses native audio, finds the preceding sync
+sample across decode-order sample tables, restarts V4L2, discards output before
+the target, and presents the first eligible DMA-BUF frame. Each user-initiated
+step performs O(S) sample-table work for S video samples so reordered
+composition timestamps remain correct; steady playback and the PipeWire
+callback are unchanged.
+
 Windows-only contracts such as casting, SMTC, DRM/protection managers,
 timeline-controller integration, audio-device objects, and Direct3D surface
 copy/composition are not stubbed. They require a real typed platform adapter
@@ -1220,14 +1778,25 @@ registered provider can faithfully encode the requested timeline.
 
 | Target | Provider status | Rendering status | Honest limitation |
 |---|---|---|---|
-| Browser | Runtime-validated worker-mode HTML media playback with seek/replay and a native Web Audio graph; registered typed gain and stereo-balance nodes are applied live. Compatible edits use dependency-free compressed MP4 fast export; precise/effect/color/overlay/background-audio edits use the WebGPU plus native H.264/AAC MediaRecorder lane, including serialized ordered gain/stereo-balance definitions and registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, invert, and clamped Gaussian nodes. WinUI-aligned single/batch thumbnails reuse the same WebGPU composition lane for URI/color clips, affine and Gaussian effects, overlays, endpoint mapping, and precise or browser-approximate seeking | WebGPU `copyExternalImageToTexture`, 2D effects and spherical projection; transferred `VideoFrame` ownership is bounded and decoded-frame copies are ordered inside the frame command packet. Export and thumbnails render through one retained OffscreenCanvas WebGPU pipeline per operation. The normal 80-byte per-layer uniform carries destination, three folded affine rows, and opacity; a blurred URI visual adds two retained RGBA8 textures and two 912-byte separable-kernel uniforms. Both blur axes and composition are encoded in one command buffer, with the affine transform remaining in the terminal composition pass. Constant colors skip spatial work. Thumbnails use the required PNG `convertToBlob` boundary and copy each encoded result directly into its final managed array | Playback, baked export, and thumbnails are browser-controlled GPU-copy/readback lanes, not zero-copy; baked export is real-time and requires runtime H.264/AAC MP4 recorder support plus a user-initiated action. URI export/thumbnails require CORS-readable media; `fastSeek` availability and approximation are browser-defined, with precise fallback; Web Audio uses equal-power intermediate pan amplitudes; unregistered/unsupported video effects and custom compositors remain rejected |
-| macOS | Shared Apple AVFoundation/AVPlayer provider implemented; native audio with typed post-effects `MTAudioProcessingTap` callbacks, IOSurface-backed BGRA frames, AVFoundation H.264/AAC composition export, and WinUI-aligned single/batch composition thumbnails. Export and thumbnails support ordered clips, built-in positioned/opacity URI or color overlays, generated main-track colors, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert, and registered clamped Gaussian blur nodes | Runtime-validated hardware decode and Dawn IOSurface `NativeZeroCopy`; generated colors render once through Core Image/Metal into the AVAssetWriter adaptor's recyclable pixel-buffer pool and use exact rational presentation timestamps without CPU pixel access. URI clips snapshot one portable effect plan, execute one folded Core Image color matrix plus an optional clamped Core Image/Metal Gaussian blur, and crop back to the encoded frame without CPU pixel access. One AVAssetImageGenerator and native composition are reused per thumbnail batch; ImageIO materializes the required encoded PNG result. `ProGPU.Samples.Desktop` presents through the same Dawn/Metal device | On macOS 26 the outer Avalonia shell currently uses its framebuffer fallback because Dawn does not accept the losslessly compressed `&BGA` CAMetalLayer IOSurface; AVFoundation owns encoder selection, so hardware encode is not guaranteed; encoded thumbnails are not zero-copy; export/thumbnail composition rejects unregistered or unsupported video effects and custom compositor definitions |
-| iOS | The shared Apple AVFoundation playback, decoded-audio effect, composition-export, and composition-thumbnail providers are registered by the iOS host; export includes typed scheduled audio effects plus the same native background-audio, URI/color standard-overlay, generated main-track color, registered affine color-effect, and clamped Gaussian-blur GPU-bake lanes as macOS | IOSurface external-frame ownership and same-device Dawn Metal `CAMetalLayer` presentation/import are implemented; generated colors and URI effects use Core Image/Metal and the native writer pool without managed pixel copies; audio effects operate on the native mix-tap buffer; native thumbnail composition is shared across each encoded batch | The deployable package must supply the exact WebGPUSharp ABI as `webgpu_dawn.xcframework`; without it the host deliberately selects the diagnosed wgpu-native UI-only fallback; Apple hardware encode remains runtime-selected, thumbnail runtime evidence is currently macOS-only, and unsupported video-effect plus custom-compositor export remain pending |
-| Windows | Dependency-free, AOT-safe Media Foundation Media Engine playback, Source Reader/Sink Writer precise export, and WinUI-aligned single/batch composition thumbnails are implemented; native audio, D3D11 DXGI manager, WinUI-aligned audio category/endpoint role, rate, loop, seek, mute, volume, `IMFMediaEngineEx` balance/frame stepping, and live typed gain/stereo-balance nodes are supported. Fast mode retains compressed H.264/AAC MP4 remux. Precise export and thumbnails accept ordered trimmed URI/color clips, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert, and registered clamped Gaussian blur nodes; export additionally supports optional PCM/AAC and in-place 0–2× per-clip typed gain/stereo balance | Playback frames are GPU-blitted into a bounded keyed-mutex D3D11 texture ring and imported into Dawn D3D12. Identity export passes target-sized NV12 samples through one DXGI manager. GPU export/thumbnail composition reuses three shared BGRA source textures, three WebGPU targets, WebGPU color generation or one decoded-frame D3D11 copy, and either one fused affine pass or two separable Gaussian passes with the affine transform fused into the final axis. The Gaussian path lazily retains one BGRA intermediate and encodes both axes in one submission. A thumbnail batch adds exactly one retained staging texture for final BGRA readback/PNG; PCM16 export modifies native channel samples in place without managed scratch | Playback, GPU export, and thumbnails report their actual GPU copies; encoded thumbnails are not zero-copy. Precise export and thumbnails reject overlays, unsupported/arbitrary video effects, and custom compositors. D3D11/Dawn adapter compatibility is runtime-negotiated, and Gaussian export/thumbnail runtime validation on Windows hardware remains. Direct Source Reader decoder-allocation playback and arbitrary MFT/WASAPI processing remain |
-| Android | Android MediaPlayer/MediaCodec playback, a registered precise/effect MediaExtractor/MediaCodec/MediaMuxer exporter, and WinUI-aligned single/batch composition thumbnails are implemented. Export supports ordered trimmed URI clips, generated color clips with optional silent AAC, hardware H.264 surface input, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, registered clamped Gaussian blur nodes, matching compressed AAC identity remux, and native PCM16 gain/stereo-balance AAC baking with transactional output, cancellation, and typed copy-path reporting. Thumbnails support ordered URI/color clips, exact or sync-frame selection, endpoint mapping, and the same video effects. The shared fast exporter remains available for compatible H.264/AAC MP4 timelines | Playback uses AHardwareBuffer external ownership and Dawn Vulkan import. With an active Vulkan Dawn context, precise export and thumbnail effects reuse the bounded RGBA AHardwareBuffer/SyncFD WebGPU renderer and either one fused 3x4 color pass or a two-axis Gaussian submission with one lazily retained RGBA intermediate. Constant colors skip spatial work. Affine-only fallback uses the retained GLES surface program with the same three affine rows. Audio-effect export copies decoded PCM directly between native codec buffers, applies shared saturating Q15 levels through the encoder buffer address, and stages only compressed AAC on disk; generated-color intervals clear bounded native encoder buffers to silence. No managed PCM array is materialized. A thumbnail batch retains one MediaMetadataRetriever per URI clip, one renderer, and one exact-sized ImageReader | The deployable package must supply the exact WebGPUSharp ABI as `libwebgpu_dawn.so`. Gaussian effects require the active Vulkan Dawn AHardwareBuffer lane; Android thumbnail decode returns native Bitmaps and encoded PNG requires final readback, so thumbnails are not zero-copy; device runtime evidence remains pending. Audio-effect export currently requires each URI source sample rate and channel count to match the requested mono/stereo 44.1/48-kHz profile. Thumbnail overlays, background audio, mixing, arbitrary/unregistered effects, overlays, and non-H.264 profiles remain rejected; hardware video and AAC encoder selection is runtime-negotiated |
-| Linux | Seekable ISO-BMFF H.264/H.265 demux, Annex-B conversion, V4L2 stateful decode queues, timestamp pacing, seek/restart, EOS drain, dynamic source-change restart, explicit sample registration, and WinUI-aligned single/batch composition thumbnails are implemented; version-zero signed `sowt`/`twos` PCM uses native PipeWire output. Fast H.264/AAC MP4 export copies compatible compressed samples transactionally. The registered precise lane accepts ordered local H.264 and generated-color clips, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, and registered clamped Gaussian nodes; it keeps one hardware H.264 encoder open across clip boundaries, derives `avcC`, transactionally rebuilds timing/sample tables, and preserves compatible selected AAC access units with exact edit-list trims/silence | Playback imports RGB DMA-BUF directly, NV12/NV12M as R8/RG8 planes, and capability-gated P010 as R16/RG16 planes. A single native-size identity URI export passes decoder-owned linear NV12 DMA-BUF directly into V4L2. Scaled output, multi-clip timelines, affine effects, and generated colors use three reusable output-sized GBM R8/RG8 targets, normalized bilinear WebGPU sampling, Dawn SyncFD export, kernel fence import, and one stable V4L2 multi-planar encoder input. Gaussian URI frames remain GPU-only through NV12→RGBA, the shared two-axis blur with three lazily retained RGBA textures, and RGBA→NV12 before the existing encoder planes; no decoded or rendered export pixel is mapped. Thumbnails group positions by URI clip, retain at most two decoded NV12 candidates, reuse two Gaussian work textures plus the final RGBA target, and use one aligned final WebGPU readback/PNG boundary. AAC remains compressed and is copied only by the final bounded writer | GBM/Dawn/V4L2 format compatibility is runtime-negotiated and still needs Linux hardware evidence. P010 selection additionally requires WebGPU `texture-formats-tier1`; encoder/export lanes deliberately remain NV12-only. Encoded thumbnails are not zero-copy and local H.264 device validation remains pending. Precise AAC requires identical selected `mp4a` configuration matching the output bitrate/rate/channels. Audio gain/effects, background audio, thumbnail/export overlays, in-stream dynamic source-size changes, seamless in-place pool replacement, and unregistered/unsupported effects remain |
+| Browser | Runtime-validated worker-mode HTML media playback with seek/replay and a native Web Audio graph; registered typed gain/stereo-balance nodes and app-supplied typed AudioWorklet nodes are supported live. Native `TextTrack` membership, modes, and cue changes project through stable WinUI-aligned `TimedMetadataTrack`/`TimedTextCue` objects; `PlatformPresented` selects browser `showing`, while application presentation uses `hidden`. Compatible edits use dependency-free compressed MP4 fast export; precise/effect/color/overlay/background-audio edits use the WebGPU plus native H.264/AAC MediaRecorder lane, including serialized ordered gain/stereo-balance or AudioWorklet definitions and registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, invert, and clamped Gaussian nodes. WinUI-aligned single/batch thumbnails reuse the same WebGPU composition lane for URI/color clips, affine and Gaussian effects, overlays, endpoint mapping, and precise or browser-approximate seeking | WebGPU `copyExternalImageToTexture`, 2D effects and spherical projection; transferred `VideoFrame` ownership is bounded and decoded-frame copies are ordered inside the frame command packet. Export and thumbnails render through one retained OffscreenCanvas WebGPU pipeline per operation. The normal 80-byte per-layer uniform carries destination, three folded affine rows, and opacity; a blurred URI visual adds two retained RGBA8 textures and two 912-byte separable-kernel uniforms. Both blur axes and composition are encoded in one command buffer, with the affine transform remaining in the terminal composition pass. Constant colors skip spatial work. AudioWorklet modules are loaded once per audio context and process inside the browser audio rendering realm without PCM crossing WASM. Thumbnails use the required PNG `convertToBlob` boundary and copy each encoded result directly into its final managed array | Playback, baked export, and thumbnails are browser-controlled GPU-copy/readback lanes, not zero-copy; baked export is real-time and requires runtime H.264/AAC MP4 recorder support plus a user-initiated action. URI export/thumbnails require CORS-readable media; AudioWorklet additionally requires a secure context and a loadable app-supplied module. Its playback and effect/audio-export construction gates pass in Chromium 150 on secure localhost, and the offline two-channel processor signal gate reports maximum numeric error `0` without PCM crossing WASM; physical audible quality, device latency, and performance remain unmeasured. `fastSeek` availability and approximation are browser-defined, with precise fallback; browser/platform caption styling is native and is not duplicated in the WebGPU scene; Web Audio uses equal-power intermediate pan amplitudes; unregistered/unsupported video effects and custom compositors remain rejected |
+| macOS | Shared Apple AVFoundation/AVPlayer provider implemented; native legible media options and attributed-string callbacks project through stable WinUI-aligned timed-text tracks/cues; native audio uses typed post-effects `MTAudioProcessingTap` callbacks; IOSurface-backed BGRA frames, AVFoundation H.264/AAC composition export, and WinUI-aligned single/batch composition thumbnails are implemented. Export and thumbnails support ordered clips, built-in positioned/opacity URI or color overlays, generated main-track colors, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert, and registered clamped Gaussian blur nodes | Runtime-validated hardware decode and Dawn IOSurface `NativeZeroCopy`; generated colors render once through Core Image/Metal into the AVAssetWriter adaptor's recyclable pixel-buffer pool and use exact rational presentation timestamps without CPU pixel access. URI clips snapshot one portable effect plan, execute one folded Core Image color matrix plus an optional clamped Core Image/Metal Gaussian blur, and crop back to the encoded frame without CPU pixel access. One AVAssetImageGenerator and native composition are reused per thumbnail batch; ImageIO materializes the required encoded PNG result. `ProGPU.Samples.Desktop` presents through the same Dawn/Metal device | On macOS 26 the outer Avalonia shell currently uses its framebuffer fallback because Dawn does not accept the losslessly compressed `&BGA` CAMetalLayer IOSurface; native platform caption styling requires a host-supplied AVPlayer view/layer, while the reusable GPU surface uses application-presented cues; AVFoundation owns encoder selection, so hardware encode is not guaranteed; encoded thumbnails are not zero-copy; export/thumbnail composition rejects unregistered or unsupported video effects and custom compositor definitions |
+| iOS | The shared Apple AVFoundation playback, native timed-text, decoded-audio effect, composition-export, and composition-thumbnail providers are registered by the iOS host; export includes typed scheduled audio effects plus the same native background-audio, URI/color standard-overlay, generated main-track color, registered affine color-effect, and clamped Gaussian-blur GPU-bake lanes as macOS | IOSurface external-frame ownership and same-device Dawn Metal `CAMetalLayer` presentation/import are implemented; AVFoundation legible output supplies application-presented cue text/timing without a managed subtitle parser; generated colors and URI effects use Core Image/Metal and the native writer pool without managed pixel copies; audio effects operate on the native mix-tap buffer; native thumbnail composition is shared across each encoded batch | The deployable package must supply the exact WebGPUSharp ABI as `webgpu_dawn.xcframework`; without it the host deliberately selects the diagnosed wgpu-native UI-only fallback; platform-styled captions require a host-supplied AVPlayer view/layer; Apple hardware encode remains runtime-selected, thumbnail and timed-text runtime evidence is currently macOS-only, and unsupported video-effect plus custom-compositor export remain pending |
+| Windows | Dependency-free, AOT-safe Media Foundation Media Engine playback, native `IMFTimedText` subtitle/caption/data-track selection, retained `TimedTextCue`/`DataCue` projection, Source Reader/Sink Writer precise export, and WinUI-aligned single/batch composition thumbnails are implemented; native audio, D3D11 DXGI manager, WinUI-aligned audio category/endpoint role, rate, loop, seek, mute, volume, `IMFMediaEngineEx` balance/frame stepping, and live typed gain/stereo-balance nodes are supported. Fast mode retains compressed H.264/AAC MP4 remux. Precise export and thumbnails accept ordered trimmed URI/color clips, ordered positioned/delayed/opacity-controlled URI/color overlays, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` color nodes for brightness, contrast, saturation, grayscale, sepia, and invert, and registered clamped Gaussian blur nodes. Precise AAC export additionally mixes main clips, signed-delay background tracks, and audible URI overlays with ordered typed gain/stereo balance or arbitrary registered block-local audio effects | Playback frames are GPU-blitted into a bounded keyed-mutex D3D11 texture ring and imported into Dawn D3D12. Parsed Media Foundation timed-text callbacks copy provider-neutral text/timing or bounded binary payload records to the playback worker; no COM cue reaches the render path. Identity export passes target-sized NV12 samples through one DXGI manager. GPU export/thumbnail composition reuses three shared BGRA source textures, three WebGPU targets, WebGPU color generation or one decoded-frame D3D11 copy, and either one fused affine pass or two separable Gaussian passes with the affine transform fused into the final axis. Overlay URI readers are retained; a retained 80-byte placement/effect uniform and source-over pipeline composite active layers in declared order. A blurred overlay lazily retains one additional effect output. A thumbnail batch adds exactly one retained staging texture for final BGRA readback/PNG. Audio uses lazy resampling Source Readers, at most one retained decoded sample per active source, a fixed 1,024-frame wide accumulator, and one final saturation into an MF-owned aligned PCM16 sample. Foldable gain/balance stays on the native Q15 path; other typed effects use one bounded stack float block, reported as `CpuBuffer`, with no managed PCM array or duration-sized store | Playback, GPU export, and thumbnails report their actual GPU copies; encoded thumbnails are not zero-copy. Platform-styled captions and binary metadata presentation are unavailable on the reusable frame-server GPU surface; application presentation receives typed cues. Export and thumbnails reject unsupported/arbitrary video effects and custom compositors. Typed custom audio effects may declare finite latency and tails, but this lane rejects nonzero timing until native compensation and drain are implemented. D3D11/Dawn adapter compatibility is runtime-negotiated, and overlay/Gaussian export/thumbnail, timed metadata, native audio mixing, codec output, and audible levels still require Windows-hardware validation. Direct Source Reader decoder-allocation playback and arbitrary live MFT/WASAPI processing remain |
+| Android | Android MediaPlayer/MediaCodec playback, a registered precise/effect MediaExtractor/MediaCodec/MediaMuxer exporter, and WinUI-aligned single/batch composition thumbnails are implemented. Export supports ordered trimmed URI clips, generated color clips with optional silent AAC, signed-delay trimmed background audio, ordered positioned/delayed/opacity-controlled URI/color overlays, audible URI overlays, hardware H.264 surface input, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, registered clamped Gaussian blur nodes, matching compressed AAC identity remux, and native PCM16 gain/stereo-balance or arbitrary registered block-local typed-effect AAC mixing with transactional output, cancellation, and typed copy-path reporting. Thumbnails support ordered URI/color clips, exact or sync-frame selection, endpoint mapping, the same video effects, and URI/color overlays. The shared fast exporter remains available for compatible H.264/AAC MP4 timelines | Playback uses AHardwareBuffer external ownership and Dawn Vulkan import. With an active Vulkan Dawn context, precise export and thumbnail effects reuse the bounded RGBA AHardwareBuffer/SyncFD WebGPU renderer and either one fused 3x4 color pass or a two-axis Gaussian submission with one lazily retained RGBA intermediate. Each URI overlay retains one native SurfaceTexture image and at most one client-owned decoder output; selected images and color clears reuse the shared three-slot AHardwareBuffer ring, then the retained 80-byte WebGPU source-over compositor applies declared placement, opacity, effects, and z-order. A blurred overlay lazily retains one shared effect output. Affine-only fallback uses the retained GLES surface program with the same three affine rows when no overlays require WebGPU. Audio export retains at most one native decoded PCM16 buffer per active source, mixes main, concurrent background tracks, and audible URI overlays through a fixed 1,024-frame signed-64-bit accumulator, saturates once into the direct encoder input, and stages only compressed AAC on disk. Foldable gain/balance stays on the native Q15 path; other typed effects use one bounded stack float block, reported as `CpuBuffer`. No managed PCM array or duration-sized store is materialized. A thumbnail batch retains one MediaMetadataRetriever per URI clip, one renderer, and one exact-sized ImageReader | The deployable package must supply the exact WebGPUSharp ABI as `libwebgpu_dawn.so`. Gaussian effects and export overlays require the active Vulkan Dawn AHardwareBuffer lane; Android thumbnail decode returns native Bitmaps and encoded PNG requires final readback, so thumbnails are not zero-copy; device runtime evidence remains pending. Mixed export currently requires every URI source sample rate and channel count to match the requested mono/stereo 44.1/48-kHz profile. Typed custom audio effects may declare finite latency and tails, but this lane rejects nonzero timing until native compensation and drain are implemented. Custom compositors, arbitrary/unregistered video effects, unregistered audio effects, and non-H.264 profiles remain rejected; hardware video/AAC encoder selection is runtime-negotiated |
+| Linux | Seekable ISO-BMFF H.264/H.265 demux, Annex-B conversion, V4L2 stateful decode queues, timestamp pacing, seek/restart, WinUI-aligned forward/backward frame stepping, EOS drain, dynamic source-change restart, explicit sample registration, and WinUI-aligned single/batch composition thumbnails are implemented; version-zero signed `sowt`/`twos` PCM uses native PipeWire output. Fast H.264/AAC MP4 export copies compatible compressed samples transactionally. The registered precise lane and thumbnails accept ordered local H.264 and generated-color clips, standard positioned/delayed/opacity local URI or solid-color overlays, legacy saturation/grayscale metadata, registered WinUI `VideoEffectDefinition` brightness, contrast, saturation, grayscale, sepia, and invert nodes, and registered clamped Gaussian nodes. Precise export keeps one hardware H.264 encoder open across clip boundaries, derives `avcC`, transactionally rebuilds timing/sample tables, and preserves compatible selected AAC access units with exact edit-list trims/silence. The codec-independent transformed-audio lane captures main clips, signed-delay background tracks, audible URI overlays, volume, ordered typed gain/balance effects, and arbitrary registered block-local `IMediaAudioEffect` definitions, then connects them to an explicitly supplied `ILinuxAacEncoderFactory` | Playback imports RGB DMA-BUF directly, NV12/NV12M as R8/RG8 planes, and capability-gated P010 as R16/RG16 planes. A single native-size identity URI export passes decoder-owned linear NV12 DMA-BUF directly into V4L2. Scaled output, multi-clip timelines, affine effects, generated colors, and active standard overlays use three reusable output-sized GBM R8/RG8 targets, normalized bilinear WebGPU sampling, Dawn SyncFD export, kernel fence import, and one stable V4L2 multi-planar encoder input. Color overlays reuse one RGBA source; every URI overlay lazily owns a forward-only V4L2 decoder, a selected/look-ahead native pair, one retained effect-processed RGBA image, and two blur textures only when needed. All sources enter the same declared-order compositor before GPU RGBA-to-NV12; no decoded or rendered export pixel is mapped. Thumbnail batches evaluate main clips and overlays in ascending composition order, retain at most two effect-processed URI-main GPU snapshots plus the same per-URI-overlay bounded runtime, and restore caller result order before the one aligned final WebGPU readback/PNG boundary. Each composition variant is copied and overlaid on the GPU without re-decoding or CPU re-upload. Identity AAC remains compressed and is copied only by the final bounded writer. Linear transformed PCM uses the fixed 1,024-frame Int64/Q15 path; arbitrary typed effects reuse one pooled float block before wide accumulation. Encoded access units stream to a ProGPU-owned disk spool and final MP4 writer, with no duration-sized managed PCM or encoded-payload buffer | GBM/Dawn/V4L2 format compatibility and concurrent decoder-context capacity are runtime-negotiated and still need Linux hardware evidence. P010 selection additionally requires WebGPU `texture-formats-tier1`; encoder/export lanes deliberately remain NV12-only. Encoded thumbnails are not zero-copy and local H.264 device validation remains pending. Identity AAC requires identical selected `mp4a` configuration matching the output bitrate/rate/channels. Linux has no portable built-in offline AAC transform, so transformed audio remains unavailable unless the application explicitly supplies a compatible encoder factory; the built-in PCM reader currently requires matching-rate/channel signed `sowt`/`twos`. Typed custom effects must be callback-safe; Linux offline export compensates finite declared latency and drains finite tails, while live PipeWire rejects nonzero timing. Custom compositors, in-stream dynamic source-size changes, seamless in-place pool replacement, and unregistered/unsupported effects remain |
 | Shared desktop/mobile UI | WinUI facade, standalone `ProGPU.Media.Editing`, platform-neutral `ProGPU.WinRT` contracts, framework-neutral 2D recording, direct Mesh3D material path, coalescing `MediaGpuSurfacePresenter`, and Avalonia sample navigation are implemented | WebGPU effects work for any provider texture in the consuming device domain | Framework packages still own their ordinary control templates and transport chrome |
-| Avalonia/LibreWPF/LibreWinForms | Playback core, the standalone editing assembly, Scene contracts, and typed presenter controller are reusable without referencing `ProGPU.WinUI`; the presenter captures the owning synchronization context, coalesces provider-thread frame notifications, exposes natural size, and records the retained GPU lease. `IProGpuDrawingContextSource` is implemented by the native Scene context, LibreWPF `DrawingContext`, and ProGPU-backed `System.Drawing.Graphics`, so WPF and WinForms hosts preserve their current outer transform without reflection. The Avalonia sample host exposes both media pages | All three host families can consume the same editable composition and `MediaGpuSurface` without duplicating media core or reading pixels to the CPU. Host recording composes command-local and framework transforms exactly once while retaining the decoded GPU lease | Dedicated convenience control templates for LibreWPF and LibreWinForms remain work in their sibling framework packages; the typed rendering/lifecycle seam is implemented here without shim-owned geometry or media types |
+| Avalonia/LibreWPF/LibreWinForms | Playback core, the standalone editing assembly, Scene contracts, and typed presenter controller are reusable without referencing `ProGPU.WinUI`; the presenter captures the owning synchronization context, coalesces provider-thread frame notifications, exposes natural size, and records the retained GPU lease. Native hosts can implement `IProGpuDrawingContextSource`; package-neutral WPF hosts instead convert their portable native context through the allocation-free `ProGpuDrawingContextState.TryCreate` type check and call the public state-based `Record` overload. ProGPU-backed `System.Drawing.Graphics` uses the same typed state, so WPF and WinForms preserve their current outer transform without reflection or boxed per-frame adapters. The Avalonia sample host exposes both media pages | All three host families can consume the same editable composition and `MediaGpuSurface` without duplicating media core or reading pixels to the CPU. Host recording composes command-local and framework transforms exactly once while retaining the decoded GPU lease | Dedicated convenience control templates for LibreWPF and LibreWinForms remain work in their sibling framework packages; the typed rendering/lifecycle seam is implemented here without shim-owned geometry or media types |
+
+Linux track addendum: seekable ISO-BMFF audio/video tracks now expose
+capability-gated WinUI `SelectedIndex` switching, and `text`/`wvtt` tracks
+publish language/name metadata plus stable subtitle cue snapshots through the
+same WinUI-aligned track API used by the other providers. Disabled, hidden,
+and application-presented modes are supported. `sttg` cue layout and
+bold/italic/underline subformats are projected through the official WinUI
+types; a renderer can consume the retained region/style graph without
+reparsing cue text. Native platform presentation, external WebVTT
+styles/regions, voice/class styling, `tx3g`/TTML, and AAC decode remain
+explicit gaps.
 
 This table is deliberately capability-based. “Supported project target” does
 not mean a native media provider has already been completed for that target.
@@ -1236,11 +1805,15 @@ not mean a native media provider has already been completed for that target.
 
 | Platform | Decode/demux | Video interop target | Audio | Required fallback |
 |---|---|---|---|---|
-| Windows | Implemented Media Engine frame-server playback; precise export and thumbnails use Source Reader advanced processing with a DXGI manager, while Source Reader/MFT + DXVA direct-allocation playback remains planned | Bounded keyed-mutex D3D11/DXGI playback ring imported by Dawn D3D12; identity export exchanges NV12 samples through one DXGI manager; registered affine color and clamped Gaussian definitions, generated colors, and thumbnails use the bounded shared BGRA/WebGPU ring. Gaussian URI frames use one retained intermediate and a two-axis submission; thumbnail PNG adds one retained staging copy/map after GPU completion | Native Media Engine audio, balance, frame stepping, and registered typed gain/stereo-balance playback nodes; precise export combines `MediaClip.Volume` with ordered registered gain/stereo-balance nodes, applies 0–2× Q15 left/right levels with saturation directly to interleaved PCM16 before native AAC encoding, and reports color-clip audio gaps with stream ticks; arbitrary MFT/WASAPI processing remains planned | Playback, GPU composition export, and thumbnails report their GPU copies/readback; overlays, unsupported/custom effects, mixing, gain above 2×, and other unsupported composition fail capability selection, native type/shared-adapter negotiation fails explicitly, and no Windows hardware measurements are claimed |
+| Windows | Implemented Media Engine frame-server playback; precise export and thumbnails use Source Reader advanced processing with a DXGI manager, while Source Reader/MFT + DXVA direct-allocation playback remains planned | Bounded keyed-mutex D3D11/DXGI playback ring imported by Dawn D3D12; identity export exchanges NV12 samples through one DXGI manager; registered affine color and clamped Gaussian definitions, generated colors, ordered standard overlays, and thumbnails use the bounded shared BGRA/WebGPU ring. Gaussian URI frames use one retained intermediate and a two-axis submission; overlays use retained readers plus a source-over placement pipeline and one lazy blur-output texture; thumbnail PNG adds one retained staging copy/map after GPU completion | Native Media Engine audio, balance, frame stepping, and registered typed gain/stereo-balance playback nodes. Precise AAC export mixes sequential main clips, positive/negative-delay background tracks, and enabled URI-overlay audio on one continuous PCM timeline. Lazy Source Readers decode/resample each active source; Q15 levels accumulate into one bounded signed-64-bit block and saturate once into an MF-owned aligned sample without managed PCM arrays. Arbitrary registered block-local typed effects run in order on one 1,024-frame float block before wide mixing; arbitrary live MFT/WASAPI processing remains planned | Playback, GPU composition export, and thumbnails report their GPU copies/readback; unsupported/custom effects, gain above 2×, and other unsupported composition fail capability selection, native type/shared-adapter negotiation fails explicitly, custom audio-effect latency/tail declarations are rejected until native compensation and drain are implemented, and Windows audio/video hardware measurements are not yet claimed |
 | macOS/iOS | AVFoundation/VideoToolbox playback and AVAssetWriter/AVAssetExportSession composition export; generated main/overlay colors are prepared as native H.264 assets | CVPixelBuffer/IOSurface/Metal texture planes; generated colors use one immutable adaptor-pool BGRA buffer rendered by Core Image/Metal at exact rational timestamps; registered affine color definitions fold into one Core Image matrix pass and registered Gaussian nodes execute as one clamped Core Image blur cropped to the frame extent | AVPlayer and export audio use typed post-effects `MTAudioProcessingTap`; portable gain and stereo-balance nodes process native float PCM without callback allocation, while immutable clip/background/overlay schedules use direct interleaved buffers or bounded planar scratch | GPU conversion pass for unsupported YUV sampling; unregistered/unsupported effects and unsupported tap PCM numeric layouts fail or pass through with explicit diagnostics; AVFoundation owns hardware-encoder selection |
-| Android | Implemented MediaPlayer/MediaCodec playback, MediaExtractor/MediaCodec/MediaMuxer precise export, and MediaMetadataRetriever composition thumbnails; export surfaces and generated colors bypass CPU pixel access, while thumbnail URI decode follows Android's native Bitmap-returning contract | Playback uses ImageReader/AHardwareBuffer plus same-device Dawn Vulkan import/presentation; export uses a SurfaceTexture or WebGPU-generated color through the bounded encoder-Surface GPU path. Registered Gaussian URI effects reuse the shared separable WebGPU kernel and one retained intermediate before the encoder target; thumbnail effects reuse that renderer before one CPU-readable ImageReader/PNG boundary | Registered playback gain and stereo balance fold into left/right `MediaPlayer` volume plus a common per-session `LoudnessEnhancer`. Identity export preserves exactly matching AAC access units. Effect export decodes directly to native PCM16 codec buffers, applies clip volume plus ordered registered gain/stereo-balance levels in the writable encoder input, and natively re-encodes AAC without managed PCM copies. Generated-color intervals feed frame-counted zeroed native buffers into the same encoder; general AAudio processing, background audio, and mixing remain planned | Missing exact-ABI Dawn packaging selects an explicitly diagnosed affine playback/export fallback, but Gaussian composition fails capability selection without Vulkan Dawn. Encoded thumbnails and effect-bearing audio are not zero-copy and still need Android device validation; URI audio transcode requires matching source/output rate and channel count, thumbnail overlays and unsupported composition fail explicitly, and hardware encode remains runtime-negotiated |
-| Linux | Built-in ISO-BMFF sample tables plus H.264/H.265 Annex-B conversion feed the implemented V4L2 stateful MMAP decoder OUTPUT queue; local seekable file/stream playback is registered in the Avalonia sample; a dynamic source change reopens at the preceding sync sample while old exported leases drain. Fast mode remuxes compatible H.264/AAC. Precise mode registers one V4L2 H.264 encoder for an ordered URI/color timeline, composes trimmed source timestamps with cumulative clip offsets, and muxes native encoder access units without an external codec/container dependency. Composition thumbnails reuse the demuxer/decoder per URI clip and normalize key-frame requests through the sync-sample index | Playback exposes RGB as one Dawn DMA-BUF texture, NV12/NV12M as R8/RG8 plane textures, and P010 as Tier-1 R16/RG16 plane textures. Native-size single-URI identity export transfers decoder CAPTURE leases directly to encoder OUTPUT. Scaling, ordered timelines, registered affine color definitions, and generated limited-range BT.709 color planes use a bounded output-sized GBM R8/RG8 target ring with normalized bilinear sampling, one fused three-row transform, explicit Dawn SyncFD export, and DMA-BUF reservation-fence import before V4L2 queueing. Registered Gaussian nodes add retained RGBA conversion/blur work textures and a GPU RGBA→NV12 pass before the same encoder planes. Thumbnails reuse the effect plan, retained RGBA targets, and exactly one aligned WebGPU staging buffer per batch | PipeWire float-PCM playback uses an allocation-free bounded SPSC callback ring with registered gain/stereo-balance or arbitrary typed PCM effects and native timing. Precise export preserves compatible selected AAC samples as `CompressedSampleCopy`; version-1 edit lists trim partial boundary frames and represent leading/internal silent spans without decode or PCM generation | Unsupported containers/codecs fail explicitly. Precise export remains NV12-only and requires a runtime-compatible GBM/Dawn/V4L2 DMA-BUF intersection; P010 playback requires `texture-formats-tier1`; thumbnails require a compatible decoder/Dawn import path and final mapped PNG readback. AAC gain/effects, mixing, background audio, overlays, unregistered/unsupported effects, and incompatible source configurations remain rejected. It has executable capability/scaling/AAC-edit/timestamp/WebGPU-RGBA tests and source/build tests but no Linux hardware run yet. No CPU video conversion is disguised as zero-copy |
-| Browser | HTML media playback; dependency-free ISO-BMFF fast export, WebGPU/MediaRecorder effect-bake export, and HTML-media/WebGPU composition thumbnails; a future WebCodecs provider remains pluggable | Browser external images are explicitly copied into reusable WebGPU textures; export and thumbnails fold registered affine color definitions into one retained three-row shader pass and execute registered Gaussian definitions through the shared separable kernel, two retained work textures, and one command-buffer submission. Export uses OffscreenCanvas plus explicit `ImageBitmap` ownership transfer, while thumbnails encode the completed canvas directly to PNG | Native Web Audio source, registered typed GainNodes and StereoPannerNodes, a terminal player StereoPanner, and export-time clip/background/overlay volume followed by the ordered registered gain/stereo-balance graph; AudioWorklet extension planned | Browser-controlled decoded-frame copies and encoded-thumbnail readback are reported honestly; Web Audio's native equal-power intermediate pan law is not bit-identical to linear PCM balance, CORS can block URI media, `fastSeek` is optional, effect-baked export is real-time/user-initiated, unregistered/unsupported effects fail capability selection, and codec availability is runtime-probed |
+| Android | Implemented MediaPlayer/MediaCodec playback, MediaExtractor/MediaCodec/MediaMuxer precise export, and MediaMetadataRetriever composition thumbnails; export surfaces, generated colors, and standard URI/color overlays bypass CPU pixel access, while thumbnail URI decode follows Android's native Bitmap-returning contract | Playback uses ImageReader/AHardwareBuffer plus same-device Dawn Vulkan import/presentation; export uses retained main/overlay SurfaceTextures or WebGPU-generated colors through the bounded encoder-Surface GPU path. Selected overlay frames reuse the shared AHardwareBuffer ring and retained source-over compositor in declared order. Registered Gaussian URI effects reuse the shared separable WebGPU kernel, one retained intermediate, and one lazy overlay output before the encoder target; thumbnail effects reuse that renderer before one CPU-readable ImageReader/PNG boundary | Registered playback gain and stereo balance fold into left/right `MediaPlayer` volume plus a common per-session `LoudnessEnhancer`. Identity export preserves exactly matching AAC access units. Precise export mixes sequential main audio with concurrent WinUI-compatible background tracks and audible URI overlays, including delay, trims, volume, and ordered registered gain/stereo-balance or arbitrary registered block-local typed effects. Each active MediaCodec source retains at most one native PCM16 output buffer; foldable effects enter a fixed Q15 wide block directly, while other typed effects reuse one 1,024-frame float block before the same final saturation into the direct AAC encoder input. No managed PCM array is created. General live AAudio processing remains planned | Missing exact-ABI Dawn packaging selects an explicitly diagnosed affine playback/export fallback, but Gaussian and overlay composition fail capability selection without Vulkan Dawn. Encoded thumbnails and mixed audio are not zero-copy and still need Android device validation; URI audio transcode requires matching source/output rate and channel count, typed nonzero latency/tail declarations are rejected until MediaCodec compensation and drain are implemented, thumbnail overlays/custom compositors and unsupported composition fail explicitly, and hardware encode remains runtime-negotiated |
+| Linux | Built-in ISO-BMFF sample tables plus H.264/H.265 Annex-B conversion feed the implemented V4L2 stateful MMAP decoder OUTPUT queue; local seekable file/stream playback is registered in the Avalonia sample; a dynamic source change reopens at the preceding sync sample while old exported leases drain. Fast mode remuxes compatible H.264/AAC. Precise mode registers one V4L2 H.264 encoder for an ordered URI/color timeline plus positioned/delayed/opacity URI or color overlays, composes trimmed source timestamps with cumulative clip offsets, and muxes native encoder access units without an external codec/container dependency. Composition thumbnails reuse the demuxer/decoder per URI clip and normalize key-frame requests through the sync-sample index; both URI and color main timelines accept URI/color overlays | Playback exposes RGB as one Dawn DMA-BUF texture, NV12/NV12M as R8/RG8 plane textures, and P010 as Tier-1 R16/RG16 plane textures. Native-size single-URI identity export transfers decoder CAPTURE leases directly to encoder OUTPUT. Scaling, ordered timelines, registered affine color definitions, and generated limited-range BT.709 color planes use a bounded output-sized GBM R8/RG8 target ring with normalized bilinear sampling, one fused three-row transform, explicit Dawn SyncFD export, and DMA-BUF reservation-fence import before V4L2 queueing. Registered Gaussian nodes add retained RGBA conversion/blur work textures and a GPU RGBA→NV12 pass before the same encoder planes. Color overlays reuse one straight-alpha RGBA source; URI overlays lazily retain one forward-only decoder, bounded selected/look-ahead leases, and one effect-processed RGBA image each. The retained source-over compositor preserves declared order before the same GPU RGBA→NV12 encoder path. Thumbnails reuse this standard-overlay runtime, retained RGBA targets, at most two lazy URI-main candidate snapshots, and exactly one aligned WebGPU staging buffer per batch; normalized work is ordered by source then composition time so duplicate key-frame targets never rewind an overlay decoder | PipeWire float-PCM playback uses an allocation-free bounded SPSC callback ring with registered gain/stereo-balance or arbitrary typed PCM effects and native timing. Precise export preserves compatible selected AAC samples as `CompressedSampleCopy`; version-1 edit lists trim partial boundary frames and represent leading/internal silent spans without decode or PCM generation. With an explicit `ILinuxAacEncoderFactory`, matching signed PCM main/background/overlay sources mix through fixed pooled blocks. Foldable gain/balance stays Q15; arbitrary registered block-local typed effects execute in declaration order on one reused float block before wide mixing. The factory emits raw AAC synchronously, and ProGPU validates/spools/muxes the access units as `CpuBuffer` without retaining duration-sized PCM or encoded payload | Unsupported containers/codecs fail explicitly. Precise export remains NV12-only and requires a runtime-compatible GBM/Dawn/V4L2 DMA-BUF intersection plus enough decoder contexts for active URI sources; P010 playback requires `texture-formats-tier1`; thumbnails require the same compatible decoder/Dawn import path, sufficient concurrent decoder contexts, and final mapped PNG readback. Transformed AAC is unavailable unless the application supplies a typed encoder factory, and the built-in source adapter currently requires matching rate/channel `sowt`/`twos`; custom effects must be real-time-safe; offline export compensates finite declared latency and drains finite tails, while live PipeWire rejects nonzero timing; custom compositors, unregistered effects, and incompatible source configurations remain rejected. It has executable capability/scaling/AAC-edit/timestamp/WebGPU-RGBA/overlay/audio-spool tests and source/build tests but no Linux hardware run yet. No CPU video conversion is disguised as zero-copy |
+| Browser | HTML media playback; dependency-free ISO-BMFF fast export, WebGPU/MediaRecorder effect-bake export, and HTML-media/WebGPU composition thumbnails; a future WebCodecs provider remains pluggable | Browser external images are explicitly copied into reusable WebGPU textures; export and thumbnails fold registered affine color definitions into one retained three-row shader pass and execute registered Gaussian definitions through the shared separable kernel, two retained work textures, and one command-buffer submission. Export uses OffscreenCanvas plus explicit `ImageBitmap` ownership transfer, while thumbnails encode the completed canvas directly to PNG | Native Web Audio source, registered typed GainNodes and StereoPannerNodes, a terminal player StereoPanner, and export-time clip/background/overlay volume followed by the ordered registered gain/stereo-balance or app-supplied typed AudioWorklet graph; no PCM crosses the WASM boundary | Browser-controlled decoded-frame copies and encoded-thumbnail readback are reported honestly; Web Audio's native equal-power intermediate pan law is not bit-identical to linear PCM balance, CORS can block URI media, AudioWorklet modules require secure-context/CORS-compatible delivery and runtime validation, `fastSeek` is optional, effect-baked export is real-time/user-initiated, unregistered/unsupported effects fail capability selection, and codec availability is runtime-probed |
+
+The Linux decode/demux cell additionally includes bounded open-time ISO-BMFF
+WebVTT indexing. Timed-text data stays on the CPU control plane and never
+causes a decoded-video readback, GPU upload, or per-frame parse.
 
 The native projects must register their factories explicitly at application
 startup. Packaging must not make every consumer load every native API.
@@ -1249,9 +1822,10 @@ startup. Packaging must not make every consumer load every native API.
 
 The ProGPU sample navigation contains:
 
-- **GPU Media Player**: local/URI source selection, play/pause, frame stepping,
-  seek, mute, loop, mirror, live provider diagnostics, and fused WebGPU effect
-  controls. Its optional live Mesh3D view uses the same player, session crop,
+- **GPU Media Player**: local/URI source selection, external WebVTT loading,
+  play/pause, frame stepping, seek, mute, loop, mirror, live provider
+  diagnostics, and fused WebGPU effect controls. Its optional live Mesh3D
+  view uses the same player, session crop,
   rotation, mirror state, planar conversion, and fused effects without an
   intermediate 2D texture. Live registered audio-gain and stereo-balance
   effects exercise the same typed graph through Apple/Linux decoded-PCM
@@ -1670,9 +2244,11 @@ and Android's 16 KiB page-size guidance. It supplies a reproducible native
 artifact; it does not prove runtime extension support or hardware behavior.
 The Android device
 gate must use a Release/AOT package and one local H.264/AAC input with
-non-keyframe trims plus Gaussian video, gain, and left/right balance. Verify
+non-keyframe trims plus Gaussian video, gain, left/right balance, one
+positive-delay background, and one negative-delay background. Verify
 both the identity compressed-remux lane and the native PCM16/AAC transcode
-lane, including channel levels, duration, and encoder-delay behavior. Record
+lane, including overlap sums, channel levels, duration, and encoder-delay
+behavior. Record
 the exact
 `MediaCodec.CanonicalName`, `CodecInfo.IsHardwareAccelerated`, published
 size/rate performance points, output tracks/duration, cancellation cleanup,
@@ -1817,6 +2393,15 @@ Executable tests record a leased media texture through the local LibreWPF
 `System.Windows.Media.DrawingContext` with a scale/translation matrix and
 through ProGPU-backed `System.Drawing.Graphics` with combined client and host
 translations; both retain the expected command transform exactly once.
+Source-built WPF packages that intentionally expose only
+`IPortableNativeDrawingContextStateSource` can now translate the returned
+native object and matrix through `ProGpuDrawingContextState.TryCreate` in
+fixed O(1) time with zero allocation, then call the public
+`MediaGpuSurfacePresenter.Record(in ProGpuDrawingContextState, ...)`
+overloads. A 10,000-conversion regression verifies zero managed allocation,
+and the recorded command verifies that the portable outer transform is still
+composed exactly once. This keeps `PresentationCore` package-neutral and
+avoids reflection, dynamic dispatch, or a retained boxed adapter.
 `ProGPU.Media.Scene`, `PresentationCore`, `System.Drawing.Common`, and the
 host-neutral Desktop target build cleanly. The final macOS arm64 Desktop
 bundle was also rebuilt with the CoreCLR lane and rerun: the player advanced
@@ -1988,6 +2573,73 @@ local gate without its independent migration/benchmark restores; the scoped
 shipping projects and package graph are the relevant result. No throughput,
 latency, or hardware-runtime improvement is claimed by this contract
 checkpoint.
+
+The Windows standard-overlay checkpoint adds an original retained
+`GpuTextureLayerCompositor` and flattens WinUI overlay layers without changing
+the public editing API. The warmed compositor retains its shader, sampler,
+pipeline, 80-byte uniform, and stable source-view bind groups; its headless
+pixel regression verifies positioned 50%-opacity source-over output and
+measured exactly zero managed allocation across 16 warmed submissions. Media
+Foundation export retains one monotonic ARGB32 reader per URI overlay, while
+arbitrarily ordered thumbnail positions use retained seekable readers. Both
+paths preserve layer/overlay order, reuse the three-source/three-target DXGI
+ring, apply registered affine or clamped Gaussian plans before placement, and
+introduce no video readback in export. Audible URI-overlay audio with AAC,
+custom compositors, and unsupported effects still fail capability selection.
+The core suite passed 2,754 tests, the headless suite passed 225, the 237-test
+Windows/shader/compositor focus and 34-test Windows provider focus passed, and
+the Windows provider and desktop
+sample built warning-free, explicit macOS arm64 desktop and browser WASM
+builds passed, the Avalonia sample built after correcting its stale
+`ProcessMemorySnapshot.CaptureCurrent` call, and all 37 portable packages plus
+the isolated XAML consumer verified at
+`0.1.0-dev-windows-overlays`. Windows codec/DXGI output, frame latency, GPU
+timing, memory residency, and image quality still require a real Windows
+D3D12/Media Foundation run; no hardware performance improvement is claimed by
+this build-and-contract checkpoint.
+
+The Windows native-audio-mixer checkpoint extends that overlay lane without
+changing the portable editing surface. One immutable schedule captures
+sequential main clips, signed-delay background tracks, and audio-enabled URI
+overlays; it folds each clip or track volume plus ordered registered
+gain/stereo-balance definitions before native execution. Media Foundation
+Source Readers are opened lazily only while their schedule overlaps the
+current 1,024-frame block and decode/resample directly to the requested PCM16
+profile. Split native buffers are mixed into a fixed signed-64-bit accumulator
+and saturated once into one MF-owned, 32-byte-aligned output sample. The
+focused Windows provider suite passed 37 tests, including signed-delay
+schedule capture, overlay inclusion, exact directional frame rounding,
+order-independent wide mixing, final saturation, 100,000 warmed zero-managed-
+allocation kernel iterations, and source audits rejecting managed PCM-copy
+helpers. The Windows media assembly built warning-free. This is contract and
+allocation-kernel evidence only: end-to-end Media Foundation negotiation,
+encoded duration, audible levels, stalls, and memory residency still require
+a Windows hardware run, so no runtime performance improvement is claimed.
+
+The Windows typed-audio-effect checkpoint keeps that native Q15 path unchanged
+for foldable gain/balance and adds a separate, honestly reported `CpuBuffer`
+lane for other explicitly registered `IMediaAudioEffect` definitions.
+Microsoft's custom-audio-effect guidance and media-composition contract
+informed the ordered definition model; Source Reader output-type negotiation
+and `IMFMediaBuffer::Lock` informed the bounded native-buffer lifetime.
+ProGPU adapts those public contracts to its own typed registry and original
+processor-chain implementation rather than activating `IBasicAudioEffect` or
+copying another engine. One chain is created per scheduled source outside the
+render loop. Each overlapping interval converts directly from the locked
+native PCM16 span into one shared stack float block, processes in place with
+composition presentation time, rejects non-finite output, and enters the same
+wide accumulator before its single final saturation. Complexity is
+O(F × (L + E)); working storage is one 16-KiB wide stereo block plus an 8-KiB
+float stereo block, independent of composition duration.
+
+The focused Windows provider suite now passes 39 tests. The added checks cover
+typed planner capture, explicit `CpuBuffer` capability diagnostics, retained
+headroom, non-finite rejection, source audits excluding reflection and
+`Marshal.Copy`, and exactly zero managed allocations across 100,000 warmed
+processed-mix iterations. This macOS checkpoint compiled the complete Windows
+assembly but could not execute Media Foundation, WPR/ETW, or audible Windows
+hardware validation; no Windows runtime latency or throughput improvement is
+claimed.
 
 The Apple affine-definition checkpoint applies the same typed resolver to
 AVFoundation export and thumbnail preparation. Each clip snapshots its
@@ -2422,3 +3074,320 @@ measured frames at 116.69 wall FPS, with an 8.5295-ms average frame, a
 16.9850-ms maximum, six frames above 16.667 ms, and 3,852 managed bytes per
 frame. This is a single functional regression run, not a replacement for the
 matched multi-run NativeAOT media-player qualification above.
+
+### Android main/background audio-mix checkpoint
+
+The continuation adds WinUI-compatible main/background audio composition to
+the existing Android precise-export lane. The design was derived clean-room
+from the public
+[`BackgroundAudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.backgroundaudiotrack),
+[`Delay`](https://learn.microsoft.com/en-us/uwp/api/windows.media.editing.backgroundaudiotrack.delay),
+trim, and volume contracts plus Android's official
+[`MediaCodec`](https://developer.android.com/reference/android/media/MediaCodec),
+[`MediaExtractor`](https://developer.android.com/reference/android/media/MediaExtractor),
+and
+[`MediaMuxer`](https://developer.android.com/reference/android/media/MediaMuxer)
+ownership/ordering contracts. ProGPU adopts signed-delay and half-open timeline
+behavior, synchronous buffer ownership, previous-sync decode/preroll, prompt
+output-buffer release, and chronological encoder timestamps. It rejects a
+managed PCM staging boundary, per-source saturation, duration-sized storage,
+silent omission of an overlay, and any external decoder or muxer dependency.
+
+The pure schedule/mix gate covers exact 48-kHz main timing, positive and
+negative background delay, source advancement, composition clipping, muted
+and out-of-range tracks, Q15 levels, order independence, and single final
+saturation. The warmed mix kernel allocated exactly zero managed bytes over
+100,000 iterations. This is a deterministic algorithm/managed-allocation
+result, not Android runtime throughput evidence. The focused Android tests
+passed 15 cases, the full Release core suite passed 2,761 cases, and the
+Release headless suite passed 225 cases. `ProGPU.Android.Media`, browser,
+Apple macOS/iOS, Avalonia, host-neutral Desktop, macOS arm64 Desktop, and the
+Release/AOT Android sample all built. All 37 portable packages plus their
+isolated XAML consumer and all four mobile packages passed their package
+gates. The Android AOT sample retains the repository's existing linker
+analysis warnings; this change adds none.
+
+No Android device was attached. Native decoder concurrency, actual direct
+buffer exposure, AAC encoder priming, audible overlap/levels, export duration,
+queue stalls, memory, power, and thermal behavior remain explicitly unproven.
+
+### Android standard-overlay checkpoint
+
+The next continuation removes the coupled visual/audio-overlay rejection from
+the Android precise-export provider. The clean-room design uses only the
+official WinUI `MediaOverlay` delay, position, opacity, audio-enabled, and
+collection z-order contracts; Android's official `MediaExtractor` previous-sync
+seek/sample-time contract; `MediaCodec` synchronous buffer and
+`releaseOutputBuffer` ownership; `SurfaceTexture` frame callback,
+`updateTexImage`, transform-matrix, and release contracts; and the existing
+WebGPU source-over blend contract recorded above. No foreign media-engine
+implementation was copied or structurally translated.
+
+Each URI overlay is initialized lazily and owns one extractor, decoder, output
+`Surface`, and `SurfaceTexture`. It retains at most one later codec output
+while the SurfaceTexture keeps the last selected external-OES image. Discarded
+preroll is returned without rendering; selected frames are consumed
+immediately on the export EGL context. At each main output timestamp, active
+overlays are resolved in their original flattened order. URI images cross the
+shared three-slot RGBA AHardwareBuffer/SyncFD staging ring; color overlays clear
+one of the same slots. The retained `GpuTextureLayerCompositor` applies one
+80-byte placement/effect uniform and source-over draw per visible overlay.
+Gaussian layers share the existing intermediate and one lazy effect-output
+texture. Work is O(F × O + P) for F output frames, O active overlay checks, and
+covered fragment work P. Managed state is O(O); GPU AHardwareBuffer storage
+remains fixed at the existing three source plus three encoder targets and does
+not grow with overlay count or duration. No decoded video pixel is mapped or
+copied into managed memory.
+
+Audio-enabled URI overlays are captured on the same exact PCM clock as main
+and background audio. Overlay delay advances the destination, trim advances
+the source, intervals are clipped to the sequential main duration, and the
+existing Q15 wide mixer performs one final saturation. Disabled audio and
+color overlays contribute no audio. Custom compositor definitions remain an
+explicit capability failure.
+
+The pure overlay gates cover declared layer/overlay order, half-open timing,
+source-time mapping, normalized placement including off-canvas coordinates,
+opacity, custom-compositor rejection, audible-overlay scheduling, and a
+100,000-iteration zero-managed-allocation resolved-timeline loop. Source
+contracts additionally verify one held native output per URI overlay,
+SurfaceTexture current-image reuse, the shared AHardwareBuffer path, retained
+WebGPU source-over composition, optional Gaussian output, and absence of
+`Marshal.Copy`. All 19 focused Android provider/planner contracts, 2,765
+Release core tests, and 225 Release headless tests passed. The Android media
+assembly and arm64 Release/AOT sample built, and all four mobile packages plus
+their symbol packages passed the isolated package gate. The Android AOT sample
+retains the repository's existing linker-analysis warnings; this checkpoint
+adds none. These are algorithm, ownership, build, package, and
+managed-allocation results only. No Android device was attached, so actual
+multi-decoder codec availability, vendor SurfaceTexture queue behavior,
+exported pixels, z-order, opacity, effect output, audible overlay alignment,
+stalls, residency, power, and thermal behavior remain unproven hardware gates.
+
+The same captured overlay plan now serves Android composition thumbnails.
+Thumbnail positions are sorted by composition time for rendering, allowing
+each retained URI-overlay decoder to remain forward-only, and encoded results
+are restored to the caller's original order. The first requested active
+overlay timestamp seeks from its previous sync sample rather than decoding
+from overlay start. URI/color overlay images, ordering, placement, opacity,
+and registered effects therefore use the same bounded
+SurfaceTexture/AHardwareBuffer/WebGPU compositor as precise export. The main
+thumbnail clip still comes from Android's public `MediaMetadataRetriever`
+`Bitmap` API and the result must still be read and PNG-encoded, so the
+thumbnail API deliberately makes no end-to-end zero-copy claim. Batch
+scheduling is O(T log T + T × (C + O)) for T thumbnails, C sequential clips,
+and O overlays, with O(T + C + O) state beyond the required encoded results;
+GPU ring residency remains fixed. Capability/source contracts verify overlay
+plan capture, ascending evaluation, result-order restoration, retained
+composer reuse, and absence of a managed full-frame copy.
+
+### Android typed-audio-effect checkpoint
+
+Android precise export now accepts the same explicitly registered,
+block-local `IMediaAudioEffect` definitions as the Apple, Linux, and Windows
+offline lanes. The clean-room design follows WinUI's ordered
+[`AudioEffectDefinition`](https://learn.microsoft.com/en-us/uwp/api/windows.media.effects.audioeffectdefinition)
+shape and Android's official
+[`MediaCodec`](https://developer.android.com/reference/android/media/MediaCodec)
+buffer-ownership contract. A synchronously dequeued output buffer belongs to
+the client only until `releaseOutputBuffer`; holding it can stall a
+device-dependent codec. ProGPU therefore processes only the current overlap
+while the output index is owned, then returns it through the existing bounded
+source lifecycle. Android's
+[`MediaFormat.KEY_PCM_ENCODING`](https://developer.android.com/reference/android/media/MediaFormat#KEY_PCM_ENCODING)
+and
+[`AudioFormat.ENCODING_PCM_16BIT`](https://developer.android.com/reference/android/media/AudioFormat#ENCODING_PCM_16BIT)
+contracts establish signed native-endian PCM16 and its Q15 interpretation.
+No external codec or foreign engine implementation was copied or adapted.
+
+Foldable gain/stereo-balance definitions keep the existing direct
+`ByteBuffer`-to-Q15 accumulator fast path. A non-foldable graph is accepted
+only when every definition activates through the typed registry as an audio
+effect. One chain is created per scheduled source before codec processing.
+The current overlapping PCM16 span converts directly into one shared
+stack-resident float block of at most 1,024 stereo frames, runs in declaration
+order with the composition presentation time, rejects non-finite output, and
+wide-accumulates with source volume before the single final saturation into
+the direct AAC encoder input. Capability reporting changes from
+`NativeBuffer` to `CpuBuffer` only when that typed float-span boundary is
+present. The shared optional timing declaration is recognized, but Android
+export rejects nonzero latency or tail until the MediaCodec schedule can
+compensate and drain it.
+
+Planning is O(C + B + O + E) time and storage. Rendering is
+O(F × (L + E)); fixed stack working storage is at most 16 KiB for the stereo
+wide accumulator plus 8 KiB for the conditional float block, independent of
+composition duration. Focused contracts cover registered/unregistered
+planning, retained processor definitions, headroom before final saturation,
+non-finite rejection, explicit `CpuBuffer` source diagnostics, reflection and
+managed-copy exclusions, and exactly zero managed allocations across 100,000
+warmed processed-mix iterations. The Android media assembly builds
+warning-free on the macOS cross-compilation host. A physical Android device is
+still required to validate direct-buffer behavior across vendor codecs,
+audible effect output, encoder delay, queue stalls, memory, power, and thermal
+behavior; no runtime performance improvement is claimed here.
+
+### Linux standard overlay checkpoint
+
+The Linux precise exporter now accepts standard positioned, delayed, and
+opacity-controlled local H.264 URI and solid-color overlays. The clean-room
+contract comes from
+the official
+[WinUI media-composition guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-compositions-and-editing):
+an overlay's delay places it on the composition timeline, position and size
+select its output rectangle, opacity scales its contribution, and the declared
+layer/overlay order is back-to-front. The retained source-over implementation
+uses the WebGPU blend equations and cross-engine comparison recorded above;
+no foreign media implementation or source organization was copied.
+
+Capture flattens O overlays once into immutable half-open intervals, source
+trim mappings, normalized placements, and typed effect plans in O(O) time and
+storage. Each output frame checks O overlays without managed allocation and
+submits one retained source-over pass for every active renderable overlay,
+with O(P) fragment work for P covered output pixels. The encoder retains one
+reusable straight-alpha RGBA color source and one
+`GpuTextureLayerCompositor`; these resources do not grow with duration. A
+Gaussian applied to an unbounded constant-color source is unchanged, so only
+its affine color transform is evaluated.
+
+Each URI overlay owns a lazy forward-only V4L2 decoder. At a requested
+composition timestamp it maps delay and trim to source time, starts at the
+sync sample preceding the first requested source time, retains the latest
+decoded candidate at or before that time plus the first look-ahead candidate,
+and imports only the selected NV12 DMA-BUF planes. The selected image is
+effect-processed into one reusable source-sized RGBA GPU texture; a Gaussian
+URI overlay lazily adds exactly two source-sized blur textures.
+Subsequent output frames reuse that image until a newer decoded timestamp is
+selected. Explicit native ownership is therefore bounded by two candidate
+leases per URI overlay, GPU storage is O(U × P) for U declared URI overlays
+and their source pixels P, and neither grows with duration or output-frame
+count. Runtime decoder-context capacity remains device-dependent and fails
+explicitly if the V4L2 node cannot open all concurrently active sources.
+
+URI main frames with active overlays remain entirely on the GPU through
+NV12-to-RGBA, retained declared-order layer composition, and RGBA-to-NV12
+before the existing three encoder DMA-BUF targets. Generated-color main frames
+start with one GPU clear and use the same final path.
+
+This ownership follows the Linux kernel
+[DMA-BUF sharing and synchronization contract](https://docs.kernel.org/driver-api/dma-buf.html)
+and
+[V4L2 DMA-BUF importing contract](https://www.kernel.org/doc/html/v4.12/media/uapi/v4l/dmabuf.html):
+decoder and encoder leases remain live through WebGPU submission, exported
+SyncFD fences enter the DMA-BUF reservation timeline before V4L2 queueing, and
+no decoded or rendered export pixel is mapped or copied through managed
+memory. The direct native-size identity lane remains unchanged when no overlay
+is active.
+
+Color and URI main-track thumbnail timelines use the same captured URI/color
+order, timing, placement, opacity, effects, and retained WebGPU compositor
+before the explicit aligned readback/PNG boundary. Requested positions are
+first mapped to their sequential main clips; each clip is processed in
+composition order, and targets that normalize to the same key frame use
+composition time and original result index as deterministic tie breakers.
+This lets the batch share one forward-only URI-overlay runtime without decoder
+rewinds while still restoring the caller's original result order.
+
+The nearest-frame scheduler can select the same decoded main frame for multiple
+composition times with different overlay states, so a final encoded thumbnail
+is not cached in that case. Instead, the renderer lazily retains exactly two
+output-sized RGBA GPU snapshots matching the scheduler's existing
+previous/current candidates. Each decoded lease is imported and
+effect-processed once into its slot; every selected composition time performs
+a GPU texture copy into the final target, advances active URI overlays to that
+time, applies URI/color layers in declared order, reads back once, and returns
+the slot when the candidate leaves the window. GPU storage is bounded by
+O(2P + U × S) for P output pixels and the source-sized effect images S of U URI
+overlays; native overlay ownership remains at most two candidate leases per URI
+overlay. Neither grows with request count or duration, and no decoded texture
+is CPU re-uploaded. Custom compositor definitions remain rejected.
+
+Focused gates cover declared order, exact half-open timing, off-canvas
+placement, opacity, GPU capability selection, URI-overlay export acceptance,
+audio-enabled URI-overlay/custom rejection, half-open source-frame selection,
+color/URI-main and URI/color-overlay thumbnail capability, the exact
+two-candidate thumbnail snapshot bound, stable composition ordering after
+key-frame normalization, zero allocation across 100,000 ordering and timeline
+checks, retained compositor/source reuse, RGBA-to-NV12 processing, and the
+absence of `Marshal.Copy`, mapped export memory, or device-wide idle waits.
+These are contract, build, and managed-allocation results. No Linux media
+device was attached, so
+GBM/Dawn/V4L2 interoperability, rendered pixels, fence behavior, encoder
+output, throughput, residency, power, and thermal behavior remain unproven
+hardware gates.
+
+### Linux pluggable AAC composition checkpoint
+
+Linux transformed composition audio now reaches the final precise-export mux
+through an explicit codec extension. The public `ILinuxAacEncoderFactory`
+capability check receives only the requested sample rate, mono/stereo channel
+count, bitrate, total frame count, and the fixed preferred input-block size.
+The portable export snapshot now carries background-track subtype, embedded
+track index, bitrate, sample rate, and channel count, so known incompatible
+sources fail capability selection before the codec is opened.
+If accepted, its synchronous `ILinuxAacEncoder` receives sequential
+interleaved PCM16 spans from the existing bounded timeline mixer. The encoder
+configures one `ILinuxAacAccessUnitSink` with an MPEG-4
+AudioSpecificConfig and priming-frame count, then writes raw access units with
+their decoded-frame durations. No reflection, assembly scanning, codec
+process, or implicit dependency discovery exists.
+
+The ProGPU sink is single-threaded and transactional. It verifies AAC-LC
+object type, declared sample rate and channel configuration, configuration
+ordering, access-unit size and duration, no more than two seconds of declared
+priming or trailing padding, and enough decoded coverage for the requested
+composition. Payload is copied once directly into a disk spool; managed memory
+retains only O(U) sample metadata for U access units. Completion creates the
+`mp4a` audio sample entry, `esds` descriptor graph, exact media timescale,
+sample table, and a version-1 edit whose media time removes encoder priming
+and whose segment duration truncates terminal padding. The existing
+ISO-BMFF writer then copies video and audio payloads into the temporary MP4
+before the normal atomic destination replacement.
+
+Capability selection is deliberately false when transformed audio is needed
+and no factory is supplied, when the factory rejects the profile, or when a
+known audible source is not matching-rate/channel signed PCM. Compatible AAC
+identity timelines still take the compressed sample-copy path. The transformed
+path reports `CpuBuffer` because PCM crosses the typed managed span boundary;
+it makes no native-buffer or zero-copy audio claim. The extension may wrap a
+platform or externally supplied codec, but the default package remains
+dependency-free.
+
+The typed effect extension follows the WinUI
+[`AudioEffectDefinition`](https://learn.microsoft.com/en-us/uwp/api/windows.media.effects.audioeffectdefinition)
+shape: every ordered definition carries an activatable class ID and property
+set, but ProGPU resolves it only through an explicitly registered typed
+factory. This adapts the ordered clip-effect model from Microsoft's
+[media-composition guidance](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/media-compositions-and-editing)
+without WinRT activation or reflection. As in PipeWire's
+[`pw_stream`](https://docs.pipewire.org/group__pw__stream.html) process
+contract and Apple's
+[`MTAudioProcessingTap`](https://developer.apple.com/documentation/mediatoolbox/mtaudioprocessingtapcallbacks/process)
+callback contract, instances are prepared outside the processing callback and
+operate on host-owned bounded buffers. ProGPU keeps its own original typed
+registry, ownership, and PCM conversion design; no external implementation
+source is copied or adapted.
+
+Linear gain/stereo-balance definitions still fold to one Q15 channel-level
+pair and do not allocate the float workspace. Only a graph that cannot fold
+is validated and retained as an ordered `MediaAudioEffectProcessorChain`.
+Each overlapping source block converts PCM16 into a shared float span, calls
+the chain with composition presentation time, rejects non-finite output, and
+wide-accumulates the processed float samples with the source volume before the
+single final PCM16 saturation. This preserves effect headroom that a later
+volume stage can reduce instead of clipping each source prematurely.
+The warmed 64-frame stereo regression executes 100 complete mixer passes with
+exactly zero managed allocations; an end-to-end pluggable-AAC test verifies
+two non-commutative effects execute in declaration order before the spool and
+mux boundary. These are managed contract measurements, not Linux codec or
+hardware latency results.
+
+Focused executable gates cover exact PCM block delivery, generated
+AudioSpecificConfig/sample-entry metadata, access-unit spool offsets and
+durations, edit-list timing, explicit capability opt-in, honest
+`CpuBuffer` diagnostics, pre-configuration writes, incompatible
+AudioSpecificConfig, and incomplete encoded coverage. The full Linux provider
+contract also audits the new source for forbidden FFmpeg/GStreamer coupling.
+No external AAC implementation was installed for this checkpoint, so audible
+codec output quality, latency, bitrate control, and Linux hardware behavior
+remain provider-specific runtime gates.

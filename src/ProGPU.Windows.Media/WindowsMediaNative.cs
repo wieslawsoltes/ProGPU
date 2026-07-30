@@ -21,7 +21,11 @@ internal static unsafe partial class WindowsMediaNative
     private const uint D3D11CreateDeviceVideoSupport = 0x800;
     private const uint CoinitMultithreaded = 0;
     private const uint ClsctxInprocServer = 1;
+    private const uint MaximumTimedMetadataCueBytes =
+        64 * 1024 * 1024;
     private const uint MfVersion = 0x0002_0070;
+    private const ushort VariantTypeWideString = 31;
+    private const ushort VariantTypeClassId = 72;
 
     internal static readonly Guid MediaEngineCallback =
         new("c60381b8-83a4-41f8-a3d0-de05076849a9");
@@ -44,6 +48,22 @@ internal static unsafe partial class WindowsMediaNative
         new("9d8e1289-d7b3-465f-8126-250e349af85d");
     private static readonly Guid s_mediaEngineEx =
         new("83015ead-b1e6-40d0-a98a-37145ffe1ad1");
+    private static readonly Guid s_mediaEngineTimedText =
+        new("805ea411-92e0-4e59-9b6e-5c7d7915e64f");
+    private static readonly Guid s_timedText =
+        new("1f2a94c9-a3df-430d-9d0f-acd85ddc29af");
+    private static readonly Guid s_mediaTypeMajorType =
+        new("48eba18e-f8c9-4687-bf11-0a74c9f96a8f");
+    private static readonly Guid s_mediaTypeSubtype =
+        new("f7e34c9a-42e8-4714-b74b-cb29d72c35e5");
+    private static readonly Guid s_streamLanguage =
+        new("00af2180-bdc2-423c-abca-f503593bc121");
+    private static readonly Guid s_streamName =
+        new("4f1b099d-d314-41e5-a781-7fefaa4c501f");
+    internal static readonly Guid MediaTypeAudio =
+        new("73647561-0000-0010-8000-00aa00389b71");
+    internal static readonly Guid MediaTypeVideo =
+        new("73646976-0000-0010-8000-00aa00389b71");
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct SampleDescription
@@ -83,6 +103,32 @@ internal static unsafe partial class WindowsMediaNative
         internal int Right;
         internal int Bottom;
     }
+
+    internal readonly record struct MediaEngineStreamInfo(
+        uint NativeIndex,
+        Guid MajorType,
+        Guid Subtype,
+        string Name,
+        string Language,
+        bool Selected);
+
+    internal readonly record struct MediaEngineTimedTextTrackInfo(
+        uint NativeId,
+        int Kind,
+        string Label,
+        string Language,
+        string DispatchType,
+        Guid DataFormat,
+        bool Active);
+
+    internal readonly record struct MediaEngineTimedTextCueInfo(
+        uint NativeId,
+        uint TrackId,
+        int Kind,
+        double StartTime,
+        double Duration,
+        string Text,
+        byte[]? Data);
 
     internal static void InitializeCom() =>
         ThrowIfFailed(
@@ -453,6 +499,631 @@ internal static unsafe partial class WindowsMediaNative
         finally
         {
             Release(extended);
+        }
+    }
+
+    internal static MediaEngineStreamInfo[] GetStreams(
+        nint engine)
+    {
+        nint extended = QueryInterface(
+            engine,
+            in s_mediaEngineEx);
+        try
+        {
+            uint streamCount = 0;
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int> getStreamCount =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint*,
+                    int>)VTable(extended)[54];
+            ThrowIfFailed(
+                getStreamCount(
+                    extended,
+                    &streamCount),
+                "enumerate Media Engine streams");
+
+            var streams =
+                new List<MediaEngineStreamInfo>(
+                    checked((int)streamCount));
+            for (uint nativeIndex = 0;
+                 nativeIndex < streamCount;
+                 nativeIndex++)
+            {
+                if (!TryGetStreamGuidAttribute(
+                        extended,
+                        nativeIndex,
+                        in s_mediaTypeMajorType,
+                        out Guid majorType) ||
+                    (majorType != MediaTypeAudio &&
+                     majorType != MediaTypeVideo))
+                {
+                    continue;
+                }
+
+                _ = TryGetStreamGuidAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_mediaTypeSubtype,
+                    out Guid subtype);
+                _ = TryGetStreamStringAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_streamName,
+                    out string name);
+                _ = TryGetStreamStringAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_streamLanguage,
+                    out string language);
+                streams.Add(
+                    new MediaEngineStreamInfo(
+                        nativeIndex,
+                        majorType,
+                        subtype,
+                        name,
+                        language,
+                        GetStreamSelection(
+                            extended,
+                            nativeIndex)));
+            }
+            return streams.ToArray();
+        }
+        finally
+        {
+            Release(extended);
+        }
+    }
+
+    internal static void SetExclusiveStreamSelection(
+        nint engine,
+        ReadOnlySpan<uint> nativeIndices,
+        uint selectedNativeIndex)
+    {
+        nint extended = QueryInterface(
+            engine,
+            in s_mediaEngineEx);
+        try
+        {
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                int,
+                int> setStreamSelection =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int,
+                    int>)VTable(extended)[57];
+            for (int index = 0;
+                 index < nativeIndices.Length;
+                 index++)
+            {
+                ThrowIfFailed(
+                    setStreamSelection(
+                        extended,
+                        nativeIndices[index],
+                        0),
+                    "deselect a Media Engine stream");
+            }
+            if (selectedNativeIndex != uint.MaxValue)
+            {
+                ThrowIfFailed(
+                    setStreamSelection(
+                        extended,
+                        selectedNativeIndex,
+                        1),
+                    "select a Media Engine stream");
+            }
+
+            CallResult(
+                extended,
+                58,
+                "apply Media Engine stream selections");
+        }
+        finally
+        {
+            Release(extended);
+        }
+    }
+
+    internal static bool TryGetTimedTextService(
+        nint engine,
+        out nint timedText)
+    {
+        nint result = 0;
+        fixed (Guid* service = &s_mediaEngineTimedText)
+        fixed (Guid* interfaceId = &s_timedText)
+        {
+            int status = MFGetService(
+                engine,
+                service,
+                interfaceId,
+                &result);
+            if (status < 0 || result == 0)
+            {
+                Release(result);
+                timedText = 0;
+                return false;
+            }
+        }
+
+        timedText = result;
+        return true;
+    }
+
+    internal static void RegisterTimedTextNotifications(
+        nint timedText,
+        nint notification)
+    {
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint,
+            int> register =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint,
+                    int>)VTable(timedText)[3];
+        ThrowIfFailed(
+            register(timedText, notification),
+            "register Media Foundation timed-text notifications");
+    }
+
+    internal static void ClearTimedTextNotifications(
+        nint timedText)
+    {
+        if (timedText == 0)
+        {
+            return;
+        }
+
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint,
+            int> register =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint,
+                    int>)VTable(timedText)[3];
+        _ = register(timedText, 0);
+    }
+
+    internal static void SelectTimedTextTrack(
+        nint timedText,
+        uint trackId,
+        bool selected)
+    {
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            int,
+            int> select =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int,
+                    int>)VTable(timedText)[4];
+        ThrowIfFailed(
+            select(
+                timedText,
+                trackId,
+                selected ? 1 : 0),
+            selected
+                ? "select a Media Foundation timed-text track"
+                : "deselect a Media Foundation timed-text track");
+    }
+
+    internal static MediaEngineTimedTextTrackInfo[]
+        GetTimedTextTracks(nint timedText)
+    {
+        nint trackList = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint*,
+            int> getTracks =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint*,
+                    int>)VTable(timedText)[11];
+        ThrowIfFailed(
+            getTracks(timedText, &trackList),
+            "enumerate Media Foundation timed-text tracks");
+        if (trackList == 0)
+        {
+            return [];
+        }
+        try
+        {
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint> getLength =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint>)VTable(trackList)[3];
+            uint count = getLength(trackList);
+            var result =
+                new MediaEngineTimedTextTrackInfo[
+                    checked((int)count)];
+            int written = 0;
+            for (uint index = 0; index < count; index++)
+            {
+                nint track = 0;
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    nint*,
+                    int> getTrack =
+                        (delegate* unmanaged[Stdcall]<
+                            nint,
+                            uint,
+                            nint*,
+                            int>)VTable(trackList)[4];
+                if (getTrack(
+                        trackList,
+                        index,
+                        &track) < 0 ||
+                    track == 0)
+                {
+                    Release(track);
+                    continue;
+                }
+
+                try
+                {
+                    uint id = CallUInt32(track, 3);
+                    int kind =
+                        unchecked((int)CallUInt32(track, 7));
+                    _ = TryGetAllocatedString(
+                        track,
+                        4,
+                        out string label);
+                    _ = TryGetAllocatedString(
+                        track,
+                        6,
+                        out string language);
+                    string dispatchType = string.Empty;
+                    if (kind == 3)
+                    {
+                        _ = TryGetAllocatedString(
+                            track,
+                            9,
+                            out dispatchType);
+                    }
+                    Guid dataFormat = Guid.Empty;
+                    Guid* format = &dataFormat;
+                    delegate* unmanaged[Stdcall]<
+                        nint,
+                        Guid*,
+                        int> getDataFormat =
+                            (delegate* unmanaged[Stdcall]<
+                                nint,
+                                Guid*,
+                                int>)VTable(track)[13];
+                    if (getDataFormat(
+                            track,
+                            format) < 0)
+                    {
+                        dataFormat = Guid.Empty;
+                    }
+
+                    result[written++] =
+                        new MediaEngineTimedTextTrackInfo(
+                            id,
+                            kind,
+                            label,
+                            language,
+                            dispatchType,
+                            dataFormat,
+                            CallBool(track, 10));
+                }
+                finally
+                {
+                    Release(track);
+                }
+            }
+
+            if (written == result.Length)
+            {
+                return result;
+            }
+
+            Array.Resize(ref result, written);
+            return result;
+        }
+        finally
+        {
+            Release(trackList);
+        }
+    }
+
+    internal static MediaEngineTimedTextCueInfo
+        ReadTimedTextCue(nint cue)
+    {
+        uint id = CallUInt32(cue, 3);
+        int kind = unchecked((int)CallUInt32(cue, 5));
+        double startTime = CallDouble(cue, 6);
+        double duration = CallDouble(cue, 7);
+        uint trackId = CallUInt32(cue, 8);
+        byte[]? data = kind == 3
+            ? ReadTimedTextCueData(cue)
+            : null;
+        uint lineCount = data is null
+            ? CallUInt32(cue, 12)
+            : 0;
+        string[] lines = lineCount == 0
+            ? Array.Empty<string>()
+            : new string[checked((int)lineCount)];
+        int written = 0;
+        for (uint index = 0; index < lineCount; index++)
+        {
+            nint line = 0;
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                nint*,
+                int> getLine =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint,
+                        nint*,
+                        int>)VTable(cue)[13];
+            if (getLine(cue, index, &line) < 0 ||
+                line == 0)
+            {
+                Release(line);
+                continue;
+            }
+
+            try
+            {
+                if (TryGetAllocatedString(
+                        line,
+                        3,
+                        out string text))
+                {
+                    lines[written++] = text;
+                }
+            }
+            finally
+            {
+                Release(line);
+            }
+        }
+
+        string combined = written switch
+        {
+            0 => string.Empty,
+            1 => lines[0],
+            _ => string.Join(
+                "\n",
+                lines,
+                0,
+                written)
+        };
+        return new MediaEngineTimedTextCueInfo(
+            id,
+            trackId,
+            kind,
+            startTime,
+            duration,
+            combined,
+            data);
+    }
+
+    private static byte[] ReadTimedTextCueData(
+        nint cue)
+    {
+        nint binary = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint*,
+            int> getData =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint*,
+                    int>)VTable(cue)[9];
+        ThrowIfFailed(
+            getData(cue, &binary),
+            "read Media Foundation timed-metadata cue data");
+        if (binary == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            byte* bytes = null;
+            uint length = 0;
+            delegate* unmanaged[Stdcall]<
+                nint,
+                byte**,
+                uint*,
+                int> read =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        byte**,
+                        uint*,
+                        int>)VTable(binary)[3];
+            ThrowIfFailed(
+                read(binary, &bytes, &length),
+                "copy Media Foundation timed-metadata cue data");
+            if (length > MaximumTimedMetadataCueBytes)
+            {
+                throw new InvalidDataException(
+                    "Media Foundation timed-metadata cue data exceeds the 64-MiB bound.");
+            }
+            if (length == 0)
+            {
+                return [];
+            }
+            if (bytes == null)
+            {
+                throw new InvalidDataException(
+                    "Media Foundation returned a null timed-metadata cue payload.");
+            }
+            return new ReadOnlySpan<byte>(
+                    bytes,
+                    checked((int)length))
+                .ToArray();
+        }
+        finally
+        {
+            Release(binary);
+        }
+    }
+
+    private static bool TryGetAllocatedString(
+        nint value,
+        int methodIndex,
+        out string result)
+    {
+        nint text = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint*,
+            int> get =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint*,
+                    int>)VTable(value)[methodIndex];
+        int status = get(value, &text);
+        try
+        {
+            if (status < 0 || text == 0)
+            {
+                result = string.Empty;
+                return false;
+            }
+
+            result =
+                Marshal.PtrToStringUni(text) ??
+                string.Empty;
+            return true;
+        }
+        finally
+        {
+            CoTaskMemFree(text);
+        }
+    }
+
+    private static bool TryGetStreamGuidAttribute(
+        nint extended,
+        uint nativeIndex,
+        in Guid attribute,
+        out Guid value)
+    {
+        var variant = new PropVariant();
+        try
+        {
+            fixed (Guid* attributePointer = &attribute)
+            {
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    Guid*,
+                    PropVariant*,
+                    int> getStreamAttribute =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint,
+                        Guid*,
+                        PropVariant*,
+                        int>)VTable(extended)[55];
+                int result = getStreamAttribute(
+                    extended,
+                    nativeIndex,
+                    attributePointer,
+                    &variant);
+                if (result < 0 ||
+                    variant.VariantType !=
+                        VariantTypeClassId ||
+                    variant.Pointer == 0)
+                {
+                    value = Guid.Empty;
+                    return false;
+                }
+                value = *(Guid*)variant.Pointer;
+                return true;
+            }
+        }
+        finally
+        {
+            _ = PropVariantClear(&variant);
+        }
+    }
+
+    private static bool GetStreamSelection(
+        nint extended,
+        uint nativeIndex)
+    {
+        int selected = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            int*,
+            int> getStreamSelection =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int*,
+                    int>)VTable(extended)[56];
+        ThrowIfFailed(
+            getStreamSelection(
+                extended,
+                nativeIndex,
+                &selected),
+            "query a Media Engine stream selection");
+        return selected != 0;
+    }
+
+    private static bool TryGetStreamStringAttribute(
+        nint extended,
+        uint nativeIndex,
+        in Guid attribute,
+        out string value)
+    {
+        var variant = new PropVariant();
+        try
+        {
+            fixed (Guid* attributePointer = &attribute)
+            {
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    Guid*,
+                    PropVariant*,
+                    int> getStreamAttribute =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint,
+                        Guid*,
+                        PropVariant*,
+                        int>)VTable(extended)[55];
+                int result = getStreamAttribute(
+                    extended,
+                    nativeIndex,
+                    attributePointer,
+                    &variant);
+                if (result < 0 ||
+                    variant.VariantType !=
+                        VariantTypeWideString ||
+                    variant.Pointer == 0)
+                {
+                    value = string.Empty;
+                    return false;
+                }
+                value =
+                    Marshal.PtrToStringUni(
+                        variant.Pointer) ??
+                    string.Empty;
+                return true;
+            }
+        }
+        finally
+        {
+            _ = PropVariantClear(&variant);
         }
     }
 
@@ -919,6 +1590,17 @@ internal static unsafe partial class WindowsMediaNative
         return call(value);
     }
 
+    private static uint CallUInt32(
+        nint value,
+        int methodIndex)
+    {
+        delegate* unmanaged[Stdcall]<nint, uint> call =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint>)VTable(value)[methodIndex];
+        return call(value);
+    }
+
     private static nint* VTable(nint value) =>
         *(nint**)value;
 
@@ -938,6 +1620,23 @@ internal static unsafe partial class WindowsMediaNative
         Guid* classId,
         nint outer,
         uint context,
+        Guid* interfaceId,
+        nint* result);
+
+    [LibraryImport("ole32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial void CoTaskMemFree(nint value);
+
+    [LibraryImport("ole32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int PropVariantClear(
+        PropVariant* value);
+
+    [LibraryImport("mf.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int MFGetService(
+        nint value,
+        Guid* service,
         Guid* interfaceId,
         nint* result);
 
@@ -1135,4 +1834,282 @@ internal sealed unsafe class MediaEngineNotification : IDisposable
             return unchecked((int)0x8000_4005);
         }
     }
+}
+
+internal sealed unsafe class MediaEngineTimedTextNotification :
+    IDisposable
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeObject
+    {
+        internal nint* VTable;
+        internal nint StateHandle;
+        internal int References;
+    }
+
+    private sealed record Callbacks(
+        Action<uint> TrackChanged,
+        Action<int, int, uint> Error,
+        Action<int, double, nint> Cue,
+        Action Reset);
+
+    private static readonly Guid s_unknown =
+        new("00000000-0000-0000-c000-000000000046");
+    private static readonly Guid s_notify =
+        new("df6b87b6-ce12-45db-aba7-432fe054e57d");
+    private static readonly nint* s_vtable = CreateVTable();
+    private nint _native;
+
+    internal MediaEngineTimedTextNotification(
+        Action<uint> onTrackChanged,
+        Action<int, int, uint> onError,
+        Action<int, double, nint> onCue,
+        Action onReset)
+    {
+        ArgumentNullException.ThrowIfNull(onTrackChanged);
+        ArgumentNullException.ThrowIfNull(onError);
+        ArgumentNullException.ThrowIfNull(onCue);
+        ArgumentNullException.ThrowIfNull(onReset);
+        GCHandle state = GCHandle.Alloc(
+            new Callbacks(
+                onTrackChanged,
+                onError,
+                onCue,
+                onReset));
+        NativeObject* value =
+            (NativeObject*)NativeMemory.AllocZeroed(
+                (nuint)sizeof(NativeObject));
+        value->VTable = s_vtable;
+        value->StateHandle =
+            GCHandle.ToIntPtr(state);
+        value->References = 1;
+        _native = (nint)value;
+    }
+
+    internal nint NativePointer =>
+        Volatile.Read(ref _native);
+
+    public void Dispose()
+    {
+        nint value =
+            Interlocked.Exchange(ref _native, 0);
+        if (value != 0)
+        {
+            _ = ReleaseCore((NativeObject*)value);
+        }
+    }
+
+    private static nint* CreateVTable()
+    {
+        nint* table =
+            (nint*)NativeMemory.Alloc(
+                (nuint)(10 * sizeof(nint)));
+        table[0] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                Guid*,
+                void**,
+                int>)&QueryInterface;
+        table[1] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint>)&AddRef;
+        table[2] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint>)&Release;
+        table[3] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint,
+                void>)&TrackAdded;
+        table[4] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint,
+                void>)&TrackRemoved;
+        table[5] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint,
+                int,
+                void>)&TrackSelected;
+        table[6] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                uint,
+                void>)&TrackReadyStateChanged;
+        table[7] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                int,
+                int,
+                uint,
+                void>)&Error;
+        table[8] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                int,
+                double,
+                nint,
+                void>)&Cue;
+        table[9] =
+            (nint)(delegate* unmanaged[Stdcall]<
+                NativeObject*,
+                void>)&Reset;
+        return table;
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static int QueryInterface(
+        NativeObject* value,
+        Guid* interfaceId,
+        void** result)
+    {
+        if (result == null || interfaceId == null)
+        {
+            return unchecked((int)0x8000_4003);
+        }
+        if (*interfaceId != s_unknown &&
+            *interfaceId != s_notify)
+        {
+            *result = null;
+            return unchecked((int)0x8000_4002);
+        }
+
+        _ = AddRefCore(value);
+        *result = value;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static uint AddRef(NativeObject* value) =>
+        AddRefCore(value);
+
+    private static uint AddRefCore(NativeObject* value) =>
+        unchecked((uint)Interlocked.Increment(
+            ref value->References));
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static uint Release(NativeObject* value) =>
+        ReleaseCore(value);
+
+    private static uint ReleaseCore(NativeObject* value)
+    {
+        int remaining =
+            Interlocked.Decrement(
+                ref value->References);
+        if (remaining == 0)
+        {
+            GCHandle state =
+                GCHandle.FromIntPtr(
+                    value->StateHandle);
+            state.Free();
+            NativeMemory.Free(value);
+        }
+        return unchecked((uint)remaining);
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void TrackAdded(
+        NativeObject* value,
+        uint trackId) =>
+        DispatchTrackChanged(value, trackId);
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void TrackRemoved(
+        NativeObject* value,
+        uint trackId) =>
+        DispatchTrackChanged(value, trackId);
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void TrackSelected(
+        NativeObject* value,
+        uint trackId,
+        int selected) =>
+        DispatchTrackChanged(value, trackId);
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void TrackReadyStateChanged(
+        NativeObject* value,
+        uint trackId) =>
+        DispatchTrackChanged(value, trackId);
+
+    private static void DispatchTrackChanged(
+        NativeObject* value,
+        uint trackId)
+    {
+        try
+        {
+            GetCallbacks(value).TrackChanged(trackId);
+        }
+        catch
+        {
+        }
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void Error(
+        NativeObject* value,
+        int errorCode,
+        int extendedErrorCode,
+        uint sourceTrackId)
+    {
+        try
+        {
+            GetCallbacks(value).Error(
+                errorCode,
+                extendedErrorCode,
+                sourceTrackId);
+        }
+        catch
+        {
+        }
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void Cue(
+        NativeObject* value,
+        int cueEvent,
+        double currentTime,
+        nint cue)
+    {
+        try
+        {
+            GetCallbacks(value).Cue(
+                cueEvent,
+                currentTime,
+                cue);
+        }
+        catch
+        {
+        }
+    }
+
+    [UnmanagedCallersOnly(
+        CallConvs = [typeof(CallConvStdcall)])]
+    private static void Reset(NativeObject* value)
+    {
+        try
+        {
+            GetCallbacks(value).Reset();
+        }
+        catch
+        {
+        }
+    }
+
+    private static Callbacks GetCallbacks(
+        NativeObject* value) =>
+        (Callbacks)GCHandle.FromIntPtr(
+            value->StateHandle).Target!;
 }

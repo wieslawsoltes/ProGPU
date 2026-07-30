@@ -13,16 +13,19 @@ namespace ProGPU.Android.Media;
 /// Android-native composition thumbnails. One ImageReader and one retained
 /// encoder-surface renderer serve the complete batch. URI clips reuse one
 /// MediaMetadataRetriever each; decoded native Bitmaps are posted into the
-/// renderer's SurfaceTexture, then built-in effects execute on WebGPU when a
-/// compatible Vulkan Dawn context is active or on the retained GLES fallback.
+/// renderer's SurfaceTexture. Standard overlays reuse the precise-export
+/// SurfaceTexture/WebGPU compositor and are evaluated in ascending timeline
+/// order even when callers request thumbnails out of order.
 /// </summary>
 /// <remarks>
-/// For T requested thumbnails, C clips, and P output pixels, provider-side
-/// selection is O(T * C), native decode/composition is O(T * P), and managed
-/// storage is O(T * B) for the required encoded PNG results plus O(C) handles.
+/// For T requested thumbnails, C clips, O overlays, and P output pixels,
+/// provider-side selection is O(T log T + T * (C + O)), native
+/// decode/composition is O(T * P), and managed storage is O(T * B) for the
+/// required encoded PNG results plus O(T + C + O) schedule/handle state.
 /// Android's public thumbnail decoder returns Bitmap objects and the official
 /// API returns encoded bytes, so this path intentionally does not claim
-/// zero-copy. No decoded full-frame managed array is created.
+/// zero-copy. Overlay video remains native through the shared bounded GPU
+/// path; no decoded full-frame managed array is created.
 /// </remarks>
 public sealed class AndroidMediaCompositionThumbnailProvider :
     IMediaCompositionThumbnailProvider
@@ -54,7 +57,8 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
             request,
             OperatingSystem.IsAndroid(),
             _effects) &&
-        (!HasSpatialEffects(
+        (request.Composition.OverlayLayers.Count == 0 &&
+         !HasSpatialEffects(
              request,
              _effects) ||
          AndroidMediaCodecCompositionExportProvider
@@ -80,7 +84,6 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 AndroidMediaCodecCompositionExportProvider
                     .MaximumDimension ||
             composition.Clips.Count == 0 ||
-            composition.OverlayLayers.Count != 0 ||
             composition.EncodingProfile.Width !=
                 request.PixelWidth ||
             composition.EncodingProfile.Height !=
@@ -98,7 +101,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 composition.Clips[index];
             bool hasUri =
                 clip.SourceUri is
-                    { IsAbsoluteUri: true };
+                { IsAbsoluteUri: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             long clipDurationTicks =
@@ -125,6 +128,14 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
             {
                 return false;
             }
+        }
+
+        if (!AndroidMediaCodecOverlayPlanner.TryCapture(
+                composition,
+                effects ?? MediaEffectRegistry.Default,
+                out _))
+        {
+            return false;
         }
 
         for (int index = 0;
@@ -178,6 +189,15 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
             checked((int)request.PixelWidth);
         int height =
             checked((int)request.PixelHeight);
+        if (!AndroidMediaCodecOverlayPlanner.TryCapture(
+                request.Composition,
+                effects,
+                out AndroidMediaCodecOverlayPlan[]
+                    overlayPlans))
+        {
+            throw new InvalidOperationException(
+                "The composition contains an unsupported overlay.");
+        }
         using ImageReader reader =
             ImageReader.NewInstance(
                 width,
@@ -192,9 +212,22 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                         "Android did not create a thumbnail output surface."),
                     width,
                     height,
+                    overlayPlans.Length != 0 ||
                     HasSpatialEffects(
                         request,
                         effects));
+        using AndroidMediaCodecOverlayFrameComposer?
+            overlays =
+                overlayPlans.Length == 0
+                    ? null
+                    : renderer is
+                        AndroidMediaCodecGpuEncoderFrameSink
+                            gpuRenderer
+                        ? new AndroidMediaCodecOverlayFrameComposer(
+                            overlayPlans,
+                            gpuRenderer)
+                        : throw new InvalidOperationException(
+                            "Android standard overlays require the Vulkan Dawn renderer.");
         using var paint =
             new Paint(PaintFlags.FilterBitmap);
         var sourceRect = new Rect();
@@ -206,19 +239,39 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
         var results =
             new MediaCompositionThumbnail[
                 request.Positions.Count];
+        var orderedPositions =
+            new ThumbnailPosition[
+                request.Positions.Count];
+        for (int index = 0;
+             index < orderedPositions.Length;
+             index++)
+        {
+            orderedPositions[index] =
+                new ThumbnailPosition(
+                    index,
+                    request.Positions[index]);
+        }
+        Array.Sort(
+            orderedPositions,
+            static (left, right) =>
+                left.Position.CompareTo(
+                    right.Position));
 
         try
         {
-            for (int index = 0;
-                 index < request.Positions.Count;
-                 index++)
+            for (int orderedIndex = 0;
+                 orderedIndex <
+                    orderedPositions.Length;
+                 orderedIndex++)
             {
                 cancellationToken
                     .ThrowIfCancellationRequested();
+                ThumbnailPosition requested =
+                    orderedPositions[orderedIndex];
                 TimelineFrame frame =
                     ResolveTimelineFrame(
                         request.Composition.Clips,
-                        request.Positions[index]);
+                        requested.Position);
                 MediaCompositionExportClip clip =
                     request.Composition.Clips[
                         frame.ClipIndex];
@@ -235,7 +288,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                 long presentationTimeMicroseconds =
                     Math.Max(
                         0,
-                        request.Positions[index].Ticks /
+                        requested.Position.Ticks /
                         TimeSpan.TicksPerMicrosecond);
 
                 if (clip.ArgbColor is uint color)
@@ -244,6 +297,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                         presentationTimeMicroseconds,
                         color,
                         effectPlan,
+                        overlays,
                         cancellationToken);
                 }
                 else
@@ -273,6 +327,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     renderer.DrawFrame(
                         presentationTimeMicroseconds,
                         effectPlan,
+                        overlays,
                         cancellationToken);
                 }
 
@@ -280,7 +335,7 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
                     AcquireImage(
                         reader,
                         cancellationToken);
-                results[index] =
+                results[requested.Index] =
                     EncodeImage(
                         image,
                         width,
@@ -558,4 +613,8 @@ public sealed class AndroidMediaCompositionThumbnailProvider :
     private readonly record struct TimelineFrame(
         int ClipIndex,
         long SourceTimeMicroseconds);
+
+    private readonly record struct ThumbnailPosition(
+        int Index,
+        TimeSpan Position);
 }

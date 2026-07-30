@@ -53,11 +53,35 @@ dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
 Append `?progpuMediaPlaybackSmoke=1` to the printed HTTP URL and activate
 **Run browser playback smoke** to exercise the WinUI-aligned `MediaPlayer`
 contract under a real user gesture. The gate opens browser-owned media, enables
-frame-server notifications, installs the typed gain/balance Web Audio graph,
-plays, pauses, seeks, replays, validates the decoded `GpuCopy` frame and
-provider diagnostics, then verifies that source disposal returns the owned DOM
+frame-server notifications, first renders a deterministic stereo signal through
+the sample's application-supplied `AudioWorkletProcessor` in an
+[`OfflineAudioContext`](https://www.w3.org/TR/webaudio-1.1/#OfflineAudioContext),
+and compares the browser-owned rendered samples with the expected gain result.
+Only the scalar maximum error crosses the WASM boundary. It then installs the
+typed gain/balance Web Audio graph and a distinct live worklet node, plays,
+pauses, seeks, replays, validates the decoded `GpuCopy` frame and provider
+diagnostics, and verifies that source disposal returns the owned DOM
 media-element count to its starting value. Override the default CORS-enabled
 fixture with the absolute `progpuMediaPlaybackSource` query parameter.
+
+Append
+`?progpuMediaExportSmoke=effect-audio&progpuSavePicker=memory` and activate
+**Run browser audio export smoke** to exercise the nonlinear editor's WebGPU
+effect-bake plus native H.264/AAC export lane with the same supplied worklet in
+the ordered clip-audio graph. Both actions require a secure context; localhost
+qualifies for development. The worklet module is an original bounded
+`O(F * C)` sample gain processor for `F` frames and `C` channels. It retains
+only one scalar and performs no application allocation in `process()`.
+
+HTML media text tracks remain browser-owned. `ProGPU.Browser` enumerates
+`TextTrackList`, observes membership and `cuechange`, and projects complete cue
+snapshots through the framework-neutral media sink. `TimedMetadataTrack` then
+retains one WinUI-aligned `TimedTextCue` per provider cue ID, so timing and text
+updates do not replace objects held by UI bindings. Presentation modes map as
+follows: `Disabled` → `disabled`, `Hidden`/`ApplicationPresented` → `hidden`,
+and `PlatformPresented` → `showing`. The browser therefore owns WebVTT loading
+and native caption presentation; ProGPU owns typed scheduling and application
+cue events without reparsing track text or adding an external codec library.
 
 ### Publish with managed WebAssembly AOT
 

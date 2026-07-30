@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -45,6 +46,13 @@ public sealed class MediaPlaybackEngineTests
             "Windows.Media.Playback",
             typeof(MediaPlaybackAudioTrackList).Namespace);
         Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedMetadataTrack).Namespace);
+        Assert.Equal(
+            "Windows.Media.Playback",
+            typeof(MediaPlaybackTimedMetadataTrackList)
+                .Namespace);
+        Assert.Equal(
             typeof(IReadOnlyList<AudioTrack>),
             Assert.Single(
                 typeof(MediaPlaybackAudioTrackList)
@@ -55,6 +63,10 @@ public sealed class MediaPlaybackEngineTests
         Assert.Contains(
             typeof(ISingleSelectMediaTrackList),
             typeof(MediaPlaybackVideoTrackList)
+                .GetInterfaces());
+        Assert.Contains(
+            typeof(IReadOnlyList<TimedMetadataTrack>),
+            typeof(MediaPlaybackTimedMetadataTrackList)
                 .GetInterfaces());
         Assert.Equal(
             typeof(MediaPlaybackAudioTrackList),
@@ -72,9 +84,211 @@ public sealed class MediaPlaybackEngineTests
                         MediaPlaybackItem
                             .AudioTracksChanged))!
                 .EventHandlerType);
+        Assert.Equal(
+            typeof(MediaPlaybackTimedMetadataTrackList),
+            typeof(MediaPlaybackItem)
+                .GetProperty(
+                    nameof(
+                        MediaPlaybackItem
+                            .TimedMetadataTracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(Windows.Foundation.TypedEventHandler<
+                MediaPlaybackItem,
+                IVectorChangedEventArgs>),
+            typeof(MediaPlaybackItem)
+                .GetEvent(
+                    nameof(
+                        MediaPlaybackItem
+                            .TimedMetadataTracksChanged))!
+                .EventHandlerType);
+        Assert.Equal(
+            typeof(IObservableVector<TimedMetadataTrack>),
+            typeof(MediaSource)
+                .GetProperty(
+                    nameof(
+                        MediaSource
+                            .ExternalTimedMetadataTracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IObservableVector<TimedTextSource>),
+            typeof(MediaSource)
+                .GetProperty(
+                    nameof(
+                        MediaSource
+                            .ExternalTimedTextSources))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(Windows.Foundation.TypedEventHandler<
+                TimedTextSource,
+                TimedTextSourceResolveResultEventArgs>),
+            typeof(TimedTextSource)
+                .GetEvent(
+                    nameof(TimedTextSource.Resolved))!
+                .EventHandlerType);
+        Assert.Equal(
+            typeof(IReadOnlyList<TimedMetadataTrack>),
+            typeof(
+                    TimedTextSourceResolveResultEventArgs)
+                .GetProperty(
+                    nameof(
+                        TimedTextSourceResolveResultEventArgs
+                            .Tracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IBuffer),
+            typeof(DataCue)
+                .GetProperty(nameof(DataCue.Data))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(PropertySet),
+            typeof(DataCue)
+                .GetProperty(nameof(DataCue.Properties))!
+                .PropertyType);
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedTextCue).Namespace);
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedTextLine).Namespace);
+        Assert.Equal(
+            typeof(IList<TimedTextLine>),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.Lines))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextStyle),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.CueStyle))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextRegion),
+            typeof(TimedTextCue)
+                .GetProperty(nameof(TimedTextCue.CueRegion))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(IList<TimedTextSubformat>),
+            typeof(TimedTextLine)
+                .GetProperty(
+                    nameof(TimedTextLine.Subformats))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextStyle),
+            typeof(TimedTextSubformat)
+                .GetProperty(
+                    nameof(
+                        TimedTextSubformat
+                            .SubformatStyle))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextPoint),
+            typeof(TimedTextRegion)
+                .GetProperty(
+                    nameof(TimedTextRegion.Position))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextSize),
+            typeof(TimedTextRegion)
+                .GetProperty(
+                    nameof(TimedTextRegion.Extent))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(TimedTextDouble),
+            typeof(TimedTextStyle)
+                .GetProperty(
+                    nameof(TimedTextStyle.FontSize))!
+                .PropertyType);
+        Assert.Equal(400, (int)TimedTextWeight.Normal);
+        Assert.Equal(700, (int)TimedTextWeight.Bold);
+        Assert.Equal(
+            2,
+            (int)TimedTextLineAlignment.Center);
+        Assert.Equal(
+            6,
+            (int)TimedTextWritingMode.TopBottom);
         Assert.Equal(0, (int)MediaTrackKind.Audio);
         Assert.Equal(1, (int)MediaTrackKind.Video);
         Assert.Equal(2, (int)MediaTrackKind.TimedMetadata);
+    }
+
+    [Fact]
+    public void TimedTextFormattingApiMatchesOfficialContract()
+    {
+        Assert.Equal(
+            [
+                "Background",
+                "Bouten",
+                "FlowDirection",
+                "FontAngleInDegrees",
+                "FontFamily",
+                "FontSize",
+                "FontStyle",
+                "FontWeight",
+                "Foreground",
+                "IsBackgroundAlwaysShown",
+                "IsLineThroughEnabled",
+                "IsOverlineEnabled",
+                "IsTextCombined",
+                "IsUnderlineEnabled",
+                "LineAlignment",
+                "Name",
+                "OutlineColor",
+                "OutlineRadius",
+                "OutlineThickness",
+                "Ruby"
+            ],
+            typeof(TimedTextStyle)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Background",
+                "DisplayAlignment",
+                "Extent",
+                "IsOverflowClipped",
+                "LineHeight",
+                "Name",
+                "Padding",
+                "Position",
+                "ScrollMode",
+                "TextWrapping",
+                "WritingMode",
+                "ZIndex"
+            ],
+            typeof(TimedTextRegion)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.False(
+            typeof(TimedTextStyle)
+                .GetProperty(nameof(TimedTextStyle.Bouten))!
+                .CanWrite);
+        Assert.False(
+            typeof(TimedTextStyle)
+                .GetProperty(nameof(TimedTextStyle.Ruby))!
+                .CanWrite);
+        Assert.Equal(
+            [
+                "Color",
+                "Position",
+                "Type"
+            ],
+            typeof(TimedTextBouten)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Align",
+                "Position",
+                "Reserve",
+                "Text"
+            ],
+            typeof(TimedTextRuby)
+                .GetProperties()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -111,6 +325,7 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(2, item.AudioTracks.Count);
         Assert.Equal(2u, item.AudioTracks.Size);
         Assert.Single(item.VideoTracks);
+        Assert.Single(item.TimedMetadataTracks);
         Assert.Equal(0, item.AudioTracks.SelectedIndex);
         Assert.Equal(0, item.VideoTracks.SelectedIndex);
         Assert.Equal(
@@ -171,6 +386,518 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(1080u, videoEncoding.Height);
         Assert.Equal(30u, videoEncoding.FrameRate.Numerator);
         Assert.Equal(1u, videoEncoding.FrameRate.Denominator);
+
+        TimedMetadataTrack subtitles =
+            item.TimedMetadataTracks[0];
+        Assert.Same(item, subtitles.PlaybackItem);
+        Assert.Equal(
+            MediaTrackKind.TimedMetadata,
+            subtitles.TrackKind);
+        Assert.Equal(
+            TimedMetadataKind.Subtitle,
+            subtitles.TimedMetadataKind);
+        Assert.Equal("text/vtt", subtitles.DispatchType);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode.Disabled,
+            item.TimedMetadataTracks
+                .GetPresentationMode(0));
+
+        TimedMetadataPresentationModeChangedEventArgs?
+            modeChanged = null;
+        item.TimedMetadataTracks.PresentationModeChanged +=
+            (_, args) => modeChanged = args;
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+
+        Assert.Equal(1, provider.TimedMetadataModeCalls);
+        Assert.Equal(
+            MediaPlaybackTimedMetadataPresentationMode
+                .ApplicationPresented,
+            provider.LastTimedMetadataMode);
+        Assert.Same(subtitles, modeChanged?.Track);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode.Disabled,
+            modeChanged?.OldPresentationMode);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented,
+            modeChanged?.NewPresentationMode);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => item.TimedMetadataTracks
+                .SetPresentationMode(
+                    1,
+                    TimedMetadataTrackPresentationMode
+                        .Hidden));
+    }
+
+    [Fact]
+    public void
+        ProviderTimedTextCuesPreserveIdentityAndSchedule()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/provider-cues.mp4"));
+        var item = new MediaPlaybackItem(source);
+
+        player.Source = item;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        TimedMetadataTrack track =
+            Assert.Single(item.TimedMetadataTracks);
+        int entered = 0;
+        int exited = 0;
+        track.CueEntered += (_, _) => entered++;
+        track.CueExited += (_, _) => exited++;
+
+        var sourceCues =
+            new MediaPlaybackTimedMetadataCueDescriptor[]
+            {
+                new(
+                    "subtitle-1",
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(2),
+                    "First GPU",
+                    new MediaPlaybackTimedTextCuePresentation(
+                        [
+                            new(
+                                "First GPU",
+                                [
+                                    new(
+                                        6,
+                                        3,
+                                        new(
+                                            FontWeight:
+                                                MediaPlaybackTimedTextWeight
+                                                    .Bold))
+                                ])
+                        ],
+                        layout:
+                            new(
+                                RegionName: "captions",
+                                LinePosition: 80d,
+                                LinePositionUnit:
+                                    MediaPlaybackTimedTextLinePositionUnit
+                                        .Percentage,
+                                TextPositionPercentage: 25d,
+                                PositionAlignment:
+                                    MediaPlaybackTimedTextAlignment
+                                        .Center,
+                                SizePercentage: 50d,
+                                TextAlignment:
+                                    MediaPlaybackTimedTextAlignment
+                                        .Center,
+                                WritingMode:
+                                    MediaPlaybackTimedTextWritingMode
+                                        .TopBottomRightLeft)))
+            };
+        var firstSnapshot =
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                sourceCues);
+        sourceCues[0] = sourceCues[0] with
+        {
+            Text = "mutated caller buffer"
+        };
+        provider.ReportTimedMetadataCues(firstSnapshot);
+
+        TimedTextCue cue =
+            Assert.IsType<TimedTextCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("subtitle-1", cue.Id);
+        TimedTextLine projectedLine =
+            Assert.Single(cue.Lines);
+        Assert.Equal("First GPU", projectedLine.Text);
+        TimedTextSubformat projectedSubformat =
+            Assert.Single(projectedLine.Subformats);
+        Assert.Equal(6, projectedSubformat.StartIndex);
+        Assert.Equal(3, projectedSubformat.Length);
+        Assert.Equal(
+            TimedTextWeight.Bold,
+            projectedSubformat.SubformatStyle.FontWeight);
+        Assert.Equal(
+            TimedTextLineAlignment.Center,
+            cue.CueStyle.LineAlignment);
+        Assert.Equal("captions", cue.CueRegion.Name);
+        Assert.Equal(
+            TimedTextWritingMode.TopBottomRightLeft,
+            cue.CueRegion.WritingMode);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Position.Unit);
+        Assert.Equal(80d, cue.CueRegion.Position.X);
+        Assert.Equal(0d, cue.CueRegion.Position.Y);
+        Assert.Equal(50d, cue.CueRegion.Extent.Height);
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(1.5)));
+
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(1, entered);
+        Assert.Equal(0, exited);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new(
+                        "subtitle-1",
+                        TimeSpan.FromSeconds(4),
+                        TimeSpan.FromSeconds(3),
+                        "Updated")
+                ]));
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Equal(
+            TimeSpan.FromSeconds(4),
+            cue.StartTime);
+        Assert.Equal(
+            "Updated",
+            Assert.Single(cue.Lines).Text);
+        Assert.Empty(cue.Lines[0].Subformats);
+        Assert.Equal(
+            TimedTextWeight.Normal,
+            cue.CueStyle.FontWeight);
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(1, exited);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(4.5)));
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(2, entered);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                []));
+        Assert.Empty(track.Cues);
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(2, exited);
+
+        using MediaSource replacementSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/new-provider-cues.mp4"));
+        var replacementItem =
+            new MediaPlaybackItem(replacementSource);
+        player.Source = replacementItem;
+        provider.ReportTimedMetadataCues(firstSnapshot);
+
+        Assert.Empty(track.Cues);
+        Assert.Empty(
+            replacementItem.TimedMetadataTracks[0].Cues);
+    }
+
+    [Fact]
+    public void
+        ProviderBinaryCuesProjectRetainedWinUiDataCueBuffers()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/provider-data.mp4"));
+        var item = new MediaPlaybackItem(source);
+
+        player.Source = item;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        provider.ReportTracks(
+            new MediaPlaybackTracksSnapshot(
+                audioTracks: null,
+                selectedAudioTrackIndex: -1,
+                videoTracks: null,
+                selectedVideoTrackIndex: -1,
+                timedMetadataTracks:
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "metadata-data",
+                        MediaPlaybackTrackKind
+                            .TimedMetadata,
+                        "Binary metadata",
+                        "Data",
+                        string.Empty,
+                        new MediaPlaybackTrackEncoding(
+                            "application/octet-stream"),
+                        MediaPlaybackTrackSupport
+                            .Supported,
+                        MediaPlaybackTimedMetadataKind
+                            .Data,
+                        "application/octet-stream")
+                ]));
+        TimedMetadataTrack track =
+            Assert.Single(item.TimedMetadataTracks);
+        Assert.Equal(
+            TimedMetadataKind.Data,
+            track.TimedMetadataKind);
+
+        byte[] callerBytes = [1, 2, 3, 4];
+        var payload =
+            new MediaPlaybackTimedMetadataCueData(
+                callerBytes);
+        callerBytes[0] = 255;
+        var snapshot =
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new
+                        MediaPlaybackTimedMetadataCueDescriptor(
+                            "data-1",
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromSeconds(2),
+                            string.Empty,
+                            Data: payload)
+                ]);
+        provider.ReportTimedMetadataCues(snapshot);
+
+        DataCue cue =
+            Assert.IsType<DataCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("data-1", cue.Id);
+        var firstBuffer =
+            Assert.IsType<
+                Windows.Storage.Streams.Buffer>(
+                    cue.Data);
+        Assert.Equal(4u, firstBuffer.Length);
+        Assert.Equal(
+            [1, 2, 3, 4],
+            firstBuffer.Memory.ToArray());
+        Assert.Equal(
+            [1, 2, 3, 4],
+            payload.Bytes.ToArray());
+
+        cue.Data =
+            new Windows.Storage.Streams.Buffer(1);
+        provider.ReportTimedMetadataCues(snapshot);
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Same(firstBuffer, cue.Data);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new
+                        MediaPlaybackTimedMetadataCueDescriptor(
+                            "data-1",
+                            TimeSpan.FromSeconds(4),
+                            TimeSpan.FromSeconds(3),
+                            string.Empty,
+                            Data:
+                                new
+                                    MediaPlaybackTimedMetadataCueData(
+                                        [5, 6, 7]))
+                ]));
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Equal(
+            TimeSpan.FromSeconds(4),
+            cue.StartTime);
+        var updatedBuffer =
+            Assert.IsType<
+                Windows.Storage.Streams.Buffer>(
+                    cue.Data);
+        Assert.NotSame(firstBuffer, updatedBuffer);
+        Assert.Equal(
+            [5, 6, 7],
+            updatedBuffer.Memory.ToArray());
+
+        int entered = 0;
+        track.CueEntered += (_, args) =>
+        {
+            Assert.Same(cue, args.Cue);
+            entered++;
+        };
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        provider.Report(
+            CreatePlaybackSnapshot(
+                TimeSpan.FromSeconds(4.5)));
+
+        Assert.Same(
+            cue,
+            Assert.Single(track.ActiveCues));
+        Assert.Equal(1, entered);
+    }
+
+    [Fact]
+    public void TimedMetadataCueSnapshotsValidateIdentityAndTiming()
+    {
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            string.Empty,
+                            TimeSpan.Zero,
+                            TimeSpan.FromSeconds(1),
+                            string.Empty)
+                    ]));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            "duplicate",
+                            TimeSpan.Zero,
+                            TimeSpan.FromSeconds(1),
+                            string.Empty),
+                        new(
+                            "duplicate",
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromSeconds(1),
+                            string.Empty)
+                    ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new(
+                            "negative",
+                            TimeSpan.FromTicks(-1),
+                            TimeSpan.Zero,
+                            string.Empty)
+                    ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextLineDescriptor(
+                    "short",
+                    [
+                        new(
+                            4,
+                            2,
+                            default)
+                    ]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    layout:
+                        new(
+                            SizePercentage: 101d)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    region:
+                        new(
+                            Name: "captions",
+                            LineCount: -1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new MediaPlaybackTimedTextCuePresentation(
+                    [],
+                    region:
+                        new(
+                            Name: "captions",
+                            WidthPercentage:
+                                double.NaN)));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new
+                            MediaPlaybackTimedMetadataCueDescriptor(
+                                "binary-with-text",
+                                TimeSpan.Zero,
+                                TimeSpan.FromSeconds(1),
+                                string.Empty,
+                                new
+                                    MediaPlaybackTimedTextCuePresentation(
+                                        []),
+                                new
+                                    MediaPlaybackTimedMetadataCueData(
+                                        [1]))
+                    ]));
+    }
+
+    [Fact]
+    public void NativeTimedTextSnapshotsAccumulateStableReplayableCues()
+    {
+        var accumulator =
+            new MediaPlaybackTimedTextCueAccumulator(
+                "native-subtitles");
+
+        MediaPlaybackTimedMetadataCueSnapshot first =
+            accumulator.Update(
+                TimeSpan.FromSeconds(1),
+                ["First"],
+                TimeSpan.FromSeconds(10));
+        MediaPlaybackTimedMetadataCueDescriptor firstCue =
+            Assert.Single(first.Cues);
+        Assert.Equal(
+            "native-subtitles:10000000:0",
+            firstCue.CueId);
+        Assert.Equal(
+            TimeSpan.FromSeconds(9),
+            firstCue.Duration);
+
+        MediaPlaybackTimedMetadataCueSnapshot second =
+            accumulator.Update(
+                TimeSpan.FromSeconds(3),
+                ["Second"],
+                TimeSpan.FromSeconds(10));
+        Assert.Collection(
+            second.Cues,
+            cue =>
+            {
+                Assert.Equal(firstCue.CueId, cue.CueId);
+                Assert.Equal(
+                    TimeSpan.FromSeconds(2),
+                    cue.Duration);
+            },
+            cue =>
+            {
+                Assert.Equal(
+                    "native-subtitles:30000000:0",
+                    cue.CueId);
+                Assert.Equal("Second", cue.Text);
+            });
+
+        MediaPlaybackTimedMetadataCueSnapshot replay =
+            accumulator.Update(
+                TimeSpan.FromSeconds(1),
+                ["First updated"],
+                TimeSpan.FromSeconds(10));
+        Assert.Equal(2, replay.Cues.Count);
+        Assert.Equal(firstCue.CueId, replay.Cues[0].CueId);
+        Assert.Equal(
+            "First updated",
+            replay.Cues[0].Text);
+
+        MediaPlaybackTimedMetadataCueSnapshot flushed =
+            accumulator.Flush(TimeSpan.FromSeconds(2));
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            flushed.Cues[0].Duration);
     }
 
     [Fact]
@@ -271,6 +998,11 @@ public sealed class MediaPlaybackEngineTests
                 factory.LastProvider);
         firstItem.AudioTracks.SelectedIndex = 1;
         Assert.Equal(1, firstProvider.TrackSelectionCalls);
+        firstItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        Assert.Equal(1, firstProvider.TimedMetadataModeCalls);
 
         player.Source = secondItem;
         RecordingProvider secondProvider =
@@ -280,13 +1012,714 @@ public sealed class MediaPlaybackEngineTests
 
         firstItem.AudioTracks.SelectedIndex = 0;
         Assert.Equal(0, secondProvider.TrackSelectionCalls);
+        firstItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode.Hidden);
+        Assert.Equal(
+            0,
+            secondProvider.TimedMetadataModeCalls);
 
         secondItem.AudioTracks.SelectedIndex = 1;
         Assert.Equal(1, secondProvider.TrackSelectionCalls);
+        secondItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        Assert.Equal(
+            1,
+            secondProvider.TimedMetadataModeCalls);
 
         player.Dispose();
         secondItem.AudioTracks.SelectedIndex = 0;
         Assert.Equal(1, secondProvider.TrackSelectionCalls);
+        secondItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode.Hidden);
+        Assert.Equal(
+            1,
+            secondProvider.TimedMetadataModeCalls);
+    }
+
+    [Fact]
+    public void CustomTimedMetadataTrackOwnsItsCueCollection()
+    {
+        var track = new TimedMetadataTrack(
+            "chapters",
+            "en-US",
+            TimedMetadataKind.Chapter)
+        {
+            Label = "Chapters"
+        };
+        var cue = new RecordingMediaCue
+        {
+            Id = "chapter-1",
+            StartTime = TimeSpan.FromSeconds(3),
+            Duration = TimeSpan.FromSeconds(12)
+        };
+
+        track.AddCue(cue);
+        track.AddCue(cue);
+
+        Assert.Single(track.Cues);
+        Assert.Empty(track.ActiveCues);
+        Assert.Same(cue, track.Cues[0]);
+        Assert.Equal("chapters", track.Id);
+        Assert.Equal("en-US", track.Language);
+        Assert.Equal("Chapters", track.Label);
+        Assert.Null(track.PlaybackItem);
+        Assert.Equal(
+            TimedMetadataKind.Chapter,
+            track.TimedMetadataKind);
+
+        track.RemoveCue(cue);
+
+        Assert.Empty(track.Cues);
+    }
+
+    [Fact]
+    public void
+        ExternalTimedMetadataTracksScheduleCuesAcrossModesAndSeeks()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/cues.mp4"));
+        var track = new TimedMetadataTrack(
+            "application-data",
+            "en-US",
+            TimedMetadataKind.Data);
+        var cue = new DataCue
+        {
+            Id = "cue-1",
+            StartTime = TimeSpan.FromSeconds(1),
+            Duration = TimeSpan.FromSeconds(2),
+            Data = new Windows.Storage.Streams.Buffer(4)
+            {
+                Length = 4
+            }
+        };
+        cue.Properties["kind"] = "marker";
+        track.AddCue(cue);
+        var sourceChanges =
+            new List<(CollectionChange Change, uint Index)>();
+        source.ExternalTimedMetadataTracks.VectorChanged +=
+            (_, args) =>
+                sourceChanges.Add(
+                    (args.CollectionChange, args.Index));
+
+        source.ExternalTimedMetadataTracks.Add(track);
+        var item = new MediaPlaybackItem(source);
+
+        Assert.Equal(
+            [(CollectionChange.ItemInserted, 0u)],
+            sourceChanges);
+        Assert.Same(
+            track,
+            Assert.Single(
+                source.ExternalTimedMetadataTracks));
+        Assert.Same(item, track.PlaybackItem);
+        Assert.Same(
+            track,
+            Assert.Single(item.TimedMetadataTracks));
+        Assert.Throws<InvalidOperationException>(
+            () => source.ExternalTimedMetadataTracks.Add(
+                track));
+        using (MediaSource otherSource =
+               MediaSource.CreateFromUri(
+                   new Uri(
+                       "https://example.invalid/other-cues.mp4")))
+        {
+            Assert.Throws<InvalidOperationException>(
+                () => otherSource
+                    .ExternalTimedMetadataTracks.Add(track));
+            Assert.Empty(
+                otherSource.ExternalTimedMetadataTracks);
+        }
+        Assert.Same(item, track.PlaybackItem);
+
+        int entered = 0;
+        int exited = 0;
+        track.CueEntered += (_, args) =>
+        {
+            Assert.Same(cue, args.Cue);
+            entered++;
+        };
+        track.CueExited += (_, args) =>
+        {
+            Assert.Same(cue, args.Cue);
+            exited++;
+        };
+
+        player.Source = item;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.Equal(2, item.TimedMetadataTracks.Count);
+        Assert.Same(track, item.TimedMetadataTracks[1]);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(1.5)));
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(0, entered);
+        Assert.Equal(0, exited);
+
+        item.TimedMetadataTracks.SetPresentationMode(
+            1,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+
+        Assert.Equal(0, provider.TimedMetadataModeCalls);
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(1, entered);
+        Assert.Equal(0, exited);
+
+        item.TimedMetadataTracks.SetPresentationMode(
+            1,
+            TimedMetadataTrackPresentationMode.Disabled);
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(1, entered);
+        Assert.Equal(0, exited);
+
+        item.TimedMetadataTracks.SetPresentationMode(
+            1,
+            TimedMetadataTrackPresentationMode.Hidden);
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(3)));
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(2, entered);
+        Assert.Equal(1, exited);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(1.5)));
+
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(3, entered);
+
+        cue.StartTime = TimeSpan.FromSeconds(5);
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(2, exited);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(5.5)));
+
+        Assert.Same(cue, Assert.Single(track.ActiveCues));
+        Assert.Equal(4, entered);
+        Assert.Equal("marker", cue.Properties["kind"]);
+
+        using MediaSource replacementSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/replacement-cues.mp4"));
+        var replacementItem =
+            new MediaPlaybackItem(replacementSource);
+        player.Source = replacementItem;
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(2, exited);
+
+        provider.Report(CreatePlaybackSnapshot(
+            TimeSpan.FromSeconds(5.5)));
+
+        Assert.Empty(track.ActiveCues);
+        Assert.Equal(4, entered);
+
+        source.ExternalTimedMetadataTracks.Remove(track);
+
+        Assert.Null(track.PlaybackItem);
+        Assert.Empty(track.ActiveCues);
+        Assert.Single(item.TimedMetadataTracks);
+        Assert.Equal(2, sourceChanges.Count);
+        Assert.Equal(
+            (CollectionChange.ItemRemoved, 0u),
+            sourceChanges[1]);
+    }
+
+    [Fact]
+    public async Task
+        ExternalTimedTextSourceResolvesWebVttIntoExternalTrack()
+    {
+        const string WebVtt =
+            "\uFEFFWEBVTT - ProGPU test\n\n" +
+            "NOTE ignored metadata\nignored\n\n" +
+            "intro\n" +
+            "00:00:01.000 --> 00:00:03.500 " +
+            "line:20%,center position:30%,start " +
+            "size:60% align:center\n" +
+            "First <b>bold</b>\n" +
+            "<i>second</i>\n\n";
+        using var subtitleStream =
+            new RandomAccessStream(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(WebVtt)));
+        TimedTextSource textSource =
+            TimedTextSource.CreateFromStream(
+                subtitleStream,
+                "en-US");
+        var completion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        textSource.Resolved +=
+            (_, args) =>
+                completion.TrySetResult(args);
+
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/video.mp4"));
+        var sourceChanges =
+            new List<(CollectionChange Change, uint Index)>();
+        source.ExternalTimedTextSources.VectorChanged +=
+            (_, args) =>
+                sourceChanges.Add(
+                    (args.CollectionChange, args.Index));
+        var item = new MediaPlaybackItem(source);
+        source.ExternalTimedTextSources.Add(textSource);
+
+        TimedTextSourceResolveResultEventArgs result =
+            await completion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Null(result.Error);
+        TimedMetadataTrack track =
+            Assert.Single(result.Tracks);
+        Assert.Same(
+            track,
+            Assert.Single(
+                source.ExternalTimedMetadataTracks));
+        Assert.Equal("en-US", track.Language);
+        Assert.Equal(
+            TimedMetadataKind.Subtitle,
+            track.TimedMetadataKind);
+        TimedTextCue cue =
+            Assert.IsType<TimedTextCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("intro", cue.Id);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            cue.StartTime);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2.5),
+            cue.Duration);
+        Assert.Equal(2, cue.Lines.Count);
+        Assert.Equal("First bold", cue.Lines[0].Text);
+        Assert.Equal("second", cue.Lines[1].Text);
+        TimedTextSubformat bold =
+            Assert.Single(cue.Lines[0].Subformats);
+        Assert.Equal(6, bold.StartIndex);
+        Assert.Equal(4, bold.Length);
+        Assert.Equal(
+            TimedTextWeight.Bold,
+            bold.SubformatStyle.FontWeight);
+        TimedTextSubformat italic =
+            Assert.Single(cue.Lines[1].Subformats);
+        Assert.Equal(
+            TimedTextFontStyle.Italic,
+            italic.SubformatStyle.FontStyle);
+        Assert.Equal(
+            TimedTextLineAlignment.Center,
+            cue.CueStyle.LineAlignment);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Extent.Unit);
+        Assert.Equal(60d, cue.CueRegion.Extent.Width);
+        Assert.Equal(
+            [(CollectionChange.ItemInserted, 0u)],
+            sourceChanges);
+
+        Assert.Same(
+            track,
+            Assert.Single(item.TimedMetadataTracks));
+        Assert.Same(item, track.PlaybackItem);
+
+        source.ExternalTimedTextSources.Remove(textSource);
+
+        Assert.Empty(source.ExternalTimedTextSources);
+        Assert.Empty(source.ExternalTimedMetadataTracks);
+        Assert.Empty(item.TimedMetadataTracks);
+        Assert.Null(track.PlaybackItem);
+        Assert.Equal(
+            [
+                (CollectionChange.ItemInserted, 0u),
+                (CollectionChange.ItemRemoved, 0u)
+            ],
+            sourceChanges);
+    }
+
+    [Fact]
+    public async Task
+        ExternalTimedTextSourceReportsFormatAndIndexErrors()
+    {
+        using var invalidStream =
+            new RandomAccessStream(
+                new MemoryStream(
+                    Encoding.UTF8.GetBytes(
+                        "not WebVTT")));
+        TimedTextSource invalid =
+            TimedTextSource.CreateFromStream(
+                invalidStream);
+        var invalidCompletion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        invalid.Resolved +=
+            (_, args) =>
+                invalidCompletion.TrySetResult(args);
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/video.mp4"));
+        source.ExternalTimedTextSources.Add(invalid);
+
+        TimedTextSourceResolveResultEventArgs invalidResult =
+            await invalidCompletion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Empty(invalidResult.Tracks);
+        Assert.Equal(
+            TimedMetadataTrackErrorCode.DataFormatError,
+            Assert.IsType<TimedMetadataTrackError>(
+                    invalidResult.Error)
+                .ErrorCode);
+        Assert.Empty(source.ExternalTimedMetadataTracks);
+
+        using var imageStream =
+            new RandomAccessStream(
+                new MemoryStream([1, 2, 3]));
+        using var indexStream =
+            new RandomAccessStream(
+                new MemoryStream([4, 5, 6]));
+        TimedTextSource indexed =
+            TimedTextSource.CreateFromStreamWithIndex(
+                imageStream,
+                indexStream);
+        var indexedCompletion =
+            new TaskCompletionSource<
+                TimedTextSourceResolveResultEventArgs>(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+        indexed.Resolved +=
+            (_, args) =>
+                indexedCompletion.TrySetResult(args);
+        source.ExternalTimedTextSources.Add(indexed);
+
+        TimedTextSourceResolveResultEventArgs indexedResult =
+            await indexedCompletion.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+        Assert.Empty(indexedResult.Tracks);
+        Assert.Equal(
+            TimedMetadataTrackErrorCode.InternalError,
+            Assert.IsType<TimedMetadataTrackError>(
+                    indexedResult.Error)
+                .ErrorCode);
+        Assert.IsType<NotSupportedException>(
+            indexedResult.Error!.ExtendedError);
+    }
+
+    [Fact]
+    public void WebVttDocumentParserSkipsMalformedCueBlocks()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "bad\nnot timing\npayload\n\n" +
+                "00:01.250 --> 00:02.500\nvalid\n");
+
+        WebVttDocumentCue cue =
+            Assert.Single(document.Cues);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1.25),
+            cue.StartTime);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1.25),
+            cue.Duration);
+        Assert.Equal("valid", cue.Text);
+    }
+
+    [Fact]
+    public void
+        WebVttDocumentParserResolvesExactRegionDefinitions()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "REGION\n" +
+                "id:chat width:80%\n\n" +
+                "REGION\n" +
+                "id:chat width:40% lines:4 " +
+                "regionanchor:25%,100% " +
+                "viewportanchor:50%,90% scroll:up\n\n" +
+                "00:00.000 --> 00:01.000 " +
+                "region:chat position:20%,center\n" +
+                "eligible\n\n" +
+                "00:01.000 --> 00:02.000 " +
+                "line:2 region:chat\n" +
+                "line drops out\n\n" +
+                "00:02.000 --> 00:03.000 " +
+                "region:chat size:100%\n" +
+                "full size remains\n\n" +
+                "00:03.000 --> 00:04.000 " +
+                "region:chat size:99%\n" +
+                "sized drops out\n");
+
+        Assert.Equal(4, document.Cues.Count);
+        WebVttDocumentCue eligible =
+            document.Cues[0];
+        MediaPlaybackTimedTextRegionDescriptor region =
+            Assert.IsType<
+                MediaPlaybackTimedTextRegionDescriptor>(
+                    eligible.Presentation.Region);
+        Assert.Equal("chat", region.Name);
+        Assert.Equal(40d, region.WidthPercentage);
+        Assert.Equal(4, region.LineCount);
+        Assert.Equal(
+            25d,
+            region.RegionAnchorXPercentage);
+        Assert.Equal(
+            100d,
+            region.RegionAnchorYPercentage);
+        Assert.Equal(
+            50d,
+            region.ViewportAnchorXPercentage);
+        Assert.Equal(
+            90d,
+            region.ViewportAnchorYPercentage);
+        Assert.True(region.ScrollUp);
+        Assert.Equal(
+            "chat",
+            eligible.Presentation.Layout.RegionName);
+
+        Assert.Null(
+            document.Cues[1].Presentation.Region);
+        Assert.Equal(
+            string.Empty,
+            document.Cues[1]
+                .Presentation.Layout.RegionName);
+        Assert.NotNull(
+            document.Cues[2].Presentation.Region);
+        Assert.Null(
+            document.Cues[3].Presentation.Region);
+
+        var descriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "region-cue",
+                eligible.StartTime,
+                eligible.Duration,
+                eligible.Text,
+                eligible.Presentation);
+        var cue = new TimedTextCue();
+        cue.ApplyProviderState(in descriptor);
+
+        Assert.Equal("chat", cue.CueRegion.Name);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Position.Unit);
+        Assert.Equal(40d, cue.CueRegion.Position.X);
+        Assert.Equal(90d, cue.CueRegion.Position.Y);
+        Assert.Equal(
+            TimedTextUnit.Percentage,
+            cue.CueRegion.Extent.Unit);
+        Assert.Equal(40d, cue.CueRegion.Extent.Width);
+        Assert.Equal(0d, cue.CueRegion.Extent.Height);
+        Assert.Equal(
+            TimedTextScrollMode.Rollup,
+            cue.CueRegion.ScrollMode);
+        Assert.Equal(
+            TimedTextWrapping.Wrap,
+            cue.CueRegion.TextWrapping);
+        Assert.True(cue.CueRegion.IsOverflowClipped);
+        Assert.Equal(region, cue.ProviderRegion);
+    }
+
+    [Fact]
+    public void
+        WebVttDocumentParserProjectsRubyAnnotationsThroughWinUi()
+    {
+        WebVttDocument document =
+            WebVttDocumentParser.Parse(
+                "WEBVTT\n\n" +
+                "00:00.000 --> 00:01.000\n" +
+                "Learn <ruby>日<rt>に</rt>" +
+                "本<rt>ほん</rt></ruby>!\n\n" +
+                "00:01.000 --> 00:02.000\n" +
+                "<ruby>漢<rt>かん</ruby>\n");
+
+        Assert.Equal(2, document.Cues.Count);
+        WebVttDocumentCue first =
+            document.Cues[0];
+        Assert.Equal("Learn 日本!", first.Text);
+        MediaPlaybackTimedTextLineDescriptor firstLine =
+            Assert.Single(first.Presentation.Lines);
+        Assert.Equal(first.Text, firstLine.Text);
+        Assert.Equal(2, firstLine.Subformats.Count);
+
+        MediaPlaybackTimedTextSubformatDescriptor
+            firstRuby = firstLine.Subformats[0];
+        Assert.Equal(6, firstRuby.StartIndex);
+        Assert.Equal(1, firstRuby.Length);
+        MediaPlaybackTimedTextRubyDescriptor
+            firstAnnotation =
+                Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        firstRuby.Style.Ruby);
+        Assert.Equal("に", firstAnnotation.Text);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyPosition.Before,
+            firstAnnotation.Position);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyReserve.None,
+            firstAnnotation.Reserve);
+        Assert.Equal(
+            MediaPlaybackTimedTextRubyAlign.Center,
+            firstAnnotation.Align);
+
+        MediaPlaybackTimedTextSubformatDescriptor
+            secondRuby = firstLine.Subformats[1];
+        Assert.Equal(7, secondRuby.StartIndex);
+        Assert.Equal(1, secondRuby.Length);
+        Assert.Equal(
+            "ほん",
+            Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        secondRuby.Style.Ruby)
+                .Text);
+
+        WebVttDocumentCue omittedEndTag =
+            document.Cues[1];
+        Assert.Equal("漢", omittedEndTag.Text);
+        Assert.Equal(
+            "かん",
+            Assert.IsType<
+                    MediaPlaybackTimedTextRubyDescriptor>(
+                        Assert.Single(
+                                Assert.Single(
+                                        omittedEndTag
+                                            .Presentation
+                                            .Lines)
+                                    .Subformats)
+                            .Style.Ruby)
+                .Text);
+
+        var descriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "ruby-cue",
+                first.StartTime,
+                first.Duration,
+                first.Text,
+                first.Presentation);
+        var cue = new TimedTextCue();
+        cue.ApplyProviderState(in descriptor);
+
+        TimedTextLine projectedLine =
+            Assert.Single(cue.Lines);
+        Assert.Equal("Learn 日本!", projectedLine.Text);
+        Assert.Equal(2, projectedLine.Subformats.Count);
+        TimedTextRuby projectedRuby =
+            projectedLine.Subformats[0]
+                .SubformatStyle.Ruby;
+        Assert.Equal("に", projectedRuby.Text);
+        Assert.Equal(
+            TimedTextRubyPosition.Before,
+            projectedRuby.Position);
+        Assert.Equal(
+            TimedTextRubyReserve.None,
+            projectedRuby.Reserve);
+        Assert.Equal(
+            TimedTextRubyAlign.Center,
+            projectedRuby.Align);
+
+        var plainPresentation =
+            new MediaPlaybackTimedTextCuePresentation(
+                [
+                    new
+                        MediaPlaybackTimedTextLineDescriptor(
+                            "plain",
+                            [
+                                new
+                                    MediaPlaybackTimedTextSubformatDescriptor(
+                                        0,
+                                        5,
+                                        new
+                                            MediaPlaybackTimedTextStyle(
+                                                FontWeight:
+                                                    MediaPlaybackTimedTextWeight
+                                                        .Bold))
+                            ])
+                ]);
+        var plainDescriptor =
+            new MediaPlaybackTimedMetadataCueDescriptor(
+                "plain-cue",
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(1),
+                "plain",
+                plainPresentation);
+        cue.ApplyProviderState(in plainDescriptor);
+
+        TimedTextStyle resetStyle =
+            Assert.Single(
+                    Assert.Single(cue.Lines).Subformats)
+                .SubformatStyle;
+        Assert.Equal(string.Empty, resetStyle.Ruby.Text);
+        Assert.Equal(
+            TimedTextRubyPosition.Before,
+            resetStyle.Ruby.Position);
+        Assert.Equal(
+            TimedTextRubyReserve.None,
+            resetStyle.Ruby.Reserve);
+        Assert.Equal(
+            TimedTextRubyAlign.Center,
+            resetStyle.Ruby.Align);
+    }
+
+    [Fact]
+    public void
+        TimedCueTimelineSteadyForwardUpdatesAllocateNothing()
+    {
+        var client = new RecordingTimedCueTimelineClient();
+        var timeline =
+            new MediaTimedCueTimeline<RecordingMediaCue>(
+                client);
+        timeline.AddCue(
+            new RecordingMediaCue
+            {
+                StartTime = TimeSpan.FromMinutes(1),
+                Duration = TimeSpan.FromSeconds(1)
+            });
+        timeline.Synchronize(TimeSpan.Zero, enabled: true);
+        timeline.Synchronize(
+            TimeSpan.FromMilliseconds(1),
+            enabled: true);
+
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 2; index < 10_002; index++)
+        {
+            timeline.Synchronize(
+                TimeSpan.FromTicks(index),
+                enabled: true);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+        Assert.Empty(timeline.ActiveCues);
+        Assert.Equal(0, client.Entered);
+        Assert.Equal(0, client.Exited);
     }
 
     [Fact]
@@ -481,6 +1914,78 @@ public sealed class MediaPlaybackEngineTests
 
         Assert.True(presenter.Record(
             (IProGpuDrawingContextSource)wpfContext,
+            HeadlessWindow.Shared.Context,
+            new Rect(0f, 0f, 320f, 180f)));
+
+        RenderCommand command =
+            Assert.Single(nativeContext.Commands);
+        Assert.Equal(2f, command.Transform.M11);
+        Assert.Equal(3f, command.Transform.M22);
+        Assert.Equal(11f, command.Transform.M41);
+        Assert.Equal(13f, command.Transform.M42);
+
+        nativeContext.Clear();
+    }
+
+    [Fact]
+    public void
+        SharedPresenterRecordsPortableWpfStateWithoutAdapterAllocation()
+    {
+        using var surface = new MediaGpuSurface();
+        surface.Publish(CreateFrame(sequence: 4));
+        var nativeContext = new DrawingContext();
+        using var wpfContext =
+            new System.Windows.Media.DrawingContext(
+                nativeContext);
+        wpfContext.PushTransform(
+            new System.Windows.Media.MatrixTransform(
+                2d,
+                0d,
+                0d,
+                3d,
+                11d,
+                13d));
+        var portableSource =
+            (ProGPU.Wpf.Interop
+                .IPortableNativeDrawingContextStateSource)
+            wpfContext;
+        Assert.True(
+            portableSource
+                .TryGetPortableNativeDrawingContextState(
+                    out ProGPU.Wpf.Interop
+                        .PortableNativeDrawingContextState
+                        portableState));
+        Assert.True(
+            ProGpuDrawingContextState.TryCreate(
+                portableState.NativeDrawingContext,
+                portableState.Transform,
+                out ProGpuDrawingContextState state));
+        Assert.True(
+            ProGpuDrawingContextState.TryCreate(
+                portableState.NativeDrawingContext,
+                portableState.Transform,
+                out _));
+        bool converted = true;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            converted &=
+                ProGpuDrawingContextState.TryCreate(
+                    portableState.NativeDrawingContext,
+                    portableState.Transform,
+                    out state);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        using var presenter =
+            new MediaGpuSurfacePresenter(
+                surface,
+                static () => { });
+
+        Assert.True(converted);
+        Assert.Equal(0, allocated);
+        Assert.True(presenter.Record(
+            in state,
             HeadlessWindow.Shared.Context,
             new Rect(0f, 0f, 320f, 180f)));
 
@@ -4227,6 +5732,56 @@ public sealed class MediaPlaybackEngineTests
             $"found {redVideoPixels} red pixels.");
     }
 
+    private static MediaPlaybackSnapshot
+        CreatePlaybackSnapshot(TimeSpan position) =>
+        new(
+            MediaEnginePlaybackState.Playing,
+            position,
+            TimeSpan.FromMinutes(2),
+            1920,
+            1080,
+            1d,
+            1d,
+            1d,
+            new MediaProviderCapabilities(
+                CanPause: true,
+                CanSeek: true,
+                SupportsRate: true,
+                SupportsFrameStepping: true,
+                HardwareDecoded: true,
+                HasAudio: true,
+                HasVideo: true));
+
+    private sealed class RecordingMediaCue : IMediaCue
+    {
+        public TimeSpan Duration { get; set; }
+        public string Id { get; set; } = string.Empty;
+        public TimeSpan StartTime { get; set; }
+    }
+
+    private sealed class RecordingTimedCueTimelineClient :
+        IMediaTimedCueTimelineClient<RecordingMediaCue>
+    {
+        public int Entered { get; private set; }
+        public int Exited { get; private set; }
+
+        public TimeSpan GetStartTime(
+            RecordingMediaCue cue) =>
+            cue.StartTime;
+
+        public TimeSpan GetDuration(
+            RecordingMediaCue cue) =>
+            cue.Duration;
+
+        public void OnCueEntered(
+            RecordingMediaCue cue) =>
+            Entered++;
+
+        public void OnCueExited(
+            RecordingMediaCue cue) =>
+            Exited++;
+    }
+
     private sealed class RecordingProviderFactory :
         IMediaPlaybackProviderFactory
     {
@@ -4263,7 +5818,8 @@ public sealed class MediaPlaybackEngineTests
     private sealed class RecordingProvider :
         IMediaPlaybackProvider,
         IMediaPlaybackConfigurationProvider,
-        IMediaPlaybackTrackProvider
+        IMediaPlaybackTrackProvider,
+        IMediaPlaybackTimedMetadataProvider
     {
         private readonly IMediaPlaybackSink _sink;
         private readonly Func<IMediaGpuFrame>? _frameFactory;
@@ -4299,6 +5855,14 @@ public sealed class MediaPlaybackEngineTests
             private set;
         }
         public int LastSelectedTrackIndex { get; private set; } = -1;
+        public int TimedMetadataModeCalls { get; private set; }
+        public int LastTimedMetadataTrackIndex
+        {
+            get;
+            private set;
+        } = -1;
+        public MediaPlaybackTimedMetadataPresentationMode
+            LastTimedMetadataMode { get; private set; }
         public MediaPlaybackConfiguration Configuration
         {
             get;
@@ -4387,6 +5951,21 @@ public sealed class MediaPlaybackEngineTests
             _sink.UpdateTracks(_tracks);
             return true;
         }
+        public bool TrySetTimedMetadataPresentationMode(
+            int index,
+            MediaPlaybackTimedMetadataPresentationMode mode)
+        {
+            if ((uint)index >=
+                    (uint)_tracks.TimedMetadataTracks.Count ||
+                !Enum.IsDefined(mode))
+            {
+                return false;
+            }
+            TimedMetadataModeCalls++;
+            LastTimedMetadataTrackIndex = index;
+            LastTimedMetadataMode = mode;
+            return true;
+        }
         public void AddEffect(IMediaEffect effect, bool optional)
         {
             AddEffectCalls++;
@@ -4403,6 +5982,9 @@ public sealed class MediaPlaybackEngineTests
         public void ReportTracks(
             MediaPlaybackTracksSnapshot tracks) =>
             _sink.UpdateTracks(tracks);
+        public void ReportTimedMetadataCues(
+            MediaPlaybackTimedMetadataCueSnapshot snapshot) =>
+            _sink.UpdateTimedMetadataCues(snapshot);
         public void ReportEnded() => _sink.Ended();
         public void Dispose() { }
 
@@ -4453,7 +6035,20 @@ public sealed class MediaPlaybackEngineTests
                             FrameRateDenominator: 1),
                         MediaPlaybackTrackSupport.Supported)
                 ],
-                selectedVideoTrackIndex);
+                selectedVideoTrackIndex,
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "metadata-en",
+                        MediaPlaybackTrackKind.TimedMetadata,
+                        "English subtitles",
+                        "English",
+                        "en-US",
+                        new MediaPlaybackTrackEncoding(
+                            "WebVTT"),
+                        MediaPlaybackTrackSupport.Supported,
+                        MediaPlaybackTimedMetadataKind.Subtitle,
+                        "text/vtt")
+                ]);
     }
 
     private sealed class RecordingEffectFactory :

@@ -14,6 +14,7 @@ using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media;
 using Windows.Foundation.Collections;
+using Windows.Storage.Streams;
 using Thickness = Microsoft.UI.Xaml.Thickness;
 
 namespace ProGPU.Samples;
@@ -127,6 +128,8 @@ public static class MediaPlayerPage
 
         var status = Text(
             "Choose a local file or load the sample URI.");
+        var cueStatus = Text(
+            "Application cue: waiting for media.");
         var position = new Slider
         {
             Minimum = 0d,
@@ -144,6 +147,8 @@ public static class MediaPlayerPage
         };
         var load = new Button { Content = "Load URI" };
         var open = new Button { Content = "Open file" };
+        var addWebVtt =
+            new Button { Content = "Add WebVTT" };
         var play = new Button { Content = "Play" };
         var pause = new Button { Content = "Pause" };
         var previousFrame = new Button { Content = "◀ Frame" };
@@ -164,7 +169,30 @@ public static class MediaPlayerPage
             Width = 280f,
             PlaceholderText = "No video tracks"
         };
+        var timedMetadataTrack = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "No timed metadata tracks"
+        };
+        var timedMetadataMode = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "Presentation mode",
+            IsEnabled = false
+        };
+        foreach (TimedMetadataTrackPresentationMode mode in
+                 Enum.GetValues<
+                     TimedMetadataTrackPresentationMode>())
+        {
+            timedMetadataMode.Items.Add(
+                new ComboBoxItem
+                {
+                    Text = mode.ToString(),
+                    Tag = mode
+                });
+        }
         MediaPlaybackItem? currentPlaybackItem = null;
+        TimedMetadataTrack? sampleCueTrack = null;
         bool updatingTrackSelection = false;
 
         var brightness = EffectSlider(-1d, 1d, 0d);
@@ -274,10 +302,20 @@ public static class MediaPlayerPage
             {
                 audioTrack.Items.Clear();
                 videoTrack.Items.Clear();
+                int timedMetadataIndex =
+                    timedMetadataTrack.SelectedItem is
+                        ComboBoxItem selectedMetadata &&
+                    selectedMetadata.Tag is int selectedIndex
+                        ? selectedIndex
+                        : -1;
+                timedMetadataTrack.Items.Clear();
                 if (currentPlaybackItem is not { } item)
                 {
                     audioTrack.SelectedItem = null;
                     videoTrack.SelectedItem = null;
+                    timedMetadataTrack.SelectedItem = null;
+                    timedMetadataMode.SelectedItem = null;
+                    timedMetadataMode.IsEnabled = false;
                     return;
                 }
 
@@ -313,6 +351,23 @@ public static class MediaPlayerPage
                             Tag = index
                         });
                 }
+                for (int index = 0;
+                     index < item.TimedMetadataTracks.Count;
+                     index++)
+                {
+                    TimedMetadataTrack track =
+                        item.TimedMetadataTracks[index];
+                    timedMetadataTrack.Items.Add(
+                        new ComboBoxItem
+                        {
+                            Text = TrackLabel(
+                                track.Name,
+                                track.Language,
+                                track.TimedMetadataKind
+                                    .ToString()),
+                            Tag = index
+                        });
+                }
 
                 audioTrack.SelectedItem =
                     item.AudioTracks.SelectedIndex >= 0 &&
@@ -328,6 +383,39 @@ public static class MediaPlayerPage
                         ? videoTrack.Items[
                             item.VideoTracks.SelectedIndex]
                         : null;
+                timedMetadataIndex =
+                    timedMetadataIndex >= 0 &&
+                    timedMetadataIndex <
+                        timedMetadataTrack.Items.Count
+                        ? timedMetadataIndex
+                        : timedMetadataTrack.Items.Count > 0
+                            ? 0
+                            : -1;
+                timedMetadataTrack.SelectedItem =
+                    timedMetadataIndex >= 0
+                        ? timedMetadataTrack.Items[
+                            timedMetadataIndex]
+                        : null;
+                TimedMetadataTrackPresentationMode mode =
+                    timedMetadataIndex >= 0
+                        ? item.TimedMetadataTracks
+                            .GetPresentationMode(
+                                checked(
+                                    (uint)timedMetadataIndex))
+                        : default;
+                timedMetadataMode.SelectedItem =
+                    timedMetadataIndex >= 0
+                        ? timedMetadataMode.Items
+                            .OfType<ComboBoxItem>()
+                            .First(
+                                candidate =>
+                                    candidate.Tag is
+                                        TimedMetadataTrackPresentationMode
+                                            candidateMode &&
+                                    candidateMode == mode)
+                        : null;
+                timedMetadataMode.IsEnabled =
+                    timedMetadataIndex >= 0;
             }
             finally
             {
@@ -351,6 +439,42 @@ public static class MediaPlayerPage
             _ = sender;
             _ = args;
             RefreshTrackSelectors();
+        }
+
+        void OnTimedMetadataPresentationModeChanged(
+            MediaPlaybackTimedMetadataTrackList sender,
+            TimedMetadataPresentationModeChangedEventArgs args)
+        {
+            _ = sender;
+            _ = args;
+            RefreshTrackSelectors();
+        }
+
+        void OnSampleCueEntered(
+            TimedMetadataTrack sender,
+            MediaCueEventArgs args)
+        {
+            _ = sender;
+            string label =
+                args.Cue is DataCue dataCue &&
+                dataCue.Properties.TryGetValue(
+                    "Label",
+                    out object? value)
+                    ? value?.ToString() ?? args.Cue.Id
+                    : args.Cue.Id;
+            SetText(
+                cueStatus,
+                $"Application cue active: {label}");
+        }
+
+        void OnSampleCueExited(
+            TimedMetadataTrack sender,
+            MediaCueEventArgs args)
+        {
+            _ = sender;
+            SetText(
+                cueStatus,
+                $"Application cue exited: {args.Cue.Id}");
         }
 
         audioTrack.SelectionChanged += (_, _) =>
@@ -397,19 +521,91 @@ public static class MediaPlayerPage
                 RefreshTrackSelectors();
             }
         };
+        timedMetadataTrack.SelectionChanged +=
+            (_, _) =>
+            {
+                if (!updatingTrackSelection)
+                {
+                    RefreshTrackSelectors();
+                }
+            };
+        timedMetadataMode.SelectionChanged +=
+            (_, _) =>
+            {
+                if (updatingTrackSelection ||
+                    currentPlaybackItem is not { } item ||
+                    timedMetadataTrack.SelectedItem is not
+                        ComboBoxItem selectedTrack ||
+                    selectedTrack.Tag is not int trackIndex ||
+                    timedMetadataMode.SelectedItem is not
+                        ComboBoxItem selectedMode ||
+                    selectedMode.Tag is not
+                        TimedMetadataTrackPresentationMode mode)
+                {
+                    return;
+                }
+                try
+                {
+                    item.TimedMetadataTracks
+                        .SetPresentationMode(
+                            checked((uint)trackIndex),
+                            mode);
+                }
+                catch (Exception exception)
+                {
+                    SetText(
+                        status,
+                        "Timed metadata presentation change failed: " +
+                        exception.Message);
+                    RefreshTrackSelectors();
+                }
+            };
 
         void LoadSource(Uri source)
         {
             try
             {
                 SetText(status, $"Opening {source} …");
-                var item = new MediaPlaybackItem(
-                    MediaSource.CreateFromUri(source));
+                MediaSource mediaSource =
+                    MediaSource.CreateFromUri(source);
+                var applicationTrack =
+                    new TimedMetadataTrack(
+                        "progpu-sample-markers",
+                        "en-US",
+                        TimedMetadataKind.Data)
+                    {
+                        Label = "ProGPU sample markers"
+                    };
+                for (int index = 0; index < 3; index++)
+                {
+                    var cue = new DataCue
+                    {
+                        Id = $"marker-{index + 1}",
+                        StartTime =
+                            TimeSpan.FromSeconds(
+                                1d + (index * 1.5d)),
+                        Duration =
+                            TimeSpan.FromSeconds(0.75d)
+                    };
+                    cue.Properties["Label"] =
+                        $"GPU marker {index + 1}";
+                    applicationTrack.AddCue(cue);
+                }
+                applicationTrack.CueEntered +=
+                    OnSampleCueEntered;
+                applicationTrack.CueExited +=
+                    OnSampleCueExited;
+                mediaSource.ExternalTimedMetadataTracks.Add(
+                    applicationTrack);
+                var item = new MediaPlaybackItem(mediaSource);
                 if (currentPlaybackItem is not null)
                 {
                     currentPlaybackItem.AudioTracksChanged -=
                         OnTracksChanged;
                     currentPlaybackItem.VideoTracksChanged -=
+                        OnTracksChanged;
+                    currentPlaybackItem
+                        .TimedMetadataTracksChanged -=
                         OnTracksChanged;
                     currentPlaybackItem.AudioTracks
                         .SelectedIndexChanged -=
@@ -417,14 +613,30 @@ public static class MediaPlayerPage
                     currentPlaybackItem.VideoTracks
                         .SelectedIndexChanged -=
                             OnSelectedTrackChanged;
+                    currentPlaybackItem.TimedMetadataTracks
+                        .PresentationModeChanged -=
+                        OnTimedMetadataPresentationModeChanged;
+                }
+                if (sampleCueTrack is not null)
+                {
+                    sampleCueTrack.CueEntered -=
+                        OnSampleCueEntered;
+                    sampleCueTrack.CueExited -=
+                        OnSampleCueExited;
                 }
                 currentPlaybackItem = item;
+                sampleCueTrack = applicationTrack;
                 item.AudioTracksChanged += OnTracksChanged;
                 item.VideoTracksChanged += OnTracksChanged;
+                item.TimedMetadataTracksChanged +=
+                    OnTracksChanged;
                 item.AudioTracks.SelectedIndexChanged +=
                     OnSelectedTrackChanged;
                 item.VideoTracks.SelectedIndexChanged +=
                     OnSelectedTrackChanged;
+                item.TimedMetadataTracks
+                    .PresentationModeChanged +=
+                    OnTimedMetadataPresentationModeChanged;
                 RefreshTrackSelectors();
                 MediaItemDisplayProperties display =
                     item.GetDisplayProperties();
@@ -437,6 +649,23 @@ public static class MediaPlayerPage
                     "ProGPU WebGPU media";
                 item.ApplyDisplayProperties(display);
                 player.Source = item;
+                if (item.TimedMetadataTracks.IndexOf(
+                        applicationTrack,
+                        out uint applicationTrackIndex))
+                {
+                    item.TimedMetadataTracks.SetPresentationMode(
+                        applicationTrackIndex,
+                        TimedMetadataTrackPresentationMode
+                            .ApplicationPresented);
+                    RefreshTrackSelectors();
+                    timedMetadataTrack.SelectedItem =
+                        timedMetadataTrack.Items[
+                            checked(
+                                (int)applicationTrackIndex)];
+                }
+                SetText(
+                    cueStatus,
+                    "Application cue: waiting for marker.");
                 player.Play();
             }
             catch (Exception exception)
@@ -482,6 +711,78 @@ public static class MediaPlayerPage
             catch (Exception exception)
             {
                 SetText(status, $"File picker failed: {exception.Message}");
+            }
+        };
+        addWebVtt.Click += async (_, _) =>
+        {
+            if (currentPlaybackItem is not { } item)
+            {
+                SetText(
+                    status,
+                    "Open media before adding an external WebVTT source.");
+                return;
+            }
+            try
+            {
+                var picker = new FileOpenPicker();
+                picker.FileTypeFilter.Add(".vtt");
+                StorageFile? file =
+                    await picker.PickSingleFileAsync();
+                if (file is null)
+                {
+                    return;
+                }
+                using IRandomAccessStreamWithContentType
+                    stream = await file.OpenReadAsync();
+                TimedTextSource textSource =
+                    TimedTextSource.CreateFromStream(
+                        stream);
+                textSource.Resolved +=
+                    (_, args) =>
+                    {
+                        if (args.Error is { } error)
+                        {
+                            SetText(
+                                status,
+                                $"WebVTT failed: {error.ErrorCode} — {error.ExtendedError.Message}");
+                            return;
+                        }
+                        for (int index = 0;
+                             index < args.Tracks.Count;
+                             index++)
+                        {
+                            TimedMetadataTrack track =
+                                args.Tracks[index];
+                            track.Label = file.Name;
+                            track.CueEntered +=
+                                OnSampleCueEntered;
+                            track.CueExited +=
+                                OnSampleCueExited;
+                            if (item.TimedMetadataTracks
+                                    .IndexOf(
+                                        track,
+                                        out uint trackIndex))
+                            {
+                                item.TimedMetadataTracks
+                                    .SetPresentationMode(
+                                        trackIndex,
+                                        TimedMetadataTrackPresentationMode
+                                            .ApplicationPresented);
+                            }
+                        }
+                        RefreshTrackSelectors();
+                        SetText(
+                            status,
+                            $"Loaded {file.Name}: {args.Tracks.Count} timed-text track(s).");
+                    };
+                item.Source.ExternalTimedTextSources.Add(
+                    textSource);
+            }
+            catch (Exception exception)
+            {
+                SetText(
+                    status,
+                    $"WebVTT picker failed: {exception.Message}");
             }
         };
         play.Click += (_, _) => player.Play();
@@ -588,6 +889,7 @@ public static class MediaPlayerPage
         sourceRow.AddChild(uri);
         sourceRow.AddChild(load);
         sourceRow.AddChild(open);
+        sourceRow.AddChild(addWebVtt);
 
         var transportRow = new StackPanel
         {
@@ -614,6 +916,7 @@ public static class MediaPlayerPage
         preview.AddChild(position);
         preview.AddChild(transportRow);
         preview.AddChild(status);
+        preview.AddChild(cueStatus);
 
         var effects = new StackPanel
         {
@@ -643,6 +946,10 @@ public static class MediaPlayerPage
         effects.AddChild(audioTrack);
         effects.AddChild(Text("Native video track"));
         effects.AddChild(videoTrack);
+        effects.AddChild(Text("Timed metadata track"));
+        effects.AddChild(timedMetadataTrack);
+        effects.AddChild(Text("Timed metadata presentation"));
+        effects.AddChild(timedMetadataMode);
         AddEffect(effects, "Audio gain", audioGain);
         AddEffect(
             effects,
@@ -668,13 +975,27 @@ public static class MediaPlayerPage
                     OnTracksChanged;
                 currentPlaybackItem.VideoTracksChanged -=
                     OnTracksChanged;
+                currentPlaybackItem
+                    .TimedMetadataTracksChanged -=
+                    OnTracksChanged;
                 currentPlaybackItem.AudioTracks
                     .SelectedIndexChanged -=
                         OnSelectedTrackChanged;
                 currentPlaybackItem.VideoTracks
                     .SelectedIndexChanged -=
                         OnSelectedTrackChanged;
+                currentPlaybackItem.TimedMetadataTracks
+                    .PresentationModeChanged -=
+                    OnTimedMetadataPresentationModeChanged;
                 currentPlaybackItem = null;
+            }
+            if (sampleCueTrack is not null)
+            {
+                sampleCueTrack.CueEntered -=
+                    OnSampleCueEntered;
+                sampleCueTrack.CueExited -=
+                    OnSampleCueExited;
+                sampleCueTrack = null;
             }
             player.Dispose();
             audioBalanceRegistration.Dispose();

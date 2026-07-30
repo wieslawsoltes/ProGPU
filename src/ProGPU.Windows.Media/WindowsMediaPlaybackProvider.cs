@@ -127,7 +127,9 @@ public sealed class WindowsMediaPlaybackProviderFactory :
 /// </summary>
 internal sealed class WindowsMediaPlaybackProvider :
     IMediaPlaybackProvider,
-    IMediaPlaybackConfigurationProvider
+    IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTrackProvider,
+    IMediaPlaybackTimedMetadataProvider
 {
     private const int EventError = 5;
     private const int EventLoadedMetadata = 10;
@@ -140,6 +142,7 @@ internal sealed class WindowsMediaPlaybackProvider :
     private const int FlagEnded = 1 << 2;
     private const int FlagFormatChange = 1 << 3;
     private const int FlagError = 1 << 4;
+    private const int TimedTextEventReset = -1;
     private const int FramePoolSize = 3;
     private static readonly TimeSpan s_workerJoinTimeout =
         TimeSpan.FromSeconds(5);
@@ -149,6 +152,12 @@ internal sealed class WindowsMediaPlaybackProvider :
     private readonly Uri _uri;
     private readonly IMediaPlaybackSink _sink;
     private readonly ConcurrentQueue<Action<nint>> _commands = new();
+    private readonly ConcurrentQueue<TimedTextCueEvent>
+        _timedTextCueEvents = new();
+    private readonly ConcurrentQueue<TimedTextErrorEvent>
+        _timedTextErrors = new();
+    private readonly Dictionary<uint, TimedTextTrackCueState>
+        _timedTextCueStates = [];
     private readonly object _audioEffectGate = new();
     private readonly List<AudioGraphEffectBinding>
         _audioEffects = [];
@@ -160,6 +169,10 @@ internal sealed class WindowsMediaPlaybackProvider :
     private Thread? _worker;
     private MediaPlaybackSnapshot _snapshot =
         MediaPlaybackSnapshot.Empty;
+    private uint[] _audioStreamNativeIndices = [];
+    private uint[] _videoStreamNativeIndices = [];
+    private uint[] _timedTextTrackNativeIds = [];
+    private bool[] _timedTextTrackSelectable = [];
     private double _volume = 1d;
     private double _balance;
     private double _rate = 1d;
@@ -169,6 +182,7 @@ internal sealed class WindowsMediaPlaybackProvider :
     private long _droppedFrames;
     private nuint _nativeError;
     private int _nativeEvents;
+    private int _timedTextTracksDirty;
     private int _started;
     private int _stopDisposed;
     private int _disposed;
@@ -285,6 +299,99 @@ internal sealed class WindowsMediaPlaybackProvider :
         return true;
     }
 
+    public bool TrySelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        if (kind is not (
+                MediaPlaybackTrackKind.Audio or
+                MediaPlaybackTrackKind.Video))
+        {
+            return false;
+        }
+
+        uint[] nativeIndices = kind ==
+            MediaPlaybackTrackKind.Audio
+                ? Volatile.Read(
+                    ref _audioStreamNativeIndices)
+                : Volatile.Read(
+                    ref _videoStreamNativeIndices);
+        if (index < -1 || index >= nativeIndices.Length)
+        {
+            return false;
+        }
+
+        Enqueue(engine =>
+        {
+            WindowsMediaNative.SetExclusiveStreamSelection(
+                engine,
+                nativeIndices,
+                index < 0
+                    ? uint.MaxValue
+                    : nativeIndices[index]);
+            PublishTracks(
+                engine,
+                _snapshot.NaturalVideoWidth,
+                _snapshot.NaturalVideoHeight);
+        });
+        return true;
+    }
+
+    public bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        if (!Enum.IsDefined(mode) ||
+            mode ==
+            MediaPlaybackTimedMetadataPresentationMode
+                .PlatformPresented)
+        {
+            return false;
+        }
+
+        uint[] nativeIds = Volatile.Read(
+            ref _timedTextTrackNativeIds);
+        bool[] selectable = Volatile.Read(
+            ref _timedTextTrackSelectable);
+        if ((uint)index >= (uint)nativeIds.Length ||
+            selectable.Length != nativeIds.Length ||
+            (!selectable[index] &&
+             mode !=
+                MediaPlaybackTimedMetadataPresentationMode
+                    .Disabled))
+        {
+            return false;
+        }
+
+        uint trackId = nativeIds[index];
+        bool selected =
+            mode !=
+            MediaPlaybackTimedMetadataPresentationMode
+                .Disabled;
+        Enqueue(engine =>
+        {
+            if (!WindowsMediaNative.TryGetTimedTextService(
+                    engine,
+                    out nint timedText))
+            {
+                return;
+            }
+
+            try
+            {
+                WindowsMediaNative.SelectTimedTextTrack(
+                    timedText,
+                    trackId,
+                    selected);
+            }
+            finally
+            {
+                WindowsMediaNative.Release(timedText);
+            }
+        });
+        return true;
+    }
+
     public void AddEffect(IMediaEffect effect, bool optional)
     {
         ArgumentNullException.ThrowIfNull(effect);
@@ -385,7 +492,10 @@ internal sealed class WindowsMediaPlaybackProvider :
         nint dxgiManager = 0;
         nint factory = 0;
         nint engine = 0;
+        nint timedText = 0;
         MediaEngineNotification? notification = null;
+        MediaEngineTimedTextNotification?
+            timedTextNotification = null;
         SharedTexturePool? pool = null;
         bool comInitialized = false;
         bool mediaFoundationStarted = false;
@@ -428,11 +538,27 @@ internal sealed class WindowsMediaPlaybackProvider :
                     factory,
                     attributes,
                     _configuration.RealTimePlayback);
+            if (WindowsMediaNative.TryGetTimedTextService(
+                    engine,
+                    out timedText))
+            {
+                timedTextNotification =
+                    new MediaEngineTimedTextNotification(
+                        OnTimedTextTrackChanged,
+                        OnTimedTextError,
+                        OnTimedTextCue,
+                        OnTimedTextReset);
+                WindowsMediaNative
+                    .RegisterTimedTextNotifications(
+                        timedText,
+                        timedTextNotification.NativePointer);
+            }
             ApplyInitialSettings(engine);
             WindowsMediaNative.SetSource(engine, _uri.AbsoluteUri);
             WindowsMediaNative.Load(engine);
 
             WaitForMetadata(engine);
+            DisableInitialTimedTextTracks(timedText);
             bool hasVideo = WindowsMediaNative.HasVideo(engine);
             bool hasAudio = WindowsMediaNative.HasAudio(engine);
             uint width = 0;
@@ -474,17 +600,20 @@ internal sealed class WindowsMediaPlaybackProvider :
                     HardwareDecoded: true,
                     HasAudio: hasAudio,
                     HasVideo: hasVideo));
-            _sink.UpdateTracks(
-                CreateDefaultTrackSnapshot(
-                    hasAudio,
-                    hasVideo,
-                    width,
-                    height));
+            PublishTracks(
+                engine,
+                width,
+                height,
+                timedText);
             _sink.Opened(in _snapshot);
             PublishDiagnostics(TransferDiagnostic);
             _opened.TrySetResult();
 
-            RunPlaybackLoop(engine, d3dDevice, ref pool);
+            RunPlaybackLoop(
+                engine,
+                timedText,
+                d3dDevice,
+                ref pool);
         }
         catch (OperationCanceledException)
         {
@@ -509,6 +638,10 @@ internal sealed class WindowsMediaPlaybackProvider :
         finally
         {
             pool?.Dispose();
+            WindowsMediaNative.ClearTimedTextNotifications(
+                timedText);
+            timedTextNotification?.Dispose();
+            WindowsMediaNative.Release(timedText);
             WindowsMediaNative.ShutdownMediaEngine(engine);
             WindowsMediaNative.Release(engine);
             WindowsMediaNative.Release(factory);
@@ -544,51 +677,242 @@ internal sealed class WindowsMediaPlaybackProvider :
         }
     }
 
-    private static MediaPlaybackTracksSnapshot
-        CreateDefaultTrackSnapshot(
-            bool hasAudio,
-            bool hasVideo,
-            uint width,
-            uint height)
+    private static void DisableInitialTimedTextTracks(
+        nint timedText)
     {
-        MediaPlaybackTrackDescriptor[] audio = hasAudio
-            ?
-            [
+        if (timedText == 0)
+        {
+            return;
+        }
+
+        WindowsMediaNative.MediaEngineTimedTextTrackInfo[] tracks =
+            WindowsMediaNative.GetTimedTextTracks(timedText);
+        for (int index = 0; index < tracks.Length; index++)
+        {
+            WindowsMediaNative.MediaEngineTimedTextTrackInfo track =
+                tracks[index];
+            if (track.Active &&
+                track.Kind is 1 or 2)
+            {
+                WindowsMediaNative.SelectTimedTextTrack(
+                    timedText,
+                    track.NativeId,
+                    selected: false);
+            }
+        }
+    }
+
+    private void PublishTracks(
+            nint engine,
+            uint width,
+            uint height,
+            nint timedText = 0)
+    {
+        WindowsMediaNative.MediaEngineStreamInfo[] streams =
+            WindowsMediaNative.GetStreams(engine);
+        var audio =
+            new List<MediaPlaybackTrackDescriptor>();
+        var video =
+            new List<MediaPlaybackTrackDescriptor>();
+        var audioNative = new List<uint>();
+        var videoNative = new List<uint>();
+        var timedMetadata =
+            new List<MediaPlaybackTrackDescriptor>();
+        var timedMetadataNative = new List<uint>();
+        var timedMetadataSelectable = new List<bool>();
+        int selectedAudio = -1;
+        int selectedVideo = -1;
+
+        for (int streamIndex = 0;
+             streamIndex < streams.Length;
+             streamIndex++)
+        {
+            WindowsMediaNative.MediaEngineStreamInfo stream =
+                streams[streamIndex];
+            bool isAudio =
+                stream.MajorType ==
+                WindowsMediaNative.MediaTypeAudio;
+            List<MediaPlaybackTrackDescriptor> destination =
+                isAudio ? audio : video;
+            List<uint> nativeDestination =
+                isAudio ? audioNative : videoNative;
+            int localIndex = destination.Count;
+            if (stream.Selected)
+            {
+                if (isAudio && selectedAudio < 0)
+                {
+                    selectedAudio = localIndex;
+                }
+                else if (!isAudio && selectedVideo < 0)
+                {
+                    selectedVideo = localIndex;
+                }
+            }
+
+            destination.Add(
                 new MediaPlaybackTrackDescriptor(
-                    "mediafoundation:audio:0",
-                    MediaPlaybackTrackKind.Audio,
-                    "Audio 1",
-                    string.Empty,
-                    string.Empty,
-                    MediaPlaybackTrackEncoding.Empty,
-                    MediaPlaybackTrackSupport.Supported)
-            ]
-            : [];
-        MediaPlaybackTrackDescriptor[] video = hasVideo
-            ?
-            [
-                new MediaPlaybackTrackDescriptor(
-                    "mediafoundation:video:0",
-                    MediaPlaybackTrackKind.Video,
-                    "Video 1",
-                    string.Empty,
-                    string.Empty,
+                    $"mediafoundation:{stream.NativeIndex}",
+                    isAudio
+                        ? MediaPlaybackTrackKind.Audio
+                        : MediaPlaybackTrackKind.Video,
+                    isAudio
+                        ? string.IsNullOrWhiteSpace(stream.Name)
+                            ? $"Audio {localIndex + 1}"
+                            : stream.Name
+                        : string.IsNullOrWhiteSpace(stream.Name)
+                            ? $"Video {localIndex + 1}"
+                            : stream.Name,
+                    stream.Name,
+                    stream.Language,
                     new MediaPlaybackTrackEncoding(
-                        string.Empty,
-                        Width: width,
-                        Height: height),
-                    MediaPlaybackTrackSupport.Supported)
-            ]
-            : [];
-        return new MediaPlaybackTracksSnapshot(
-            audio,
-            hasAudio ? 0 : -1,
-            video,
-            hasVideo ? 0 : -1);
+                        stream.Subtype == Guid.Empty
+                            ? string.Empty
+                            : stream.Subtype.ToString("D"),
+                        Width:
+                            !isAudio && stream.Selected
+                                ? width
+                                : 0,
+                        Height:
+                            !isAudio && stream.Selected
+                                ? height
+                                : 0),
+                    MediaPlaybackTrackSupport.Supported));
+            nativeDestination.Add(stream.NativeIndex);
+        }
+
+        bool releaseTimedText = false;
+        if (timedText == 0 &&
+            WindowsMediaNative.TryGetTimedTextService(
+                engine,
+                out timedText))
+        {
+            releaseTimedText = true;
+        }
+        try
+        {
+            if (timedText != 0)
+            {
+                WindowsMediaNative.MediaEngineTimedTextTrackInfo[]
+                    timedTracks =
+                        WindowsMediaNative.GetTimedTextTracks(
+                            timedText);
+                for (int index = 0;
+                     index < timedTracks.Length;
+                     index++)
+                {
+                    WindowsMediaNative.MediaEngineTimedTextTrackInfo
+                        track = timedTracks[index];
+                    MediaPlaybackTimedMetadataKind kind =
+                        ToTimedMetadataKind(track.Kind);
+                    bool selectable =
+                        track.Kind is 1 or 2 or 3;
+                    string label =
+                        string.IsNullOrWhiteSpace(track.Label)
+                            ? $"Timed metadata {index + 1}"
+                            : track.Label;
+                    timedMetadata.Add(
+                        new MediaPlaybackTrackDescriptor(
+                            GetTimedTextProviderTrackId(
+                                track.NativeId),
+                            MediaPlaybackTrackKind
+                                .TimedMetadata,
+                            label,
+                            track.Label,
+                            track.Language,
+                            new MediaPlaybackTrackEncoding(
+                                track.DataFormat == Guid.Empty
+                                    ? string.Empty
+                                    : track.DataFormat.ToString(
+                                        "D")),
+                            selectable
+                                ? MediaPlaybackTrackSupport
+                                    .Supported
+                                : MediaPlaybackTrackSupport
+                                    .Unsupported,
+                            kind,
+                            track.DispatchType));
+                    timedMetadataNative.Add(track.NativeId);
+                    timedMetadataSelectable.Add(selectable);
+                }
+            }
+        }
+        finally
+        {
+            if (releaseTimedText)
+            {
+                WindowsMediaNative.Release(timedText);
+            }
+        }
+
+        uint[] audioIndices = audioNative.ToArray();
+        uint[] videoIndices = videoNative.ToArray();
+        uint[] timedMetadataIds =
+            timedMetadataNative.ToArray();
+        bool[] selectableTimedMetadata =
+            timedMetadataSelectable.ToArray();
+        Volatile.Write(
+            ref _audioStreamNativeIndices,
+            audioIndices);
+        Volatile.Write(
+            ref _videoStreamNativeIndices,
+            videoIndices);
+        Volatile.Write(
+            ref _timedTextTrackNativeIds,
+            timedMetadataIds);
+        Volatile.Write(
+            ref _timedTextTrackSelectable,
+            selectableTimedMetadata);
+        RemoveStaleTimedTextCueStates(timedMetadataIds);
+        _sink.UpdateTracks(
+            new MediaPlaybackTracksSnapshot(
+                audio,
+                selectedAudio,
+                video,
+                selectedVideo,
+                timedMetadata));
+    }
+
+    private void RemoveStaleTimedTextCueStates(
+        ReadOnlySpan<uint> retainedTrackIds)
+    {
+        if (_timedTextCueStates.Count == 0)
+        {
+            return;
+        }
+
+        var retained =
+            new HashSet<uint>(retainedTrackIds.Length);
+        for (int index = 0;
+             index < retainedTrackIds.Length;
+             index++)
+        {
+            retained.Add(retainedTrackIds[index]);
+        }
+        var removedTrackIds = new List<uint>();
+        foreach (uint trackId in
+                 _timedTextCueStates.Keys)
+        {
+            if (!retained.Contains(trackId))
+            {
+                removedTrackIds.Add(trackId);
+            }
+        }
+        for (int index = 0;
+             index < removedTrackIds.Count;
+             index++)
+        {
+            uint trackId = removedTrackIds[index];
+            TimedTextTrackCueState state =
+                _timedTextCueStates[trackId];
+            _sink.UpdateTimedMetadataCues(
+                state.Reset());
+            _timedTextCueStates.Remove(trackId);
+        }
     }
 
     private void RunPlaybackLoop(
         nint engine,
+        nint timedText,
         nint d3dDevice,
         ref SharedTexturePool? pool)
     {
@@ -598,6 +922,9 @@ internal sealed class WindowsMediaPlaybackProvider :
         {
             ProcessCommands(engine);
             ProcessNativeEvents(engine, ref pool, d3dDevice);
+            ProcessTimedTextEvents(
+                engine,
+                timedText);
             PresentVideoFrame(engine, pool);
 
             long now = Environment.TickCount64;
@@ -617,6 +944,147 @@ internal sealed class WindowsMediaPlaybackProvider :
             command(engine);
         }
     }
+
+    private void ProcessTimedTextEvents(
+        nint engine,
+        nint timedText)
+    {
+        if (Interlocked.Exchange(
+                ref _timedTextTracksDirty,
+                0) != 0)
+        {
+            PublishTracks(
+                engine,
+                _snapshot.NaturalVideoWidth,
+                _snapshot.NaturalVideoHeight,
+                timedText);
+        }
+
+        while (_timedTextErrors.TryDequeue(
+                   out TimedTextErrorEvent error))
+        {
+            PublishDiagnostics(
+                $"Media Foundation timed-text track {error.TrackId} " +
+                $"reported error {error.ErrorCode} " +
+                $"(0x{unchecked((uint)error.ExtendedErrorCode):x8}).");
+        }
+
+        while (_timedTextCueEvents.TryDequeue(
+                   out TimedTextCueEvent cueEvent))
+        {
+            if (cueEvent.Event == TimedTextEventReset)
+            {
+                foreach (TimedTextTrackCueState resetState in
+                         _timedTextCueStates.Values)
+                {
+                    _sink.UpdateTimedMetadataCues(
+                        resetState.Reset());
+                }
+                _timedTextCueStates.Clear();
+                continue;
+            }
+            if (cueEvent.Event is not (0 or 1))
+            {
+                continue;
+            }
+            if (cueEvent.Cue is not
+                WindowsMediaNative.MediaEngineTimedTextCueInfo
+                    cue)
+            {
+                continue;
+            }
+            if (cue.Kind is not (1 or 2 or 3))
+            {
+                continue;
+            }
+
+            if (!_timedTextCueStates.TryGetValue(
+                    cue.TrackId,
+                    out TimedTextTrackCueState? state))
+            {
+                state = new TimedTextTrackCueState(
+                    GetTimedTextProviderTrackId(
+                        cue.TrackId));
+                _timedTextCueStates.Add(
+                    cue.TrackId,
+                    state);
+            }
+
+            _sink.UpdateTimedMetadataCues(
+                state.Upsert(
+                    new MediaPlaybackTimedMetadataCueDescriptor(
+                        string.Concat(
+                            GetTimedTextProviderTrackId(
+                                cue.TrackId),
+                            ":cue:",
+                            cue.NativeId.ToString(
+                                System.Globalization
+                                    .CultureInfo
+                                    .InvariantCulture)),
+                        ToTimeSpan(cue.StartTime),
+                        ToTimeSpan(cue.Duration),
+                        cue.Text,
+                        Data:
+                            cue.Kind == 3
+                                ? MediaPlaybackTimedMetadataCueData
+                                    .TakeOwnership(
+                                        cue.Data ??
+                                        Array.Empty<byte>())
+                                : null)));
+        }
+    }
+
+    private void OnTimedTextTrackChanged(uint trackId)
+    {
+        _ = trackId;
+        Interlocked.Exchange(
+            ref _timedTextTracksDirty,
+            1);
+    }
+
+    private void OnTimedTextError(
+        int errorCode,
+        int extendedErrorCode,
+        uint sourceTrackId) =>
+        _timedTextErrors.Enqueue(
+            new TimedTextErrorEvent(
+                errorCode,
+                extendedErrorCode,
+                sourceTrackId));
+
+    private void OnTimedTextCue(
+        int cueEvent,
+        double currentTime,
+        nint cue)
+    {
+        _ = currentTime;
+        try
+        {
+            WindowsMediaNative.MediaEngineTimedTextCueInfo?
+                cueInfo = cue == 0
+                    ? null
+                    : WindowsMediaNative.ReadTimedTextCue(
+                        cue);
+            _timedTextCueEvents.Enqueue(
+                new TimedTextCueEvent(
+                    cueEvent,
+                    cueInfo));
+        }
+        catch (Exception exception)
+        {
+            _timedTextErrors.Enqueue(
+                new TimedTextErrorEvent(
+                    ErrorCode: 4,
+                    exception.HResult,
+                    TrackId: 0));
+        }
+    }
+
+    private void OnTimedTextReset() =>
+        _timedTextCueEvents.Enqueue(
+            new TimedTextCueEvent(
+                TimedTextEventReset,
+                Cue: null));
 
     private void ProcessNativeEvents(
         nint engine,
@@ -666,6 +1134,10 @@ internal sealed class WindowsMediaPlaybackProvider :
                     NaturalVideoWidth = width,
                     NaturalVideoHeight = height
                 };
+                PublishTracks(
+                    engine,
+                    width,
+                    height);
             }
         }
     }
@@ -910,11 +1382,82 @@ internal sealed class WindowsMediaPlaybackProvider :
             ? TimeSpan.FromSeconds(seconds)
             : TimeSpan.Zero;
 
+    private static string GetTimedTextProviderTrackId(
+        uint trackId) =>
+        string.Concat(
+            "mediafoundation-timed:",
+            trackId.ToString(
+                System.Globalization.CultureInfo
+                    .InvariantCulture));
+
+    private static MediaPlaybackTimedMetadataKind
+        ToTimedMetadataKind(int kind) =>
+        kind switch
+        {
+            1 => MediaPlaybackTimedMetadataKind.Subtitle,
+            2 => MediaPlaybackTimedMetadataKind.Caption,
+            3 => MediaPlaybackTimedMetadataKind.Data,
+            _ => MediaPlaybackTimedMetadataKind.Custom
+        };
+
     private void DisposeStopSignal()
     {
         if (Interlocked.Exchange(ref _stopDisposed, 1) == 0)
         {
             _stop.Dispose();
+        }
+    }
+
+    private readonly record struct TimedTextCueEvent(
+        int Event,
+        WindowsMediaNative.MediaEngineTimedTextCueInfo? Cue);
+
+    private readonly record struct TimedTextErrorEvent(
+        int ErrorCode,
+        int ExtendedErrorCode,
+        uint TrackId);
+
+    private sealed class TimedTextTrackCueState
+    {
+        private readonly string _providerTrackId;
+        private readonly List<
+            MediaPlaybackTimedMetadataCueDescriptor> _cues = [];
+        private readonly Dictionary<string, int> _indices =
+            new(StringComparer.Ordinal);
+
+        internal TimedTextTrackCueState(
+            string providerTrackId)
+        {
+            _providerTrackId = providerTrackId;
+        }
+
+        internal MediaPlaybackTimedMetadataCueSnapshot Upsert(
+            in MediaPlaybackTimedMetadataCueDescriptor cue)
+        {
+            if (_indices.TryGetValue(
+                    cue.CueId,
+                    out int index))
+            {
+                _cues[index] = cue;
+            }
+            else
+            {
+                _indices.Add(cue.CueId, _cues.Count);
+                _cues.Add(cue);
+            }
+
+            return new MediaPlaybackTimedMetadataCueSnapshot(
+                _providerTrackId,
+                _cues);
+        }
+
+        internal MediaPlaybackTimedMetadataCueSnapshot Reset()
+        {
+            _cues.Clear();
+            _indices.Clear();
+            return new MediaPlaybackTimedMetadataCueSnapshot(
+                _providerTrackId,
+                cues: null);
         }
     }
 

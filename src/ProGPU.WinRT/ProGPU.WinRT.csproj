@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Media.Editing, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.WinUI, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>
