@@ -13,6 +13,19 @@ internal enum LinuxMediaOverlayFrameDisposition
 
 internal static class LinuxMediaOverlayFrameSelector
 {
+    internal static long GetInitialDecodeTicks(
+        long trimStartTicks,
+        long targetTicks)
+    {
+        if (trimStartTicks < 0 ||
+            targetTicks < trimStartTicks)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(targetTicks));
+        }
+        return targetTicks;
+    }
+
     internal static LinuxMediaOverlayFrameDisposition
         Classify(
         long frameTicks,
@@ -281,7 +294,7 @@ internal sealed unsafe class
         {
             return;
         }
-        EnsureInitialized();
+        EnsureInitialized(sourceTicks);
         AdvanceTo(
             TimeSpan.FromTicks(sourceTicks),
             cancellationToken);
@@ -329,7 +342,8 @@ internal sealed unsafe class
         _context.CleanupPendingResources();
     }
 
-    private void EnsureInitialized()
+    private void EnsureInitialized(
+        long initialSourceTicks)
     {
         if (_decoder is not null)
         {
@@ -387,7 +401,10 @@ internal sealed unsafe class
                     .FindDecodeStart(
                         track,
                         TimeSpan.FromTicks(
-                            _plan.SourceStartTicks));
+                            LinuxMediaOverlayFrameSelector
+                                .GetInitialDecodeTicks(
+                                _plan.SourceStartTicks,
+                                initialSourceTicks)));
             _track = track;
             _stream = stream;
             _reader = reader;

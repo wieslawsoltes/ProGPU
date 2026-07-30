@@ -6,6 +6,33 @@ using ProGPU.Media.Effects;
 
 namespace ProGPU.Linux.Media;
 
+internal static class LinuxMediaThumbnailWorkOrder
+{
+    internal static int Compare(
+        long leftSourceTicks,
+        long leftCompositionTicks,
+        int leftResultIndex,
+        long rightSourceTicks,
+        long rightCompositionTicks,
+        int rightResultIndex)
+    {
+        int source =
+            leftSourceTicks.CompareTo(
+                rightSourceTicks);
+        if (source != 0)
+        {
+            return source;
+        }
+        int composition =
+            leftCompositionTicks.CompareTo(
+                rightCompositionTicks);
+        return composition != 0
+            ? composition
+            : leftResultIndex.CompareTo(
+                rightResultIndex);
+    }
+}
+
 /// <summary>
 /// Batched Linux V4L2/DMA-BUF/WebGPU composition thumbnails. Each URI clip
 /// is demuxed and decoded once in ascending presentation order; decoded NV12
@@ -13,10 +40,13 @@ namespace ProGPU.Linux.Media;
 /// </summary>
 /// <remarks>
 /// For T requested positions, C clips, D decoded frames, P output pixels, and
-/// B encoded PNG bytes, timeline selection is O(T log C), decoding is O(D),
-/// and rendering/encoding is O(T * P + B). Decoder queues, one RGBA target,
-/// one WebGPU staging buffer, and at most two decoded candidates are retained.
-/// The final staging map and PNG encode are explicit non-zero-copy boundaries.
+/// B encoded PNG bytes, timeline selection is O(T log C), per-clip ordering is
+/// O(T log T), decoding is O(D), and rendering/encoding is O(T * P + B).
+/// Decoder queues, one RGBA target, one WebGPU staging buffer, and at most two
+/// main decoded candidates are retained. Each URI overlay additionally retains
+/// its bounded selected/look-ahead and effect-texture state. None of this state
+/// grows with duration or output count. The final staging map and PNG encode
+/// are explicit non-zero-copy boundaries.
 /// </remarks>
 public sealed class
     LinuxV4l2MediaCompositionThumbnailProvider :
@@ -158,10 +188,12 @@ public sealed class
              index < overlays.Length;
              index++)
         {
-            if (overlays[index].IsUri)
-            {
-                return false;
-            }
+            hasUri |= overlays[index].IsUri;
+        }
+        if (hasUri &&
+            !hasH264Decoder)
+        {
+            return false;
         }
 
         for (int index = 0;
@@ -215,16 +247,6 @@ public sealed class
             throw new InvalidDataException(
                 "The Linux thumbnail overlay plan is invalid.");
         }
-        for (int index = 0;
-             index < overlays.Length;
-             index++)
-        {
-            if (overlays[index].IsUri)
-            {
-                throw new InvalidDataException(
-                    "Linux URI-overlay thumbnails are not implemented.");
-            }
-        }
         if (!LinuxV4l2PreciseMediaCompositionExportProvider
                 .TryGetActiveVulkanDawnContext(
                     out DawnGpuContext? dawn) ||
@@ -242,6 +264,11 @@ public sealed class
 
         using (renderer)
         {
+            using var overlayRuntime =
+                new LinuxMediaOverlayRuntime(
+                    overlays,
+                    _capabilities.VideoDecoders,
+                    renderer.Context);
             var results =
                 new MediaCompositionThumbnail?[
                     request.Positions.Count];
@@ -270,35 +297,6 @@ public sealed class
                     timeline.Resolve(
                         request.Positions[index].Ticks,
                         frameDuration);
-                MediaCompositionExportClip clip =
-                    request.Composition.Clips[
-                        position.ClipIndex];
-                if (!LinuxV4l2PreciseMediaCompositionExportProvider
-                        .TryGetVideoEffectPlan(
-                            clip,
-                            _effects,
-                            out LinuxGpuVideoEffectPlan
-                                effectPlan))
-                {
-                    throw new InvalidDataException(
-                        "The clip contains an unsupported video effect.");
-                }
-                if (clip.ArgbColor is uint color)
-                {
-                    byte[] pixels =
-                        renderer.RenderColor(
-                            color,
-                            effectPlan,
-                            overlays,
-                            request.Positions[index]
-                                .Ticks);
-                    results[index] =
-                        Encode(
-                            request,
-                            pixels);
-                    continue;
-                }
-
                 (workByClip[position.ClipIndex] ??=
                     []).Add(
                     new ThumbnailWorkItem(
@@ -319,17 +317,33 @@ public sealed class
                     continue;
                 }
                 work.Sort(
-                    static (left, right) =>
-                        left.SourceTicks.CompareTo(
-                            right.SourceTicks));
-                RenderUriClip(
-                    request,
-                    clipIndex,
-                    work,
-                    renderer,
-                    overlays,
-                    results,
-                    cancellationToken);
+                    CompareWork);
+                MediaCompositionExportClip clip =
+                    request.Composition.Clips[
+                        clipIndex];
+                if (clip.ArgbColor is uint color)
+                {
+                    RenderColorClip(
+                        request,
+                        clip,
+                        color,
+                        work,
+                        renderer,
+                        overlayRuntime,
+                        results,
+                        cancellationToken);
+                }
+                else
+                {
+                    RenderUriClip(
+                        request,
+                        clipIndex,
+                        work,
+                        renderer,
+                        overlayRuntime,
+                        results,
+                        cancellationToken);
+                }
             }
 
             var completed =
@@ -353,8 +367,7 @@ public sealed class
         int clipIndex,
         List<ThumbnailWorkItem> work,
         LinuxWebGpuCompositionThumbnailRenderer renderer,
-        IReadOnlyList<LinuxMediaOverlayPlan>
-            overlays,
+        LinuxMediaOverlayRuntime overlays,
         MediaCompositionThumbnail?[] results,
         CancellationToken cancellationToken)
     {
@@ -456,6 +469,10 @@ public sealed class
                                work[workIndex].SourceTicks <=
                                    current.Timestamp)
                         {
+                            overlays.Prepare(
+                                work[workIndex]
+                                    .CompositionTicks,
+                                cancellationToken);
                             FrameCandidate selected =
                                 previous is not null &&
                                 work[workIndex].SourceTicks -
@@ -512,6 +529,10 @@ public sealed class
                     }
                     while (workIndex < work.Count)
                     {
+                        overlays.Prepare(
+                            work[workIndex]
+                                .CompositionTicks,
+                            cancellationToken);
                         results[work[workIndex].ResultIndex] =
                             previous.Render(
                                 request,
@@ -581,10 +602,61 @@ public sealed class
                 };
         }
         work.Sort(
-            static (left, right) =>
-                left.SourceTicks.CompareTo(
-                    right.SourceTicks));
+            CompareWork);
     }
+
+    private void RenderColorClip(
+        MediaCompositionThumbnailRequest request,
+        MediaCompositionExportClip clip,
+        uint color,
+        List<ThumbnailWorkItem> work,
+        LinuxWebGpuCompositionThumbnailRenderer renderer,
+        LinuxMediaOverlayRuntime overlays,
+        MediaCompositionThumbnail?[] results,
+        CancellationToken cancellationToken)
+    {
+        if (!LinuxV4l2PreciseMediaCompositionExportProvider
+                .TryGetVideoEffectPlan(
+                    clip,
+                    _effects,
+                    out LinuxGpuVideoEffectPlan
+                        effectPlan))
+        {
+            throw new InvalidDataException(
+                "The clip contains an unsupported video effect.");
+        }
+        for (int workIndex = 0;
+             workIndex < work.Count;
+             workIndex++)
+        {
+            cancellationToken
+                .ThrowIfCancellationRequested();
+            ThumbnailWorkItem item =
+                work[workIndex];
+            overlays.Prepare(
+                item.CompositionTicks,
+                cancellationToken);
+            results[item.ResultIndex] =
+                Encode(
+                    request,
+                    renderer.RenderColor(
+                        color,
+                        effectPlan,
+                        overlays,
+                        item.CompositionTicks));
+        }
+    }
+
+    private static int CompareWork(
+        ThumbnailWorkItem left,
+        ThumbnailWorkItem right) =>
+        LinuxMediaThumbnailWorkOrder.Compare(
+            left.SourceTicks,
+            left.CompositionTicks,
+            left.ResultIndex,
+            right.SourceTicks,
+            right.CompositionTicks,
+            right.ResultIndex);
 
     private static MediaCompositionThumbnail Encode(
         MediaCompositionThumbnailRequest request,
@@ -663,12 +735,11 @@ public sealed class
             LinuxWebGpuCompositionThumbnailRenderer renderer,
             MediaCompositionExportClip clip,
             MediaEffectRegistry effects,
-            IReadOnlyList<LinuxMediaOverlayPlan>
-                overlays,
+            LinuxMediaOverlayRuntime overlays,
             long compositionTicks)
         {
             ArgumentNullException.ThrowIfNull(overlays);
-            if (overlays.Count == 0 &&
+            if (overlays.Plans.Length == 0 &&
                 _thumbnail is not null)
             {
                 return _thumbnail;
@@ -683,7 +754,7 @@ public sealed class
                 throw new InvalidDataException(
                     "The clip contains an unsupported video effect.");
             }
-            if (overlays.Count == 0)
+            if (overlays.Plans.Length == 0)
             {
                 V4l2DecodedFrame frame =
                     TakeFrame();

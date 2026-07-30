@@ -320,6 +320,12 @@ public sealed class LinuxMediaProviderContractTests
         const long target = 300;
 
         Assert.Equal(
+            target,
+            LinuxMediaOverlayFrameSelector
+                .GetInitialDecodeTicks(
+                    trimStart,
+                    target));
+        Assert.Equal(
             LinuxMediaOverlayFrameDisposition
                 .Discard,
             LinuxMediaOverlayFrameSelector
@@ -364,6 +370,65 @@ public sealed class LinuxMediaProviderContractTests
                     trimStart,
                     trimEnd,
                     target));
+    }
+
+    [Fact]
+    public void LinuxThumbnailWorkOrderIsStableAfterKeyFrameNormalization()
+    {
+        Assert.True(
+            LinuxMediaThumbnailWorkOrder.Compare(
+                100,
+                300,
+                2,
+                200,
+                100,
+                0) < 0);
+        Assert.True(
+            LinuxMediaThumbnailWorkOrder.Compare(
+                100,
+                200,
+                2,
+                100,
+                300,
+                0) < 0);
+        Assert.True(
+            LinuxMediaThumbnailWorkOrder.Compare(
+                100,
+                200,
+                1,
+                100,
+                200,
+                2) < 0);
+
+        _ = LinuxMediaThumbnailWorkOrder.Compare(
+            100,
+            200,
+            1,
+            100,
+            200,
+            2);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            checksum +=
+                LinuxMediaThumbnailWorkOrder.Compare(
+                    index,
+                    index + 1L,
+                    index,
+                    index + 1L,
+                    index + 2L,
+                    index + 1);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+
+        Assert.Equal(-100_000, checksum);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -1139,7 +1204,7 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
-    public void LinuxThumbnailCapabilityAcceptsColorOverlaysAcrossMainClipKinds()
+    public void LinuxThumbnailCapabilityAcceptsStandardOverlaysAcrossMainClipKinds()
     {
         MediaCompositionExportRequest baseline =
             CreateLinuxPreciseRequest(
@@ -1253,7 +1318,7 @@ public sealed class LinuxMediaProviderContractTests
                         ])
                     ]
                 };
-        Assert.False(
+        Assert.True(
             LinuxV4l2MediaCompositionThumbnailProvider
                 .CanRenderRequest(
                     request with
@@ -1263,6 +1328,17 @@ public sealed class LinuxMediaProviderContractTests
                     },
                     isLinux: true,
                     hasH264Decoder: true,
+                    hasVulkanWebGpu: true));
+        Assert.False(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request with
+                    {
+                        Composition =
+                            uriOverlayComposition
+                    },
+                    isLinux: true,
+                    hasH264Decoder: false,
                     hasVulkanWebGpu: true));
     }
 
@@ -1281,6 +1357,10 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxMediaOverlayPlanner.cs");
+        string overlayRuntime = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxMediaOverlayRuntime.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Linux.Media",
@@ -1338,6 +1418,42 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Contains(
             "CompositeOverlays(",
             renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new LinuxMediaOverlayRuntime(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderer.Context",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "overlays.Prepare(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "work.Sort(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompareWork",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryGetUriTexture(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureColorTransform",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "V4l2DecodedFrame _candidate",
+            overlayRuntime,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "V4l2DecodedFrame _lookAhead",
+            overlayRuntime,
             StringComparison.Ordinal);
         Assert.Contains(
             "private const int SnapshotSlotCount = 2",
