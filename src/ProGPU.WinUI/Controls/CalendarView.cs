@@ -406,7 +406,7 @@ public class CalendarView : Control
         for (int i = 0; i < 7; i++)
         {
             var day = (DayOfWeek)(((int)FirstDayOfWeek + i) % 7);
-            var dayName = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedDayName(day);
+            var dayName = global::System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedDayName(day);
             if (dayName.Length > 2 && DayOfWeekFormat.Contains("abbreviated(2)", StringComparison.Ordinal))
                 dayName = dayName[..2];
             Rect physicalCell = LogicalToPhysical(dayRects[i]);

@@ -19,32 +19,32 @@ public static class FontWeights
 
     internal static bool TryParse(string text, out FontWeight value)
     {
-        if (string.Equals(text, nameof(Thin), System.StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(text, nameof(Thin), global::System.StringComparison.OrdinalIgnoreCase))
             value = Thin;
-        else if (string.Equals(text, nameof(ExtraLight), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(ExtraLight), global::System.StringComparison.OrdinalIgnoreCase))
             value = ExtraLight;
-        else if (string.Equals(text, nameof(Light), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(Light), global::System.StringComparison.OrdinalIgnoreCase))
             value = Light;
-        else if (string.Equals(text, nameof(SemiLight), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(SemiLight), global::System.StringComparison.OrdinalIgnoreCase))
             value = SemiLight;
-        else if (string.Equals(text, nameof(Normal), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(Normal), global::System.StringComparison.OrdinalIgnoreCase))
             value = Normal;
-        else if (string.Equals(text, nameof(Medium), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(Medium), global::System.StringComparison.OrdinalIgnoreCase))
             value = Medium;
-        else if (string.Equals(text, nameof(SemiBold), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(SemiBold), global::System.StringComparison.OrdinalIgnoreCase))
             value = SemiBold;
-        else if (string.Equals(text, nameof(Bold), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(Bold), global::System.StringComparison.OrdinalIgnoreCase))
             value = Bold;
-        else if (string.Equals(text, nameof(ExtraBold), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(ExtraBold), global::System.StringComparison.OrdinalIgnoreCase))
             value = ExtraBold;
-        else if (string.Equals(text, nameof(Black), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(Black), global::System.StringComparison.OrdinalIgnoreCase))
             value = Black;
-        else if (string.Equals(text, nameof(ExtraBlack), System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(text, nameof(ExtraBlack), global::System.StringComparison.OrdinalIgnoreCase))
             value = ExtraBlack;
         else if (ushort.TryParse(
                      text,
-                     System.Globalization.NumberStyles.None,
-                     System.Globalization.CultureInfo.InvariantCulture,
+                     global::System.Globalization.NumberStyles.None,
+                     global::System.Globalization.CultureInfo.InvariantCulture,
                      out var numeric))
             value = Create(numeric);
         else

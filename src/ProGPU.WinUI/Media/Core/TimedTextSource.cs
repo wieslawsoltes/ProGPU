@@ -123,7 +123,7 @@ public sealed class TimedTextSource
             Interlocked.Increment(
                     ref s_nextTrackId)
                 .ToString(
-                    System.Globalization.CultureInfo
+                    global::System.Globalization.CultureInfo
                         .InvariantCulture));
     }
 
@@ -385,7 +385,7 @@ public sealed class TimedTextSource
                         _trackId,
                         ":",
                         index.ToString(
-                            System.Globalization
+                            global::System.Globalization
                                 .CultureInfo
                                 .InvariantCulture))
                     : source.Id;

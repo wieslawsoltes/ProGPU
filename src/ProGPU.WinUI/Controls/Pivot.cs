@@ -128,7 +128,7 @@ public class Pivot : FrameworkElement
                 _transitionProgress = (float)step / steps;
                 Invalidate();
                 InvalidateArrange();
-                System.Threading.Tasks.Task.Delay(16).ContinueWith(_ => dispatch(stepAction));
+                global::System.Threading.Tasks.Task.Delay(16).ContinueWith(_ => dispatch(stepAction));
             }
             else
             {
@@ -137,7 +137,7 @@ public class Pivot : FrameworkElement
                 InvalidateArrange();
             }
         };
-        System.Threading.Tasks.Task.Delay(16).ContinueWith(_ => dispatch(stepAction));
+        global::System.Threading.Tasks.Task.Delay(16).ContinueWith(_ => dispatch(stepAction));
     }
 
     private float GetTotalHeadersWidth()

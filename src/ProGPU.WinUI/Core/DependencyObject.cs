@@ -115,7 +115,7 @@ public class DependencyProperty
         {
             try
             {
-                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+                global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
             }
             catch {}
             var key = (type, name);
@@ -181,7 +181,7 @@ public class DependencyProperty
         {
             try
             {
-                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+                global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
             }
             catch {}
 

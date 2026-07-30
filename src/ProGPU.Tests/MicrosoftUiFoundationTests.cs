@@ -1,10 +1,14 @@
 using Microsoft.UI;
+using Microsoft.UI.System;
+using Microsoft.UI.Xaml;
+using ProGPU.WinUI.Platform;
 using System.Reflection;
 using Windows.Foundation.Metadata;
 using Xunit;
 
 namespace ProGPU.Tests;
 
+[Collection(PlatformThemeResourceCollection.Name)]
 public sealed class MicrosoftUiFoundationTests
 {
     [Fact]
@@ -147,6 +151,7 @@ public sealed class MicrosoftUiFoundationTests
     [InlineData(typeof(WindowId), 0x00010000u)]
     [InlineData(typeof(ClosableNotifierHandler), 0x00010004u)]
     [InlineData(typeof(IClosableNotifier), 0x00010004u)]
+    [InlineData(typeof(ThemeSettings), 0x00010004u)]
     public void FoundationTypesPublishOfficialContractVersion(
         Type type,
         uint expectedVersion)
@@ -183,6 +188,66 @@ public sealed class MicrosoftUiFoundationTests
     }
 
     [Fact]
+    public void ThemeSettingsRequiresNonzeroWindowId()
+    {
+        Assert.Throws<ArgumentException>(
+            () => ThemeSettings.CreateForWindowId(default));
+    }
+
+    [Fact]
+    public void ThemeSettingsTracksContrastPropertiesAndChanges()
+    {
+        var previousProvider = XamlPlatformResources.Provider;
+        var provider = new TestHighContrastProvider();
+        try
+        {
+            XamlPlatformResources.Provider = provider;
+            var settings = ThemeSettings.CreateForWindowId(
+                new WindowId(0x1234));
+            int notifications = 0;
+            ThemeSettings? eventSender = null;
+            object? eventArgs = null;
+            settings.Changed += (sender, args) =>
+            {
+                notifications++;
+                eventSender = sender;
+                eventArgs = args;
+            };
+
+            Assert.False(settings.HighContrast);
+            Assert.Equal(string.Empty, settings.HighContrastScheme);
+
+            provider.Publish(true, "High Contrast Black");
+
+            Assert.True(settings.HighContrast);
+            Assert.Equal(
+                "High Contrast Black",
+                settings.HighContrastScheme);
+            Assert.Equal(1, notifications);
+            Assert.Same(settings, eventSender);
+            Assert.Same(EventArgs.Empty, eventArgs);
+
+            provider.Publish(true, "High Contrast Black");
+            Assert.Equal(1, notifications);
+
+            provider.Publish(true, "High Contrast White");
+            Assert.Equal(2, notifications);
+            Assert.Equal(
+                "High Contrast White",
+                settings.HighContrastScheme);
+
+            provider.Publish(false, "ignored");
+            Assert.False(settings.HighContrast);
+            Assert.Equal(string.Empty, settings.HighContrastScheme);
+            Assert.Equal(3, notifications);
+        }
+        finally
+        {
+            XamlPlatformResources.Provider = previousProvider;
+        }
+    }
+
+    [Fact]
     public void ClosableNotifierContractExposesApplicationAndFrameworkEvents()
     {
         var notifier = new TestClosableNotifier();
@@ -209,6 +274,34 @@ public sealed class MicrosoftUiFoundationTests
             IsClosed = true;
             FrameworkClosed?.Invoke();
             Closed?.Invoke();
+        }
+    }
+
+    private sealed class TestHighContrastProvider :
+        IXamlPlatformResourceProvider,
+        IHighContrastSchemeProvider
+    {
+        public bool IsHighContrast { get; private set; }
+
+        public string HighContrastScheme { get; private set; } =
+            string.Empty;
+
+        public event EventHandler? ResourcesChanged;
+
+        public void Publish(bool highContrast, string scheme)
+        {
+            IsHighContrast = highContrast;
+            HighContrastScheme = scheme;
+            ResourcesChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public bool TryGetResource(
+            object key,
+            in XamlPlatformResourceContext context,
+            out object? value)
+        {
+            value = null;
+            return false;
         }
     }
 

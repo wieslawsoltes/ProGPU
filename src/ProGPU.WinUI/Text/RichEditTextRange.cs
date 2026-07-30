@@ -362,7 +362,7 @@ public class RichEditTextRange : ITextRange
         }
         if (char.IsLowSurrogate(story[position]) && position > 0 && char.IsHighSurrogate(story[position - 1]))
             position--;
-        value = (uint)System.Text.Rune.GetRuneAt(story, position).Value;
+        value = (uint)global::System.Text.Rune.GetRuneAt(story, position).Value;
     }
 
     public ITextRange GetClone() => new RichEditTextRange(_document, StartPosition, EndPosition)

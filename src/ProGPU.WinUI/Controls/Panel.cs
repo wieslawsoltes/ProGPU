@@ -72,7 +72,7 @@ public class Panel : FrameworkElement
     }
 }
 
-public class PanelChildrenCollection : System.Collections.Generic.IList<Visual>, System.Collections.IList
+public class PanelChildrenCollection : global::System.Collections.Generic.IList<Visual>, global::System.Collections.IList
 {
     private readonly Panel _owner;
 
@@ -90,7 +90,7 @@ public class PanelChildrenCollection : System.Collections.Generic.IList<Visual>,
         set => throw new NotSupportedException();
     }
 
-    object? System.Collections.IList.this[int index]
+    object? global::System.Collections.IList.this[int index]
     {
         get => _owner.VisualChildren[index];
         set => throw new NotSupportedException();
@@ -140,8 +140,8 @@ public class PanelChildrenCollection : System.Collections.Generic.IList<Visual>,
     public void Remove(object? value) { if (value is Visual v) _owner.RemoveChild(v); }
     public void RemoveAt(int index) => _owner.RemoveChild(_owner.VisualChildren[index]);
     
-    public System.Collections.Generic.IEnumerator<Visual> GetEnumerator() => _owner.VisualChildren.GetEnumerator();
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _owner.VisualChildren.GetEnumerator();
+    public global::System.Collections.Generic.IEnumerator<Visual> GetEnumerator() => _owner.VisualChildren.GetEnumerator();
+    global::System.Collections.IEnumerator global::System.Collections.IEnumerable.GetEnumerator() => _owner.VisualChildren.GetEnumerator();
 
     public bool IsFixedSize => false;
     public bool IsSynchronized => false;

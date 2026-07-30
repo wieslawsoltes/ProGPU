@@ -28,7 +28,7 @@ public class WindowInputState
     public bool IsAltPressed;
     public bool IsKeyboardFocusActive;
     public IInputContext? InputContext;
-    public System.Threading.CancellationTokenSource? HoverCancellation;
+    public global::System.Threading.CancellationTokenSource? HoverCancellation;
     public ToolTip? ActiveToolTip;
     public FrameworkElement? HoveredElementForTimer;
     public bool IsLeftButtonPressed;
@@ -176,7 +176,7 @@ public static class InputSystem
     private static bool _isShiftPressed { get => Current.IsShiftPressed; set => Current.IsShiftPressed = value; }
     private static bool _isControlPressed { get => Current.IsControlPressed; set => Current.IsControlPressed = value; }
     private static bool _isAltPressed { get => Current.IsAltPressed; set => Current.IsAltPressed = value; }
-    private static System.Threading.CancellationTokenSource? _hoverCancellation { get => Current.HoverCancellation; set => Current.HoverCancellation = value; }
+    private static global::System.Threading.CancellationTokenSource? _hoverCancellation { get => Current.HoverCancellation; set => Current.HoverCancellation = value; }
     private static ToolTip? _activeToolTip { get => Current.ActiveToolTip; set => Current.ActiveToolTip = value; }
     private static FrameworkElement? _hoveredElementForTimer { get => Current.HoveredElementForTimer; set => Current.HoveredElementForTimer = value; }
 
@@ -1979,16 +1979,16 @@ public static class InputSystem
 
         DismissToolTip();
 
-        var cts = new System.Threading.CancellationTokenSource();
+        var cts = new global::System.Threading.CancellationTokenSource();
         _hoverCancellation = cts;
         
-        System.Threading.Tasks.Task.Delay(500, cts.Token).ContinueWith(t =>
+        global::System.Threading.Tasks.Task.Delay(500, cts.Token).ContinueWith(t =>
         {
-            if (t.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && !cts.IsCancellationRequested)
+            if (t.Status == global::System.Threading.Tasks.TaskStatus.RanToCompletion && !cts.IsCancellationRequested)
             {
                 ShowToolTip(element);
             }
-        }, System.Threading.Tasks.TaskScheduler.Default);
+        }, global::System.Threading.Tasks.TaskScheduler.Default);
     }
 
     private static void ShowToolTip(FrameworkElement element)

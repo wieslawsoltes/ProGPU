@@ -70,7 +70,7 @@ public readonly struct BindingPathSegment : IEquatable<BindingPathSegment>
     {
         BindingPathSegmentKind.IntegerIndexer =>
             "[" + IntegerIndex.ToString(
-                System.Globalization.CultureInfo.InvariantCulture) + "]",
+                global::System.Globalization.CultureInfo.InvariantCulture) + "]",
         BindingPathSegmentKind.StringIndexer => "['" + Text + "']",
         _ => Text ?? string.Empty
     };

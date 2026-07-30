@@ -173,7 +173,7 @@ internal static class XamlValueConverter
                 return float.NaN;
             try
             {
-                return System.Convert.ToSingle(value, CultureInfo.InvariantCulture);
+                return global::System.Convert.ToSingle(value, CultureInfo.InvariantCulture);
             }
             catch (Exception exception)
             {
@@ -187,7 +187,7 @@ internal static class XamlValueConverter
                 return double.NaN;
             try
             {
-                return System.Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                return global::System.Convert.ToDouble(value, CultureInfo.InvariantCulture);
             }
             catch (Exception exception)
             {
@@ -195,14 +195,14 @@ internal static class XamlValueConverter
             }
         }
         if (conversionType == typeof(int))
-            return System.Convert.ToInt32(value, CultureInfo.InvariantCulture);
+            return global::System.Convert.ToInt32(value, CultureInfo.InvariantCulture);
 
         if (conversionType == typeof(Visibility) && value is bool booleanVisibility)
             return booleanVisibility ? Visibility.Visible : Visibility.Collapsed;
 
         try
         {
-            return System.Convert.ChangeType(value, conversionType, CultureInfo.InvariantCulture);
+            return global::System.Convert.ChangeType(value, conversionType, CultureInfo.InvariantCulture);
         }
         catch (Exception exception)
         {

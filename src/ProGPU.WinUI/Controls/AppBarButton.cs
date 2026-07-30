@@ -346,8 +346,8 @@ public sealed class AppBarSeparator : Control, ICommandBarElement
     {
         context.DrawLine(
             new Pen(_separatorBrush, 1),
-            new System.Numerics.Vector2(Size.X * 0.5f, 4),
-            new System.Numerics.Vector2(Size.X * 0.5f, Math.Max(4, Size.Y - 4)));
+            new global::System.Numerics.Vector2(Size.X * 0.5f, 4),
+            new global::System.Numerics.Vector2(Size.X * 0.5f, Math.Max(4, Size.Y - 4)));
         base.OnRender(context);
     }
 }

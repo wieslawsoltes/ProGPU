@@ -138,7 +138,7 @@ public sealed class RichDocumentLayoutSession
         return _shapingCharacterScratch;
     }
 
-    internal PositionedRichChar RentPositionedCharacter(RichChar info, System.Numerics.Vector2 position = default)
+    internal PositionedRichChar RentPositionedCharacter(RichChar info, global::System.Numerics.Vector2 position = default)
     {
         PositionedRichChar character = _positionedCharacterPool.Count > 0
             ? _positionedCharacterPool.Pop()

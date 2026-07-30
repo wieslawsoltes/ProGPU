@@ -17,7 +17,7 @@ namespace Microsoft.UI.Xaml;
 public class StorageFolder
 {
     public string Path { get; }
-    public string Name => System.IO.Path.GetFileName(Path);
+    public string Name => global::System.IO.Path.GetFileName(Path);
 
     public StorageFolder(string path)
     {
@@ -77,7 +77,7 @@ public class StorageFolder
             return new StorageFile(path);
         }
 
-        var fullPath = System.IO.Path.Combine(Path, desiredName);
+        var fullPath = global::System.IO.Path.Combine(Path, desiredName);
         await File.WriteAllTextAsync(fullPath, string.Empty);
         return new StorageFile(fullPath);
     }
@@ -91,7 +91,7 @@ public class StorageFolder
             return new StorageFolder(path);
         }
 
-        string fullPath = System.IO.Path.Combine(Path, desiredName);
+        string fullPath = global::System.IO.Path.Combine(Path, desiredName);
         Directory.CreateDirectory(fullPath);
         return new StorageFolder(fullPath);
     }

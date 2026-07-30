@@ -16,7 +16,7 @@ public static class BindingExtensions
 
         public void Dispose()
         {
-            var action = System.Threading.Interlocked.Exchange(ref _action, null);
+            var action = global::System.Threading.Interlocked.Exchange(ref _action, null);
             action?.Invoke();
         }
     }

@@ -75,8 +75,10 @@ entries, 2,824 exact matches, 13,797 missing entries, and 3,996 ProGPU-only
 entries. After the foundation-identifier and predefined-color slices, the
 baseline recorded 7,005 ProGPU entries, 3,009 exact matches, and 13,612
 missing entries. With the contract-version metadata slice, the current
-baseline records 7,012 ProGPU entries, 3,016 exact matches, and 13,605 missing
-entries, with the same 3,996 ProGPU-only entries. These are
+baseline recorded 7,012 ProGPU entries, 3,016 exact matches, and 13,605 missing
+entries. With `Microsoft.UI.System` complete, the current baseline records
+7,018 ProGPU entries, 3,022 exact matches, and 13,599 missing entries, with the
+same 3,996 ProGPU-only entries. These are
 declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
@@ -137,6 +139,31 @@ verify the constructor surface and every emitted constructor argument. The
 attribute is declarative, CPU-only, fixed `O(1)`, and performs no allocation
 beyond normal runtime reflection when an application explicitly inspects
 metadata.
+
+### Microsoft.UI.System theme settings
+
+Primary contracts consulted:
+
+- [ThemeSettings](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.system.themesettings)
+- [ThemeSettings.Changed](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.system.themesettings.changed)
+- [ThemeSettings.CreateForWindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.system.themesettings.createforwindowid)
+
+Adopted: the complete six-entry official namespace surface, nonzero window
+identity validation, live high-contrast state, optional platform-supplied
+scheme identity, and change-only notifications. `ThemeSettings` reuses the
+existing typed XAML platform-resource provider; hosts can add scheme data
+through `ProGPU.WinUI.Platform.IHighContrastSchemeProvider` without reflection
+or a dependency on native UI types. Static theme notifications retain only
+weak references to settings objects, matching the documented release lifetime.
+Property reads are fixed `O(1)`. A rare platform theme transition prunes and
+notifies `L` live settings objects in `O(L)` time and transient storage.
+
+Deferred behavioral gate: native hosts still need typed top-level
+window/process/thread validation and window-destruction notification. Until
+that provider contract is connected, zero IDs fail explicitly while a nonzero
+platform ID is accepted. The declaration report now records
+`Microsoft.UI.System` as 6/6 exact with no missing or extra entries, but this
+does not claim that deferred native lifecycle behavior is complete.
 
 ## Implementation policy
 

@@ -80,10 +80,10 @@ public class AppRunner<TApp> where TApp : Application, new()
 
     public void Run(string[]? args = null)
     {
-        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
-        System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-        System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+        global::System.Globalization.CultureInfo.DefaultThreadCurrentCulture = global::System.Globalization.CultureInfo.InvariantCulture;
+        global::System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = global::System.Globalization.CultureInfo.InvariantCulture;
+        global::System.Threading.Thread.CurrentThread.CurrentCulture = global::System.Globalization.CultureInfo.InvariantCulture;
+        global::System.Threading.Thread.CurrentThread.CurrentUICulture = global::System.Globalization.CultureInfo.InvariantCulture;
 
         WindowsDpiAwareness.TryEnablePerMonitorV2();
 
@@ -137,11 +137,11 @@ public class AppRunner<TApp> where TApp : Application, new()
                 // one millisecond instead of spinning on dispatcher/layout checks.
                 if (!presentedAnyFrame)
                 {
-                    System.Threading.Thread.Sleep(1);
+                    global::System.Threading.Thread.Sleep(1);
                 }
                 else if (allWindowsUseVSync)
                 {
-                    System.Threading.Thread.Yield();
+                    global::System.Threading.Thread.Yield();
                 }
             }
         }
@@ -156,10 +156,10 @@ public class AppRunner<TApp> where TApp : Application, new()
         cancellationToken.ThrowIfCancellationRequested();
         if (WindowHostServices.Current is { } host)
         {
-            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
-            System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-            System.Threading.Thread.CurrentThread.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+            global::System.Globalization.CultureInfo.DefaultThreadCurrentCulture = global::System.Globalization.CultureInfo.InvariantCulture;
+            global::System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = global::System.Globalization.CultureInfo.InvariantCulture;
+            global::System.Threading.Thread.CurrentThread.CurrentCulture = global::System.Globalization.CultureInfo.InvariantCulture;
+            global::System.Threading.Thread.CurrentThread.CurrentUICulture = global::System.Globalization.CultureInfo.InvariantCulture;
             Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue = UIThread.Post;
             HotReloadManager.Initialize(WindowHostServices.Current.GetType().Name);
 

@@ -9,5 +9,5 @@ namespace Microsoft.UI.Xaml;
 [ContentProperty(Name = "Template")]
 public class FrameworkTemplate : DependencyObject
 {
-    internal System.Func<object?, FrameworkElement>? DeferredFactory { get; set; }
+    internal global::System.Func<object?, FrameworkElement>? DeferredFactory { get; set; }
 }

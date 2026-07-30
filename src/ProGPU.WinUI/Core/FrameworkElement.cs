@@ -520,7 +520,7 @@ public partial class FrameworkElement
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"Unsupported style setter '{setter.Property}' on {GetType().Name}: no dependency property is registered.");
+                    global::System.Diagnostics.Debug.WriteLine($"Unsupported style setter '{setter.Property}' on {GetType().Name}: no dependency property is registered.");
                 }
             }
         }

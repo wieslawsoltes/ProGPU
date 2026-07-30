@@ -328,10 +328,10 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
             return 0;
         }
 
-        System.Numerics.Vector4 color = System.Numerics.Vector4.Clamp(
+        global::System.Numerics.Vector4 color = global::System.Numerics.Vector4.Clamp(
             solid.Color,
-            System.Numerics.Vector4.Zero,
-            System.Numerics.Vector4.One);
+            global::System.Numerics.Vector4.Zero,
+            global::System.Numerics.Vector4.One);
         int red = (int)MathF.Round(color.X * 255f);
         int green = (int)MathF.Round(color.Y * 255f);
         int blue = (int)MathF.Round(color.Z * 255f);

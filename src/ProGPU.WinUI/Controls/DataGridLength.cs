@@ -36,10 +36,10 @@ public struct DataGridLength : IEquatable<DataGridLength>
         if (value.EndsWith("*"))
         {
             if (value.Length == 1) return new DataGridLength(1f, DataGridLengthUnitType.Star);
-            if (float.TryParse(value.Substring(0, value.Length - 1), System.Globalization.CultureInfo.InvariantCulture, out float starVal))
+            if (float.TryParse(value.Substring(0, value.Length - 1), global::System.Globalization.CultureInfo.InvariantCulture, out float starVal))
                 return new DataGridLength(starVal, DataGridLengthUnitType.Star);
         }
-        if (float.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out float pixelVal))
+        if (float.TryParse(value, global::System.Globalization.CultureInfo.InvariantCulture, out float pixelVal))
             return new DataGridLength(pixelVal);
         throw new FormatException($"Invalid DataGridLength format: '{value}'");
     }

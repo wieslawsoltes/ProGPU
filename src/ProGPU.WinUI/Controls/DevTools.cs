@@ -46,24 +46,24 @@ public class PropertyItem
             {
                 object converted = value;
                 var t = _property.PropertyType;
-                if (t == typeof(float)) converted = float.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+                if (t == typeof(float)) converted = float.Parse(value, global::System.Globalization.CultureInfo.InvariantCulture);
                 else if (t == typeof(int)) converted = int.Parse(value);
-                else if (t == typeof(double)) converted = double.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+                else if (t == typeof(double)) converted = double.Parse(value, global::System.Globalization.CultureInfo.InvariantCulture);
                 else if (t == typeof(bool)) converted = bool.Parse(value);
                 else if (t == typeof(Thickness))
                 {
                     string[] parts = value.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length == 1)
                     {
-                        float f = float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+                        float f = float.Parse(parts[0], global::System.Globalization.CultureInfo.InvariantCulture);
                         converted = new Thickness(f);
                     }
                     else if (parts.Length == 4)
                     {
-                        float l = float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
-                        float t1 = float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
-                        float r = float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture);
-                        float b = float.Parse(parts[3], System.Globalization.CultureInfo.InvariantCulture);
+                        float l = float.Parse(parts[0], global::System.Globalization.CultureInfo.InvariantCulture);
+                        float t1 = float.Parse(parts[1], global::System.Globalization.CultureInfo.InvariantCulture);
+                        float r = float.Parse(parts[2], global::System.Globalization.CultureInfo.InvariantCulture);
+                        float b = float.Parse(parts[3], global::System.Globalization.CultureInfo.InvariantCulture);
                         converted = new Thickness(l, t1, r, b);
                     }
                 }
@@ -109,7 +109,7 @@ public class PropertyItem
 
     private static int ParseByte(string hex, int start)
     {
-        return int.Parse(hex.Substring(start, 2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+        return int.Parse(hex.Substring(start, 2), global::System.Globalization.NumberStyles.HexNumber, global::System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static int ToByte(float value)

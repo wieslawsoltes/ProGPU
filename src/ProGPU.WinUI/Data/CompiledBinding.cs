@@ -215,7 +215,9 @@ public sealed class CompiledBindingIndexerPathSegment<TSource, TValue> :
     {
         ArgumentNullException.ThrowIfNull(getter);
         MemberName =
-            "[" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]";
+            "[" + index.ToString(
+                global::System.Globalization.CultureInfo.InvariantCulture) +
+            "]";
         _getter = getter;
         _setter = setter;
     }

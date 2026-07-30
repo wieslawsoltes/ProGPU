@@ -80,7 +80,7 @@ namespace Microsoft.UI.Xaml
             new PropertyMetadata(null, static (d, e) =>
             {
                 var element = (UIElement)d;
-                element.Transform = (e.NewValue as Media.Transform)?.Value ?? System.Numerics.Matrix4x4.Identity;
+                element.Transform = (e.NewValue as Media.Transform)?.Value ?? global::System.Numerics.Matrix4x4.Identity;
             }) { AffectsRender = true });
 
         public Media.Transform? RenderTransform
@@ -128,9 +128,9 @@ namespace Microsoft.UI.Xaml
         public string Message => Exception.Message;
     }
 
-    public partial class FrameworkElement : UIElement, System.ComponentModel.INotifyPropertyChanged
+    public partial class FrameworkElement : UIElement, global::System.ComponentModel.INotifyPropertyChanged
     {
-        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        public event global::System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
 
         public event Windows.Foundation.TypedEventHandler<Microsoft.UI.Xaml.FrameworkElement, object>? Loading;
@@ -149,9 +149,9 @@ namespace Windows.Foundation
 {
     internal sealed class CompletedAsyncOperation<TResult> : IAsyncOperation<TResult>
     {
-        private readonly System.Threading.Tasks.Task<TResult> _task;
-        public CompletedAsyncOperation(TResult result) => _task = System.Threading.Tasks.Task.FromResult(result);
-        public System.Threading.Tasks.Task<TResult> AsTask() => _task;
-        public System.Runtime.CompilerServices.TaskAwaiter<TResult> GetAwaiter() => _task.GetAwaiter();
+        private readonly global::System.Threading.Tasks.Task<TResult> _task;
+        public CompletedAsyncOperation(TResult result) => _task = global::System.Threading.Tasks.Task.FromResult(result);
+        public global::System.Threading.Tasks.Task<TResult> AsTask() => _task;
+        public global::System.Runtime.CompilerServices.TaskAwaiter<TResult> GetAwaiter() => _task.GetAwaiter();
     }
 }

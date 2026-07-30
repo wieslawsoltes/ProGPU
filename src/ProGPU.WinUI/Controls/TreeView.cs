@@ -296,7 +296,7 @@ public class TreeView : Control
         }
     }
 
-    private void OnItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    private void OnItemsChanged(object? sender, global::System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         RefreshTree();
     }

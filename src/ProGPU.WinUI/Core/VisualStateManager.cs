@@ -711,7 +711,7 @@ public static class VisualStateManager
             {
                 current = Convert.ToDouble(
                     currentValue ?? 0d,
-                    System.Globalization.CultureInfo.InvariantCulture);
+                    global::System.Globalization.CultureInfo.InvariantCulture);
             }
             catch (Exception exception)
             {
@@ -810,9 +810,9 @@ public static class VisualStateManager
             return true;
         }
 
-        var color = (System.Numerics.Vector4)
+        var color = (global::System.Numerics.Vector4)
             XamlValueConverter.ConvertTo(
-                typeof(System.Numerics.Vector4),
+                typeof(global::System.Numerics.Vector4),
                 colorValue)!;
         brushValue = new ProGPU.Vector.SolidColorBrush(color)
         {

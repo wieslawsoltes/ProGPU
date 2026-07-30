@@ -531,9 +531,9 @@ public class Window : DependencyObject
         ResetPresentationState();
 
         string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
-        if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
+        if (!global::System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
 
-        if (System.IO.File.Exists(fontPath))
+        if (global::System.IO.File.Exists(fontPath))
         {
             PopupService.DefaultFont = new ProGPU.Text.TtfFont(fontPath);
         }
@@ -845,14 +845,14 @@ public class Window : DependencyObject
         Vector2 logicalSize,
         bool allowUnchangedPresentationSkip = false)
     {
-        long frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long frameStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         var wgpuContext = _wgpuContext!;
         var compositor = _compositor!;
         var content = _renderRoot;
 
-        long phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         UIThread.RunPending();
-        double dispatcherTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double dispatcherTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         if (_inputState != null)
         {
@@ -860,28 +860,28 @@ public class Window : DependencyObject
         }
 
         // Raise Rendering event
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         Rendering?.Invoke(this, delta);
-        double renderingCallbackTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double renderingCallbackTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         if (!wgpuContext.TryReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y))
         {
             return;
         }
-        double frameSetupTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double frameSetupTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         // Core animation updates
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         InputSystem.UpdateManipulationInertia((float)delta);
         content.UpdateAnimations((float)delta);
-        double animationTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double animationTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         VisualStateManager.UpdateAdaptiveStates(content, logicalSize);
         content.Measure(logicalSize);
         content.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
-        double layoutTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double layoutTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         bool hasDynamicExternalContent =
             PopupService.ActivePopups.Count != 0 ||
@@ -912,11 +912,11 @@ public class Window : DependencyObject
                 0d,
                 0d,
                 0d,
-                System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+                global::System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
             return;
         }
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         TextureView* targetView = null;
         var surfaceTexture = new SurfaceTexture();
         if (wgpuContext.Surface != null)
@@ -952,7 +952,7 @@ public class Window : DependencyObject
                 throw new InvalidOperationException($"WebGPU surface acquisition failed: {surfaceTexture.Status}.");
             }
         }
-        double surfaceAcquireTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double surfaceAcquireTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
         double compositorTimeMs = 0d;
         double presentTimeMs = 0d;
 
@@ -960,7 +960,7 @@ public class Window : DependencyObject
         {
             if (targetView != null)
             {
-                phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
                 compositor.RenderScene(
                     content,
                     (uint)MathF.Ceiling(logicalSize.X),
@@ -969,11 +969,11 @@ public class Window : DependencyObject
                     (uint)framebufferSize.Y,
                     dpiScale,
                     targetView);
-                compositorTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+                compositorTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-                phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
                 wgpuContext.Api.SurfacePresent(wgpuContext.Surface);
-                presentTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+                presentTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
                 _hasPresentedFrame = true;
                 _presentedScheduledFrame = true;
                 _lastPresentedRootVersion = content.ChangeVersion;
@@ -1003,7 +1003,7 @@ public class Window : DependencyObject
             surfaceAcquireTimeMs,
             compositorTimeMs,
             presentTimeMs,
-            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+            global::System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
     }
 
     private void OnResize(Vector2D<int> newSize)
@@ -1025,7 +1025,7 @@ public class Window : DependencyObject
     private void OnFramebufferResize(Vector2D<int> _)
     {
         if (_wgpuContext == null || _silkWindow == null) return;
-        long callbackStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long callbackStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         _framebufferResizeEvents++;
 
         // Cocoa holds the normal Silk render loop inside native event dispatch during a
@@ -1039,7 +1039,7 @@ public class Window : DependencyObject
             _liveResizeRenderedVersion = _renderRoot.ChangeVersion;
             _liveResizeFrames++;
         }
-        double elapsedMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(callbackStart).TotalMilliseconds;
+        double elapsedMilliseconds = global::System.Diagnostics.Stopwatch.GetElapsedTime(callbackStart).TotalMilliseconds;
         _resizeCallbackTimeMs += elapsedMilliseconds;
         _maximumResizeCallbackTimeMs = Math.Max(_maximumResizeCallbackTimeMs, elapsedMilliseconds);
     }

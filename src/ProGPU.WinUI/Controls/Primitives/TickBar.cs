@@ -21,7 +21,7 @@ public sealed class TickBar : FrameworkElement
     {
         if (Fill != null)
         {
-            context.DrawRectangle(Fill, null, new Rect(System.Numerics.Vector2.Zero, Size));
+            context.DrawRectangle(Fill, null, new Rect(global::System.Numerics.Vector2.Zero, Size));
         }
 
         base.OnRender(context);
