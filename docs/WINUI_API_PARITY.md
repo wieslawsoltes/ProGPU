@@ -87,9 +87,9 @@ declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
 
-The first `Microsoft.UI.Windowing` presenter/value slice advances the current
-baseline to 7,166 ProGPU entries, 3,170 exact matches, and 13,451 missing
-entries. Windowing now records 89/192 exact declarations with no extra entries.
+With `Microsoft.UI.Windowing` complete, the current baseline advances to 7,269
+ProGPU entries, 3,273 exact matches, and 13,348 missing entries. Windowing
+records 192/192 exact declarations with no extra entries.
 
 ## Clean-room implementation log
 
@@ -232,7 +232,7 @@ silently change the cross-platform dispatch contract. The declaration report
 records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
 entries.
 
-### Microsoft.UI.Windowing presenter and value contracts
+### Microsoft.UI.Windowing
 
 Primary contracts consulted:
 
@@ -242,6 +242,10 @@ Primary contracts consulted:
 - [CreateForDialog](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.createfordialog)
 - [CreateForToolWindow](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.createfortoolwindow)
 - [CompactOverlayPresenter](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.compactoverlaypresenter)
+- [AppWindow](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindow)
+- [AppWindowTitleBar](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindowtitlebar)
+- [DisplayArea](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.displayarea)
+- [DisplayAreaWatcher](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.displayareawatcher)
 
 Adopted: all eight official windowing enums with exact values and contract
 versions, the presenter inheritance/factory contracts, the documented
@@ -251,13 +255,36 @@ reads and mutations are fixed `O(1)` value operations. A warmed Release
 invariant verifies exactly zero managed allocations across 100,000 presenter
 property-read iterations.
 
-The presenters are CPU-only retained window intent; creating or configuring one
-does not initialize WebGPU or a native window. A following typed `AppWindow`
-host-provider slice will apply changes on the owning dispatcher and translate
-native state notifications back into the retained presenter. Until that owner
-exists, state methods preserve requested portable state but do not claim that an
-OS window was maximized, minimized, or restored. The declaration report records
-89/192 exact `Microsoft.UI.Windowing` entries with no extra entries.
+`AppWindow` is a dispatcher-affine control plane over the existing
+`Microsoft.UI.Xaml.Window`, `SilkWindowController`, and platform-native window
+backends. It preserves stable typed identity, owner and dispatcher association,
+registry lookup, geometry, presenter application, switcher/title state,
+cancellable application destruction, non-cancellable dispatcher run-down, and
+change flags. Showing a window continues through the same native lifetime that
+creates the WebGPU presentation surface; creating or configuring an `AppWindow`
+alone does not initialize WebGPU. Showing without activation is represented
+explicitly through the native Silk path or `IWindowActivationHost`.
+
+Display snapshots are supplied by `IWindowingDisplayAreaProvider`.
+`FindAll` and point/rectangle fallback selection are `O(D)` time for `D`
+displays; returned ownership is `O(D)`. A watcher retains `O(D)` identity/state
+and diffs a platform transition in expected `O(D)` time. Icon and Z-order
+operations use `IAppWindowPlatformProvider`; an unavailable or rejected native
+operation fails explicitly rather than mutating only managed state.
+
+Focused tests cover presenter presets and state, dispatcher affinity and
+shutdown destruction, cancellable close, identity lookup, geometry/change
+flags, title-bar reset/options, typed icon and Z-order dispatch, explicit
+unsupported behavior, display containment/intersection/nearest fallback,
+watcher add/update/remove/status ordering, contract versions, and zero managed
+allocations across 100,000 warmed `AppWindow` property-read iterations.
+
+Deferred behavioral gates: platform adapters still need to apply retained
+title-bar colors and drag rectangles where the OS supports them, and native
+close requests need a pre-close cancellation callback on every host. The
+declaration report records 192/192 exact `Microsoft.UI.Windowing` entries with
+no missing or extra entries; this does not overstate those remaining host
+integration tasks.
 
 ## Implementation policy
 

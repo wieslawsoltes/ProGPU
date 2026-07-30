@@ -12,6 +12,7 @@ using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
+using ProGPU.WinUI.Platform;
 using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml;
@@ -387,24 +388,42 @@ public class Window : DependencyObject
         ApplySystemBackdrop();
     }
 
-    public void Activate()
+    public void Activate() => Activate(activateWindow: true);
+
+    internal void Activate(bool activateWindow)
     {
         ObjectDisposedException.ThrowIf(_isClosed, this);
         if (WindowHostServices.Current is { } externalHost)
         {
             if (_isExternalHostActive) return;
-            externalHost.Activate(this);
+            if (activateWindow)
+            {
+                externalHost.Activate(this);
+            }
+            else if (externalHost is IWindowActivationHost activationHost)
+            {
+                activationHost.Activate(this, activateWindow: false);
+            }
+            else
+            {
+                throw new PlatformNotSupportedException(
+                    "The current window host cannot show a window without activation.");
+            }
             _isExternalHostActive = true;
             WindowManager.Register(this);
             NotifyHostVisibilityChanged(true);
-            NotifyHostActivationChanged(WindowActivationState.CodeActivated);
+            NotifyHostActivationChanged(
+                activateWindow
+                    ? WindowActivationState.CodeActivated
+                    : WindowActivationState.Deactivated);
             return;
         }
 
         if (_silkWindow != null)
         {
             _silkWindow.IsVisible = true;
-            _silkWindow.Focus();
+            if (activateWindow)
+                _silkWindow.Focus();
             return;
         }
 
@@ -435,7 +454,10 @@ public class Window : DependencyObject
         WindowManager.Register(this);
         UpdateBounds(_silkWindow.Size.X, _silkWindow.Size.Y);
         NotifyHostVisibilityChanged(true);
-        NotifyHostActivationChanged(WindowActivationState.CodeActivated);
+        NotifyHostActivationChanged(
+            activateWindow
+                ? WindowActivationState.CodeActivated
+                : WindowActivationState.Deactivated);
     }
 
     public Task ActivateAsync(CancellationToken cancellationToken = default)
