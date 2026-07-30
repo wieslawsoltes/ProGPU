@@ -13,15 +13,18 @@ internal readonly record struct AndroidMediaCodecAudioPlan(
     long SourceEndMicroseconds,
     long DestinationStartFrame,
     long DestinationEndFrame,
-    AndroidPcm16MixLevels Levels);
+    AndroidPcm16MixLevels Levels,
+    MediaCompositionEffectDefinition[]
+        ProcessorDefinitions);
 
 /// <summary>
 /// Clean-room schedule capture for WinUI-compatible main, background, and
 /// audio-enabled overlay composition audio.
 /// </summary>
 /// <remarks>
-/// Capture is O(C + B + O) time and storage for C main clips, B background
-/// tracks, and O audible URI overlays. A negative background delay advances
+/// Capture is O(C + B + O + E) time and storage for C main clips, B background
+/// tracks, O audible URI overlays, and E copied typed-effect definitions. A
+/// negative background delay advances
 /// its source interval; a positive delay advances its destination interval.
 /// Overlay delay is nonnegative. Every concurrent plan is clipped to the
 /// duration of the sequential main composition before a native codec is
@@ -62,11 +65,13 @@ internal static class AndroidMediaCodecAudioPlanner
                     checked(
                         timelineTicks +
                         durationTicks);
-                if (!TryGetLevels(
+                if (!TryGetProcessing(
                         clip.Volume,
                         clip.AudioEffectDefinitions,
                         effects,
-                        out AndroidPcm16MixLevels levels))
+                        out AndroidPcm16MixLevels levels,
+                        out MediaCompositionEffectDefinition[]
+                            processorDefinitions))
                 {
                     plans = [];
                     compositionFrameCount = 0;
@@ -102,7 +107,8 @@ internal static class AndroidMediaCodecAudioPlanner
                                 duration),
                             destinationStartFrame,
                             destinationEndFrame,
-                            levels));
+                            levels,
+                            processorDefinitions));
                 }
                 timelineTicks = destinationEndTicks;
             }
@@ -129,11 +135,13 @@ internal static class AndroidMediaCodecAudioPlanner
                     track.TrimTimeFromStart,
                     track.TrimTimeFromEnd);
                 if (!track.SourceUri.IsAbsoluteUri ||
-                    !TryGetLevels(
+                    !TryGetProcessing(
                         track.Volume,
                         track.AudioEffectDefinitions,
                         effects,
-                        out AndroidPcm16MixLevels levels))
+                        out AndroidPcm16MixLevels levels,
+                        out MediaCompositionEffectDefinition[]
+                            processorDefinitions))
                 {
                     plans = [];
                     compositionFrameCount = 0;
@@ -207,7 +215,8 @@ internal static class AndroidMediaCodecAudioPlanner
                                 sampleRate)),
                         destinationStartFrame,
                         destinationEndFrame,
-                        levels));
+                        levels,
+                        processorDefinitions));
             }
 
             for (int layerIndex = 0;
@@ -239,12 +248,14 @@ internal static class AndroidMediaCodecAudioPlanner
                             clip.TrimTimeFromStart,
                             clip.TrimTimeFromEnd);
                     if (overlay.Delay < TimeSpan.Zero ||
-                        !TryGetLevels(
+                        !TryGetProcessing(
                             clip.Volume,
                             clip.AudioEffectDefinitions,
                             effects,
                             out AndroidPcm16MixLevels
-                                levels))
+                                levels,
+                            out MediaCompositionEffectDefinition[]
+                                processorDefinitions))
                     {
                         plans = [];
                         compositionFrameCount = 0;
@@ -295,7 +306,8 @@ internal static class AndroidMediaCodecAudioPlanner
                                     sampleRate)),
                             destinationStartFrame,
                             destinationEndFrame,
-                            levels));
+                            levels,
+                            processorDefinitions));
                 }
             }
         }
@@ -315,24 +327,61 @@ internal static class AndroidMediaCodecAudioPlanner
         return true;
     }
 
-    private static bool TryGetLevels(
+    private static bool TryGetProcessing(
         double volume,
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
         MediaEffectRegistry effects,
-        out AndroidPcm16MixLevels levels)
+        out AndroidPcm16MixLevels levels,
+        out MediaCompositionEffectDefinition[]
+            processorDefinitions)
     {
         if (!double.IsFinite(volume) ||
-            volume is < 0d or > 1d ||
-            !MediaAudioGraphEffectResolver
+            volume is < 0d or > 1d)
+        {
+            levels = default;
+            processorDefinitions = [];
+            return false;
+        }
+
+        if (!MediaAudioGraphEffectResolver
                 .TryCaptureCombinedStereoLevels(
                     effects,
                     definitions,
                     out MediaAudioStereoLevels
                         effectLevels))
         {
-            levels = default;
-            return false;
+            if (!MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        definitions,
+                        out MediaAudioEffectProcessorChain?
+                            processorChain))
+            {
+                levels = default;
+                processorDefinitions = [];
+                return false;
+            }
+
+            using (processorChain)
+            {
+                if (!AndroidPcm16MixLevels.TryCreate(
+                        MediaAudioStereoLevels
+                            .Identity
+                            .Scale(
+                                checked(
+                                    (float)volume)),
+                        out levels))
+                {
+                    processorDefinitions = [];
+                    return false;
+                }
+            }
+            processorDefinitions =
+                definitions.Count == 0
+                    ? []
+                    : definitions.ToArray();
+            return true;
         }
 
         try
@@ -340,6 +389,7 @@ internal static class AndroidMediaCodecAudioPlanner
             MediaAudioStereoLevels effective =
                 effectLevels.Scale(
                     checked((float)volume));
+            processorDefinitions = [];
             return AndroidPcm16MixLevels.TryCreate(
                 effective,
                 out levels);
@@ -350,6 +400,7 @@ internal static class AndroidMediaCodecAudioPlanner
                 ArgumentOutOfRangeException)
         {
             levels = default;
+            processorDefinitions = [];
             return false;
         }
     }

@@ -562,6 +562,22 @@ public sealed class AndroidMediaProviderContractTests
                     StringComparison.Ordinal),
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaCompositionExportAudioPath" +
+            ".CpuBuffer",
+            provider.Replace(
+                "\r",
+                string.Empty,
+                StringComparison.Ordinal)
+                .Replace(
+                    "\n",
+                    string.Empty,
+                    StringComparison.Ordinal)
+                .Replace(
+                    " ",
+                    string.Empty,
+                    StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "BakeAudioTimeline(",
             provider,
             StringComparison.Ordinal);
@@ -622,6 +638,14 @@ public sealed class AndroidMediaProviderContractTests
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "stackalloc float[",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioEffectProcessorChain",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "GetWritableDirectPcm16Span(",
             timelineMixer,
             StringComparison.Ordinal);
@@ -635,6 +659,10 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "AndroidPcm16Mixer.WriteSaturated(",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AndroidPcm16Mixer.AddProcessed(",
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -669,6 +697,14 @@ public sealed class AndroidMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Marshal.Copy",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Activator.",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Assembly.Load",
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(

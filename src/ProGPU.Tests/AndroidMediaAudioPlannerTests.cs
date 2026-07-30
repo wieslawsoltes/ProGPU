@@ -334,6 +334,287 @@ public sealed class AndroidMediaAudioPlannerTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void
+        PlannerCapturesRegisteredTypedEffectsOutsideTheMixLoop()
+    {
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new TestAndroidPcmTransformEffectFactory());
+        MediaCompositionEffectDefinition[]
+            definitions =
+            [
+                CreateTestPcmTransform(
+                    scale: 2f,
+                    offset: 0f),
+                CreateTestPcmTransform(
+                    scale: 1f,
+                    offset: 0.25f)
+            ];
+        MediaCompositionExportRequest request =
+            CreateRequest();
+        request =
+            request with
+            {
+                Clips =
+                [
+                    request.Clips[0] with
+                    {
+                        Volume = 0.5d,
+                        AudioEffectDefinitions =
+                            definitions
+                    }
+                ]
+            };
+
+        Assert.True(
+            AndroidMediaCodecAudioPlanner.TryCapture(
+                request,
+                registry,
+                out AndroidMediaCodecAudioPlan[] plans,
+                out _));
+        AndroidMediaCodecAudioPlan plan =
+            Assert.Single(plans);
+        Assert.Equal(16_384, plan.Levels.Left);
+        Assert.Equal(16_384, plan.Levels.Right);
+        Assert.Equal(
+            definitions,
+            plan.ProcessorDefinitions);
+
+        request =
+            request with
+            {
+                Clips =
+                [
+                    request.Clips[0] with
+                    {
+                        AudioEffectDefinitions =
+                        [
+                            new(
+                                "ProGPU.Tests.Unregistered",
+                                new Dictionary<
+                                    string,
+                                    object?>())
+                        ]
+                    }
+                ]
+            };
+        Assert.False(
+            AndroidMediaCodecAudioPlanner.TryCapture(
+                request,
+                registry,
+                out _,
+                out _));
+    }
+
+    [Fact]
+    public void
+        ProcessedMixerPreservesHeadroomAndDoesNotAllocate()
+    {
+        var identity =
+            new AndroidPcm16MixLevels(
+                32_768,
+                32_768);
+        var half =
+            new AndroidPcm16MixLevels(
+                16_384,
+                16_384);
+        float[] processed =
+        [
+            40_000f / 32_768f,
+            -40_000f / 32_768f
+        ];
+        long[] wide = new long[2];
+        short[] saturated = new short[2];
+
+        AndroidPcm16Mixer.AddProcessed(
+            processed,
+            2,
+            identity,
+            wide,
+            0);
+        Assert.True(
+            wide.SequenceEqual(
+                new long[]
+                {
+                    40_000,
+                    -40_000
+                }));
+        AndroidPcm16Mixer.WriteSaturated(
+            wide,
+            saturated);
+        Assert.True(
+            saturated.SequenceEqual(
+                new short[]
+                {
+                    short.MaxValue,
+                    short.MinValue
+                }));
+
+        wide.AsSpan().Clear();
+        AndroidPcm16Mixer.AddProcessed(
+            processed,
+            2,
+            half,
+            wide,
+            0);
+        Assert.True(
+            wide.SequenceEqual(
+                new long[]
+                {
+                    20_000,
+                    -20_000
+                }));
+
+        AndroidPcm16Mixer.AddProcessed(
+            processed,
+            2,
+            half,
+            wide,
+            0);
+        wide.AsSpan().Clear();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            AndroidPcm16Mixer.AddProcessed(
+                processed,
+                2,
+                half,
+                wide,
+                0);
+            wide.AsSpan().Clear();
+        }
+        Assert.Equal(
+            0,
+            GC.GetAllocatedBytesForCurrentThread() -
+            before);
+
+        processed[0] = float.PositiveInfinity;
+        Assert.Throws<InvalidDataException>(
+            () =>
+            {
+                AndroidPcm16Mixer.AddProcessed(
+                    processed,
+                    2,
+                    identity,
+                    wide,
+                    0);
+            });
+    }
+
+    private static MediaCompositionEffectDefinition
+        CreateTestPcmTransform(
+            float scale,
+            float offset) =>
+        new(
+            TestAndroidPcmTransformEffectFactory
+                .EffectId,
+            new Dictionary<string, object?>
+            {
+                [
+                    TestAndroidPcmTransformEffectFactory
+                        .ScalePropertyName
+                ] = scale,
+                [
+                    TestAndroidPcmTransformEffectFactory
+                        .OffsetPropertyName
+                ] = offset
+            });
+
+    private sealed class
+        TestAndroidPcmTransformEffectFactory :
+        IMediaEffectFactory
+    {
+        internal const string EffectId =
+            "ProGPU.Tests.AndroidPcmTransform";
+        internal const string ScalePropertyName =
+            "Scale";
+        internal const string OffsetPropertyName =
+            "Offset";
+
+        public string ActivatableClassId =>
+            EffectId;
+
+        public IMediaEffect Create(
+            in MediaEffectDescriptor descriptor)
+        {
+            Assert.Equal(
+                MediaEffectKind.Audio,
+                descriptor.Kind);
+            return new TestAndroidPcmTransformEffect(
+                Read(
+                    descriptor.Properties,
+                    ScalePropertyName),
+                Read(
+                    descriptor.Properties,
+                    OffsetPropertyName));
+        }
+
+        private static float Read(
+            IReadOnlyDictionary<string, object?>
+                properties,
+            string name) =>
+            properties[name] switch
+            {
+                float value => value,
+                double value =>
+                    checked((float)value),
+                _ => throw new
+                    InvalidOperationException()
+            };
+    }
+
+    private sealed class TestAndroidPcmTransformEffect :
+        IMediaAudioEffect
+    {
+        private readonly float _scale;
+        private readonly float _offset;
+
+        internal TestAndroidPcmTransformEffect(
+            float scale,
+            float offset)
+        {
+            _scale = scale;
+            _offset = offset;
+        }
+
+        public string Id =>
+            TestAndroidPcmTransformEffectFactory
+                .EffectId;
+
+        public MediaEffectKind Kind =>
+            MediaEffectKind.Audio;
+
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
+            int sampleCount = checked(
+                context.FrameCount *
+                context.Format.ChannelCount);
+            Span<float> samples =
+                interleavedSamples[
+                    ..sampleCount];
+            for (int index = 0;
+                 index < samples.Length;
+                 index++)
+            {
+                samples[index] =
+                    samples[index] *
+                    _scale +
+                    _offset;
+            }
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
     private static MediaCompositionExportRequest
         CreateRequest()
     {

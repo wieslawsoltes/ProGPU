@@ -49,7 +49,9 @@ internal interface IAndroidEncoderSurfaceRenderer :
 /// managed schedule/source state beyond bounded native rings, one compressed
 /// sample buffer, and a fixed block accumulator, for F PCM frames, L active
 /// audio layers, and B background tracks. No decoded video pixel or managed
-/// PCM array enters managed memory.
+/// PCM array enters managed memory. A registered non-linear typed audio
+/// effect uses one bounded stack float workspace and reports that CPU span
+/// boundary explicitly.
 /// </summary>
 public sealed partial class
     AndroidMediaCodecCompositionExportProvider :
@@ -257,6 +259,10 @@ public sealed partial class
         bool webGpu = HasActiveVulkanDawnContext();
         bool transcodeAudio =
             RequiresAudioTranscode(request);
+        bool typedAudioProcessing =
+            HasTypedAudioProcessing(
+                request,
+                _effects);
         return new MediaCompositionExportCapabilities(
             ProviderId,
             webGpu
@@ -265,8 +271,11 @@ public sealed partial class
             request.EncodingProfile.AudioSubtype is null
                 ? MediaCompositionExportAudioPath.None
                 : transcodeAudio
-                    ? MediaCompositionExportAudioPath
-                        .NativeBuffer
+                    ? typedAudioProcessing
+                        ? MediaCompositionExportAudioPath
+                            .CpuBuffer
+                        : MediaCompositionExportAudioPath
+                            .NativeBuffer
                     : MediaCompositionExportAudioPath
                         .CompressedSampleCopy,
             HardwareVideoEncoderRequested: true,
@@ -288,8 +297,11 @@ public sealed partial class
                 "codec configuration. Effect-bearing main and background " +
                 "audio is decoded from synchronous MediaCodec buffers, mixed " +
                 "in bounded 1,024-frame wide-accumulator blocks with " +
-                "registered gain and balance, then encoded by the native AAC " +
-                "codec without managed PCM arrays. Positive and negative " +
+                "registered gain and balance. Other registered typed " +
+                "block-local effects run in order in one bounded float " +
+                "workspace before the native AAC encode; effect latency, " +
+                "lookahead, and tails are not modeled. No managed PCM arrays " +
+                "are created. Positive and negative " +
                 "WinUI background delays and trim intervals are applied on " +
                 "the exact PCM timeline. Solid-color clips generate native " +
                 "PCM16 silence when audio is requested. Standard URI/color " +
@@ -298,6 +310,37 @@ public sealed partial class
                 "passes; enabled URI-overlay audio joins the native mixer. " +
                 "Custom compositors and unsupported or unregistered effects " +
                 "remain rejected.");
+    }
+
+    private static bool HasTypedAudioProcessing(
+        MediaCompositionExportRequest request,
+        MediaEffectRegistry effects)
+    {
+        if (request.EncodingProfile.AudioSubtype is
+                null ||
+            !RequiresAudioTranscode(request) ||
+            !AndroidMediaCodecAudioPlanner
+                .TryCapture(
+                    request,
+                    effects,
+                    out AndroidMediaCodecAudioPlan[]
+                        plans,
+                    out _))
+        {
+            return false;
+        }
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            if (plans[index]
+                    .ProcessorDefinitions
+                    .Length != 0)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     public ValueTask<MediaCompositionExportFailure>

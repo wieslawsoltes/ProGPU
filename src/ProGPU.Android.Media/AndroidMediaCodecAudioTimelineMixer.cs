@@ -3,6 +3,7 @@ using Android.Runtime;
 using Java.Nio;
 using ProGPU.Media.Audio;
 using ProGPU.Media.Editing;
+using ProGPU.Media.Effects;
 
 namespace ProGPU.Android.Media;
 
@@ -16,8 +17,10 @@ public sealed partial class
     /// Output advances in blocks of at most 1,024 PCM frames. Only scheduled
     /// sources overlapping the current block are active, and each source owns
     /// at most one dequeued native decoder output buffer. A stereo block uses
-    /// at most 16 KiB of stack accumulator storage. Mixing is O(F * L) for F
-    /// output frames and L active layers; managed storage is O(P) for P
+    /// at most 16 KiB of stack accumulator storage plus one 8 KiB float
+    /// workspace when a typed effect is active. Mixing is O(F * (L + E)) for F
+    /// output frames, L active layers, and E active effect stages; managed
+    /// storage is O(P) for P
     /// scheduled sources and does not grow with composition duration.
     /// </remarks>
     private sealed class AndroidMediaCodecAudioTimelineMixer :
@@ -28,16 +31,19 @@ public sealed partial class
         private readonly MediaCompositionEncodingProfile
             _profile;
         private readonly long _compositionFrameCount;
+        private readonly bool _hasProcessors;
         private int _nextSource;
         private int _activeCount;
         private bool _disposed;
 
         internal AndroidMediaCodecAudioTimelineMixer(
             IReadOnlyList<AndroidMediaCodecAudioPlan> plans,
+            MediaEffectRegistry effects,
             MediaCompositionEncodingProfile profile,
             long compositionFrameCount)
         {
             ArgumentNullException.ThrowIfNull(plans);
+            ArgumentNullException.ThrowIfNull(effects);
             ArgumentNullException.ThrowIfNull(profile);
             if (profile.AudioChannelCount is not (1u or 2u) ||
                 profile.AudioSampleRate == 0 ||
@@ -52,15 +58,36 @@ public sealed partial class
                 compositionFrameCount;
             _sources = new AudioSource[plans.Count];
             _activeSources = new int[plans.Count];
-            for (int index = 0;
-                 index < plans.Count;
-                 index++)
+            int created = 0;
+            bool hasProcessors = false;
+            try
             {
-                _sources[index] =
-                    new AudioSource(
-                        plans[index],
-                        profile);
+                for (int index = 0;
+                     index < plans.Count;
+                     index++)
+                {
+                    AudioSource source =
+                        new(
+                            plans[index],
+                            effects,
+                            profile);
+                    _sources[index] = source;
+                    created++;
+                    hasProcessors |=
+                        source.HasProcessor;
+                }
             }
+            catch
+            {
+                for (int index = created - 1;
+                     index >= 0;
+                     index--)
+                {
+                    _sources[index].Dispose();
+                }
+                throw;
+            }
+            _hasProcessors = hasProcessors;
         }
 
         internal void Encode(
@@ -84,6 +111,12 @@ public sealed partial class
                 stackalloc long[
                     AndroidPcm16Mixer.FramesPerBlock *
                     2];
+            Span<float> effectStorage =
+                _hasProcessors
+                    ? stackalloc float[
+                        AndroidPcm16Mixer.FramesPerBlock *
+                        2]
+                    : Span<float>.Empty;
             long blockStart = 0;
             while (blockStart <
                    _compositionFrameCount)
@@ -146,6 +179,7 @@ public sealed partial class
                     blockStart,
                     frameCount,
                     accumulator,
+                    effectStorage,
                     cancellationToken);
 
                 int byteLength =
@@ -217,6 +251,7 @@ public sealed partial class
             long blockStart,
             int frameCount,
             Span<long> accumulator,
+            Span<float> effectWorkspace,
             CancellationToken cancellationToken)
         {
             for (int activeIndex = 0;
@@ -239,6 +274,7 @@ public sealed partial class
                     blockStart,
                     frameCount,
                     accumulator,
+                    effectWorkspace,
                     cancellationToken);
                 activeIndex++;
             }
@@ -252,6 +288,9 @@ public sealed partial class
         private readonly MediaCompositionEncodingProfile
             _profile;
         private readonly long _sourceStartFrame;
+        private readonly MediaAudioFormat _format;
+        private readonly MediaAudioEffectProcessorChain?
+            _processorChain;
         private MediaExtractor? _extractor;
         private MediaCodec? _decoder;
         private MediaCodec.BufferInfo? _decoderInfo;
@@ -266,15 +305,35 @@ public sealed partial class
 
         internal AudioSource(
             in AndroidMediaCodecAudioPlan plan,
+            MediaEffectRegistry effects,
             MediaCompositionEncodingProfile profile)
         {
             _plan = plan;
             _profile = profile;
+            _format =
+                new MediaAudioFormat(
+                    checked(
+                        (int)profile.AudioSampleRate),
+                    checked(
+                        (int)profile.AudioChannelCount));
             _sourceStartFrame =
                 AndroidMediaCodecAudioPlanner
                     .MicrosecondsToFramesCeiling(
                         plan.SourceStartMicroseconds,
                         profile.AudioSampleRate);
+            MediaAudioEffectProcessorChain?
+                processorChain = null;
+            if (plan.ProcessorDefinitions.Length != 0 &&
+                !MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        plan.ProcessorDefinitions,
+                        out processorChain))
+            {
+                throw new NotSupportedException(
+                    "A registered Android composition audio effect could not be activated.");
+            }
+            _processorChain = processorChain;
         }
 
         internal long DestinationStartFrame =>
@@ -283,10 +342,14 @@ public sealed partial class
         internal long DestinationEndFrame =>
             _plan.DestinationEndFrame;
 
+        internal bool HasProcessor =>
+            _processorChain is not null;
+
         internal void Mix(
             long blockStartFrame,
             int blockFrameCount,
             Span<long> accumulator,
+            Span<float> effectWorkspace,
             CancellationToken cancellationToken)
         {
             if (_disposed ||
@@ -357,7 +420,9 @@ public sealed partial class
                         checked(
                             (int)(
                                 overlapStart -
-                                blockStartFrame)));
+                                blockStartFrame)),
+                        effectWorkspace,
+                        overlapStart);
                 }
 
                 if (outputEndFrame <= blockEndFrame)
@@ -377,6 +442,7 @@ public sealed partial class
             }
 
             _disposed = true;
+            _processorChain?.Dispose();
             ReleaseOutput();
             if (_decoderStarted)
             {
@@ -665,7 +731,9 @@ public sealed partial class
             int sourceFrameOffset,
             int frameCount,
             Span<long> accumulator,
-            int destinationFrameOffset)
+            int destinationFrameOffset,
+            Span<float> effectWorkspace,
+            long presentationFirstFrame)
         {
             MediaCodec decoder =
                 _decoder ??
@@ -695,8 +763,46 @@ public sealed partial class
                     .Slice(
                         sampleOffset,
                         sampleCount);
-            AndroidPcm16Mixer.Add(
-                samples,
+            if (_processorChain is null)
+            {
+                AndroidPcm16Mixer.Add(
+                    samples,
+                    _profile.AudioChannelCount,
+                    _plan.Levels,
+                    accumulator,
+                    destinationFrameOffset);
+                return;
+            }
+
+            Span<float> processed =
+                effectWorkspace[
+                    ..sampleCount];
+            for (int index = 0;
+                 index < samples.Length;
+                 index++)
+            {
+                processed[index] =
+                    samples[index] /
+                    32_768f;
+            }
+            long presentationMicroseconds =
+                MediaPcmTimelineMath
+                    .GetFrameTimestampMicroseconds(
+                        presentationFirstFrame,
+                        _profile.AudioSampleRate);
+            var context =
+                new MediaAudioProcessContext(
+                    _format,
+                    frameCount,
+                    TimeSpan.FromTicks(
+                        checked(
+                            presentationMicroseconds *
+                            10)));
+            _processorChain.Process(
+                processed,
+                context);
+            AndroidPcm16Mixer.AddProcessed(
+                processed,
                 _profile.AudioChannelCount,
                 _plan.Levels,
                 accumulator,

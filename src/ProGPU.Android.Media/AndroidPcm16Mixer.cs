@@ -143,6 +143,90 @@ internal static class AndroidPcm16Mixer
         }
     }
 
+    internal static void AddProcessed(
+        ReadOnlySpan<float> source,
+        uint channelCount,
+        in AndroidPcm16MixLevels levels,
+        Span<long> destination,
+        int destinationFrameOffset)
+    {
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+
+        int channels = checked((int)channelCount);
+        if (source.Length % channels != 0)
+        {
+            throw new ArgumentException(
+                "Processed input must contain complete interleaved frames.",
+                nameof(source));
+        }
+        if (destinationFrameOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destinationFrameOffset));
+        }
+
+        int destinationSampleOffset =
+            checked(destinationFrameOffset * channels);
+        if (destinationSampleOffset >
+                destination.Length ||
+            source.Length >
+                destination.Length -
+                destinationSampleOffset)
+        {
+            throw new ArgumentException(
+                "The processed source does not fit in the destination block.",
+                nameof(destination));
+        }
+        if (source.IsEmpty ||
+            levels.Left == 0 &&
+            levels.Right == 0)
+        {
+            return;
+        }
+
+        if (channels == 1)
+        {
+            int level =
+                Math.Max(
+                    levels.Left,
+                    levels.Right);
+            for (int index = 0;
+                 index < source.Length;
+                 index++)
+            {
+                AddProcessedSample(
+                    ref destination[
+                        destinationSampleOffset +
+                        index],
+                    source[index],
+                    level);
+            }
+            return;
+        }
+
+        for (int index = 0;
+             index < source.Length;
+             index += 2)
+        {
+            AddProcessedSample(
+                ref destination[
+                    destinationSampleOffset +
+                    index],
+                source[index],
+                levels.Left);
+            AddProcessedSample(
+                ref destination[
+                    destinationSampleOffset +
+                    index + 1],
+                source[index + 1],
+                levels.Right);
+        }
+    }
+
     internal static void WriteSaturated(
         ReadOnlySpan<long> source,
         Span<short> destination)
@@ -163,6 +247,46 @@ internal static class AndroidPcm16Mixer
                     source[index],
                     short.MinValue,
                     short.MaxValue);
+        }
+    }
+
+    private static void AddProcessedSample(
+        ref long accumulator,
+        float sample,
+        int level)
+    {
+        if (!float.IsFinite(sample))
+        {
+            throw new InvalidDataException(
+                "A typed Android composition audio effect emitted a non-finite sample.");
+        }
+
+        double scaled = (double)sample * level;
+        long contribution =
+            scaled >= long.MaxValue
+                ? long.MaxValue
+                : scaled <= long.MinValue
+                    ? long.MinValue
+                    : checked(
+                        (long)Math.Round(
+                            scaled,
+                            MidpointRounding
+                                .AwayFromZero));
+        if (contribution > 0 &&
+            accumulator >
+                long.MaxValue - contribution)
+        {
+            accumulator = long.MaxValue;
+        }
+        else if (contribution < 0 &&
+                 accumulator <
+                    long.MinValue - contribution)
+        {
+            accumulator = long.MinValue;
+        }
+        else
+        {
+            accumulator += contribution;
         }
     }
 }

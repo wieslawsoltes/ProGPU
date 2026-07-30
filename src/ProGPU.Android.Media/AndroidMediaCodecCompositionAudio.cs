@@ -77,8 +77,31 @@ public sealed partial class
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
         MediaEffectRegistry effects,
-        out MediaAudioStereoLevels levels)
+        out MediaAudioStereoLevels levels) =>
+        TryGetEffectiveAudioProcessing(
+            volume,
+            definitions,
+            effects,
+            out levels,
+            out _);
+
+    internal static bool TryGetEffectiveAudioProcessing(
+        double volume,
+        IReadOnlyList<MediaCompositionEffectDefinition>
+            definitions,
+        MediaEffectRegistry effects,
+        out MediaAudioStereoLevels levels,
+        out MediaCompositionEffectDefinition[]
+            processorDefinitions)
     {
+        if (!double.IsFinite(volume) ||
+            volume is < 0d or > 1d)
+        {
+            levels = default;
+            processorDefinitions = [];
+            return false;
+        }
+
         if (!MediaAudioGraphEffectResolver
                 .TryCaptureCombinedStereoLevels(
                     effects,
@@ -86,14 +109,53 @@ public sealed partial class
                     out MediaAudioStereoLevels
                         effectLevels))
         {
-            levels = default;
-            return false;
+            if (!MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        definitions,
+                        out MediaAudioEffectProcessorChain?
+                            processorChain))
+            {
+                levels = default;
+                processorDefinitions = [];
+                return false;
+            }
+
+            using (processorChain)
+            {
+                try
+                {
+                    levels =
+                        MediaAudioStereoLevels
+                            .Identity
+                            .Scale(
+                                checked(
+                                    (float)volume));
+                    processorDefinitions =
+                        definitions.Count == 0
+                            ? []
+                            : definitions.ToArray();
+                    return levels.Peak <=
+                        MediaPcm16StereoProcessor
+                            .MaximumLevel;
+                }
+                catch (Exception exception)
+                    when (exception is
+                        OverflowException or
+                        ArgumentOutOfRangeException)
+                {
+                    levels = default;
+                    processorDefinitions = [];
+                    return false;
+                }
+            }
         }
 
         try
         {
             levels = effectLevels.Scale(
                 checked((float)volume));
+            processorDefinitions = [];
             return levels.Peak <=
                 MediaPcm16StereoProcessor
                     .MaximumLevel;
@@ -104,6 +166,7 @@ public sealed partial class
                 ArgumentOutOfRangeException)
         {
             levels = default;
+            processorDefinitions = [];
             return false;
         }
     }
@@ -111,11 +174,12 @@ public sealed partial class
     /// <summary>
     /// Decodes and mixes the selected main/background/audible-overlay
     /// timeline through direct PCM16 codec buffers, then writes one native
-    /// AAC-only staging asset. Work is O(A + F * L) for A compressed access
-    /// units, F output frames, and L active layers. Managed source state is
+    /// AAC-only staging asset. Work is O(A + F * (L + E)) for A compressed
+    /// access units, F output frames, L active layers, and E active typed
+    /// effect stages. Managed source state is
     /// O(P) for P scheduled sources; the PCM accumulator is fixed at 1,024
-    /// frames. Codec buffers and the encoded staging file remain
-    /// platform-owned.
+    /// frames plus one conditional 1,024-frame float workspace. Codec buffers
+    /// and the encoded staging file remain platform-owned.
     /// </summary>
     private static void BakeAudioTimeline(
         MediaCompositionExportRequest request,
@@ -161,6 +225,7 @@ public sealed partial class
             using var timelineMixer =
                 new AndroidMediaCodecAudioTimelineMixer(
                     plans,
+                    effects,
                     profile,
                     compositionFrameCount);
             timelineMixer.Encode(
