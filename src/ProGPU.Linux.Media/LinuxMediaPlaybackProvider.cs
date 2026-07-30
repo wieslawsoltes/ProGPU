@@ -160,8 +160,11 @@ internal sealed class LinuxMediaPlaybackProvider :
     IMediaPlaybackTimedMetadataProvider
 {
     private const double DecodeAheadSeconds = 0.35;
+    private const int FrameStepQueueCapacity = 64;
     private static readonly TimeSpan s_joinTimeout =
         TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan s_backwardFrameStep =
+        TimeSpan.FromMilliseconds(42);
 
     private readonly object _gate = new();
     private readonly MediaSourceDescriptor _source;
@@ -176,6 +179,8 @@ internal sealed class LinuxMediaPlaybackProvider :
                 .RunContinuationsAsynchronously);
     private readonly List<IMediaAudioProcessor>
         _audioProcessors = [];
+    private readonly sbyte[] _frameStepRequests =
+        new sbyte[FrameStepQueueCapacity];
 
     private Thread? _worker;
     private MediaPlaybackSnapshot _snapshot =
@@ -193,6 +198,9 @@ internal sealed class LinuxMediaPlaybackProvider :
             LinuxMediaTrackSelectionState.Empty;
     private int? _audioTrackSelectionRequest;
     private int? _videoTrackSelectionRequest;
+    private int _frameStepHead;
+    private int _frameStepTail;
+    private int _frameStepCount;
     private bool _muted;
     private bool _looping;
     private bool _playRequested;
@@ -425,10 +433,10 @@ internal sealed class LinuxMediaPlaybackProvider :
     }
 
     public bool StepForwardOneFrame() =>
-        false;
+        TryQueueFrameStep(direction: 1);
 
     public bool StepBackwardOneFrame() =>
-        false;
+        TryQueueFrameStep(direction: -1);
 
     public bool TrySelectTrack(
         MediaPlaybackTrackKind kind,
@@ -726,7 +734,7 @@ internal sealed class LinuxMediaPlaybackProvider :
                     CanSeek: true,
                     SupportsRate:
                         audioOutput is null,
-                    SupportsFrameStepping: false,
+                    SupportsFrameStepping: true,
                     HardwareDecoded: true,
                     HasAudio:
                         audioOutput is not null,
@@ -780,6 +788,8 @@ internal sealed class LinuxMediaPlaybackProvider :
                         TimeSpan.Zero);
             int audioScalarOffset = 0;
             bool draining = false;
+            bool frameStepPresentationPending =
+                false;
             TimeSpan discardBefore =
                 TimeSpan.Zero;
             long lastSnapshotTimestamp = 0;
@@ -880,6 +890,8 @@ internal sealed class LinuxMediaPlaybackProvider :
                                 track.Timescale);
                     discardBefore = resume;
                     draining = false;
+                    frameStepPresentationPending =
+                        false;
                 }
 
                 if (selectionRequests.AudioIndex is
@@ -1069,8 +1081,62 @@ internal sealed class LinuxMediaPlaybackProvider :
                     discardBefore =
                         seek.Value;
                     draining = false;
+                    frameStepPresentationPending =
+                        false;
                     _sink.SeekCompleted(
                         seek.Value);
+                }
+
+                sbyte frameStep =
+                    TakeFrameStepRequest();
+                if (frameStep != 0)
+                {
+                    TimeSpan current =
+                        CurrentPosition();
+                    bool hasTarget =
+                        TryGetFrameStepPosition(
+                            track,
+                            current,
+                            forward: frameStep > 0,
+                            out TimeSpan target);
+                    PauseForFrameStep(
+                        hasTarget
+                            ? target
+                            : current);
+                    audioOutput?.SetActive(false);
+                    if (hasTarget)
+                    {
+                        if (hasPendingFrame)
+                        {
+                            pendingFrame.Owner.Dispose();
+                            pendingFrame = default;
+                            hasPendingFrame = false;
+                        }
+                        decoder.Dispose();
+                        decoder =
+                            CreateDecoder(
+                                device,
+                                track);
+                        sampleIndex =
+                            FindResumeSample(
+                                track,
+                                target);
+                        if (audioOutput is not null &&
+                            audioTrack is not null)
+                        {
+                            audioOutput.Reset(
+                                target);
+                            audioSampleIndex =
+                                FindResumeSample(
+                                    audioTrack,
+                                    target);
+                            audioScalarOffset = 0;
+                        }
+                        discardBefore = target;
+                        draining = false;
+                        frameStepPresentationPending =
+                            true;
+                    }
                 }
 
                 TimeSpan position =
@@ -1220,15 +1286,18 @@ internal sealed class LinuxMediaPlaybackProvider :
 
                 position = CurrentPosition();
                 if (hasPendingFrame &&
-                    pendingFrame.PresentationTime <=
-                        position +
-                        TimeSpan.FromMilliseconds(2))
+                    (frameStepPresentationPending ||
+                     pendingFrame.PresentationTime <=
+                         position +
+                         TimeSpan.FromMilliseconds(2)))
                 {
                     PresentFrame(
                         in pendingFrame,
                         frameDuration);
                     pendingFrame = default;
                     hasPendingFrame = false;
+                    frameStepPresentationPending =
+                        false;
                 }
 
                 if (sampleIndex ==
@@ -1801,7 +1870,59 @@ internal sealed class LinuxMediaPlaybackProvider :
         }
     }
 
-    private static int FindResumeSample(
+    internal static bool TryGetFrameStepPosition(
+        IsoBmffTrack track,
+        TimeSpan position,
+        bool forward,
+        out TimeSpan target)
+    {
+        if (!forward)
+        {
+            target =
+                position > s_backwardFrameStep
+                    ? position -
+                      s_backwardFrameStep
+                    : TimeSpan.Zero;
+            return target != position;
+        }
+        if (track.Timescale == 0 ||
+            track.Samples.Length == 0)
+        {
+            target = position;
+            return false;
+        }
+
+        long current =
+            ToMediaTime(
+                position,
+                track.Timescale);
+        long selected = long.MaxValue;
+        for (int index = 0;
+             index < track.Samples.Length;
+             index++)
+        {
+            long presentationTime =
+                track.Samples[index]
+                    .PresentationTime;
+            if (presentationTime > current &&
+                presentationTime < selected)
+            {
+                selected = presentationTime;
+            }
+        }
+        if (selected == long.MaxValue)
+        {
+            target = position;
+            return false;
+        }
+        target =
+            FromMediaTime(
+                selected,
+                track.Timescale);
+        return true;
+    }
+
+    internal static int FindResumeSample(
         IsoBmffTrack track,
         TimeSpan position)
     {
@@ -1810,20 +1931,23 @@ internal sealed class LinuxMediaPlaybackProvider :
                 position,
                 track.Timescale);
         int selected = 0;
+        long selectedPresentationTime =
+            long.MinValue;
         for (int index = 0;
              index < track.Samples.Length;
              index++)
         {
             IsoBmffSample sample =
                 track.Samples[index];
-            if (sample.PresentationTime >
-                target)
-            {
-                break;
-            }
-            if (sample.IsSync)
+            if (sample.IsSync &&
+                sample.PresentationTime <=
+                    target &&
+                sample.PresentationTime >=
+                    selectedPresentationTime)
             {
                 selected = index;
+                selectedPresentationTime =
+                    sample.PresentationTime;
             }
         }
         return selected;
@@ -2038,6 +2162,52 @@ internal sealed class LinuxMediaPlaybackProvider :
         }
     }
 
+    private bool TryQueueFrameStep(
+        sbyte direction)
+    {
+        if (Volatile.Read(ref _started) == 0 ||
+            Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (_frameStepCount ==
+                _frameStepRequests.Length)
+            {
+                return false;
+            }
+            _frameStepRequests[_frameStepTail] =
+                direction;
+            _frameStepTail =
+                (_frameStepTail + 1) %
+                _frameStepRequests.Length;
+            _frameStepCount++;
+        }
+        _signal.Set();
+        return true;
+    }
+
+    private sbyte TakeFrameStepRequest()
+    {
+        lock (_gate)
+        {
+            if (_frameStepCount == 0)
+            {
+                return 0;
+            }
+            sbyte direction =
+                _frameStepRequests[
+                    _frameStepHead];
+            _frameStepHead =
+                (_frameStepHead + 1) %
+                _frameStepRequests.Length;
+            _frameStepCount--;
+            return direction;
+        }
+    }
+
     private TimeSpan? TakeSeekRequest()
     {
         lock (_gate)
@@ -2119,6 +2289,36 @@ internal sealed class LinuxMediaPlaybackProvider :
         _sink.Update(in snapshot);
     }
 
+    private void PauseForFrameStep(
+        TimeSpan position)
+    {
+        MediaPlaybackSnapshot snapshot;
+        lock (_gate)
+        {
+            if (_snapshot.NaturalDuration >
+                    TimeSpan.Zero &&
+                position >
+                    _snapshot.NaturalDuration)
+            {
+                position =
+                    _snapshot.NaturalDuration;
+            }
+            _playRequested = false;
+            _endedRaised = false;
+            _anchorPosition = position;
+            _anchorTimestamp =
+                Stopwatch.GetTimestamp();
+            _snapshot = _snapshot with
+            {
+                State =
+                    MediaEnginePlaybackState.Paused,
+                Position = position
+            };
+            snapshot = _snapshot;
+        }
+        _sink.Update(in snapshot);
+    }
+
     private void PublishTrackSelection(
         IsoBmffMovie movie,
         LinuxMediaTrackSelectionState selection,
@@ -2155,7 +2355,7 @@ internal sealed class LinuxMediaPlaybackProvider :
                         SupportsRate:
                             !audioActive,
                         SupportsFrameStepping:
-                            false,
+                            true,
                         HardwareDecoded: true,
                         HasAudio: audioActive,
                         HasVideo: true)

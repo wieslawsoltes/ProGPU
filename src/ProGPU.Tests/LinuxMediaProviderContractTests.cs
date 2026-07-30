@@ -945,6 +945,14 @@ public sealed class LinuxMediaProviderContractTests
             "the previous V4L2 track was restored",
             source,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "TryQueueFrameStep(direction: 1)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SupportsFrameStepping: true",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1105,6 +1113,105 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Equal(
             MediaPlaybackTrackSupport.Unsupported,
             snapshot.AudioTracks[0].Support);
+    }
+
+    [Fact]
+    public void LinuxFrameStepUsesCompositionOrderAndWinUiBackwardInterval()
+    {
+        IsoBmffTrack track =
+            CreateSyntheticIndexedTrack(
+                IsoBmffTrackKind.Video,
+                IsoBmffCodec.H264) with
+            {
+                Samples =
+                [
+                    new IsoBmffSample(
+                        0,
+                        1,
+                        0,
+                        0,
+                        40,
+                        IsSync: true),
+                    new IsoBmffSample(
+                        1,
+                        1,
+                        40,
+                        120,
+                        40,
+                        IsSync: false),
+                    new IsoBmffSample(
+                        2,
+                        1,
+                        80,
+                        40,
+                        40,
+                        IsSync: true),
+                    new IsoBmffSample(
+                        3,
+                        1,
+                        120,
+                        80,
+                        40,
+                        IsSync: false)
+                ]
+            };
+
+        Assert.True(
+            LinuxMediaPlaybackProvider
+                .TryGetFrameStepPosition(
+                    track,
+                    TimeSpan.FromMilliseconds(45),
+                    forward: true,
+                    out TimeSpan forward));
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(80),
+            forward);
+        Assert.True(
+            LinuxMediaPlaybackProvider
+                .TryGetFrameStepPosition(
+                    track,
+                    TimeSpan.FromMilliseconds(100),
+                    forward: false,
+                    out TimeSpan backward));
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(58),
+            backward);
+        Assert.True(
+            LinuxMediaPlaybackProvider
+                .TryGetFrameStepPosition(
+                    track,
+                    TimeSpan.FromMilliseconds(20),
+                    forward: false,
+                    out TimeSpan clamped));
+        Assert.Equal(
+            TimeSpan.Zero,
+            clamped);
+        Assert.False(
+            LinuxMediaPlaybackProvider
+                .TryGetFrameStepPosition(
+                    track,
+                    TimeSpan.FromMilliseconds(120),
+                    forward: true,
+                    out TimeSpan exhausted));
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(120),
+            exhausted);
+        Assert.False(
+            LinuxMediaPlaybackProvider
+                .TryGetFrameStepPosition(
+                    track,
+                    TimeSpan.Zero,
+                    forward: false,
+                    out TimeSpan beginning));
+        Assert.Equal(
+            TimeSpan.Zero,
+            beginning);
+        Assert.Equal(
+            2,
+            LinuxMediaPlaybackProvider
+                .FindResumeSample(
+                    track,
+                    TimeSpan.FromMilliseconds(90)));
     }
 
     [Fact]
