@@ -127,7 +127,8 @@ public sealed class WindowsMediaPlaybackProviderFactory :
 /// </summary>
 internal sealed class WindowsMediaPlaybackProvider :
     IMediaPlaybackProvider,
-    IMediaPlaybackConfigurationProvider
+    IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTrackProvider
 {
     private const int EventError = 5;
     private const int EventLoadedMetadata = 10;
@@ -160,6 +161,8 @@ internal sealed class WindowsMediaPlaybackProvider :
     private Thread? _worker;
     private MediaPlaybackSnapshot _snapshot =
         MediaPlaybackSnapshot.Empty;
+    private uint[] _audioStreamNativeIndices = [];
+    private uint[] _videoStreamNativeIndices = [];
     private double _volume = 1d;
     private double _balance;
     private double _rate = 1d;
@@ -282,6 +285,44 @@ internal sealed class WindowsMediaPlaybackProvider :
             WindowsMediaNative.FrameStep(
                 engine,
                 forward: false));
+        return true;
+    }
+
+    public bool TrySelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        if (kind is not (
+                MediaPlaybackTrackKind.Audio or
+                MediaPlaybackTrackKind.Video))
+        {
+            return false;
+        }
+
+        uint[] nativeIndices = kind ==
+            MediaPlaybackTrackKind.Audio
+                ? Volatile.Read(
+                    ref _audioStreamNativeIndices)
+                : Volatile.Read(
+                    ref _videoStreamNativeIndices);
+        if (index < -1 || index >= nativeIndices.Length)
+        {
+            return false;
+        }
+
+        Enqueue(engine =>
+        {
+            WindowsMediaNative.SetExclusiveStreamSelection(
+                engine,
+                nativeIndices,
+                index < 0
+                    ? uint.MaxValue
+                    : nativeIndices[index]);
+            PublishTracks(
+                engine,
+                _snapshot.NaturalVideoWidth,
+                _snapshot.NaturalVideoHeight);
+        });
         return true;
     }
 
@@ -474,12 +515,10 @@ internal sealed class WindowsMediaPlaybackProvider :
                     HardwareDecoded: true,
                     HasAudio: hasAudio,
                     HasVideo: hasVideo));
-            _sink.UpdateTracks(
-                CreateDefaultTrackSnapshot(
-                    hasAudio,
-                    hasVideo,
-                    width,
-                    height));
+            PublishTracks(
+                engine,
+                width,
+                height);
             _sink.Opened(in _snapshot);
             PublishDiagnostics(TransferDiagnostic);
             _opened.TrySetResult();
@@ -544,47 +583,93 @@ internal sealed class WindowsMediaPlaybackProvider :
         }
     }
 
-    private static MediaPlaybackTracksSnapshot
-        CreateDefaultTrackSnapshot(
-            bool hasAudio,
-            bool hasVideo,
+    private void PublishTracks(
+            nint engine,
             uint width,
             uint height)
     {
-        MediaPlaybackTrackDescriptor[] audio = hasAudio
-            ?
-            [
+        WindowsMediaNative.MediaEngineStreamInfo[] streams =
+            WindowsMediaNative.GetStreams(engine);
+        var audio =
+            new List<MediaPlaybackTrackDescriptor>();
+        var video =
+            new List<MediaPlaybackTrackDescriptor>();
+        var audioNative = new List<uint>();
+        var videoNative = new List<uint>();
+        int selectedAudio = -1;
+        int selectedVideo = -1;
+
+        for (int streamIndex = 0;
+             streamIndex < streams.Length;
+             streamIndex++)
+        {
+            WindowsMediaNative.MediaEngineStreamInfo stream =
+                streams[streamIndex];
+            bool isAudio =
+                stream.MajorType ==
+                WindowsMediaNative.MediaTypeAudio;
+            List<MediaPlaybackTrackDescriptor> destination =
+                isAudio ? audio : video;
+            List<uint> nativeDestination =
+                isAudio ? audioNative : videoNative;
+            int localIndex = destination.Count;
+            if (stream.Selected)
+            {
+                if (isAudio && selectedAudio < 0)
+                {
+                    selectedAudio = localIndex;
+                }
+                else if (!isAudio && selectedVideo < 0)
+                {
+                    selectedVideo = localIndex;
+                }
+            }
+
+            destination.Add(
                 new MediaPlaybackTrackDescriptor(
-                    "mediafoundation:audio:0",
-                    MediaPlaybackTrackKind.Audio,
-                    "Audio 1",
-                    string.Empty,
-                    string.Empty,
-                    MediaPlaybackTrackEncoding.Empty,
-                    MediaPlaybackTrackSupport.Supported)
-            ]
-            : [];
-        MediaPlaybackTrackDescriptor[] video = hasVideo
-            ?
-            [
-                new MediaPlaybackTrackDescriptor(
-                    "mediafoundation:video:0",
-                    MediaPlaybackTrackKind.Video,
-                    "Video 1",
-                    string.Empty,
-                    string.Empty,
+                    $"mediafoundation:{stream.NativeIndex}",
+                    isAudio
+                        ? MediaPlaybackTrackKind.Audio
+                        : MediaPlaybackTrackKind.Video,
+                    isAudio
+                        ? string.IsNullOrWhiteSpace(stream.Name)
+                            ? $"Audio {localIndex + 1}"
+                            : stream.Name
+                        : string.IsNullOrWhiteSpace(stream.Name)
+                            ? $"Video {localIndex + 1}"
+                            : stream.Name,
+                    stream.Name,
+                    stream.Language,
                     new MediaPlaybackTrackEncoding(
-                        string.Empty,
-                        Width: width,
-                        Height: height),
-                    MediaPlaybackTrackSupport.Supported)
-            ]
-            : [];
-        return new MediaPlaybackTracksSnapshot(
-            audio,
-            hasAudio ? 0 : -1,
-            video,
-            hasVideo ? 0 : -1);
+                        stream.Subtype == Guid.Empty
+                            ? string.Empty
+                            : stream.Subtype.ToString("D"),
+                        Width:
+                            !isAudio && stream.Selected
+                                ? width
+                                : 0,
+                        Height:
+                            !isAudio && stream.Selected
+                                ? height
+                                : 0),
+                    MediaPlaybackTrackSupport.Supported));
+            nativeDestination.Add(stream.NativeIndex);
+        }
+
+        uint[] audioIndices = audioNative.ToArray();
+        uint[] videoIndices = videoNative.ToArray();
+        Volatile.Write(
+            ref _audioStreamNativeIndices,
+            audioIndices);
+        Volatile.Write(
+            ref _videoStreamNativeIndices,
+            videoIndices);
+        _sink.UpdateTracks(
+            new MediaPlaybackTracksSnapshot(
+                audio,
+                selectedAudio,
+                video,
+                selectedVideo));
     }
 
     private void RunPlaybackLoop(

@@ -88,6 +88,9 @@ internal static unsafe partial class WindowsMediaNative
 
         [FieldOffset(8)]
         internal long Int64;
+
+        [FieldOffset(8)]
+        internal nint Pointer;
     }
 
     internal static nint CreateTranscodeSourceReader(

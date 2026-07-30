@@ -1139,10 +1139,18 @@ audio lane; Android's contract does not promise video selection, so alternate
 video selection is rejected rather than simulated. Linux publishes the
 ISO-BMFF tracks parsed by its bounded sample-table reader and marks only the
 currently executable V4L2/PipeWire lane selected. Windows Media Engine
-currently publishes its active audio/video stream facts; enumerating and
-switching every alternate stream remains pending until its typed native
-stream-selection lane is implemented. The browser publishes native HTML text
-tracks and complete WebVTT cue snapshots. Apple publishes AVFoundation
+enumerates native audio/video streams through
+[`IMFMediaEngineEx::GetNumberOfStreams`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-getnumberofstreams),
+classifies them from copied stream attributes, and queries their selected
+state. Switching batches same-kind deselection and selection through
+[`SetStreamSelection`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setstreamselection)
+before one
+[`ApplyStreamSelections`](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-applystreamselections)
+call, so the published WinUI single-select list cannot expose an intermediate
+native state. The copied `PROPVARIANT` is always cleared, enumeration is O(T)
+time/storage for T streams, and switching is O(K) for K same-kind streams with
+no per-frame work. The browser publishes native HTML text tracks and complete
+WebVTT cue snapshots. Apple publishes AVFoundation
 legible media-selection options and accumulated attributed-text cue snapshots;
 its media-selection group is mutually exclusive. Enabling a second Apple
 legible option is rejected until the current option is disabled, so the

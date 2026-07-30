@@ -22,6 +22,8 @@ internal static unsafe partial class WindowsMediaNative
     private const uint CoinitMultithreaded = 0;
     private const uint ClsctxInprocServer = 1;
     private const uint MfVersion = 0x0002_0070;
+    private const ushort VariantTypeWideString = 31;
+    private const ushort VariantTypeClassId = 72;
 
     internal static readonly Guid MediaEngineCallback =
         new("c60381b8-83a4-41f8-a3d0-de05076849a9");
@@ -44,6 +46,18 @@ internal static unsafe partial class WindowsMediaNative
         new("9d8e1289-d7b3-465f-8126-250e349af85d");
     private static readonly Guid s_mediaEngineEx =
         new("83015ead-b1e6-40d0-a98a-37145ffe1ad1");
+    private static readonly Guid s_mediaTypeMajorType =
+        new("48eba18e-f8c9-4687-bf11-0a74c9f96a8f");
+    private static readonly Guid s_mediaTypeSubtype =
+        new("f7e34c9a-42e8-4714-b74b-cb29d72c35e5");
+    private static readonly Guid s_streamLanguage =
+        new("00af2180-bdc2-423c-abca-f503593bc121");
+    private static readonly Guid s_streamName =
+        new("4f1b099d-d314-41e5-a781-7fefaa4c501f");
+    internal static readonly Guid MediaTypeAudio =
+        new("73647561-0000-0010-8000-00aa00389b71");
+    internal static readonly Guid MediaTypeVideo =
+        new("73646976-0000-0010-8000-00aa00389b71");
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct SampleDescription
@@ -83,6 +97,14 @@ internal static unsafe partial class WindowsMediaNative
         internal int Right;
         internal int Bottom;
     }
+
+    internal readonly record struct MediaEngineStreamInfo(
+        uint NativeIndex,
+        Guid MajorType,
+        Guid Subtype,
+        string Name,
+        string Language,
+        bool Selected);
 
     internal static void InitializeCom() =>
         ThrowIfFailed(
@@ -453,6 +475,252 @@ internal static unsafe partial class WindowsMediaNative
         finally
         {
             Release(extended);
+        }
+    }
+
+    internal static MediaEngineStreamInfo[] GetStreams(
+        nint engine)
+    {
+        nint extended = QueryInterface(
+            engine,
+            in s_mediaEngineEx);
+        try
+        {
+            uint streamCount = 0;
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int> getStreamCount =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint*,
+                    int>)VTable(extended)[54];
+            ThrowIfFailed(
+                getStreamCount(
+                    extended,
+                    &streamCount),
+                "enumerate Media Engine streams");
+
+            var streams =
+                new List<MediaEngineStreamInfo>(
+                    checked((int)streamCount));
+            for (uint nativeIndex = 0;
+                 nativeIndex < streamCount;
+                 nativeIndex++)
+            {
+                if (!TryGetStreamGuidAttribute(
+                        extended,
+                        nativeIndex,
+                        in s_mediaTypeMajorType,
+                        out Guid majorType) ||
+                    (majorType != MediaTypeAudio &&
+                     majorType != MediaTypeVideo))
+                {
+                    continue;
+                }
+
+                _ = TryGetStreamGuidAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_mediaTypeSubtype,
+                    out Guid subtype);
+                _ = TryGetStreamStringAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_streamName,
+                    out string name);
+                _ = TryGetStreamStringAttribute(
+                    extended,
+                    nativeIndex,
+                    in s_streamLanguage,
+                    out string language);
+                streams.Add(
+                    new MediaEngineStreamInfo(
+                        nativeIndex,
+                        majorType,
+                        subtype,
+                        name,
+                        language,
+                        GetStreamSelection(
+                            extended,
+                            nativeIndex)));
+            }
+            return streams.ToArray();
+        }
+        finally
+        {
+            Release(extended);
+        }
+    }
+
+    internal static void SetExclusiveStreamSelection(
+        nint engine,
+        ReadOnlySpan<uint> nativeIndices,
+        uint selectedNativeIndex)
+    {
+        nint extended = QueryInterface(
+            engine,
+            in s_mediaEngineEx);
+        try
+        {
+            delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                int,
+                int> setStreamSelection =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int,
+                    int>)VTable(extended)[57];
+            for (int index = 0;
+                 index < nativeIndices.Length;
+                 index++)
+            {
+                ThrowIfFailed(
+                    setStreamSelection(
+                        extended,
+                        nativeIndices[index],
+                        0),
+                    "deselect a Media Engine stream");
+            }
+            if (selectedNativeIndex != uint.MaxValue)
+            {
+                ThrowIfFailed(
+                    setStreamSelection(
+                        extended,
+                        selectedNativeIndex,
+                        1),
+                    "select a Media Engine stream");
+            }
+
+            CallResult(
+                extended,
+                58,
+                "apply Media Engine stream selections");
+        }
+        finally
+        {
+            Release(extended);
+        }
+    }
+
+    private static bool TryGetStreamGuidAttribute(
+        nint extended,
+        uint nativeIndex,
+        in Guid attribute,
+        out Guid value)
+    {
+        var variant = new PropVariant();
+        try
+        {
+            fixed (Guid* attributePointer = &attribute)
+            {
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    Guid*,
+                    PropVariant*,
+                    int> getStreamAttribute =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint,
+                        Guid*,
+                        PropVariant*,
+                        int>)VTable(extended)[55];
+                int result = getStreamAttribute(
+                    extended,
+                    nativeIndex,
+                    attributePointer,
+                    &variant);
+                if (result < 0 ||
+                    variant.VariantType !=
+                        VariantTypeClassId ||
+                    variant.Pointer == 0)
+                {
+                    value = Guid.Empty;
+                    return false;
+                }
+                value = *(Guid*)variant.Pointer;
+                return true;
+            }
+        }
+        finally
+        {
+            _ = PropVariantClear(&variant);
+        }
+    }
+
+    private static bool GetStreamSelection(
+        nint extended,
+        uint nativeIndex)
+    {
+        int selected = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            int*,
+            int> getStreamSelection =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    int*,
+                    int>)VTable(extended)[56];
+        ThrowIfFailed(
+            getStreamSelection(
+                extended,
+                nativeIndex,
+                &selected),
+            "query a Media Engine stream selection");
+        return selected != 0;
+    }
+
+    private static bool TryGetStreamStringAttribute(
+        nint extended,
+        uint nativeIndex,
+        in Guid attribute,
+        out string value)
+    {
+        var variant = new PropVariant();
+        try
+        {
+            fixed (Guid* attributePointer = &attribute)
+            {
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    uint,
+                    Guid*,
+                    PropVariant*,
+                    int> getStreamAttribute =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        uint,
+                        Guid*,
+                        PropVariant*,
+                        int>)VTable(extended)[55];
+                int result = getStreamAttribute(
+                    extended,
+                    nativeIndex,
+                    attributePointer,
+                    &variant);
+                if (result < 0 ||
+                    variant.VariantType !=
+                        VariantTypeWideString ||
+                    variant.Pointer == 0)
+                {
+                    value = string.Empty;
+                    return false;
+                }
+                value =
+                    Marshal.PtrToStringUni(
+                        variant.Pointer) ??
+                    string.Empty;
+                return true;
+            }
+        }
+        finally
+        {
+            _ = PropVariantClear(&variant);
         }
     }
 
@@ -940,6 +1208,11 @@ internal static unsafe partial class WindowsMediaNative
         uint context,
         Guid* interfaceId,
         nint* result);
+
+    [LibraryImport("ole32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int PropVariantClear(
+        PropVariant* value);
 
     [LibraryImport("mfplat.dll")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]

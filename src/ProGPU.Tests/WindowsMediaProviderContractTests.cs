@@ -1356,6 +1356,60 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
+    public void WindowsProviderEnumeratesAndSelectsNativeMediaEngineStreams()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaPlaybackProvider.cs");
+        string native = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaNative.cs");
+
+        Assert.Contains(
+            "IMediaPlaybackTrackProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WindowsMediaNative.GetStreams(engine)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WindowsMediaNative.SetExclusiveStreamSelection(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(extended)[54]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(extended)[55]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(extended)[56]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(extended)[57]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"apply Media Engine stream selections\"",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PropVariantClear(&variant)",
+            native,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AvaloniaWindowsSampleSelectsNativeDawnPresentation()
     {
         string program = ReadRepoFile(
