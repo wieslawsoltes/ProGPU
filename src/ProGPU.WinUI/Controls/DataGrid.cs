@@ -682,6 +682,7 @@ public class DataGrid : Control
     {
         string prop = column.PropertyName;
         bool asc = column.IsAscending;
+        object? selectedItem = SelectedItem;
 
         _itemsSource.Sort((x, y) =>
         {
@@ -703,6 +704,11 @@ public class DataGrid : Control
             return asc ? string.Compare(valX, valY, StringComparison.Ordinal) : string.Compare(valY, valX, StringComparison.Ordinal);
         });
 
+        if (selectedItem is not null)
+        {
+            SelectedIndex = _itemsSource.FindIndex(item =>
+                ReferenceEquals(item, selectedItem));
+        }
         SortingColumn = column;
         InvalidateRowMeasurements();
         Invalidate();

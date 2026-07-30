@@ -976,6 +976,35 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void SelectorBarClearDetachesItemsAndKeyboardSkipsNonSelectableItems()
+    {
+        var selectorBar = new SelectorBar();
+        var first = new SelectorBarItem { Text = "First" };
+        var blocked = new SelectorBarItem
+        {
+            Text = "Blocked",
+            CanUserSelect = ItemContainerUserSelectMode.UserCannotSelect
+        };
+        var third = new SelectorBarItem { Text = "Third" };
+        selectorBar.Items.Add(first);
+        selectorBar.Items.Add(blocked);
+        selectorBar.Items.Add(third);
+        selectorBar.SelectedItem = first;
+
+        selectorBar.OnKeyDown(new KeyRoutedEventArgs
+        {
+            Key = Silk.NET.Input.Key.Right
+        });
+
+        Assert.Same(third, selectorBar.SelectedItem);
+        selectorBar.Items.Clear();
+        Assert.Null(selectorBar.SelectedItem);
+        Assert.Null(first.Parent);
+        Assert.Null(blocked.Parent);
+        Assert.Null(third.Parent);
+    }
+
+    [Fact]
     public void SparklineKeepsAConfiguredBoundedHistory()
     {
         var sparkline = new Sparkline { Capacity = 3 };
@@ -1006,6 +1035,30 @@ public sealed class WinUiAnimationObjectModelTests
         Assert.False(dataGrid.CanUserSortColumns);
         Assert.False(dataGrid.CanUserResizeColumns);
         Assert.Equal("row", dataGrid.SelectedItem);
+    }
+
+    [Fact]
+    public void DataGridSortPreservesSelectedItemIdentity()
+    {
+        var high = Tuple.Create(2, "high");
+        var low = Tuple.Create(1, "low");
+        var column = new DataGridColumn("Value", 100, "Value")
+        {
+            IsAscending = true
+        };
+        var dataGrid = new DataGrid
+        {
+            CellSortValueBinding = (item, _) => ((Tuple<int, string>)item).Item1
+        };
+        dataGrid.Columns.Add(column);
+        dataGrid.ItemsSource.Add(high);
+        dataGrid.ItemsSource.Add(low);
+        dataGrid.SelectedIndex = 0;
+
+        dataGrid.SortItems(column);
+
+        Assert.Same(high, dataGrid.SelectedItem);
+        Assert.Equal(1, dataGrid.SelectedIndex);
     }
 
     [Fact]

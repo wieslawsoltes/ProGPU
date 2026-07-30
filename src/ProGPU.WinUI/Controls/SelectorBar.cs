@@ -193,6 +193,7 @@ public class SelectorBarItem : ItemContainer
 public class SelectorBar : Control
 {
     private readonly ObservableCollection<SelectorBarItem> _items = new();
+    private readonly HashSet<SelectorBarItem> _attachedItems = new();
     private bool _selectionUpdating;
 
     public static readonly DependencyProperty ItemsProperty =
@@ -294,7 +295,9 @@ public class SelectorBar : Control
             for (int offset = 1; offset <= _items.Count; offset++)
             {
                 int candidate = (current + direction * offset + _items.Count) % _items.Count;
-                if (_items[candidate].IsEnabled)
+                if (_items[candidate].IsEnabled &&
+                    _items[candidate].CanUserSelect !=
+                        ItemContainerUserSelectMode.UserCannotSelect)
                 {
                     SelectedItem = _items[candidate];
                     args.Handled = true;
@@ -319,6 +322,18 @@ public class SelectorBar : Control
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
+        if (args.Action == NotifyCollectionChangedAction.Reset)
+        {
+            foreach (SelectorBarItem item in _attachedItems.ToArray())
+            {
+                item.Invoked -= OnItemInvoked;
+                item.SelectionStateChanged -= OnItemSelectionStateChanged;
+                item.IsSelected = false;
+                RemoveChild(item);
+            }
+            _attachedItems.Clear();
+            SelectedItem = null;
+        }
         if (args.OldItems is not null)
         {
             foreach (SelectorBarItem item in args.OldItems)
@@ -327,6 +342,7 @@ public class SelectorBar : Control
                 item.SelectionStateChanged -= OnItemSelectionStateChanged;
                 item.IsSelected = false;
                 RemoveChild(item);
+                _attachedItems.Remove(item);
                 if (ReferenceEquals(SelectedItem, item))
                 {
                     SelectedItem = null;
@@ -340,6 +356,7 @@ public class SelectorBar : Control
                 item.Invoked += OnItemInvoked;
                 item.SelectionStateChanged += OnItemSelectionStateChanged;
                 AddChild(item);
+                _attachedItems.Add(item);
                 if (item.IsSelected)
                 {
                     SelectedItem = item;
