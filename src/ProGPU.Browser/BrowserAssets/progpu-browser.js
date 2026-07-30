@@ -1195,6 +1195,71 @@ function compositionTimelineEntry(
   };
 }
 
+function parseAudioWorkletNodeOptions(nodeOptionsJson) {
+  const options = JSON.parse(
+    typeof nodeOptionsJson === 'string'
+      ? nodeOptionsJson
+      : '{}');
+  if (!options ||
+      Array.isArray(options) ||
+      typeof options !== 'object') {
+    throw new TypeError(
+      'AudioWorklet node options must be a JSON object.');
+  }
+  return options;
+}
+
+async function loadAudioWorkletModule(
+  audioContext,
+  modulePromises,
+  moduleUri) {
+  if (!audioContext.audioWorklet ||
+      typeof AudioWorkletNode !== 'function') {
+    throw new DOMException(
+      'AudioWorklet is unavailable.',
+      'NotSupportedError');
+  }
+  let promise = modulePromises.get(moduleUri);
+  if (!promise) {
+    promise = audioContext.audioWorklet.addModule(
+      moduleUri).catch(error => {
+        if (modulePromises.get(moduleUri) === promise) {
+          modulePromises.delete(moduleUri);
+        }
+        throw error;
+      });
+    modulePromises.set(moduleUri, promise);
+  }
+  await promise;
+}
+
+async function createAudioWorkletEffectNode(
+  audioContext,
+  modulePromises,
+  state) {
+  const moduleUri =
+    typeof state?.moduleUri === 'string'
+      ? state.moduleUri
+      : '';
+  const processorName =
+    typeof state?.processorName === 'string'
+      ? state.processorName
+      : '';
+  if (!moduleUri || !processorName) {
+    throw new TypeError(
+      'AudioWorklet effects require a module URI and processor name.');
+  }
+  await loadAudioWorkletModule(
+    audioContext,
+    modulePromises,
+    moduleUri);
+  return new AudioWorkletNode(
+    audioContext,
+    processorName,
+    parseAudioWorkletNodeOptions(
+      state.nodeOptionsJson));
+}
+
 async function renderBrowserMediaComposition(
   operationId,
   requestJson,
@@ -1211,6 +1276,7 @@ async function renderBrowserMediaComposition(
   const elements = [];
   const resources = [];
   const streamTracks = [];
+  const audioWorkletModulePromises = new Map();
   let audioContext = null;
   let exportDevice = null;
   let exportCanvas = null;
@@ -1726,25 +1792,32 @@ async function renderBrowserMediaComposition(
         audioNodes.push(volumeNode);
         let tail = volumeNode;
         for (const state of entry.audioGraph) {
-          const kind = Number(state?.[0]);
-          const parameter0 = Number(state?.[1]);
           let node = null;
-          if (kind === 1) {
-            node = audioContext.createGain();
-            node.gain.value = parameter0;
-          } else if (kind === 2) {
-            if (typeof audioContext.createStereoPanner !==
-                'function') {
+          if (state?.audioWorklet === true) {
+            node = await createAudioWorkletEffectNode(
+              audioContext,
+              audioWorkletModulePromises,
+              state);
+          } else {
+            const kind = Number(state?.[0]);
+            const parameter0 = Number(state?.[1]);
+            if (kind === 1) {
+              node = audioContext.createGain();
+              node.gain.value = parameter0;
+            } else if (kind === 2) {
+              if (typeof audioContext.createStereoPanner !==
+                  'function') {
+                throw new DOMException(
+                  'StereoPannerNode is unavailable.',
+                  'NotSupportedError');
+              }
+              node = audioContext.createStereoPanner();
+              node.pan.value = parameter0;
+            } else {
               throw new DOMException(
-                'StereoPannerNode is unavailable.',
+                'The browser media audio graph contains an unsupported node.',
                 'NotSupportedError');
             }
-            node = audioContext.createStereoPanner();
-            node.pan.value = parameter0;
-          } else {
-            throw new DOMException(
-              'The browser media audio graph contains an unsupported node.',
-              'NotSupportedError');
           }
           tail.connect(node);
           audioNodes.push(node);
@@ -2849,6 +2922,7 @@ async function createBrowserMedia(id, uri) {
     audioSource: null,
     panner: null,
     audioEffects: new Map(),
+    audioWorkletModulePromises: new Map(),
     textTrackIds: new WeakMap(),
     cueIds: new WeakMap(),
     nextTextTrackId: 1,
@@ -2970,10 +3044,13 @@ function rebuildBrowserMediaAudioGraph(entry) {
   if (!entry.audioContext || !entry.audioSource || !entry.panner) return;
   entry.audioSource.disconnect();
   entry.panner.disconnect();
-  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+  for (const effect of entry.audioEffects.values()) {
+    if (effect.node) effect.node.disconnect();
+  }
 
   let tail = entry.audioSource;
   for (const effect of entry.audioEffects.values()) {
+    if (!effect.node) continue;
     tail.connect(effect.node);
     tail = effect.node;
   }
@@ -2986,7 +3063,10 @@ function configureBrowserMediaAudioEffect(id, effectId, kind, parameter0, parame
   ensureBrowserMediaAudioGraph(entry);
   let effect = entry.audioEffects.get(effectId);
   if (!effect || effect.kind !== kind) {
-    if (effect) effect.node.disconnect();
+    if (effect?.node) {
+      effect.node.disconnect();
+      effect.node.port?.close();
+    }
     if (kind === 1) {
       effect = {
         kind,
@@ -3018,9 +3098,69 @@ function configureBrowserMediaAudioEffect(id, effectId, kind, parameter0, parame
   rebuildBrowserMediaAudioGraph(entry);
 }
 
+function configureBrowserMediaAudioWorkletEffect(
+  id,
+  effectId,
+  moduleUri,
+  processorName,
+  nodeOptionsJson,
+  optional) {
+  const entry = requireMediaElement(id);
+  ensureBrowserMediaAudioGraph(entry);
+  const previous = entry.audioEffects.get(effectId);
+  if (previous?.node) {
+    previous.node.disconnect();
+    previous.node.port?.close();
+  }
+  const effect = {
+    kind: 'audio-worklet',
+    node: null
+  };
+  entry.audioEffects.set(effectId, effect);
+  rebuildBrowserMediaAudioGraph(entry);
+
+  void createAudioWorkletEffectNode(
+    entry.audioContext,
+    entry.audioWorkletModulePromises,
+    {
+      moduleUri,
+      processorName,
+      nodeOptionsJson
+    }).then(
+      node => {
+        if (entry.disposed ||
+            entry.audioEffects.get(effectId) !== effect) {
+          node.disconnect();
+          node.port?.close();
+          return;
+        }
+        effect.node = node;
+        rebuildBrowserMediaAudioGraph(entry);
+      },
+      error => {
+        if (entry.audioEffects.get(effectId) === effect) {
+          entry.audioEffects.delete(effectId);
+          rebuildBrowserMediaAudioGraph(entry);
+        }
+        if (!optional && !entry.disposed) {
+          dispatchMediaEvent(
+            id,
+            8,
+            entry.video,
+            `Browser AudioWorklet effect failed: ${
+              error?.message || error}`);
+        }
+      });
+}
+
 function removeAllBrowserMediaAudioEffects(id) {
   const entry = requireMediaElement(id);
-  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+  for (const effect of entry.audioEffects.values()) {
+    if (effect.node) {
+      effect.node.disconnect();
+      effect.node.port?.close();
+    }
+  }
   entry.audioEffects.clear();
   rebuildBrowserMediaAudioGraph(entry);
 }
@@ -3078,8 +3218,14 @@ function disposeBrowserMedia(id) {
   entry.video.remove();
   if (entry.audioSource) entry.audioSource.disconnect();
   if (entry.panner) entry.panner.disconnect();
-  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+  for (const effect of entry.audioEffects.values()) {
+    if (effect.node) {
+      effect.node.disconnect();
+      effect.node.port?.close();
+    }
+  }
   entry.audioEffects.clear();
+  entry.audioWorkletModulePromises.clear();
   if (entry.audioContext) void entry.audioContext.close();
   state.mediaElements.delete(id);
   if (state.worker) {
@@ -3830,7 +3976,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;

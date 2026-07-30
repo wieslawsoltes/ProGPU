@@ -365,12 +365,28 @@ public sealed class SampleProjectSplitTests
             browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
-            "effect is not IMediaAudioGraphEffect",
+            "IBrowserAudioWorkletEffect",
             browserProvider,
             StringComparison.Ordinal);
         Assert.Contains(
             "ConfigureAudioEffectCore(",
             browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConfigureAudioWorkletEffectCore(",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configureBrowserMediaAudioWorkletEffect",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioContext.audioWorklet.addModule(",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AudioWorkletNode(",
+            browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
             "new MediaAudioGainEffectFactory(",
@@ -896,12 +912,20 @@ public sealed class SampleProjectSplitTests
             audioGraphResolver,
             StringComparison.Ordinal);
         Assert.Contains(
-            "TryCaptureBuiltInGraph(",
+            "BrowserAudioEffectResolver",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
             "WriteAudioGraph(",
             provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"audioWorklet\"",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "createAudioWorkletEffectNode(",
+            browserAsset,
             StringComparison.Ordinal);
         Assert.Contains(
             "\"audioGraph\"",

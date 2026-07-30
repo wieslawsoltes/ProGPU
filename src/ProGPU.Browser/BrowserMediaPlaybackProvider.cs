@@ -130,7 +130,7 @@ internal sealed partial class BrowserMediaPlaybackProvider :
     private readonly Uri _uri;
     private readonly IMediaPlaybackSink _sink;
     private readonly int _id;
-    private readonly List<AudioGraphEffectBinding>
+    private readonly List<AudioEffectBinding>
         _audioEffects = [];
     private SharedGpuTextureSource? _textureSource;
     private WgpuContext? _textureContext;
@@ -376,28 +376,63 @@ internal sealed partial class BrowserMediaPlaybackProvider :
     public void AddEffect(IMediaEffect effect, bool optional)
     {
         ArgumentNullException.ThrowIfNull(effect);
-        if (effect is not IMediaAudioGraphEffect
-            graphEffect)
+        IMediaAudioGraphEffect? graphBindingEffect =
+            null;
+        IBrowserAudioWorkletEffect?
+            workletBindingEffect = null;
+        if (effect is IMediaAudioGraphEffect graphEffect)
         {
-            if (!optional)
+            MediaAudioGraphEffectState state;
+            try
             {
-                throw new NotSupportedException(
-                    "The browser provider accepts typed IMediaAudioGraphEffect nodes. Arbitrary managed PCM callbacks cannot execute in an AudioWorklet graph.");
+                state = graphEffect.CaptureState();
             }
-            return;
+            catch when (optional)
+            {
+                return;
+            }
+            if (state.Kind is not (
+                    MediaAudioGraphEffectKind.Gain or
+                    MediaAudioGraphEffectKind
+                        .StereoBalance))
+            {
+                if (!optional)
+                {
+                    throw new NotSupportedException(
+                        $"Browser WebAudio does not support the audio graph effect kind '{state.Kind}'.");
+                }
+                return;
+            }
+            graphBindingEffect = graphEffect;
         }
-
-        MediaAudioGraphEffectState state =
-            graphEffect.CaptureState();
-        if (state.Kind is not (
-                MediaAudioGraphEffectKind.Gain or
-                MediaAudioGraphEffectKind
-                    .StereoBalance))
+        else if (effect is
+                 IBrowserAudioWorkletEffect
+                     workletEffect &&
+                 effect.Kind ==
+                     MediaEffectKind.Audio)
+        {
+            try
+            {
+                BrowserAudioWorkletEffectState
+                    captured =
+                        workletEffect.CaptureState();
+                _ = new BrowserAudioWorkletEffectState(
+                    captured.ModuleUri,
+                    captured.ProcessorName,
+                    captured.NodeOptionsJson);
+            }
+            catch when (optional)
+            {
+                return;
+            }
+            workletBindingEffect = workletEffect;
+        }
+        else
         {
             if (!optional)
             {
                 throw new NotSupportedException(
-                    $"Browser WebAudio does not support the audio graph effect kind '{state.Kind}'.");
+                    "The browser provider accepts typed native Web Audio nodes or IBrowserAudioWorkletEffect modules. Arbitrary managed PCM callbacks cannot execute in the browser audio rendering realm.");
             }
             return;
         }
@@ -407,10 +442,17 @@ internal sealed partial class BrowserMediaPlaybackProvider :
             ObjectDisposedException.ThrowIf(
                 Volatile.Read(ref _disposed) != 0,
                 this);
-            var binding = new AudioGraphEffectBinding(
-                checked(++_nextAudioEffectId),
-                graphEffect,
-                OnAudioEffectStateChanged);
+            var binding = graphBindingEffect is not null
+                ? new AudioEffectBinding(
+                    checked(++_nextAudioEffectId),
+                    graphBindingEffect,
+                    optional,
+                    OnAudioEffectStateChanged)
+                : new AudioEffectBinding(
+                    checked(++_nextAudioEffectId),
+                    workletBindingEffect!,
+                    optional,
+                    OnAudioEffectStateChanged);
             _audioEffects.Add(binding);
             if (Volatile.Read(ref _opened) != 0)
             {
@@ -421,7 +463,7 @@ internal sealed partial class BrowserMediaPlaybackProvider :
 
     public void RemoveAllEffects()
     {
-        AudioGraphEffectBinding[] bindings;
+        AudioEffectBinding[] bindings;
         lock (_gate)
         {
             bindings = [.. _audioEffects];
@@ -848,7 +890,7 @@ internal sealed partial class BrowserMediaPlaybackProvider :
         };
 
     private void OnAudioEffectStateChanged(
-        AudioGraphEffectBinding binding)
+        AudioEffectBinding binding)
     {
         lock (_gate)
         {
@@ -863,18 +905,34 @@ internal sealed partial class BrowserMediaPlaybackProvider :
     }
 
     private void ConfigureAudioEffect(
-        AudioGraphEffectBinding binding)
+        AudioEffectBinding binding)
     {
-        MediaAudioGraphEffectState state =
-            binding.Effect.CaptureState();
-        ConfigureAudioEffectCore(
-            _id,
-            binding.Id,
-            (int)state.Kind,
-            state.Parameter0,
-            state.Parameter1,
-            state.Parameter2,
-            state.Parameter3);
+        if (binding.GraphEffect is { } graphEffect)
+        {
+            MediaAudioGraphEffectState state =
+                graphEffect.CaptureState();
+            ConfigureAudioEffectCore(
+                _id,
+                binding.Id,
+                (int)state.Kind,
+                state.Parameter0,
+                state.Parameter1,
+                state.Parameter2,
+                state.Parameter3);
+        }
+        else
+        {
+            BrowserAudioWorkletEffectState state =
+                binding.WorkletEffect!
+                    .CaptureState();
+            ConfigureAudioWorkletEffectCore(
+                _id,
+                binding.Id,
+                state.ModuleUri,
+                state.ProcessorName,
+                state.NodeOptionsJson,
+                binding.Optional);
+        }
     }
 
     [JSImport("createBrowserMedia", "progpu-browser")]
@@ -928,6 +986,18 @@ internal sealed partial class BrowserMediaPlaybackProvider :
         double parameter3);
 
     [JSImport(
+        "configureBrowserMediaAudioWorkletEffect",
+        "progpu-browser")]
+    private static partial void
+        ConfigureAudioWorkletEffectCore(
+            int id,
+            int effectId,
+            string moduleUri,
+            string processorName,
+            string nodeOptionsJson,
+            bool optional);
+
+    [JSImport(
         "removeAllBrowserMediaAudioEffects",
         "progpu-browser")]
     private static partial void RemoveAllAudioEffectsCore(
@@ -942,28 +1012,58 @@ internal sealed partial class BrowserMediaPlaybackProvider :
     [JSImport("disposeBrowserMedia", "progpu-browser")]
     private static partial void DisposeCore(int id);
 
-    private sealed class AudioGraphEffectBinding :
+    private sealed class AudioEffectBinding :
         IDisposable
     {
         private readonly Action _changed;
 
-        public AudioGraphEffectBinding(
+        public AudioEffectBinding(
             int id,
             IMediaAudioGraphEffect effect,
-            Action<AudioGraphEffectBinding> changed)
+            bool optional,
+            Action<AudioEffectBinding> changed)
         {
             Id = id;
-            Effect = effect;
+            GraphEffect = effect;
+            Optional = optional;
             _changed = () => changed(this);
-            Effect.StateChanged += _changed;
+            GraphEffect.StateChanged += _changed;
+        }
+
+        public AudioEffectBinding(
+            int id,
+            IBrowserAudioWorkletEffect effect,
+            bool optional,
+            Action<AudioEffectBinding> changed)
+        {
+            Id = id;
+            WorkletEffect = effect;
+            Optional = optional;
+            _changed = () => changed(this);
+            WorkletEffect.StateChanged += _changed;
         }
 
         public int Id { get; }
 
-        public IMediaAudioGraphEffect Effect { get; }
+        public bool Optional { get; }
 
-        public void Dispose() =>
-            Effect.StateChanged -= _changed;
+        public IMediaAudioGraphEffect? GraphEffect
+        { get; }
+
+        public IBrowserAudioWorkletEffect?
+            WorkletEffect { get; }
+
+        public void Dispose()
+        {
+            if (GraphEffect is not null)
+            {
+                GraphEffect.StateChanged -= _changed;
+            }
+            if (WorkletEffect is not null)
+            {
+                WorkletEffect.StateChanged -= _changed;
+            }
+        }
     }
 }
 

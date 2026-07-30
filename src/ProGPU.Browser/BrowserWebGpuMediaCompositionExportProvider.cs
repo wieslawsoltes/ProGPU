@@ -159,6 +159,8 @@ public sealed partial class
                 nameof(request));
         }
 
+        bool usesAudioWorklet =
+            UsesAudioWorklet(request);
         return new MediaCompositionExportCapabilities(
             Id,
             MediaCompositionExportVideoPath.GpuCopy,
@@ -172,7 +174,10 @@ public sealed partial class
                 "WebGPU renders into the browser capture canvas through " +
                 "an explicit GPU image transfer. MediaRecorder owns " +
                 "real-time codec selection and does not expose a hardware " +
-                "encoder guarantee.");
+                "encoder guarantee." +
+                (usesAudioWorklet
+                    ? " Application-supplied AudioWorklet modules require a secure context and successful module loading."
+                    : string.Empty));
     }
 
     public async ValueTask<MediaCompositionExportFailure>
@@ -250,6 +255,82 @@ public sealed partial class
             ? clip.SourceUri is null
             : clip.SourceUri is { } source &&
               IsBrowserMediaUri(source);
+    }
+
+    private bool UsesAudioWorklet(
+        MediaCompositionExportRequest request)
+    {
+        for (int index = 0;
+             index < request.Clips.Count;
+             index++)
+        {
+            if (UsesAudioWorklet(
+                    request.Clips[index]
+                        .AudioEffectDefinitions))
+            {
+                return true;
+            }
+        }
+        for (int index = 0;
+             index <
+                request.BackgroundAudioTracks.Count;
+             index++)
+        {
+            if (UsesAudioWorklet(
+                    request.BackgroundAudioTracks[index]
+                        .AudioEffectDefinitions))
+            {
+                return true;
+            }
+        }
+        for (int layerIndex = 0;
+             layerIndex <
+                request.OverlayLayers.Count;
+             layerIndex++)
+        {
+            IReadOnlyList<
+                MediaCompositionExportOverlay>
+                overlays =
+                    request.OverlayLayers[layerIndex]
+                        .Overlays;
+            for (int overlayIndex = 0;
+                 overlayIndex < overlays.Count;
+                 overlayIndex++)
+            {
+                if (UsesAudioWorklet(
+                        overlays[overlayIndex]
+                            .Clip
+                            .AudioEffectDefinitions))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private bool UsesAudioWorklet(
+        IReadOnlyList<MediaCompositionEffectDefinition>
+            definitions)
+    {
+        if (!TryGetAudioEffectGraph(
+                definitions,
+                out BrowserAudioEffectNodeState[]
+                    states))
+        {
+            return false;
+        }
+        for (int index = 0;
+             index < states.Length;
+             index++)
+        {
+            if (states[index].Kind ==
+                BrowserAudioEffectNodeKind.AudioWorklet)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool IsBrowserMediaUri(Uri source) =>
@@ -401,7 +482,7 @@ public sealed partial class
             {
                 if (!TryGetAudioEffectGraph(
                         track.AudioEffectDefinitions,
-                        out MediaAudioGraphEffectState[]
+                        out BrowserAudioEffectNodeState[]
                             audioGraph))
                 {
                     json = string.Empty;
@@ -488,7 +569,7 @@ public sealed partial class
     {
         if (!TryGetAudioEffectGraph(
                 clip.AudioEffectDefinitions,
-                out MediaAudioGraphEffectState[]
+                out BrowserAudioEffectNodeState[]
                     audioGraph))
         {
             return false;
@@ -563,16 +644,16 @@ public sealed partial class
     private bool TryGetAudioEffectGraph(
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
-        out MediaAudioGraphEffectState[] states) =>
-        MediaAudioGraphEffectResolver
-            .TryCaptureBuiltInGraph(
+        out BrowserAudioEffectNodeState[] states) =>
+        BrowserAudioEffectResolver
+            .TryCaptureGraph(
                 _effects,
                 definitions,
                 out states);
 
     private static void WriteAudioGraph(
         Utf8JsonWriter writer,
-        IReadOnlyList<MediaAudioGraphEffectState>
+        IReadOnlyList<BrowserAudioEffectNodeState>
             states)
     {
         writer.WritePropertyName("audioGraph");
@@ -581,15 +662,45 @@ public sealed partial class
              index < states.Count;
              index++)
         {
-            MediaAudioGraphEffectState state =
+            BrowserAudioEffectNodeState state =
                 states[index];
-            writer.WriteStartArray();
-            writer.WriteNumberValue((int)state.Kind);
-            writer.WriteNumberValue(state.Parameter0);
-            writer.WriteNumberValue(state.Parameter1);
-            writer.WriteNumberValue(state.Parameter2);
-            writer.WriteNumberValue(state.Parameter3);
-            writer.WriteEndArray();
+            if (state.Kind ==
+                BrowserAudioEffectNodeKind.NativeGraph)
+            {
+                MediaAudioGraphEffectState native =
+                    state.NativeState;
+                writer.WriteStartArray();
+                writer.WriteNumberValue(
+                    (int)native.Kind);
+                writer.WriteNumberValue(
+                    native.Parameter0);
+                writer.WriteNumberValue(
+                    native.Parameter1);
+                writer.WriteNumberValue(
+                    native.Parameter2);
+                writer.WriteNumberValue(
+                    native.Parameter3);
+                writer.WriteEndArray();
+            }
+            else
+            {
+                BrowserAudioWorkletEffectState worklet =
+                    state.WorkletState;
+                writer.WriteStartObject();
+                writer.WriteBoolean(
+                    "audioWorklet",
+                    true);
+                writer.WriteString(
+                    "moduleUri",
+                    worklet.ModuleUri);
+                writer.WriteString(
+                    "processorName",
+                    worklet.ProcessorName);
+                writer.WriteString(
+                    "nodeOptionsJson",
+                    worklet.NodeOptionsJson);
+                writer.WriteEndObject();
+            }
         }
         writer.WriteEndArray();
     }
