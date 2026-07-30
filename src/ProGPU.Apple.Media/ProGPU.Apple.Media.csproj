@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-ios;net10.0-macos</TargetFrameworks>
+    <TargetFrameworks Condition="'$(ProGpuAppleMediaMacOnly)' == 'true'">net10.0-macos</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net10.0-ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net10.0-macos'">12.0</SupportedOSPlatformVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishTrimmed>true</PublishTrimmed>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <Description>Native AVFoundation media playback and IOSurface WebGPU frame interop for ProGPU on Apple platforms.</Description>
+    <PackageTags>progpu;media;avfoundation;ios;macos;iosurface;webgpu</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
+  </ItemGroup>
+</Project>

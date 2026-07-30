@@ -36,6 +36,14 @@
     <ProjectReference Include="..\ProGPU.DirectX\ProGPU.DirectX.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Noto\ProGPU.Fonts.Noto.csproj" />
+    <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Scene\ProGPU.Media.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Windows.Media\ProGPU.Windows.Media.csproj">
+      <Aliases>WindowsMediaProvider</Aliases>
+    </ProjectReference>
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
+    <ProjectReference Include="..\ProGPU.Linux.Media\ProGPU.Linux.Media.csproj" />
     <ProjectReference Include="..\ProGPU.Browser\ProGPU.Browser.csproj" />
     <ProjectReference Include="..\ProGPU.Tests.Headless\ProGPU.Tests.Headless.csproj" />
     <ProjectReference Include="..\ProGPU.Text.Shaping\ProGPU.Text.Shaping.csproj" />

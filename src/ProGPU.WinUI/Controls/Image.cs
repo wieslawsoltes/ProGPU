@@ -19,7 +19,7 @@ namespace Microsoft.UI.Xaml.Controls;
 /// Immutable encoded image payload. Decoding is cached on first render and GPU upload
 /// remains demand-driven, so constructing or measuring the source does not initialize WebGPU.
 /// </summary>
-public sealed class EncodedImageSource
+public sealed class EncodedImageSource : ImageSource
 {
     private readonly byte[] _data;
     private readonly object _sync = new();

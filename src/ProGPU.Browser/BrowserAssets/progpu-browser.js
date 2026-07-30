@@ -32,6 +32,9 @@ const state = {
   nextStorageHandle: 1,
   saveFileHandles: new Map(),
   directoryHandles: new Map(),
+  mediaElements: new Map(),
+  pendingMediaFrames: new Map(),
+  dispatchMediaEvent: null,
   worker: null,
   workerRequests: new Map(),
   nextWorkerRequest: 1,
@@ -778,6 +781,1563 @@ async function stagePickedFile(file) {
   return encodeURIComponent(file.name);
 }
 
+async function stageBrowserMediaSource(stagingId, uri, maximumBytes) {
+  const controller = new AbortController();
+  const entry = { controller, bytes: null };
+  state.stagedMediaSources ??= new Map();
+  state.stagedMediaSources.set(stagingId, entry);
+  try {
+    const response = await fetch(uri, {
+      credentials: 'same-origin',
+      mode: 'cors',
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Media source request failed with HTTP ${response.status}.`);
+    }
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declaredLength) &&
+        declaredLength > maximumBytes) {
+      throw new RangeError('The browser media source exceeds the bounded staging limit.');
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maximumBytes) {
+      throw new RangeError('The browser media source exceeds the bounded staging limit.');
+    }
+    entry.bytes = bytes;
+    return bytes.byteLength;
+  } catch (error) {
+    if (state.stagedMediaSources.get(stagingId) === entry) {
+      state.stagedMediaSources.delete(stagingId);
+    }
+    throw error;
+  }
+}
+
+function startStageBrowserMediaSource(
+  stagingId,
+  uri,
+  maximumBytes) {
+  void stageBrowserMediaSource(
+    stagingId,
+    uri,
+    maximumBytes).then(
+      length =>
+        state.dispatchMediaStageCompletion(
+          stagingId,
+          length),
+      error => {
+        if (error?.name !== 'AbortError') {
+          console.error(
+            '[ProGPU] Browser media staging failed.',
+            error);
+        }
+        state.dispatchMediaStageCompletion(
+          stagingId,
+          -1);
+      });
+}
+
+function copyStagedBrowserMediaSource(stagingId, destination, length) {
+  const bytes = state.stagedMediaSources?.get(stagingId)?.bytes;
+  if (!bytes || bytes.byteLength !== length) return -1;
+  const heap = runtime.localHeapViewU8();
+  if (destination < 0 ||
+      destination + length > heap.byteLength) {
+    throw new RangeError('Media staging destination is outside WASM memory.');
+  }
+  heap.set(bytes, destination);
+  return length;
+}
+
+function clearStagedBrowserMediaSource(stagingId) {
+  const entry = state.stagedMediaSources?.get(stagingId);
+  entry?.controller.abort();
+  state.stagedMediaSources?.delete(stagingId);
+}
+
+function cancelStagedBrowserMediaSource(stagingId) {
+  clearStagedBrowserMediaSource(stagingId);
+}
+
+function browserMp4RecorderMimeType(includeAudio) {
+  if (typeof MediaRecorder !== 'function') return '';
+  const candidates = includeAudio
+    ? ['video/mp4;codecs="avc1.42E01E,mp4a.40.2"']
+    : [
+        'video/mp4;codecs="avc1.42E01E"',
+        'video/mp4'
+      ];
+  return candidates.find(
+    value => MediaRecorder.isTypeSupported(value)) || '';
+}
+
+function waitForMediaEvent(element, eventName) {
+  return new Promise((resolve, reject) => {
+    const loaded = () => {
+      cleanup();
+      resolve();
+    };
+    const failed = () => {
+      cleanup();
+      reject(new Error(
+        element.error?.message ||
+        `The browser failed while waiting for ${eventName}.`));
+    };
+    const cleanup = () => {
+      element.removeEventListener(eventName, loaded);
+      element.removeEventListener('error', failed);
+    };
+    element.addEventListener(eventName, loaded, { once: true });
+    element.addEventListener('error', failed, { once: true });
+  });
+}
+
+async function createCompositionMediaElement(uri, audioOnly = false) {
+  const element = document.createElement(audioOnly ? 'audio' : 'video');
+  element.preload = 'auto';
+  element.crossOrigin = 'anonymous';
+  if (!audioOnly) element.playsInline = true;
+  element.style.display = 'none';
+  document.body.appendChild(element);
+  const metadata = waitForMediaEvent(element, 'loadedmetadata');
+  element.src = uri;
+  element.load();
+  await metadata;
+  return element;
+}
+
+async function seekCompositionElement(
+  element,
+  seconds,
+  approximateForSpeed = false) {
+  const duration = Number.isFinite(element.duration)
+    ? element.duration
+    : Number.MAX_SAFE_INTEGER;
+  const target = Math.max(0, Math.min(seconds, Math.max(0, duration - 0.001)));
+  if (new URLSearchParams(
+        globalThis.location.search)
+      .get('progpuSavePicker') === 'memory') {
+    document.documentElement.dataset.progpuMediaSeekState =
+      `${element.readyState}:${element.currentTime}:${target}:${duration}`;
+  }
+  if (Math.abs(element.currentTime - target) <= 0.001) {
+    if (element.readyState >=
+        HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return;
+    }
+    const primingTarget = Math.min(
+      Math.max(0, duration - 0.001),
+      target + 0.001);
+    if (Math.abs(
+          primingTarget -
+          element.currentTime) <= 0.0001) {
+      await waitForMediaEvent(
+        element,
+        'loadeddata');
+      return;
+    }
+    const primed =
+      waitForMediaEvent(
+        element,
+        'seeked');
+    element.currentTime = primingTarget;
+    await primed;
+    return;
+  }
+  if (approximateForSpeed &&
+      typeof element.fastSeek === 'function') {
+    const seeked =
+      waitForMediaEvent(
+        element,
+        'seeked');
+    element.fastSeek(target);
+    await seeked;
+    return;
+  }
+  const seeked = waitForMediaEvent(element, 'seeked');
+  element.currentTime = target;
+  await seeked;
+}
+
+function writeCompositionUniform(device, visual) {
+  const destination = visual.destination;
+  const red = visual.redTransform;
+  const green = visual.greenTransform;
+  const blue = visual.blueTransform;
+  device.queue.writeBuffer(
+    visual.uniform,
+    0,
+    new Float32Array([
+      destination.x,
+      destination.y,
+      destination.width,
+      destination.height,
+      red[0],
+      red[1],
+      red[2],
+      red[3],
+      green[0],
+      green[1],
+      green[2],
+      green[3],
+      blue[0],
+      blue[1],
+      blue[2],
+      blue[3],
+      visual.opacity,
+      0,
+      0,
+      0
+    ]));
+}
+
+function createCompositionGaussianUniform(
+  standardDeviation,
+  directionX,
+  directionY) {
+  const sigma =
+    Math.max(
+      0.0001,
+      Math.min(32, Number(standardDeviation)));
+  const radius = Math.min(96, Math.ceil(3 * sigma));
+  const weights = new Float64Array(radius + 1);
+  weights[0] = 1;
+  let total = 1;
+  const denominator = 2 * sigma * sigma;
+  for (let index = 1; index <= radius; index++) {
+    const weight =
+      Math.exp(-(index * index) / denominator);
+    weights[index] = weight;
+    total += 2 * weight;
+  }
+  // TextureGaussianBlur.wgsl owns a fixed 228-float layout:
+  // axis + RGB rows + planar-YUV metadata + 48 packed tap pairs.
+  // Browser composition uses the RGB lane, so the YUV fields remain zero.
+  const values = new Float32Array(228);
+  values[0] = directionX;
+  values[1] = directionY;
+  values[2] = 1 / total;
+  const pairCount = Math.ceil(radius / 2);
+  values[3] = pairCount;
+  values[4] = 1;
+  values[9] = 1;
+  values[14] = 1;
+  for (let pair = 0; pair < pairCount; pair++) {
+    const first = pair * 2 + 1;
+    const second = first + 1;
+    const firstWeight = weights[first];
+    const secondWeight =
+      second <= radius ? weights[second] : 0;
+    const combined = firstWeight + secondWeight;
+    const offset =
+      combined > 0
+        ? (first * firstWeight +
+           second * secondWeight) /
+          combined
+        : first;
+    const uniformIndex = 36 + pair * 4;
+    values[uniformIndex] = offset;
+    values[uniformIndex + 1] = combined / total;
+  }
+  return values;
+}
+
+async function writeBrowserCompositionBlob(token, name, blob) {
+  const handle = state.saveFileHandles.get(token);
+  if (handle) {
+    const writable = await handle.createWritable();
+    try {
+      await writable.write(blob);
+      await writable.close();
+    } catch (error) {
+      try { await writable.abort(); } catch { }
+      throw error;
+    }
+    return;
+  }
+
+  const pickerMode =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuSavePicker');
+  if (pickerMode === 'memory') {
+    const prefix = new Uint8Array(
+      await blob.slice(0, 12).arrayBuffer());
+    document.documentElement.dataset.progpuDownloadName =
+      name || 'download.mp4';
+    document.documentElement.dataset.progpuDownloadLength =
+      String(blob.size);
+    document.documentElement.dataset.progpuDownloadPrefix =
+      [...prefix]
+        .map(value => value.toString(16).padStart(2, '0'))
+        .join('');
+    void blob.arrayBuffer().then(buffer => {
+      const encodedBytes = new Uint8Array(buffer);
+      const containsAscii = text => {
+        const pattern =
+          [...text].map(
+            character =>
+              character.charCodeAt(0));
+        for (let offset = 0;
+             offset <=
+               encodedBytes.length -
+                 pattern.length;
+             offset++) {
+          let matches = true;
+          for (let index = 0;
+               index < pattern.length;
+               index++) {
+            if (encodedBytes[offset + index] !==
+                pattern[index]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) return true;
+        }
+        return false;
+      };
+      document.documentElement.dataset.progpuDownloadHasVideo =
+        String(
+          containsAscii('vide') &&
+          containsAscii('avc1'));
+      document.documentElement.dataset.progpuDownloadHasAudio =
+        String(
+          containsAscii('soun') &&
+          containsAscii('mp4a'));
+    }).catch(error =>
+      console.error(
+        '[ProGPU] Browser MP4 track probe failed.',
+        error));
+    if (state.lastMediaExportUrl) {
+      URL.revokeObjectURL(
+        state.lastMediaExportUrl);
+    }
+    state.lastMediaExportProbe?.remove();
+    const url = URL.createObjectURL(blob);
+    state.lastMediaExportUrl = url;
+    const probe = document.createElement('video');
+    state.lastMediaExportProbe = probe;
+    try {
+      const metadata =
+        waitForMediaEvent(
+          probe,
+          'loadedmetadata');
+      probe.src = url;
+      probe.load();
+      await metadata;
+      document.documentElement.dataset.progpuDownloadDuration =
+        String(probe.duration);
+      document.documentElement.dataset.progpuDownloadWidth =
+        String(probe.videoWidth);
+      document.documentElement.dataset.progpuDownloadHeight =
+        String(probe.videoHeight);
+      probe.muted = true;
+      probe.playsInline = true;
+      probe.style.position = 'fixed';
+      probe.style.right = '8px';
+      probe.style.bottom = '8px';
+      probe.style.width = '320px';
+      probe.style.height = '180px';
+      probe.style.objectFit = 'contain';
+      probe.style.background = 'black';
+      probe.style.zIndex = '100000';
+      probe.style.border = '2px solid #18a0fb';
+      document.body.appendChild(probe);
+      await seekCompositionElement(
+        probe,
+        Math.min(
+          2,
+          Math.max(0, probe.duration / 2)));
+      document.documentElement.dataset.progpuDownloadPreview =
+        String(probe.currentTime);
+    } catch (error) {
+      probe.remove();
+      state.lastMediaExportProbe = null;
+      URL.revokeObjectURL(url);
+      state.lastMediaExportUrl = null;
+      throw error;
+    }
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = name || 'download.mp4';
+  anchor.click();
+  queueMicrotask(() => URL.revokeObjectURL(url));
+}
+
+function compositionTimelineEntry(
+  visual,
+  start,
+  duration,
+  trimStart,
+  volume,
+  audioEnabled = true,
+  audioGraph = []) {
+  return {
+    visual,
+    element: visual?.element || null,
+    start,
+    end: start + Math.max(0, duration),
+    trimStart,
+    volume,
+    audioEnabled,
+    audioGraph:
+      Array.isArray(audioGraph)
+        ? audioGraph
+        : [],
+    active: false,
+    audioNodes: null
+  };
+}
+
+async function renderBrowserMediaComposition(
+  operationId,
+  requestJson,
+  shaderSource,
+  gaussianShaderSource) {
+  const operation = {
+    aborted: false,
+    recorder: null,
+    animationFrame: 0,
+    thumbnailBytes: null
+  };
+  state.mediaCompositionExports ??= new Map();
+  state.mediaCompositionExports.set(operationId, operation);
+  const elements = [];
+  const resources = [];
+  const streamTracks = [];
+  let audioContext = null;
+  let exportDevice = null;
+  let exportCanvas = null;
+  let captureCanvas = null;
+  let isThumbnail = false;
+
+  const progress = value => {
+    if (state.dispatchMediaExportProgress) {
+      state.dispatchMediaExportProgress(
+        operationId,
+        Math.max(0, Math.min(100, value)));
+    }
+  };
+  const phase = value => {
+    if (new URLSearchParams(
+          globalThis.location.search)
+        .get('progpuSavePicker') === 'memory') {
+      document.documentElement.dataset.progpuMediaExportPhase =
+        value;
+    }
+  };
+
+  try {
+    phase('starting');
+    const request = JSON.parse(requestJson);
+    isThumbnail =
+      Array.isArray(request.thumbnailPositions);
+    const mimeType =
+      isThumbnail
+        ? 'image/png'
+        : browserMp4RecorderMimeType(
+            Boolean(request.includeAudio));
+    if ((!isThumbnail && !mimeType) ||
+        !navigator.gpu ||
+        typeof OffscreenCanvas !== 'function' ||
+        (isThumbnail &&
+         typeof OffscreenCanvas.prototype.convertToBlob !==
+           'function') ||
+        (!isThumbnail &&
+         typeof HTMLCanvasElement.prototype.captureStream !==
+           'function')) {
+      return 3;
+    }
+    if (!(request.width > 0 && request.height > 0 &&
+          request.frameRate > 0 &&
+          Array.isArray(request.clips) &&
+          request.clips.length > 0 &&
+          (!isThumbnail ||
+           request.thumbnailPositions.length > 0))) {
+      return 2;
+    }
+    const requestedVisualClips = [
+      ...request.clips,
+      ...(request.overlayLayers || [])
+        .flatMap(layer =>
+          layer.map(overlay => overlay.clip))
+    ];
+    const hasGaussian =
+      requestedVisualClips.some(
+        clip =>
+          clip.argb === undefined &&
+          Number(clip.blurStandardDeviation) > 0);
+    if (request.includeAudio) {
+      // Construct and unlock Web Audio before the first asynchronous GPU or
+      // media wait. Browsers consume transient user activation at task
+      // boundaries, and a delayed resume can otherwise remain pending.
+      audioContext = new AudioContext({
+        latencyHint: 'playback'
+      });
+      await audioContext.resume();
+    }
+
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: 'high-performance'
+    });
+    if (!adapter) return 3;
+    phase('adapter');
+    exportDevice = await adapter.requestDevice();
+    let exportGpuError = null;
+    exportDevice.addEventListener(
+      'uncapturederror',
+      event => {
+        const message =
+          String(
+            event.error?.message ||
+            event.error);
+        exportGpuError = new Error(message);
+        if (isMemoryProbe) {
+          document.documentElement.dataset.progpuMediaExportGpuError =
+            message;
+        }
+        console.error(
+          `[ProGPU] Browser media export WebGPU validation error: ${message}`);
+      });
+    exportCanvas =
+      new OffscreenCanvas(
+        request.width,
+        request.height);
+    exportCanvas.width = request.width;
+    exportCanvas.height = request.height;
+    const isMemoryProbe =
+      new URLSearchParams(
+        globalThis.location.search)
+        .get('progpuSavePicker') === 'memory';
+    const isClearOnlyProbe =
+      new URLSearchParams(
+        globalThis.location.search)
+        .get('progpuGpuClearOnly') === '1';
+    const context = exportCanvas.getContext('webgpu');
+    if (!context) return 3;
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    context.configure({
+      device: exportDevice,
+      format,
+      alphaMode: 'opaque'
+    });
+    const shader = exportDevice.createShaderModule({
+      label: 'ProGPU browser media composition',
+      code: shaderSource
+    });
+    const pipeline = await exportDevice.createRenderPipelineAsync({
+      label: 'ProGPU browser media composition pipeline',
+      layout: 'auto',
+      vertex: {
+        module: shader,
+        entryPoint: 'vs_main'
+      },
+      fragment: {
+        module: shader,
+        entryPoint: 'fs_main',
+        targets: [{
+          format,
+          blend: {
+            color: {
+              operation: 'add',
+              srcFactor: 'one',
+              dstFactor: 'one-minus-src-alpha'
+            },
+            alpha: {
+              operation: 'add',
+              srcFactor: 'one',
+              dstFactor: 'one-minus-src-alpha'
+            }
+          }
+        }]
+      },
+      primitive: {
+        topology: 'triangle-list'
+      }
+    });
+    let gaussianPipeline = null;
+    if (hasGaussian) {
+      const gaussianShader =
+        exportDevice.createShaderModule({
+          label: 'ProGPU browser media Gaussian blur',
+          code: gaussianShaderSource
+        });
+      gaussianPipeline =
+        await exportDevice.createRenderPipelineAsync({
+          label:
+            'ProGPU browser media Gaussian blur pipeline',
+          layout: 'auto',
+          vertex: {
+            module: gaussianShader,
+            entryPoint: 'vs_main'
+          },
+          fragment: {
+            module: gaussianShader,
+            entryPoint: 'fs_main',
+            targets: [{
+              format: 'rgba8unorm'
+            }]
+          },
+          primitive: {
+            topology: 'triangle-list'
+          }
+        });
+    }
+    phase('pipeline');
+    const sampler = exportDevice.createSampler({
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+      minFilter: 'linear',
+      magFilter: 'linear'
+    });
+
+    const createVisual = async (
+      clip,
+      destination,
+      opacity = 1) => {
+      const visual = {
+        element: null,
+        texture: null,
+        uniform: exportDevice.createBuffer({
+          size: 80,
+          usage:
+            GPUBufferUsage.UNIFORM |
+            GPUBufferUsage.COPY_DST
+        }),
+        bindGroup: null,
+        destination,
+        redTransform:
+          clip.redTransform ?? [1, 0, 0, 0],
+        greenTransform:
+          clip.greenTransform ?? [0, 1, 0, 0],
+        blueTransform:
+          clip.blueTransform ?? [0, 0, 1, 0],
+        blurStandardDeviation:
+          Math.max(
+            0,
+            Math.min(
+              32,
+              Number(
+                clip.blurStandardDeviation) || 0)),
+        blurIntermediate: null,
+        blurOutput: null,
+        blurHorizontalUniform: null,
+        blurVerticalUniform: null,
+        blurHorizontalBindGroup: null,
+        blurVerticalBindGroup: null,
+        opacity,
+        isColor: clip.argb !== undefined
+      };
+      resources.push(visual.uniform);
+      if (visual.isColor) {
+        visual.texture = exportDevice.createTexture({
+          size: [1, 1, 1],
+          format: 'rgba8unorm',
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.RENDER_ATTACHMENT
+        });
+        const argb = Number(clip.argb) >>> 0;
+        exportDevice.queue.writeTexture(
+          { texture: visual.texture },
+          new Uint8Array([
+            (argb >>> 16) & 0xff,
+            (argb >>> 8) & 0xff,
+            argb & 0xff,
+            (argb >>> 24) & 0xff
+          ]),
+          { bytesPerRow: 4 },
+          { width: 1, height: 1 });
+      } else {
+        visual.element =
+          await createCompositionMediaElement(
+            clip.uri,
+            false);
+        elements.push(visual.element);
+        visual.texture = exportDevice.createTexture({
+          size: [
+            Math.max(1, visual.element.videoWidth),
+            Math.max(1, visual.element.videoHeight),
+            1
+          ],
+          format: 'rgba8unorm',
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.RENDER_ATTACHMENT
+        });
+      }
+      resources.push(visual.texture);
+      if (!visual.isColor &&
+          visual.blurStandardDeviation > 0) {
+        if (!gaussianPipeline) {
+          throw new Error(
+            'The Gaussian media pipeline was not created.');
+        }
+        const blurSize = [
+          Math.max(1, visual.element.videoWidth),
+          Math.max(1, visual.element.videoHeight),
+          1
+        ];
+        const blurOutputWidth =
+          Math.max(
+            1,
+            request.width *
+              Math.abs(destination.width));
+        const blurOutputHeight =
+          Math.max(
+            1,
+            request.height *
+              Math.abs(destination.height));
+        const blurUsage =
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.RENDER_ATTACHMENT;
+        visual.blurIntermediate =
+          exportDevice.createTexture({
+            size: blurSize,
+            format: 'rgba8unorm',
+            usage: blurUsage
+          });
+        visual.blurOutput =
+          exportDevice.createTexture({
+            size: blurSize,
+            format: 'rgba8unorm',
+            usage: blurUsage
+          });
+        visual.blurHorizontalUniform =
+          exportDevice.createBuffer({
+            size: 912,
+            usage:
+              GPUBufferUsage.UNIFORM |
+              GPUBufferUsage.COPY_DST
+          });
+        visual.blurVerticalUniform =
+          exportDevice.createBuffer({
+            size: 912,
+            usage:
+              GPUBufferUsage.UNIFORM |
+              GPUBufferUsage.COPY_DST
+          });
+        resources.push(
+          visual.blurIntermediate,
+          visual.blurOutput,
+          visual.blurHorizontalUniform,
+          visual.blurVerticalUniform);
+        exportDevice.queue.writeBuffer(
+          visual.blurHorizontalUniform,
+          0,
+          createCompositionGaussianUniform(
+            visual.blurStandardDeviation,
+            1 / blurOutputWidth,
+            0));
+        exportDevice.queue.writeBuffer(
+          visual.blurVerticalUniform,
+          0,
+          createCompositionGaussianUniform(
+            visual.blurStandardDeviation,
+            0,
+            1 / blurOutputHeight));
+        const gaussianLayout =
+          gaussianPipeline.getBindGroupLayout(0);
+        visual.blurHorizontalBindGroup =
+          exportDevice.createBindGroup({
+            layout: gaussianLayout,
+            entries: [
+              { binding: 0, resource: sampler },
+              {
+                binding: 1,
+                resource:
+                  visual.texture.createView()
+              },
+              {
+                binding: 2,
+                resource:
+                  visual.texture.createView()
+              },
+              {
+                binding: 3,
+                resource: {
+                  buffer:
+                    visual.blurHorizontalUniform
+                }
+              }
+            ]
+          });
+        visual.blurVerticalBindGroup =
+          exportDevice.createBindGroup({
+            layout: gaussianLayout,
+            entries: [
+              { binding: 0, resource: sampler },
+              {
+                binding: 1,
+                resource:
+                  visual.blurIntermediate
+                    .createView()
+              },
+              {
+                binding: 2,
+                resource:
+                  visual.blurIntermediate
+                    .createView()
+              },
+              {
+                binding: 3,
+                resource: {
+                  buffer:
+                    visual.blurVerticalUniform
+                }
+              }
+            ]
+          });
+      }
+      writeCompositionUniform(exportDevice, visual);
+      const compositionTexture =
+        visual.blurOutput || visual.texture;
+      visual.bindGroup = exportDevice.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          {
+            binding: 1,
+            resource:
+              compositionTexture.createView()
+          },
+          {
+            binding: 2,
+            resource: {
+              buffer: visual.uniform
+            }
+          }
+        ]
+      });
+      return visual;
+    };
+
+    const baseEntries = [];
+    let totalDuration = 0;
+    for (const clip of request.clips) {
+      const visual = await createVisual(
+        clip,
+        { x: 0, y: 0, width: 1, height: 1 });
+      const duration = Math.max(0, Number(clip.duration) || 0);
+      baseEntries.push(
+        compositionTimelineEntry(
+          visual,
+          totalDuration,
+          duration,
+          Math.max(0, Number(clip.trimStart) || 0),
+          Math.max(0, Number(clip.volume) || 0),
+          true,
+          clip.audioGraph));
+      totalDuration += duration;
+    }
+    phase('media');
+    if (!(totalDuration > 0)) return 2;
+
+    const overlayEntries = [];
+    for (const layer of request.overlayLayers || []) {
+      for (const overlay of layer) {
+        const clip = overlay.clip;
+        const visual = await createVisual(
+          clip,
+          {
+            x: Number(overlay.x) / request.width,
+            y: Number(overlay.y) / request.height,
+            width: Number(overlay.width) / request.width,
+            height: Number(overlay.height) / request.height
+          },
+          Math.max(0, Math.min(1, Number(overlay.opacity))));
+        overlayEntries.push(
+          compositionTimelineEntry(
+            visual,
+            Math.max(0, Number(overlay.delay) || 0),
+            Math.max(0, Number(clip.duration) || 0),
+            Math.max(0, Number(clip.trimStart) || 0),
+            Math.max(0, Number(clip.volume) || 0),
+            Boolean(overlay.audioEnabled),
+            clip.audioGraph));
+      }
+    }
+
+    const backgroundEntries = [];
+    for (const track of request.backgroundAudio || []) {
+      const element =
+        await createCompositionMediaElement(
+          track.uri,
+          true);
+      elements.push(element);
+      const delay = Number(track.delay) || 0;
+      const advance = Math.max(0, -delay);
+      backgroundEntries.push({
+        visual: null,
+        element,
+        start: Math.max(0, delay),
+        end:
+          Math.max(0, delay) +
+          Math.max(
+            0,
+            (Number(track.duration) || 0) -
+              advance),
+        trimStart:
+          Math.max(0, Number(track.trimStart) || 0) +
+          advance,
+        volume:
+          Math.max(0, Number(track.volume) || 0),
+        audioEnabled: true,
+        active: false,
+        audioGraph:
+          Array.isArray(track.audioGraph)
+            ? track.audioGraph
+            : [],
+        audioNodes: null
+      });
+    }
+    const allEntries = [
+      ...baseEntries,
+      ...overlayEntries,
+      ...backgroundEntries
+    ];
+    const visualEntries = [
+      ...baseEntries,
+      ...overlayEntries
+    ];
+
+    let audioDestination = null;
+    if (request.includeAudio) {
+      audioDestination =
+        audioContext.createMediaStreamDestination();
+      for (const entry of allEntries) {
+        if (!entry.element ||
+            !entry.audioEnabled) continue;
+        const source =
+          audioContext.createMediaElementSource(
+            entry.element);
+        const audioNodes = [];
+        const volumeNode = audioContext.createGain();
+        volumeNode.gain.value = entry.volume;
+        source.connect(volumeNode);
+        audioNodes.push(volumeNode);
+        let tail = volumeNode;
+        for (const state of entry.audioGraph) {
+          const kind = Number(state?.[0]);
+          const parameter0 = Number(state?.[1]);
+          let node = null;
+          if (kind === 1) {
+            node = audioContext.createGain();
+            node.gain.value = parameter0;
+          } else if (kind === 2) {
+            if (typeof audioContext.createStereoPanner !==
+                'function') {
+              throw new DOMException(
+                'StereoPannerNode is unavailable.',
+                'NotSupportedError');
+            }
+            node = audioContext.createStereoPanner();
+            node.pan.value = parameter0;
+          } else {
+            throw new DOMException(
+              'The browser media audio graph contains an unsupported node.',
+              'NotSupportedError');
+          }
+          tail.connect(node);
+          audioNodes.push(node);
+          tail = node;
+        }
+        tail.connect(audioDestination);
+        entry.audioNodes = audioNodes;
+      }
+      await audioContext.resume();
+    } else {
+      for (const entry of allEntries) {
+        if (entry.element) entry.element.muted = true;
+      }
+    }
+
+    await Promise.all(
+      allEntries
+        .filter(entry => entry.element)
+        .map(entry =>
+          seekCompositionElement(
+            entry.element,
+            entry.trimStart)));
+    phase('seeked');
+
+    const updateEntry = (entry, timelineSeconds) => {
+      const active =
+        timelineSeconds >= entry.start &&
+        timelineSeconds < entry.end;
+      if (!entry.element) {
+        entry.active = active;
+        return;
+      }
+      if (active) {
+        const desired =
+          entry.trimStart +
+          timelineSeconds -
+          entry.start;
+        if (!entry.active ||
+            Math.abs(
+              entry.element.currentTime -
+              desired) > 0.25) {
+          entry.element.currentTime = desired;
+        }
+        if (entry.element.paused) {
+          void entry.element.play().catch(error => {
+            // Chromium rejects a still-pending play promise with AbortError
+            // when the timeline reaches its end and pauses the element. That
+            // is normal completion, not an encoder or decode failure.
+            if (error?.name !== 'AbortError') {
+              operation.playError = error;
+            }
+          });
+        }
+      } else if (!entry.element.paused) {
+        entry.element.pause();
+      }
+      entry.active = active;
+    };
+
+    const encodeGaussianPass = (
+      encoder,
+      target,
+      bindGroup) => {
+      const blurPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: target.createView(),
+          clearValue: {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0
+          },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      });
+      blurPass.setPipeline(gaussianPipeline);
+      blurPass.setBindGroup(0, bindGroup);
+      blurPass.draw(3);
+      blurPass.end();
+    };
+    const commandBufferSubmission = [null];
+
+    const renderActiveVisuals = async () => {
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < visualEntries.length;
+             index++) {
+          const entry = visualEntries[index];
+          const visual = entry.visual;
+          if (!entry.active ||
+              !visual?.element ||
+              visual.element.readyState <
+                HTMLMediaElement.HAVE_CURRENT_DATA) {
+            continue;
+          }
+          exportDevice.queue.copyExternalImageToTexture(
+            { source: visual.element },
+            { texture: visual.texture },
+            {
+              width: visual.element.videoWidth,
+              height: visual.element.videoHeight
+            });
+        }
+      }
+
+      const encoder =
+        exportDevice.createCommandEncoder({
+          label: 'ProGPU browser media composition frame'
+        });
+      let activeBase = null;
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < baseEntries.length;
+             index++) {
+          if (baseEntries[index].active) {
+            activeBase = baseEntries[index];
+            break;
+          }
+        }
+      }
+      if (activeBase?.visual.blurOutput) {
+        const visual = activeBase.visual;
+        encodeGaussianPass(
+          encoder,
+          visual.blurIntermediate,
+          visual.blurHorizontalBindGroup);
+        encodeGaussianPass(
+          encoder,
+          visual.blurOutput,
+          visual.blurVerticalBindGroup);
+      }
+      if (!isClearOnlyProbe) {
+        for (let index = 0;
+             index < overlayEntries.length;
+             index++) {
+          const entry = overlayEntries[index];
+          if (!entry.active ||
+              !entry.visual.blurOutput) {
+            continue;
+          }
+          const visual = entry.visual;
+          encodeGaussianPass(
+            encoder,
+            visual.blurIntermediate,
+            visual.blurHorizontalBindGroup);
+          encodeGaussianPass(
+            encoder,
+            visual.blurOutput,
+            visual.blurVerticalBindGroup);
+        }
+      }
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view:
+            context.getCurrentTexture().createView(),
+          clearValue: {
+            r: isClearOnlyProbe ? 0.2 : 0,
+            g: 0,
+            b: isClearOnlyProbe ? 0.2 : 0,
+            a: 1
+          },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      });
+      pass.setPipeline(pipeline);
+      if (activeBase) {
+        pass.setBindGroup(
+          0,
+          activeBase.visual.bindGroup);
+        pass.draw(6);
+      }
+      for (let index = 0;
+           !isClearOnlyProbe &&
+           index < overlayEntries.length;
+           index++) {
+        const entry = overlayEntries[index];
+        if (!entry.active) continue;
+        pass.setBindGroup(
+          0,
+          entry.visual.bindGroup);
+        pass.draw(6);
+      }
+      pass.end();
+      commandBufferSubmission[0] =
+        encoder.finish();
+      exportDevice.queue.submit(
+        commandBufferSubmission);
+      await exportDevice.queue.onSubmittedWorkDone();
+      if (exportGpuError) {
+        throw exportGpuError;
+      }
+    };
+
+    if (isThumbnail) {
+      const frameDuration =
+        1 / Math.max(1, Number(request.frameRate));
+      const finalEntry =
+        baseEntries[baseEntries.length - 1];
+      const finalFrameStart =
+        Math.max(
+          finalEntry.start,
+          totalDuration - frameDuration);
+      const approximateForSpeed =
+        Number(request.thumbnailPrecision) === 1;
+      const thumbnailBytes = [];
+      for (const requestedPosition of
+           request.thumbnailPositions) {
+        if (operation.aborted) return 1;
+        const requested =
+          Number(requestedPosition);
+        if (!Number.isFinite(requested) ||
+            requested < 0 ||
+            requested > totalDuration) {
+          return 2;
+        }
+        const timelineSeconds =
+          requested >= totalDuration
+            ? finalFrameStart
+            : requested;
+        const seeks = [];
+        for (const entry of visualEntries) {
+          const active =
+            timelineSeconds >= entry.start &&
+            timelineSeconds < entry.end;
+          if (entry.element) {
+            entry.element.pause();
+            if (active) {
+              const desired =
+                entry.trimStart +
+                timelineSeconds -
+                entry.start;
+              seeks.push(
+                seekCompositionElement(
+                  entry.element,
+                  desired,
+                  approximateForSpeed));
+            }
+          }
+          entry.active = active;
+        }
+        await Promise.all(seeks);
+        if (operation.aborted) return 1;
+        await renderActiveVisuals();
+        const blob =
+          await exportCanvas.convertToBlob({
+            type: 'image/png'
+          });
+        if (blob.type !== 'image/png' ||
+            blob.size === 0) {
+          throw new Error(
+            'The browser returned an invalid PNG thumbnail.');
+        }
+        thumbnailBytes.push(
+          new Uint8Array(
+            await blob.arrayBuffer()));
+      }
+      operation.thumbnailBytes =
+        thumbnailBytes;
+      const metadata = JSON.stringify({
+        contentType: 'image/png',
+        width: request.width,
+        height: request.height,
+        lengths:
+          thumbnailBytes.map(
+            bytes => bytes.byteLength)
+      });
+      state.dispatchMediaThumbnailCompletion(
+        operationId,
+        0,
+        metadata);
+      return 0;
+    }
+
+    captureCanvas =
+      document.createElement('canvas');
+    captureCanvas.width = request.width;
+    captureCanvas.height = request.height;
+    captureCanvas.style.position = 'fixed';
+    captureCanvas.style.left = '-10000px';
+    captureCanvas.style.top = '0';
+    captureCanvas.style.width = '1px';
+    captureCanvas.style.height = '1px';
+    if (isMemoryProbe) {
+      captureCanvas.style.left = 'auto';
+      captureCanvas.style.right = '8px';
+      captureCanvas.style.bottom = '8px';
+      captureCanvas.style.top = 'auto';
+      captureCanvas.style.width = '320px';
+      captureCanvas.style.height = '180px';
+      captureCanvas.style.zIndex = '99999';
+      captureCanvas.style.border =
+        '2px solid #22c55e';
+    }
+    document.body.appendChild(captureCanvas);
+    const captureContext =
+      captureCanvas.getContext('2d', {
+        alpha: false,
+        desynchronized: true
+      });
+    if (!captureContext) return 3;
+    const canvasStream =
+      captureCanvas.captureStream(0);
+    const captureTrack =
+      canvasStream.getVideoTracks()[0] || null;
+    if (!captureTrack) return 3;
+
+    const renderFrame = async timelineSeconds => {
+      for (const entry of allEntries) {
+        updateEntry(entry, timelineSeconds);
+      }
+      if (operation.playError) {
+        throw operation.playError;
+      }
+      await renderActiveVisuals();
+      if (!operation.aborted) {
+        const bitmap =
+          exportCanvas.transferToImageBitmap();
+        captureContext.drawImage(
+          bitmap,
+          0,
+          0,
+          request.width,
+          request.height);
+        bitmap.close();
+        captureTrack.requestFrame?.();
+      }
+    };
+
+    await renderFrame(0);
+    phase('captured-first-frame');
+    for (const track of canvasStream.getTracks()) {
+      streamTracks.push(track);
+    }
+    const outputStream = new MediaStream(
+      canvasStream.getVideoTracks());
+    if (audioDestination) {
+      for (const track of
+           audioDestination.stream.getAudioTracks()) {
+        outputStream.addTrack(track);
+        streamTracks.push(track);
+      }
+    }
+
+    const chunks = [];
+    const recorderOptions = {
+      mimeType,
+      videoBitsPerSecond:
+        Math.max(1, Number(request.videoBitrate) || 8_000_000)
+    };
+    if (request.includeAudio &&
+        request.audioBitrate > 0) {
+      recorderOptions.audioBitsPerSecond =
+        request.audioBitrate;
+    }
+    const recorder =
+      new MediaRecorder(
+        outputStream,
+        recorderOptions);
+    operation.recorder = recorder;
+    recorder.addEventListener(
+      'dataavailable',
+      event => {
+        if (event.data.size !== 0) {
+          chunks.push(event.data);
+        }
+      });
+    const stopped = new Promise((resolve, reject) => {
+      recorder.addEventListener(
+        'stop',
+        resolve,
+        { once: true });
+      recorder.addEventListener(
+        'error',
+        event =>
+          reject(
+            event.error ||
+            new Error(
+              'The browser media recorder failed.')),
+        { once: true });
+    });
+
+    recorder.start(1_000);
+    phase('recording');
+    const clockStart = performance.now();
+    let lastProgressUpdate = -1;
+    await new Promise((resolve, reject) => {
+      const tick = async now => {
+        try {
+          if (operation.aborted) {
+            resolve();
+            return;
+          }
+          const elapsed =
+            Math.min(
+              totalDuration,
+              (now - clockStart) / 1_000);
+          await renderFrame(elapsed);
+          const percent =
+            elapsed * 100 / totalDuration;
+          if (percent - lastProgressUpdate >= 5) {
+            progress(percent);
+            lastProgressUpdate = percent;
+          }
+          if (elapsed >= totalDuration) {
+            resolve();
+            return;
+          }
+          operation.animationFrame =
+            requestAnimationFrame(tick);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      operation.animationFrame =
+        requestAnimationFrame(tick);
+    });
+    if (recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+    await stopped;
+    phase('recorded');
+    if (operation.aborted) return 1;
+    const blob = new Blob(
+      chunks,
+      { type: recorder.mimeType || mimeType });
+    if (blob.size === 0) {
+      throw new Error(
+        'The browser media recorder produced no bytes.');
+    }
+    await writeBrowserCompositionBlob(
+      request.token,
+      request.name,
+      blob);
+    phase('written');
+    progress(100);
+    state.dispatchMediaExportCompletion(
+      operationId,
+      0);
+    return 0;
+  } catch (error) {
+    if (!operation.aborted) {
+      console.error(
+        isThumbnail
+          ? '[ProGPU] Browser WebGPU media thumbnails failed.'
+          : '[ProGPU] Browser WebGPU media export failed.',
+        error);
+    }
+    const result =
+      error?.name === 'NotSupportedError' ? 3 : 1;
+    if (!isThumbnail) {
+      state.dispatchMediaExportCompletion(
+        operationId,
+        result);
+    }
+    return result;
+  } finally {
+    if (operation.animationFrame) {
+      cancelAnimationFrame(
+        operation.animationFrame);
+    }
+    if (operation.recorder &&
+        operation.recorder.state !== 'inactive') {
+      try { operation.recorder.stop(); } catch { }
+    }
+    for (const entry of elements) {
+      try { entry.pause(); } catch { }
+      entry.removeAttribute('src');
+      try { entry.load(); } catch { }
+      entry.remove();
+    }
+    for (const track of streamTracks) {
+      try { track.stop(); } catch { }
+    }
+    for (const resource of resources) {
+      try { resource.destroy(); } catch { }
+    }
+    if (audioContext) {
+      try { await audioContext.close(); } catch { }
+    }
+    if (exportCanvas?.remove) exportCanvas.remove();
+    if (captureCanvas) captureCanvas.remove();
+    if (exportDevice) {
+      try { exportDevice.destroy(); } catch { }
+    }
+    if (!operation.thumbnailBytes ||
+        operation.aborted) {
+      state.mediaCompositionExports.delete(operationId);
+    }
+  }
+}
+
+function startBrowserMediaCompositionExport(
+  operationId,
+  requestJson,
+  shaderSource,
+  gaussianShaderSource) {
+  void renderBrowserMediaComposition(
+    operationId,
+    requestJson,
+    shaderSource,
+    gaussianShaderSource).then(
+      result =>
+        state.dispatchMediaExportCompletion(
+          operationId,
+          result),
+      error => {
+        console.error(
+          '[ProGPU] Browser media export callback failed.',
+          error);
+        state.dispatchMediaExportCompletion(
+          operationId,
+          1);
+      });
+}
+
+function startBrowserMediaCompositionThumbnails(
+  operationId,
+  requestJson,
+  shaderSource,
+  gaussianShaderSource) {
+  void renderBrowserMediaComposition(
+    operationId,
+    requestJson,
+    shaderSource,
+    gaussianShaderSource).then(
+      result => {
+        if (result !== 0) {
+          state.dispatchMediaThumbnailCompletion(
+            operationId,
+            result,
+            '');
+        }
+      },
+      error => {
+        console.error(
+          '[ProGPU] Browser media thumbnail callback failed.',
+          error);
+        state.dispatchMediaThumbnailCompletion(
+          operationId,
+          1,
+          '');
+      });
+}
+
+function copyBrowserMediaCompositionThumbnail(
+  operationId,
+  index,
+  destination,
+  length) {
+  const bytes =
+    state.mediaCompositionExports
+      ?.get(operationId)
+      ?.thumbnailBytes?.[index];
+  if (!bytes ||
+      bytes.byteLength !== length) {
+    return -1;
+  }
+  const heap = runtime.localHeapViewU8();
+  if (destination < 0 ||
+      destination + length > heap.byteLength) {
+    throw new RangeError(
+      'Thumbnail destination is outside WASM memory.');
+  }
+  heap.set(bytes, destination);
+  return length;
+}
+
+function clearBrowserMediaCompositionThumbnails(
+  operationId) {
+  const operation =
+    state.mediaCompositionExports?.get(operationId);
+  if (operation) {
+    operation.thumbnailBytes = null;
+  }
+  state.mediaCompositionExports?.delete(operationId);
+}
+
+function cancelBrowserMediaCompositionExport(operationId) {
+  const operation =
+    state.mediaCompositionExports?.get(operationId);
+  if (!operation) return;
+  operation.aborted = true;
+  if (operation.animationFrame) {
+    cancelAnimationFrame(
+      operation.animationFrame);
+  }
+  if (operation.recorder &&
+      operation.recorder.state !== 'inactive') {
+    try { operation.recorder.stop(); } catch { }
+  }
+}
+
 function storagePickerTypes(filters) {
   const extensions = String(filters || '')
     .split(',')
@@ -797,6 +2357,15 @@ function rememberStorageHandle(handles, prefix, handle) {
 
 function encodeStorageSelection(token, name) {
   return `${token}\n${encodeURIComponent(name)}`;
+}
+
+function usesNativeSaveStoragePicker() {
+  const savePickerMode =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuSavePicker');
+  return savePickerMode !== 'download' &&
+    savePickerMode !== 'memory' &&
+    typeof globalThis.showSaveFilePicker === 'function';
 }
 
 function pickStorageWithInput(filters, directory = false) {
@@ -852,7 +2421,28 @@ async function pickOpenStorage(filters) {
 
 async function pickSaveStorage(filters, defaultName) {
   const name = defaultName || 'untitled.txt';
-  if (typeof globalThis.showSaveFilePicker !== 'function') return encodeStorageSelection('download', name);
+  const savePickerMode =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuSavePicker');
+  document.documentElement.dataset.progpuSavePickerObserved =
+    savePickerMode || 'native';
+  if (savePickerMode === 'download' ||
+      savePickerMode === 'memory' ||
+      typeof globalThis.showSaveFilePicker !== 'function') {
+    document.documentElement.dataset.progpuSavePickerResult =
+      'download';
+    if (savePickerMode === 'memory') {
+      document.documentElement.dataset.progpuSavePickerYielded =
+        'promise';
+    }
+    const selection =
+      encodeStorageSelection('download', name);
+    if (savePickerMode === 'memory') {
+      document.documentElement.dataset.progpuSavePickerSelection =
+        selection;
+    }
+    return selection;
+  }
   try {
     const types = storagePickerTypes(filters);
     const options = types ? { suggestedName: name, types } : { suggestedName: name };
@@ -877,11 +2467,11 @@ async function pickFolderStorage() {
   }
 }
 
-async function pickStorage(mode, filters, defaultName) {
-  if (mode === 0) return await pickOpenStorage(filters);
-  if (mode === 1) return await pickSaveStorage(filters, defaultName);
-  if (mode === 2) return await pickFolderStorage();
-  return '';
+function pickStorage(mode, filters, defaultName) {
+  if (mode === 0) return pickOpenStorage(filters);
+  if (mode === 1) return pickSaveStorage(filters, defaultName);
+  if (mode === 2) return pickFolderStorage();
+  return Promise.resolve('');
 }
 
 async function writePickedStorageText(token, text) {
@@ -946,6 +2536,18 @@ function downloadBytes(name, source, length) {
   const heap = runtime.localHeapViewU8();
   if (source < 0 || length < 0 || source + length > heap.byteLength) throw new RangeError('Download source is outside WASM memory.');
   const bytes = heap.slice(source, source + length);
+  if (new URLSearchParams(globalThis.location.search)
+      .get('progpuSavePicker') === 'memory') {
+    document.documentElement.dataset.progpuDownloadName =
+      name || 'download.bin';
+    document.documentElement.dataset.progpuDownloadLength =
+      String(bytes.byteLength);
+    document.documentElement.dataset.progpuDownloadPrefix =
+      [...bytes.subarray(0, 12)]
+        .map(value => value.toString(16).padStart(2, '0'))
+        .join('');
+    return;
+  }
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -1102,6 +2704,260 @@ function requireResource(handle) {
   const value = state.resources.get(handle);
   if (!value) throw new Error(`Stale or unknown WebGPU handle 0x${handle.toString(16)}.`);
   return value;
+}
+
+function requireMediaElement(id) {
+  const entry = state.mediaElements.get(id);
+  if (!entry) throw new Error(`Unknown ProGPU media element ${id}.`);
+  return entry;
+}
+
+function mediaProgress(video) {
+  if (!Number.isFinite(video.duration) || video.duration <= 0 || video.buffered.length === 0) return 0;
+  return Math.max(0, Math.min(1, video.buffered.end(video.buffered.length - 1) / video.duration));
+}
+
+function dispatchMediaEvent(id, kind, video, message = '') {
+  if (!state.dispatchMediaEvent) return;
+  state.dispatchMediaEvent(
+    id,
+    kind,
+    Number.isFinite(video.currentTime) ? video.currentTime : 0,
+    Number.isFinite(video.duration) ? video.duration : 0,
+    video.videoWidth || 0,
+    video.videoHeight || 0,
+    mediaProgress(video),
+    message);
+}
+
+function scheduleMediaFrame(entry) {
+  if (entry.disposed || entry.frameCallbackActive) return;
+  entry.frameCallbackActive = true;
+  const callback = () => {
+    entry.frameCallbackActive = false;
+    if (entry.disposed) return;
+    dispatchMediaEvent(entry.id, 1, entry.video);
+    if (typeof entry.video.requestVideoFrameCallback === 'function' ||
+        (!entry.video.paused && !entry.video.ended)) {
+      scheduleMediaFrame(entry);
+    }
+  };
+  if (typeof entry.video.requestVideoFrameCallback === 'function') {
+    entry.frameCallbackHandle = entry.video.requestVideoFrameCallback(callback);
+  } else {
+    entry.frameCallbackHandle = requestAnimationFrame(callback);
+  }
+}
+
+async function createBrowserMedia(id, uri) {
+  if (state.mediaElements.has(id)) throw new Error(`ProGPU media element ${id} already exists.`);
+  const video = document.createElement('video');
+  video.preload = 'auto';
+  video.playsInline = true;
+  video.crossOrigin = 'anonymous';
+  video.style.display = 'none';
+  document.body.appendChild(video);
+
+  const entry = {
+    id,
+    video,
+    disposed: false,
+    frameCallbackActive: false,
+    frameCallbackHandle: 0,
+    audioContext: null,
+    audioSource: null,
+    panner: null,
+    audioEffects: new Map()
+  };
+  state.mediaElements.set(id, entry);
+
+  video.addEventListener('playing', () => {
+    dispatchMediaEvent(id, 2, video);
+    scheduleMediaFrame(entry);
+  });
+  video.addEventListener('pause', () => {
+    if (!video.ended) dispatchMediaEvent(id, 3, video);
+  });
+  video.addEventListener('waiting', () => dispatchMediaEvent(id, 4, video));
+  video.addEventListener('ended', () => dispatchMediaEvent(id, 5, video));
+  video.addEventListener('timeupdate', () => dispatchMediaEvent(id, 6, video));
+  video.addEventListener('progress', () => dispatchMediaEvent(id, 7, video));
+  video.addEventListener('seeked', () => dispatchMediaEvent(id, 9, video));
+  video.addEventListener('error', () => {
+    const error = video.error;
+    dispatchMediaEvent(id, 8, video, error ? `${error.code}: ${error.message || 'media error'}` : 'Unknown browser media error.');
+  });
+  video.addEventListener('loadeddata', () => {
+    dispatchMediaEvent(id, 1, video);
+    scheduleMediaFrame(entry);
+  });
+
+  const metadata = new Promise((resolve, reject) => {
+    video.addEventListener('loadedmetadata', resolve, { once: true });
+    video.addEventListener('error', () => reject(new Error(video.error?.message || 'The browser rejected the media source.')), { once: true });
+  });
+  video.src = uri;
+  video.load();
+  await metadata;
+  scheduleMediaFrame(entry);
+  return JSON.stringify({
+    duration: Number.isFinite(video.duration) ? video.duration : 0,
+    width: video.videoWidth || 0,
+    height: video.videoHeight || 0
+  });
+}
+
+function playBrowserMedia(id) {
+  const entry = requireMediaElement(id);
+  if (entry.audioContext?.state === 'suspended') void entry.audioContext.resume();
+  void entry.video.play().catch(error => dispatchMediaEvent(id, 8, entry.video, String(error?.message || error)));
+}
+
+function pauseBrowserMedia(id) {
+  requireMediaElement(id).video.pause();
+}
+
+function seekBrowserMedia(id, seconds) {
+  const video = requireMediaElement(id).video;
+  video.currentTime = Math.max(0, Number.isFinite(video.duration) ? Math.min(seconds, video.duration) : seconds);
+}
+
+function setBrowserMediaRate(id, rate) {
+  requireMediaElement(id).video.playbackRate = rate;
+}
+
+function setBrowserMediaLooping(id, looping) {
+  requireMediaElement(id).video.loop = looping;
+}
+
+function setBrowserMediaAudio(id, volume, balance, muted) {
+  const entry = requireMediaElement(id);
+  entry.video.volume = Math.max(0, Math.min(1, volume));
+  entry.video.muted = muted;
+  if (balance !== 0) ensureBrowserMediaAudioGraph(entry);
+  if (entry.panner) entry.panner.pan.value = Math.max(-1, Math.min(1, balance));
+}
+
+function ensureBrowserMediaAudioGraph(entry) {
+  if (entry.audioContext) return;
+  if (typeof AudioContext === 'undefined') throw new Error('This browser does not expose Web Audio.');
+  entry.audioContext = new AudioContext({ latencyHint: 'interactive' });
+  entry.audioSource = entry.audioContext.createMediaElementSource(entry.video);
+  entry.panner = entry.audioContext.createStereoPanner();
+  rebuildBrowserMediaAudioGraph(entry);
+}
+
+function rebuildBrowserMediaAudioGraph(entry) {
+  if (!entry.audioContext || !entry.audioSource || !entry.panner) return;
+  entry.audioSource.disconnect();
+  entry.panner.disconnect();
+  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+
+  let tail = entry.audioSource;
+  for (const effect of entry.audioEffects.values()) {
+    tail.connect(effect.node);
+    tail = effect.node;
+  }
+  tail.connect(entry.panner);
+  entry.panner.connect(entry.audioContext.destination);
+}
+
+function configureBrowserMediaAudioEffect(id, effectId, kind, parameter0, parameter1, parameter2, parameter3) {
+  const entry = requireMediaElement(id);
+  ensureBrowserMediaAudioGraph(entry);
+  let effect = entry.audioEffects.get(effectId);
+  if (!effect || effect.kind !== kind) {
+    if (effect) effect.node.disconnect();
+    if (kind === 1) {
+      effect = {
+        kind,
+        node: entry.audioContext.createGain()
+      };
+    } else if (kind === 2) {
+      effect = {
+        kind,
+        node: entry.audioContext.createStereoPanner()
+      };
+    } else {
+      throw new RangeError(`Unsupported browser media audio effect kind ${kind}.`);
+    }
+    entry.audioEffects.set(effectId, effect);
+  }
+
+  if (kind === 1) {
+    const gain = Number.isFinite(parameter0) ? Math.max(0, parameter0) : 1;
+    effect.node.gain.setValueAtTime(gain, entry.audioContext.currentTime);
+  } else if (kind === 2) {
+    const balance =
+      Number.isFinite(parameter0)
+        ? Math.max(-1, Math.min(1, parameter0))
+        : 0;
+    effect.node.pan.setValueAtTime(
+      balance,
+      entry.audioContext.currentTime);
+  }
+  rebuildBrowserMediaAudioGraph(entry);
+}
+
+function removeAllBrowserMediaAudioEffects(id) {
+  const entry = requireMediaElement(id);
+  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+  entry.audioEffects.clear();
+  rebuildBrowserMediaAudioGraph(entry);
+}
+
+function copyBrowserMediaFrame(id, width, height) {
+  const entry = requireMediaElement(id);
+  const video = entry.video;
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || width <= 0 || height <= 0) return false;
+
+  if (state.worker) {
+    if (typeof VideoFrame === 'undefined') return false;
+    const frame = new VideoFrame(video);
+    let transferred = false;
+    try {
+      state.worker.postMessage(
+        { type: 'media-frame-ready', mediaId: id, frame },
+        [frame]);
+      transferred = true;
+    } finally {
+      // A successful transfer moves the resource reference into the worker and
+      // closes this object. If postMessage fails before transfer, ownership
+      // remains here and must be released explicitly.
+      if (!transferred) frame.close();
+    }
+  }
+  return true;
+}
+
+function disposeBrowserMedia(id) {
+  const entry = state.mediaElements.get(id);
+  if (!entry) return;
+  entry.disposed = true;
+  if (entry.frameCallbackHandle) {
+    if (typeof entry.video.cancelVideoFrameCallback === 'function') entry.video.cancelVideoFrameCallback(entry.frameCallbackHandle);
+    else cancelAnimationFrame(entry.frameCallbackHandle);
+  }
+  entry.video.pause();
+  entry.video.removeAttribute('src');
+  entry.video.load();
+  entry.video.remove();
+  if (entry.audioSource) entry.audioSource.disconnect();
+  if (entry.panner) entry.panner.disconnect();
+  for (const effect of entry.audioEffects.values()) effect.node.disconnect();
+  entry.audioEffects.clear();
+  if (entry.audioContext) void entry.audioContext.close();
+  state.mediaElements.delete(id);
+  if (state.worker) {
+    // Worker messages and command packets use the same ordered port. This
+    // arrives after every already-posted frame/copy command and releases the
+    // final coalesced frame when the provider closes before consuming it.
+    state.worker.postMessage({ type: 'media-disposed', mediaId: id });
+  }
+}
+
+function getBrowserMediaElementCount() {
+  return state.mediaElements.size;
 }
 
 function dispatch(address, length) {
@@ -1583,6 +3439,26 @@ function execute(opcode, view, payload, payloadLength, absoluteBase) {
       requireResource(view.getUint32(payload, true)).unmap();
       state.mappedBuffers.delete(view.getUint32(payload, true));
       break;
+    case 74: {
+      const mediaId = view.getUint32(payload, true);
+      const textureHandle = view.getUint32(payload + 4, true);
+      const width = view.getUint32(payload + 8, true);
+      const height = view.getUint32(payload + 12, true);
+      const source = isDispatcherWorker
+        ? state.pendingMediaFrames.get(mediaId)
+        : requireMediaElement(mediaId).video;
+      if (!source) throw new Error(`No decoded browser media frame is ready for ${mediaId}.`);
+      if (isDispatcherWorker) state.pendingMediaFrames.delete(mediaId);
+      try {
+        state.device.queue.copyExternalImageToTexture(
+          { source },
+          { texture: requireResource(textureHandle) },
+          { width, height, depthOrArrayLayers: 1 });
+      } finally {
+        if (isDispatcherWorker) source.close();
+      }
+      break;
+    }
     default:
       throw new Error(`Unsupported ProGPU browser opcode ${opcode}.`);
   }
@@ -1712,6 +3588,25 @@ function updateCounters(frames, dispatches, commandBytes) {
   document.querySelector('#counter-bytes').textContent = Number(commandBytes).toLocaleString();
 }
 
+function publishBrowserMediaCapabilities() {
+  const mp4Candidates = [
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    'video/mp4;codecs="avc1.42E01E"',
+    'video/mp4'
+  ];
+  const selected =
+    typeof MediaRecorder === 'function'
+      ? mp4Candidates.find(
+          value =>
+            MediaRecorder.isTypeSupported(value)) || ''
+      : '';
+  document.documentElement.dataset.progpuMediaRecorderMp4 =
+    selected;
+  document.documentElement.dataset.progpuCanvasCapture =
+    String(typeof HTMLCanvasElement.prototype.captureStream ===
+      'function');
+}
+
 function readBenchmarkEnvironment() {
   const query = new URLSearchParams(globalThis.location.search);
   const environment = {};
@@ -1773,6 +3668,18 @@ async function handleDispatcherWorkerMessage(event) {
         new Uint8Array(requireResource(message.handle).getMappedRange(mapped.offset, mapped.size)).set(new Uint8Array(message.bytes));
         break;
       }
+      case 'media-frame-ready': {
+        const previous = state.pendingMediaFrames.get(message.mediaId);
+        previous?.close();
+        state.pendingMediaFrames.set(message.mediaId, message.frame);
+        break;
+      }
+      case 'media-disposed': {
+        const pending = state.pendingMediaFrames.get(message.mediaId);
+        pending?.close();
+        state.pendingMediaFrames.delete(message.mediaId);
+        break;
+      }
     }
   } catch (error) {
     if (message.id) globalThis.postMessage({ type: 'response', id: message.id, error: String(error?.stack || error) });
@@ -1787,10 +3694,139 @@ if (isDispatcherWorker) {
   });
 } else {
   initializeDiagnosticsVisibility();
+  publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
+  state.dispatchMediaEvent = browserExports.ProGPU.Browser.BrowserMediaCallbacks.DispatchEvent;
+  state.dispatchMediaExportProgress = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchProgress;
+  state.dispatchMediaExportCompletion = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchCompletion;
+  state.dispatchMediaThumbnailCompletion = browserExports.ProGPU.Browser.BrowserMediaThumbnailCallbacks.DispatchCompletion;
+  state.dispatchMediaStageCompletion = browserExports.ProGPU.Browser.BrowserMediaStagingCallbacks.DispatchCompletion;
+  const playbackSmoke =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuMediaPlaybackSmoke');
+  if (playbackSmoke === '1') {
+    const button = document.createElement('button');
+    button.dataset.testid = 'progpu-media-playback-smoke';
+    button.textContent = 'Run browser playback smoke';
+    button.style.position = 'fixed';
+    button.style.right = '8px';
+    button.style.top = '8px';
+    button.style.zIndex = '100000';
+    button.addEventListener(
+      'click',
+      async () => {
+        button.disabled = true;
+        button.textContent = 'Running browser playback smoke…';
+        try {
+          const playbackSource =
+            new URLSearchParams(globalThis.location.search)
+              .get('progpuMediaPlaybackSource') ||
+            'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+          const result =
+            await browserExports.ProGPU.Browser
+              .BrowserMediaPlaybackSmokeTest
+              .RunAsync(playbackSource);
+          document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
+            String(result);
+          document.documentElement.dataset.progpuMediaPlaybackElementCount =
+            String(getBrowserMediaElementCount());
+          button.textContent = 'Browser playback smoke passed';
+        } catch (error) {
+          document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
+            'exception';
+          document.documentElement.dataset.progpuMediaPlaybackElementCount =
+            String(getBrowserMediaElementCount());
+          button.textContent = 'Browser playback smoke failed';
+          console.error(
+            '[ProGPU] Browser media playback smoke test failed.',
+            error);
+        }
+      },
+      { once: true });
+    document.body.appendChild(button);
+  }
+  const thumbnailSmoke =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuMediaThumbnailSmoke');
+  if (thumbnailSmoke === '1' ||
+      thumbnailSmoke === 'effect') {
+    globalThis.setTimeout(
+      async () => {
+        try {
+          const thumbnailSource =
+            new URLSearchParams(globalThis.location.search)
+              .get('progpuMediaExportSource') ||
+            'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+          const result =
+            thumbnailSmoke === 'effect'
+              ? await browserExports.ProGPU.Browser
+                  .BrowserMediaThumbnailSmokeTest
+                  .RunEffectAsync(thumbnailSource)
+              : await browserExports.ProGPU.Browser
+                  .BrowserMediaThumbnailSmokeTest
+                  .RunAsync();
+          document.documentElement.dataset.progpuMediaThumbnailSmokeResult =
+            String(result);
+        } catch (error) {
+          document.documentElement.dataset.progpuMediaThumbnailSmokeResult =
+            'exception';
+          console.error(
+            '[ProGPU] Browser media thumbnail smoke test failed.',
+            error);
+        }
+      },
+      0);
+  }
+  const exportSmoke =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuMediaExportSmoke');
+  if (exportSmoke === 'fast' ||
+      exportSmoke === 'effect' ||
+      exportSmoke === 'effect-audio') {
+    const runExportSmoke = async () => {
+      try {
+        const exportSource =
+          new URLSearchParams(globalThis.location.search)
+            .get('progpuMediaExportSource') ||
+          'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+        const result =
+          await browserExports.ProGPU.Browser
+            .BrowserMediaExportSmokeTest.RunAsync(
+              exportSource,
+              exportSmoke !== 'fast',
+              exportSmoke === 'effect-audio');
+        document.documentElement.dataset.progpuMediaExportSmokeResult =
+          String(result);
+      } catch (error) {
+        document.documentElement.dataset.progpuMediaExportSmokeResult =
+          'exception';
+        console.error(
+          '[ProGPU] Browser media export smoke test failed.',
+          error);
+      }
+    };
+    if (exportSmoke === 'effect-audio') {
+      const button = document.createElement('button');
+      button.dataset.testid = 'progpu-media-export-audio-smoke';
+      button.textContent = 'Run browser audio export smoke';
+      button.style.position = 'fixed';
+      button.style.right = '8px';
+      button.style.top = '8px';
+      button.style.zIndex = '100000';
+      button.addEventListener(
+        'click',
+        () => void runExportSmoke(),
+        { once: true });
+      document.body.appendChild(button);
+    } else {
+      globalThis.setTimeout(
+        () => void runExportSmoke(),
+        1_000);
+    }
+  }
   await runtime.runMain();
 }

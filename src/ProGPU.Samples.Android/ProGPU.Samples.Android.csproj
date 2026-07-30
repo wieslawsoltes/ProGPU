@@ -20,7 +20,13 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Android\ProGPU.Android.csproj" />
-    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.Android.Media\ProGPU.Android.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj"
+                      AdditionalProperties="ProGpuSamplesMobile=true" />
+    <!-- Suppress WebGPUSharp's desktop native runtime assets for Android while
+         retaining its managed ABI explicitly for the linked/AOT closure. -->
+    <PackageReference Include="WebGPUSharp"
+                      ExcludeAssets="native" />
     <!-- The Android host supplies the ABI-pinned Vulkan build. Prevent the desktop
          Silk runtime package inherited through shared renderer projects from placing
          an ABI-incompatible Linux library in the APK. -->

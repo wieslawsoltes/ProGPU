@@ -50,6 +50,15 @@ Run the browser gallery with:
 dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
 ```
 
+Append `?progpuMediaPlaybackSmoke=1` to the printed HTTP URL and activate
+**Run browser playback smoke** to exercise the WinUI-aligned `MediaPlayer`
+contract under a real user gesture. The gate opens browser-owned media, enables
+frame-server notifications, installs the typed gain/balance Web Audio graph,
+plays, pauses, seeks, replays, validates the decoded `GpuCopy` frame and
+provider diagnostics, then verifies that source disposal returns the owned DOM
+media-element count to its starting value. Override the default CORS-enabled
+fixture with the absolute `progpuMediaPlaybackSource` query parameter.
+
 ### Publish with managed WebAssembly AOT
 
 Install the .NET WebAssembly build tools once, then publish the Release host:

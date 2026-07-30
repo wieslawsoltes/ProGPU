@@ -18,6 +18,12 @@ intentionally not packed.
 | --- | --- | --- |
 | `ProGPU.Backend` | WebGPU device, swapchain, Silk.NET windowing, and platform backend services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.svg)](https://www.nuget.org/packages/ProGPU.Backend/) |
 | `ProGPU.Backend.Dawn` | Typed Dawn native presentation, shared texture memory, and cross-queue fence services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Dawn.svg)](https://www.nuget.org/packages/ProGPU.Backend.Dawn/) |
+| `ProGPU.Media` | Framework-neutral media playback, diagnostics, audio processing, effects, and provider contracts. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Media.svg)](https://www.nuget.org/packages/ProGPU.Media/) |
+| `ProGPU.Media.Editing` | Reusable non-destructive composition, project serialization, overlays, effects, and native export coordination. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Media.Editing.svg)](https://www.nuget.org/packages/ProGPU.Media.Editing/) |
+| `ProGPU.Media.Scene` | Retained 2D/3D WebGPU media presentation and fused effect integration. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Media.Scene.svg)](https://www.nuget.org/packages/ProGPU.Media.Scene/) |
+| `ProGPU.WinRT` | Platform-neutral WinRT-shaped foundation, storage, property-set, and media value contracts. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.WinRT.svg)](https://www.nuget.org/packages/ProGPU.WinRT/) |
+| `ProGPU.Windows.Media` | Native Windows Media Foundation, D3D11/DXGI, and platform-audio media provider. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Windows.Media.svg)](https://www.nuget.org/packages/ProGPU.Windows.Media/) |
+| `ProGPU.Linux.Media` | Dependency-free Linux V4L2, DMA-BUF, Vulkan Video, and PipeWire media provider. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Linux.Media.svg)](https://www.nuget.org/packages/ProGPU.Linux.Media/) |
 | `ProGPU.Text.Shaping` | AOT-safe OpenType shaping contracts and execution primitives. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Text.Shaping.svg)](https://www.nuget.org/packages/ProGPU.Text.Shaping/) |
 | `ProGPU.Browser` | Batched .NET WebAssembly dispatcher and `navigator.gpu` browser host services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Browser.svg)](https://www.nuget.org/packages/ProGPU.Browser/) |
 | `ProGPU.DirectX` | DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.DirectX.svg)](https://www.nuget.org/packages/ProGPU.DirectX/) |
@@ -51,6 +57,8 @@ intentionally not packed.
 | `LibreWPF.Interop` | LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWPF.Interop.svg)](https://www.nuget.org/packages/LibreWPF.Interop/) |
 | `ProGPU.Android` | Native Android `SurfaceView` host using WebGPU over Vulkan. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Android.svg)](https://www.nuget.org/packages/ProGPU.Android/) |
 | `ProGPU.iOS` | Native UIKit/`CAMetalLayer` host using WebGPU over Metal. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.iOS.svg)](https://www.nuget.org/packages/ProGPU.iOS/) |
+| `ProGPU.Android.Media` | Android MediaCodec playback, AHardwareBuffer WebGPU interop, audio, composition export, and native composition thumbnails. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Android.Media.svg)](https://www.nuget.org/packages/ProGPU.Android.Media/) |
+| `ProGPU.Apple.Media` | Shared macOS/iOS AVFoundation playback, IOSurface WebGPU interop, audio, and composition export. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Apple.Media.svg)](https://www.nuget.org/packages/ProGPU.Apple.Media/) |
 
 Local package build:
 

@@ -4,10 +4,13 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
+using ProGPU.Apple.Media;
 using ProGPU.Fonts.Inter;
 using ProGPU.Fonts.Noto;
 using ProGPU.Text;
 using UIKit;
+using Windows.Storage;
 
 namespace ProGPU.iOS;
 
@@ -17,6 +20,7 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
     private readonly UIViewController _controller;
     private readonly UIScreen _screen;
     private readonly IosStoragePickerService _storagePicker;
+    private readonly IDisposable _mediaRegistration;
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private HostedWindow? _hosted;
     private CADisplayLink? _displayLink;
@@ -40,6 +44,7 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
         StoragePlatformServices.PickPathAsync = _storagePicker.PickPathAsync;
         StoragePlatformServices.WriteTextAsync = _storagePicker.WriteTextAsync;
         StoragePlatformServices.WriteBytesAsync = _storagePicker.WriteBytesAsync;
+        _mediaRegistration = AppleMedia.Register();
     }
 
     public void Activate(Window window)
@@ -53,10 +58,34 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
 
         _controller.View!.LayoutIfNeeded();
         MetalViewMetrics metrics = _renderView.Metrics;
-        var context = new WgpuContext { VSync = true };
+        WgpuContext? context = null;
+        DawnGpuContext? dawnContext = null;
         try
         {
-            context.InitializeMetalLayer(_renderView.MetalLayerHandle, metrics.Width, metrics.Height);
+            if (DawnGpuContext.IsNativeLibraryAvailable())
+            {
+                using DawnNativeWindowSource source =
+                    DawnNativeWindowSource.CreateMetalLayer(
+                        _renderView.MetalLayerHandle);
+                dawnContext =
+                    DawnGpuContext.CreateNativePresentation(source);
+                dawnContext.AttachNativePresentation(
+                    source,
+                    metrics.Width,
+                    metrics.Height);
+                context = dawnContext.Context;
+            }
+            else
+            {
+                context = new WgpuContext { VSync = true };
+                context.InitializeMetalLayer(
+                    _renderView.MetalLayerHandle,
+                    metrics.Width,
+                    metrics.Height);
+                Console.Error.WriteLine(
+                    "[ProGPU.iOS] webgpu_dawn is unavailable; using the wgpu-native UI fallback. " +
+                    "AVFoundation IOSurface frames cannot be imported by this fallback device.");
+            }
             window.InitializeExternalRenderer(context, metrics.DpiScale);
             var textInput = new IosTextInputBridge(_controller);
             if (window.InputState is { } inputState)
@@ -66,14 +95,24 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
             }
             textInput.OccludedRectChanged += OnInputPaneOccludedRectChanged;
             _textInput = textInput;
-            _hosted = new HostedWindow(window, context);
+            _hosted = new HostedWindow(
+                window,
+                context,
+                dawnContext);
             window.ConfigureInputPane(textInput.TryShow, textInput.TryHide);
             window.NotifyHostInsetsChanged(metrics.SafeAreaInsets, _inputPaneOccludedRect);
             StartDisplayLink();
         }
         catch
         {
-            context.Dispose();
+            if (dawnContext is not null)
+            {
+                dawnContext.Dispose();
+            }
+            else
+            {
+                context?.Dispose();
+            }
             throw;
         }
     }
@@ -91,7 +130,14 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
         _textInput = null;
         hosted.Window.ConfigureInputPane(null, null);
         hosted.Window.ShutdownExternalRenderer();
-        hosted.Context.Dispose();
+        if (hosted.DawnContext is not null)
+        {
+            hosted.DawnContext.Dispose();
+        }
+        else
+        {
+            hosted.Context.Dispose();
+        }
         _hosted = null;
         _completion.TrySetResult();
     }
@@ -182,14 +228,19 @@ internal sealed class IosWindowHost : IWindowHost, IDisposable
         if (StoragePlatformServices.WriteBytesAsync?.Target == _storagePicker)
             StoragePlatformServices.WriteBytesAsync = null;
         _storagePicker.Dispose();
+        _mediaRegistration.Dispose();
         _completion.TrySetResult();
         _disposed = true;
     }
 
-    private sealed class HostedWindow(Window window, WgpuContext context)
+    private sealed class HostedWindow(
+        Window window,
+        WgpuContext context,
+        DawnGpuContext? dawnContext)
     {
         public Window Window { get; } = window;
         public WgpuContext Context { get; } = context;
+        public DawnGpuContext? DawnContext { get; } = dawnContext;
         public bool IsVisible { get; set; } = true;
     }
 }

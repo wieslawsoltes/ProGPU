@@ -11,6 +11,39 @@ namespace ProGPU.Tests;
 public sealed class ImageEffectRenderTests
 {
     [Fact]
+    public void DrawImageWithEffectRecordsInlineWithoutManagedAllocation()
+    {
+        var context = new DrawingContext();
+        using var texture = new GpuTexture(
+            HeadlessWindow.Shared.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding,
+            "Inline image-effect command");
+
+        context.DrawImageWithEffect(
+            texture,
+            new Rect(0f, 0f, 1f, 1f),
+            invert: 1f);
+        context.Commands.Clear();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 100; index++)
+        {
+            context.DrawImageWithEffect(
+                texture,
+                new Rect(0f, 0f, 1f, 1f),
+                invert: 1f);
+            context.Commands.Clear();
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void DrawImageWithEffectHonorsExplicitMaskTexture()
     {
         var window = HeadlessWindow.Shared;
@@ -316,6 +349,125 @@ public sealed class ImageEffectRenderTests
         }
     }
 
+    [Fact]
+    public void DrawPlanarImageConvertsFullRangeBt709OnGpu()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        using var luma = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.R8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "YUV luma plane");
+        luma.WritePixels<byte>([128]);
+        using var chroma = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.RG8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "YUV chroma plane");
+        chroma.WritePixels<byte>([128, 128]);
+        var conversion = new ImageEffectYuvConversion(
+            new System.Numerics.Vector4(
+                0f,
+                1f,
+                128f / 255f,
+                1f),
+            new System.Numerics.Vector4(
+                1f,
+                0f,
+                1.5748f,
+                0f),
+            new System.Numerics.Vector4(
+                1f,
+                -0.187324f,
+                -0.468124f,
+                0f),
+            new System.Numerics.Vector4(
+                1f,
+                1.8556f,
+                0f,
+                0f));
+        window.Content =
+            new PlanarImageEffectVisual(
+                luma,
+                chroma,
+                conversion);
+
+        try
+        {
+            window.Render();
+
+            RgbaPixel pixel = ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                x: 16,
+                y: 16);
+
+            Assert.InRange(pixel.R, 124, 132);
+            Assert.InRange(pixel.G, 124, 132);
+            Assert.InRange(pixel.B, 124, 132);
+            Assert.Equal(255, pixel.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void DrawImageWithEffectProjectsEquirectangularVideoOnGpu()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(32, 32);
+
+        using var source = new GpuTexture(
+            window.Context,
+            8,
+            2,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Equirectangular media source");
+        byte[] row =
+        [
+            255, 0, 255, 255,
+            255, 0, 255, 255,
+            255, 0, 0, 255,
+            255, 0, 0, 255,
+            0, 255, 0, 255,
+            0, 255, 0, 255,
+            0, 0, 255, 255,
+            0, 0, 255, 255
+        ];
+        source.WritePixels<byte>([.. row, .. row]);
+        window.Content = new SphericalImageEffectVisual(source);
+
+        try
+        {
+            window.Render();
+
+            RgbaPixel pixel = ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                x: 16,
+                y: 16);
+
+            Assert.InRange(pixel.G, 0, 80);
+            Assert.True(
+                pixel.R >= 180 || pixel.B >= 180,
+                $"Expected a 90-degree view rotation to sample a side longitude, found {pixel}.");
+            Assert.Equal(255, pixel.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -513,6 +665,70 @@ public sealed class ImageEffectRenderTests
                 new Rect(0f, 0f, 32f, 32f),
                 sourceRect: new Rect(1f, 0f, 1f, 1f),
                 colorMatrix: s_greenToBlue);
+        }
+    }
+
+    private sealed class PlanarImageEffectVisual :
+        FrameworkElement
+    {
+        private readonly GpuTexture _luma;
+        private readonly GpuTexture _chroma;
+        private readonly ImageEffectYuvConversion _conversion;
+
+        public PlanarImageEffectVisual(
+            GpuTexture luma,
+            GpuTexture chroma,
+            ImageEffectYuvConversion conversion)
+        {
+            _luma = luma;
+            _chroma = chroma;
+            _conversion = conversion;
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawPlanarImageWithEffect(
+                _luma,
+                _chroma,
+                new Rect(0f, 0f, 32f, 32f),
+                in _conversion);
+        }
+    }
+
+    private sealed class SphericalImageEffectVisual :
+        FrameworkElement
+    {
+        private readonly GpuTexture _source;
+
+        public SphericalImageEffectVisual(GpuTexture source)
+        {
+            _source = source;
+            Width = 32f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var projection =
+                new ImageEffectSphericalProjection(
+                    new System.Numerics.Vector4(
+                        0f,
+                        0f,
+                        1f,
+                        1f),
+                    System.Numerics.Quaternion
+                        .CreateFromAxisAngle(
+                            System.Numerics.Vector3.UnitY,
+                            MathF.PI * 0.5f),
+                    MathF.PI * 0.5f,
+                    1f);
+            context.DrawImageWithEffect(
+                _source,
+                new Rect(0f, 0f, 32f, 32f),
+                samplingMode: TextureSamplingMode.Nearest,
+                sphericalProjection: projection);
         }
     }
 }

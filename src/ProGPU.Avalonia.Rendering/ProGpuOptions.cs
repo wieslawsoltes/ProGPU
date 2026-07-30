@@ -37,6 +37,19 @@ namespace Avalonia.ProGpu
         public bool RequireDawnMetalPresentation { get; set; }
 
         /// <summary>
+        /// Creates the Dawn Metal device with the Avalonia render context so
+        /// embedded ProGPU hosts can acquire that exact device before their
+        /// visual-tree attachment callback runs.
+        /// </summary>
+        /// <remarks>
+        /// This is intended for external-texture workloads such as
+        /// AVFoundation IOSurface playback. It avoids an ordering race where
+        /// an embedded host would otherwise create a second wgpu-native
+        /// device before Avalonia requests its first top-level drawable.
+        /// </remarks>
+        public bool PrewarmDawnMetalDevice { get; set; }
+
+        /// <summary>
         /// Uses WebGPUSharp/Dawn to present directly through Avalonia's native
         /// HWND or XID surface when Silk.NET windowing is not selected.
         /// </summary>

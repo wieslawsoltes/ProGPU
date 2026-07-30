@@ -10,74 +10,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Storage;
 
 namespace Microsoft.UI.Xaml;
-
-public class StorageFile
-{
-    public string Path { get; }
-    public string Name => System.IO.Path.GetFileName(Path);
-    public string FileType => System.IO.Path.GetExtension(Path);
-
-    public StorageFile(string path)
-    {
-        Path = path;
-    }
-
-    public async Task<string> ReadTextAsync()
-    {
-        if (StoragePlatformServices.ReadTextAsync is { } platformRead)
-            return await platformRead(Path).ConfigureAwait(false);
-        return await File.ReadAllTextAsync(Path);
-    }
-
-    public async Task<byte[]> ReadBytesAsync()
-    {
-        if (StoragePlatformServices.ReadBytesAsync is { } platformRead)
-            return await platformRead(Path).ConfigureAwait(false);
-        return await File.ReadAllBytesAsync(Path);
-    }
-
-    public async Task WriteTextAsync(string text)
-    {
-        if (StoragePlatformServices.WriteTextAsync is { } platformWrite &&
-            await platformWrite(Path, text).ConfigureAwait(false))
-        {
-            return;
-        }
-        await File.WriteAllTextAsync(Path, text);
-    }
-
-    public async Task WriteBytesAsync(byte[] bytes)
-    {
-        ArgumentNullException.ThrowIfNull(bytes);
-        if (StoragePlatformServices.WriteBytesAsync is { } platformWrite &&
-            await platformWrite(Path, bytes).ConfigureAwait(false))
-        {
-            return;
-        }
-        await File.WriteAllBytesAsync(Path, bytes);
-    }
-
-    public static Task<StorageFile> GetFileFromPathAsync(string path)
-    {
-        return Task.FromResult(new StorageFile(path));
-    }
-}
-
-/// <summary>Host-provided storage operations for platforms without native process dialogs.</summary>
-public static class StoragePlatformServices
-{
-    public static Func<int, IReadOnlyList<string>?, string?, Task<string?>>? PickPathAsync { get; set; }
-    public static Func<string, Task<string>>? ReadTextAsync { get; set; }
-    public static Func<string, Task<byte[]>>? ReadBytesAsync { get; set; }
-    public static Func<string, string, Task<bool>>? WriteTextAsync { get; set; }
-    public static Func<string, byte[], Task<bool>>? WriteBytesAsync { get; set; }
-    public static Func<string, Task<IReadOnlyList<string>>>? EnumerateFilesAsync { get; set; }
-    public static Func<string, Task<IReadOnlyList<string>>>? EnumerateFoldersAsync { get; set; }
-    public static Func<string, string, Task<string>>? CreateFileAsync { get; set; }
-    public static Func<string, string, Task<string>>? CreateFolderAsync { get; set; }
-}
 
 public class StorageFolder
 {
@@ -174,7 +109,9 @@ public class FileOpenPicker
 
     public async Task<StorageFile?> PickSingleFileAsync()
     {
-        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Open, FileTypeFilter);
+        string? result = await StoragePickerHelper
+            .RunPickerAsync(PickerMode.Open, FileTypeFilter)
+            .ConfigureAwait(false);
         return string.IsNullOrEmpty(result) ? null : new StorageFile(result);
     }
 }
@@ -192,7 +129,12 @@ public class FileSavePicker
         {
             allowedTypes.AddRange(choice);
         }
-        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Save, allowedTypes, SuggestedFileName);
+        string? result = await StoragePickerHelper
+            .RunPickerAsync(
+                PickerMode.Save,
+                allowedTypes,
+                SuggestedFileName)
+            .ConfigureAwait(false);
         return string.IsNullOrEmpty(result) ? null : new StorageFile(result);
     }
 }
@@ -204,7 +146,9 @@ public class FolderPicker
 
     public async Task<StorageFolder?> PickSingleFolderAsync()
     {
-        string? result = await StoragePickerHelper.RunPickerAsync(PickerMode.Folder, null);
+        string? result = await StoragePickerHelper
+            .RunPickerAsync(PickerMode.Folder, null)
+            .ConfigureAwait(false);
         return string.IsNullOrEmpty(result) ? null : new StorageFolder(result);
     }
 }

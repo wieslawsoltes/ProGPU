@@ -236,9 +236,12 @@ public sealed class GdiBitmapTests
         var command = Assert.Single(graphics.DrawingContext.Commands);
         Assert.Equal(RenderCommandType.DrawExtension, command.Type);
         Assert.Equal(CompositorBuiltInExtensions.ImageEffect, command.ExtensionId);
-        var parameters = Assert.IsType<ImageEffectParams>(command.DataParam);
-        Assert.Equal(new Rect(2f, 1f, 4f, 2f), parameters.SourceRect);
-        Assert.NotNull(parameters.ColorMatrix);
-        Assert.Equal(0.5f, parameters.ColorMatrix.Value.Alpha.W);
+        Assert.True(command.HasImageEffect);
+        Assert.Null(command.DataParam);
+        Assert.Equal(new Rect(2f, 1f, 4f, 2f), command.SrcRect);
+        Assert.NotNull(command.ImageEffect.ColorMatrix);
+        Assert.Equal(
+            0.5f,
+            command.ImageEffect.ColorMatrix.Value.Alpha.W);
     }
 }

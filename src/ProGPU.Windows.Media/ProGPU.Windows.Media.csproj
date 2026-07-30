@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishTrimmed>true</PublishTrimmed>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+    <Description>Native Media Foundation playback, audio, composition export and WebGPU composition thumbnails for ProGPU on Windows.</Description>
+    <PackageTags>progpu;media;media-foundation;windows;d3d11;dxgi;webgpu;editing;thumbnails</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+    <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
+    <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+</Project>

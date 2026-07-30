@@ -37,6 +37,12 @@ public readonly record struct WindowResizeMetrics(
 
 public class Window : DependencyObject
 {
+    internal static Func<
+        NativeWindowHandle,
+        uint,
+        uint,
+        WgpuContext>? GpuContextFactory { get; set; }
+
     private IWindow? _silkWindow;
     private WgpuContext? _wgpuContext;
     private Compositor? _compositor;
@@ -476,16 +482,40 @@ public class Window : DependencyObject
 
     internal UIElement? AppTitleBar => _titleBar;
 
-    private void OnLoad()
+    private unsafe void OnLoad()
     {
         if (_silkWindow == null) return;
 
         _windowController?.Attach();
         ApplyWindowSettings();
 
-        _wgpuContext = new WgpuContext();
-        _wgpuContext.Initialize(_silkWindow);
         var framebufferSize = GetCurrentFramebufferSize();
+        Func<
+            NativeWindowHandle,
+            uint,
+            uint,
+            WgpuContext>? contextFactory =
+            GpuContextFactory;
+        if (contextFactory is null)
+        {
+            _wgpuContext = new WgpuContext();
+            _wgpuContext.Initialize(_silkWindow);
+        }
+        else
+        {
+            _wgpuContext = contextFactory(
+                _windowController?.Handle ??
+                    NativeWindowHandle.Empty,
+                checked((uint)framebufferSize.X),
+                checked((uint)framebufferSize.Y));
+            if (_wgpuContext.Surface == null)
+            {
+                _wgpuContext.Dispose();
+                _wgpuContext = null;
+                throw new InvalidOperationException(
+                    "The configured WebGPU context does not expose a presentation surface.");
+            }
+        }
         var sampleCount = ResolveWindowDpiScale(framebufferSize) >= 1.5f ? 1u : 4u;
         _compositor = new Compositor(
             _wgpuContext,

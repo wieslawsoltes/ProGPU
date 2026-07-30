@@ -47,11 +47,51 @@ public sealed class DawnSharedTextureMemoryContractTests
             "DawnSharedTextureMemory.cs");
 
         Assert.Contains(
+            "DawnNativeEnumBase + 30",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnNativeEnumBase + 31",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnNativeEnumBase + 34",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "DawnNativeEnumBase + 36",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "DawnNativeEnumBase + 41",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "DawnNativeEnumBase + 42",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnNativeEnumBase + 39",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedTextureMemoryAHardwareBufferDescriptor",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedTextureMemoryDmaBufDescriptor",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "stackalloc DawnSharedTextureMemoryDmaBufPlaneNative",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedTextureMemoryDXGISharedHandleDescriptor",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "UseKeyedMutex = useKeyedMutex",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -64,6 +104,18 @@ public sealed class DawnSharedTextureMemoryContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "SType.SharedFenceMTLSharedEventExportInfo",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SType.SharedFenceSyncFDExportInfo",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SType.SharedFenceSyncFDDescriptor",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PosixFileDescriptor.Duplicate(syncFdInfo.Handle)",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -105,12 +157,200 @@ public sealed class DawnSharedTextureMemoryContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "DawnSyncFdEndAccessResult destination",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "using TextureHandle texture",
             probe,
             StringComparison.Ordinal);
         Assert.Contains(
             "api.CommandBufferRelease(commandBuffer);",
             probe,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IosurfaceImportDrainsMetalAutoreleasedTemporaries()
+    {
+        string sharedMemory = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnSharedTextureMemory.cs");
+        string context = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnGpuContext.cs");
+
+        Assert.Contains(
+            "internal readonly partial struct DawnMetalAutoreleasePool",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EntryPoint = \"objc_autoreleasePoolPush\"",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EntryPoint = \"objc_autoreleasePoolPop\"",
+            sharedMemory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnMetalAutoreleasePool.Enter(isIOSurface)",
+            context,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "useMetalAutoreleasePool: isIOSurface",
+            context,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnMetalAutoreleasePool.Enter(\n                    _useMetalAutoreleasePool)",
+            context,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AndroidEncoderAccessExportsFenceBeforeDeferredDisposal()
+    {
+        string source = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnExplicitSharedTextureAccess.cs");
+        string presentation = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativePresentation.cs");
+
+        Assert.Contains(
+            "TryImportAHardwareBufferRenderTarget",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextureUsage.RenderAttachment",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EndAccessAndExportSyncFd",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BeginAccessAndConsumeSyncFd",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_feature.ImportSyncFd(ownedSyncFd)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PosixFileDescriptor.Close(ownedSyncFd)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedFenceSyncFD",
+            presentation,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WaitIdle(",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "PollDevice(",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsEncoderAccessUsesExplicitKeyedMutexHandoff()
+    {
+        string access = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnExplicitSharedTextureAccess.cs");
+        string presentation = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativePresentation.cs");
+
+        Assert.Contains(
+            "TryImportDxgiRenderTarget",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGpuExternalTextureHandleKind.DxgiSharedHandle",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "descriptor.UsesKeyedMutex",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ImportDXGISharedHandle(",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "useKeyedMutex: true",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "internal void EndAccess()",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sharedMemory.EndAccess(_texture);",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedTextureMemoryDXGISharedHandle",
+            presentation,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WaitIdle(",
+            access,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "MapAsync",
+            access,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LinuxNativePresentationEnablesDmaBufSyncOnX11AndWayland()
+    {
+        string access = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnExplicitSharedTextureAccess.cs");
+        string presentation = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativePresentation.cs");
+        string windowSource = ReadRepoFile(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnNativeWindowSource.cs");
+
+        Assert.Contains(
+            "TryImportDmaBufRenderTarget",
+            access,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedTextureMemoryDmaBuf",
+            presentation,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedFenceSyncFD",
+            presentation,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DawnNativeWindowKind.Wayland",
+            presentation,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SurfaceSourceWaylandSurfaceFFI",
+            windowSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WaitIdle(",
+            access,
             StringComparison.Ordinal);
     }
 
@@ -131,7 +371,7 @@ public sealed class DawnSharedTextureMemoryContractTests
             "Program.cs");
 
         Assert.Contains(
-            "class DawnWebGpuApi : IWebGpuApi",
+            "IWebGpuExternalSurfaceApi",
             api,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -140,6 +380,10 @@ public sealed class DawnSharedTextureMemoryContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "SW.TextureDimension.Dimension2D =>",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SW.VertexFormat.Uint32 => W.VertexFormat.Uint32",
             api,
             StringComparison.Ordinal);
         Assert.Contains(

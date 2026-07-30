@@ -19,7 +19,9 @@ using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.HotReload;
+#if !PROGPU_SAMPLES_MOBILE
 using ProGPU.WinUI.Designer;
+#endif
 using Button = Microsoft.UI.Xaml.Controls.Button;
 using StackPanel = Microsoft.UI.Xaml.Controls.StackPanel;
 using Window = Microsoft.UI.Xaml.Window;
@@ -41,8 +43,10 @@ public static unsafe class MainWindowController
         }
 
         SampleFontLoader.EnsureLoaded();
+#if !PROGPU_SAMPLES_MOBILE
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
         MarkdownParser.WarmUp();
+#endif
 
         ObjModels.EnsureSamplesExist("models");
 
@@ -85,8 +89,10 @@ public static unsafe class MainWindowController
         }
 
         SampleFontLoader.EnsureLoaded("[ProGPU.Samples.Embedded]");
+#if !PROGPU_SAMPLES_MOBILE
         VirtualizedCodeEditor.WarmUpSyntaxHighlighting();
         MarkdownParser.WarmUp();
+#endif
 
         BuildSceneGraph();
 
@@ -293,11 +299,15 @@ public static unsafe class MainWindowController
         var panelsItem = PageItem("Layout Panels", "🔲", LayoutPanelsPage.Create);
         var textItem = PageItem("Text & Documents", "📄", TextDocumentsPage.Create);
         var richTextEditorItem = PageItem("Rich Document Editor", "✍️", RichTextEditorPage.Create);
+#if !PROGPU_SAMPLES_MOBILE
         var markdownPlaygroundItem = PageItem("Markdown Playground", "📝", MarkdownPage.Create);
+#endif
         var dataItem = PageItem("Data Virtualization", "📊", DataVirtualizationPage.Create);
         var virtualizationControlsItem = PageItem("Virtualization Controls", "🎛️", VirtualizationControlsPage.Create);
         var frameworkEffectsItem = PageItem("Framework Effects", "✨", FrameworkEffectsPage.Create);
         var imageEffectsItem = PageItem("Image Effects", "🖼️", ImageEffectsPage.Create);
+        var mediaPlayerItem = PageItem("GPU Media Player", "▶️", MediaPlayerPage.Create);
+        var videoEditorItem = PageItem("Video Editor", "🎞️", NonLinearVideoEditorPage.Create);
         var gdiShowcaseItem = PageItem("GDI Shim Showcase", "🎨", GdiShowcasePage.Create);
         var glyphRunShowcaseItem = PageItem("Glyph Run Showcase", "🔤", GlyphRunShowcasePage.Create);
         var textShapingItem = PageItem("Text Shaping Lab", "ﬃ", TextShapingShowcasePage.Create);
@@ -324,7 +334,9 @@ public static unsafe class MainWindowController
         var ratingControlItem = PageItem("Rating Control", "⭐", RatingControlPage.Create);
         var passwordBoxItem = PageItem("Password Box", "🔒", PasswordBoxPage.Create);
         var dxfViewerItem = PageItem("DXF CAD Viewer", "📐", DxfViewerPage.Create);
+#if !PROGPU_SAMPLES_MOBILE
         var visualDesignerItem = PageItem("Visual Designer", "📐", VisualDesignerPage.Create);
+#endif
         var pictureCachingItem = PageItem("Picture Caching", "🖼️", PictureShowcasePage.Create);
         var fontGlyphBrowserItem = PageItem("Font Glyph Browser", "🔤", FontGlyphBrowserPage.Create);
         var mesh3DViewerItem = PageItem("3D Mesh Viewer", "🧊", Mesh3DViewerPage.Create);
@@ -336,7 +348,9 @@ public static unsafe class MainWindowController
         var xamlResourcesItem = PageItem("XAML Resources", "◆", XamlCompilerResourcesPage.Create);
         var xamlLayoutItem = PageItem("XAML Layout", "▦", XamlCompilerLayoutPage.Create);
         var xamlMarkupItem = PageItem("Markup Syntax", "{}", XamlCompilerMarkupPage.Create);
+#if !PROGPU_SAMPLES_MOBILE
         var xamlPlaygroundItem = PageItem("XAML Playground", "</>", XamlPlaygroundPage.Create);
+#endif
 
         var wrapPanelItem = PageItem("Wrap Panel", "🔲", WrapPanelPage.Create);
         var dockPanelItem = PageItem("Dock Panel", "🪟", DockPanelPage.Create);
@@ -359,11 +373,15 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(fontGlyphBrowserItem);
         AppState._navigationView.MenuItems.Add(textItem);
         AppState._navigationView.MenuItems.Add(richTextEditorItem);
+#if !PROGPU_SAMPLES_MOBILE
         AppState._navigationView.MenuItems.Add(markdownPlaygroundItem);
+#endif
         AppState._navigationView.MenuItems.Add(dataItem);
         AppState._navigationView.MenuItems.Add(virtualizationControlsItem);
         AppState._navigationView.MenuItems.Add(frameworkEffectsItem);
         AppState._navigationView.MenuItems.Add(imageEffectsItem);
+        AppState._navigationView.MenuItems.Add(mediaPlayerItem);
+        AppState._navigationView.MenuItems.Add(videoEditorItem);
         AppState._navigationView.MenuItems.Add(gdiShowcaseItem);
         AppState._navigationView.MenuItems.Add(glyphRunShowcaseItem);
         AppState._navigationView.MenuItems.Add(textShapingItem);
@@ -389,7 +407,9 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(ratingControlItem);
         AppState._navigationView.MenuItems.Add(passwordBoxItem);
         AppState._navigationView.MenuItems.Add(dxfViewerItem);
+#if !PROGPU_SAMPLES_MOBILE
         AppState._navigationView.MenuItems.Add(visualDesignerItem);
+#endif
         AppState._navigationView.MenuItems.Add(pictureCachingItem);
         AppState._navigationView.MenuItems.Add(mesh3DViewerItem);
         AppState._navigationView.MenuItems.Add(voxelGameItem);
@@ -400,10 +420,39 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(xamlResourcesItem);
         AppState._navigationView.MenuItems.Add(xamlLayoutItem);
         AppState._navigationView.MenuItems.Add(xamlMarkupItem);
+#if !PROGPU_SAMPLES_MOBILE
         AppState._navigationView.MenuItems.Add(xamlPlaygroundItem);
+#endif
 
+        NavigationViewItem? activeMediaPageItem = null;
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
+            NavigationViewItem? selectedItem =
+                AppState._navigationView.SelectedItem;
+            if (activeMediaPageItem is not null &&
+                !ReferenceEquals(
+                    activeMediaPageItem,
+                    selectedItem))
+            {
+                FrameworkElement? page =
+                    activeMediaPageItem.Page;
+                Func<FrameworkElement?>? factory =
+                    activeMediaPageItem.PageFactory;
+                page?.FireUnloaded();
+                if (factory is not null)
+                {
+                    // Media pages own native decoder/audio resources.
+                    // Recreate them on the next visit instead of retaining
+                    // a disposed player in NavigationView's page cache.
+                    activeMediaPageItem.PageFactory = factory;
+                }
+            }
+            activeMediaPageItem =
+                ReferenceEquals(selectedItem, mediaPlayerItem) ||
+                ReferenceEquals(selectedItem, videoEditorItem)
+                    ? selectedItem
+                    : null;
+
             if (AppState._navigationView.SelectedItem != null)
             {
                 AppState._activeCategory = AppState._navigationView.SelectedItem.Text;
@@ -813,6 +862,10 @@ public static unsafe class MainWindowController
 
     private static void Cleanup()
     {
+        AppState._navigationView?
+            .SelectedItem?
+            .Page?
+            .FireUnloaded();
         AppState._hotReloadRegistration?.Dispose();
         AppState._hotReloadRegistration = null;
         if (AppState._hotReloadCompletedHandler != null)
