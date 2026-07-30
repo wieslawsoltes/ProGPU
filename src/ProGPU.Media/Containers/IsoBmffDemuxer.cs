@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 
 namespace ProGPU.Media.Containers;
 
@@ -6,7 +7,8 @@ internal enum IsoBmffTrackKind
 {
     Unknown,
     Video,
-    Audio
+    Audio,
+    TimedMetadata
 }
 
 internal enum IsoBmffCodec
@@ -15,7 +17,8 @@ internal enum IsoBmffCodec
     H264,
     H265,
     Aac,
-    Pcm
+    Pcm,
+    WebVtt
 }
 
 internal enum IsoBmffPcmEncoding
@@ -58,6 +61,8 @@ internal sealed record IsoBmffTrack(
     internal IsoBmffPcmEncoding PcmEncoding { get; init; }
     internal uint MovieTimescale { get; init; }
     internal IsoBmffEdit[] EditList { get; init; } = [];
+    internal string Language { get; init; } = string.Empty;
+    internal string Name { get; init; } = string.Empty;
 }
 
 internal sealed record IsoBmffMovie(
@@ -76,6 +81,7 @@ internal sealed class IsoBmffDemuxer
     private const int MaximumChunks = 4_194_304;
     private const int MaximumTableEntries = 16_777_216;
     private const int MaximumCodecConfigurationBytes = 1_048_576;
+    private const int MaximumTrackStringBytes = 4_096;
 
     private readonly Stream _stream;
     private readonly byte[] _scratch = new byte[32];
@@ -109,7 +115,7 @@ internal sealed class IsoBmffDemuxer
         if (tracks.Count == 0)
         {
             throw new InvalidDataException(
-                "The ISO-BMFF source contains no supported audio or video sample table.");
+                "The ISO-BMFF source contains no supported audio, video, or timed-metadata sample table.");
         }
         return new IsoBmffMovie(tracks.ToArray());
     }
@@ -379,17 +385,19 @@ internal sealed class IsoBmffDemuxer
         byte version = fullHeader[0];
         if (version == 0)
         {
-            EnsurePayload(box, 20);
+            EnsurePayload(box, 22);
             Span<byte> value = stackalloc byte[16];
             ReadAt(box.PayloadStart + 4, value);
             builder.Timescale =
                 BinaryPrimitives.ReadUInt32BigEndian(value[8..]);
             builder.Duration =
                 BinaryPrimitives.ReadUInt32BigEndian(value[12..]);
+            builder.Language =
+                ReadPackedLanguage(box.PayloadStart + 20);
         }
         else if (version == 1)
         {
-            EnsurePayload(box, 32);
+            EnsurePayload(box, 34);
             Span<byte> value = stackalloc byte[28];
             ReadAt(box.PayloadStart + 4, value);
             builder.Timescale =
@@ -400,6 +408,8 @@ internal sealed class IsoBmffDemuxer
                 duration > long.MaxValue
                     ? long.MaxValue
                     : (long)duration;
+            builder.Language =
+                ReadPackedLanguage(box.PayloadStart + 32);
         }
         else
         {
@@ -412,6 +422,7 @@ internal sealed class IsoBmffDemuxer
         in Box box,
         TrackBuilder builder)
     {
+        EnsurePayload(box, 12);
         Span<byte> value = stackalloc byte[12];
         ReadAt(box.PayloadStart, value);
         uint handler =
@@ -420,8 +431,29 @@ internal sealed class IsoBmffDemuxer
         {
             BoxType.Vide => IsoBmffTrackKind.Video,
             BoxType.Soun => IsoBmffTrackKind.Audio,
+            BoxType.Text => IsoBmffTrackKind.TimedMetadata,
             _ => IsoBmffTrackKind.Unknown
         };
+
+        long payloadLength = box.End - box.PayloadStart;
+        if (payloadLength > 24)
+        {
+            long nameLength = Math.Min(
+                payloadLength - 24,
+                MaximumTrackStringBytes);
+            var nameBytes =
+                new byte[checked((int)nameLength)];
+            ReadAt(box.PayloadStart + 24, nameBytes);
+            int terminator = Array.IndexOf(
+                nameBytes,
+                (byte)0);
+            builder.Name = Encoding.UTF8.GetString(
+                nameBytes,
+                0,
+                terminator >= 0
+                    ? terminator
+                    : nameBytes.Length);
+        }
     }
 
     private void ParseSampleDescription(
@@ -494,6 +526,10 @@ internal sealed class IsoBmffDemuxer
                     IsoBmffPcmEncoding
                         .SignedBigEndian);
                 break;
+            case BoxType.Wvtt:
+                builder.Codec = IsoBmffCodec.WebVtt;
+                ParseTextSampleEntry(entry);
+                break;
             default:
                 supported = false;
                 break;
@@ -531,6 +567,44 @@ internal sealed class IsoBmffDemuxer
             entry.PayloadStart + visualHeaderSize,
             entry.End,
             builder);
+    }
+
+    private static void ParseTextSampleEntry(
+        in Box entry)
+    {
+        // WVTTSampleEntry derives from the ISO-BMFF SampleEntry base,
+        // whose fixed header is six reserved bytes plus data_reference_index.
+        const int sampleEntryHeaderSize = 8;
+        EnsurePayload(entry, sampleEntryHeaderSize);
+    }
+
+    private string ReadPackedLanguage(long position)
+    {
+        Span<byte> value = stackalloc byte[2];
+        ReadAt(position, value);
+        ushort packed =
+            BinaryPrimitives.ReadUInt16BigEndian(value);
+        int first = (packed >> 10) & 0x1F;
+        int second = (packed >> 5) & 0x1F;
+        int third = packed & 0x1F;
+        if (first is < 1 or > 26 ||
+            second is < 1 or > 26 ||
+            third is < 1 or > 26)
+        {
+            return string.Empty;
+        }
+        return string.Create(
+            3,
+            (First: first, Second: second, Third: third),
+            static (destination, codes) =>
+            {
+                destination[0] =
+                    (char)('a' + codes.First - 1);
+                destination[1] =
+                    (char)('a' + codes.Second - 1);
+                destination[2] =
+                    (char)('a' + codes.Third - 1);
+            });
     }
 
     private void ParseAudioSampleEntry(
@@ -894,6 +968,8 @@ internal sealed class IsoBmffDemuxer
         public IsoBmffPcmEncoding PcmEncoding;
         public uint MovieTimescale;
         public IsoBmffEdit[] EditList = [];
+        public string Language = string.Empty;
+        public string Name = string.Empty;
         public int[] SampleSizes = [];
         public long[] ChunkOffsets = [];
         public TimeEntry[] DecodeTimeEntries = [];
@@ -967,7 +1043,11 @@ internal sealed class IsoBmffDemuxer
                 MovieTimescale =
                     MovieTimescale,
                 EditList =
-                    EditList
+                    EditList,
+                Language =
+                    Language,
+                Name =
+                    Name
             };
         }
 
@@ -1107,6 +1187,7 @@ internal sealed class IsoBmffDemuxer
         public const uint Stss = 0x7374_7373;
         public const uint Vide = 0x7669_6465;
         public const uint Soun = 0x736F_756E;
+        public const uint Text = 0x7465_7874;
         public const uint Avc1 = 0x6176_6331;
         public const uint Avc3 = 0x6176_6333;
         public const uint Hvc1 = 0x6876_6331;
@@ -1115,6 +1196,7 @@ internal sealed class IsoBmffDemuxer
         public const uint Lpcm = 0x6C70_636D;
         public const uint Sowt = 0x736F_7774;
         public const uint Twos = 0x7477_6F73;
+        public const uint Wvtt = 0x7776_7474;
         public const uint AvcC = 0x6176_6343;
         public const uint HvcC = 0x6876_6343;
     }

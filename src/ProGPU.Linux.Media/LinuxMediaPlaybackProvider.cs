@@ -148,13 +148,15 @@ public sealed class LinuxMediaPlaybackProviderFactory :
 /// V4L2 stateful hardware decoder. Decoded RGB or NV12 surfaces remain in
 /// driver-owned DMA-BUF memory through WebGPU presentation. Scheduling work is
 /// O(1) per pump plus O(B) compressed-byte copies into V4L2 OUTPUT buffers;
-/// queue storage is bounded by driver buffer counts. This provider currently
-/// advertises video-only playback because PipeWire is an audio transport, not
-/// an AAC decoder.
+/// queue storage is bounded by driver buffer counts. Version-zero signed PCM
+/// uses PipeWire when available, while ISO-BMFF WebVTT samples are indexed
+/// once at open and projected through the shared timed-cue timeline. AAC
+/// playback remains unavailable because PipeWire is a transport, not a codec.
 /// </summary>
 internal sealed class LinuxMediaPlaybackProvider :
     IMediaPlaybackProvider,
-    IMediaPlaybackConfigurationProvider
+    IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTimedMetadataProvider
 {
     private const double DecodeAheadSeconds = 0.35;
     private static readonly TimeSpan s_joinTimeout =
@@ -192,6 +194,7 @@ internal sealed class LinuxMediaPlaybackProvider :
     private PipeWirePcmOutput? _audioOutput;
     private int _started;
     private int _disposed;
+    private int _timedMetadataTrackCount;
     private long _droppedFrames;
 
     internal LinuxMediaPlaybackProvider(
@@ -414,6 +417,28 @@ internal sealed class LinuxMediaPlaybackProvider :
 
     public bool StepBackwardOneFrame() =>
         false;
+
+    public bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        ThrowIfDisposed();
+        if (!Enum.IsDefined(mode) ||
+            mode ==
+            MediaPlaybackTimedMetadataPresentationMode
+                .PlatformPresented ||
+            (uint)index >=
+            (uint)Volatile.Read(
+                ref _timedMetadataTrackCount))
+        {
+            return false;
+        }
+
+        // Static WebVTT cue snapshots are scheduled by the shared WinUI-
+        // aligned timeline. Disabled, hidden, and application-presented modes
+        // therefore require no native Linux state transition.
+        return true;
+    }
 
     public void AddEffect(
         IMediaEffect effect,
@@ -650,12 +675,19 @@ internal sealed class LinuxMediaPlaybackProvider :
             }
             MediaPlaybackSnapshot opened =
                 Snapshot();
-            _sink.UpdateTracks(
+            MediaPlaybackTracksSnapshot tracks =
                 CreateTrackSnapshot(
                     movie,
                     track,
                     audioTrack,
-                    audioOutput is not null));
+                    audioOutput is not null);
+            Volatile.Write(
+                ref _timedMetadataTrackCount,
+                tracks.TimedMetadataTracks.Count);
+            _sink.UpdateTracks(tracks);
+            PublishTimedMetadataCues(
+                stream,
+                movie);
             _sink.Opened(in opened);
             PublishDiagnostics(
                 audioFallback ??
@@ -1023,6 +1055,8 @@ internal sealed class LinuxMediaPlaybackProvider :
             new List<MediaPlaybackTrackDescriptor>();
         var video =
             new List<MediaPlaybackTrackDescriptor>();
+        var timedMetadata =
+            new List<MediaPlaybackTrackDescriptor>();
         int selectedAudio = -1;
         int selectedVideo = -1;
         for (int nativeIndex = 0;
@@ -1056,6 +1090,14 @@ internal sealed class LinuxMediaPlaybackProvider :
                     selectedVideo = destination.Count;
                 }
             }
+            else if (track.Kind ==
+                     IsoBmffTrackKind.TimedMetadata)
+            {
+                kind =
+                    MediaPlaybackTrackKind.TimedMetadata;
+                destination = timedMetadata;
+                selected = false;
+            }
             else
             {
                 continue;
@@ -1072,18 +1114,35 @@ internal sealed class LinuxMediaPlaybackProvider :
                     (uint)track.Samples[0].Duration);
             }
             MediaPlaybackTrackSupport support =
-                selected
+                kind ==
+                MediaPlaybackTrackKind.TimedMetadata
+                    ? track.Codec ==
+                        IsoBmffCodec.WebVtt
+                        ? MediaPlaybackTrackSupport
+                            .Supported
+                        : MediaPlaybackTrackSupport
+                            .Unsupported
+                    : selected
                     ? MediaPlaybackTrackSupport.Supported
                     : MediaPlaybackTrackSupport.Unsupported;
+            string fallbackName = kind switch
+            {
+                MediaPlaybackTrackKind.Audio =>
+                    $"Audio {destination.Count + 1}",
+                MediaPlaybackTrackKind.Video =>
+                    $"Video {destination.Count + 1}",
+                _ =>
+                    $"Subtitles {destination.Count + 1}"
+            };
             destination.Add(
                 new MediaPlaybackTrackDescriptor(
                     $"isobmff:{nativeIndex}",
                     kind,
-                    kind == MediaPlaybackTrackKind.Audio
-                        ? $"Audio {destination.Count + 1}"
-                        : $"Video {destination.Count + 1}",
-                    string.Empty,
-                    string.Empty,
+                    string.IsNullOrWhiteSpace(track.Name)
+                        ? fallbackName
+                        : track.Name,
+                    track.Name,
+                    track.Language,
                     new MediaPlaybackTrackEncoding(
                         Subtype:
                             GetCodecSubtype(track.Codec),
@@ -1097,13 +1156,24 @@ internal sealed class LinuxMediaPlaybackProvider :
                             track.AudioSampleRate,
                         ChannelCount:
                             track.AudioChannelCount),
-                    support));
+                    support,
+                    kind ==
+                    MediaPlaybackTrackKind.TimedMetadata
+                        ? MediaPlaybackTimedMetadataKind
+                            .Subtitle
+                        : MediaPlaybackTimedMetadataKind
+                            .Custom,
+                    kind ==
+                    MediaPlaybackTrackKind.TimedMetadata
+                        ? "text/vtt"
+                        : string.Empty));
         }
         return new MediaPlaybackTracksSnapshot(
             audio,
             selectedAudio,
             video,
-            selectedVideo);
+            selectedVideo,
+            timedMetadata);
     }
 
     private static string GetCodecSubtype(
@@ -1114,8 +1184,34 @@ internal sealed class LinuxMediaPlaybackProvider :
             IsoBmffCodec.H265 => "HEVC",
             IsoBmffCodec.Aac => "AAC",
             IsoBmffCodec.Pcm => "PCM",
+            IsoBmffCodec.WebVtt => "WVTT",
             _ => string.Empty
         };
+
+    private void PublishTimedMetadataCues(
+        Stream stream,
+        IsoBmffMovie movie)
+    {
+        for (int nativeIndex = 0;
+             nativeIndex < movie.Tracks.Length;
+             nativeIndex++)
+        {
+            IsoBmffTrack track =
+                movie.Tracks[nativeIndex];
+            if (track.Kind !=
+                    IsoBmffTrackKind.TimedMetadata ||
+                track.Codec != IsoBmffCodec.WebVtt)
+            {
+                continue;
+            }
+
+            _sink.UpdateTimedMetadataCues(
+                IsoBmffWebVttCueReader.ReadAll(
+                    stream,
+                    track,
+                    $"isobmff:{nativeIndex}"));
+        }
+    }
 
     private static LinuxVideoDecoderDevice
         SelectDecoder(

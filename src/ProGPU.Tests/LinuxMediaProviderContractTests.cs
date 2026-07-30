@@ -3,11 +3,13 @@ using ProGPU.Linux.Media;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using ProGPU.Backend;
 using ProGPU.Browser;
 using ProGPU.Media.Editing;
 using ProGPU.Media.Containers;
 using ProGPU.Media.Effects;
+using ProGPU.Media.Playback;
 using Windows.Media.Editing;
 using Windows.Storage;
 
@@ -854,6 +856,126 @@ public sealed class LinuxMediaProviderContractTests
             0x6176_6331u,
             track.SampleEntryType);
         Assert.Equal(91, track.SampleEntryPayload.Length);
+    }
+
+    [Fact]
+    public void IsoBmffWebVttTracksProjectStableTimedTextCues()
+    {
+        byte[] source =
+            BuildSyntheticH264WebVttMovie();
+        using var stream =
+            new MemoryStream(source, writable: false);
+
+        IsoBmffMovie movie =
+            new IsoBmffDemuxer(stream).Parse();
+
+        Assert.Equal(2, movie.Tracks.Length);
+        IsoBmffTrack track = movie.Tracks[1];
+        Assert.Equal(
+            IsoBmffTrackKind.TimedMetadata,
+            track.Kind);
+        Assert.Equal(
+            IsoBmffCodec.WebVtt,
+            track.Codec);
+        Assert.Equal("eng", track.Language);
+        Assert.Equal("English", track.Name);
+        Assert.Equal(
+            0x7776_7474u,
+            track.SampleEntryType);
+
+        MediaPlaybackTimedMetadataCueSnapshot snapshot =
+            IsoBmffWebVttCueReader.ReadAll(
+                stream,
+                track,
+                "isobmff:1");
+
+        Assert.Equal(
+            "isobmff:1",
+            snapshot.ProviderTrackId);
+        Assert.Equal(2, snapshot.Cues.Count);
+        Assert.Equal(
+            "opening",
+            snapshot.Cues[0].CueId);
+        Assert.Equal(
+            TimeSpan.Zero,
+            snapshot.Cues[0].StartTime);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            snapshot.Cues[0].Duration);
+        Assert.Equal(
+            "Hello <b>GPU</b>",
+            snapshot.Cues[0].Text);
+        Assert.Equal(
+            "isobmff:1:0:1",
+            snapshot.Cues[1].CueId);
+        Assert.Equal(
+            "Second line",
+            snapshot.Cues[1].Text);
+    }
+
+    [Fact]
+    public void LinuxPlaybackExposesTypedTimedMetadataCapability()
+    {
+        Assert.True(
+            typeof(IMediaPlaybackTimedMetadataProvider)
+                .IsAssignableFrom(
+                    typeof(LinuxMediaPlaybackProvider)));
+
+        string source = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxMediaPlaybackProvider.cs");
+        Assert.Contains(
+            "IsoBmffWebVttCueReader.ReadAll(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".PlatformPresented ||",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsoBmffWebVttRejectsMalformedNestedBoxSize()
+    {
+        byte[] malformed =
+        [
+            0, 0, 0, 32,
+            (byte)'v', (byte)'t',
+            (byte)'t', (byte)'c'
+        ];
+        using var stream =
+            new MemoryStream(
+                malformed,
+                writable: false);
+
+        Assert.Throws<InvalidDataException>(
+            () => IsoBmffWebVttCueReader.ReadAll(
+                stream,
+                CreateSyntheticWebVttTrack(
+                    malformed.Length),
+                "isobmff:0"));
+    }
+
+    [Fact]
+    public void IsoBmffWebVttRejectsInvalidUtf8Payload()
+    {
+        byte[] malformed = Box(
+            "vttc",
+            Box(
+                "payl",
+                [0xC3, 0x28]));
+        using var stream =
+            new MemoryStream(
+                malformed,
+                writable: false);
+
+        Assert.Throws<InvalidDataException>(
+            () => IsoBmffWebVttCueReader.ReadAll(
+                stream,
+                CreateSyntheticWebVttTrack(
+                    malformed.Length),
+                "isobmff:0"));
     }
 
     [Fact]
@@ -2297,6 +2419,154 @@ public sealed class LinuxMediaProviderContractTests
         return result;
     }
 
+    private static byte[]
+        BuildSyntheticH264WebVttMovie()
+    {
+        const int videoOffset = 4_096;
+        const int textOffset = 8_192;
+
+        byte[] avcConfiguration =
+            [1, 100, 0, 31, 0xFF];
+        byte[] avcC = Box(
+            "avcC",
+            avcConfiguration);
+        var visualHeader = new byte[78];
+        BinaryPrimitives.WriteUInt16BigEndian(
+            visualHeader.AsSpan(6),
+            1);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            visualHeader.AsSpan(24),
+            1_920);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            visualHeader.AsSpan(26),
+            1_080);
+        byte[] videoEntry = Box(
+            "avc1",
+            Concat(
+                visualHeader,
+                avcC));
+        byte[] videoTrack =
+            BuildSyntheticTrack(
+                "vide",
+                timescale: 1_000,
+                duration: 2_000,
+                videoEntry,
+                sampleCount: 2,
+                sampleDuration: 1_000,
+                uniformSampleSize: 0,
+                sampleSizes:
+                    [5, 7],
+                chunkOffset: videoOffset,
+                syncSamples: [1]);
+
+        var textHeader = new byte[8];
+        BinaryPrimitives.WriteUInt16BigEndian(
+            textHeader.AsSpan(6),
+            1);
+        byte[] textEntry = Box(
+            "wvtt",
+            Concat(
+                textHeader,
+                Box(
+                    "vttC",
+                    Encoding.UTF8.GetBytes(
+                        "WEBVTT\n"))));
+        byte[] firstTextSample = Concat(
+            Box(
+                "vttc",
+                Box(
+                    "iden",
+                    Encoding.UTF8.GetBytes(
+                        "opening")),
+                Box(
+                    "sttg",
+                    Encoding.UTF8.GetBytes(
+                        "align:center")),
+                Box(
+                    "payl",
+                    Encoding.UTF8.GetBytes(
+                        "Hello <b>GPU</b>"))),
+            Box(
+                "vttc",
+                Box(
+                    "payl",
+                    Encoding.UTF8.GetBytes(
+                        "Second line"))));
+        byte[] secondTextSample =
+            Box("vtte", []);
+        byte[] textTrack =
+            BuildSyntheticTrack(
+                "text",
+                timescale: 1_000,
+                duration: 2_000,
+                textEntry,
+                sampleCount: 2,
+                sampleDuration: 1_000,
+                uniformSampleSize: 0,
+                sampleSizes:
+                    [
+                        firstTextSample.Length,
+                        secondTextSample.Length
+                    ],
+                chunkOffset: textOffset,
+                syncSamples: [],
+                language: "eng",
+                handlerName: "English");
+
+        byte[] movie = Box(
+            "moov",
+            Concat(
+                videoTrack,
+                textTrack));
+        if (movie.Length >= videoOffset)
+        {
+            throw new InvalidOperationException(
+                "The synthetic movie metadata overlaps its video payload.");
+        }
+        var result = new byte[
+            textOffset +
+            firstTextSample.Length +
+            secondTextSample.Length];
+        movie.CopyTo(result, 0);
+        new byte[]
+        {
+            1, 2, 3, 4, 5,
+            6, 7, 8, 9, 10, 11, 12
+        }.CopyTo(
+            result,
+            videoOffset);
+        firstTextSample.CopyTo(
+            result,
+            textOffset);
+        secondTextSample.CopyTo(
+            result,
+            textOffset +
+            firstTextSample.Length);
+        return result;
+    }
+
+    private static IsoBmffTrack
+        CreateSyntheticWebVttTrack(
+            int sampleSize) =>
+        new(
+            IsoBmffTrackKind.TimedMetadata,
+            IsoBmffCodec.WebVtt,
+            1_000,
+            1_000,
+            0,
+            0,
+            0,
+            [],
+            [
+                new IsoBmffSample(
+                    0,
+                    sampleSize,
+                    0,
+                    0,
+                    1_000,
+                    IsSync: true)
+            ]);
+
     private static byte[] BuildSyntheticTrack(
         string handler,
         uint timescale,
@@ -2307,7 +2577,9 @@ public sealed class LinuxMediaProviderContractTests
         int uniformSampleSize,
         int[] sampleSizes,
         int chunkOffset,
-        int[] syncSamples)
+        int[] syncSamples,
+        string language = "",
+        string handlerName = "")
     {
         byte[] stsd = Box(
             "stsd",
@@ -2414,13 +2686,23 @@ public sealed class LinuxMediaProviderContractTests
                 UInt32(timescale),
                 UInt32(
                     checked((uint)duration)),
-                UInt32(0)));
+                UInt16(PackLanguage(language)),
+                UInt16(0)));
+        byte[] handlerNameBytes =
+            string.IsNullOrEmpty(handlerName)
+                ? []
+                : Concat(
+                    Encoding.UTF8.GetBytes(
+                        handlerName),
+                    [0]);
         byte[] hdlr = Box(
             "hdlr",
             Concat(
                 FullBoxHeader(0),
                 UInt32(0),
-                FourCc(handler)));
+                FourCc(handler),
+                new byte[12],
+                handlerNameBytes));
         byte[] mdia = Box(
             "mdia",
             Concat(
@@ -2430,6 +2712,29 @@ public sealed class LinuxMediaProviderContractTests
         return Box(
             "trak",
             mdia);
+    }
+
+    private static ushort PackLanguage(
+        string language)
+    {
+        if (language.Length != 3)
+        {
+            return 0;
+        }
+        int first = language[0] - 'a' + 1;
+        int second = language[1] - 'a' + 1;
+        int third = language[2] - 'a' + 1;
+        if (first is < 1 or > 26 ||
+            second is < 1 or > 26 ||
+            third is < 1 or > 26)
+        {
+            return 0;
+        }
+        return checked(
+            (ushort)(
+                first << 10 |
+                second << 5 |
+                third));
     }
 
     private static IsoBmffCompositionEdit[]
@@ -2534,6 +2839,13 @@ public sealed class LinuxMediaProviderContractTests
     {
         var result = new byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(result, value);
+        return result;
+    }
+
+    private static byte[] UInt16(ushort value)
+    {
+        var result = new byte[2];
+        BinaryPrimitives.WriteUInt16BigEndian(result, value);
         return result;
     }
 
