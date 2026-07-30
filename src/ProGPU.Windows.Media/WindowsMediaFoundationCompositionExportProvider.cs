@@ -22,7 +22,9 @@ namespace ProGPU.Windows.Media;
 /// O(C + V + A) time and O(1) managed working storage beyond bounded native
 /// codec queues. The steady sample loop allocates no managed objects. Video
 /// ownership remains in Media Foundation/DXGI; PCM audio remains in native
-/// Media Foundation buffers and is never copied into managed memory.
+/// Media Foundation buffers on the linear fast path. A registered non-linear
+/// typed audio effect uses one bounded stack float workspace and reports the
+/// CPU-buffer boundary explicitly.
 /// </summary>
 public sealed class WindowsMediaFoundationCompositionExportProvider :
     IMediaCompositionExportProvider,
@@ -186,7 +188,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
             request,
             MediaEffectRegistry.Default);
 
-    private static MediaCompositionExportCapabilities
+    internal static MediaCompositionExportCapabilities
         CreateCapabilities(
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects)
@@ -196,6 +198,10 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
             HasBuiltInEffects(request, effects);
         bool gpuComposition =
             HasGpuComposition(request, effects);
+        bool typedAudioProcessing =
+            HasTypedAudioProcessing(
+                request,
+                effects);
         return new MediaCompositionExportCapabilities(
             ProviderId,
             gpuComposition
@@ -203,7 +209,9 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                 : MediaCompositionExportVideoPath.NativeGpuSurface,
             request.EncodingProfile.AudioSubtype is null
                 ? MediaCompositionExportAudioPath.None
-                : MediaCompositionExportAudioPath.NativeBuffer,
+                : typedAudioProcessing
+                    ? MediaCompositionExportAudioPath.CpuBuffer
+                    : MediaCompositionExportAudioPath.NativeBuffer,
             HardwareVideoEncoderRequested: true,
             HardwareVideoEncoderGuaranteed: false,
             EffectsBakedOnGpu: hasEffects,
@@ -219,8 +227,11 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                 "volume plus registered typed gain and stereo-balance " +
                 "definitions are folded into a continuous native PCM16 " +
                 "mix with delayed background and audible overlay tracks. " +
-                "Custom overlay compositors and arbitrary effects are not " +
-                "accepted. Ordered video overlays use " +
+                "Other registered typed block-local audio definitions run " +
+                "in order in one bounded float workspace before wide final " +
+                "mixing; effect latency, lookahead, and tails are not " +
+                "modeled. Custom overlay compositors and unregistered " +
+                "effects are not accepted. Ordered video overlays use " +
                 "retained Media Foundation readers and source-over WebGPU " +
                 "composition. The native PCM16 channel-level lane supports " +
                 "0–2× per source and saturates once after wide mixing.");
@@ -282,6 +293,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                     compositionDurationTicks,
                     videoPlans,
                     overlayPlans,
+                    _effects,
                     progress,
                     cancellationToken),
                 CancellationToken.None));
@@ -297,6 +309,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
             videoPlans,
         IReadOnlyList<WindowsMediaFoundationOverlayPlan>
             overlayPlans,
+        MediaEffectRegistry effects,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
@@ -331,6 +344,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                     compositionDurationTicks,
                     videoPlans,
                     overlayPlans,
+                    effects,
                     temporaryPath,
                     reporter,
                     cancellationToken);
@@ -376,6 +390,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
             videoPlans,
         IReadOnlyList<WindowsMediaFoundationOverlayPlan>
             overlayPlans,
+        MediaEffectRegistry effects,
         string temporaryPath,
         ExportProgressReporter reporter,
         CancellationToken cancellationToken)
@@ -483,6 +498,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                 audioMixer =
                     new WindowsMediaFoundationAudioMixer(
                         audioPlans,
+                        effects,
                         dxgiManager,
                         profile,
                         compositionDurationTicks);
@@ -938,6 +954,37 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
         return false;
     }
 
+    private static bool HasTypedAudioProcessing(
+        MediaCompositionExportRequest request,
+        MediaEffectRegistry effects)
+    {
+        if (request.EncodingProfile.AudioSubtype is
+                null ||
+            !WindowsMediaFoundationAudioPlanner
+                .TryCapture(
+                    request,
+                    effects,
+                    includeAudio: true,
+                    out WindowsMediaFoundationAudioPlan[]
+                        plans,
+                    out _))
+        {
+            return false;
+        }
+        for (int index = 0;
+             index < plans.Length;
+             index++)
+        {
+            if (plans[index]
+                    .ProcessorDefinitions
+                    .Length != 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static bool TryCaptureVideoPlans(
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects,
@@ -977,8 +1024,32 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
         MediaEffectRegistry effects,
-        out MediaAudioStereoLevels levels)
+        out MediaAudioStereoLevels levels) =>
+        TryGetEffectiveAudioProcessing(
+            volume,
+            definitions,
+            effects,
+            out levels,
+            out _);
+
+    internal static bool TryGetEffectiveAudioProcessing(
+        double volume,
+        IReadOnlyList<MediaCompositionEffectDefinition>
+            definitions,
+        MediaEffectRegistry effects,
+        out MediaAudioStereoLevels levels,
+        out MediaCompositionEffectDefinition[]
+            processorDefinitions)
     {
+        if (!double.IsFinite(volume) ||
+            volume is < 0d or >
+                WindowsPcm16GainProcessor.MaximumGain)
+        {
+            levels = default;
+            processorDefinitions = [];
+            return false;
+        }
+
         if (!MediaAudioGraphEffectResolver
                 .TryCaptureCombinedStereoLevels(
                     effects,
@@ -986,14 +1057,53 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                     out MediaAudioStereoLevels
                         effectLevels))
         {
-            levels = default;
-            return false;
+            if (!MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        definitions,
+                        out MediaAudioEffectProcessorChain?
+                            processorChain))
+            {
+                levels = default;
+                processorDefinitions = [];
+                return false;
+            }
+
+            using (processorChain)
+            {
+                try
+                {
+                    levels =
+                        MediaAudioStereoLevels
+                            .Identity
+                            .Scale(
+                                checked(
+                                    (float)volume));
+                    processorDefinitions =
+                        definitions.Count == 0
+                            ? []
+                            : definitions.ToArray();
+                    return levels.Peak <=
+                        WindowsPcm16GainProcessor
+                            .MaximumGain;
+                }
+                catch (Exception exception)
+                    when (exception is
+                        OverflowException or
+                        ArgumentOutOfRangeException)
+                {
+                    levels = default;
+                    processorDefinitions = [];
+                    return false;
+                }
+            }
         }
 
         try
         {
             levels = effectLevels.Scale(
                 checked((float)volume));
+            processorDefinitions = [];
             return levels.Peak <=
                 WindowsPcm16GainProcessor.MaximumGain;
         }
@@ -1003,6 +1113,7 @@ public sealed class WindowsMediaFoundationCompositionExportProvider :
                 ArgumentOutOfRangeException)
         {
             levels = default;
+            processorDefinitions = [];
             return false;
         }
     }

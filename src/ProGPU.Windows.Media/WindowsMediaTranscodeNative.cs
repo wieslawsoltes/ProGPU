@@ -701,6 +701,179 @@ internal static unsafe partial class WindowsMediaNative
         }
     }
 
+    /// <summary>
+    /// Copies one frame interval from MF-owned PCM16 buffers into normalized
+    /// caller-owned float storage for an explicitly registered typed effect.
+    /// Buffers are borrowed only for the duration of each direct span copy.
+    /// </summary>
+    internal static void CopyPcm16SampleToFloat(
+        nint sample,
+        int sourceFrameOffset,
+        int frameCount,
+        uint channelCount,
+        Span<float> destination)
+    {
+        if (sourceFrameOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceFrameOffset));
+        }
+        if (frameCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frameCount));
+        }
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+        int channels = checked((int)channelCount);
+        int sourceSampleOffset =
+            checked(sourceFrameOffset * channels);
+        int requestedSamples =
+            checked(frameCount * channels);
+        if (destination.Length < requestedSamples)
+        {
+            throw new ArgumentException(
+                "The float destination is smaller than the requested PCM interval.",
+                nameof(destination));
+        }
+        if (requestedSamples == 0)
+        {
+            return;
+        }
+
+        uint bufferCount = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint*,
+            int> getBufferCount =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint*,
+                int>)VTable(sample)[39];
+        ThrowIfFailed(
+            getBufferCount(sample, &bufferCount),
+            "get the PCM16 sample buffer count");
+        delegate* unmanaged[Stdcall]<
+            nint,
+            uint,
+            nint*,
+            int> getBuffer =
+            (delegate* unmanaged[Stdcall]<
+                nint,
+                uint,
+                nint*,
+                int>)VTable(sample)[40];
+        int globalSampleOffset = 0;
+        int copiedSamples = 0;
+        for (uint index = 0;
+             index < bufferCount &&
+             copiedSamples < requestedSamples;
+             index++)
+        {
+            nint buffer = 0;
+            byte* bytes = null;
+            bool locked = false;
+            try
+            {
+                ThrowIfFailed(
+                    getBuffer(
+                        sample,
+                        index,
+                        &buffer),
+                    "get a PCM16 media buffer");
+                uint currentLength = 0;
+                delegate* unmanaged[Stdcall]<
+                    nint,
+                    byte**,
+                    uint*,
+                    uint*,
+                    int> lockBuffer =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        byte**,
+                        uint*,
+                        uint*,
+                        int>)VTable(buffer)[3];
+                ThrowIfFailed(
+                    lockBuffer(
+                        buffer,
+                        &bytes,
+                        null,
+                        &currentLength),
+                    "lock a PCM16 media buffer for typed processing");
+                locked = true;
+                if ((currentLength & 1) != 0)
+                {
+                    throw new InvalidDataException(
+                        "A PCM16 media buffer has an odd byte length.");
+                }
+                int bufferSamples =
+                    checked(
+                        (int)(currentLength / 2));
+                int localStart =
+                    Math.Max(
+                        0,
+                        sourceSampleOffset -
+                        globalSampleOffset);
+                int available =
+                    Math.Max(
+                        0,
+                        bufferSamples -
+                        localStart);
+                int take =
+                    Math.Min(
+                        available,
+                        requestedSamples -
+                        copiedSamples);
+                var sourceValues =
+                    new ReadOnlySpan<short>(
+                        bytes,
+                        bufferSamples);
+                for (int sampleIndex = 0;
+                     sampleIndex < take;
+                     sampleIndex++)
+                {
+                    destination[
+                        copiedSamples +
+                        sampleIndex] =
+                        sourceValues[
+                            localStart +
+                            sampleIndex] /
+                        32_768f;
+                }
+                copiedSamples += take;
+                globalSampleOffset =
+                    checked(
+                        globalSampleOffset +
+                        bufferSamples);
+            }
+            finally
+            {
+                if (locked)
+                {
+                    delegate* unmanaged[Stdcall]<
+                        nint,
+                        int> unlockBuffer =
+                        (delegate* unmanaged[Stdcall]<
+                            nint,
+                            int>)VTable(buffer)[4];
+                    ThrowIfFailed(
+                        unlockBuffer(buffer),
+                        "unlock a PCM16 media buffer after typed processing");
+                }
+                Release(buffer);
+            }
+        }
+        if (copiedSamples != requestedSamples)
+        {
+            throw new InvalidDataException(
+                "A PCM16 sample ended before the requested frame range.");
+        }
+    }
+
     internal static void ConfigureSourceReaderStream(
         nint reader,
         uint stream,

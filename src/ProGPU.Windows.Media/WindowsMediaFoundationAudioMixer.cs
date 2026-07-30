@@ -14,7 +14,9 @@ internal readonly record struct
     long SourceEndTicks,
     long DestinationStartTicks,
     long DestinationEndTicks,
-    WindowsPcm16MixLevels Levels);
+    WindowsPcm16MixLevels Levels,
+    MediaCompositionEffectDefinition[]
+        ProcessorDefinitions);
 
 /// <summary>
 /// Clean-room WinUI composition-audio schedule capture.
@@ -53,12 +55,14 @@ internal static class WindowsMediaFoundationAudioPlanner
                         clip.TrimTimeFromStart.Ticks,
                         clip.TrimTimeFromEnd.Ticks);
                 if (!WindowsMediaFoundationCompositionExportProvider
-                        .TryGetEffectiveAudioLevels(
+                        .TryGetEffectiveAudioProcessing(
                             clip.Volume,
                             clip.AudioEffectDefinitions,
                             effects,
                             out MediaAudioStereoLevels
-                                audioLevels) ||
+                                audioLevels,
+                            out MediaCompositionEffectDefinition[]
+                                processorDefinitions) ||
                     !WindowsPcm16MixLevels.TryCreate(
                         audioLevels,
                         out WindowsPcm16MixLevels
@@ -87,7 +91,8 @@ internal static class WindowsMediaFoundationAudioPlanner
                                 duration),
                             timelineTicks,
                             destinationEnd,
-                            mixLevels));
+                            mixLevels,
+                            processorDefinitions));
                 }
                 timelineTicks = destinationEnd;
             }
@@ -104,12 +109,14 @@ internal static class WindowsMediaFoundationAudioPlanner
                     !double.IsFinite(track.Volume) ||
                     track.Volume is < 0d or > 1d ||
                     !WindowsMediaFoundationCompositionExportProvider
-                        .TryGetEffectiveAudioLevels(
+                        .TryGetEffectiveAudioProcessing(
                             track.Volume,
                             track.AudioEffectDefinitions,
                             effects,
                             out MediaAudioStereoLevels
-                                audioLevels) ||
+                                audioLevels,
+                            out MediaCompositionEffectDefinition[]
+                                processorDefinitions) ||
                     !WindowsPcm16MixLevels.TryCreate(
                         audioLevels,
                         out WindowsPcm16MixLevels
@@ -179,7 +186,8 @@ internal static class WindowsMediaFoundationAudioPlanner
                                 destinationStart),
                             destinationStart,
                             destinationEnd,
-                            mixLevels));
+                            mixLevels,
+                            processorDefinitions));
                 }
             }
 
@@ -200,12 +208,14 @@ internal static class WindowsMediaFoundationAudioPlanner
                     MediaCompositionExportClip clip =
                         overlay.Clip;
                     if (!WindowsMediaFoundationCompositionExportProvider
-                            .TryGetEffectiveAudioLevels(
+                            .TryGetEffectiveAudioProcessing(
                                 clip.Volume,
                                 clip.AudioEffectDefinitions,
                                 effects,
                                 out MediaAudioStereoLevels
-                                    audioLevels) ||
+                                    audioLevels,
+                                out MediaCompositionEffectDefinition[]
+                                    processorDefinitions) ||
                         !WindowsPcm16MixLevels.TryCreate(
                             audioLevels,
                             out WindowsPcm16MixLevels
@@ -263,7 +273,8 @@ internal static class WindowsMediaFoundationAudioPlanner
                                 destinationStart),
                             destinationStart,
                             destinationEnd,
-                            mixLevels));
+                            mixLevels,
+                            processorDefinitions));
                 }
             }
         }
@@ -309,9 +320,11 @@ internal static class WindowsMediaFoundationAudioPlanner
 /// Source Readers decode and resample to the requested PCM type. Only sources
 /// overlapping the current block are live; each retains at most one decoded
 /// sample. A block uses at most 16 KiB of stack accumulator storage for
-/// stereo, then writes one MF-owned 32-byte-aligned PCM buffer. Managed
+/// stereo plus one 8 KiB float workspace when a typed effect is active, then
+/// writes one MF-owned 32-byte-aligned PCM buffer. Managed
 /// working storage is O(A) for A scheduled sources and does not grow with
-/// duration. Mixing is O(F * L) for F output frames and L active layers.
+/// duration. Mixing is O(F * (L + E)) for F output frames, L active layers,
+/// and E active typed effect stages.
 /// </remarks>
 internal sealed class WindowsMediaFoundationAudioMixer :
     IDisposable
@@ -321,17 +334,20 @@ internal sealed class WindowsMediaFoundationAudioMixer :
     private readonly uint _channelCount;
     private readonly uint _sampleRate;
     private readonly long _compositionDurationTicks;
+    private readonly bool _hasProcessors;
     private int _nextSource;
     private int _activeCount;
     private bool _disposed;
 
     internal WindowsMediaFoundationAudioMixer(
         IReadOnlyList<WindowsMediaFoundationAudioPlan> plans,
+        MediaEffectRegistry effects,
         nint dxgiManager,
         MediaCompositionEncodingProfile profile,
         long compositionDurationTicks)
     {
         ArgumentNullException.ThrowIfNull(plans);
+        ArgumentNullException.ThrowIfNull(effects);
         ArgumentNullException.ThrowIfNull(profile);
         if (profile.AudioChannelCount is not (1u or 2u) ||
             profile.AudioSampleRate == 0 ||
@@ -346,17 +362,38 @@ internal sealed class WindowsMediaFoundationAudioMixer :
             compositionDurationTicks;
         _sources = new AudioSource[plans.Count];
         _activeSources = new int[plans.Count];
-        for (int index = 0;
-             index < plans.Count;
-             index++)
+        int created = 0;
+        bool hasProcessors = false;
+        try
         {
-            _sources[index] =
-                new AudioSource(
-                    plans[index],
-                    dxgiManager,
-                    _sampleRate,
-                    _channelCount);
+            for (int index = 0;
+                 index < plans.Count;
+                 index++)
+            {
+                AudioSource source =
+                    new(
+                        plans[index],
+                        effects,
+                        dxgiManager,
+                        _sampleRate,
+                        _channelCount);
+                _sources[index] = source;
+                created++;
+                hasProcessors |=
+                    source.HasProcessor;
+            }
         }
+        catch
+        {
+            for (int index = created - 1;
+                 index >= 0;
+                 index--)
+            {
+                _sources[index].Dispose();
+            }
+            throw;
+        }
+        _hasProcessors = hasProcessors;
         Array.Sort(
             _sources,
             AudioSourceComparer.Instance);
@@ -379,6 +416,12 @@ internal sealed class WindowsMediaFoundationAudioMixer :
             stackalloc long[
                 WindowsPcm16Mixer.FramesPerBlock *
                 2];
+        Span<float> effectStorage =
+            _hasProcessors
+                ? stackalloc float[
+                    WindowsPcm16Mixer.FramesPerBlock *
+                    2]
+                : Span<float>.Empty;
         for (long blockStart = 0;
              blockStart < totalFrames;)
         {
@@ -422,6 +465,7 @@ internal sealed class WindowsMediaFoundationAudioMixer :
                     blockStart,
                     frameCount,
                     accumulator,
+                    effectStorage,
                     cancellationToken);
                 activeIndex++;
             }
@@ -554,6 +598,9 @@ internal sealed class WindowsMediaFoundationAudioMixer :
         private readonly long _sourceStartTicks;
         private readonly long _sourceStartFrame;
         private readonly WindowsPcm16MixLevels _levels;
+        private readonly MediaAudioFormat _format;
+        private readonly MediaAudioEffectProcessorChain?
+            _processorChain;
         private nint _reader;
         private nint _mediaType;
         private nint _sample;
@@ -564,6 +611,7 @@ internal sealed class WindowsMediaFoundationAudioMixer :
 
         internal AudioSource(
             in WindowsMediaFoundationAudioPlan plan,
+            MediaEffectRegistry effects,
             nint dxgiManager,
             uint sampleRate,
             uint channelCount)
@@ -572,6 +620,10 @@ internal sealed class WindowsMediaFoundationAudioMixer :
             _dxgiManager = dxgiManager;
             _sampleRate = sampleRate;
             _channelCount = channelCount;
+            _format =
+                new MediaAudioFormat(
+                    checked((int)sampleRate),
+                    checked((int)channelCount));
             _sourceStartTicks = plan.SourceStartTicks;
             _sourceStartFrame =
                 TicksToFramesCeiling(
@@ -599,6 +651,19 @@ internal sealed class WindowsMediaFoundationAudioMixer :
                             sourceEndFrame -
                             _sourceStartFrame)));
             _levels = plan.Levels;
+            MediaAudioEffectProcessorChain?
+                processorChain = null;
+            if (plan.ProcessorDefinitions.Length != 0 &&
+                !MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        plan.ProcessorDefinitions,
+                        out processorChain))
+            {
+                throw new NotSupportedException(
+                    "A registered Windows composition audio effect could not be activated.");
+            }
+            _processorChain = processorChain;
         }
 
         internal long DestinationStartFrame
@@ -611,10 +676,14 @@ internal sealed class WindowsMediaFoundationAudioMixer :
             get;
         }
 
+        internal bool HasProcessor =>
+            _processorChain is not null;
+
         internal void Mix(
             long blockStartFrame,
             int blockFrameCount,
             Span<long> accumulator,
+            Span<float> effectWorkspace,
             CancellationToken cancellationToken)
         {
             if (_disposed ||
@@ -669,23 +738,64 @@ internal sealed class WindowsMediaFoundationAudioMixer :
                             sampleEndFrame));
                 if (overlapStart < overlapEnd)
                 {
-                    WindowsMediaNative.MixPcm16Sample(
-                        _sample,
+                    int sourceFrameOffset =
                         checked(
                             (int)(
                                 overlapStart -
-                                _sampleDestinationStartFrame)),
+                                _sampleDestinationStartFrame));
+                    int overlapFrameCount =
                         checked(
                             (int)(
                                 overlapEnd -
-                                overlapStart)),
-                        _channelCount,
-                        _levels,
-                        accumulator,
+                                overlapStart));
+                    int destinationFrameOffset =
                         checked(
                             (int)(
                                 overlapStart -
-                                blockStartFrame)));
+                                blockStartFrame));
+                    if (_processorChain is null)
+                    {
+                        WindowsMediaNative.MixPcm16Sample(
+                            _sample,
+                            sourceFrameOffset,
+                            overlapFrameCount,
+                            _channelCount,
+                            _levels,
+                            accumulator,
+                            destinationFrameOffset);
+                    }
+                    else
+                    {
+                        Span<float> processed =
+                            effectWorkspace[
+                                ..checked(
+                                    overlapFrameCount *
+                                    (int)_channelCount)];
+                        WindowsMediaNative
+                            .CopyPcm16SampleToFloat(
+                                _sample,
+                                sourceFrameOffset,
+                                overlapFrameCount,
+                                _channelCount,
+                                processed);
+                        var context =
+                            new MediaAudioProcessContext(
+                                _format,
+                                overlapFrameCount,
+                                TimeSpan.FromTicks(
+                                    FramesToTicksFloor(
+                                        overlapStart,
+                                        _sampleRate)));
+                        _processorChain.Process(
+                            processed,
+                            context);
+                        WindowsPcm16Mixer.AddProcessed(
+                            processed,
+                            _channelCount,
+                            _levels,
+                            accumulator,
+                            destinationFrameOffset);
+                    }
                 }
                 if (sampleEndFrame <= blockEndFrame)
                 {
@@ -703,6 +813,7 @@ internal sealed class WindowsMediaFoundationAudioMixer :
                 return;
             }
             _disposed = true;
+            _processorChain?.Dispose();
             ReleaseSample();
             WindowsMediaNative.Release(
                 Interlocked.Exchange(
