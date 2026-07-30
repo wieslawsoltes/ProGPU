@@ -87,6 +87,7 @@ internal sealed class
                 _sources[index] ??=
                     new OverlaySource(
                         plan,
+                        sourceMicroseconds,
                         sink);
             if (!source.TrySelect(
                     sourceMicroseconds,
@@ -138,6 +139,7 @@ internal sealed class
 
         internal OverlaySource(
             in AndroidMediaCodecOverlayPlan plan,
+            long initialSourceMicroseconds,
             AndroidMediaCodecGpuEncoderFrameSink sink)
         {
             _plan = plan;
@@ -169,7 +171,9 @@ internal sealed class
                         "An Android overlay video track has no MIME type.");
                 _extractor.SelectTrack(track);
                 _extractor.SeekTo(
-                    plan.SourceStartMicroseconds,
+                    Math.Max(
+                        plan.SourceStartMicroseconds,
+                        initialSourceMicroseconds),
                     MediaExtractorSeekTo.PreviousSync);
                 decoder =
                     MediaCodec.CreateDecoderByType(

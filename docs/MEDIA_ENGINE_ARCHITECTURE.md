@@ -2948,3 +2948,20 @@ managed-allocation results only. No Android device was attached, so actual
 multi-decoder codec availability, vendor SurfaceTexture queue behavior,
 exported pixels, z-order, opacity, effect output, audible overlay alignment,
 stalls, residency, power, and thermal behavior remain unproven hardware gates.
+
+The same captured overlay plan now serves Android composition thumbnails.
+Thumbnail positions are sorted by composition time for rendering, allowing
+each retained URI-overlay decoder to remain forward-only, and encoded results
+are restored to the caller's original order. The first requested active
+overlay timestamp seeks from its previous sync sample rather than decoding
+from overlay start. URI/color overlay images, ordering, placement, opacity,
+and registered effects therefore use the same bounded
+SurfaceTexture/AHardwareBuffer/WebGPU compositor as precise export. The main
+thumbnail clip still comes from Android's public `MediaMetadataRetriever`
+`Bitmap` API and the result must still be read and PNG-encoded, so the
+thumbnail API deliberately makes no end-to-end zero-copy claim. Batch
+scheduling is O(T log T + T × (C + O)) for T thumbnails, C sequential clips,
+and O overlays, with O(T + C + O) state beyond the required encoded results;
+GPU ring residency remains fixed. Capability/source contracts verify overlay
+plan capture, ascending evaluation, result-order restoration, retained
+composer reuse, and absence of a managed full-frame copy.

@@ -864,6 +864,36 @@ public sealed class AndroidMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
+            "AndroidMediaCodecOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AndroidMediaCodecOverlayFrameComposer(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Array.Sort(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "orderedPositions",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "renderer.DrawFrame(\n" +
+            "                        presentationTimeMicroseconds,\n" +
+            "                        effectPlan,\n" +
+            "                        overlays,",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "composition.OverlayLayers.Count != 0 ||",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "ImageReader.NewInstance(",
             provider,
             StringComparison.Ordinal);
