@@ -19,6 +19,7 @@ using ProGPU.Scene;
 using ProGPU.Scene.Extensions;
 using ProGPU.Tests.Headless;
 using Silk.NET.WebGPU;
+using Windows.Foundation.Collections;
 using Windows.Media.Core;
 using Windows.Media;
 using Windows.Media.Playback;
@@ -79,6 +80,56 @@ public sealed class MediaPlaybackEngineTests
         Assert.True(
             typeof(IStorageFile).IsAssignableFrom(
                 typeof(StorageFile)));
+    }
+
+    [Fact]
+    public void PlaybackListItemsUseOfficialObservableVector()
+    {
+        Assert.Equal(
+            typeof(IObservableVector<MediaPlaybackItem>),
+            typeof(MediaPlaybackList)
+                .GetProperty(
+                    nameof(MediaPlaybackList.Items))!
+                .PropertyType);
+
+        var list = new MediaPlaybackList();
+        var changes = new List<
+            (CollectionChange Change, uint Index)>();
+        list.Items.VectorChanged += (_, args) =>
+            changes.Add(
+                (args.CollectionChange, args.Index));
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/first.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/second.mp4"));
+        using MediaSource replacementSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/replacement.mp4"));
+        var first = new MediaPlaybackItem(firstSource);
+        var second = new MediaPlaybackItem(secondSource);
+        var replacement =
+            new MediaPlaybackItem(replacementSource);
+
+        list.Items.Add(first);
+        list.Items.Add(second);
+        list.Items[1] = replacement;
+        list.Items.RemoveAt(0);
+        list.Items.Clear();
+
+        Assert.Equal(
+            [
+                (CollectionChange.ItemInserted, 0u),
+                (CollectionChange.ItemInserted, 1u),
+                (CollectionChange.ItemChanged, 1u),
+                (CollectionChange.ItemRemoved, 0u),
+                (CollectionChange.Reset, 0u)
+            ],
+            changes);
     }
 
     [Fact]

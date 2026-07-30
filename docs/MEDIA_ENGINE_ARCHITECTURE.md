@@ -968,6 +968,12 @@ implementation-specific Boolean. Manual navigation and `StartingItem`
 changes honor `MediaPlaybackItem.CanSkip` while any attached player has
 active playback; command-manager Next/Previous enablement uses the same
 decision. Natural completion remains able to advance the list.
+`MediaPlaybackList.Items` exposes the official
+[`IObservableVector<MediaPlaybackItem>`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacklist.items)
+projection. Insert, remove, replacement, and reset mutations publish one
+typed `VectorChanged` notification with the documented `CollectionChange`
+and zero-based index after the list has updated its playback state. The
+notification adds O(1) work and no reflection to each ordinary mutation.
 `MediaPlaybackItem.GetDisplayProperties`,
 `ApplyDisplayProperties`, and `AutoLoadedDisplayProperties` follow the
 official

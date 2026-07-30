@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using ProGPU.Media.Playback;
+using Windows.Foundation.Collections;
 using Windows.Media.Core;
 
 namespace Windows.Media.Playback;
@@ -209,7 +211,7 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
 public sealed class MediaPlaybackList : IMediaPlaybackSource,
     IProGpuMediaPlaybackSource
 {
-    private readonly ObservableCollection<MediaPlaybackItem> _items =
+    private readonly MediaPlaybackItemVector _items =
         [];
     private readonly object _playbackOwnersGate = new();
     private readonly List<PlaybackOwnerEntry> _playbackOwners = [];
@@ -243,7 +245,7 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         };
     }
 
-    public IList<MediaPlaybackItem> Items => _items;
+    public IObservableVector<MediaPlaybackItem> Items => _items;
     public MediaPlaybackItem? CurrentItem =>
         _currentIndex >= 0 && _currentIndex < _items.Count
             ? _items[_currentIndex]
@@ -312,6 +314,60 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         ItemFailed;
 
     internal event EventHandler? SourceInvalidated;
+
+    private sealed class MediaPlaybackItemVector :
+        ObservableCollection<MediaPlaybackItem>,
+        IObservableVector<MediaPlaybackItem>
+    {
+        public event VectorChangedEventHandler<
+            MediaPlaybackItem>? VectorChanged;
+
+        protected override void OnCollectionChanged(
+            NotifyCollectionChangedEventArgs args)
+        {
+            base.OnCollectionChanged(args);
+            VectorChanged?.Invoke(
+                this,
+                VectorChangedEventArgs.From(args));
+        }
+    }
+
+    private sealed class VectorChangedEventArgs :
+        IVectorChangedEventArgs
+    {
+        private VectorChangedEventArgs(
+            CollectionChange collectionChange,
+            uint index)
+        {
+            CollectionChange = collectionChange;
+            Index = index;
+        }
+
+        public CollectionChange CollectionChange { get; }
+        public uint Index { get; }
+
+        public static VectorChangedEventArgs From(
+            NotifyCollectionChangedEventArgs args) =>
+            args.Action switch
+            {
+                NotifyCollectionChangedAction.Add =>
+                    new(
+                        CollectionChange.ItemInserted,
+                        ToIndex(args.NewStartingIndex)),
+                NotifyCollectionChangedAction.Remove =>
+                    new(
+                        CollectionChange.ItemRemoved,
+                        ToIndex(args.OldStartingIndex)),
+                NotifyCollectionChangedAction.Replace =>
+                    new(
+                        CollectionChange.ItemChanged,
+                        ToIndex(args.NewStartingIndex)),
+                _ => new(CollectionChange.Reset, 0)
+            };
+
+        private static uint ToIndex(int index) =>
+            index < 0 ? 0u : checked((uint)index);
+    }
 
     event EventHandler?
         IProGpuMediaPlaybackSource.SourceInvalidated
