@@ -799,6 +799,12 @@ public static partial class BrowserMediaExportSmokeTest
         "ProGPU.Browser.Smoke.AudioGain";
     private const string AudioBalanceEffectId =
         "ProGPU.Browser.Smoke.AudioBalance";
+    private const string AudioWorkletEffectId =
+        "ProGPU.Browser.Smoke.AudioWorklet";
+    private const string AudioWorkletModuleUri =
+        "./progpu-audio-worklet-smoke.js";
+    private const string AudioWorkletProcessorName =
+        "progpu-smoke-gain";
     private const string GaussianBlurEffectId =
         "ProGPU.Browser.Smoke.GaussianBlur";
     private static readonly Lazy<IDisposable>
@@ -814,6 +820,21 @@ public static partial class BrowserMediaExportSmokeTest
                     new MediaAudioStereoBalanceEffectFactory(
                         AudioBalanceEffectId)));
     private static readonly Lazy<IDisposable>
+        s_audioWorkletRegistration = new(
+            static () =>
+                MediaEffectRegistry.Default.Register(
+                    new BrowserAudioWorkletEffectFactory(
+                        AudioWorkletEffectId,
+                        AudioWorkletModuleUri,
+                        AudioWorkletProcessorName,
+                        """
+                        {
+                          "processorOptions": {
+                            "gain": 0.875
+                          }
+                        }
+                        """)));
+    private static readonly Lazy<IDisposable>
         s_gaussianBlurRegistration = new(
             static () =>
                 MediaEffectRegistry.Default.Register(
@@ -826,6 +847,10 @@ public static partial class BrowserMediaExportSmokeTest
         bool applyEffect,
         bool includeAudio)
     {
+        int initialAudioWorkletNodeCount =
+            includeAudio
+                ? GetBrowserMediaAudioWorkletNodeCreationCountCore()
+                : 0;
         var userData =
             new Dictionary<string, string>
             {
@@ -863,6 +888,7 @@ public static partial class BrowserMediaExportSmokeTest
         {
             _ = s_audioGainRegistration.Value;
             _ = s_audioBalanceRegistration.Value;
+            _ = s_audioWorkletRegistration.Value;
             clip = clip with
             {
                 AudioEffectDefinitions =
@@ -880,7 +906,10 @@ public static partial class BrowserMediaExportSmokeTest
                         {
                             [MediaAudioStereoBalanceEffectFactory
                                 .BalancePropertyName] = -0.25f
-                        })
+                        }),
+                    new MediaCompositionEffectDefinition(
+                        AudioWorkletEffectId,
+                        new Dictionary<string, object?>())
                 ]
             };
         }
@@ -906,6 +935,20 @@ public static partial class BrowserMediaExportSmokeTest
             await MediaCompositionExportRegistry.Default
                 .RenderAsync(request)
                 .ConfigureAwait(false);
+        if (includeAudio &&
+            result == MediaCompositionExportFailure.None &&
+            GetBrowserMediaAudioWorkletNodeCreationCountCore() <=
+                initialAudioWorkletNodeCount)
+        {
+            throw new InvalidOperationException(
+                "Browser audio export completed without creating its application-supplied AudioWorklet node.");
+        }
         return (int)result;
     }
+
+    [JSImport(
+        "getBrowserMediaAudioWorkletNodeCreationCount",
+        "progpu-browser")]
+    private static partial int
+        GetBrowserMediaAudioWorkletNodeCreationCountCore();
 }

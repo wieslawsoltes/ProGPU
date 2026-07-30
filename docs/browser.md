@@ -53,11 +53,22 @@ dotnet run --project src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
 Append `?progpuMediaPlaybackSmoke=1` to the printed HTTP URL and activate
 **Run browser playback smoke** to exercise the WinUI-aligned `MediaPlayer`
 contract under a real user gesture. The gate opens browser-owned media, enables
-frame-server notifications, installs the typed gain/balance Web Audio graph,
-plays, pauses, seeks, replays, validates the decoded `GpuCopy` frame and
-provider diagnostics, then verifies that source disposal returns the owned DOM
-media-element count to its starting value. Override the default CORS-enabled
-fixture with the absolute `progpuMediaPlaybackSource` query parameter.
+frame-server notifications, installs the typed gain/balance Web Audio graph
+and the sample's application-supplied `AudioWorkletProcessor`, plays, pauses,
+seeks, replays, validates the decoded `GpuCopy` frame and provider diagnostics,
+then verifies successful worklet-node creation and that source disposal returns
+the owned DOM media-element count to its starting value. Override the default
+CORS-enabled fixture with the absolute `progpuMediaPlaybackSource` query
+parameter.
+
+Append
+`?progpuMediaExportSmoke=effect-audio&progpuSavePicker=memory` and activate
+**Run browser audio export smoke** to exercise the nonlinear editor's WebGPU
+effect-bake plus native H.264/AAC export lane with the same supplied worklet in
+the ordered clip-audio graph. Both actions require a secure context; localhost
+qualifies for development. The worklet module is an original bounded
+`O(F * C)` sample gain processor for `F` frames and `C` channels. It retains
+only one scalar and performs no application allocation in `process()`.
 
 HTML media text tracks remain browser-owned. `ProGPU.Browser` enumerates
 `TextTrackList`, observes membership and `cuechange`, and projects complete cue

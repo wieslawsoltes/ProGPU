@@ -36,6 +36,7 @@ const state = {
   pendingMediaFrames: new Map(),
   dispatchMediaEvent: null,
   dispatchMediaTimedMetadata: null,
+  audioWorkletNodeCreationCount: 0,
   worker: null,
   workerRequests: new Map(),
   nextWorkerRequest: 1,
@@ -1236,14 +1237,14 @@ async function loadAudioWorkletModule(
 async function createAudioWorkletEffectNode(
   audioContext,
   modulePromises,
-  state) {
+  workletState) {
   const moduleUri =
-    typeof state?.moduleUri === 'string'
-      ? state.moduleUri
+    typeof workletState?.moduleUri === 'string'
+      ? workletState.moduleUri
       : '';
   const processorName =
-    typeof state?.processorName === 'string'
-      ? state.processorName
+    typeof workletState?.processorName === 'string'
+      ? workletState.processorName
       : '';
   if (!moduleUri || !processorName) {
     throw new TypeError(
@@ -1253,11 +1254,13 @@ async function createAudioWorkletEffectNode(
     audioContext,
     modulePromises,
     moduleUri);
-  return new AudioWorkletNode(
+  const node = new AudioWorkletNode(
     audioContext,
     processorName,
     parseAudioWorkletNodeOptions(
-      state.nodeOptionsJson));
+      workletState.nodeOptionsJson));
+  state.audioWorkletNodeCreationCount++;
+  return node;
 }
 
 async function renderBrowserMediaComposition(
@@ -3240,6 +3243,10 @@ function getBrowserMediaElementCount() {
   return state.mediaElements.size;
 }
 
+function getBrowserMediaAudioWorkletNodeCreationCount() {
+  return state.audioWorkletNodeCreationCount;
+}
+
 function dispatch(address, length) {
   const heap = runtime.localHeapViewU8();
   if (state.worker) {
@@ -3976,7 +3983,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getBrowserMediaAudioWorkletNodeCreationCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
@@ -4015,12 +4022,16 @@ if (isDispatcherWorker) {
             String(result);
           document.documentElement.dataset.progpuMediaPlaybackElementCount =
             String(getBrowserMediaElementCount());
+          document.documentElement.dataset.progpuMediaPlaybackAudioWorkletNodes =
+            String(getBrowserMediaAudioWorkletNodeCreationCount());
           button.textContent = 'Browser playback smoke passed';
         } catch (error) {
           document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
             'exception';
           document.documentElement.dataset.progpuMediaPlaybackElementCount =
             String(getBrowserMediaElementCount());
+          document.documentElement.dataset.progpuMediaPlaybackAudioWorkletNodes =
+            String(getBrowserMediaAudioWorkletNodeCreationCount());
           button.textContent = 'Browser playback smoke failed';
           console.error(
             '[ProGPU] Browser media playback smoke test failed.',
@@ -4082,9 +4093,13 @@ if (isDispatcherWorker) {
               exportSmoke === 'effect-audio');
         document.documentElement.dataset.progpuMediaExportSmokeResult =
           String(result);
+        document.documentElement.dataset.progpuMediaExportAudioWorkletNodes =
+          String(getBrowserMediaAudioWorkletNodeCreationCount());
       } catch (error) {
         document.documentElement.dataset.progpuMediaExportSmokeResult =
           'exception';
+        document.documentElement.dataset.progpuMediaExportAudioWorkletNodes =
+          String(getBrowserMediaAudioWorkletNodeCreationCount());
         console.error(
           '[ProGPU] Browser media export smoke test failed.',
           error);

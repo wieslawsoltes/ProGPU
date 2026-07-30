@@ -1148,6 +1148,12 @@ public static partial class BrowserMediaPlaybackSmokeTest
 {
     private const string AudioGainEffectId =
         "ProGPU.Browser.Smoke.PlaybackAudioGain";
+    private const string AudioWorkletEffectId =
+        "ProGPU.Browser.Smoke.PlaybackAudioWorklet";
+    private const string AudioWorkletModuleUri =
+        "./progpu-audio-worklet-smoke.js";
+    private const string AudioWorkletProcessorName =
+        "progpu-smoke-gain";
     private static readonly TimeSpan Timeout =
         TimeSpan.FromSeconds(30);
 
@@ -1172,6 +1178,8 @@ public static partial class BrowserMediaPlaybackSmokeTest
 
         int initialElementCount =
             GetBrowserMediaElementCountCore();
+        int initialAudioWorkletNodeCount =
+            GetBrowserMediaAudioWorkletNodeCreationCountCore();
         var opened = CreateSignal();
         var playing = CreateSignal();
         var paused = CreateSignal();
@@ -1194,6 +1202,19 @@ public static partial class BrowserMediaPlaybackSmokeTest
         using IDisposable effectRegistration =
             MediaEffectRegistry.Default.Register(
                 gainFactory);
+        using IDisposable workletRegistration =
+            MediaEffectRegistry.Default.Register(
+                new BrowserAudioWorkletEffectFactory(
+                    AudioWorkletEffectId,
+                    AudioWorkletModuleUri,
+                    AudioWorkletProcessorName,
+                    """
+                    {
+                      "processorOptions": {
+                        "gain": 0.875
+                      }
+                    }
+                    """));
         using MediaSource source =
             MediaSource.CreateFromUri(sourceAddress);
         using var player = new MediaPlayer
@@ -1212,6 +1233,10 @@ public static partial class BrowserMediaPlaybackSmokeTest
                 [MediaAudioGainEffectFactory
                     .GainPropertyName] = 0.5f
             });
+        player.AddAudioEffect(
+            AudioWorkletEffectId,
+            effectOptional: false,
+            new PropertySet());
 
         void FailAll(Exception exception)
         {
@@ -1267,6 +1292,8 @@ public static partial class BrowserMediaPlaybackSmokeTest
         await AwaitSignalAsync(
             opened.Task,
             "media open");
+        await AwaitAudioWorkletNodeAsync(
+            initialAudioWorkletNodeCount);
 
         TimeSpan duration =
             player.PlaybackSession.NaturalDuration;
@@ -1380,11 +1407,41 @@ public static partial class BrowserMediaPlaybackSmokeTest
         }
     }
 
+    private static async Task AwaitAudioWorkletNodeAsync(
+        int initialCount)
+    {
+        using var timeout =
+            new CancellationTokenSource(Timeout);
+        try
+        {
+            while (GetBrowserMediaAudioWorkletNodeCreationCountCore() <=
+                   initialCount)
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(25),
+                    timeout.Token);
+            }
+        }
+        catch (OperationCanceledException exception)
+            when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                "Timed out waiting for browser AudioWorklet module loading and node creation.",
+                exception);
+        }
+    }
+
     [JSImport(
         "getBrowserMediaElementCount",
         "progpu-browser")]
     private static partial int
         GetBrowserMediaElementCountCore();
+
+    [JSImport(
+        "getBrowserMediaAudioWorkletNodeCreationCount",
+        "progpu-browser")]
+    private static partial int
+        GetBrowserMediaAudioWorkletNodeCreationCountCore();
 }
 
 internal sealed class BrowserMediaGpuFrame :

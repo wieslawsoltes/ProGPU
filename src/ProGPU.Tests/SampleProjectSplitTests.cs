@@ -29,6 +29,84 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserSampleShipsTypedAudioWorkletRuntimeGate()
+    {
+        string browserProject = Read(
+            "src",
+            "ProGPU.Samples.Browser",
+            "ProGPU.Samples.Browser.csproj");
+        string worklet = Read(
+            "src",
+            "ProGPU.Samples.Browser",
+            "wwwroot",
+            "progpu-audio-worklet-smoke.js");
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string playback = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+        string export = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuMediaCompositionExportProvider.cs");
+
+        Assert.Contains(
+            "wwwroot/progpu-audio-worklet-smoke.js",
+            browserProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "registerProcessor(\n  'progpu-smoke-gain'",
+            worklet.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Time complexity: O(F * C)",
+            worklet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "no application allocation per",
+            worklet,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "audioWorkletNodeCreationCount++",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "modulePromises,\n  workletState)",
+            browserAsset.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getBrowserMediaAudioWorkletNodeCreationCount",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new BrowserAudioWorkletEffectFactory(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AwaitAudioWorkletNodeAsync(",
+            playback,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "s_audioWorkletRegistration",
+            export,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "completed without creating its application-supplied AudioWorklet node",
+            export,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DesktopNativeAotPreservesPrebuiltDylibsWithoutDisablingStrip()
     {
         string desktop = Read(
