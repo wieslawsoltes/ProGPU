@@ -877,12 +877,17 @@ public sealed class MediaPlayer : IDisposable
         {
             _trackPlaybackItem.TrackSelectionRequested -=
                 OnTrackSelectionRequested;
+            _trackPlaybackItem
+                .TimedMetadataPresentationModeRequested -=
+                OnTimedMetadataPresentationModeRequested;
         }
         _trackPlaybackItem = current;
         if (current is not null)
         {
             current.TrackSelectionRequested +=
                 OnTrackSelectionRequested;
+            current.TimedMetadataPresentationModeRequested +=
+                OnTimedMetadataPresentationModeRequested;
         }
     }
 
@@ -896,6 +901,21 @@ public sealed class MediaPlayer : IDisposable
                 "Only the current MediaPlaybackItem can select native tracks.");
         }
         _engine.SelectTrack(args.Kind, args.Index);
+    }
+
+    private void OnTimedMetadataPresentationModeRequested(
+        object? sender,
+        PlaybackTimedMetadataPresentationModeRequestedEventArgs
+            args)
+    {
+        if (!ReferenceEquals(sender, GetCurrentPlaybackItem()))
+        {
+            throw new InvalidOperationException(
+                "Only the current MediaPlaybackItem can change native timed-metadata presentation.");
+        }
+        _engine.SetTimedMetadataPresentationMode(
+            args.Index,
+            args.Mode);
     }
 
     private void OnEngineChanged(
@@ -1171,6 +1191,9 @@ public sealed class MediaPlayer : IDisposable
         {
             _trackPlaybackItem.TrackSelectionRequested -=
                 OnTrackSelectionRequested;
+            _trackPlaybackItem
+                .TimedMetadataPresentationModeRequested -=
+                OnTimedMetadataPresentationModeRequested;
             _trackPlaybackItem = null;
         }
         _engine.Dispose();

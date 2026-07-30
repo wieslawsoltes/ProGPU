@@ -1010,21 +1010,31 @@ cursor. The sample player exercises the same item metadata path before native
 playback. Automatic embedded-tag extraction and platform SMTC publication are
 not fabricated where a host has no system transport service; the public
 contracts remain typed extension points for those hosts.
-`MediaPlaybackItem.AudioTracks` and `VideoTracks` expose the official
+`MediaPlaybackItem.AudioTracks`, `VideoTracks`, and `TimedMetadataTracks`
+expose the official
 read-only
 [`MediaPlaybackAudioTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist)
 and
 [`MediaPlaybackVideoTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackvideotracklist)
+and
+[`MediaPlaybackTimedMetadataTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybacktimedmetadatatracklist)
 projections, including `Size`, `GetAt`, `GetMany`, `IndexOf`,
 `ISingleSelectMediaTrackList.SelectedIndex`, and the documented selected-index
 event. Provider-neutral immutable descriptors carry stable native IDs,
-language, label/name, encoding facts, and decoder support. An open or changed
-provider snapshot updates membership first and publishes typed
+language, label/name, encoding facts, decoder support, timed-metadata kind,
+and dispatch type. Timed metadata uses the official per-track `Disabled`,
+`Hidden`, `ApplicationPresented`, and `PlatformPresented` modes instead of
+being forced into the audio/video single-selection model. Mode requests flow
+through an optional typed provider contract and publish
+`PresentationModeChanged` only after the active provider accepts the request.
+An open or changed provider snapshot updates membership first and publishes typed
 `IVectorChangedEventArgs`; selection-only updates preserve the existing
-`AudioTrack`/`VideoTrack` object identities and caller-edited labels. Source
+`AudioTrack`/`VideoTrack`/`TimedMetadataTrack` object identities and
+caller-edited labels. Source
 replacement resets the active item's engine snapshot, and item-to-player
-selection subscriptions detach when the current item changes or the player is
-disposed, preventing a stale item from selecting tracks on a later provider.
+selection and presentation-mode subscriptions detach when the current item
+changes or the player is disposed, preventing a stale item from changing a
+later provider.
 Publication is O(T) time and storage for T tracks and does not enter the
 per-frame playback path. The shared GPU Media Player sample presents the
 reported audio/video tracks in selectors and drives the same official
@@ -1033,6 +1043,8 @@ reported audio/video tracks in selectors and drives the same official
 This track design adopts the public WinUI
 [`AudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.audiotrack),
 [`VideoTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.videotrack),
+[`TimedMetadataTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.timedmetadatatrack),
+[`TimedMetadataTrackPresentationMode`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.timedmetadatatrackpresentationmode),
 and
 [`ISingleSelectMediaTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.isingleselectmediatracklist)
 contracts. Apple enumeration and switching use the public
@@ -1051,6 +1063,13 @@ browser HTML media currently publish their active audio/video stream facts;
 enumerating and switching every alternate stream remains pending until their
 typed native stream-selection lanes are implemented. No provider claims
 multi-track selection from only a `HasAudio`/`HasVideo` probe.
+Provider-backed timed-cue delivery, active-cue clock scheduling, and native
+caption rendering remain separate capability-gated work. Until a provider
+implements those typed lanes it must reject presentation-mode changes rather
+than treating native text-track selection as proof that cue events or
+platform-rendered captions are available. Custom `TimedMetadataTrack`
+instances already provide the official cue ownership surface without placing
+cue-list mutations on the playback frame path.
 The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay

@@ -14,6 +14,34 @@ public enum MediaPlaybackTrackKind
 }
 
 /// <summary>
+/// Provider-neutral timed-metadata kind. Values intentionally match WinUI's
+/// TimedMetadataKind projection.
+/// </summary>
+public enum MediaPlaybackTimedMetadataKind
+{
+    Caption = 0,
+    Chapter = 1,
+    Custom = 2,
+    Data = 3,
+    Description = 4,
+    Subtitle = 5,
+    ImageSubtitle = 6,
+    Speech = 7
+}
+
+/// <summary>
+/// Provider-neutral presentation policy for one timed-metadata track. Values
+/// intentionally match WinUI's TimedMetadataTrackPresentationMode projection.
+/// </summary>
+public enum MediaPlaybackTimedMetadataPresentationMode
+{
+    Disabled = 0,
+    Hidden = 1,
+    ApplicationPresented = 2,
+    PlatformPresented = 3
+}
+
+/// <summary>
 /// Describes whether the active native provider can decode and present a
 /// track. Unknown is retained for providers whose platform API does not expose
 /// a reliable support query.
@@ -56,7 +84,10 @@ public readonly record struct MediaPlaybackTrackDescriptor(
     string Language,
     MediaPlaybackTrackEncoding Encoding,
     MediaPlaybackTrackSupport Support =
-        MediaPlaybackTrackSupport.Unknown);
+        MediaPlaybackTrackSupport.Unknown,
+    MediaPlaybackTimedMetadataKind TimedMetadataKind =
+        MediaPlaybackTimedMetadataKind.Custom,
+    string DispatchType = "");
 
 /// <summary>
 /// Immutable snapshot of the tracks associated with the currently opened
@@ -244,6 +275,8 @@ public sealed class MediaPlaybackTracksSnapshot
                 Name = descriptor.Name ?? string.Empty,
                 Label = descriptor.Label ?? string.Empty,
                 Language = descriptor.Language ?? string.Empty,
+                DispatchType =
+                    descriptor.DispatchType ?? string.Empty,
                 Encoding = descriptor.Encoding with
                 {
                     Subtype =
@@ -311,4 +344,16 @@ public interface IMediaPlaybackTrackProvider
     bool TrySelectTrack(
         MediaPlaybackTrackKind kind,
         int index);
+}
+
+/// <summary>
+/// Optional provider capability for changing the presentation policy of one
+/// timed-metadata track. Implementations return false without mutating native
+/// state when the requested policy is unsupported.
+/// </summary>
+public interface IMediaPlaybackTimedMetadataProvider
+{
+    bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode);
 }

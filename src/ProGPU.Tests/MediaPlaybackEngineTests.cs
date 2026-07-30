@@ -45,6 +45,13 @@ public sealed class MediaPlaybackEngineTests
             "Windows.Media.Playback",
             typeof(MediaPlaybackAudioTrackList).Namespace);
         Assert.Equal(
+            "Windows.Media.Core",
+            typeof(TimedMetadataTrack).Namespace);
+        Assert.Equal(
+            "Windows.Media.Playback",
+            typeof(MediaPlaybackTimedMetadataTrackList)
+                .Namespace);
+        Assert.Equal(
             typeof(IReadOnlyList<AudioTrack>),
             Assert.Single(
                 typeof(MediaPlaybackAudioTrackList)
@@ -55,6 +62,10 @@ public sealed class MediaPlaybackEngineTests
         Assert.Contains(
             typeof(ISingleSelectMediaTrackList),
             typeof(MediaPlaybackVideoTrackList)
+                .GetInterfaces());
+        Assert.Contains(
+            typeof(IReadOnlyList<TimedMetadataTrack>),
+            typeof(MediaPlaybackTimedMetadataTrackList)
                 .GetInterfaces());
         Assert.Equal(
             typeof(MediaPlaybackAudioTrackList),
@@ -71,6 +82,24 @@ public sealed class MediaPlaybackEngineTests
                     nameof(
                         MediaPlaybackItem
                             .AudioTracksChanged))!
+                .EventHandlerType);
+        Assert.Equal(
+            typeof(MediaPlaybackTimedMetadataTrackList),
+            typeof(MediaPlaybackItem)
+                .GetProperty(
+                    nameof(
+                        MediaPlaybackItem
+                            .TimedMetadataTracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(Windows.Foundation.TypedEventHandler<
+                MediaPlaybackItem,
+                IVectorChangedEventArgs>),
+            typeof(MediaPlaybackItem)
+                .GetEvent(
+                    nameof(
+                        MediaPlaybackItem
+                            .TimedMetadataTracksChanged))!
                 .EventHandlerType);
         Assert.Equal(0, (int)MediaTrackKind.Audio);
         Assert.Equal(1, (int)MediaTrackKind.Video);
@@ -111,6 +140,7 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(2, item.AudioTracks.Count);
         Assert.Equal(2u, item.AudioTracks.Size);
         Assert.Single(item.VideoTracks);
+        Assert.Single(item.TimedMetadataTracks);
         Assert.Equal(0, item.AudioTracks.SelectedIndex);
         Assert.Equal(0, item.VideoTracks.SelectedIndex);
         Assert.Equal(
@@ -171,6 +201,50 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(1080u, videoEncoding.Height);
         Assert.Equal(30u, videoEncoding.FrameRate.Numerator);
         Assert.Equal(1u, videoEncoding.FrameRate.Denominator);
+
+        TimedMetadataTrack subtitles =
+            item.TimedMetadataTracks[0];
+        Assert.Same(item, subtitles.PlaybackItem);
+        Assert.Equal(
+            MediaTrackKind.TimedMetadata,
+            subtitles.TrackKind);
+        Assert.Equal(
+            TimedMetadataKind.Subtitle,
+            subtitles.TimedMetadataKind);
+        Assert.Equal("text/vtt", subtitles.DispatchType);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode.Disabled,
+            item.TimedMetadataTracks
+                .GetPresentationMode(0));
+
+        TimedMetadataPresentationModeChangedEventArgs?
+            modeChanged = null;
+        item.TimedMetadataTracks.PresentationModeChanged +=
+            (_, args) => modeChanged = args;
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+
+        Assert.Equal(1, provider.TimedMetadataModeCalls);
+        Assert.Equal(
+            MediaPlaybackTimedMetadataPresentationMode
+                .ApplicationPresented,
+            provider.LastTimedMetadataMode);
+        Assert.Same(subtitles, modeChanged?.Track);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode.Disabled,
+            modeChanged?.OldPresentationMode);
+        Assert.Equal(
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented,
+            modeChanged?.NewPresentationMode);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => item.TimedMetadataTracks
+                .SetPresentationMode(
+                    1,
+                    TimedMetadataTrackPresentationMode
+                        .Hidden));
     }
 
     [Fact]
@@ -271,6 +345,11 @@ public sealed class MediaPlaybackEngineTests
                 factory.LastProvider);
         firstItem.AudioTracks.SelectedIndex = 1;
         Assert.Equal(1, firstProvider.TrackSelectionCalls);
+        firstItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        Assert.Equal(1, firstProvider.TimedMetadataModeCalls);
 
         player.Source = secondItem;
         RecordingProvider secondProvider =
@@ -280,13 +359,68 @@ public sealed class MediaPlaybackEngineTests
 
         firstItem.AudioTracks.SelectedIndex = 0;
         Assert.Equal(0, secondProvider.TrackSelectionCalls);
+        firstItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode.Hidden);
+        Assert.Equal(
+            0,
+            secondProvider.TimedMetadataModeCalls);
 
         secondItem.AudioTracks.SelectedIndex = 1;
         Assert.Equal(1, secondProvider.TrackSelectionCalls);
+        secondItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        Assert.Equal(
+            1,
+            secondProvider.TimedMetadataModeCalls);
 
         player.Dispose();
         secondItem.AudioTracks.SelectedIndex = 0;
         Assert.Equal(1, secondProvider.TrackSelectionCalls);
+        secondItem.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode.Hidden);
+        Assert.Equal(
+            1,
+            secondProvider.TimedMetadataModeCalls);
+    }
+
+    [Fact]
+    public void CustomTimedMetadataTrackOwnsItsCueCollection()
+    {
+        var track = new TimedMetadataTrack(
+            "chapters",
+            "en-US",
+            TimedMetadataKind.Chapter)
+        {
+            Label = "Chapters"
+        };
+        var cue = new RecordingMediaCue
+        {
+            Id = "chapter-1",
+            StartTime = TimeSpan.FromSeconds(3),
+            Duration = TimeSpan.FromSeconds(12)
+        };
+
+        track.AddCue(cue);
+        track.AddCue(cue);
+
+        Assert.Single(track.Cues);
+        Assert.Empty(track.ActiveCues);
+        Assert.Same(cue, track.Cues[0]);
+        Assert.Equal("chapters", track.Id);
+        Assert.Equal("en-US", track.Language);
+        Assert.Equal("Chapters", track.Label);
+        Assert.Null(track.PlaybackItem);
+        Assert.Equal(
+            TimedMetadataKind.Chapter,
+            track.TimedMetadataKind);
+
+        track.RemoveCue(cue);
+
+        Assert.Empty(track.Cues);
     }
 
     [Fact]
@@ -4227,6 +4361,13 @@ public sealed class MediaPlaybackEngineTests
             $"found {redVideoPixels} red pixels.");
     }
 
+    private sealed class RecordingMediaCue : IMediaCue
+    {
+        public TimeSpan Duration { get; set; }
+        public string Id { get; set; } = string.Empty;
+        public TimeSpan StartTime { get; set; }
+    }
+
     private sealed class RecordingProviderFactory :
         IMediaPlaybackProviderFactory
     {
@@ -4263,7 +4404,8 @@ public sealed class MediaPlaybackEngineTests
     private sealed class RecordingProvider :
         IMediaPlaybackProvider,
         IMediaPlaybackConfigurationProvider,
-        IMediaPlaybackTrackProvider
+        IMediaPlaybackTrackProvider,
+        IMediaPlaybackTimedMetadataProvider
     {
         private readonly IMediaPlaybackSink _sink;
         private readonly Func<IMediaGpuFrame>? _frameFactory;
@@ -4299,6 +4441,14 @@ public sealed class MediaPlaybackEngineTests
             private set;
         }
         public int LastSelectedTrackIndex { get; private set; } = -1;
+        public int TimedMetadataModeCalls { get; private set; }
+        public int LastTimedMetadataTrackIndex
+        {
+            get;
+            private set;
+        } = -1;
+        public MediaPlaybackTimedMetadataPresentationMode
+            LastTimedMetadataMode { get; private set; }
         public MediaPlaybackConfiguration Configuration
         {
             get;
@@ -4387,6 +4537,21 @@ public sealed class MediaPlaybackEngineTests
             _sink.UpdateTracks(_tracks);
             return true;
         }
+        public bool TrySetTimedMetadataPresentationMode(
+            int index,
+            MediaPlaybackTimedMetadataPresentationMode mode)
+        {
+            if ((uint)index >=
+                    (uint)_tracks.TimedMetadataTracks.Count ||
+                !Enum.IsDefined(mode))
+            {
+                return false;
+            }
+            TimedMetadataModeCalls++;
+            LastTimedMetadataTrackIndex = index;
+            LastTimedMetadataMode = mode;
+            return true;
+        }
         public void AddEffect(IMediaEffect effect, bool optional)
         {
             AddEffectCalls++;
@@ -4453,7 +4618,20 @@ public sealed class MediaPlaybackEngineTests
                             FrameRateDenominator: 1),
                         MediaPlaybackTrackSupport.Supported)
                 ],
-                selectedVideoTrackIndex);
+                selectedVideoTrackIndex,
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "metadata-en",
+                        MediaPlaybackTrackKind.TimedMetadata,
+                        "English subtitles",
+                        "English",
+                        "en-US",
+                        new MediaPlaybackTrackEncoding(
+                            "WebVTT"),
+                        MediaPlaybackTrackSupport.Supported,
+                        MediaPlaybackTimedMetadataKind.Subtitle,
+                        "text/vtt")
+                ]);
     }
 
     private sealed class RecordingEffectFactory :

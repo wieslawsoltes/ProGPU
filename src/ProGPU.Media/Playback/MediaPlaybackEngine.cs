@@ -708,6 +708,40 @@ public sealed class MediaPlaybackEngine : IDisposable
         }
     }
 
+    public void SetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        IMediaPlaybackProvider? provider;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (!Enum.IsDefined(mode))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(mode));
+            }
+            if ((uint)index >=
+                (uint)_tracks.TimedMetadataTracks.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(index));
+            }
+            provider = _provider;
+        }
+
+        if (provider is not IMediaPlaybackTimedMetadataProvider
+            timedMetadataProvider ||
+            !timedMetadataProvider
+                .TrySetTimedMetadataPresentationMode(
+                    index,
+                    mode))
+        {
+            throw new NotSupportedException(
+                $"The active media provider cannot set timed metadata track index {index} to {mode}.");
+        }
+    }
+
     public void AddEffect(
         string activatableClassId,
         MediaEffectKind kind,

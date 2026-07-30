@@ -100,6 +100,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         _playbackLists = [];
     private readonly MediaPlaybackAudioTrackList _audioTracks;
     private readonly MediaPlaybackVideoTrackList _videoTracks;
+    private readonly MediaPlaybackTimedMetadataTrackList
+        _timedMetadataTracks;
     private MediaItemDisplayProperties _displayProperties = new();
     private double _totalDownloadProgress;
     private AutoLoadedDisplayPropertyKind
@@ -149,6 +151,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         DurationLimit = durationLimit;
         _audioTracks = new MediaPlaybackAudioTrackList(this);
         _videoTracks = new MediaPlaybackVideoTrackList(this);
+        _timedMetadataTracks =
+            new MediaPlaybackTimedMetadataTrackList(this);
         validatedSource.AssociatePlaybackItem(this);
         Source = validatedSource;
         _totalDownloadProgress =
@@ -160,6 +164,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
         _audioTracks;
     public MediaPlaybackVideoTrackList VideoTracks =>
         _videoTracks;
+    public MediaPlaybackTimedMetadataTrackList
+        TimedMetadataTracks => _timedMetadataTracks;
     public TimeSpan StartTime { get; }
     public TimeSpan? DurationLimit { get; }
     public AutoLoadedDisplayPropertyKind
@@ -210,10 +216,16 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     public event Windows.Foundation.TypedEventHandler<
         MediaPlaybackItem,
         IVectorChangedEventArgs>? VideoTracksChanged;
+    public event Windows.Foundation.TypedEventHandler<
+        MediaPlaybackItem,
+        IVectorChangedEventArgs>? TimedMetadataTracksChanged;
 
     internal event EventHandler<
         PlaybackTrackSelectionRequestedEventArgs>?
         TrackSelectionRequested;
+    internal event EventHandler<
+        PlaybackTimedMetadataPresentationModeRequestedEventArgs>?
+        TimedMetadataPresentationModeRequested;
 
     public static MediaPlaybackItem? FindFromMediaSource(
         MediaSource source)
@@ -251,6 +263,10 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
             _videoTracks.Update(
                 tracks.VideoTracks,
                 tracks.SelectedVideoTrackIndex);
+        IReadOnlyList<IVectorChangedEventArgs>
+            timedMetadataChanges =
+                _timedMetadataTracks.Update(
+                    tracks.TimedMetadataTracks);
 
         for (int index = 0;
              index < audioChanges.Count;
@@ -268,6 +284,14 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
                 this,
                 videoChanges[index]);
         }
+        for (int index = 0;
+             index < timedMetadataChanges.Count;
+             index++)
+        {
+            TimedMetadataTracksChanged?.Invoke(
+                this,
+                timedMetadataChanges[index]);
+        }
     }
 
     internal void RequestTrackSelection(
@@ -278,6 +302,16 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
             new PlaybackTrackSelectionRequestedEventArgs(
                 kind,
                 index));
+
+    internal void RequestTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode) =>
+        TimedMetadataPresentationModeRequested?.Invoke(
+            this,
+            new
+                PlaybackTimedMetadataPresentationModeRequestedEventArgs(
+                    index,
+                    mode));
 
     internal void AttachPlaybackList(MediaPlaybackList list)
     {
