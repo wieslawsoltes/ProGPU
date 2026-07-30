@@ -3074,6 +3074,123 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void PlaybackItemStateRefreshesCommandsWithoutProviderReopen()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory = new RecordingProviderFactory(priority: 10);
+        using IDisposable registration = registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/live-state-first.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/live-state-second.mp4"));
+        var first = new MediaPlaybackItem(firstSource);
+        var second = new MediaPlaybackItem(secondSource);
+        var list = new MediaPlaybackList();
+        list.Items.Add(first);
+        list.Items.Add(second);
+        int sourceInvalidations = 0;
+        int playbackOrderChanges = 0;
+        ((IProGpuMediaPlaybackSource)list)
+            .SourceInvalidated +=
+            (_, _) => sourceInvalidations++;
+        list.PlaybackOrderChanged +=
+            (_, _) => playbackOrderChanges++;
+        player.Source = list;
+        player.Play();
+        RecordingProvider activeProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+
+        Assert.True(player.CommandManager.NextBehavior.IsEnabled);
+
+        first.CanSkip = false;
+
+        Assert.False(
+            player.CommandManager.NextBehavior.IsEnabled);
+        Assert.Equal(1, playbackOrderChanges);
+        Assert.Equal(0, sourceInvalidations);
+        Assert.Same(activeProvider, factory.LastProvider);
+        Assert.Same(first, list.CurrentItem);
+
+        first.CanSkip = false;
+
+        Assert.Equal(1, playbackOrderChanges);
+
+        first.CanSkip = true;
+        first.IsDisabledInPlaybackList = true;
+
+        Assert.True(player.CommandManager.NextBehavior.IsEnabled);
+        Assert.Same(first, list.CurrentItem);
+        Assert.Same(activeProvider, factory.LastProvider);
+
+        second.IsDisabledInPlaybackList = true;
+
+        Assert.False(
+            player.CommandManager.NextBehavior.IsEnabled);
+        Assert.Equal(4, playbackOrderChanges);
+        Assert.Equal(0, sourceInvalidations);
+        Assert.Same(activeProvider, factory.LastProvider);
+        Assert.Same(first, list.CurrentItem);
+
+        second.IsDisabledInPlaybackList = false;
+
+        Assert.True(player.CommandManager.NextBehavior.IsEnabled);
+        Assert.Equal(5, playbackOrderChanges);
+        Assert.Equal(0, sourceInvalidations);
+        Assert.Same(activeProvider, factory.LastProvider);
+    }
+
+    [Fact]
+    public void PlaybackItemStateTracksDuplicateAndSharedListOwnership()
+    {
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/shared-state.mp4"));
+        var item = new MediaPlaybackItem(source);
+        var firstList = new MediaPlaybackList();
+        var secondList = new MediaPlaybackList();
+        firstList.Items.Add(item);
+        firstList.Items.Add(item);
+        secondList.Items.Add(item);
+        int firstChanges = 0;
+        int secondChanges = 0;
+        firstList.PlaybackOrderChanged +=
+            (_, _) => firstChanges++;
+        secondList.PlaybackOrderChanged +=
+            (_, _) => secondChanges++;
+
+        item.IsDisabledInPlaybackList = true;
+
+        Assert.Equal(1, firstChanges);
+        Assert.Equal(1, secondChanges);
+
+        firstList.Items.RemoveAt(0);
+        firstChanges = 0;
+        secondChanges = 0;
+        item.IsDisabledInPlaybackList = false;
+
+        Assert.Equal(1, firstChanges);
+        Assert.Equal(1, secondChanges);
+
+        firstList.Items.Clear();
+        secondList.Items.Clear();
+        firstChanges = 0;
+        secondChanges = 0;
+        item.CanSkip = false;
+
+        Assert.Equal(0, firstChanges);
+        Assert.Equal(0, secondChanges);
+    }
+
+    [Fact]
     public void WinUiPlaybackListCanSkipBlocksOnlyManualActiveNavigation()
     {
         var registry = new MediaProviderRegistry();

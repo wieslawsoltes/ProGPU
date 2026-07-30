@@ -95,10 +95,15 @@ public sealed class MediaPlaybackItemFailedEventArgs : EventArgs
 public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     IProGpuMediaPlaybackSource
 {
+    private readonly object _playbackListsGate = new();
+    private readonly List<WeakReference<MediaPlaybackList>>
+        _playbackLists = [];
     private MediaItemDisplayProperties _displayProperties = new();
     private double _totalDownloadProgress;
     private AutoLoadedDisplayPropertyKind
         _autoLoadedDisplayProperties;
+    private bool _canSkip = true;
+    private bool _isDisabledInPlaybackList;
 
     public MediaPlaybackItem(MediaSource source)
         : this(source, TimeSpan.Zero, null)
@@ -162,8 +167,32 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
             _autoLoadedDisplayProperties = value;
         }
     }
-    public bool CanSkip { get; set; } = true;
-    public bool IsDisabledInPlaybackList { get; set; }
+    public bool CanSkip
+    {
+        get => _canSkip;
+        set
+        {
+            if (_canSkip == value)
+            {
+                return;
+            }
+            _canSkip = value;
+            NotifyPlaybackLists();
+        }
+    }
+    public bool IsDisabledInPlaybackList
+    {
+        get => _isDisabledInPlaybackList;
+        set
+        {
+            if (_isDisabledInPlaybackList == value)
+            {
+                return;
+            }
+            _isDisabledInPlaybackList = value;
+            NotifyPlaybackLists();
+        }
+    }
     public double TotalDownloadProgress =>
         Volatile.Read(ref _totalDownloadProgress);
 
@@ -191,6 +220,81 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
                 ? Math.Clamp(value, 0d, 1d)
                 : 0d);
 
+    internal void AttachPlaybackList(MediaPlaybackList list)
+    {
+        lock (_playbackListsGate)
+        {
+            for (int index = _playbackLists.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                if (!_playbackLists[index].TryGetTarget(
+                        out MediaPlaybackList? existing))
+                {
+                    _playbackLists.RemoveAt(index);
+                }
+                else if (ReferenceEquals(existing, list))
+                {
+                    return;
+                }
+            }
+            _playbackLists.Add(
+                new WeakReference<MediaPlaybackList>(list));
+        }
+    }
+
+    internal void DetachPlaybackList(MediaPlaybackList list)
+    {
+        lock (_playbackListsGate)
+        {
+            for (int index = _playbackLists.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                if (!_playbackLists[index].TryGetTarget(
+                        out MediaPlaybackList? existing) ||
+                    ReferenceEquals(existing, list))
+                {
+                    _playbackLists.RemoveAt(index);
+                }
+            }
+        }
+    }
+
+    private void NotifyPlaybackLists()
+    {
+        List<MediaPlaybackList>? targets = null;
+        lock (_playbackListsGate)
+        {
+            for (int index = _playbackLists.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                if (_playbackLists[index].TryGetTarget(
+                        out MediaPlaybackList? list))
+                {
+                    (targets ??=
+                        new List<MediaPlaybackList>(
+                            _playbackLists.Count))
+                        .Add(list);
+                }
+                else
+                {
+                    _playbackLists.RemoveAt(index);
+                }
+            }
+        }
+
+        if (targets is null)
+        {
+            return;
+        }
+        foreach (MediaPlaybackList list in targets)
+        {
+            list.NotifyPlaybackItemStateChanged(this);
+        }
+    }
+
     MediaSourceDescriptor
         IProGpuMediaPlaybackSource.ResolveDescriptor() =>
         ((IProGpuMediaPlaybackSource)Source)
@@ -213,6 +317,9 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
 {
     private readonly MediaPlaybackItemVector _items =
         [];
+    private readonly Dictionary<MediaPlaybackItem, int>
+        _itemSubscriptionCounts =
+            new(ReferenceEqualityComparer.Instance);
     private readonly object _playbackOwnersGate = new();
     private readonly List<PlaybackOwnerEntry> _playbackOwners = [];
     private int _currentIndex = -1;
@@ -313,6 +420,7 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
         object? sender,
         NotifyCollectionChangedEventArgs args)
     {
+        UpdateItemSubscriptions(args);
         if (_shuffleEnabled)
         {
             RegenerateShuffle();
@@ -344,6 +452,112 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
                     -1,
                     MediaPlaybackItemChangedReason.AppRequested);
                 return;
+        }
+    }
+
+    private void UpdateItemSubscriptions(
+        NotifyCollectionChangedEventArgs args)
+    {
+        switch (args.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                AttachItems(args.NewItems);
+                break;
+            case NotifyCollectionChangedAction.Remove:
+                DetachItems(args.OldItems);
+                break;
+            case NotifyCollectionChangedAction.Replace:
+                DetachItems(args.OldItems);
+                AttachItems(args.NewItems);
+                break;
+            case NotifyCollectionChangedAction.Move:
+                break;
+            default:
+                foreach (MediaPlaybackItem item in
+                    _itemSubscriptionCounts.Keys)
+                {
+                    item.DetachPlaybackList(this);
+                }
+                _itemSubscriptionCounts.Clear();
+                foreach (MediaPlaybackItem item in _items)
+                {
+                    AttachItem(item);
+                }
+                break;
+        }
+    }
+
+    private void AttachItems(
+        System.Collections.IList? items)
+    {
+        if (items is null)
+        {
+            return;
+        }
+        foreach (object? value in items)
+        {
+            if (value is MediaPlaybackItem item)
+            {
+                AttachItem(item);
+            }
+        }
+    }
+
+    private void AttachItem(MediaPlaybackItem item)
+    {
+        if (_itemSubscriptionCounts.TryGetValue(
+                item,
+                out int count))
+        {
+            _itemSubscriptionCounts[item] =
+                checked(count + 1);
+            return;
+        }
+        _itemSubscriptionCounts.Add(item, 1);
+        item.AttachPlaybackList(this);
+    }
+
+    private void DetachItems(
+        System.Collections.IList? items)
+    {
+        if (items is null)
+        {
+            return;
+        }
+        foreach (object? value in items)
+        {
+            if (value is MediaPlaybackItem item)
+            {
+                DetachItem(item);
+            }
+        }
+    }
+
+    private void DetachItem(MediaPlaybackItem item)
+    {
+        if (!_itemSubscriptionCounts.TryGetValue(
+                item,
+                out int count))
+        {
+            return;
+        }
+        if (count > 1)
+        {
+            _itemSubscriptionCounts[item] = count - 1;
+            return;
+        }
+        _itemSubscriptionCounts.Remove(item);
+        item.DetachPlaybackList(this);
+    }
+
+    internal void NotifyPlaybackItemStateChanged(
+        MediaPlaybackItem item)
+    {
+        if (_itemSubscriptionCounts.ContainsKey(item))
+        {
+            PlaybackOrderChanged?.Invoke(
+                this,
+                EventArgs.Empty);
         }
     }
 

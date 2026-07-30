@@ -982,6 +982,17 @@ event once with `AppRequested` and opens only the resulting item. A separate
 typed playback-order notification refreshes command enablement without
 invalidating the media source. Non-shuffle insert, remove, and replacement
 bookkeeping is O(1); regenerating an enabled shuffle remains O(N) for N items.
+Live changes to
+[`CanSkip`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.canskip)
+and
+[`IsDisabledInPlaybackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem.isdisabledinplaybacklist)
+refresh the same command state without interrupting or reopening the active
+provider. This preserves the documented rule that disabling an item after
+playback starts does not affect that active playback. Items keep only weak
+references to their containing lists, while each list reference-counts
+duplicate item identities. An ordinary property mutation is O(L) for L live
+containing lists, and insertion or removal adds O(1) subscription bookkeeping;
+reset remains O(N) for N items.
 `MediaPlaybackItem.GetDisplayProperties`,
 `ApplyDisplayProperties`, and `AutoLoadedDisplayProperties` follow the
 official
