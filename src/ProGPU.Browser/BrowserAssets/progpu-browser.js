@@ -2956,6 +2956,10 @@ function disposeBrowserMedia(id) {
   }
 }
 
+function getBrowserMediaElementCount() {
+  return state.mediaElements.size;
+}
+
 function dispatch(address, length) {
   const heap = runtime.localHeapViewU8();
   if (state.worker) {
@@ -3692,7 +3696,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, configureBrowserMediaAudioEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;
@@ -3701,6 +3705,50 @@ if (isDispatcherWorker) {
   state.dispatchMediaExportCompletion = browserExports.ProGPU.Browser.BrowserMediaExportCallbacks.DispatchCompletion;
   state.dispatchMediaThumbnailCompletion = browserExports.ProGPU.Browser.BrowserMediaThumbnailCallbacks.DispatchCompletion;
   state.dispatchMediaStageCompletion = browserExports.ProGPU.Browser.BrowserMediaStagingCallbacks.DispatchCompletion;
+  const playbackSmoke =
+    new URLSearchParams(globalThis.location.search)
+      .get('progpuMediaPlaybackSmoke');
+  if (playbackSmoke === '1') {
+    const button = document.createElement('button');
+    button.dataset.testid = 'progpu-media-playback-smoke';
+    button.textContent = 'Run browser playback smoke';
+    button.style.position = 'fixed';
+    button.style.right = '8px';
+    button.style.top = '8px';
+    button.style.zIndex = '100000';
+    button.addEventListener(
+      'click',
+      async () => {
+        button.disabled = true;
+        button.textContent = 'Running browser playback smoke…';
+        try {
+          const playbackSource =
+            new URLSearchParams(globalThis.location.search)
+              .get('progpuMediaPlaybackSource') ||
+            'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+          const result =
+            await browserExports.ProGPU.Browser
+              .BrowserMediaPlaybackSmokeTest
+              .RunAsync(playbackSource);
+          document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
+            String(result);
+          document.documentElement.dataset.progpuMediaPlaybackElementCount =
+            String(getBrowserMediaElementCount());
+          button.textContent = 'Browser playback smoke passed';
+        } catch (error) {
+          document.documentElement.dataset.progpuMediaPlaybackSmokeResult =
+            'exception';
+          document.documentElement.dataset.progpuMediaPlaybackElementCount =
+            String(getBrowserMediaElementCount());
+          button.textContent = 'Browser playback smoke failed';
+          console.error(
+            '[ProGPU] Browser media playback smoke test failed.',
+            error);
+        }
+      },
+      { once: true });
+    document.body.appendChild(button);
+  }
   const thumbnailSmoke =
     new URLSearchParams(globalThis.location.search)
       .get('progpuMediaThumbnailSmoke');

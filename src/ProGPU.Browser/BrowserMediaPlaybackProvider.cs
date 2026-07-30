@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
 using ProGPU.Backend;
+using ProGPU.Media;
 using ProGPU.Media.Audio;
 using ProGPU.Media.Diagnostics;
 using ProGPU.Media.Editing;
@@ -9,6 +10,9 @@ using ProGPU.Media.Effects;
 using ProGPU.Media.Extensibility;
 using ProGPU.Media.Playback;
 using Silk.NET.WebGPU;
+using Windows.Foundation.Collections;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 
 namespace ProGPU.Browser;
 
@@ -749,6 +753,255 @@ public static partial class BrowserMediaCallbacks
             s_providers.TryRemove(id, out _);
         }
     }
+}
+
+/// <summary>
+/// Real-browser playback lifecycle gate driven by the WinUI-aligned
+/// <see cref="MediaPlayer"/> API. The query-driven browser harness invokes
+/// this only from an explicit user gesture so audible-media and Web Audio
+/// activation follow browser policy.
+/// </summary>
+public static partial class BrowserMediaPlaybackSmokeTest
+{
+    private const string AudioGainEffectId =
+        "ProGPU.Browser.Smoke.PlaybackAudioGain";
+    private static readonly TimeSpan Timeout =
+        TimeSpan.FromSeconds(30);
+
+    [JSExport]
+    public static async Task<int> RunAsync(
+        string sourceUri)
+    {
+        if (!OperatingSystem.IsBrowser())
+        {
+            throw new PlatformNotSupportedException(
+                "The browser playback smoke test requires browser-wasm.");
+        }
+        if (!Uri.TryCreate(
+                sourceUri,
+                UriKind.Absolute,
+                out Uri? sourceAddress))
+        {
+            throw new ArgumentException(
+                "The browser playback smoke source must be an absolute URI.",
+                nameof(sourceUri));
+        }
+
+        int initialElementCount =
+            GetBrowserMediaElementCountCore();
+        var opened = CreateSignal();
+        var playing = CreateSignal();
+        var paused = CreateSignal();
+        var firstFrame = CreateSignal();
+        var initialProgress = CreateSignal();
+        var seekCompleted = CreateSignal();
+        var resumedProgress = CreateSignal();
+        TimeSpan initialProgressTarget =
+            TimeSpan.MaxValue;
+        TimeSpan resumedProgressTarget =
+            TimeSpan.MaxValue;
+
+        using IDisposable providerRegistration =
+            MediaProviderRegistry.Default.Register(
+                new BrowserMediaPlaybackProviderFactory(
+                    int.MaxValue));
+        var gainFactory =
+            new MediaAudioGainEffectFactory(
+                AudioGainEffectId);
+        using IDisposable effectRegistration =
+            MediaEffectRegistry.Default.Register(
+                gainFactory);
+        using MediaSource source =
+            MediaSource.CreateFromUri(sourceAddress);
+        using var player = new MediaPlayer
+        {
+            AutoPlay = false,
+            AudioBalance = 0.25d,
+            IsMuted = true,
+            IsVideoFrameServerEnabled = true
+        };
+
+        player.AddAudioEffect(
+            AudioGainEffectId,
+            effectOptional: false,
+            new PropertySet
+            {
+                [MediaAudioGainEffectFactory
+                    .GainPropertyName] = 0.5f
+            });
+
+        void FailAll(Exception exception)
+        {
+            opened.TrySetException(exception);
+            playing.TrySetException(exception);
+            paused.TrySetException(exception);
+            firstFrame.TrySetException(exception);
+            initialProgress.TrySetException(exception);
+            seekCompleted.TrySetException(exception);
+            resumedProgress.TrySetException(exception);
+        }
+
+        player.MediaFailed += (_, args) =>
+            FailAll(
+                new InvalidOperationException(
+                    $"Browser playback failed: {args.Error}: {args.ErrorMessage}",
+                    args.ExtendedErrorCode));
+        player.MediaOpened += (_, _) =>
+            opened.TrySetResult(true);
+        player.VideoFrameAvailable += (_, _) =>
+            firstFrame.TrySetResult(true);
+        player.SeekCompleted += (_, _) =>
+            seekCompleted.TrySetResult(true);
+        player.PlaybackSession.PlaybackStateChanged +=
+            (_, _) =>
+            {
+                switch (player.PlaybackSession.PlaybackState)
+                {
+                    case MediaPlaybackState.Playing:
+                        playing.TrySetResult(true);
+                        break;
+                    case MediaPlaybackState.Paused:
+                        paused.TrySetResult(true);
+                        break;
+                }
+            };
+        player.PlaybackSession.PositionChanged +=
+            (_, _) =>
+            {
+                TimeSpan position =
+                    player.PlaybackSession.Position;
+                if (position >= initialProgressTarget)
+                {
+                    initialProgress.TrySetResult(true);
+                }
+                if (position >= resumedProgressTarget)
+                {
+                    resumedProgress.TrySetResult(true);
+                }
+            };
+
+        player.Source = source;
+        await AwaitSignalAsync(
+            opened.Task,
+            "media open");
+
+        TimeSpan duration =
+            player.PlaybackSession.NaturalDuration;
+        if (duration <= TimeSpan.FromSeconds(1) ||
+            player.PlaybackSession.NaturalVideoWidth == 0 ||
+            player.PlaybackSession.NaturalVideoHeight == 0)
+        {
+            throw new InvalidOperationException(
+                "Browser playback opened without a usable duration and natural video size.");
+        }
+        if (GetBrowserMediaElementCountCore() !=
+            initialElementCount + 1)
+        {
+            throw new InvalidOperationException(
+                "Browser playback did not create exactly one owned DOM media element.");
+        }
+
+        initialProgressTarget =
+            TimeSpan.FromTicks(
+                Math.Min(
+                    TimeSpan.FromMilliseconds(250).Ticks,
+                    duration.Ticks / 10));
+        player.Play();
+        await AwaitSignalAsync(
+            playing.Task,
+            "playing state");
+        await AwaitSignalAsync(
+            firstFrame.Task,
+            "decoded video frame");
+        await AwaitSignalAsync(
+            initialProgress.Task,
+            "initial position progress");
+
+        player.Pause();
+        await AwaitSignalAsync(
+            paused.Task,
+            "paused state");
+
+        TimeSpan seekTarget =
+            TimeSpan.FromTicks(duration.Ticks * 2 / 5);
+        resumedProgressTarget =
+            TimeSpan.FromTicks(duration.Ticks / 2);
+        player.PlaybackSession.Position =
+            seekTarget;
+        await AwaitSignalAsync(
+            seekCompleted.Task,
+            "seek completion");
+        if (Math.Abs(
+                (player.PlaybackSession.Position -
+                 seekTarget).TotalSeconds) > 0.5d)
+        {
+            throw new InvalidOperationException(
+                "Browser playback completed the seek outside the accepted half-second tolerance.");
+        }
+
+        player.Play();
+        await AwaitSignalAsync(
+            resumedProgress.Task,
+            "post-seek replay progress");
+        player.Pause();
+
+        MediaGpuFrameDescriptor descriptor =
+            player.GetProGpuSurface().CurrentDescriptor;
+        MediaPlaybackDiagnosticsSnapshot diagnostics =
+            player.GetProGpuDiagnostics();
+        if (descriptor.Width == 0 ||
+            descriptor.Height == 0 ||
+            descriptor.TransferMode !=
+                MediaTransferMode.GpuCopy ||
+            diagnostics.ProviderId !=
+                "progpu.browser.html-media" ||
+            diagnostics.TransferMode !=
+                MediaTransferMode.GpuCopy ||
+            diagnostics.PresentedFrames == 0)
+        {
+            throw new InvalidOperationException(
+                "Browser playback did not retain a decoded GPU-copy frame with matching provider diagnostics.");
+        }
+
+        player.RemoveAllEffects();
+        player.Source = null;
+        await Task.Yield();
+        if (GetBrowserMediaElementCountCore() !=
+            initialElementCount)
+        {
+            throw new InvalidOperationException(
+                "Browser playback leaked its owned DOM media element after source disposal.");
+        }
+        return 0;
+    }
+
+    private static TaskCompletionSource<bool>
+        CreateSignal() =>
+        new(
+            TaskCreationOptions
+                .RunContinuationsAsynchronously);
+
+    private static async Task AwaitSignalAsync(
+        Task signal,
+        string operation)
+    {
+        try
+        {
+            await signal.WaitAsync(Timeout);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for browser {operation}.",
+                exception);
+        }
+    }
+
+    [JSImport(
+        "getBrowserMediaElementCount",
+        "progpu-browser")]
+    private static partial int
+        GetBrowserMediaElementCountCore();
 }
 
 internal sealed class BrowserMediaGpuFrame :

@@ -286,6 +286,61 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void BrowserPlaybackSmokeUsesWinUiControlsAndChecksDomOwnership()
+    {
+        string browserAsset = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserAssets",
+            "progpu-browser.js");
+        string browserProvider = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "progpuMediaPlaybackSmoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Run browser playback smoke",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getBrowserMediaElementCount",
+            browserAsset,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BrowserMediaPlaybackSmokeTest",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "using var player = new MediaPlayer",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsVideoFrameServerEnabled = true",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.AddAudioEffect(",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.PlaybackSession.Position =",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "player.GetProGpuSurface().CurrentDescriptor",
+            browserProvider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetBrowserMediaElementCountCore()",
+            browserProvider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void
         MediaPlayerSampleExposesWinUiSphericalProjectionWithRetainedEffects()
     {

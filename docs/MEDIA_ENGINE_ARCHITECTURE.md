@@ -1664,6 +1664,23 @@ exactly one DOM media element while a page was active and zero after the
 provider-owning page was disposed. This is functional/lifetime evidence, not a
 browser throughput or latency measurement.
 
+That playback coverage is now a repeatable, query-driven gate rather than only
+a canvas-navigation procedure. `progpuMediaPlaybackSmoke=1` exposes one
+user-activated action that drives the WinUI-aligned `MediaPlayer`, opts into
+`IsVideoFrameServerEnabled`, installs a typed gain node plus player balance,
+plays, pauses, seeks to 40% of the duration, replays past 50%, and validates the
+retained frame descriptor and provider diagnostics as browser `GpuCopy`. It
+also checks that exactly one DOM media element is created and that the count
+returns to its starting value after clearing the source. Fresh Debug and
+trimmed Release WebAssembly AOT builds both returned result `0` for the 960x540
+flower MP4 with the `Worker` dispatcher and `Full` profile on the Apple
+adapter; both runs ended with zero owned media elements and no console warning,
+console error, or WebGPU validation error. The Release publish AOT-compiled 86
+eligible assemblies, including the browser, media, standalone editing, and
+WinUI facade assemblies. This remains functional, API, trim, and lifetime
+evidence rather than a throughput, latency, allocation, power, or zero-copy
+claim.
+
 Browser editor export was additionally validated in that same runtime. The
 compressed fast lane produced a 959,127-byte ISO-BMFF file with an `ftyp/isom`
 header. The WebGPU effect-bake lane rendered the flower clip with 50%
