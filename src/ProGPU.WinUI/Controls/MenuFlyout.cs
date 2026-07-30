@@ -17,6 +17,8 @@ public class MenuFlyout : FlyoutBase
 
     public ObservableCollection<MenuFlyoutItemBase> Items { get; } = new();
 
+    internal MenuFlyout? ParentFlyout { get; set; }
+
     public Style? MenuFlyoutPresenterStyle
     {
         get => GetValue(MenuFlyoutPresenterStyleProperty) as Style;
@@ -64,6 +66,14 @@ public class MenuFlyout : FlyoutBase
             }
         }
         selected.IsChecked = true;
+    }
+
+    internal void HideFlyoutChain()
+    {
+        for (MenuFlyout? flyout = this; flyout is not null; flyout = flyout.ParentFlyout)
+        {
+            flyout.Hide();
+        }
     }
 }
 
@@ -191,7 +201,7 @@ public class MenuFlyoutItem : MenuFlyoutItemBase
     {
         if (Command?.CanExecute(CommandParameter) == true) Command.Execute(CommandParameter);
         Click?.Invoke(this, new RoutedEventArgs { OriginalSource = this });
-        OwningFlyout?.Hide();
+        OwningFlyout?.HideFlyoutChain();
     }
 
     protected virtual bool IsSelectionVisible => false;
@@ -443,7 +453,8 @@ public sealed class MenuFlyoutSubItem : MenuFlyoutItemBase
     {
         var flyout = new MenuFlyout
         {
-            Placement = FlyoutPlacementMode.RightEdgeAlignedTop
+            Placement = FlyoutPlacementMode.RightEdgeAlignedTop,
+            ParentFlyout = OwningFlyout
         };
         foreach (MenuFlyoutItemBase item in Items)
         {
