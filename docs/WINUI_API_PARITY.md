@@ -73,8 +73,10 @@ baseline policy is reviewed.
 The preview.31 starting baseline recorded 16,621 official entries, 6,820 ProGPU
 entries, 2,824 exact matches, 13,797 missing entries, and 3,996 ProGPU-only
 entries. After the foundation-identifier and predefined-color slices, the
-current baseline records 7,005 ProGPU entries, 3,009 exact matches, and 13,612
-missing entries, with the same 3,996 ProGPU-only entries. These are
+baseline recorded 7,005 ProGPU entries, 3,009 exact matches, and 13,612
+missing entries. With the contract-version metadata slice, the current
+baseline records 7,012 ProGPU entries, 3,016 exact matches, and 13,605 missing
+entries, with the same 3,996 ProGPU-only entries. These are
 declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
@@ -100,11 +102,10 @@ identifier and handle conversions are fixed `O(1)` value operations with no
 managed allocation. `ColorHelper.FromArgb` delegates to the shared WinRT color
 value implementation and is fixed `O(1)`.
 
-Deferred rather than stubbed: localized `ColorHelper.ToDisplayName`, WinRT
-contract-version attributes, and OS validation/error translation for invalid
-native handles. Their declaration entries remain visibly missing in the
-machine report until their documented behavior can be implemented and tested.
-No Microsoft source or method body was inspected.
+Deferred rather than stubbed: localized `ColorHelper.ToDisplayName` and OS
+validation/error translation for invalid native handles. Their declaration or
+behavioral gaps remain visible until their documented behavior can be
+implemented and tested. No Microsoft source or method body was inspected.
 
 ### Microsoft.UI predefined colors
 
@@ -123,8 +124,19 @@ shape and packed-value fingerprint, representative values across the table,
 aliases, transparency, and zero managed allocations across 100,000 warmed
 accesses.
 
-Deferred rather than synthesized: the WinRT contract-version attribute remains
-visible as the one missing declaration entry for `Colors`.
+### WinRT contract-version metadata
+
+Primary contract consulted:
+
+- [ContractVersionAttribute](https://learn.microsoft.com/uwp/api/windows.foundation.metadata.contractversionattribute)
+
+Adopted: the three official constructors, multiple-use target policy, exact
+`Microsoft.Foundation.WindowsAppSDKContract` identity, and the published
+version values for all foundation types implemented above. Reflection tests
+verify the constructor surface and every emitted constructor argument. The
+attribute is declarative, CPU-only, fixed `O(1)`, and performs no allocation
+beyond normal runtime reflection when an application explicitly inspects
+metadata.
 
 ## Implementation policy
 

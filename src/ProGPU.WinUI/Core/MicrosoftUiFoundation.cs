@@ -1,9 +1,12 @@
 using System;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI;
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1_4)]
 public delegate void ClosableNotifierHandler();
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1_4)]
 public interface IClosableNotifier
 {
     bool IsClosed { get; }
@@ -13,6 +16,7 @@ public interface IClosableNotifier
     event ClosableNotifierHandler? FrameworkClosed;
 }
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]
 public sealed class ColorHelper
 {
     private ColorHelper()
@@ -27,6 +31,7 @@ public sealed class ColorHelper
         Windows.UI.Color.FromArgb(a, r, g, b);
 }
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]
 public struct DisplayId : IEquatable<DisplayId>
 {
     public ulong Value;
@@ -48,6 +53,7 @@ public struct DisplayId : IEquatable<DisplayId>
     public static bool operator !=(DisplayId x, DisplayId y) => !x.Equals(y);
 }
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]
 public struct IconId : IEquatable<IconId>
 {
     public ulong Value;
@@ -69,6 +75,7 @@ public struct IconId : IEquatable<IconId>
     public static bool operator !=(IconId x, IconId y) => !x.Equals(y);
 }
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]
 public struct WindowId : IEquatable<WindowId>
 {
     public ulong Value;
@@ -115,4 +122,12 @@ public class Win32Interop
 
     private static IntPtr UnpackHandle(ulong value) =>
         new(unchecked((long)value));
+}
+
+internal static class WindowsAppSdkContract
+{
+    public const string Name =
+        "Microsoft.Foundation.WindowsAppSDKContract";
+    public const uint Version1 = 0x00010000;
+    public const uint Version1_4 = 0x00010004;
 }

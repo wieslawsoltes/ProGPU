@@ -1,7 +1,9 @@
+using Windows.Foundation.Metadata;
 using Windows.UI;
 
 namespace Microsoft.UI;
 
+[ContractVersion(WindowsAppSdkContract.Name, WindowsAppSdkContract.Version1)]
 public sealed class Colors
 {
     private Colors()

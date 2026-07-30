@@ -1,5 +1,6 @@
 using Microsoft.UI;
 using System.Reflection;
+using Windows.Foundation.Metadata;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -136,6 +137,49 @@ public sealed class MicrosoftUiFoundationTests
 
         Assert.Equal(100_000 * (0xFF + 0x64 + 0x95 + 0xED), channelSum);
         Assert.Equal(0L, allocated);
+    }
+
+    [Theory]
+    [InlineData(typeof(ColorHelper), 0x00010000u)]
+    [InlineData(typeof(Colors), 0x00010000u)]
+    [InlineData(typeof(DisplayId), 0x00010000u)]
+    [InlineData(typeof(IconId), 0x00010000u)]
+    [InlineData(typeof(WindowId), 0x00010000u)]
+    [InlineData(typeof(ClosableNotifierHandler), 0x00010004u)]
+    [InlineData(typeof(IClosableNotifier), 0x00010004u)]
+    public void FoundationTypesPublishOfficialContractVersion(
+        Type type,
+        uint expectedVersion)
+    {
+        var attribute = Assert.Single(
+            type.GetCustomAttributesData(),
+            attribute =>
+                attribute.AttributeType ==
+                typeof(ContractVersionAttribute));
+
+        Assert.Collection(
+            attribute.ConstructorArguments,
+            contract => Assert.Equal(
+                "Microsoft.Foundation.WindowsAppSDKContract",
+                contract.Value),
+            version => Assert.Equal(expectedVersion, version.Value));
+    }
+
+    [Fact]
+    public void ContractVersionAttributeExposesOfficialConstructors()
+    {
+        var signatures = typeof(ContractVersionAttribute)
+            .GetConstructors()
+            .Select(
+                constructor => string.Join(
+                    ",",
+                    constructor.GetParameters()
+                        .Select(parameter => parameter.ParameterType.Name)))
+            .OrderBy(signature => signature, StringComparer.Ordinal);
+
+        Assert.Equal(
+            ["String,UInt32", "Type,UInt32", "UInt32"],
+            signatures);
     }
 
     [Fact]
