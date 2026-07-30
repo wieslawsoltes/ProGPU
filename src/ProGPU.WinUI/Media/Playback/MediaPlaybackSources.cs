@@ -93,7 +93,10 @@ public sealed class MediaPlaybackItemFailedEventArgs : EventArgs
 public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     IProGpuMediaPlaybackSource
 {
+    private MediaItemDisplayProperties _displayProperties = new();
     private double _totalDownloadProgress;
+    private AutoLoadedDisplayPropertyKind
+        _autoLoadedDisplayProperties;
 
     public MediaPlaybackItem(MediaSource source)
         : this(source, TimeSpan.Zero, null)
@@ -144,6 +147,19 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     public MediaSource Source { get; }
     public TimeSpan StartTime { get; }
     public TimeSpan? DurationLimit { get; }
+    public AutoLoadedDisplayPropertyKind
+        AutoLoadedDisplayProperties
+    {
+        get => _autoLoadedDisplayProperties;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _autoLoadedDisplayProperties = value;
+        }
+    }
     public bool CanSkip { get; set; } = true;
     public bool IsDisabledInPlaybackList { get; set; }
     public double TotalDownloadProgress =>
@@ -154,6 +170,16 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     {
         ArgumentNullException.ThrowIfNull(source);
         return source.FindPlaybackItem();
+    }
+
+    public MediaItemDisplayProperties GetDisplayProperties() =>
+        _displayProperties.Clone();
+
+    public void ApplyDisplayProperties(
+        MediaItemDisplayProperties value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        _displayProperties = value.Clone();
     }
 
     internal void SetTotalDownloadProgress(double value) =>

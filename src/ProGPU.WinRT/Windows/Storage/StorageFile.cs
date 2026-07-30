@@ -1,3 +1,5 @@
+using Windows.Storage.Streams;
+
 namespace Windows.Storage;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace Windows.Storage;
 /// callbacks for mobile and browser targets; ordinary desktop paths use
 /// direct asynchronous file I/O.
 /// </summary>
-public sealed class StorageFile
+public sealed class StorageFile : IStorageFile
 {
     public StorageFile(string path)
     {
@@ -20,6 +22,9 @@ public sealed class StorageFile
 
     public string FileType =>
         System.IO.Path.GetExtension(Path);
+
+    public string ContentType =>
+        RandomAccessStreamReference.InferContentType(FileType);
 
     public async Task<string> ReadTextAsync()
     {
@@ -43,6 +48,16 @@ public sealed class StorageFile
         }
         return await File.ReadAllBytesAsync(Path)
             .ConfigureAwait(false);
+    }
+
+    public async Task<IRandomAccessStreamWithContentType>
+        OpenReadAsync()
+    {
+        byte[] bytes = await ReadBytesAsync()
+            .ConfigureAwait(false);
+        return new ImmutableRandomAccessStreamWithContentType(
+            bytes,
+            ContentType);
     }
 
     public async Task WriteTextAsync(string text)

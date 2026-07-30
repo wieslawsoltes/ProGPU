@@ -12,6 +12,7 @@ using ProGPU.Media.Rendering;
 using ProGPU.Scene.Extensions;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.Media;
 using Windows.Foundation.Collections;
 using Thickness = Microsoft.UI.Xaml.Thickness;
 
@@ -259,7 +260,19 @@ public static class MediaPlayerPage
             try
             {
                 SetText(status, $"Opening {source} …");
-                player.Source = MediaSource.CreateFromUri(source);
+                var item = new MediaPlaybackItem(
+                    MediaSource.CreateFromUri(source));
+                MediaItemDisplayProperties display =
+                    item.GetDisplayProperties();
+                display.Type = MediaPlaybackType.Video;
+                display.VideoProperties.Title =
+                    source.IsFile
+                        ? Path.GetFileName(source.LocalPath)
+                        : source.Host;
+                display.VideoProperties.Subtitle =
+                    "ProGPU WebGPU media";
+                item.ApplyDisplayProperties(display);
+                player.Source = item;
                 player.Play();
             }
             catch (Exception exception)

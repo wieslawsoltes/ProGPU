@@ -23,6 +23,7 @@ using Windows.Media.Core;
 using Windows.Media;
 using Windows.Media.Playback;
 using Windows.Media.MediaProperties;
+using Windows.Storage;
 using Windows.Storage.Streams;
 using Xunit;
 
@@ -30,6 +31,56 @@ namespace ProGPU.Tests;
 
 public sealed class MediaPlaybackEngineTests
 {
+    [Fact]
+    public void PlaybackItemDisplayMetadataUsesOfficialWinUiTypes()
+    {
+        Assert.Equal(
+            "Windows.Media",
+            typeof(MediaPlaybackType).Namespace);
+        Assert.Equal(
+            "Windows.Media",
+            typeof(MusicDisplayProperties).Namespace);
+        Assert.Equal(
+            "Windows.Media",
+            typeof(VideoDisplayProperties).Namespace);
+        Assert.Equal(
+            typeof(RandomAccessStreamReference),
+            typeof(MediaItemDisplayProperties)
+                .GetProperty(
+                    nameof(
+                        MediaItemDisplayProperties.Thumbnail))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(MediaItemDisplayProperties),
+            typeof(MediaPlaybackItem)
+                .GetMethod(
+                    nameof(
+                        MediaPlaybackItem
+                            .GetDisplayProperties))!
+                .ReturnType);
+        Assert.Equal(
+            typeof(Task<
+                IRandomAccessStreamWithContentType>),
+            typeof(RandomAccessStreamReference)
+                .GetMethod(
+                    nameof(
+                        RandomAccessStreamReference
+                            .OpenReadAsync))!
+                .ReturnType);
+        Assert.Equal(
+            typeof(IStorageFile),
+            typeof(RandomAccessStreamReference)
+                .GetMethod(
+                    nameof(
+                        RandomAccessStreamReference
+                            .CreateFromFile))!
+                .GetParameters()[0]
+                .ParameterType);
+        Assert.True(
+            typeof(IStorageFile).IsAssignableFrom(
+                typeof(StorageFile)));
+    }
+
     [Fact]
     public void PlaybackRotationUsesOfficialWinUiMediaPropertiesType()
     {
@@ -2450,6 +2501,222 @@ public sealed class MediaPlaybackEngineTests
         player.Source = item;
 
         Assert.Same(item, player.Source);
+    }
+
+    [Fact]
+    public void WinUiPlaybackItemDisplayPropertiesRequireApply()
+    {
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/metadata.mp4"));
+        var item = new MediaPlaybackItem(source);
+        using var thumbnailStream =
+            new RandomAccessStream(
+                new MemoryStream([1, 2, 3]),
+                leaveOpen: false);
+        var thumbnail = RandomAccessStreamReference
+            .CreateFromStream(thumbnailStream);
+        MediaItemDisplayProperties edited =
+            item.GetDisplayProperties();
+        edited.Type = MediaPlaybackType.Video;
+        edited.Thumbnail = thumbnail;
+        edited.VideoProperties.Title = "Applied title";
+        edited.VideoProperties.Subtitle = "Applied subtitle";
+        edited.VideoProperties.Genres.Add("Documentary");
+
+        Assert.Equal(
+            MediaPlaybackType.Unknown,
+            item.GetDisplayProperties().Type);
+
+        item.ApplyDisplayProperties(edited);
+        edited.Type = MediaPlaybackType.Music;
+        edited.VideoProperties.Title = "Leaked mutation";
+        edited.VideoProperties.Genres.Add("Mutation");
+
+        MediaItemDisplayProperties applied =
+            item.GetDisplayProperties();
+        Assert.Equal(MediaPlaybackType.Video, applied.Type);
+        Assert.Same(thumbnail, applied.Thumbnail);
+        Assert.Equal(
+            "Applied title",
+            applied.VideoProperties.Title);
+        Assert.Equal(
+            "Applied subtitle",
+            applied.VideoProperties.Subtitle);
+        Assert.Equal(
+            ["Documentary"],
+            applied.VideoProperties.Genres);
+
+        applied.VideoProperties.Title = "Second mutation";
+        applied.VideoProperties.Genres.Clear();
+
+        MediaItemDisplayProperties secondSnapshot =
+            item.GetDisplayProperties();
+        Assert.Equal(
+            "Applied title",
+            secondSnapshot.VideoProperties.Title);
+        Assert.Equal(
+            ["Documentary"],
+            secondSnapshot.VideoProperties.Genres);
+    }
+
+    [Fact]
+    public void WinUiDisplayPropertiesClearAllResetsEveryField()
+    {
+        using var thumbnailStream =
+            new RandomAccessStream(
+                new MemoryStream([1]),
+                leaveOpen: false);
+        var properties = new MediaItemDisplayProperties
+        {
+            Type = MediaPlaybackType.Music,
+            Thumbnail =
+                RandomAccessStreamReference.CreateFromStream(
+                    thumbnailStream)
+        };
+        properties.MusicProperties.AlbumArtist = "Album artist";
+        properties.MusicProperties.AlbumTitle = "Album";
+        properties.MusicProperties.AlbumTrackCount = 9;
+        properties.MusicProperties.Artist = "Artist";
+        properties.MusicProperties.Genres.Add("Genre");
+        properties.MusicProperties.Title = "Title";
+        properties.MusicProperties.TrackNumber = 4;
+        properties.VideoProperties.Genres.Add("Video genre");
+        properties.VideoProperties.Subtitle = "Subtitle";
+        properties.VideoProperties.Title = "Video";
+
+        properties.ClearAll();
+
+        Assert.Equal(MediaPlaybackType.Unknown, properties.Type);
+        Assert.Null(properties.Thumbnail);
+        Assert.Equal(
+            string.Empty,
+            properties.MusicProperties.AlbumArtist);
+        Assert.Equal(
+            string.Empty,
+            properties.MusicProperties.AlbumTitle);
+        Assert.Equal(
+            0u,
+            properties.MusicProperties.AlbumTrackCount);
+        Assert.Equal(
+            string.Empty,
+            properties.MusicProperties.Artist);
+        Assert.Empty(properties.MusicProperties.Genres);
+        Assert.Equal(
+            string.Empty,
+            properties.MusicProperties.Title);
+        Assert.Equal(
+            0u,
+            properties.MusicProperties.TrackNumber);
+        Assert.Empty(properties.VideoProperties.Genres);
+        Assert.Equal(
+            string.Empty,
+            properties.VideoProperties.Subtitle);
+        Assert.Equal(
+            string.Empty,
+            properties.VideoProperties.Title);
+    }
+
+    [Fact]
+    public void WinUiPlaybackItemValidatesDisplayMetadataEnums()
+    {
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/enums.mp4"));
+        var item = new MediaPlaybackItem(source);
+        var properties = new MediaItemDisplayProperties();
+
+        Assert.Equal(
+            AutoLoadedDisplayPropertyKind.None,
+            item.AutoLoadedDisplayProperties);
+        item.AutoLoadedDisplayProperties =
+            AutoLoadedDisplayPropertyKind.Video;
+        Assert.Equal(
+            AutoLoadedDisplayPropertyKind.Video,
+            item.AutoLoadedDisplayProperties);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => item.AutoLoadedDisplayProperties =
+                (AutoLoadedDisplayPropertyKind)99);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => properties.Type = (MediaPlaybackType)99);
+        Assert.Throws<ArgumentNullException>(
+            () => item.ApplyDisplayProperties(null!));
+    }
+
+    [Fact]
+    public async Task RandomAccessStreamReferenceSnapshotsOwnership()
+    {
+        byte[] sourceBytes = [10, 20, 30, 40];
+        using var backing = new MemoryStream(
+            sourceBytes,
+            writable: true);
+        using var source = new RandomAccessStream(
+            backing,
+            leaveOpen: true);
+        source.Seek(2);
+
+        RandomAccessStreamReference reference =
+            RandomAccessStreamReference.CreateFromStream(source);
+
+        Assert.Equal(2ul, source.Position);
+        sourceBytes[0] = 99;
+        using IRandomAccessStreamWithContentType first =
+            await reference.OpenReadAsync();
+        using IRandomAccessStreamWithContentType second =
+            await reference.OpenReadAsync();
+
+        Assert.NotSame(first, second);
+        Assert.Equal(
+            "application/octet-stream",
+            first.ContentType);
+        Assert.Equal(4ul, first.Size);
+        Assert.Equal(0ul, first.Position);
+        Assert.Equal(0ul, second.Position);
+        Assert.Equal(10, first.AsStream().ReadByte());
+        Assert.Equal(1ul, first.Position);
+        Assert.Equal(0ul, second.Position);
+        Assert.Equal(10, second.AsStream().ReadByte());
+    }
+
+    [Fact]
+    public async Task RandomAccessStreamReferenceCreatesFromStorageFile()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"progpu-stream-reference-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "thumbnail.png");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await File.WriteAllBytesAsync(
+                path,
+                [137, 80, 78, 71]);
+            StorageFile file =
+                await StorageFile.GetFileFromPathAsync(path);
+            RandomAccessStreamReference reference =
+                RandomAccessStreamReference.CreateFromFile(file);
+
+            using IRandomAccessStreamWithContentType stream =
+                await reference.OpenReadAsync();
+
+            Assert.Equal("image/png", file.ContentType);
+            Assert.Equal("image/png", stream.ContentType);
+            Assert.Equal(4ul, stream.Size);
+            Assert.Equal(137, stream.AsStream().ReadByte());
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory);
+            }
+        }
     }
 
     [Fact]

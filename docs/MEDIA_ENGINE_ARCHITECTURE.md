@@ -967,7 +967,25 @@ resulting item, matching the official WinRT API rather than exposing an
 implementation-specific Boolean. Manual navigation and `StartingItem`
 changes honor `MediaPlaybackItem.CanSkip` while any attached player has
 active playback; command-manager Next/Previous enablement uses the same
-decision. Natural completion remains able to advance the list. The editing
+decision. Natural completion remains able to advance the list.
+`MediaPlaybackItem.GetDisplayProperties`,
+`ApplyDisplayProperties`, and `AutoLoadedDisplayProperties` follow the
+official
+[`MediaPlaybackItem`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackitem)
+and
+[`MediaItemDisplayProperties`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaitemdisplayproperties)
+contracts. ProGPU adopts the documented retrieve/edit/apply transaction,
+`MediaPlaybackType`, music/video metadata fields, mutable genre collections,
+`ClearAll`, and a reopenable
+[`RandomAccessStreamReference`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.streams.randomaccessstreamreference)
+thumbnail. Apply snapshots the scalar values and genre collections so later
+caller mutation cannot silently change active transport metadata; the
+thumbnail retains one immutable payload and each open owns an independent
+cursor. The sample player exercises the same item metadata path before native
+playback. Automatic embedded-tag extraction and platform SMTC publication are
+not fabricated where a host has no system transport service; the public
+contracts remain typed extension points for those hosts.
+The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay
 clips, custom compositor definitions, composition duration,
