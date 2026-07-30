@@ -77,8 +77,10 @@ baseline recorded 7,005 ProGPU entries, 3,009 exact matches, and 13,612
 missing entries. With the contract-version metadata slice, the current
 baseline recorded 7,012 ProGPU entries, 3,016 exact matches, and 13,605 missing
 entries. With `Microsoft.UI.System` complete, the current baseline records
-7,018 ProGPU entries, 3,022 exact matches, and 13,599 missing entries, with the
-same 3,996 ProGPU-only entries. These are
+7,018 ProGPU entries, 3,022 exact matches, and 13,599 missing entries. With
+`Microsoft.UI.Dispatching` complete, the current baseline records 7,076 ProGPU
+entries, 3,080 exact matches, and 13,541 missing entries, with the same 3,996
+ProGPU-only entries. These are
 declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
@@ -164,6 +166,58 @@ that provider contract is connected, zero IDs fail explicitly while a nonzero
 platform ID is accepted. The declaration report now records
 `Microsoft.UI.System` as 6/6 exact with no missing or extra entries, but this
 does not claim that deferred native lifecycle behavior is complete.
+
+### Microsoft.UI.Dispatching
+
+Primary contracts consulted:
+
+- [DispatcherQueue architecture and run-down](https://learn.microsoft.com/windows/apps/develop/dispatcherqueue)
+- [DispatcherQueue](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherqueue)
+- [DispatcherQueueController](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherqueuecontroller)
+- [DispatcherQueueTimer](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherqueuetimer)
+- [DispatcherRunOptions](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherrunoptions)
+- [DispatcherExitDeferral](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.dispatching.dispatcherexitdeferral)
+
+Adopted: the complete 58-entry official namespace surface; one thread-local
+queue per owning thread; serial high/normal/low priority dispatch; current and
+dedicated thread controllers; synchronous and asynchronous run-down; nested
+event-loop exit deferrals; the documented application/framework shutdown event
+order; shutdown deferral draining; timer tick coalescing; and dispatcher-backed
+`SynchronizationContext` marshaling. Dedicated controllers keep the owned
+thread alive until queue shutdown completes, and their asynchronous shutdown
+action completes only after that thread unwinds.
+
+Enqueue and dequeue are expected `O(1)` operations with `O(Q)` retained storage
+for `Q` pending callbacks. A run-down is `O(Q + D)` callback work for pending
+items and deferral completions. Timers retain one cached dispatcher callback
+and permit at most one pending tick, so a native timer expiration performs
+fixed `O(1)` queue work without allocating a new closure per tick. A focused
+Release test warms queue capacity and verifies exactly zero managed allocations
+across 2,000 enqueue operations using one retained callback. Behavioral tests
+cover priority ordering, thread affinity, current-thread singleton lifetime,
+dedicated synchronous/asynchronous shutdown, nested exit deferrals, exact
+shutdown ordering, one-shot/repeating timers, exception-preserving `Send`, and
+post-shutdown rejection.
+Dispatcher synchronization-context marshaling reuses callback work items from
+a lock-protected pool capped at 256 retained entries, avoiding one closure per
+steady-state `Post` or `Send` while keeping burst retention bounded. A second
+warmed Release invariant verifies exactly zero caller-thread managed
+allocations across 2,000 synchronous sends.
+
+Adapted for portability: ProGPU's queue uses a managed event-loop wake source
+on every supported runtime instead of depending on USER32. Native desktop,
+mobile, and browser hosts can bridge their platform pump through the typed
+enqueue surface. `EnsureSystemDispatcherQueue` is intentionally a no-op in the
+platform-neutral engine because ProGPU composition and input already share this
+dispatch source.
+
+Deferred behavioral gate: Windows hosts do not yet create and lifetime-manage
+the separate `Windows.System.DispatcherQueue`, and the portable run options
+cannot observe native `WM_QUIT` messages. Those integrations remain explicit
+platform-host work; the implementation does not simulate a native queue or
+silently change the cross-platform dispatch contract. The declaration report
+records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
+entries.
 
 ## Implementation policy
 
