@@ -57,6 +57,11 @@ public sealed class InputContractValueTests
     [InlineData(typeof(NonClientRegionKind), 0x00010004U)]
     [InlineData(typeof(VirtualKeyStates), 0x00010004U)]
     [InlineData(typeof(PhysicalKeyStatus), 0x00010004U)]
+    [InlineData(typeof(InputCursor), 0x00010000U)]
+    [InlineData(typeof(InputCustomCursor), 0x00010001U)]
+    [InlineData(typeof(InputDesktopNamedResourceCursor), 0x00010001U)]
+    [InlineData(typeof(InputDesktopResourceCursor), 0x00010000U)]
+    [InlineData(typeof(InputSystemCursor), 0x00010000U)]
     public void InputValuesPublishOfficialContractVersion(
         Type type,
         uint expectedVersion)

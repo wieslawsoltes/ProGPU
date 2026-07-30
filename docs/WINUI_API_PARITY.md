@@ -99,6 +99,10 @@ The first `Microsoft.UI.Input` value-contract slice advances the baseline to
 7,294 ProGPU entries, 3,410 exact matches, and 13,211 missing entries. It adds
 97 exact declarations without adding ProGPU-only entries.
 
+The `Microsoft.UI.Input` cursor slice advances the baseline to 7,322 ProGPU
+entries, 3,438 exact matches, and 13,183 missing entries. It adds 28 exact
+declarations without adding ProGPU-only entries.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -309,6 +313,32 @@ will reuse ProGPU's existing low-latency input queues and retained hit-testing
 state; this checkpoint does not invent unavailable native behavior. It was
 implemented only from the locked official NuGet metadata and Microsoft
 documentation, without inspecting Microsoft implementation source.
+
+### Microsoft.UI.Input cursor projection
+
+Primary contracts consulted:
+
+- [InputCursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputcursor)
+- [InputSystemCursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputsystemcursor)
+- [InputDesktopResourceCursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputdesktopresourcecursor)
+- [InputDesktopNamedResourceCursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputdesktopnamedresourcecursor)
+- [UIElement.ProtectedCursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.uielement.protectedcursor)
+- [CoreCursor](https://learn.microsoft.com/uwp/api/windows.ui.core.corecursor)
+
+Adopted: the official factories and immutable value-state contracts, deepest
+hovered-descendant precedence, and captured-element precedence. The managed
+projection retains system shape or desktop module/resource identity and
+exposes a typed `IInputCursorProvider` seam so native hosts can resolve custom
+resources without reflection or a platform dependency in
+`Microsoft.UI.Input`. Existing Silk and browser hosts receive an
+allocation-free standard-cursor mapping; unsupported custom resources fall
+back to the host default while remaining available to the typed provider.
+
+The cursor slice adds 28 exact declarations without adding an extra
+declaration, advancing the official comparison to 7,322 candidate
+declarations, 3,438 exact matches, 13,183 missing declarations, and 3,884
+extras. Repeated reads of a warmed system cursor shape allocate zero managed
+bytes across 100,000 iterations.
 
 ### Microsoft.UI.Windowing
 

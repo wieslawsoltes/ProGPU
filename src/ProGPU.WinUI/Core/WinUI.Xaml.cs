@@ -63,6 +63,7 @@ namespace Microsoft.UI.Xaml
     public partial class UIElement : DependencyObject
     {
         private Automation.Peers.AutomationPeer? _automationPeer;
+        private global::Microsoft.UI.Input.InputCursor? _protectedCursor;
 
         public static readonly DependencyProperty UseSystemFocusVisualsProperty = DependencyProperty.Register(
             nameof(UseSystemFocusVisuals), typeof(bool), typeof(UIElement), new PropertyMetadata(false));
@@ -72,6 +73,21 @@ namespace Microsoft.UI.Xaml
             get => (bool)(GetValue(UseSystemFocusVisualsProperty) ?? false);
             set => SetValue(UseSystemFocusVisualsProperty, value);
         }
+
+        protected global::Microsoft.UI.Input.InputCursor? ProtectedCursor
+        {
+            get => _protectedCursor;
+            set
+            {
+                if (ReferenceEquals(_protectedCursor, value))
+                    return;
+                _protectedCursor = value;
+                Input.InputSystem.NotifyProtectedCursorChanged(this);
+            }
+        }
+
+        internal global::Microsoft.UI.Input.InputCursor? GetProtectedCursor() =>
+            _protectedCursor;
 
         public static readonly DependencyProperty RenderTransformProperty = DependencyProperty.Register(
             nameof(RenderTransform),

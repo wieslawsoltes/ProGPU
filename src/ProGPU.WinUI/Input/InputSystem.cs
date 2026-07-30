@@ -10,6 +10,7 @@ using System.Diagnostics;
 using Silk.NET.Input;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using ProGPU.WinUI.Platform;
 using ProGPU.WinUI.Input;
 using Windows.Devices.Input;
 
@@ -35,6 +36,8 @@ public class WindowInputState
     public bool IsMiddleButtonPressed;
     public bool IsRightButtonPressed;
     public Action<StandardCursor>? CursorChanged;
+    internal IInputCursorProvider? InputCursorProvider;
+    internal Microsoft.UI.Input.InputCursor? ActiveInputCursor;
     internal FrameworkElement? ComposingElement;
     internal RelativePointerCaptureState RelativePointerCapture { get; } = new();
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
@@ -289,6 +292,7 @@ public static class InputSystem
             return;
         }
         _capturedElement = element;
+        UpdateProtectedCursor();
     }
 
     public static bool CapturePointer(FrameworkElement element, Pointer pointer)
@@ -298,7 +302,11 @@ public static class InputSystem
         if (!pointer.IsInContact || !Current.PointerContacts.ContainsKey(pointer.PointerId)) return false;
         if (Current.CapturedElements.ContainsKey(pointer.PointerId)) return false;
         Current.CapturedElements[pointer.PointerId] = element;
-        if (pointer.PointerId == 1) _capturedElement = element;
+        if (pointer.PointerId == 1)
+        {
+            _capturedElement = element;
+            UpdateProtectedCursor();
+        }
         return true;
     }
 
@@ -312,6 +320,7 @@ public static class InputSystem
             return;
         }
         _capturedElement = null;
+        UpdateProtectedCursor();
         DevToolsInputSystem.ReleasePointerCapture();
     }
 
@@ -321,7 +330,11 @@ public static class InputSystem
         ArgumentNullException.ThrowIfNull(pointer);
         if (!Current.CapturedElements.TryGetValue(pointer.PointerId, out var captured) || !ReferenceEquals(captured, element)) return;
         Current.CapturedElements.Remove(pointer.PointerId);
-        if (pointer.PointerId == 1) _capturedElement = null;
+        if (pointer.PointerId == 1)
+        {
+            _capturedElement = null;
+            UpdateProtectedCursor();
+        }
         RaiseCaptureLost(element, Current.PointerContacts.TryGetValue(pointer.PointerId, out var contact) ? contact.LastEvent : default, pointer);
     }
 
@@ -351,6 +364,23 @@ public static class InputSystem
                     // Ignore if cursor configuration is unsupported in the current platform/context
                 }
             }
+        }
+    }
+
+    internal static void NotifyProtectedCursorChanged(
+        UIElement element)
+    {
+        UIElement? cursorOwner =
+            _capturedElement ??
+            _hoveredElement;
+        for (UIElement? current = cursorOwner;
+             current is not null;
+             current = current.Parent as UIElement)
+        {
+            if (!ReferenceEquals(current, element))
+                continue;
+            UpdateProtectedCursor();
+            return;
         }
     }
 
@@ -742,8 +772,65 @@ public static class InputSystem
         for (var index = oldPath.Count - 1; index > common; index--) oldPath[index].OnPointerExited(CreatePointerArgs(oldPath[index], input, pointer));
         for (var index = common + 1; index < newPath.Count; index++) newPath[index].OnPointerEntered(CreatePointerArgs(newPath[index], input, pointer));
         _hoveredElement = hit;
+        UpdateProtectedCursor();
         ResetHoverTimer(hit);
     }
+
+    private static void UpdateProtectedCursor()
+    {
+        UIElement? cursorOwner =
+            _capturedElement ??
+            _hoveredElement;
+        Microsoft.UI.Input.InputCursor? cursor = null;
+        for (UIElement? current = cursorOwner;
+             current is not null;
+             current = current.Parent as UIElement)
+        {
+            cursor = current.GetProtectedCursor();
+            if (cursor is not null)
+                break;
+        }
+
+        if (cursor?.IsDisposed == true)
+            cursor = null;
+        if (ReferenceEquals(Current.ActiveInputCursor, cursor))
+            return;
+
+        Current.ActiveInputCursor = cursor;
+        Current.InputCursorProvider?.SetCursor(cursor);
+        SetMouseCursor(MapStandardCursor(cursor));
+    }
+
+    private static StandardCursor MapStandardCursor(
+        Microsoft.UI.Input.InputCursor? cursor) =>
+        cursor is Microsoft.UI.Input.InputSystemCursor systemCursor
+            ? systemCursor.CursorShape switch
+            {
+                Microsoft.UI.Input.InputSystemCursorShape.Cross =>
+                    StandardCursor.Crosshair,
+                Microsoft.UI.Input.InputSystemCursorShape.Hand =>
+                    StandardCursor.Hand,
+                Microsoft.UI.Input.InputSystemCursorShape.IBeam =>
+                    StandardCursor.IBeam,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeAll =>
+                    StandardCursor.ResizeAll,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNortheastSouthwest =>
+                    StandardCursor.NeswResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth =>
+                    StandardCursor.VResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNorthwestSoutheast =>
+                    StandardCursor.NwseResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast =>
+                    StandardCursor.HResize,
+                Microsoft.UI.Input.InputSystemCursorShape.UniversalNo =>
+                    StandardCursor.NotAllowed,
+                Microsoft.UI.Input.InputSystemCursorShape.Wait =>
+                    StandardCursor.Wait,
+                Microsoft.UI.Input.InputSystemCursorShape.AppStarting =>
+                    StandardCursor.WaitArrow,
+                _ => StandardCursor.Arrow
+            }
+            : StandardCursor.Default;
 
     private static void UpdateContactOver(
         PointerContactState contact,
@@ -1494,6 +1581,7 @@ public static class InputSystem
             }
 
             _hoveredElement = hit;
+            UpdateProtectedCursor();
             ResetHoverTimer(hit);
         }
 
