@@ -1410,6 +1410,79 @@ public sealed class WindowsMediaProviderContractTests
     }
 
     [Fact]
+    public void WindowsProviderProjectsNativeTimedTextWithoutRetainingComCues()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaPlaybackProvider.cs");
+        string native = ReadRepoFile(
+            "src",
+            "ProGPU.Windows.Media",
+            "WindowsMediaNative.cs");
+
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTimedMetadataPresentationMode\n                .PlatformPresented",
+            provider.Replace(
+                "\r\n",
+                "\n",
+                StringComparison.Ordinal),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WindowsMediaNative.ReadTimedTextCue(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DisableInitialTimedTextTracks(timedText)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_timedTextCueEvents.Enqueue(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "cue.Kind is not (1 or 2)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "805ea411-92e0-4e59-9b6e-5c7d7915e64f",
+            native,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "1f2a94c9-a3df-430d-9d0f-acd85ddc29af",
+            native,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "df6b87b6-ce12-45db-aba7-432fe054e57d",
+            native,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "MFGetService(",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(timedText)[11]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CoTaskMemFree(text)",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WindowsMediaNative.ClearTimedTextNotifications(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AvaloniaWindowsSampleSelectsNativeDawnPresentation()
     {
         string program = ReadRepoFile(
