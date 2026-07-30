@@ -124,7 +124,8 @@ public sealed class AppleMediaPlaybackProviderFactory :
 internal sealed class AppleMediaPlaybackProvider :
     IMediaPlaybackProvider,
     IMediaPlaybackConfigurationProvider,
-    IMediaPlaybackTrackProvider
+    IMediaPlaybackTrackProvider,
+    IMediaPlaybackTimedMetadataProvider
 {
     private const int MediaTimeScale = 600;
     private static readonly CMTime s_observerInterval =
@@ -135,6 +136,13 @@ internal sealed class AppleMediaPlaybackProvider :
     private readonly IMediaPlaybackSink _sink;
     private AVPlayerItem? _item;
     private AVPlayerItemVideoOutput? _videoOutput;
+    private AVPlayerItemLegibleOutput? _legibleOutput;
+    private AppleLegibleOutputDelegate? _legibleDelegate;
+    private AVMediaSelectionGroup? _legibleGroup;
+    private AVMediaSelectionOption[] _legibleOptions = [];
+    private MediaPlaybackTimedTextCueAccumulator[]
+        _legibleCueAccumulators = [];
+    private int _selectedLegibleTrack = -1;
     private AVPlayer? _player;
     private DispatchQueue? _videoQueue;
     private NSObject? _timeObserver;
@@ -187,6 +195,12 @@ internal sealed class AppleMediaPlaybackProvider :
 
         AVPlayerItem? item = null;
         AVPlayerItemVideoOutput? output = null;
+        AVPlayerItemLegibleOutput? legibleOutput = null;
+        AppleLegibleOutputDelegate? legibleDelegate = null;
+        AVMediaSelectionGroup? legibleGroup = null;
+        AVMediaSelectionOption[] legibleOptions = [];
+        MediaPlaybackTimedTextCueAccumulator[]
+            legibleCueAccumulators = [];
         AVPlayer? player = null;
         DispatchQueue? queue = null;
         NSObject? timeObserver = null;
@@ -236,6 +250,8 @@ internal sealed class AppleMediaPlaybackProvider :
             }
 
             player = new AVPlayer(item);
+            player.AppliesMediaSelectionCriteriaAutomatically =
+                false;
             player.ActionAtItemEnd = _looping
                 ? AVPlayerActionAtItemEnd.None
                 : AVPlayerActionAtItemEnd.Pause;
@@ -258,6 +274,44 @@ internal sealed class AppleMediaPlaybackProvider :
                 throw new InvalidOperationException(
                     item.Error?.LocalizedDescription ??
                     "AVFoundation could not open the media source.");
+            }
+
+            legibleGroup = item.Asset
+                .GetMediaSelectionGroupForMediaCharacteristic(
+                    AVMediaCharacteristics.Legible);
+            if (legibleGroup is not null)
+            {
+                legibleOptions = legibleGroup.Options;
+                if (legibleOptions.Length != 0)
+                {
+                    legibleCueAccumulators =
+                        new MediaPlaybackTimedTextCueAccumulator[
+                            legibleOptions.Length];
+                    for (int index = 0;
+                         index < legibleOptions.Length;
+                         index++)
+                    {
+                        legibleCueAccumulators[index] =
+                            new MediaPlaybackTimedTextCueAccumulator(
+                                GetLegibleTrackId(index));
+                    }
+
+                    item.SelectMediaOption(
+                        null,
+                        legibleGroup);
+                    legibleOutput =
+                        new AVPlayerItemLegibleOutput
+                        {
+                            SuppressesPlayerRendering = true,
+                            AdvanceIntervalForDelegateInvocation = 0d
+                        };
+                    legibleDelegate =
+                        new AppleLegibleOutputDelegate(this);
+                    legibleOutput.SetDelegate(
+                        legibleDelegate,
+                        queue);
+                    item.AddOutput(legibleOutput);
+                }
             }
 
             bool hasVideo =
@@ -310,6 +364,13 @@ internal sealed class AppleMediaPlaybackProvider :
                 ThrowIfDisposed();
                 _item = item;
                 _videoOutput = output;
+                _legibleOutput = legibleOutput;
+                _legibleDelegate = legibleDelegate;
+                _legibleGroup = legibleGroup;
+                _legibleOptions = legibleOptions;
+                _legibleCueAccumulators =
+                    legibleCueAccumulators;
+                _selectedLegibleTrack = -1;
                 _player = player;
                 _videoQueue = queue;
                 _timeObserver = timeObserver;
@@ -317,6 +378,11 @@ internal sealed class AppleMediaPlaybackProvider :
                 _audioEffectGraph = audioEffectGraph;
                 item = null;
                 output = null;
+                legibleOutput = null;
+                legibleDelegate = null;
+                legibleGroup = null;
+                legibleOptions = [];
+                legibleCueAccumulators = [];
                 player = null;
                 queue = null;
                 timeObserver = null;
@@ -325,7 +391,10 @@ internal sealed class AppleMediaPlaybackProvider :
                 Volatile.Write(ref _opened, 1);
             }
 
-            _sink.UpdateTracks(CaptureTracks(item: _item!));
+            _sink.UpdateTracks(
+                CaptureTracks(
+                    _item!,
+                    _legibleOptions));
             _sink.Opened(in _snapshot);
             PublishDiagnostics(
                 "IOSurface import is zero-copy only when the active WebGPU context exposes Dawn shared-texture-memory IOSurface support.");
@@ -336,8 +405,17 @@ internal sealed class AppleMediaPlaybackProvider :
             {
                 player.RemoveTimeObserver(timeObserver);
             }
+            legibleOutput?.SetDelegate(null, null);
             timeObserver?.Dispose();
             endedObserver?.Dispose();
+            legibleDelegate?.Dispose();
+            legibleOutput?.Dispose();
+            foreach (AVMediaSelectionOption option
+                     in legibleOptions)
+            {
+                option.Dispose();
+            }
+            legibleGroup?.Dispose();
             audioEffectGraph?.Dispose();
             player?.Dispose();
             output?.Dispose();
@@ -542,11 +620,69 @@ internal sealed class AppleMediaPlaybackProvider :
             {
                 return false;
             }
-            snapshot = CaptureTracks(item);
+            snapshot = CaptureTracks(
+                item,
+                _legibleOptions);
         }
 
         _sink.UpdateTracks(snapshot);
         return true;
+    }
+
+    public bool TrySetTimedMetadataPresentationMode(
+        int index,
+        MediaPlaybackTimedMetadataPresentationMode mode)
+    {
+        MediaPlaybackTimedMetadataCueSnapshot?
+            previousSnapshot = null;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_item is not { } item ||
+                _legibleGroup is not { } group ||
+                _legibleOutput is not { } output ||
+                (uint)index >= (uint)_legibleOptions.Length ||
+                !Enum.IsDefined(mode))
+            {
+                return false;
+            }
+
+            TimeSpan position = ToTimeSpan(
+                _player?.CurrentTime ?? default);
+            int previousIndex = _selectedLegibleTrack;
+            if (mode ==
+                MediaPlaybackTimedMetadataPresentationMode
+                    .Disabled)
+            {
+                if (previousIndex == index)
+                {
+                    item.SelectMediaOption(null, group);
+                    _selectedLegibleTrack = -1;
+                    previousSnapshot =
+                        _legibleCueAccumulators[index]
+                            .Flush(position);
+                }
+            }
+            else
+            {
+                if (previousIndex >= 0 &&
+                    previousIndex != index)
+                {
+                    return false;
+                }
+
+                item.SelectMediaOption(
+                    _legibleOptions[index],
+                    group);
+                _selectedLegibleTrack = index;
+                output.SuppressesPlayerRendering =
+                    mode !=
+                    MediaPlaybackTimedMetadataPresentationMode
+                        .PlatformPresented;
+            }
+        }
+
+        return PublishTimedTextSnapshot(previousSnapshot);
     }
 
     public void AddEffect(IMediaEffect effect, bool optional)
@@ -626,6 +762,10 @@ internal sealed class AppleMediaPlaybackProvider :
 
         AVPlayerItem? item;
         AVPlayerItemVideoOutput? output;
+        AVPlayerItemLegibleOutput? legibleOutput;
+        AppleLegibleOutputDelegate? legibleDelegate;
+        AVMediaSelectionGroup? legibleGroup;
+        AVMediaSelectionOption[] legibleOptions;
         AVPlayer? player;
         DispatchQueue? queue;
         NSObject? timeObserver;
@@ -635,6 +775,10 @@ internal sealed class AppleMediaPlaybackProvider :
         {
             item = _item;
             output = _videoOutput;
+            legibleOutput = _legibleOutput;
+            legibleDelegate = _legibleDelegate;
+            legibleGroup = _legibleGroup;
+            legibleOptions = _legibleOptions;
             player = _player;
             queue = _videoQueue;
             timeObserver = _timeObserver;
@@ -642,6 +786,12 @@ internal sealed class AppleMediaPlaybackProvider :
             audioEffectGraph = _audioEffectGraph;
             _item = null;
             _videoOutput = null;
+            _legibleOutput = null;
+            _legibleDelegate = null;
+            _legibleGroup = null;
+            _legibleOptions = [];
+            _legibleCueAccumulators = [];
+            _selectedLegibleTrack = -1;
             _player = null;
             _videoQueue = null;
             _timeObserver = null;
@@ -653,6 +803,11 @@ internal sealed class AppleMediaPlaybackProvider :
                 []);
         }
 
+        legibleOutput?.SetDelegate(null, null);
+        if (item is not null && legibleOutput is not null)
+        {
+            item.RemoveOutput(legibleOutput);
+        }
         if (timeObserver is not null && player is not null)
         {
             player.RemoveTimeObserver(timeObserver);
@@ -660,6 +815,14 @@ internal sealed class AppleMediaPlaybackProvider :
         timeObserver?.Dispose();
         endedObserver?.Dispose();
         player?.Pause();
+        legibleDelegate?.Dispose();
+        legibleOutput?.Dispose();
+        foreach (AVMediaSelectionOption option
+                 in legibleOptions)
+        {
+            option.Dispose();
+        }
+        legibleGroup?.Dispose();
         audioEffectGraph?.Dispose();
         player?.Dispose();
         output?.Dispose();
@@ -745,7 +908,9 @@ internal sealed class AppleMediaPlaybackProvider :
     }
 
     private static MediaPlaybackTracksSnapshot CaptureTracks(
-        AVPlayerItem item)
+        AVPlayerItem item,
+        IReadOnlyList<AVMediaSelectionOption>
+            legibleOptions)
     {
         AVPlayerItemTrack[] itemTracks = item.Tracks;
         HashSet<int> audioTrackIds = item.Asset
@@ -760,6 +925,9 @@ internal sealed class AppleMediaPlaybackProvider :
             new List<MediaPlaybackTrackDescriptor>();
         var video =
             new List<MediaPlaybackTrackDescriptor>();
+        var timedMetadata =
+            new List<MediaPlaybackTrackDescriptor>(
+                legibleOptions.Count);
         int selectedAudio = -1;
         int selectedVideo = -1;
 
@@ -843,12 +1011,143 @@ internal sealed class AppleMediaPlaybackProvider :
                     MediaPlaybackTrackSupport.Supported));
         }
 
+        for (int index = 0;
+             index < legibleOptions.Count;
+             index++)
+        {
+            AVMediaSelectionOption option =
+                legibleOptions[index];
+            string language =
+                option.ExtendedLanguageTag ??
+                option.Locale?.LocaleIdentifier ??
+                string.Empty;
+            string mediaType =
+                option.MediaType ?? string.Empty;
+            timedMetadata.Add(
+                new MediaPlaybackTrackDescriptor(
+                    GetLegibleTrackId(index),
+                    MediaPlaybackTrackKind.TimedMetadata,
+                    option.DisplayName ??
+                        $"Subtitles {index + 1}",
+                    language,
+                    language,
+                    new MediaPlaybackTrackEncoding(
+                        mediaType),
+                    option.Playable
+                        ? MediaPlaybackTrackSupport.Supported
+                        : MediaPlaybackTrackSupport.Unsupported,
+                    MediaPlaybackTimedMetadataKind.Subtitle,
+                    "application/x-avfoundation-legible"));
+        }
+
         return new MediaPlaybackTracksSnapshot(
             audio,
             selectedAudio,
             video,
-            selectedVideo);
+            selectedVideo,
+            timedMetadata);
     }
+
+    private void OnLegibleOutput(
+        AVPlayerItemLegibleOutput output,
+        NSAttributedString[] strings,
+        CMTime itemTime)
+    {
+        try
+        {
+            MediaPlaybackTimedMetadataCueSnapshot? snapshot;
+            lock (_gate)
+            {
+                if (Volatile.Read(ref _disposed) != 0 ||
+                    !ReferenceEquals(
+                        output,
+                        _legibleOutput) ||
+                    (uint)_selectedLegibleTrack >=
+                    (uint)_legibleCueAccumulators.Length)
+                {
+                    return;
+                }
+
+                var texts = new string[strings.Length];
+                for (int index = 0;
+                     index < strings.Length;
+                     index++)
+                {
+                    texts[index] =
+                        strings[index].Value ??
+                        string.Empty;
+                }
+
+                snapshot =
+                    _legibleCueAccumulators[
+                            _selectedLegibleTrack]
+                        .Update(
+                            ToTimeSpan(itemTime),
+                            texts,
+                            _snapshot.NaturalDuration);
+            }
+
+            _sink.UpdateTimedMetadataCues(snapshot);
+        }
+        catch (Exception exception)
+        {
+            PublishDiagnostics(
+                $"AVFoundation timed-text delivery failed: {exception.Message}");
+        }
+    }
+
+    private void OnLegibleOutputFlushed(
+        AVPlayerItemOutput output)
+    {
+        try
+        {
+            MediaPlaybackTimedMetadataCueSnapshot? snapshot;
+            lock (_gate)
+            {
+                if (Volatile.Read(ref _disposed) != 0 ||
+                    !ReferenceEquals(
+                        output,
+                        _legibleOutput) ||
+                    (uint)_selectedLegibleTrack >=
+                    (uint)_legibleCueAccumulators.Length)
+                {
+                    return;
+                }
+
+                snapshot =
+                    _legibleCueAccumulators[
+                            _selectedLegibleTrack]
+                        .Flush(
+                            ToTimeSpan(
+                                _player?.CurrentTime ??
+                                default));
+            }
+
+            _sink.UpdateTimedMetadataCues(snapshot);
+        }
+        catch (Exception exception)
+        {
+            PublishDiagnostics(
+                $"AVFoundation timed-text sequence flush failed: {exception.Message}");
+        }
+    }
+
+    private bool PublishTimedTextSnapshot(
+        MediaPlaybackTimedMetadataCueSnapshot? snapshot)
+    {
+        if (snapshot is not null)
+        {
+            _sink.UpdateTimedMetadataCues(snapshot);
+        }
+        return true;
+    }
+
+    private static string GetLegibleTrackId(int index) =>
+        string.Concat(
+            "avfoundation:legible:",
+            index.ToString(
+                System.Globalization.CultureInfo
+                    .InvariantCulture));
 
     private void PresentPixelBuffer(
         CVPixelBuffer pixelBuffer,
@@ -1061,4 +1360,30 @@ internal sealed class AppleMediaPlaybackProvider :
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
+
+    private sealed class AppleLegibleOutputDelegate :
+        AVPlayerItemLegibleOutputPushDelegate
+    {
+        private readonly AppleMediaPlaybackProvider _owner;
+
+        public AppleLegibleOutputDelegate(
+            AppleMediaPlaybackProvider owner)
+        {
+            _owner = owner;
+        }
+
+        public override void DidOutputAttributedStrings(
+            AVPlayerItemLegibleOutput output,
+            NSAttributedString[] strings,
+            CMSampleBuffer[] nativeSamples,
+            CMTime itemTime) =>
+            _owner.OnLegibleOutput(
+                output,
+                strings,
+                itemTime);
+
+        public override void OutputSequenceWasFlushed(
+            AVPlayerItemOutput output) =>
+            _owner.OnLegibleOutputFlushed(output);
+    }
 }

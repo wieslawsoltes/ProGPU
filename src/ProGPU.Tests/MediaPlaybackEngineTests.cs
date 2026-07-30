@@ -432,6 +432,67 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void NativeTimedTextSnapshotsAccumulateStableReplayableCues()
+    {
+        var accumulator =
+            new MediaPlaybackTimedTextCueAccumulator(
+                "native-subtitles");
+
+        MediaPlaybackTimedMetadataCueSnapshot first =
+            accumulator.Update(
+                TimeSpan.FromSeconds(1),
+                ["First"],
+                TimeSpan.FromSeconds(10));
+        MediaPlaybackTimedMetadataCueDescriptor firstCue =
+            Assert.Single(first.Cues);
+        Assert.Equal(
+            "native-subtitles:10000000:0",
+            firstCue.CueId);
+        Assert.Equal(
+            TimeSpan.FromSeconds(9),
+            firstCue.Duration);
+
+        MediaPlaybackTimedMetadataCueSnapshot second =
+            accumulator.Update(
+                TimeSpan.FromSeconds(3),
+                ["Second"],
+                TimeSpan.FromSeconds(10));
+        Assert.Collection(
+            second.Cues,
+            cue =>
+            {
+                Assert.Equal(firstCue.CueId, cue.CueId);
+                Assert.Equal(
+                    TimeSpan.FromSeconds(2),
+                    cue.Duration);
+            },
+            cue =>
+            {
+                Assert.Equal(
+                    "native-subtitles:30000000:0",
+                    cue.CueId);
+                Assert.Equal("Second", cue.Text);
+            });
+
+        MediaPlaybackTimedMetadataCueSnapshot replay =
+            accumulator.Update(
+                TimeSpan.FromSeconds(1),
+                ["First updated"],
+                TimeSpan.FromSeconds(10));
+        Assert.Equal(2, replay.Cues.Count);
+        Assert.Equal(firstCue.CueId, replay.Cues[0].CueId);
+        Assert.Equal(
+            "First updated",
+            replay.Cues[0].Text);
+
+        MediaPlaybackTimedMetadataCueSnapshot flushed =
+            accumulator.Flush(TimeSpan.FromSeconds(2));
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            flushed.Cues[0].Duration);
+    }
+
+    [Fact]
     public async Task
         PlaybackEnginePublishesImmutableTrackSnapshots()
     {

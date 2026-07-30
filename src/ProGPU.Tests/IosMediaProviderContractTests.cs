@@ -446,6 +446,56 @@ public sealed class IosMediaProviderContractTests
     }
 
     [Fact]
+    public void ApplePlaybackProjectsNativeLegibleTracksAndTextCues()
+    {
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Apple.Media",
+            "AppleMediaPlaybackProvider.cs");
+
+        Assert.Contains(
+            "IMediaPlaybackTimedMetadataProvider",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GetMediaSelectionGroupForMediaCharacteristic(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AVMediaCharacteristics.Legible",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new AVPlayerItemLegibleOutput",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DidOutputAttributedStrings(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_sink.UpdateTimedMetadataCues(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "item.SelectMediaOption(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "output.SuppressesPlayerRendering",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTimedMetadataKind.Subtitle",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            provider,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ApplePlaybackLoopsThroughSharedEngineWithoutClearingLastFrame()
     {
         string provider = ReadRepoFile(
