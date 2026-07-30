@@ -14,13 +14,16 @@ namespace ProGPU.Linux.Media;
 /// Registers the dependency-free Linux V4L2/DMA-BUF playback provider and
 /// V4L2 precise and ISO-BMFF fast exporters. Registration is explicit so
 /// applications can replace any typed provider with a higher-priority
-/// implementation.
+/// implementation or supply an optional typed AAC encoder without implicit
+/// dependency discovery.
 /// </summary>
 public static class LinuxMedia
 {
     public static IDisposable Register(
         MediaProviderRegistry? registry = null,
-        int priority = 100)
+        int priority = 100,
+        ILinuxAacEncoderFactory?
+            audioEncoderFactory = null)
     {
         IDisposable playback =
             (registry ?? MediaProviderRegistry.Default).Register(
@@ -32,7 +35,9 @@ public static class LinuxMedia
             MediaCompositionExportRegistry.Default.Register(
                 new LinuxV4l2PreciseMediaCompositionExportProvider(
                     capabilities,
-                    priority));
+                    priority,
+                    audioEncoderFactory:
+                        audioEncoderFactory));
         IDisposable fastExport =
             MediaCompositionExportRegistry.Default.Register(
                 new IsoBmffFastMediaCompositionExportProvider(

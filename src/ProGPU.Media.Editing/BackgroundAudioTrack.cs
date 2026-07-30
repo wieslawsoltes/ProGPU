@@ -22,12 +22,14 @@ public sealed class BackgroundAudioTrack
     private TimeSpan _trimTimeFromEnd;
     private TimeSpan _delay;
     private double _volume = 1d;
+    private readonly uint _sourceAudioTrackIndex;
 
     private BackgroundAudioTrack(
         Uri sourceUri,
         TimeSpan originalDuration,
         AudioEncodingProperties?
-            encodingProperties = null)
+            encodingProperties = null,
+        uint sourceAudioTrackIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(sourceUri);
         ValidateDuration(
@@ -35,6 +37,8 @@ public sealed class BackgroundAudioTrack
             nameof(originalDuration));
         ProGpuSourceUri = sourceUri;
         _originalDuration = originalDuration;
+        _sourceAudioTrackIndex =
+            sourceAudioTrackIndex;
         _audioEncodingProperties =
             MediaEditingMetadata.Clone(
                 encodingProperties ??
@@ -110,6 +114,9 @@ public sealed class BackgroundAudioTrack
 
     public Uri ProGpuSourceUri { get; }
 
+    internal uint ProGpuSourceAudioTrackIndex =>
+        _sourceAudioTrackIndex;
+
     public static async Task<BackgroundAudioTrack>
         CreateFromFileAsync(StorageFile file)
     {
@@ -155,6 +162,15 @@ public sealed class BackgroundAudioTrack
     public static BackgroundAudioTrack CreateFromUri(
         Uri source,
         TimeSpan originalDuration)
+        => CreateFromUriCore(
+            source,
+            originalDuration,
+            sourceAudioTrackIndex: 0);
+
+    internal static BackgroundAudioTrack CreateFromUriCore(
+        Uri source,
+        TimeSpan originalDuration,
+        uint sourceAudioTrackIndex)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (!source.IsAbsoluteUri)
@@ -165,7 +181,9 @@ public sealed class BackgroundAudioTrack
         }
         return new BackgroundAudioTrack(
             source,
-            originalDuration);
+            originalDuration,
+            sourceAudioTrackIndex:
+                sourceAudioTrackIndex);
     }
 
     public static BackgroundAudioTrack
@@ -178,7 +196,8 @@ public sealed class BackgroundAudioTrack
             embeddedAudioTrack.ProGpuSourceUri,
             embeddedAudioTrack.OriginalDuration,
             embeddedAudioTrack
-                .GetAudioEncodingProperties());
+                .GetAudioEncodingProperties(),
+            embeddedAudioTrack.SourceTrackIndex);
     }
 
     public BackgroundAudioTrack Clone()
@@ -186,7 +205,8 @@ public sealed class BackgroundAudioTrack
         var clone = new BackgroundAudioTrack(
             ProGpuSourceUri,
             _originalDuration,
-            _audioEncodingProperties)
+            _audioEncodingProperties,
+            _sourceAudioTrackIndex)
         {
             _trimTimeFromStart =
                 _trimTimeFromStart,

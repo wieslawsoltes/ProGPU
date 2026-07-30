@@ -192,18 +192,21 @@ internal static class LinuxCompositionAudioPlanner
             if (clip.SourceUri is
                 { IsFile: true } source)
             {
-                AppendIfAudible(
-                    destination,
-                    LinuxCompositionAudioSourceKind
-                        .MainClip,
-                    source,
-                    clip.SourceAudioTrackIndex,
-                    sourceStart,
-                    sourceEnd,
-                    cursor,
-                    nextCursor,
-                    sampleRate,
-                    levels);
+                if (!HasKnownNoAudio(clip))
+                {
+                    AppendIfAudible(
+                        destination,
+                        LinuxCompositionAudioSourceKind
+                            .MainClip,
+                        source,
+                        clip.SourceAudioTrackIndex,
+                        sourceStart,
+                        sourceEnd,
+                        cursor,
+                        nextCursor,
+                        sampleRate,
+                        levels);
+                }
             }
             else if (clip.SourceUri is not null)
             {
@@ -278,7 +281,7 @@ internal static class LinuxCompositionAudioPlanner
                 LinuxCompositionAudioSourceKind
                     .BackgroundTrack,
                 track.SourceUri,
-                sourceTrackIndex: 0,
+                track.SourceAudioTrackIndex,
                 sourceStart,
                 sourceEnd,
                 presentationStart,
@@ -335,6 +338,10 @@ internal static class LinuxCompositionAudioPlanner
                 {
                     return false;
                 }
+                if (HasKnownNoAudio(clip))
+                {
+                    continue;
+                }
 
                 long presentationStart =
                     overlay.Delay.Ticks;
@@ -370,6 +377,12 @@ internal static class LinuxCompositionAudioPlanner
         }
         return true;
     }
+
+    private static bool HasKnownNoAudio(
+        MediaCompositionExportClip clip) =>
+        clip.SourceAudioSubtype is null &&
+        clip.SourceVideoWidth != 0 &&
+        clip.SourceVideoHeight != 0;
 
     private static void AppendIfAudible(
         List<LinuxCompositionAudioSourcePlan> plans,

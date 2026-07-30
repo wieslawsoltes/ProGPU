@@ -25,7 +25,8 @@ public sealed class EmbeddedAudioTrack
     internal EmbeddedAudioTrack(
         Uri sourceUri,
         TimeSpan originalDuration,
-        AudioEncodingProperties encodingProperties)
+        AudioEncodingProperties encodingProperties,
+        uint sourceTrackIndex)
     {
         ProGpuSourceUri =
             sourceUri ??
@@ -36,6 +37,7 @@ public sealed class EmbeddedAudioTrack
                 nameof(originalDuration));
         }
         OriginalDuration = originalDuration;
+        SourceTrackIndex = sourceTrackIndex;
         _encodingProperties =
             MediaEditingMetadata.Clone(encodingProperties);
     }
@@ -43,6 +45,8 @@ public sealed class EmbeddedAudioTrack
     internal Uri ProGpuSourceUri { get; }
 
     internal TimeSpan OriginalDuration { get; }
+
+    internal uint SourceTrackIndex { get; }
 
     public AudioEncodingProperties
         GetAudioEncodingProperties() =>
@@ -52,7 +56,8 @@ public sealed class EmbeddedAudioTrack
         new(
             ProGpuSourceUri,
             OriginalDuration,
-            _encodingProperties);
+            _encodingProperties,
+            SourceTrackIndex);
 }
 
 internal static class MediaEditingMetadata

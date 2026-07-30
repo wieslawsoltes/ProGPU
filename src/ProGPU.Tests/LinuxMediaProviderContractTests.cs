@@ -3066,6 +3066,10 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxPcm16TimelineMixer.cs");
+        string audioEncoder = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxAacCompositionEncoder.cs");
 
         Assert.Contains(
             "progpu.linux.v4l2",
@@ -3162,6 +3166,26 @@ public sealed class LinuxMediaProviderContractTests
         Assert.DoesNotContain(
             "GStreamer",
             audioMixer,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "ILinuxAacEncoderFactory",
+            audioEncoder,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LinuxPcm16TimelineMixer.Mix(",
+            audioEncoder,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsoBmffCompositionTrack",
+            audioEncoder,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            audioEncoder,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "GStreamer",
+            audioEncoder,
             StringComparison.OrdinalIgnoreCase);
     }
 
@@ -3300,6 +3324,15 @@ public sealed class LinuxMediaProviderContractTests
                         TimeSpan.FromSeconds(-2),
                         0.25d,
                         new Dictionary<string, string>())
+                    {
+                        SourceAudioSubtype =
+                            "PCM",
+                        SourceAudioTrackIndex = 3,
+                        SourceAudioBitrate = 768_000,
+                        SourceAudioSampleRate =
+                            48_000,
+                        SourceAudioChannelCount = 2
+                    }
                 ],
                 OverlayLayers =
                 [
@@ -3368,6 +3401,7 @@ public sealed class LinuxMediaProviderContractTests
                     plan.Kind ==
                     LinuxCompositionAudioSourceKind
                         .BackgroundTrack);
+        Assert.Equal(3u, background.SourceTrackIndex);
         Assert.Equal(
             TimeSpan.FromSeconds(3).Ticks,
             background.SourceStartTicks);
@@ -3396,6 +3430,54 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Equal(
             TimeSpan.FromSeconds(4).Ticks,
             overlay.SourceEndTicks);
+    }
+
+    [Fact]
+    public void LinuxAudioPlanLeavesKnownVideoOnlyClipsSilent()
+    {
+        var clip =
+            new MediaCompositionExportClip(
+                new Uri(
+                    "file:///media/video-only.mp4"),
+                TimeSpan.FromSeconds(2),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                1d,
+                null,
+                new Dictionary<string, string>())
+            {
+                SourceVideoWidth = 320,
+                SourceVideoHeight = 180,
+                SourceAudioSubtype = null
+            };
+        var request =
+            new MediaCompositionExportRequest(
+                "/tmp/output.mp4",
+                [clip],
+                MediaCompositionTrimmingMode.Precise,
+                new MediaCompositionEncodingProfile(
+                    "MPEG4",
+                    "H264",
+                    "AAC",
+                    320,
+                    180,
+                    2_000_000,
+                    30,
+                    1,
+                    96_000,
+                    8_000,
+                    2),
+                new Dictionary<string, string>());
+
+        Assert.True(
+            LinuxCompositionAudioPlanner.TryCapture(
+                request,
+                MediaEffectRegistry.Default,
+                out LinuxCompositionAudioSourcePlan[]
+                    plans,
+                out long frameCount));
+        Assert.Empty(plans);
+        Assert.Equal(16_000, frameCount);
     }
 
     [Fact]
@@ -3713,6 +3795,346 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
+    public async Task
+        LinuxPluggableAacEncoderSpoolsExactPcmTimeline()
+    {
+        string sourcePath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-aac-source-{Guid.NewGuid():N}.mov");
+        string spoolPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-aac-spool-{Guid.NewGuid():N}.bin");
+        string videoSpoolPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-aac-video-{Guid.NewGuid():N}.bin");
+        string moviePath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-aac-output-{Guid.NewGuid():N}.mp4");
+        File.WriteAllBytes(
+            sourcePath,
+            BuildSyntheticPcmMovie());
+        try
+        {
+            var request =
+                new MediaCompositionExportRequest(
+                    "/tmp/output.mp4",
+                    [
+                        new MediaCompositionExportClip(
+                            new Uri(sourcePath),
+                            TimeSpan.FromTicks(5_000),
+                            TimeSpan.Zero,
+                            TimeSpan.Zero,
+                            1d,
+                            null,
+                            new Dictionary<
+                                string,
+                                string>())
+                        {
+                            SourceAudioSubtype =
+                                "PCM",
+                            SourceAudioSampleRate =
+                                8_000,
+                            SourceAudioChannelCount =
+                                2
+                        }
+                    ],
+                    MediaCompositionTrimmingMode
+                        .Precise,
+                    new MediaCompositionEncodingProfile(
+                        "MPEG4",
+                        "H264",
+                        "AAC",
+                        320,
+                        180,
+                        2_000_000,
+                        30,
+                        1,
+                        96_000,
+                        8_000,
+                        2),
+                    new Dictionary<string, string>());
+            var factory =
+                new TestLinuxAacEncoderFactory();
+
+            IsoBmffCompositionTrack track =
+                LinuxAacCompositionEncoder.Encode(
+                    request,
+                    MediaEffectRegistry.Default,
+                    factory,
+                    spoolPath,
+                    CancellationToken.None);
+
+            TestLinuxAacEncoder encoder =
+                Assert.IsType<TestLinuxAacEncoder>(
+                    factory.Encoder);
+            Assert.Equal(1, encoder.BlockCount);
+            Assert.Equal(0, encoder.LastFirstFrame);
+            Assert.Equal(8, encoder.ScalarSampleCount);
+            Assert.Equal(3_600, encoder.Checksum);
+            Assert.Equal(
+                IsoBmffTrackKind.Audio,
+                track.Kind);
+            Assert.Equal(8_000u, track.Timescale);
+            Assert.Equal(0x6D703461u, track.SampleEntryType);
+            IsoBmffCompositionSample sample =
+                Assert.Single(track.Samples);
+            Assert.Equal(4, sample.Duration);
+            Assert.Equal(4, sample.Size);
+            Assert.Equal(
+                [
+                    new IsoBmffCompositionEdit(
+                        SegmentDuration: 1,
+                        MediaTime: 0)
+                ],
+                track.Edits);
+            Assert.Equal(
+                2,
+                BinaryPrimitives
+                    .ReadUInt16BigEndian(
+                        track.SampleEntryPayload
+                            .AsSpan(16)));
+            Assert.Equal(
+                8_000u << 16,
+                BinaryPrimitives
+                    .ReadUInt32BigEndian(
+                        track.SampleEntryPayload
+                            .AsSpan(24)));
+            Assert.True(
+                track.SampleEntryPayload
+                    .AsSpan()
+                    .IndexOf(
+                        "esds"u8) >= 0);
+            Assert.Equal(
+                4,
+                new FileInfo(spoolPath).Length);
+
+            using (var videoSpool =
+                   new IsoBmffH264AccessUnitSpool(
+                       videoSpoolPath,
+                       320,
+                       180,
+                       30,
+                       1))
+            {
+                videoSpool.Append(
+                    [
+                        0, 0, 0, 1,
+                        0x67, 0x64, 0x00, 0x1F, 0x01,
+                        0, 0, 1,
+                        0x68, 0xEE, 0x3C, 0x80,
+                        0, 0, 0, 1,
+                        0x65, 0x11, 0x22
+                    ],
+                    TimeSpan.Zero,
+                    isKeyFrame: true);
+                IsoBmffCompositionPlan plan =
+                    videoSpool.CreatePlan() with
+                    {
+                        Audio = track
+                    };
+                await IsoBmffCompositionWriter
+                    .WriteAsync(
+                        plan,
+                        moviePath,
+                        progress: null,
+                        CancellationToken.None);
+            }
+
+            await using FileStream movie =
+                File.OpenRead(moviePath);
+            IsoBmffTrack parsedAudio =
+                new IsoBmffDemuxer(movie)
+                    .Parse()
+                    .Tracks
+                    .Single(
+                        static candidate =>
+                            candidate.Kind ==
+                                IsoBmffTrackKind.Audio);
+            Assert.Equal(
+                IsoBmffCodec.Aac,
+                parsedAudio.Codec);
+            Assert.Equal(
+                8_000u,
+                parsedAudio.AudioSampleRate);
+            Assert.Equal(
+                2u,
+                parsedAudio.AudioChannelCount);
+            Assert.Equal(4, parsedAudio.Duration);
+            Assert.Equal(
+                track.Edits,
+                parsedAudio.EditList
+                    .Select(
+                        static edit =>
+                            new IsoBmffCompositionEdit(
+                                edit.SegmentDuration,
+                                edit.MediaTime))
+                    .ToArray());
+        }
+        finally
+        {
+            File.Delete(moviePath);
+            File.Delete(videoSpoolPath);
+            File.Delete(spoolPath);
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
+    public void LinuxPreciseProviderSelectsExplicitPcmToAacExtension()
+    {
+        var request =
+            new MediaCompositionExportRequest(
+                "/tmp/output.mp4",
+                [
+                    new MediaCompositionExportClip(
+                        null,
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        0xFF102030u,
+                        new Dictionary<string, string>())
+                ],
+                MediaCompositionTrimmingMode.Precise,
+                new MediaCompositionEncodingProfile(
+                    "MPEG4",
+                    "H264",
+                    "AAC",
+                    320,
+                    180,
+                    2_000_000,
+                    30,
+                    1,
+                    96_000,
+                    8_000,
+                    2),
+                new Dictionary<string, string>())
+            {
+                BackgroundAudioTracks =
+                [
+                    new MediaCompositionExportAudioTrack(
+                        new Uri(
+                            "file:///media/music.mov"),
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        new Dictionary<string, string>())
+                ]
+            };
+        var factory =
+            new TestLinuxAacEncoderFactory();
+
+        Assert.False(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: true));
+        Assert.True(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: true,
+                    audioEncoderFactory: factory));
+        Assert.Equal(
+            MediaCompositionExportAudioPath.CpuBuffer,
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .GetCapabilitiesForRequest(
+                    request,
+                    audioEncoderFactory:
+                        factory)
+                .AudioPath);
+
+        MediaCompositionExportRequest
+            knownCompressedBackground =
+                request with
+                {
+                    BackgroundAudioTracks =
+                    [
+                        request.BackgroundAudioTracks[0]
+                            with
+                            {
+                                SourceAudioSubtype =
+                                    "AAC",
+                                SourceAudioSampleRate =
+                                    8_000,
+                                SourceAudioChannelCount =
+                                    2
+                            }
+                    ]
+                };
+        Assert.False(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    knownCompressedBackground,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: true,
+                    audioEncoderFactory: factory));
+    }
+
+    [Fact]
+    public void LinuxAacSinkRejectsMismatchedOrIncompleteOutput()
+    {
+        string spoolPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"progpu-linux-aac-contract-{Guid.NewGuid():N}.bin");
+        var configuration =
+            new LinuxAacEncoderConfiguration(
+                SampleRate: 8_000,
+                ChannelCount: 2,
+                Bitrate: 96_000,
+                TotalFrameCount: 4);
+        try
+        {
+            using var sink =
+                new LinuxAacAccessUnitSpool(
+                    spoolPath,
+                    configuration);
+            Assert.Throws<
+                InvalidOperationException>(
+                () => sink.WriteAccessUnit(
+                    [1],
+                    1));
+            Assert.Throws<
+                ArgumentException>(
+                () => sink.Configure(
+                    [0x11, 0x90],
+                    encoderDelayFrameCount: 0));
+
+            sink.Configure(
+                [0x15, 0x90],
+                encoderDelayFrameCount: 0);
+            sink.WriteAccessUnit(
+                [1, 2, 3],
+                decodedFrameCount: 3);
+            Assert.Throws<
+                InvalidDataException>(
+                () => sink.CompleteTrack());
+        }
+        finally
+        {
+            File.Delete(spoolPath);
+        }
+    }
+
+    [Fact]
     public void PipeWireInteropAndRawAudioPodMatchSpaAbi()
     {
         Assert.Equal(
@@ -3883,6 +4305,118 @@ public sealed class LinuxMediaProviderContractTests
             0,
             GC.GetAllocatedBytesForCurrentThread() -
             before);
+    }
+
+    private sealed class TestLinuxAacEncoderFactory :
+        ILinuxAacEncoderFactory
+    {
+        internal ILinuxAacEncoder? Encoder
+        {
+            get;
+            private set;
+        }
+
+        public bool CanEncode(
+            in LinuxAacEncoderConfiguration configuration) =>
+            configuration.SampleRate == 8_000 &&
+            configuration.ChannelCount == 2 &&
+            configuration.Bitrate == 96_000 &&
+            configuration.TotalFrameCount > 0;
+
+        public ILinuxAacEncoder Create(
+            in LinuxAacEncoderConfiguration configuration,
+            ILinuxAacAccessUnitSink sink)
+        {
+            Assert.True(
+                CanEncode(in configuration));
+            var encoder =
+                new TestLinuxAacEncoder(
+                    configuration,
+                    sink);
+            Encoder = encoder;
+            return encoder;
+        }
+    }
+
+    private sealed class TestLinuxAacEncoder :
+        ILinuxAacEncoder
+    {
+        private readonly LinuxAacEncoderConfiguration
+            _configuration;
+        private readonly ILinuxAacAccessUnitSink _sink;
+        private long _nextFrame;
+        private bool _completed;
+
+        internal TestLinuxAacEncoder(
+            in LinuxAacEncoderConfiguration configuration,
+            ILinuxAacAccessUnitSink sink)
+        {
+            _configuration = configuration;
+            _sink = sink;
+            sink.Configure(
+                [0x15, 0x90],
+                encoderDelayFrameCount: 0);
+        }
+
+        internal int BlockCount { get; private set; }
+        internal long LastFirstFrame { get; private set; }
+        internal int ScalarSampleCount { get; private set; }
+        internal int Checksum { get; private set; }
+
+        public void EncodePcm16(
+            long firstFrame,
+            ReadOnlySpan<short> interleavedSamples)
+        {
+            Assert.False(_completed);
+            Assert.Equal(_nextFrame, firstFrame);
+            Assert.Equal(
+                0,
+                interleavedSamples.Length %
+                _configuration.ChannelCount);
+            uint frameCount =
+                checked(
+                    (uint)(
+                        interleavedSamples.Length /
+                        _configuration.ChannelCount));
+            for (int index = 0;
+                 index <
+                    interleavedSamples.Length;
+                 index++)
+            {
+                Checksum = checked(
+                    Checksum +
+                    interleavedSamples[index]);
+            }
+            Span<byte> packet =
+                stackalloc byte[4];
+            BinaryPrimitives
+                .WriteInt32BigEndian(
+                    packet,
+                    Checksum);
+            _sink.WriteAccessUnit(
+                packet,
+                frameCount);
+            _nextFrame = checked(
+                _nextFrame +
+                frameCount);
+            LastFirstFrame = firstFrame;
+            ScalarSampleCount = checked(
+                ScalarSampleCount +
+                interleavedSamples.Length);
+            BlockCount++;
+        }
+
+        public void Complete()
+        {
+            Assert.Equal(
+                _configuration.TotalFrameCount,
+                _nextFrame);
+            _completed = true;
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     private sealed class ConstantPcm16TimelineSource :

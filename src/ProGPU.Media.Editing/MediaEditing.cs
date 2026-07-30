@@ -337,6 +337,7 @@ public sealed class MediaClip
             new List<EmbeddedAudioTrack>();
         if (embeddedAudioTracks is not null)
         {
+            uint sourceTrackIndex = 0;
             foreach (AudioEncodingProperties audio in
                 embeddedAudioTracks)
             {
@@ -350,7 +351,10 @@ public sealed class MediaClip
                     new EmbeddedAudioTrack(
                         ProGpuSourceUri,
                         _originalDuration,
-                        audio));
+                        audio,
+                        sourceTrackIndex));
+                sourceTrackIndex = checked(
+                    sourceTrackIndex + 1);
             }
         }
         _videoEncodingProperties = nextVideo;
@@ -767,6 +771,9 @@ public sealed class MediaComposition
                     "originalDurationTicks",
                     track.OriginalDuration.Ticks);
                 writer.WriteNumber(
+                    "sourceAudioTrackIndex",
+                    track.ProGpuSourceAudioTrackIndex);
+                writer.WriteNumber(
                     "trimTimeFromStartTicks",
                     track.TrimTimeFromStart.Ticks);
                 writer.WriteNumber(
@@ -1061,7 +1068,7 @@ public sealed class MediaComposition
                 {
                     CustomCompositorDefinition =
                         layer.CustomCompositorDefinition is
-                            { } compositor
+                        { } compositor
                             ? SnapshotEffect(compositor)
                             : null
                 };
@@ -1076,6 +1083,8 @@ public sealed class MediaComposition
         {
             BackgroundAudioTrack track =
                 _backgroundAudioTracks[index];
+            AudioEncodingProperties audio =
+                track.GetAudioEncodingProperties();
             backgroundAudioTracks[index] =
                 new MediaCompositionExportAudioTrack(
                     track.ProGpuSourceUri,
@@ -1086,6 +1095,17 @@ public sealed class MediaComposition
                     track.Volume,
                     SnapshotMap(track.UserData))
                 {
+                    SourceAudioSubtype =
+                        audio.Subtype,
+                    SourceAudioTrackIndex =
+                        track
+                            .ProGpuSourceAudioTrackIndex,
+                    SourceAudioBitrate =
+                        audio.Bitrate,
+                    SourceAudioSampleRate =
+                        audio.SampleRate,
+                    SourceAudioChannelCount =
+                        audio.ChannelCount,
                     AudioEffectDefinitions =
                         SnapshotEffects(
                             track.AudioEffectDefinitions)
@@ -1284,12 +1304,24 @@ public sealed class MediaComposition
                 Uri source = ReadAbsoluteUri(
                     element,
                     "sourceUri");
-                var track = BackgroundAudioTrack.CreateFromUri(
+                uint sourceAudioTrackIndex = 0;
+                if (element.TryGetProperty(
+                        "sourceAudioTrackIndex",
+                        out JsonElement
+                            sourceAudioTrackIndexElement))
+                {
+                    sourceAudioTrackIndex =
+                        sourceAudioTrackIndexElement
+                            .GetUInt32();
+                }
+                var track =
+                    BackgroundAudioTrack.CreateFromUriCore(
                     source,
                     TimeSpan.FromTicks(
                         ReadNonNegativeInt64(
                             element,
-                            "originalDurationTicks")));
+                            "originalDurationTicks")),
+                    sourceAudioTrackIndex);
                 if (element.TryGetProperty(
                         "audioEncodingProperties",
                         out JsonElement encodingElement))
