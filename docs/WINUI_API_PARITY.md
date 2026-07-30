@@ -95,6 +95,10 @@ With `Microsoft.UI.Text` complete, the baseline advances to 7,197 ProGPU
 entries, 3,313 exact matches, and 13,308 missing entries. Text records 535/535
 exact declarations with no extra entries.
 
+The first `Microsoft.UI.Input` value-contract slice advances the baseline to
+7,294 ProGPU entries, 3,410 exact matches, and 13,211 missing entries. It adds
+97 exact declarations without adding ProGPU-only entries.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -278,6 +282,32 @@ The implementation was derived from the locked official NuGet metadata and
 Microsoft documentation. No Microsoft method body or foreign implementation
 source was inspected. The declaration report records `Microsoft.UI.Text` as
 535/535 exact with no missing or extra entries.
+
+### Microsoft.UI.Input value contracts
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Input namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input)
+- [FocusNavigationReason](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.focusnavigationreason)
+- [InputPointerSourceDeviceKinds](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersourcedevicekinds)
+- [InputActivationState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationstate)
+- [InputSystemCursorShape](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputsystemcursorshape)
+- [PhysicalKeyStatus](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.physicalkeystatus)
+
+Adopted: the exact focus-navigation, activation, pointer-device, system-cursor,
+move/resize, non-client-region, and virtual-key state values, including
+official unsigned storage for flags, plus the mutable six-field
+`PhysicalKeyStatus` value layout and equality contract. These declarations are
+CPU-only fixed `O(1)` operations with no platform call, heap retention, or
+WebGPU initialization. A warmed 100,000-iteration Release invariant constructs,
+compares, and hashes physical-key state with zero managed allocations.
+
+This slice establishes package-compatible value contracts for the later typed
+keyboard, pointer, focus, and non-client input providers. Those event sources
+will reuse ProGPU's existing low-latency input queues and retained hit-testing
+state; this checkpoint does not invent unavailable native behavior. It was
+implemented only from the locked official NuGet metadata and Microsoft
+documentation, without inspecting Microsoft implementation source.
 
 ### Microsoft.UI.Windowing
 
