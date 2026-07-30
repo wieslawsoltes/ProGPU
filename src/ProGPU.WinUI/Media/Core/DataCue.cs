@@ -1,3 +1,4 @@
+using ProGPU.Media.Playback;
 using Windows.Foundation.Collections;
 using Windows.Storage.Streams;
 
@@ -11,6 +12,9 @@ public sealed class DataCue : IMediaCue
     private TimeSpan _duration;
     private TimeSpan _startTime;
     private string _id = string.Empty;
+    private MediaPlaybackTimedMetadataCueData?
+        _providerData;
+    private IBuffer? _providerBuffer;
 
     public DataCue()
     {
@@ -56,4 +60,48 @@ public sealed class DataCue : IMediaCue
     }
 
     internal event EventHandler? TimingChanged;
+
+    internal bool ApplyProviderState(
+        in MediaPlaybackTimedMetadataCueDescriptor
+            descriptor)
+    {
+        MediaPlaybackTimedMetadataCueData data =
+            descriptor.Data ??
+            throw new ArgumentException(
+                "A provider DataCue requires binary data.",
+                nameof(descriptor));
+        TimeSpan startTime = descriptor.StartTime;
+        TimeSpan duration = descriptor.Duration;
+        bool timingChanged =
+            _startTime != startTime ||
+            _duration != duration;
+        bool changed = timingChanged;
+        _startTime = startTime;
+        _duration = duration;
+
+        if (!ReferenceEquals(_providerData, data))
+        {
+            ReadOnlySpan<byte> source = data.Bytes;
+            var buffer =
+                new Windows.Storage.Streams.Buffer(
+                    checked((uint)source.Length))
+                {
+                    Length = checked((uint)source.Length)
+                };
+            source.CopyTo(buffer.Memory.Span);
+            _providerData = data;
+            _providerBuffer = buffer;
+            changed = true;
+        }
+        if (!ReferenceEquals(Data, _providerBuffer))
+        {
+            Data = _providerBuffer;
+            changed = true;
+        }
+        if (timingChanged)
+        {
+            TimingChanged?.Invoke(this, EventArgs.Empty);
+        }
+        return changed;
+    }
 }

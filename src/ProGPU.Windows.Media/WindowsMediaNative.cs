@@ -21,6 +21,8 @@ internal static unsafe partial class WindowsMediaNative
     private const uint D3D11CreateDeviceVideoSupport = 0x800;
     private const uint CoinitMultithreaded = 0;
     private const uint ClsctxInprocServer = 1;
+    private const uint MaximumTimedMetadataCueBytes =
+        64 * 1024 * 1024;
     private const uint MfVersion = 0x0002_0070;
     private const ushort VariantTypeWideString = 31;
     private const ushort VariantTypeClassId = 72;
@@ -125,7 +127,8 @@ internal static unsafe partial class WindowsMediaNative
         int Kind,
         double StartTime,
         double Duration,
-        string Text);
+        string Text,
+        byte[]? Data);
 
     internal static void InitializeCom() =>
         ThrowIfFailed(
@@ -843,8 +846,15 @@ internal static unsafe partial class WindowsMediaNative
         double startTime = CallDouble(cue, 6);
         double duration = CallDouble(cue, 7);
         uint trackId = CallUInt32(cue, 8);
-        uint lineCount = CallUInt32(cue, 12);
-        var lines = new string[checked((int)lineCount)];
+        byte[]? data = kind == 3
+            ? ReadTimedTextCueData(cue)
+            : null;
+        uint lineCount = data is null
+            ? CallUInt32(cue, 12)
+            : 0;
+        string[] lines = lineCount == 0
+            ? Array.Empty<string>()
+            : new string[checked((int)lineCount)];
         int written = 0;
         for (uint index = 0; index < lineCount; index++)
         {
@@ -898,7 +908,70 @@ internal static unsafe partial class WindowsMediaNative
             kind,
             startTime,
             duration,
-            combined);
+            combined,
+            data);
+    }
+
+    private static byte[] ReadTimedTextCueData(
+        nint cue)
+    {
+        nint binary = 0;
+        delegate* unmanaged[Stdcall]<
+            nint,
+            nint*,
+            int> getData =
+                (delegate* unmanaged[Stdcall]<
+                    nint,
+                    nint*,
+                    int>)VTable(cue)[9];
+        ThrowIfFailed(
+            getData(cue, &binary),
+            "read Media Foundation timed-metadata cue data");
+        if (binary == 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            byte* bytes = null;
+            uint length = 0;
+            delegate* unmanaged[Stdcall]<
+                nint,
+                byte**,
+                uint*,
+                int> read =
+                    (delegate* unmanaged[Stdcall]<
+                        nint,
+                        byte**,
+                        uint*,
+                        int>)VTable(binary)[3];
+            ThrowIfFailed(
+                read(binary, &bytes, &length),
+                "copy Media Foundation timed-metadata cue data");
+            if (length > MaximumTimedMetadataCueBytes)
+            {
+                throw new InvalidDataException(
+                    "Media Foundation timed-metadata cue data exceeds the 64-MiB bound.");
+            }
+            if (length == 0)
+            {
+                return [];
+            }
+            if (bytes == null)
+            {
+                throw new InvalidDataException(
+                    "Media Foundation returned a null timed-metadata cue payload.");
+            }
+            return new ReadOnlySpan<byte>(
+                    bytes,
+                    checked((int)length))
+                .ToArray();
+        }
+        finally
+        {
+            Release(binary);
+        }
     }
 
     private static bool TryGetAllocatedString(

@@ -1453,7 +1453,15 @@ public sealed class WindowsMediaProviderContractTests
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
-            "cue.Kind is not (1 or 2)",
+            "cue.Kind is not (1 or 2 or 3)",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaPlaybackTimedMetadataCueData",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".TakeOwnership(",
             provider,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1478,6 +1486,18 @@ public sealed class WindowsMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "CoTaskMemFree(text)",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(cue)[9]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VTable(binary)[3]",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaximumTimedMetadataCueBytes",
             native,
             StringComparison.Ordinal);
         Assert.Contains(

@@ -299,7 +299,7 @@ namespace Windows.Media.Core
     {
         private readonly MediaTimedCueTimeline<IMediaCue>
             _timeline;
-        private readonly Dictionary<string, TimedTextCue>
+        private readonly Dictionary<string, IMediaCue>
             _providerCues = new(StringComparer.Ordinal);
         private readonly bool _providerOwned;
         private MediaPlaybackTrackDescriptor _descriptor;
@@ -397,16 +397,15 @@ namespace Windows.Media.Core
             if (_timeline.RemoveCue(cue))
             {
                 UnsubscribeCueTiming(cue);
-                if (cue is TimedTextCue timedTextCue &&
-                    _providerOwned)
+                if (_providerOwned)
                 {
                     string? providerCueId = null;
-                    foreach (KeyValuePair<string, TimedTextCue>
+                    foreach (KeyValuePair<string, IMediaCue>
                                  pair in _providerCues)
                     {
                         if (ReferenceEquals(
                                 pair.Value,
-                                timedTextCue))
+                                cue))
                         {
                             providerCueId = pair.Key;
                             break;
@@ -446,26 +445,33 @@ namespace Windows.Media.Core
                     MediaPlaybackTimedMetadataCueDescriptor
                         descriptor = snapshot.Cues[index];
                     retainedIds.Add(descriptor.CueId);
-                    if (!_providerCues.TryGetValue(
+                    bool hasCue =
+                        _providerCues.TryGetValue(
                             descriptor.CueId,
-                            out TimedTextCue? cue))
+                            out IMediaCue? cue);
+                    bool typeMatches =
+                        descriptor.Data is null
+                            ? cue is TimedTextCue
+                            : cue is DataCue;
+                    if (!hasCue || !typeMatches)
                     {
-                        cue = new TimedTextCue
+                        if (cue is not null)
                         {
-                            Id = descriptor.CueId
-                        };
-                        cue.ApplyProviderState(
+                            _timeline.RemoveCue(cue);
+                            UnsubscribeCueTiming(cue);
+                        }
+                        cue = CreateProviderCue(
                             in descriptor);
-                        _providerCues.Add(
-                            descriptor.CueId,
-                            cue);
+                        _providerCues[descriptor.CueId] =
+                            cue;
                         _timeline.AddCue(cue);
                         SubscribeCueTiming(cue);
                         changed = true;
                     }
                     else
                     {
-                        changed |= cue.ApplyProviderState(
+                        changed |= ApplyProviderCueState(
+                            cue!,
                             in descriptor);
                     }
                 }
@@ -479,7 +485,7 @@ namespace Windows.Media.Core
                          index < removedIds.Length;
                          index++)
                     {
-                        TimedTextCue cue =
+                        IMediaCue cue =
                             _providerCues[removedIds[index]];
                         _providerCues.Remove(removedIds[index]);
                         _timeline.RemoveCue(cue);
@@ -498,6 +504,41 @@ namespace Windows.Media.Core
                 _timeline.InvalidateSchedule();
                 _playbackItem?.RequestTimedMetadataRefresh();
             }
+        }
+
+        private static IMediaCue CreateProviderCue(
+            in MediaPlaybackTimedMetadataCueDescriptor
+                descriptor)
+        {
+            IMediaCue cue = descriptor.Data is null
+                ? new TimedTextCue()
+                : new DataCue();
+            cue.Id = descriptor.CueId;
+            ApplyProviderCueState(
+                cue,
+                in descriptor);
+            return cue;
+        }
+
+        private static bool ApplyProviderCueState(
+            IMediaCue cue,
+            in MediaPlaybackTimedMetadataCueDescriptor
+                descriptor)
+        {
+            if (cue is DataCue dataCue &&
+                descriptor.Data is not null)
+            {
+                return dataCue.ApplyProviderState(
+                    in descriptor);
+            }
+            if (cue is TimedTextCue timedTextCue &&
+                descriptor.Data is null)
+            {
+                return timedTextCue.ApplyProviderState(
+                    in descriptor);
+            }
+            throw new InvalidOperationException(
+                "The provider cue type does not match its immutable descriptor.");
         }
 
         internal bool Update(

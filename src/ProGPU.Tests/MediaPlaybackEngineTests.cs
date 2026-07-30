@@ -603,6 +603,148 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void
+        ProviderBinaryCuesProjectRetainedWinUiDataCueBuffers()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/provider-data.mp4"));
+        var item = new MediaPlaybackItem(source);
+
+        player.Source = item;
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        provider.ReportTracks(
+            new MediaPlaybackTracksSnapshot(
+                audioTracks: null,
+                selectedAudioTrackIndex: -1,
+                videoTracks: null,
+                selectedVideoTrackIndex: -1,
+                timedMetadataTracks:
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "metadata-data",
+                        MediaPlaybackTrackKind
+                            .TimedMetadata,
+                        "Binary metadata",
+                        "Data",
+                        string.Empty,
+                        new MediaPlaybackTrackEncoding(
+                            "application/octet-stream"),
+                        MediaPlaybackTrackSupport
+                            .Supported,
+                        MediaPlaybackTimedMetadataKind
+                            .Data,
+                        "application/octet-stream")
+                ]));
+        TimedMetadataTrack track =
+            Assert.Single(item.TimedMetadataTracks);
+        Assert.Equal(
+            TimedMetadataKind.Data,
+            track.TimedMetadataKind);
+
+        byte[] callerBytes = [1, 2, 3, 4];
+        var payload =
+            new MediaPlaybackTimedMetadataCueData(
+                callerBytes);
+        callerBytes[0] = 255;
+        var snapshot =
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new
+                        MediaPlaybackTimedMetadataCueDescriptor(
+                            "data-1",
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromSeconds(2),
+                            string.Empty,
+                            Data: payload)
+                ]);
+        provider.ReportTimedMetadataCues(snapshot);
+
+        DataCue cue =
+            Assert.IsType<DataCue>(
+                Assert.Single(track.Cues));
+        Assert.Equal("data-1", cue.Id);
+        var firstBuffer =
+            Assert.IsType<
+                Windows.Storage.Streams.Buffer>(
+                    cue.Data);
+        Assert.Equal(4u, firstBuffer.Length);
+        Assert.Equal(
+            [1, 2, 3, 4],
+            firstBuffer.Memory.ToArray());
+        Assert.Equal(
+            [1, 2, 3, 4],
+            payload.Bytes.ToArray());
+
+        cue.Data =
+            new Windows.Storage.Streams.Buffer(1);
+        provider.ReportTimedMetadataCues(snapshot);
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Same(firstBuffer, cue.Data);
+
+        provider.ReportTimedMetadataCues(
+            new MediaPlaybackTimedMetadataCueSnapshot(
+                track.Id,
+                [
+                    new
+                        MediaPlaybackTimedMetadataCueDescriptor(
+                            "data-1",
+                            TimeSpan.FromSeconds(4),
+                            TimeSpan.FromSeconds(3),
+                            string.Empty,
+                            Data:
+                                new
+                                    MediaPlaybackTimedMetadataCueData(
+                                        [5, 6, 7]))
+                ]));
+
+        Assert.Same(cue, Assert.Single(track.Cues));
+        Assert.Equal(
+            TimeSpan.FromSeconds(4),
+            cue.StartTime);
+        var updatedBuffer =
+            Assert.IsType<
+                Windows.Storage.Streams.Buffer>(
+                    cue.Data);
+        Assert.NotSame(firstBuffer, updatedBuffer);
+        Assert.Equal(
+            [5, 6, 7],
+            updatedBuffer.Memory.ToArray());
+
+        int entered = 0;
+        track.CueEntered += (_, args) =>
+        {
+            Assert.Same(cue, args.Cue);
+            entered++;
+        };
+        item.TimedMetadataTracks.SetPresentationMode(
+            0,
+            TimedMetadataTrackPresentationMode
+                .ApplicationPresented);
+        provider.Report(
+            CreatePlaybackSnapshot(
+                TimeSpan.FromSeconds(4.5)));
+
+        Assert.Same(
+            cue,
+            Assert.Single(track.ActiveCues));
+        Assert.Equal(1, entered);
+    }
+
+    [Fact]
     public void TimedMetadataCueSnapshotsValidateIdentityAndTiming()
     {
         Assert.Throws<ArgumentException>(
@@ -677,6 +819,24 @@ public sealed class MediaPlaybackEngineTests
                             Name: "captions",
                             WidthPercentage:
                                 double.NaN)));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new MediaPlaybackTimedMetadataCueSnapshot(
+                    "track",
+                    [
+                        new
+                            MediaPlaybackTimedMetadataCueDescriptor(
+                                "binary-with-text",
+                                TimeSpan.Zero,
+                                TimeSpan.FromSeconds(1),
+                                string.Empty,
+                                new
+                                    MediaPlaybackTimedTextCuePresentation(
+                                        []),
+                                new
+                                    MediaPlaybackTimedMetadataCueData(
+                                        [1]))
+                    ]));
     }
 
     [Fact]

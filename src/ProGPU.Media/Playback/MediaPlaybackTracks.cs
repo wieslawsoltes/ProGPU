@@ -335,7 +335,39 @@ public sealed class MediaPlaybackTracksChangedEventArgs :
 }
 
 /// <summary>
-/// Immutable provider-neutral timed-text cue. Providers publish complete
+/// Immutable provider-neutral binary timed-metadata payload. Construction
+/// copies B bytes in O(B) time and storage; reads are allocation-free O(1).
+/// Native providers may transfer an already-owned managed copy through the
+/// internal ownership constructor.
+/// </summary>
+public sealed class MediaPlaybackTimedMetadataCueData
+{
+    private readonly byte[] _bytes;
+
+    public MediaPlaybackTimedMetadataCueData(
+        ReadOnlySpan<byte> bytes)
+    {
+        _bytes = bytes.ToArray();
+    }
+
+    private MediaPlaybackTimedMetadataCueData(
+        byte[] ownedBytes)
+    {
+        _bytes = ownedBytes ??
+            throw new ArgumentNullException(
+                nameof(ownedBytes));
+    }
+
+    public ReadOnlySpan<byte> Bytes => _bytes;
+
+    internal static MediaPlaybackTimedMetadataCueData
+        TakeOwnership(byte[] ownedBytes) =>
+            new(ownedBytes);
+}
+
+/// <summary>
+/// Immutable provider-neutral timed-metadata cue. A null Data value describes
+/// text; a non-null value describes a binary cue. Providers publish complete
 /// per-track snapshots when cue membership or timing changes.
 /// </summary>
 public readonly record struct
@@ -345,7 +377,8 @@ public readonly record struct
         TimeSpan Duration,
         string Text,
         MediaPlaybackTimedTextCuePresentation?
-            Presentation = null);
+            Presentation = null,
+        MediaPlaybackTimedMetadataCueData? Data = null);
 
 /// <summary>
 /// Immutable cue snapshot for one provider timed-metadata track.
@@ -399,6 +432,13 @@ public sealed class MediaPlaybackTimedMetadataCueSnapshot
                 throw new ArgumentOutOfRangeException(
                     nameof(cues),
                     "Cue timing must be non-negative.");
+            }
+            if (cue.Data is not null &&
+                cue.Presentation is not null)
+            {
+                throw new ArgumentException(
+                    "A binary timed-metadata cue cannot carry a timed-text presentation.",
+                    nameof(cues));
             }
             copy[index] = cue with
             {

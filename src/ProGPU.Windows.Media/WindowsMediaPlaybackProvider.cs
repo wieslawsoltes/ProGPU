@@ -805,7 +805,7 @@ internal sealed class WindowsMediaPlaybackProvider :
                     MediaPlaybackTimedMetadataKind kind =
                         ToTimedMetadataKind(track.Kind);
                     bool selectable =
-                        track.Kind is 1 or 2;
+                        track.Kind is 1 or 2 or 3;
                     string label =
                         string.IsNullOrWhiteSpace(track.Label)
                             ? $"Timed metadata {index + 1}"
@@ -993,7 +993,7 @@ internal sealed class WindowsMediaPlaybackProvider :
             {
                 continue;
             }
-            if (cue.Kind is not (1 or 2))
+            if (cue.Kind is not (1 or 2 or 3))
             {
                 continue;
             }
@@ -1023,7 +1023,14 @@ internal sealed class WindowsMediaPlaybackProvider :
                                     .InvariantCulture)),
                         ToTimeSpan(cue.StartTime),
                         ToTimeSpan(cue.Duration),
-                        cue.Text)));
+                        cue.Text,
+                        Data:
+                            cue.Kind == 3
+                                ? MediaPlaybackTimedMetadataCueData
+                                    .TakeOwnership(
+                                        cue.Data ??
+                                        Array.Empty<byte>())
+                                : null)));
         }
     }
 
