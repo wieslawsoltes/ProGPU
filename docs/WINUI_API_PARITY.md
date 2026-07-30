@@ -87,6 +87,10 @@ declaration-level entries rather than type counts: a type, base/interface edge,
 member, generic constraint, constant, or semantic attribute is independently
 actionable.
 
+The first `Microsoft.UI.Windowing` presenter/value slice advances the current
+baseline to 7,166 ProGPU entries, 3,170 exact matches, and 13,451 missing
+entries. Windowing now records 89/192 exact declarations with no extra entries.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -227,6 +231,33 @@ platform-host work; the implementation does not simulate a native queue or
 silently change the cross-platform dispatch contract. The declaration report
 records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
 entries.
+
+### Microsoft.UI.Windowing presenter and value contracts
+
+Primary contracts consulted:
+
+- [AppWindowPresenter](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindowpresenter)
+- [OverlappedPresenter](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter)
+- [CreateForContextMenu](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.createforcontextmenu)
+- [CreateForDialog](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.createfordialog)
+- [CreateForToolWindow](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.createfortoolwindow)
+- [CompactOverlayPresenter](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.compactoverlaypresenter)
+
+Adopted: all eight official windowing enums with exact values and contract
+versions, the presenter inheritance/factory contracts, the documented
+context-menu/dialog/tool-window presets, compact-overlay initial size, bounded
+dimension validation, and retained presenter configuration/state. Property
+reads and mutations are fixed `O(1)` value operations. A warmed Release
+invariant verifies exactly zero managed allocations across 100,000 presenter
+property-read iterations.
+
+The presenters are CPU-only retained window intent; creating or configuring one
+does not initialize WebGPU or a native window. A following typed `AppWindow`
+host-provider slice will apply changes on the owning dispatcher and translate
+native state notifications back into the retained presenter. Until that owner
+exists, state methods preserve requested portable state but do not claim that an
+OS window was maximized, minimized, or restored. The declaration report records
+89/192 exact `Microsoft.UI.Windowing` entries with no extra entries.
 
 ## Implementation policy
 
