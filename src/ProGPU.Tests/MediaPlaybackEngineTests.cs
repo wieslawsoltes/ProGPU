@@ -629,6 +629,78 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void
+        SharedPresenterRecordsPortableWpfStateWithoutAdapterAllocation()
+    {
+        using var surface = new MediaGpuSurface();
+        surface.Publish(CreateFrame(sequence: 4));
+        var nativeContext = new DrawingContext();
+        using var wpfContext =
+            new System.Windows.Media.DrawingContext(
+                nativeContext);
+        wpfContext.PushTransform(
+            new System.Windows.Media.MatrixTransform(
+                2d,
+                0d,
+                0d,
+                3d,
+                11d,
+                13d));
+        var portableSource =
+            (ProGPU.Wpf.Interop
+                .IPortableNativeDrawingContextStateSource)
+            wpfContext;
+        Assert.True(
+            portableSource
+                .TryGetPortableNativeDrawingContextState(
+                    out ProGPU.Wpf.Interop
+                        .PortableNativeDrawingContextState
+                        portableState));
+        Assert.True(
+            ProGpuDrawingContextState.TryCreate(
+                portableState.NativeDrawingContext,
+                portableState.Transform,
+                out ProGpuDrawingContextState state));
+        Assert.True(
+            ProGpuDrawingContextState.TryCreate(
+                portableState.NativeDrawingContext,
+                portableState.Transform,
+                out _));
+        bool converted = true;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            converted &=
+                ProGpuDrawingContextState.TryCreate(
+                    portableState.NativeDrawingContext,
+                    portableState.Transform,
+                    out state);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        using var presenter =
+            new MediaGpuSurfacePresenter(
+                surface,
+                static () => { });
+
+        Assert.True(converted);
+        Assert.Equal(0, allocated);
+        Assert.True(presenter.Record(
+            in state,
+            HeadlessWindow.Shared.Context,
+            new Rect(0f, 0f, 320f, 180f)));
+
+        RenderCommand command =
+            Assert.Single(nativeContext.Commands);
+        Assert.Equal(2f, command.Transform.M11);
+        Assert.Equal(3f, command.Transform.M22);
+        Assert.Equal(11f, command.Transform.M41);
+        Assert.Equal(13f, command.Transform.M42);
+
+        nativeContext.Clear();
+    }
+
+    [Fact]
     public void SharedPresenterRecordsThroughLibreWinFormsGraphicsTransform()
     {
         using var surface = new MediaGpuSurface();

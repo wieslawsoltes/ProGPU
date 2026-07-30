@@ -30,6 +30,31 @@ public readonly struct ProGpuDrawingContextState
 
     public Matrix4x4 OuterTransform { get; }
 
+    /// <summary>
+    /// Converts a package-neutral native drawing-context reference into typed
+    /// ProGPU state without reflection, adapters, or allocation. This is the
+    /// bridge used by source-built framework packages whose portable contract
+    /// cannot reference ProGPU.Scene directly. The operation is O(1).
+    /// </summary>
+    public static bool TryCreate(
+        object? nativeDrawingContext,
+        Matrix4x4 outerTransform,
+        out ProGpuDrawingContextState state)
+    {
+        if (nativeDrawingContext is not
+                DrawingContext drawingContext ||
+            !IsFinite(outerTransform))
+        {
+            state = default;
+            return false;
+        }
+
+        state = new ProGpuDrawingContextState(
+            drawingContext,
+            outerTransform);
+        return true;
+    }
+
     private static bool IsFinite(Matrix4x4 value) =>
         float.IsFinite(value.M11) &&
         float.IsFinite(value.M12) &&
