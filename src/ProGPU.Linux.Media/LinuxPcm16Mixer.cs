@@ -137,6 +137,84 @@ internal static class LinuxPcm16Mixer
         }
     }
 
+    internal static void AccumulateProcessed(
+        ReadOnlySpan<float> source,
+        uint channelCount,
+        in LinuxPcm16MixLevels levels,
+        Span<long> accumulator,
+        int destinationFrameOffset)
+    {
+        if (channelCount is not (1u or 2u))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(channelCount));
+        }
+        int channels = checked((int)channelCount);
+        if (source.Length % channels != 0)
+        {
+            throw new ArgumentException(
+                "Processed input must contain complete interleaved frames.",
+                nameof(source));
+        }
+        if (destinationFrameOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destinationFrameOffset));
+        }
+
+        int firstSample =
+            checked(
+                destinationFrameOffset *
+                channels);
+        if (firstSample > accumulator.Length ||
+            source.Length >
+                accumulator.Length - firstSample)
+        {
+            throw new ArgumentException(
+                "The processed interval does not fit in the accumulator block.",
+                nameof(accumulator));
+        }
+        if (source.IsEmpty || levels.IsSilent)
+        {
+            return;
+        }
+
+        if (channels == 1)
+        {
+            int monoLevel =
+                Math.Max(
+                    levels.Left,
+                    levels.Right);
+            for (int index = 0;
+                 index < source.Length;
+                 index++)
+            {
+                AccumulateProcessedSample(
+                    ref accumulator[
+                        firstSample + index],
+                    source[index],
+                    monoLevel);
+            }
+            return;
+        }
+
+        for (int index = 0;
+             index < source.Length;
+             index += 2)
+        {
+            AccumulateProcessedSample(
+                ref accumulator[
+                    firstSample + index],
+                source[index],
+                levels.Left);
+            AccumulateProcessedSample(
+                ref accumulator[
+                    firstSample + index + 1],
+                source[index + 1],
+                levels.Right);
+        }
+    }
+
     internal static void Saturate(
         ReadOnlySpan<long> accumulator,
         Span<short> destination)
@@ -157,6 +235,46 @@ internal static class LinuxPcm16Mixer
                     accumulator[index],
                     short.MinValue,
                     short.MaxValue);
+        }
+    }
+
+    private static void AccumulateProcessedSample(
+        ref long accumulator,
+        float sample,
+        int level)
+    {
+        if (!float.IsFinite(sample))
+        {
+            throw new InvalidDataException(
+                "A typed Linux composition audio effect emitted a non-finite sample.");
+        }
+
+        double scaled = (double)sample * level;
+        long contribution =
+            scaled >= long.MaxValue
+                ? long.MaxValue
+                : scaled <= long.MinValue
+                    ? long.MinValue
+                    : checked(
+                        (long)Math.Round(
+                            scaled,
+                            MidpointRounding
+                                .AwayFromZero));
+        if (contribution > 0 &&
+            accumulator >
+                long.MaxValue - contribution)
+        {
+            accumulator = long.MaxValue;
+        }
+        else if (contribution < 0 &&
+                 accumulator <
+                    long.MinValue - contribution)
+        {
+            accumulator = long.MinValue;
+        }
+        else
+        {
+            accumulator += contribution;
         }
     }
 }

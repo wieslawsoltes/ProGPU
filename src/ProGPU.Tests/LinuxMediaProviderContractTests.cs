@@ -3066,6 +3066,15 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxPcm16TimelineMixer.cs");
+        string audioMixKernel = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxPcm16Mixer.cs");
+        string audioProcessorChain = ReadRepoFile(
+            "src",
+            "ProGPU.Media",
+            "Audio",
+            "MediaAudioEffectProcessorChain.cs");
         string audioEncoder = ReadRepoFile(
             "src",
             "ProGPU.Linux.Media",
@@ -3151,6 +3160,30 @@ public sealed class LinuxMediaProviderContractTests
             "LinuxPcm16Mixer.Accumulate(",
             audioMixer,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaAudioEffectProcessorChain",
+            audioPlanner,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProcessEffects(",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AccumulateProcessed(",
+            audioMixKernel,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "registry.TryCreate(",
+            audioProcessorChain,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Activator.",
+            audioProcessorChain,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Assembly.Load",
+            audioProcessorChain,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "FFmpeg",
             audioPlanner,
@@ -3166,6 +3199,22 @@ public sealed class LinuxMediaProviderContractTests
         Assert.DoesNotContain(
             "GStreamer",
             audioMixer,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            audioMixKernel,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "GStreamer",
+            audioMixKernel,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "FFmpeg",
+            audioProcessorChain,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "GStreamer",
+            audioProcessorChain,
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
             "ILinuxAacEncoderFactory",
@@ -3595,7 +3644,8 @@ public sealed class LinuxMediaProviderContractTests
                 TimeSpan.FromSeconds(2).Ticks,
                 0,
                 1_500,
-                full),
+                full,
+                []),
             new(
                 LinuxCompositionAudioSourceKind
                     .BackgroundTrack,
@@ -3607,7 +3657,8 @@ public sealed class LinuxMediaProviderContractTests
                 TimeSpan.FromSeconds(1).Ticks,
                 512,
                 1_300,
-                full)
+                full,
+                [])
         ];
         ILinuxPcm16TimelineSource[] sources =
         [
@@ -3697,7 +3748,8 @@ public sealed class LinuxMediaProviderContractTests
                     DestinationEndFrame: 4,
                     new LinuxPcm16MixLevels(
                         32_768,
-                        32_768));
+                        32_768),
+                    ProcessorDefinitions: []);
             using var source =
                 new IsoBmffPcm16TimelineSource(
                     plan,
@@ -3742,7 +3794,8 @@ public sealed class LinuxMediaProviderContractTests
                 64,
                 new LinuxPcm16MixLevels(
                     24_576,
-                    16_384))
+                    16_384),
+                [])
         ];
         ILinuxPcm16TimelineSource[] sources =
         [
@@ -3795,6 +3848,194 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
+    public void
+        LinuxTimelineMixerRunsTypedEffectsInOrderWithoutWarmAllocations()
+    {
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new TestLinuxPcmTransformEffectFactory());
+        MediaCompositionEffectDefinition[]
+            definitions =
+            [
+                CreateTestPcmTransform(
+                    scale: 2f,
+                    offset: 0f),
+                CreateTestPcmTransform(
+                    scale: 1f,
+                    offset: 0.25f)
+            ];
+        Assert.True(
+            MediaAudioEffectProcessorChain
+                .TryCreate(
+                    registry,
+                    definitions,
+                    out MediaAudioEffectProcessorChain?
+                        chain));
+        Assert.NotNull(chain);
+        using (chain)
+        {
+            LinuxCompositionAudioSourcePlan[] plans =
+            [
+                new(
+                    LinuxCompositionAudioSourceKind
+                        .MainClip,
+                    new Uri(
+                        "file:///media/main.mov"),
+                    0,
+                    0,
+                    TimeSpan.FromSeconds(1).Ticks,
+                    0,
+                    64,
+                    new LinuxPcm16MixLevels(
+                        32_768,
+                        32_768),
+                    definitions)
+            ];
+            ILinuxPcm16TimelineSource[] sources =
+            [
+                new ConstantPcm16TimelineSource(
+                    1_000)
+            ];
+            MediaAudioEffectProcessorChain?[]
+                processorChains = [chain];
+            var sink = new Pcm16ChecksumSink();
+            LinuxPcm16BlockHandler handler =
+                sink.Accept;
+            try
+            {
+                LinuxPcm16TimelineMixer.MixCore(
+                    plans,
+                    sources,
+                    compositionFrameCount: 64,
+                    sampleRate: 8_000,
+                    channelCount: 2,
+                    handler,
+                    processorChains:
+                        processorChains);
+                Assert.Equal(
+                    64L * 2 * 10_192,
+                    sink.Checksum);
+                sink.Reset();
+
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                for (int index = 0;
+                     index < 100;
+                     index++)
+                {
+                    LinuxPcm16TimelineMixer.MixCore(
+                        plans,
+                        sources,
+                        compositionFrameCount: 64,
+                        sampleRate: 8_000,
+                        channelCount: 2,
+                        handler,
+                        processorChains:
+                            processorChains);
+                }
+                long allocated =
+                    GC.GetAllocatedBytesForCurrentThread() -
+                    before;
+
+                Assert.Equal(0, allocated);
+                Assert.Equal(
+                    100,
+                    sink.BlockCount);
+                Assert.Equal(
+                    100L *
+                    64 *
+                    2 *
+                    10_192,
+                    sink.Checksum);
+            }
+            finally
+            {
+                sources[0].Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void
+        LinuxTimelineMixerPreservesTypedEffectHeadroomUntilFinalSaturation()
+    {
+        var registry = new MediaEffectRegistry();
+        using IDisposable registration =
+            registry.Register(
+                new TestLinuxPcmTransformEffectFactory());
+        MediaCompositionEffectDefinition[]
+            definitions =
+            [
+                CreateTestPcmTransform(
+                    scale: 2f,
+                    offset: 0f)
+            ];
+        Assert.True(
+            MediaAudioEffectProcessorChain
+                .TryCreate(
+                    registry,
+                    definitions,
+                    out MediaAudioEffectProcessorChain?
+                        chain));
+        Assert.NotNull(chain);
+        using (chain)
+        {
+            LinuxCompositionAudioSourcePlan[] plans =
+            [
+                new(
+                    LinuxCompositionAudioSourceKind
+                        .MainClip,
+                    new Uri(
+                        "file:///media/main.mov"),
+                    0,
+                    0,
+                    TimeSpan.FromSeconds(1).Ticks,
+                    0,
+                    1,
+                    new LinuxPcm16MixLevels(
+                        16_384,
+                        16_384),
+                    definitions)
+            ];
+            ILinuxPcm16TimelineSource[] sources =
+            [
+                new ConstantPcm16TimelineSource(
+                    20_000)
+            ];
+            MediaAudioEffectProcessorChain?[]
+                processorChains = [chain];
+            var samples =
+                new Pcm16BlockCollector(
+                    frameCount: 1,
+                    channelCount: 2);
+            try
+            {
+                LinuxPcm16TimelineMixer.MixCore(
+                    plans,
+                    sources,
+                    compositionFrameCount: 1,
+                    sampleRate: 8_000,
+                    channelCount: 2,
+                    samples.Accept,
+                    processorChains:
+                        processorChains);
+
+                Assert.Equal(
+                    (short)20_000,
+                    samples.SampleAt(0, 0));
+                Assert.Equal(
+                    (short)20_000,
+                    samples.SampleAt(0, 1));
+            }
+            finally
+            {
+                sources[0].Dispose();
+            }
+        }
+    }
+
+    [Fact]
     public async Task
         LinuxPluggableAacEncoderSpoolsExactPcmTimeline()
     {
@@ -3839,7 +4080,16 @@ public sealed class LinuxMediaProviderContractTests
                             SourceAudioSampleRate =
                                 8_000,
                             SourceAudioChannelCount =
-                                2
+                                2,
+                            AudioEffectDefinitions =
+                            [
+                                CreateTestPcmTransform(
+                                    scale: 2f,
+                                    offset: 0f),
+                                CreateTestPcmTransform(
+                                    scale: 1f,
+                                    offset: 0.25f)
+                            ]
                         }
                     ],
                     MediaCompositionTrimmingMode
@@ -3859,11 +4109,16 @@ public sealed class LinuxMediaProviderContractTests
                     new Dictionary<string, string>());
             var factory =
                 new TestLinuxAacEncoderFactory();
+            var effects =
+                new MediaEffectRegistry();
+            using IDisposable effectRegistration =
+                effects.Register(
+                    new TestLinuxPcmTransformEffectFactory());
 
             IsoBmffCompositionTrack track =
                 LinuxAacCompositionEncoder.Encode(
                     request,
-                    MediaEffectRegistry.Default,
+                    effects,
                     factory,
                     spoolPath,
                     CancellationToken.None);
@@ -3874,7 +4129,7 @@ public sealed class LinuxMediaProviderContractTests
             Assert.Equal(1, encoder.BlockCount);
             Assert.Equal(0, encoder.LastFirstFrame);
             Assert.Equal(8, encoder.ScalarSampleCount);
-            Assert.Equal(3_600, encoder.Checksum);
+            Assert.Equal(72_736, encoder.Checksum);
             Assert.Equal(
                 IsoBmffTrackKind.Audio,
                 track.Kind);
@@ -4305,6 +4560,115 @@ public sealed class LinuxMediaProviderContractTests
             0,
             GC.GetAllocatedBytesForCurrentThread() -
             before);
+    }
+
+    private static MediaCompositionEffectDefinition
+        CreateTestPcmTransform(
+            float scale,
+            float offset) =>
+        new(
+            TestLinuxPcmTransformEffectFactory
+                .EffectId,
+            new Dictionary<string, object?>
+            {
+                [
+                    TestLinuxPcmTransformEffectFactory
+                        .ScalePropertyName
+                ] = scale,
+                [
+                    TestLinuxPcmTransformEffectFactory
+                        .OffsetPropertyName
+                ] = offset
+            });
+
+    private sealed class
+        TestLinuxPcmTransformEffectFactory :
+        IMediaEffectFactory
+    {
+        internal const string EffectId =
+            "ProGPU.Tests.LinuxPcmTransform";
+        internal const string ScalePropertyName =
+            "Scale";
+        internal const string OffsetPropertyName =
+            "Offset";
+
+        public string ActivatableClassId =>
+            EffectId;
+
+        public IMediaEffect Create(
+            in MediaEffectDescriptor descriptor)
+        {
+            Assert.Equal(
+                MediaEffectKind.Audio,
+                descriptor.Kind);
+            return new TestLinuxPcmTransformEffect(
+                Read(
+                    descriptor.Properties,
+                    ScalePropertyName),
+                Read(
+                    descriptor.Properties,
+                    OffsetPropertyName));
+        }
+
+        private static float Read(
+            IReadOnlyDictionary<string, object?>
+                properties,
+            string name) =>
+            properties[name] switch
+            {
+                float value => value,
+                double value =>
+                    checked((float)value),
+                _ => throw new
+                    InvalidOperationException()
+            };
+    }
+
+    private sealed class TestLinuxPcmTransformEffect :
+        IMediaAudioEffect
+    {
+        private readonly float _scale;
+        private readonly float _offset;
+
+        internal TestLinuxPcmTransformEffect(
+            float scale,
+            float offset)
+        {
+            _scale = scale;
+            _offset = offset;
+        }
+
+        public string Id =>
+            TestLinuxPcmTransformEffectFactory
+                .EffectId;
+
+        public MediaEffectKind Kind =>
+            MediaEffectKind.Audio;
+
+        public void Process(
+            Span<float> interleavedSamples,
+            in MediaAudioProcessContext context)
+        {
+            int sampleCount = checked(
+                context.FrameCount *
+                context.Format.ChannelCount);
+            Span<float> samples =
+                interleavedSamples[
+                    ..sampleCount];
+            for (int index = 0;
+                 index < samples.Length;
+                 index++)
+            {
+                samples[index] =
+                    samples[index] *
+                    _scale +
+                    _offset;
+            }
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     private sealed class TestLinuxAacEncoderFactory :

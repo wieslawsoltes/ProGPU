@@ -169,6 +169,7 @@ internal static class LinuxAacCompositionEncoder
             configuration.TotalFrameCount,
             configuration.SampleRate,
             configuration.ChannelCount,
+            effects,
             EncodeBlock,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();

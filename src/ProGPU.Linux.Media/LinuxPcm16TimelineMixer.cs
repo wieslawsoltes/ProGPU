@@ -1,5 +1,7 @@
 using System.Buffers;
+using ProGPU.Media.Audio;
 using ProGPU.Media.Containers;
+using ProGPU.Media.Effects;
 
 namespace ProGPU.Linux.Media;
 
@@ -362,10 +364,12 @@ internal sealed class IsoBmffPcm16TimelineSource :
 /// </summary>
 /// <remarks>
 /// Work is O(F × A) for F output frames and A active sources in the simple
-/// bounded scan. The block workspace is O(1,024 × channels); each source
-/// additionally retains its ISO-BMFF sample index and one pooled media-sample
-/// conversion buffer. No PCM storage scales with composition duration, and
-/// pooled blocks are returned on every success or failure path.
+/// bounded scan. Typed processor work is O(E × F × C) for E block-local
+/// effects and C channels. The block workspace is O(1,024 × channels); each
+/// source additionally retains its ISO-BMFF sample index, one pooled
+/// media-sample conversion buffer, and its prepared effect instances. No PCM
+/// storage scales with composition duration, and pooled blocks are returned
+/// on every success or failure path.
 /// </remarks>
 internal static class LinuxPcm16TimelineMixer
 {
@@ -375,9 +379,11 @@ internal static class LinuxPcm16TimelineMixer
         long compositionFrameCount,
         uint sampleRate,
         uint channelCount,
+        MediaEffectRegistry effects,
         LinuxPcm16BlockHandler handler,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(effects);
         ArgumentNullException.ThrowIfNull(handler);
         if (compositionFrameCount <= 0)
         {
@@ -394,6 +400,9 @@ internal static class LinuxPcm16TimelineMixer
         var sources =
             new ILinuxPcm16TimelineSource[
                 plans.Length];
+        var processorChains =
+            new MediaAudioEffectProcessorChain?[
+                plans.Length];
         try
         {
             for (int index = 0;
@@ -405,6 +414,20 @@ internal static class LinuxPcm16TimelineMixer
                         plans[index],
                         sampleRate,
                         channelCount);
+                if (plans[index]
+                        .ProcessorDefinitions
+                        .Length != 0 &&
+                    !MediaAudioEffectProcessorChain
+                        .TryCreate(
+                            effects,
+                            plans[index]
+                                .ProcessorDefinitions,
+                            out processorChains[
+                                index]))
+                {
+                    throw new NotSupportedException(
+                        "A prepared Linux composition audio effect can no longer be activated through the typed registry.");
+                }
             }
             MixCore(
                 plans,
@@ -413,7 +436,8 @@ internal static class LinuxPcm16TimelineMixer
                 sampleRate,
                 channelCount,
                 handler,
-                cancellationToken);
+                cancellationToken,
+                processorChains);
         }
         finally
         {
@@ -422,6 +446,8 @@ internal static class LinuxPcm16TimelineMixer
                  index++)
             {
                 sources[index]?.Dispose();
+                processorChains[index]
+                    ?.Dispose();
             }
         }
     }
@@ -435,7 +461,10 @@ internal static class LinuxPcm16TimelineMixer
         uint sampleRate,
         uint channelCount,
         LinuxPcm16BlockHandler handler,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ReadOnlySpan<
+            MediaAudioEffectProcessorChain?>
+            processorChains = default)
     {
         ArgumentNullException.ThrowIfNull(handler);
         if (plans.Length != sources.Length)
@@ -443,6 +472,14 @@ internal static class LinuxPcm16TimelineMixer
             throw new ArgumentException(
                 "Every audio plan requires exactly one source.",
                 nameof(sources));
+        }
+        if (!processorChains.IsEmpty &&
+            processorChains.Length !=
+                plans.Length)
+        {
+            throw new ArgumentException(
+                "Every audio plan requires exactly one processor-chain slot.",
+                nameof(processorChains));
         }
         if (compositionFrameCount <= 0 ||
             sampleRate == 0 ||
@@ -468,6 +505,13 @@ internal static class LinuxPcm16TimelineMixer
         short[] output =
             ArrayPool<short>.Shared.Rent(
                 maximumSamples);
+        float[]? effectBuffer =
+            HasProcessorChain(
+                processorChains)
+                ? ArrayPool<float>
+                    .Shared.Rent(
+                        maximumSamples)
+                : null;
         try
         {
             for (long blockStart = 0;
@@ -544,15 +588,46 @@ internal static class LinuxPcm16TimelineMixer
                     sources[index].ReadFrames(
                         sourceFirstFrame,
                         source);
-                    LinuxPcm16Mixer.Accumulate(
-                        source,
-                        channelCount,
-                        plan.Levels,
-                        blockAccumulator,
-                        checked(
-                            (int)(
-                                overlapStart -
-                                blockStart)));
+                    MediaAudioEffectProcessorChain?
+                        processorChain =
+                            processorChains.IsEmpty
+                                ? null
+                                : processorChains[
+                                    index];
+                    if (processorChain is not null)
+                    {
+                        ReadOnlySpan<float>
+                            processed =
+                                ProcessEffects(
+                            source,
+                            effectBuffer!,
+                            processorChain,
+                            sampleRate,
+                            channels,
+                            overlapStart);
+                        LinuxPcm16Mixer
+                            .AccumulateProcessed(
+                                processed,
+                                channelCount,
+                                plan.Levels,
+                                blockAccumulator,
+                                checked(
+                                    (int)(
+                                        overlapStart -
+                                        blockStart)));
+                    }
+                    else
+                    {
+                        LinuxPcm16Mixer.Accumulate(
+                            source,
+                            channelCount,
+                            plan.Levels,
+                            blockAccumulator,
+                            checked(
+                                (int)(
+                                    overlapStart -
+                                    blockStart)));
+                    }
                 }
 
                 Span<short> result =
@@ -575,7 +650,85 @@ internal static class LinuxPcm16TimelineMixer
                 sourceBuffer);
             ArrayPool<short>.Shared.Return(
                 output);
+            if (effectBuffer is not null)
+            {
+                ArrayPool<float>.Shared.Return(
+                    effectBuffer);
+            }
         }
+    }
+
+    private static bool HasProcessorChain(
+        ReadOnlySpan<
+            MediaAudioEffectProcessorChain?>
+            processorChains)
+    {
+        for (int index = 0;
+             index < processorChains.Length;
+             index++)
+        {
+            if (processorChains[index] is not
+                null)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ReadOnlySpan<float>
+        ProcessEffects(
+        Span<short> source,
+        float[] effectBuffer,
+        MediaAudioEffectProcessorChain chain,
+        uint sampleRate,
+        int channelCount,
+        long presentationFirstFrame)
+    {
+        Span<float> samples =
+            effectBuffer.AsSpan(
+                0,
+                source.Length);
+        for (int index = 0;
+             index < source.Length;
+             index++)
+        {
+            samples[index] =
+                source[index] /
+                32_768f;
+        }
+
+        var context =
+            new MediaAudioProcessContext(
+                new MediaAudioFormat(
+                    checked((int)sampleRate),
+                    channelCount),
+                source.Length /
+                    channelCount,
+                TimeSpan.FromTicks(
+                    FramesToTicksFloor(
+                        presentationFirstFrame,
+                        sampleRate)));
+        chain.Process(
+            samples,
+            context);
+        return samples;
+    }
+
+    private static long FramesToTicksFloor(
+        long frame,
+        uint sampleRate)
+    {
+        if (frame < 0 || sampleRate == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frame));
+        }
+        return checked(
+            (long)(
+                (Int128)frame *
+                TimeSpan.TicksPerSecond /
+                sampleRate));
     }
 
     private static long TicksToFramesCeiling(

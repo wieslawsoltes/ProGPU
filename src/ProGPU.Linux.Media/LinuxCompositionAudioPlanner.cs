@@ -24,7 +24,9 @@ internal readonly record struct LinuxCompositionAudioSourcePlan(
     long SourceEndTicks,
     long DestinationStartFrame,
     long DestinationEndFrame,
-    LinuxPcm16MixLevels Levels);
+    LinuxPcm16MixLevels Levels,
+    MediaCompositionEffectDefinition[]
+        ProcessorDefinitions);
 
 /// <summary>
 /// Captures the WinUI composition-audio model before native decoding starts.
@@ -173,11 +175,13 @@ internal static class LinuxCompositionAudioPlanner
                     clip.TrimTimeFromEnd,
                     out long sourceStart,
                     out long sourceEnd) ||
-                !TryResolveLevels(
+                !TryResolveProcessing(
                     clip.Volume,
                     clip.AudioEffectDefinitions,
                     effects,
-                    out LinuxPcm16MixLevels levels))
+                    out LinuxPcm16MixLevels levels,
+                    out MediaCompositionEffectDefinition[]
+                        processorDefinitions))
             {
                 return false;
             }
@@ -205,7 +209,8 @@ internal static class LinuxCompositionAudioPlanner
                         cursor,
                         nextCursor,
                         sampleRate,
-                        levels);
+                        levels,
+                        processorDefinitions);
                 }
             }
             else if (clip.SourceUri is not null)
@@ -239,11 +244,13 @@ internal static class LinuxCompositionAudioPlanner
                     track.TrimTimeFromEnd,
                     out long sourceStart,
                     out long sourceEnd) ||
-                !TryResolveLevels(
+                !TryResolveProcessing(
                     track.Volume,
                     track.AudioEffectDefinitions,
                     effects,
-                    out LinuxPcm16MixLevels levels))
+                    out LinuxPcm16MixLevels levels,
+                    out MediaCompositionEffectDefinition[]
+                        processorDefinitions))
             {
                 return false;
             }
@@ -287,7 +294,8 @@ internal static class LinuxCompositionAudioPlanner
                 presentationStart,
                 presentationEnd,
                 sampleRate,
-                levels);
+                levels,
+                processorDefinitions);
         }
         return true;
     }
@@ -330,11 +338,13 @@ internal static class LinuxCompositionAudioPlanner
                         clip.TrimTimeFromEnd,
                         out long sourceStart,
                         out long sourceEnd) ||
-                    !TryResolveLevels(
+                    !TryResolveProcessing(
                         clip.Volume,
                         clip.AudioEffectDefinitions,
                         effects,
-                        out LinuxPcm16MixLevels levels))
+                        out LinuxPcm16MixLevels levels,
+                        out MediaCompositionEffectDefinition[]
+                            processorDefinitions))
                 {
                     return false;
                 }
@@ -372,7 +382,8 @@ internal static class LinuxCompositionAudioPlanner
                     presentationStart,
                     presentationEnd,
                     sampleRate,
-                    levels);
+                    levels,
+                    processorDefinitions);
             }
         }
         return true;
@@ -394,7 +405,9 @@ internal static class LinuxCompositionAudioPlanner
         long destinationStartTicks,
         long destinationEndTicks,
         uint sampleRate,
-        in LinuxPcm16MixLevels levels)
+        in LinuxPcm16MixLevels levels,
+        MediaCompositionEffectDefinition[]
+            processorDefinitions)
     {
         if (levels.IsSilent)
         {
@@ -422,40 +435,81 @@ internal static class LinuxCompositionAudioPlanner
                 sourceEndTicks,
                 destinationStartFrame,
                 destinationEndFrame,
-                levels));
+                levels,
+                processorDefinitions));
     }
 
-    private static bool TryResolveLevels(
+    private static bool TryResolveProcessing(
         double volume,
         IReadOnlyList<MediaCompositionEffectDefinition>
             definitions,
         MediaEffectRegistry effects,
-        out LinuxPcm16MixLevels levels)
+        out LinuxPcm16MixLevels levels,
+        out MediaCompositionEffectDefinition[]
+            processorDefinitions)
     {
         if (!double.IsFinite(volume) ||
             volume is < 0d or >
                 MediaPcm16StereoProcessor
-                    .MaximumLevel ||
-            !MediaAudioGraphEffectResolver
+                    .MaximumLevel)
+        {
+            levels = default;
+            processorDefinitions = [];
+            return false;
+        }
+
+        if (!MediaAudioGraphEffectResolver
                 .TryCaptureCombinedStereoLevels(
                     effects,
                     definitions,
                     out MediaAudioStereoLevels
                         effectLevels))
         {
-            levels = default;
-            return false;
+            if (!MediaAudioEffectProcessorChain
+                    .TryCreate(
+                        effects,
+                        definitions,
+                        out MediaAudioEffectProcessorChain?
+                            processorChain))
+            {
+                levels = default;
+                processorDefinitions = [];
+                return false;
+            }
+
+            using (processorChain)
+            {
+                if (!LinuxPcm16MixLevels.TryCreate(
+                        MediaAudioStereoLevels
+                            .Identity
+                            .Scale((float)volume),
+                        out levels))
+                {
+                    processorDefinitions = [];
+                    return false;
+                }
+            }
+            processorDefinitions =
+                definitions.Count == 0
+                    ? []
+                    : definitions.ToArray();
+            return true;
         }
+
         try
         {
-            return LinuxPcm16MixLevels.TryCreate(
+            bool valid =
+                LinuxPcm16MixLevels.TryCreate(
                 effectLevels.Scale(
                     (float)volume),
                 out levels);
+            processorDefinitions = [];
+            return valid;
         }
         catch (ArgumentOutOfRangeException)
         {
             levels = default;
+            processorDefinitions = [];
             return false;
         }
     }
