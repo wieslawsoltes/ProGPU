@@ -98,6 +98,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     private readonly object _playbackListsGate = new();
     private readonly List<WeakReference<MediaPlaybackList>>
         _playbackLists = [];
+    private readonly MediaPlaybackAudioTrackList _audioTracks;
+    private readonly MediaPlaybackVideoTrackList _videoTracks;
     private MediaItemDisplayProperties _displayProperties = new();
     private double _totalDownloadProgress;
     private AutoLoadedDisplayPropertyKind
@@ -145,6 +147,8 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
 
         StartTime = startTime;
         DurationLimit = durationLimit;
+        _audioTracks = new MediaPlaybackAudioTrackList(this);
+        _videoTracks = new MediaPlaybackVideoTrackList(this);
         validatedSource.AssociatePlaybackItem(this);
         Source = validatedSource;
         _totalDownloadProgress =
@@ -152,6 +156,10 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     }
 
     public MediaSource Source { get; }
+    public MediaPlaybackAudioTrackList AudioTracks =>
+        _audioTracks;
+    public MediaPlaybackVideoTrackList VideoTracks =>
+        _videoTracks;
     public TimeSpan StartTime { get; }
     public TimeSpan? DurationLimit { get; }
     public AutoLoadedDisplayPropertyKind
@@ -196,6 +204,17 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
     public double TotalDownloadProgress =>
         Volatile.Read(ref _totalDownloadProgress);
 
+    public event Windows.Foundation.TypedEventHandler<
+        MediaPlaybackItem,
+        IVectorChangedEventArgs>? AudioTracksChanged;
+    public event Windows.Foundation.TypedEventHandler<
+        MediaPlaybackItem,
+        IVectorChangedEventArgs>? VideoTracksChanged;
+
+    internal event EventHandler<
+        PlaybackTrackSelectionRequestedEventArgs>?
+        TrackSelectionRequested;
+
     public static MediaPlaybackItem? FindFromMediaSource(
         MediaSource source)
     {
@@ -219,6 +238,46 @@ public sealed class MediaPlaybackItem : IMediaPlaybackSource,
             double.IsFinite(value)
                 ? Math.Clamp(value, 0d, 1d)
                 : 0d);
+
+    internal void ApplyTracks(
+        MediaPlaybackTracksSnapshot tracks)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        IReadOnlyList<IVectorChangedEventArgs> audioChanges =
+            _audioTracks.Update(
+                tracks.AudioTracks,
+                tracks.SelectedAudioTrackIndex);
+        IReadOnlyList<IVectorChangedEventArgs> videoChanges =
+            _videoTracks.Update(
+                tracks.VideoTracks,
+                tracks.SelectedVideoTrackIndex);
+
+        for (int index = 0;
+             index < audioChanges.Count;
+             index++)
+        {
+            AudioTracksChanged?.Invoke(
+                this,
+                audioChanges[index]);
+        }
+        for (int index = 0;
+             index < videoChanges.Count;
+             index++)
+        {
+            VideoTracksChanged?.Invoke(
+                this,
+                videoChanges[index]);
+        }
+    }
+
+    internal void RequestTrackSelection(
+        MediaPlaybackTrackKind kind,
+        int index) =>
+        TrackSelectionRequested?.Invoke(
+            this,
+            new PlaybackTrackSelectionRequestedEventArgs(
+                kind,
+                index));
 
     internal void AttachPlaybackList(MediaPlaybackList list)
     {

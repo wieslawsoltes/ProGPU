@@ -20,6 +20,8 @@ public sealed class MediaPlaybackEngine : IDisposable
     private MediaSourceDescriptor? _source;
     private MediaPlaybackSnapshot _snapshot =
         MediaPlaybackSnapshot.Empty;
+    private MediaPlaybackTracksSnapshot _tracks =
+        MediaPlaybackTracksSnapshot.Empty;
     private MediaPlaybackDiagnosticsSnapshot _diagnostics =
         MediaPlaybackDiagnosticsSnapshot.Empty;
     private long _sourceGeneration;
@@ -47,6 +49,8 @@ public sealed class MediaPlaybackEngine : IDisposable
     }
 
     public event EventHandler<MediaPlaybackChangedEventArgs>? Changed;
+    public event EventHandler<MediaPlaybackTracksChangedEventArgs>?
+        TracksChanged;
     public event EventHandler? Opened;
     public event EventHandler? Ended;
     public event EventHandler? SeekCompleted;
@@ -73,6 +77,17 @@ public sealed class MediaPlaybackEngine : IDisposable
             lock (_gate)
             {
                 return _snapshot;
+            }
+        }
+    }
+
+    public MediaPlaybackTracksSnapshot Tracks
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _tracks;
             }
         }
     }
@@ -288,6 +303,7 @@ public sealed class MediaPlaybackEngine : IDisposable
         CancellationTokenSource? previousCancellation;
         long generation;
         MediaPlaybackChangedEventArgs change;
+        MediaPlaybackTracksChangedEventArgs tracksChange;
         lock (_gate)
         {
             generation = ++_sourceGeneration;
@@ -314,11 +330,14 @@ public sealed class MediaPlaybackEngine : IDisposable
                     State = MediaEnginePlaybackState.Opening,
                     PlaybackRate = _playbackRate
                 };
+            _tracks = MediaPlaybackTracksSnapshot.Empty;
             _diagnostics = MediaPlaybackDiagnosticsSnapshot.Empty;
             change = new MediaPlaybackChangedEventArgs(
                 MediaPlaybackChange.Source |
                 MediaPlaybackChange.State,
                 _snapshot);
+            tracksChange =
+                new MediaPlaybackTracksChangedEventArgs(_tracks);
         }
 
         previousCancellation?.Cancel();
@@ -326,6 +345,7 @@ public sealed class MediaPlaybackEngine : IDisposable
         previousProvider?.Dispose();
         VideoSurface.Clear();
         Changed?.Invoke(this, change);
+        TracksChanged?.Invoke(this, tracksChange);
 
         if (source is null)
         {
@@ -649,6 +669,45 @@ public sealed class MediaPlaybackEngine : IDisposable
         return provider?.StepBackwardOneFrame() == true;
     }
 
+    public void SelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        IMediaPlaybackProvider? provider;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (kind is not (
+                    MediaPlaybackTrackKind.Audio or
+                    MediaPlaybackTrackKind.Video))
+            {
+                throw new NotSupportedException(
+                    "Timed metadata tracks use presentation modes rather than a single selected index.");
+            }
+
+            IReadOnlyList<MediaPlaybackTrackDescriptor> tracks =
+                _tracks.GetTracks(kind);
+            if (index < -1 || index >= tracks.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(index));
+            }
+            if (_tracks.GetSelectedIndex(kind) == index)
+            {
+                return;
+            }
+            provider = _provider;
+        }
+
+        if (provider is not IMediaPlaybackTrackProvider
+            trackProvider ||
+            !trackProvider.TrySelectTrack(kind, index))
+        {
+            throw new NotSupportedException(
+                $"The active media provider cannot select {kind} track index {index}.");
+        }
+    }
+
     public void AddEffect(
         string activatableClassId,
         MediaEffectKind kind,
@@ -827,6 +886,27 @@ public sealed class MediaPlaybackEngine : IDisposable
             }
             AcceptEnded(generation);
         }
+    }
+
+    private void AcceptTracks(
+        long generation,
+        MediaPlaybackTracksSnapshot value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        MediaPlaybackTracksChangedEventArgs? change = null;
+        lock (_gate)
+        {
+            if (!IsCurrent(generation) ||
+                _tracks.ContentEquals(value))
+            {
+                return;
+            }
+
+            _tracks = value;
+            change =
+                new MediaPlaybackTracksChangedEventArgs(value);
+        }
+        TracksChanged?.Invoke(this, change);
     }
 
     private void AcceptOpened(
@@ -1257,6 +1337,7 @@ public sealed class MediaPlaybackEngine : IDisposable
             effects = [.. _activeEffects];
             _activeEffects.Clear();
             _snapshot = MediaPlaybackSnapshot.Empty;
+            _tracks = MediaPlaybackTracksSnapshot.Empty;
         }
 
         cancellation?.Cancel();
@@ -1288,6 +1369,10 @@ public sealed class MediaPlaybackEngine : IDisposable
 
         public void Update(in MediaPlaybackSnapshot snapshot) =>
             _owner.AcceptUpdate(_generation, snapshot);
+
+        public void UpdateTracks(
+            MediaPlaybackTracksSnapshot tracks) =>
+            _owner.AcceptTracks(_generation, tracks);
 
         public void Opened(in MediaPlaybackSnapshot snapshot) =>
             _owner.AcceptOpened(_generation, snapshot);

@@ -154,6 +154,18 @@ public static class MediaPlayerPage
         var spherical =
             new ToggleSwitch { Content = "360°" };
         var use3D = new ToggleSwitch { Content = "3D mesh" };
+        var audioTrack = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "No audio tracks"
+        };
+        var videoTrack = new ComboBox
+        {
+            Width = 280f,
+            PlaceholderText = "No video tracks"
+        };
+        MediaPlaybackItem? currentPlaybackItem = null;
+        bool updatingTrackSelection = false;
 
         var brightness = EffectSlider(-1d, 1d, 0d);
         var contrast = EffectSlider(0d, 2d, 1d);
@@ -255,6 +267,137 @@ public static class MediaPlayerPage
             audioBalanceFactory.Balance =
                 (float)audioBalance.Value;
 
+        void RefreshTrackSelectors()
+        {
+            updatingTrackSelection = true;
+            try
+            {
+                audioTrack.Items.Clear();
+                videoTrack.Items.Clear();
+                if (currentPlaybackItem is not { } item)
+                {
+                    audioTrack.SelectedItem = null;
+                    videoTrack.SelectedItem = null;
+                    return;
+                }
+
+                for (int index = 0;
+                     index < item.AudioTracks.Count;
+                     index++)
+                {
+                    AudioTrack track = item.AudioTracks[index];
+                    audioTrack.Items.Add(
+                        new ComboBoxItem
+                        {
+                            Text = TrackLabel(
+                                track.Name,
+                                track.Language,
+                                track.GetEncodingProperties()
+                                    .Subtype),
+                            Tag = index
+                        });
+                }
+                for (int index = 0;
+                     index < item.VideoTracks.Count;
+                     index++)
+                {
+                    VideoTrack track = item.VideoTracks[index];
+                    videoTrack.Items.Add(
+                        new ComboBoxItem
+                        {
+                            Text = TrackLabel(
+                                track.Name,
+                                track.Language,
+                                track.GetEncodingProperties()
+                                    .Subtype),
+                            Tag = index
+                        });
+                }
+
+                audioTrack.SelectedItem =
+                    item.AudioTracks.SelectedIndex >= 0 &&
+                    item.AudioTracks.SelectedIndex <
+                        audioTrack.Items.Count
+                        ? audioTrack.Items[
+                            item.AudioTracks.SelectedIndex]
+                        : null;
+                videoTrack.SelectedItem =
+                    item.VideoTracks.SelectedIndex >= 0 &&
+                    item.VideoTracks.SelectedIndex <
+                        videoTrack.Items.Count
+                        ? videoTrack.Items[
+                            item.VideoTracks.SelectedIndex]
+                        : null;
+            }
+            finally
+            {
+                updatingTrackSelection = false;
+            }
+        }
+
+        void OnTracksChanged(
+            MediaPlaybackItem sender,
+            IVectorChangedEventArgs args)
+        {
+            _ = sender;
+            _ = args;
+            RefreshTrackSelectors();
+        }
+
+        void OnSelectedTrackChanged(
+            ISingleSelectMediaTrackList sender,
+            object args)
+        {
+            _ = sender;
+            _ = args;
+            RefreshTrackSelectors();
+        }
+
+        audioTrack.SelectionChanged += (_, _) =>
+        {
+            if (updatingTrackSelection ||
+                currentPlaybackItem is not { } item ||
+                audioTrack.SelectedItem is not
+                    ComboBoxItem selected ||
+                selected.Tag is not int index)
+            {
+                return;
+            }
+            try
+            {
+                item.AudioTracks.SelectedIndex = index;
+            }
+            catch (Exception exception)
+            {
+                SetText(
+                    status,
+                    $"Audio track change failed: {exception.Message}");
+                RefreshTrackSelectors();
+            }
+        };
+        videoTrack.SelectionChanged += (_, _) =>
+        {
+            if (updatingTrackSelection ||
+                currentPlaybackItem is not { } item ||
+                videoTrack.SelectedItem is not
+                    ComboBoxItem selected ||
+                selected.Tag is not int index)
+            {
+                return;
+            }
+            try
+            {
+                item.VideoTracks.SelectedIndex = index;
+            }
+            catch (Exception exception)
+            {
+                SetText(
+                    status,
+                    $"Video track change failed: {exception.Message}");
+                RefreshTrackSelectors();
+            }
+        };
+
         void LoadSource(Uri source)
         {
             try
@@ -262,6 +405,27 @@ public static class MediaPlayerPage
                 SetText(status, $"Opening {source} …");
                 var item = new MediaPlaybackItem(
                     MediaSource.CreateFromUri(source));
+                if (currentPlaybackItem is not null)
+                {
+                    currentPlaybackItem.AudioTracksChanged -=
+                        OnTracksChanged;
+                    currentPlaybackItem.VideoTracksChanged -=
+                        OnTracksChanged;
+                    currentPlaybackItem.AudioTracks
+                        .SelectedIndexChanged -=
+                            OnSelectedTrackChanged;
+                    currentPlaybackItem.VideoTracks
+                        .SelectedIndexChanged -=
+                            OnSelectedTrackChanged;
+                }
+                currentPlaybackItem = item;
+                item.AudioTracksChanged += OnTracksChanged;
+                item.VideoTracksChanged += OnTracksChanged;
+                item.AudioTracks.SelectedIndexChanged +=
+                    OnSelectedTrackChanged;
+                item.VideoTracks.SelectedIndexChanged +=
+                    OnSelectedTrackChanged;
+                RefreshTrackSelectors();
                 MediaItemDisplayProperties display =
                     item.GetDisplayProperties();
                 display.Type = MediaPlaybackType.Video;
@@ -475,6 +639,10 @@ public static class MediaPlayerPage
             sphericalFieldOfView);
         effects.AddChild(Text(
             "Native decoded-audio callback (optional by provider)"));
+        effects.AddChild(Text("Native audio track"));
+        effects.AddChild(audioTrack);
+        effects.AddChild(Text("Native video track"));
+        effects.AddChild(videoTrack);
         AddEffect(effects, "Audio gain", audioGain);
         AddEffect(
             effects,
@@ -494,6 +662,20 @@ public static class MediaPlayerPage
                 s_benchmarkPlayer = null;
             }
             mediaMaterial.Dispose();
+            if (currentPlaybackItem is not null)
+            {
+                currentPlaybackItem.AudioTracksChanged -=
+                    OnTracksChanged;
+                currentPlaybackItem.VideoTracksChanged -=
+                    OnTracksChanged;
+                currentPlaybackItem.AudioTracks
+                    .SelectedIndexChanged -=
+                        OnSelectedTrackChanged;
+                currentPlaybackItem.VideoTracks
+                    .SelectedIndexChanged -=
+                        OnSelectedTrackChanged;
+                currentPlaybackItem = null;
+            }
             player.Dispose();
             audioBalanceRegistration.Dispose();
             audioGainRegistration.Dispose();
@@ -590,6 +772,25 @@ public static class MediaPlayerPage
     {
         panel.AddChild(Text(label));
         panel.AddChild(slider);
+    }
+
+    private static string TrackLabel(
+        string name,
+        string language,
+        string subtype)
+    {
+        string label = string.IsNullOrWhiteSpace(name)
+            ? "Unnamed track"
+            : name;
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            label += $" · {language}";
+        }
+        if (!string.IsNullOrWhiteSpace(subtype))
+        {
+            label += $" · {subtype}";
+        }
+        return label;
     }
 
     private static RichTextBlock Header(string value)

@@ -134,7 +134,8 @@ public sealed class AndroidMediaPlaybackProviderFactory :
 /// </summary>
 internal sealed class AndroidMediaPlaybackProvider :
     IMediaPlaybackProvider,
-    IMediaPlaybackConfigurationProvider
+    IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTrackProvider
 {
     private const int ImageRingSize = 3;
     private const string ImportDiagnostic =
@@ -160,6 +161,10 @@ internal sealed class AndroidMediaPlaybackProvider :
     private ImageReader? _imageReader;
     private MediaPlaybackSnapshot _snapshot =
         MediaPlaybackSnapshot.Empty;
+    private MediaPlaybackTracksSnapshot _tracks =
+        MediaPlaybackTracksSnapshot.Empty;
+    private int[] _audioTrackNativeIndices = [];
+    private int[] _videoTrackNativeIndices = [];
     private double _volume = 1d;
     private double _balance;
     private double _rate = 1d;
@@ -299,6 +304,68 @@ internal sealed class AndroidMediaPlaybackProvider :
 
     public bool StepForwardOneFrame() => false;
     public bool StepBackwardOneFrame() => false;
+
+    public bool TrySelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        if (kind is not (
+                MediaPlaybackTrackKind.Audio or
+                MediaPlaybackTrackKind.Video))
+        {
+            return false;
+        }
+
+        int[] nativeIndices = kind ==
+            MediaPlaybackTrackKind.Audio
+                ? Volatile.Read(
+                    ref _audioTrackNativeIndices)
+                : Volatile.Read(
+                    ref _videoTrackNativeIndices);
+        if (index < -1 || index >= nativeIndices.Length)
+        {
+            return false;
+        }
+        if (kind == MediaPlaybackTrackKind.Video)
+        {
+            // Android MediaPlayer exposes video tracks but its documented
+            // SelectTrack contract supports audio and text selection only.
+            return false;
+        }
+
+        Post(() =>
+        {
+            if (_player is not { } player)
+            {
+                return;
+            }
+            try
+            {
+                if (index < 0)
+                {
+                    int selected = player.GetSelectedTrack(
+                        MediaTrackType.Audio);
+                    if (selected >= 0)
+                    {
+                        player.DeselectTrack(selected);
+                    }
+                }
+                else
+                {
+                    player.SelectTrack(nativeIndices[index]);
+                }
+                PublishTracks(player);
+            }
+            catch (Exception exception)
+            {
+                _sink.Failed(
+                    MediaPlaybackFailure.Decode,
+                    $"Android could not select audio track {index}: {exception.Message}",
+                    exception);
+            }
+        });
+        return true;
+    }
 
     public void AddEffect(IMediaEffect effect, bool optional)
     {
@@ -509,6 +576,7 @@ internal sealed class AndroidMediaPlaybackProvider :
             BufferingProgress = 1d
         };
         Volatile.Write(ref _openedFlag, 1);
+        PublishTracks(player);
         _sink.Opened(in _snapshot);
         PublishDiagnostics(ImportDiagnostic);
         _opened.TrySetResult();
@@ -662,6 +730,148 @@ internal sealed class AndroidMediaPlaybackProvider :
             image?.Close();
             image?.Dispose();
         }
+    }
+
+    private void PublishTracks(
+        global::Android.Media.MediaPlayer player)
+    {
+        global::Android.Media.MediaPlayer.TrackInfo[] trackInfo =
+            player.GetTrackInfo() ?? [];
+        var audio =
+            new List<MediaPlaybackTrackDescriptor>();
+        var video =
+            new List<MediaPlaybackTrackDescriptor>();
+        var audioNative = new List<int>();
+        var videoNative = new List<int>();
+        try
+        {
+            for (int nativeIndex = 0;
+                 nativeIndex < trackInfo.Length;
+                 nativeIndex++)
+            {
+                global::Android.Media.MediaPlayer.TrackInfo info =
+                    trackInfo[nativeIndex];
+                MediaTrackType trackType = info.TrackType;
+                MediaPlaybackTrackKind kind;
+                List<MediaPlaybackTrackDescriptor> destination;
+                List<int> nativeDestination;
+                if (trackType == MediaTrackType.Audio)
+                {
+                    kind = MediaPlaybackTrackKind.Audio;
+                    destination = audio;
+                    nativeDestination = audioNative;
+                }
+                else if (trackType == MediaTrackType.Video)
+                {
+                    kind = MediaPlaybackTrackKind.Video;
+                    destination = video;
+                    nativeDestination = videoNative;
+                }
+                else
+                {
+                    continue;
+                }
+
+                MediaFormat? format = info.Format;
+                string language = info.Language ?? string.Empty;
+                uint frameRate =
+                    ReadFormatUInt(format, MediaFormat.KeyFrameRate);
+                destination.Add(
+                    new MediaPlaybackTrackDescriptor(
+                        $"android:{nativeIndex}",
+                        kind,
+                        kind == MediaPlaybackTrackKind.Audio
+                            ? $"Audio {destination.Count + 1}"
+                            : $"Video {destination.Count + 1}",
+                        language,
+                        language,
+                        new MediaPlaybackTrackEncoding(
+                            Subtype:
+                                ReadFormatString(
+                                    format,
+                                    MediaFormat.KeyMime),
+                            Bitrate:
+                                ReadFormatUInt(
+                                    format,
+                                    MediaFormat.KeyBitRate),
+                            Width:
+                                ReadFormatUInt(
+                                    format,
+                                    MediaFormat.KeyWidth),
+                            Height:
+                                ReadFormatUInt(
+                                    format,
+                                    MediaFormat.KeyHeight),
+                            FrameRateNumerator: frameRate,
+                            FrameRateDenominator:
+                                frameRate == 0 ? 0u : 1u,
+                            SampleRate:
+                                ReadFormatUInt(
+                                    format,
+                                    MediaFormat.KeySampleRate),
+                            ChannelCount:
+                                ReadFormatUInt(
+                                    format,
+                                    MediaFormat.KeyChannelCount)),
+                        MediaPlaybackTrackSupport.Supported));
+                nativeDestination.Add(nativeIndex);
+            }
+        }
+        finally
+        {
+            for (int index = 0;
+                 index < trackInfo.Length;
+                 index++)
+            {
+                trackInfo[index]?.Dispose();
+            }
+        }
+
+        int selectedAudioNative = player.GetSelectedTrack(
+            MediaTrackType.Audio);
+        int selectedVideoNative = player.GetSelectedTrack(
+            MediaTrackType.Video);
+        int selectedAudio =
+            audioNative.IndexOf(selectedAudioNative);
+        int selectedVideo =
+            videoNative.IndexOf(selectedVideoNative);
+        int[] audioIndices = audioNative.ToArray();
+        int[] videoIndices = videoNative.ToArray();
+        Volatile.Write(
+            ref _audioTrackNativeIndices,
+            audioIndices);
+        Volatile.Write(
+            ref _videoTrackNativeIndices,
+            videoIndices);
+        _tracks = new MediaPlaybackTracksSnapshot(
+            audio,
+            selectedAudio,
+            video,
+            selectedVideo);
+        _sink.UpdateTracks(_tracks);
+    }
+
+    private static string ReadFormatString(
+        MediaFormat? format,
+        string key)
+    {
+        if (format is null || !format.ContainsKey(key))
+        {
+            return string.Empty;
+        }
+        return format.GetString(key) ?? string.Empty;
+    }
+
+    private static uint ReadFormatUInt(
+        MediaFormat? format,
+        string key)
+    {
+        if (format is null || !format.ContainsKey(key))
+        {
+            return 0;
+        }
+        int value = format.GetInteger(key);
+        return value <= 0 ? 0u : checked((uint)value);
     }
 
     private void PublishSnapshot()

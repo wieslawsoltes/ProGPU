@@ -123,7 +123,8 @@ public sealed class AppleMediaPlaybackProviderFactory :
 /// </summary>
 internal sealed class AppleMediaPlaybackProvider :
     IMediaPlaybackProvider,
-    IMediaPlaybackConfigurationProvider
+    IMediaPlaybackConfigurationProvider,
+    IMediaPlaybackTrackProvider
 {
     private const int MediaTimeScale = 600;
     private static readonly CMTime s_observerInterval =
@@ -324,6 +325,7 @@ internal sealed class AppleMediaPlaybackProvider :
                 Volatile.Write(ref _opened, 1);
             }
 
+            _sink.UpdateTracks(CaptureTracks(item: _item!));
             _sink.Opened(in _snapshot);
             PublishDiagnostics(
                 "IOSurface import is zero-copy only when the active WebGPU context exposes Dawn shared-texture-memory IOSurface support.");
@@ -485,6 +487,67 @@ internal sealed class AppleMediaPlaybackProvider :
 
     public bool StepForwardOneFrame() => StepFrame(1);
     public bool StepBackwardOneFrame() => StepFrame(-1);
+
+    public bool TrySelectTrack(
+        MediaPlaybackTrackKind kind,
+        int index)
+    {
+        if (kind is not (
+                MediaPlaybackTrackKind.Audio or
+                MediaPlaybackTrackKind.Video))
+        {
+            return false;
+        }
+
+        MediaPlaybackTracksSnapshot snapshot;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_item is not { } item)
+            {
+                return false;
+            }
+
+            AVMediaTypes mediaType = kind ==
+                MediaPlaybackTrackKind.Audio
+                    ? AVMediaTypes.Audio
+                    : AVMediaTypes.Video;
+            HashSet<int> trackIds = item.Asset
+                .GetTracks(mediaType)
+                .Select(static track => track.TrackID)
+                .ToHashSet();
+            AVPlayerItemTrack[] itemTracks = item.Tracks;
+            int localIndex = 0;
+            bool found = index == -1;
+            for (int nativeIndex = 0;
+                 nativeIndex < itemTracks.Length;
+                 nativeIndex++)
+            {
+                AVPlayerItemTrack itemTrack =
+                    itemTracks[nativeIndex];
+                AVAssetTrack? assetTrack =
+                    itemTrack.AssetTrack;
+                if (assetTrack is null ||
+                    !trackIds.Contains(assetTrack.TrackID))
+                {
+                    continue;
+                }
+
+                bool enabled = localIndex == index;
+                itemTrack.Enabled = enabled;
+                found |= enabled;
+                localIndex++;
+            }
+            if (!found)
+            {
+                return false;
+            }
+            snapshot = CaptureTracks(item);
+        }
+
+        _sink.UpdateTracks(snapshot);
+        return true;
+    }
 
     public void AddEffect(IMediaEffect effect, bool optional)
     {
@@ -679,6 +742,112 @@ internal sealed class AppleMediaPlaybackProvider :
         {
             Volatile.Write(ref _endSignaled, 0);
         }
+    }
+
+    private static MediaPlaybackTracksSnapshot CaptureTracks(
+        AVPlayerItem item)
+    {
+        AVPlayerItemTrack[] itemTracks = item.Tracks;
+        HashSet<int> audioTrackIds = item.Asset
+            .GetTracks(AVMediaTypes.Audio)
+            .Select(static track => track.TrackID)
+            .ToHashSet();
+        HashSet<int> videoTrackIds = item.Asset
+            .GetTracks(AVMediaTypes.Video)
+            .Select(static track => track.TrackID)
+            .ToHashSet();
+        var audio =
+            new List<MediaPlaybackTrackDescriptor>();
+        var video =
+            new List<MediaPlaybackTrackDescriptor>();
+        int selectedAudio = -1;
+        int selectedVideo = -1;
+
+        for (int nativeIndex = 0;
+             nativeIndex < itemTracks.Length;
+             nativeIndex++)
+        {
+            AVPlayerItemTrack itemTrack =
+                itemTracks[nativeIndex];
+            AVAssetTrack? assetTrack =
+                itemTrack.AssetTrack;
+            if (assetTrack is null)
+            {
+                continue;
+            }
+
+            MediaPlaybackTrackKind kind;
+            List<MediaPlaybackTrackDescriptor> destination;
+            if (audioTrackIds.Contains(assetTrack.TrackID))
+            {
+                kind = MediaPlaybackTrackKind.Audio;
+                destination = audio;
+                if (itemTrack.Enabled && selectedAudio < 0)
+                {
+                    selectedAudio = destination.Count;
+                }
+            }
+            else if (videoTrackIds.Contains(assetTrack.TrackID))
+            {
+                kind = MediaPlaybackTrackKind.Video;
+                destination = video;
+                if (itemTrack.Enabled && selectedVideo < 0)
+                {
+                    selectedVideo = destination.Count;
+                }
+            }
+            else
+            {
+                continue;
+            }
+
+            uint width = kind == MediaPlaybackTrackKind.Video
+                ? ToDimension(assetTrack.NaturalSize.Width)
+                : 0;
+            uint height = kind == MediaPlaybackTrackKind.Video
+                ? ToDimension(assetTrack.NaturalSize.Height)
+                : 0;
+            float nominalFrameRate =
+                assetTrack.NominalFrameRate;
+            uint frameRate = nominalFrameRate > 0f
+                ? checked((uint)Math.Round(nominalFrameRate))
+                : 0;
+            uint bitrate = assetTrack.EstimatedDataRate > 0d
+                ? checked((uint)Math.Min(
+                    uint.MaxValue,
+                    Math.Round(assetTrack.EstimatedDataRate)))
+                : 0;
+            string language =
+                assetTrack.ExtendedLanguageTag ??
+                assetTrack.LanguageCode ??
+                string.Empty;
+            string name = kind ==
+                MediaPlaybackTrackKind.Audio
+                    ? $"Audio {destination.Count + 1}"
+                    : $"Video {destination.Count + 1}";
+            destination.Add(
+                new MediaPlaybackTrackDescriptor(
+                    $"avfoundation:{assetTrack.TrackID}",
+                    kind,
+                    name,
+                    language,
+                    language,
+                    new MediaPlaybackTrackEncoding(
+                        Subtype: string.Empty,
+                        Bitrate: bitrate,
+                        Width: width,
+                        Height: height,
+                        FrameRateNumerator: frameRate,
+                        FrameRateDenominator:
+                            frameRate == 0 ? 0u : 1u),
+                    MediaPlaybackTrackSupport.Supported));
+        }
+
+        return new MediaPlaybackTracksSnapshot(
+            audio,
+            selectedAudio,
+            video,
+            selectedVideo);
     }
 
     private void PresentPixelBuffer(

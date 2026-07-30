@@ -33,6 +33,263 @@ namespace ProGPU.Tests;
 public sealed class MediaPlaybackEngineTests
 {
     [Fact]
+    public void PlaybackTrackApiUsesOfficialWinUiShape()
+    {
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(AudioTrack).Namespace);
+        Assert.Equal(
+            "Windows.Media.Core",
+            typeof(VideoTrack).Namespace);
+        Assert.Equal(
+            "Windows.Media.Playback",
+            typeof(MediaPlaybackAudioTrackList).Namespace);
+        Assert.Equal(
+            typeof(IReadOnlyList<AudioTrack>),
+            Assert.Single(
+                typeof(MediaPlaybackAudioTrackList)
+                    .GetInterfaces(),
+                static type =>
+                    type == typeof(
+                        IReadOnlyList<AudioTrack>)));
+        Assert.Contains(
+            typeof(ISingleSelectMediaTrackList),
+            typeof(MediaPlaybackVideoTrackList)
+                .GetInterfaces());
+        Assert.Equal(
+            typeof(MediaPlaybackAudioTrackList),
+            typeof(MediaPlaybackItem)
+                .GetProperty(
+                    nameof(MediaPlaybackItem.AudioTracks))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(Windows.Foundation.TypedEventHandler<
+                MediaPlaybackItem,
+                IVectorChangedEventArgs>),
+            typeof(MediaPlaybackItem)
+                .GetEvent(
+                    nameof(
+                        MediaPlaybackItem
+                            .AudioTracksChanged))!
+                .EventHandlerType);
+        Assert.Equal(0, (int)MediaTrackKind.Audio);
+        Assert.Equal(1, (int)MediaTrackKind.Video);
+        Assert.Equal(2, (int)MediaTrackKind.TimedMetadata);
+    }
+
+    [Fact]
+    public void PlaybackItemProjectsProviderTracksAndSelection()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource source =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/tracks.mp4"));
+        var item = new MediaPlaybackItem(source);
+        var audioChanges =
+            new List<(CollectionChange Change, uint Index)>();
+        int selectedChanges = 0;
+        item.AudioTracksChanged +=
+            (_, args) =>
+                audioChanges.Add(
+                    (args.CollectionChange, args.Index));
+        item.AudioTracks.SelectedIndexChanged +=
+            (_, _) => selectedChanges++;
+
+        player.Source = item;
+
+        RecordingProvider provider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.Equal(2, item.AudioTracks.Count);
+        Assert.Equal(2u, item.AudioTracks.Size);
+        Assert.Single(item.VideoTracks);
+        Assert.Equal(0, item.AudioTracks.SelectedIndex);
+        Assert.Equal(0, item.VideoTracks.SelectedIndex);
+        Assert.Equal(
+            [
+                (CollectionChange.ItemInserted, 0u),
+                (CollectionChange.ItemInserted, 1u)
+            ],
+            audioChanges);
+
+        AudioTrack english = item.AudioTracks.GetAt(0);
+        AudioTrack polish = item.AudioTracks[1];
+        Assert.Same(item, english.PlaybackItem);
+        Assert.Equal(MediaTrackKind.Audio, english.TrackKind);
+        Assert.Equal("audio-en", english.Id);
+        Assert.Equal("en-US", english.Language);
+        Assert.Equal(
+            MediaDecoderStatus.FullySupported,
+            english.SupportInfo.DecoderStatus);
+        AudioEncodingProperties audioEncoding =
+            english.GetEncodingProperties();
+        Assert.Equal("AAC", audioEncoding.Subtype);
+        Assert.Equal(48_000u, audioEncoding.SampleRate);
+        Assert.Equal(2u, audioEncoding.ChannelCount);
+        Assert.True(
+            item.AudioTracks.IndexOf(
+                polish,
+                out uint polishIndex));
+        Assert.Equal(1u, polishIndex);
+        var copied = new AudioTrack[2];
+        Assert.Equal(
+            2u,
+            item.AudioTracks.GetMany(0, copied));
+        Assert.Same(english, copied[0]);
+        Assert.Same(polish, copied[1]);
+
+        english.Label = "Commentary";
+        int membershipChanges = audioChanges.Count;
+        item.AudioTracks.SelectedIndex = 1;
+
+        Assert.Equal(1, provider.TrackSelectionCalls);
+        Assert.Equal(
+            MediaPlaybackTrackKind.Audio,
+            provider.LastSelectedTrackKind);
+        Assert.Equal(1, provider.LastSelectedTrackIndex);
+        Assert.Equal(1, item.AudioTracks.SelectedIndex);
+        Assert.Equal(2, selectedChanges);
+        Assert.Equal(membershipChanges, audioChanges.Count);
+        Assert.Same(english, item.AudioTracks[0]);
+        Assert.Equal("Commentary", item.AudioTracks[0].Label);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => item.AudioTracks.SelectedIndex = 2);
+
+        VideoTrack video = item.VideoTracks[0];
+        VideoEncodingProperties videoEncoding =
+            video.GetEncodingProperties();
+        Assert.Equal("H264", videoEncoding.Subtype);
+        Assert.Equal(1920u, videoEncoding.Width);
+        Assert.Equal(1080u, videoEncoding.Height);
+        Assert.Equal(30u, videoEncoding.FrameRate.Numerator);
+        Assert.Equal(1u, videoEncoding.FrameRate.Denominator);
+    }
+
+    [Fact]
+    public async Task
+        PlaybackEnginePublishesImmutableTrackSnapshots()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        using var engine = new MediaPlaybackEngine(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSourceDescriptor source =
+            MediaSourceDescriptor.FromUri(
+                new Uri(
+                    "https://example.invalid/engine-tracks.mp4"));
+        var snapshots =
+            new List<MediaPlaybackTracksSnapshot>();
+        engine.TracksChanged +=
+            (_, args) => snapshots.Add(args.Tracks);
+
+        await engine.SetSourceAsync(source);
+
+        Assert.Equal(2, engine.Tracks.AudioTracks.Count);
+        Assert.Equal(
+            "audio-en",
+            engine.Tracks.AudioTracks[0].ProviderTrackId);
+        Assert.Equal(2, snapshots.Count);
+        Assert.Empty(snapshots[0].AudioTracks);
+        Assert.Equal(2, snapshots[1].AudioTracks.Count);
+
+        engine.SelectTrack(
+            MediaPlaybackTrackKind.Audio,
+            1);
+
+        Assert.Equal(
+            1,
+            engine.Tracks.SelectedAudioTrackIndex);
+        Assert.Equal(3, snapshots.Count);
+        Assert.Throws<NotSupportedException>(
+            () => engine.SelectTrack(
+                MediaPlaybackTrackKind.TimedMetadata,
+                -1));
+
+        RecordingProvider firstProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        using MediaSourceDescriptor replacement =
+            MediaSourceDescriptor.FromUri(
+                new Uri(
+                    "https://example.invalid/replacement-tracks.mp4"));
+        await engine.SetSourceAsync(replacement);
+        RecordingProvider replacementProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.NotSame(firstProvider, replacementProvider);
+
+        firstProvider.ReportTracks(
+            MediaPlaybackTracksSnapshot.Empty);
+
+        Assert.Equal(2, engine.Tracks.AudioTracks.Count);
+        Assert.Equal(
+            "audio-en",
+            engine.Tracks.AudioTracks[0].ProviderTrackId);
+
+        await engine.SetSourceAsync(null);
+        Assert.Empty(engine.Tracks.AudioTracks);
+        Assert.Equal(-1, engine.Tracks.SelectedAudioTrackIndex);
+    }
+
+    [Fact]
+    public void PlaybackTrackSelectionFollowsCurrentItemLifetime()
+    {
+        var registry = new MediaProviderRegistry();
+        var factory =
+            new RecordingProviderFactory(priority: 10);
+        using IDisposable registration =
+            registry.Register(factory);
+        var player = new MediaPlayer(
+            registry,
+            new MediaEffectRegistry());
+        using MediaSource firstSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/first-tracks.mp4"));
+        using MediaSource secondSource =
+            MediaSource.CreateFromUri(
+                new Uri(
+                    "https://example.invalid/second-tracks.mp4"));
+        var firstItem = new MediaPlaybackItem(firstSource);
+        var secondItem = new MediaPlaybackItem(secondSource);
+
+        player.Source = firstItem;
+        RecordingProvider firstProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        firstItem.AudioTracks.SelectedIndex = 1;
+        Assert.Equal(1, firstProvider.TrackSelectionCalls);
+
+        player.Source = secondItem;
+        RecordingProvider secondProvider =
+            Assert.IsType<RecordingProvider>(
+                factory.LastProvider);
+        Assert.NotSame(firstProvider, secondProvider);
+
+        firstItem.AudioTracks.SelectedIndex = 0;
+        Assert.Equal(0, secondProvider.TrackSelectionCalls);
+
+        secondItem.AudioTracks.SelectedIndex = 1;
+        Assert.Equal(1, secondProvider.TrackSelectionCalls);
+
+        player.Dispose();
+        secondItem.AudioTracks.SelectedIndex = 0;
+        Assert.Equal(1, secondProvider.TrackSelectionCalls);
+    }
+
+    [Fact]
     public void PlaybackItemDisplayMetadataUsesOfficialWinUiTypes()
     {
         Assert.Equal(
@@ -4005,10 +4262,15 @@ public sealed class MediaPlaybackEngineTests
 
     private sealed class RecordingProvider :
         IMediaPlaybackProvider,
-        IMediaPlaybackConfigurationProvider
+        IMediaPlaybackConfigurationProvider,
+        IMediaPlaybackTrackProvider
     {
         private readonly IMediaPlaybackSink _sink;
         private readonly Func<IMediaGpuFrame>? _frameFactory;
+        private MediaPlaybackTracksSnapshot _tracks =
+            CreateTracks(
+                selectedAudioTrackIndex: 0,
+                selectedVideoTrackIndex: 0);
 
         public RecordingProvider(
             IMediaPlaybackSink sink,
@@ -4030,6 +4292,13 @@ public sealed class MediaPlaybackEngineTests
         public int AddEffectCalls { get; private set; }
         public bool LastEffectOptional { get; private set; }
         public int RemoveAllEffectsCalls { get; private set; }
+        public int TrackSelectionCalls { get; private set; }
+        public MediaPlaybackTrackKind LastSelectedTrackKind
+        {
+            get;
+            private set;
+        }
+        public int LastSelectedTrackIndex { get; private set; } = -1;
         public MediaPlaybackConfiguration Configuration
         {
             get;
@@ -4040,6 +4309,7 @@ public sealed class MediaPlaybackEngineTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _sink.UpdateTracks(_tracks);
             _sink.Opened(new MediaPlaybackSnapshot(
                 MediaEnginePlaybackState.Paused,
                 TimeSpan.Zero,
@@ -4096,6 +4366,27 @@ public sealed class MediaPlaybackEngineTests
         public void SetLooping(bool enabled) => Looping = enabled;
         public bool StepForwardOneFrame() => true;
         public bool StepBackwardOneFrame() => true;
+        public bool TrySelectTrack(
+            MediaPlaybackTrackKind kind,
+            int index)
+        {
+            IReadOnlyList<MediaPlaybackTrackDescriptor> tracks =
+                _tracks.GetTracks(kind);
+            if (kind is not (
+                    MediaPlaybackTrackKind.Audio or
+                    MediaPlaybackTrackKind.Video) ||
+                index < -1 ||
+                index >= tracks.Count)
+            {
+                return false;
+            }
+            TrackSelectionCalls++;
+            LastSelectedTrackKind = kind;
+            LastSelectedTrackIndex = index;
+            _tracks = _tracks.WithSelectedIndex(kind, index);
+            _sink.UpdateTracks(_tracks);
+            return true;
+        }
         public void AddEffect(IMediaEffect effect, bool optional)
         {
             AddEffectCalls++;
@@ -4109,8 +4400,60 @@ public sealed class MediaPlaybackEngineTests
             Configuration = configuration;
         public void Report(MediaPlaybackSnapshot snapshot) =>
             _sink.Update(in snapshot);
+        public void ReportTracks(
+            MediaPlaybackTracksSnapshot tracks) =>
+            _sink.UpdateTracks(tracks);
         public void ReportEnded() => _sink.Ended();
         public void Dispose() { }
+
+        private static MediaPlaybackTracksSnapshot CreateTracks(
+            int selectedAudioTrackIndex,
+            int selectedVideoTrackIndex) =>
+            new(
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "audio-en",
+                        MediaPlaybackTrackKind.Audio,
+                        "English",
+                        "English",
+                        "en-US",
+                        new MediaPlaybackTrackEncoding(
+                            "AAC",
+                            Bitrate: 192_000,
+                            SampleRate: 48_000,
+                            ChannelCount: 2),
+                        MediaPlaybackTrackSupport.Supported),
+                    new MediaPlaybackTrackDescriptor(
+                        "audio-pl",
+                        MediaPlaybackTrackKind.Audio,
+                        "Polish",
+                        "Polski",
+                        "pl-PL",
+                        new MediaPlaybackTrackEncoding(
+                            "AAC",
+                            Bitrate: 128_000,
+                            SampleRate: 48_000,
+                            ChannelCount: 2),
+                        MediaPlaybackTrackSupport.Supported)
+                ],
+                selectedAudioTrackIndex,
+                [
+                    new MediaPlaybackTrackDescriptor(
+                        "video-main",
+                        MediaPlaybackTrackKind.Video,
+                        "Main video",
+                        "Main",
+                        string.Empty,
+                        new MediaPlaybackTrackEncoding(
+                            "H264",
+                            Bitrate: 5_000_000,
+                            Width: 1920,
+                            Height: 1080,
+                            FrameRateNumerator: 30,
+                            FrameRateDenominator: 1),
+                        MediaPlaybackTrackSupport.Supported)
+                ],
+                selectedVideoTrackIndex);
     }
 
     private sealed class RecordingEffectFactory :

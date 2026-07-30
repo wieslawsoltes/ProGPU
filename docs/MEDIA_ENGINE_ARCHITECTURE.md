@@ -1010,6 +1010,47 @@ cursor. The sample player exercises the same item metadata path before native
 playback. Automatic embedded-tag extraction and platform SMTC publication are
 not fabricated where a host has no system transport service; the public
 contracts remain typed extension points for those hosts.
+`MediaPlaybackItem.AudioTracks` and `VideoTracks` expose the official
+read-only
+[`MediaPlaybackAudioTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackaudiotracklist)
+and
+[`MediaPlaybackVideoTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.playback.mediaplaybackvideotracklist)
+projections, including `Size`, `GetAt`, `GetMany`, `IndexOf`,
+`ISingleSelectMediaTrackList.SelectedIndex`, and the documented selected-index
+event. Provider-neutral immutable descriptors carry stable native IDs,
+language, label/name, encoding facts, and decoder support. An open or changed
+provider snapshot updates membership first and publishes typed
+`IVectorChangedEventArgs`; selection-only updates preserve the existing
+`AudioTrack`/`VideoTrack` object identities and caller-edited labels. Source
+replacement resets the active item's engine snapshot, and item-to-player
+selection subscriptions detach when the current item changes or the player is
+disposed, preventing a stale item from selecting tracks on a later provider.
+Publication is O(T) time and storage for T tracks and does not enter the
+per-frame playback path. The shared GPU Media Player sample presents the
+reported audio/video tracks in selectors and drives the same official
+`SelectedIndex` properties used by applications.
+
+This track design adopts the public WinUI
+[`AudioTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.audiotrack),
+[`VideoTrack`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.videotrack),
+and
+[`ISingleSelectMediaTrackList`](https://learn.microsoft.com/en-us/uwp/api/windows.media.core.isingleselectmediatracklist)
+contracts. Apple enumeration and switching use the public
+[`AVPlayerItem.tracks`](https://developer.apple.com/documentation/avfoundation/avplayeritem/tracks)
+and
+[`AVPlayerItemTrack.isEnabled`](https://developer.apple.com/documentation/avfoundation/avplayeritemtrack/isenabled)
+state. Android uses
+[`MediaPlayer.getTrackInfo`](https://developer.android.com/reference/android/media/MediaPlayer#getTrackInfo())
+and the documented
+[`selectTrack`](https://developer.android.com/reference/android/media/MediaPlayer#selectTrack(int))
+audio lane; Android's contract does not promise video selection, so alternate
+video selection is rejected rather than simulated. Linux publishes the
+ISO-BMFF tracks parsed by its bounded sample-table reader and marks only the
+currently executable V4L2/PipeWire lane selected. Windows Media Engine and
+browser HTML media currently publish their active audio/video stream facts;
+enumerating and switching every alternate stream remains pending until their
+typed native stream-selection lanes are implemented. No provider claims
+multi-track selection from only a `HasAudio`/`HasVideo` probe.
 The editing
 facade implements ordered clips, independent delayed background
 audio, ordered overlay layers, positioned/delayed/opacity-controlled overlay

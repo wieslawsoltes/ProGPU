@@ -474,6 +474,12 @@ internal sealed class WindowsMediaPlaybackProvider :
                     HardwareDecoded: true,
                     HasAudio: hasAudio,
                     HasVideo: hasVideo));
+            _sink.UpdateTracks(
+                CreateDefaultTrackSnapshot(
+                    hasAudio,
+                    hasVideo,
+                    width,
+                    height));
             _sink.Opened(in _snapshot);
             PublishDiagnostics(TransferDiagnostic);
             _opened.TrySetResult();
@@ -536,6 +542,49 @@ internal sealed class WindowsMediaPlaybackProvider :
             ProcessNativeEvents(engine, ref unusedPool);
             _stop.Wait(5);
         }
+    }
+
+    private static MediaPlaybackTracksSnapshot
+        CreateDefaultTrackSnapshot(
+            bool hasAudio,
+            bool hasVideo,
+            uint width,
+            uint height)
+    {
+        MediaPlaybackTrackDescriptor[] audio = hasAudio
+            ?
+            [
+                new MediaPlaybackTrackDescriptor(
+                    "mediafoundation:audio:0",
+                    MediaPlaybackTrackKind.Audio,
+                    "Audio 1",
+                    string.Empty,
+                    string.Empty,
+                    MediaPlaybackTrackEncoding.Empty,
+                    MediaPlaybackTrackSupport.Supported)
+            ]
+            : [];
+        MediaPlaybackTrackDescriptor[] video = hasVideo
+            ?
+            [
+                new MediaPlaybackTrackDescriptor(
+                    "mediafoundation:video:0",
+                    MediaPlaybackTrackKind.Video,
+                    "Video 1",
+                    string.Empty,
+                    string.Empty,
+                    new MediaPlaybackTrackEncoding(
+                        string.Empty,
+                        Width: width,
+                        Height: height),
+                    MediaPlaybackTrackSupport.Supported)
+            ]
+            : [];
+        return new MediaPlaybackTracksSnapshot(
+            audio,
+            hasAudio ? 0 : -1,
+            video,
+            hasVideo ? 0 : -1);
     }
 
     private void RunPlaybackLoop(

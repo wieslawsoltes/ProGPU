@@ -228,6 +228,12 @@ internal sealed partial class BrowserMediaPlaybackProvider :
                     _hasPendingSeek = false;
                 }
             }
+            _sink.UpdateTracks(
+                CreateDefaultTrackSnapshot(
+                    capabilities.HasAudio,
+                    capabilities.HasVideo,
+                    width,
+                    height));
             _sink.Opened(in _snapshot);
             _sink.UpdateDiagnostics(
                 new MediaProviderDiagnostics(
@@ -588,6 +594,49 @@ internal sealed partial class BrowserMediaPlaybackProvider :
         double.IsFinite(value) && value > 0d
             ? TimeSpan.FromSeconds(value)
             : TimeSpan.Zero;
+
+    private static MediaPlaybackTracksSnapshot
+        CreateDefaultTrackSnapshot(
+            bool hasAudio,
+            bool hasVideo,
+            uint width,
+            uint height)
+    {
+        MediaPlaybackTrackDescriptor[] audio = hasAudio
+            ?
+            [
+                new MediaPlaybackTrackDescriptor(
+                    "htmlmedia:audio:0",
+                    MediaPlaybackTrackKind.Audio,
+                    "Audio 1",
+                    string.Empty,
+                    string.Empty,
+                    MediaPlaybackTrackEncoding.Empty,
+                    MediaPlaybackTrackSupport.Unknown)
+            ]
+            : [];
+        MediaPlaybackTrackDescriptor[] video = hasVideo
+            ?
+            [
+                new MediaPlaybackTrackDescriptor(
+                    "htmlmedia:video:0",
+                    MediaPlaybackTrackKind.Video,
+                    "Video 1",
+                    string.Empty,
+                    string.Empty,
+                    new MediaPlaybackTrackEncoding(
+                        string.Empty,
+                        Width: width,
+                        Height: height),
+                    MediaPlaybackTrackSupport.Unknown)
+            ]
+            : [];
+        return new MediaPlaybackTracksSnapshot(
+            audio,
+            hasAudio ? 0 : -1,
+            video,
+            hasVideo ? 0 : -1);
+    }
 
     private void OnAudioEffectStateChanged(
         AudioGraphEffectBinding binding)

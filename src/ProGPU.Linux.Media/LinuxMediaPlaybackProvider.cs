@@ -650,6 +650,12 @@ internal sealed class LinuxMediaPlaybackProvider :
             }
             MediaPlaybackSnapshot opened =
                 Snapshot();
+            _sink.UpdateTracks(
+                CreateTrackSnapshot(
+                    movie,
+                    track,
+                    audioTrack,
+                    audioOutput is not null));
             _sink.Opened(in opened);
             PublishDiagnostics(
                 audioFallback ??
@@ -1005,6 +1011,111 @@ internal sealed class LinuxMediaPlaybackProvider :
         throw new NotSupportedException(
             "The Linux V4L2 provider currently accepts H.264 or H.265 video tracks in seekable ISO-BMFF sources.");
     }
+
+    private static MediaPlaybackTracksSnapshot
+        CreateTrackSnapshot(
+            IsoBmffMovie movie,
+            IsoBmffTrack selectedVideoTrack,
+            IsoBmffTrack? selectedAudioTrack,
+            bool audioActive)
+    {
+        var audio =
+            new List<MediaPlaybackTrackDescriptor>();
+        var video =
+            new List<MediaPlaybackTrackDescriptor>();
+        int selectedAudio = -1;
+        int selectedVideo = -1;
+        for (int nativeIndex = 0;
+             nativeIndex < movie.Tracks.Length;
+             nativeIndex++)
+        {
+            IsoBmffTrack track = movie.Tracks[nativeIndex];
+            MediaPlaybackTrackKind kind;
+            List<MediaPlaybackTrackDescriptor> destination;
+            bool selected;
+            if (track.Kind == IsoBmffTrackKind.Audio)
+            {
+                kind = MediaPlaybackTrackKind.Audio;
+                destination = audio;
+                selected =
+                    audioActive &&
+                    ReferenceEquals(track, selectedAudioTrack);
+                if (selected)
+                {
+                    selectedAudio = destination.Count;
+                }
+            }
+            else if (track.Kind == IsoBmffTrackKind.Video)
+            {
+                kind = MediaPlaybackTrackKind.Video;
+                destination = video;
+                selected =
+                    ReferenceEquals(track, selectedVideoTrack);
+                if (selected)
+                {
+                    selectedVideo = destination.Count;
+                }
+            }
+            else
+            {
+                continue;
+            }
+
+            uint frameRateNumerator = 0;
+            uint frameRateDenominator = 0;
+            if (kind == MediaPlaybackTrackKind.Video &&
+                track.Samples.Length != 0 &&
+                track.Samples[0].Duration > 0)
+            {
+                frameRateNumerator = track.Timescale;
+                frameRateDenominator = checked(
+                    (uint)track.Samples[0].Duration);
+            }
+            MediaPlaybackTrackSupport support =
+                selected
+                    ? MediaPlaybackTrackSupport.Supported
+                    : MediaPlaybackTrackSupport.Unsupported;
+            destination.Add(
+                new MediaPlaybackTrackDescriptor(
+                    $"isobmff:{nativeIndex}",
+                    kind,
+                    kind == MediaPlaybackTrackKind.Audio
+                        ? $"Audio {destination.Count + 1}"
+                        : $"Video {destination.Count + 1}",
+                    string.Empty,
+                    string.Empty,
+                    new MediaPlaybackTrackEncoding(
+                        Subtype:
+                            GetCodecSubtype(track.Codec),
+                        Width: track.Width,
+                        Height: track.Height,
+                        FrameRateNumerator:
+                            frameRateNumerator,
+                        FrameRateDenominator:
+                            frameRateDenominator,
+                        SampleRate:
+                            track.AudioSampleRate,
+                        ChannelCount:
+                            track.AudioChannelCount),
+                    support));
+        }
+        return new MediaPlaybackTracksSnapshot(
+            audio,
+            selectedAudio,
+            video,
+            selectedVideo);
+    }
+
+    private static string GetCodecSubtype(
+        IsoBmffCodec codec) =>
+        codec switch
+        {
+            IsoBmffCodec.H264 => "H264",
+            IsoBmffCodec.H265 => "HEVC",
+            IsoBmffCodec.Aac => "AAC",
+            IsoBmffCodec.Pcm => "PCM",
+            _ => string.Empty
+        };
 
     private static LinuxVideoDecoderDevice
         SelectDecoder(

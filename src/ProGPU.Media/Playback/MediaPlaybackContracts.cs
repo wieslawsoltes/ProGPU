@@ -198,6 +198,7 @@ public interface IMediaPlaybackProvider : IDisposable
 public interface IMediaPlaybackSink
 {
     void Update(in MediaPlaybackSnapshot snapshot);
+    void UpdateTracks(MediaPlaybackTracksSnapshot tracks);
     void Opened(in MediaPlaybackSnapshot snapshot);
     void Ended();
     void SeekCompleted(TimeSpan position);

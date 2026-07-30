@@ -468,6 +468,7 @@ public sealed class MediaPlayer : IDisposable
     private readonly MediaPlaybackEngine _engine;
     private IMediaPlaybackSource? _source;
     private IProGpuMediaPlaybackSource? _typedSource;
+    private MediaPlaybackItem? _trackPlaybackItem;
     private MediaSourceDescriptor? _ownedSourceDescriptor;
     private bool _isVideoFrameServerEnabled;
     private int _disposed;
@@ -487,6 +488,7 @@ public sealed class MediaPlayer : IDisposable
             _engine.Snapshot);
         CommandManager = new MediaPlaybackCommandManager(this);
         _engine.Changed += OnEngineChanged;
+        _engine.TracksChanged += OnEngineTracksChanged;
         _engine.Opened += OnEngineOpened;
         _engine.Ended += OnEngineEnded;
         _engine.SeekCompleted += OnEngineSeekCompleted;
@@ -828,6 +830,7 @@ public sealed class MediaPlayer : IDisposable
 
     private void RefreshEngineSource()
     {
+        UpdateTrackPlaybackItem();
         MediaSourceDescriptor? previousOwned =
             _ownedSourceDescriptor;
         MediaSourceDescriptor? descriptor;
@@ -861,6 +864,38 @@ public sealed class MediaPlayer : IDisposable
             descriptor,
             playbackRange);
         previousOwned?.Dispose();
+    }
+
+    private void UpdateTrackPlaybackItem()
+    {
+        MediaPlaybackItem? current = GetCurrentPlaybackItem();
+        if (ReferenceEquals(current, _trackPlaybackItem))
+        {
+            return;
+        }
+        if (_trackPlaybackItem is not null)
+        {
+            _trackPlaybackItem.TrackSelectionRequested -=
+                OnTrackSelectionRequested;
+        }
+        _trackPlaybackItem = current;
+        if (current is not null)
+        {
+            current.TrackSelectionRequested +=
+                OnTrackSelectionRequested;
+        }
+    }
+
+    private void OnTrackSelectionRequested(
+        object? sender,
+        PlaybackTrackSelectionRequestedEventArgs args)
+    {
+        if (!ReferenceEquals(sender, GetCurrentPlaybackItem()))
+        {
+            throw new InvalidOperationException(
+                "Only the current MediaPlaybackItem can select native tracks.");
+        }
+        _engine.SelectTrack(args.Kind, args.Index);
     }
 
     private void OnEngineChanged(
@@ -928,6 +963,12 @@ public sealed class MediaPlayer : IDisposable
                     EventArgs.Empty);
             }
         });
+
+    private void OnEngineTracksChanged(
+        object? sender,
+        MediaPlaybackTracksChangedEventArgs args) =>
+        Dispatch(() =>
+            GetCurrentPlaybackItem()?.ApplyTracks(args.Tracks));
 
     private MediaPlaybackItem? GetCurrentPlaybackItem() =>
         _source switch
@@ -1119,12 +1160,19 @@ public sealed class MediaPlayer : IDisposable
                 OnPlaybackOrderChanged;
         }
         _engine.Changed -= OnEngineChanged;
+        _engine.TracksChanged -= OnEngineTracksChanged;
         _engine.Opened -= OnEngineOpened;
         _engine.Ended -= OnEngineEnded;
         _engine.SeekCompleted -= OnEngineSeekCompleted;
         _engine.Failed -= OnEngineFailed;
         _engine.VideoSurface.FrameAvailable -=
             OnFrameAvailable;
+        if (_trackPlaybackItem is not null)
+        {
+            _trackPlaybackItem.TrackSelectionRequested -=
+                OnTrackSelectionRequested;
+            _trackPlaybackItem = null;
+        }
         _engine.Dispose();
         _ownedSourceDescriptor?.Dispose();
         _ownedSourceDescriptor = null;
