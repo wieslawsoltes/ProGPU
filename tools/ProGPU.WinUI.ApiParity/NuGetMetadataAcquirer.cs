@@ -95,6 +95,14 @@ internal static class NuGetMetadataAcquirer
         var outputNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var package in baseline.Packages)
         {
+            if (!IsSafeFileNameComponent(package.PackageId) ||
+                !IsSafeFileNameComponent(package.PackageVersion))
+            {
+                throw new InvalidDataException(
+                    $"Unsafe package identity: {package.PackageId} " +
+                    $"{package.PackageVersion}");
+            }
+
             if (!Uri.TryCreate(
                     package.PackageUri,
                     UriKind.Absolute,
@@ -129,6 +137,14 @@ internal static class NuGetMetadataAcquirer
             }
         }
     }
+
+    private static bool IsSafeFileNameComponent(string value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value != "." &&
+        value != ".." &&
+        value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+        !value.Contains('/') &&
+        !value.Contains('\\');
 
     private static async Task<bool> HasExpectedHashAsync(
         string path,

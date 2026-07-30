@@ -70,7 +70,7 @@
     "Microsoft.UI"
   ],
   "regressionBudget": {
-    "maximumMissingEntries": 13797,
-    "minimumMatchingEntries": 2824
+    "maximumMissingEntries": 13754,
+    "minimumMatchingEntries": 2867
   }
 }

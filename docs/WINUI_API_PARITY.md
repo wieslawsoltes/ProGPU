@@ -70,11 +70,40 @@ increase. A change that increases missing entries or reduces exact matches
 fails until the contract change is explicitly investigated and the locked
 baseline policy is reviewed.
 
-The initial preview.31 baseline records 16,621 official entries, 6,820 ProGPU
+The preview.31 starting baseline recorded 16,621 official entries, 6,820 ProGPU
 entries, 2,824 exact matches, 13,797 missing entries, and 3,996 ProGPU-only
-entries. These are declaration-level entries rather than type counts: a type,
-base/interface edge, member, generic constraint, constant, or semantic
-attribute is independently actionable.
+entries. The current first implementation slice records 6,863 ProGPU entries,
+2,867 exact matches, and 13,754 missing entries, with the same 3,996
+ProGPU-only entries. These are declaration-level entries rather than type
+counts: a type, base/interface edge, member, generic constraint, constant, or
+semantic attribute is independently actionable.
+
+## Clean-room implementation log
+
+### Microsoft.UI foundation identifiers and interop surface
+
+Primary contracts consulted:
+
+- [Microsoft.UI namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui)
+- [WindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowid)
+- [Win32Interop](https://learn.microsoft.com/windows/apps/api-reference/cs-interop-apis/microsoft.ui/microsoft.ui.win32interop)
+- [native GetWindowIdFromWindow contract](https://learn.microsoft.com/windows/windows-app-sdk/api/win32/microsoft.ui.interop/nf-microsoft-ui-interop-getwindowidfromwindow)
+- [IClosableNotifier](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.iclosablenotifier)
+- [ColorHelper](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.colorhelper)
+
+Adopted: the official mutable 64-bit identifier value layout, value
+equality/hash/operator behavior, the six typed handle/identifier conversions,
+the parameterless close notification delegate, the `IsClosed` contract, and
+the required `FrameworkClosed`-before-`Closed` notification order. The
+identifier and handle conversions are fixed `O(1)` value operations with no
+managed allocation. `ColorHelper.FromArgb` delegates to the shared WinRT color
+value implementation and is fixed `O(1)`.
+
+Deferred rather than stubbed: localized `ColorHelper.ToDisplayName`, WinRT
+contract-version attributes, and OS validation/error translation for invalid
+native handles. Their declaration entries remain visibly missing in the
+machine report until their documented behavior can be implemented and tested.
+No Microsoft source or method body was inspected.
 
 ## Implementation policy
 
