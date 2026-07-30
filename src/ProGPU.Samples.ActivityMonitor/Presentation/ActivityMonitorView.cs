@@ -59,6 +59,7 @@ internal sealed class ActivityMonitorView : Grid
     private readonly Sparkline _batteryHistory = CreateSparkline();
     private readonly Dictionary<ActivityCategory, SelectorBarItem> _categoryItems = new();
     private readonly Dictionary<ActivityProcessScope, RadioMenuFlyoutItem> _scopeItems = new();
+    private readonly Dictionary<int, int> _hierarchyDepthByProcessId = new();
     private SelectorBar _categorySelector = null!;
     private AppBarButton _quitButton = null!;
     private AppBarButton _inspectButton = null!;
@@ -196,6 +197,13 @@ internal sealed class ActivityMonitorView : Grid
     internal int VisibleProcessCount => _dataGrid.ItemsSource.Count;
     internal int HistoryPointCount(ActivityCategory category) =>
         _histories[category].ValueCount;
+    internal IReadOnlyList<int> VisibleProcessIds =>
+        _dataGrid.ItemsSource
+            .OfType<ProcessSnapshot>()
+            .Select(process => process.ProcessId)
+            .ToArray();
+    internal int VisibleHierarchyDepth(int processId) =>
+        _hierarchyDepthByProcessId.GetValueOrDefault(processId);
     internal IReadOnlyList<string> ColumnHeaders =>
         _dataGrid.Columns.Select(column => column.Header).ToArray();
 
@@ -686,9 +694,21 @@ internal sealed class ActivityMonitorView : Grid
             _ => filtered
         };
 
+        bool isHierarchical =
+            EffectiveProcessScope == ActivityProcessScope.AllProcessesHierarchically;
+        _hierarchyDepthByProcessId.Clear();
+        if (isHierarchical)
+        {
+            filtered = ArrangeHierarchically(filtered);
+        }
+        _dataGrid.CanUserSortColumns = !isHierarchical;
         _dataGrid.ClearItems();
         _dataGrid.ItemsSource.AddRange(filtered);
-        if (_dataGrid.SortingColumn is not null)
+        if (isHierarchical)
+        {
+            _dataGrid.SortingColumn = null;
+        }
+        else if (_dataGrid.SortingColumn is not null)
         {
             _dataGrid.SortItems(_dataGrid.SortingColumn);
         }
@@ -706,6 +726,68 @@ internal sealed class ActivityMonitorView : Grid
         }
         UpdateSelectionCommands();
         _dataGrid.Invalidate();
+    }
+
+    private IReadOnlyList<ProcessSnapshot> ArrangeHierarchically(
+        IEnumerable<ProcessSnapshot> processes)
+    {
+        List<ProcessSnapshot> ordered = processes.ToList();
+        HashSet<int> processIds = ordered
+            .Select(process => process.ProcessId)
+            .ToHashSet();
+        var children = new Dictionary<int, List<ProcessSnapshot>>();
+        var roots = new List<ProcessSnapshot>();
+        foreach (ProcessSnapshot process in ordered)
+        {
+            if (process.ParentProcessId != process.ProcessId &&
+                processIds.Contains(process.ParentProcessId))
+            {
+                if (!children.TryGetValue(
+                        process.ParentProcessId,
+                        out List<ProcessSnapshot>? siblings))
+                {
+                    siblings = new List<ProcessSnapshot>();
+                    children.Add(process.ParentProcessId, siblings);
+                }
+                siblings.Add(process);
+            }
+            else
+            {
+                roots.Add(process);
+            }
+        }
+
+        var result = new List<ProcessSnapshot>(ordered.Count);
+        var visited = new HashSet<int>();
+        foreach (ProcessSnapshot root in roots)
+        {
+            AppendHierarchy(root, 0);
+        }
+        foreach (ProcessSnapshot process in ordered)
+        {
+            AppendHierarchy(process, 0);
+        }
+        return result;
+
+        void AppendHierarchy(ProcessSnapshot process, int depth)
+        {
+            if (!visited.Add(process.ProcessId))
+            {
+                return;
+            }
+
+            _hierarchyDepthByProcessId[process.ProcessId] = depth;
+            result.Add(process);
+            if (children.TryGetValue(
+                    process.ProcessId,
+                    out List<ProcessSnapshot>? descendants))
+            {
+                foreach (ProcessSnapshot child in descendants)
+                {
+                    AppendHierarchy(child, depth + 1);
+                }
+            }
+        }
     }
 
     private void UpdateSelectionCommands()
@@ -769,11 +851,7 @@ internal sealed class ActivityMonitorView : Grid
                 break;
             case ActivityCategory.Energy:
                 AddFooterGraph(0, "ENERGY IMPACT");
-                AddFooterPanel(1, string.Empty, [
-                    $"Remaining charge: {system.Battery.ChargePercent:N0}%",
-                    system.Battery.IsCharging ? "Battery Is Charging" : "Battery Is Not Charging",
-                    $"Time on AC:            {system.Battery.TimeRemaining}"
-                ]);
+                AddFooterPanel(1, string.Empty, BuildBatterySummary(system.Battery));
                 AddFooterGraph(2, "BATTERY (Session)", _batteryHistory);
                 break;
             case ActivityCategory.Disk:
@@ -954,7 +1032,7 @@ internal sealed class ActivityMonitorView : Grid
             ? Math.Max(0, (long)((current - previous.Value) / elapsedSeconds))
             : 0;
 
-    private static string FormatCell(object item, string propertyName)
+    private string FormatCell(object item, string propertyName)
     {
         if (item is not ProcessSnapshot process)
         {
@@ -962,7 +1040,7 @@ internal sealed class ActivityMonitorView : Grid
         }
         return propertyName switch
         {
-            "Name" => process.Name,
+            "Name" => FormatProcessName(process),
             "CpuPercent" => ActivityMetricFormatter.Percent(process.CpuPercent),
             "CpuTime" => ActivityMetricFormatter.Duration(process.CpuTime),
             "ThreadCount" => ActivityMetricFormatter.Count(process.ThreadCount),
@@ -989,6 +1067,40 @@ internal sealed class ActivityMonitorView : Grid
             "ReceivedPackets" => ActivityMetricFormatter.Count(process.NetworkReceivedPackets),
             _ => string.Empty
         };
+    }
+
+    private string FormatProcessName(ProcessSnapshot process)
+    {
+        int depth = _hierarchyDepthByProcessId.GetValueOrDefault(process.ProcessId);
+        return depth == 0
+            ? process.Name
+            : $"{new string('\u00A0', depth * 3)}↳ {process.Name}";
+    }
+
+    internal static IReadOnlyList<string> BuildBatterySummary(BatterySnapshot battery)
+    {
+        if (!battery.IsPresent)
+        {
+            return [
+                "Battery: Not Present",
+                $"Power Source: {battery.PowerSource}",
+                "Time Remaining: Unavailable"
+            ];
+        }
+
+        string timing = string.Equals(
+                battery.PowerSource,
+                "Battery",
+                StringComparison.OrdinalIgnoreCase)
+            ? $"Time Remaining:      {battery.TimeRemaining}"
+            : battery.IsCharging
+                ? $"Time Until Full:      {battery.TimeRemaining}"
+                : $"Power Source:        {battery.PowerSource}";
+        return [
+            $"Remaining charge: {battery.ChargePercent:N0}%",
+            battery.IsCharging ? "Battery Is Charging" : "Battery Is Not Charging",
+            timing
+        ];
     }
 
     private static IComparable? SortCell(object item, string propertyName)

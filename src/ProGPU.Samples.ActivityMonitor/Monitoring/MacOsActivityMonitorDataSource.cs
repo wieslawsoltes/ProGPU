@@ -792,10 +792,10 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                 ["-r", "-c", "IOBlockStorageDriver", "-k", "Statistics", "-l"],
                 cancellationToken);
             return new IoCounters(
-                ExtractMaximumCounter(output, "\"Bytes (Read)\"="),
-                ExtractMaximumCounter(output, "\"Bytes (Write)\"="),
-                ExtractMaximumCounter(output, "\"Operations (Read)\"="),
-                ExtractMaximumCounter(output, "\"Operations (Write)\"="));
+                ExtractCounterSum(output, "\"Bytes (Read)\"="),
+                ExtractCounterSum(output, "\"Bytes (Write)\"="),
+                ExtractCounterSum(output, "\"Operations (Read)\"="),
+                ExtractCounterSum(output, "\"Operations (Write)\"="));
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or
@@ -863,9 +863,9 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
         }
     }
 
-    private static long ExtractMaximumCounter(string output, string marker)
+    internal static long ExtractCounterSum(string output, string marker)
     {
-        long maximum = 0;
+        long total = 0;
         int searchStart = 0;
         while (searchStart < output.Length)
         {
@@ -887,11 +887,11 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
                     CultureInfo.InvariantCulture,
                     out long value))
             {
-                maximum = Math.Max(maximum, value);
+                total = SaturatingAdd(total, value);
             }
             searchStart = Math.Max(valueEnd, valueStart + 1);
         }
-        return maximum;
+        return total;
     }
 
     private static long SaturatingAdd(long left, long right) =>

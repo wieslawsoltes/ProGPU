@@ -23,6 +23,42 @@ public sealed class ActivityMonitorViewTests
     }
 
     [Fact]
+    public void DiskCountersAreSummedAcrossStorageDevices()
+    {
+        const string output =
+            "\"Bytes (Read)\"=120 \"Bytes (Write)\"=80\n" +
+            "\"Bytes (Read)\"=30 \"Bytes (Write)\"=20";
+
+        Assert.Equal(
+            150,
+            MacOsActivityMonitorDataSource.ExtractCounterSum(
+                output,
+                "\"Bytes (Read)\"="));
+        Assert.Equal(
+            100,
+            MacOsActivityMonitorDataSource.ExtractCounterSum(
+                output,
+                "\"Bytes (Write)\"="));
+    }
+
+    [Fact]
+    public void BatterySummaryAccountsForPowerSourceAndPresence()
+    {
+        Assert.Contains(
+            "Time Remaining",
+            ActivityMonitorView.BuildBatterySummary(
+                new BatterySnapshot(true, 72, false, "Battery", "2:15"))[2]);
+        Assert.Contains(
+            "Time Until Full",
+            ActivityMonitorView.BuildBatterySummary(
+                new BatterySnapshot(true, 72, true, "AC Power", "1:10"))[2]);
+        Assert.Contains(
+            "Not Present",
+            ActivityMonitorView.BuildBatterySummary(
+                new BatterySnapshot(false, 0, false, "AC Power", "Calculating"))[0]);
+    }
+
+    [Fact]
     public void ActivityMonitorRendersPopulatedCpuView()
     {
         Application previousApplication = Application.Current;
@@ -167,6 +203,26 @@ public sealed class ActivityMonitorViewTests
             view.SelectCategory(ActivityCategory.Memory);
             view.SelectCategory(ActivityCategory.Cpu);
             Assert.Equal(1, view.HistoryPointCount(ActivityCategory.Cpu));
+
+            ActivitySnapshot hierarchySnapshot = CreateSnapshot();
+            ProcessSnapshot parent = hierarchySnapshot.Processes[0] with
+            {
+                ProcessId = 200,
+                ParentProcessId = 1,
+                CpuPercent = 1
+            };
+            ProcessSnapshot child = hierarchySnapshot.Processes[1] with
+            {
+                ProcessId = 201,
+                ParentProcessId = parent.ProcessId,
+                CpuPercent = 99
+            };
+            view.SetSearchText(string.Empty);
+            view.ApplySnapshot(hierarchySnapshot with { Processes = [child, parent] });
+            view.SelectProcessScope(ActivityProcessScope.AllProcessesHierarchically);
+            Assert.Equal([parent.ProcessId, child.ProcessId], view.VisibleProcessIds);
+            Assert.Equal(0, view.VisibleHierarchyDepth(parent.ProcessId));
+            Assert.Equal(1, view.VisibleHierarchyDepth(child.ProcessId));
         }
         finally
         {
