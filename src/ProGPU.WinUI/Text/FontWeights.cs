@@ -3,8 +3,13 @@ using Windows.UI.Text;
 namespace Microsoft.UI.Text;
 
 /// <summary>Provides the standard OpenType font-weight values used by WinUI.</summary>
-public static class FontWeights
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
+public sealed class FontWeights
 {
+    private FontWeights() { }
+
     public static FontWeight Thin => Create(100);
     public static FontWeight ExtraLight => Create(200);
     public static FontWeight Light => Create(300);

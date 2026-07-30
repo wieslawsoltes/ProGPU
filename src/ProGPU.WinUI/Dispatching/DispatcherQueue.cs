@@ -689,7 +689,17 @@ public class DispatcherQueueSynchronizationContext :
             _isSynchronous = isSynchronous;
             if (isSynchronous)
             {
-                _completed ??= new ManualResetEventSlim();
+                if (_completed is null)
+                {
+                    _completed = new ManualResetEventSlim();
+
+                    // Send must have a stable allocation profile after warmup.
+                    // Materialize the platform wait handle when the pooled item is
+                    // first prepared instead of unpredictably on a later contended
+                    // Wait call.
+                    _ = _completed.WaitHandle;
+                }
+
                 _completed.Reset();
             }
         }

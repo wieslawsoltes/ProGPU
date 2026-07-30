@@ -15,7 +15,6 @@ namespace Microsoft.UI.Text;
 [Flags]
 public enum SelectionOptions : uint
 {
-    None = 0,
     StartActive = 1,
     AtEndOfLine = 2,
     Overtype = 4,

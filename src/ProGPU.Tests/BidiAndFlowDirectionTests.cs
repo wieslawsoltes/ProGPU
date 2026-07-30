@@ -4217,7 +4217,7 @@ public class BidiAndFlowDirectionTests
         Assert.Equal(0, afterStory.Move(TextRangeUnit.Character, 1));
         Assert.Equal(3, afterStory.StartPosition);
 
-        story.Collapse(start: false);
+        story.Collapse(value: false);
         Assert.Equal((3, 3), (story.StartPosition, story.EndPosition));
         story.SetRange(0, 4);
         Assert.Equal(-1, story.EndOf(TextRangeUnit.Story, extend: false));
@@ -4310,7 +4310,7 @@ public class BidiAndFlowDirectionTests
 
         editor.Text = "abcd";
         selection.SetRange(1, 3);
-        selection.Options = SelectionOptions.None;
+        selection.Options = default;
         selection.TypeText("X");
         Assert.Equal("aXbcd", editor.Text);
 

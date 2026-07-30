@@ -12,6 +12,9 @@ using ProGPU.Vector;
 
 namespace Microsoft.UI.Text;
 
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
 public interface ITextCharacterFormat
 {
     FormatEffect AllCaps { get; set; }

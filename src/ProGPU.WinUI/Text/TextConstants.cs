@@ -2,6 +2,9 @@
 namespace Microsoft.UI.Text
 {
     /// <summary>WinUI text-object-model sentinel and range-count constants.</summary>
+    [Windows.Foundation.Metadata.ContractVersion(
+        TextApiContractInfo.Name,
+        TextApiContractInfo.Version1)]
     public static class TextConstants
     {
         public static Windows.UI.Color AutoColor { get; } = Windows.UI.Color.FromArgb(0, 0, 0, 0);

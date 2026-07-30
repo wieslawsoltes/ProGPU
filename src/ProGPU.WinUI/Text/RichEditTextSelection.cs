@@ -77,9 +77,9 @@ public sealed class RichEditTextSelection : RichEditTextRange, ITextSelection
     public override void SetRange(int startPosition, int endPosition) =>
         Document.Owner.SetDocumentSelection(startPosition, endPosition);
 
-    public override void Collapse(bool start)
+    public override void Collapse(bool value)
     {
-        int position = start ? Math.Min(StartPosition, EndPosition) : Math.Max(StartPosition, EndPosition);
+        int position = value ? Math.Min(StartPosition, EndPosition) : Math.Max(StartPosition, EndPosition);
         Document.Owner.SetDocumentSelection(position, position);
     }
 

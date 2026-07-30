@@ -16,6 +16,9 @@ namespace Microsoft.UI.Text;
 /// Retained, typed Text Object Model facade over <see cref="RichTextBuffer"/>.
 /// Range instances store only endpoints and edit the same buffer used by rendering.
 /// </summary>
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
 public sealed class RichEditTextDocument
 {
     private readonly RichEditBox _owner;

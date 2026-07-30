@@ -91,6 +91,12 @@ With `Microsoft.UI.Windowing` complete, the current baseline advances to 7,269
 ProGPU entries, 3,273 exact matches, and 13,348 missing entries. Windowing
 records 192/192 exact declarations with no extra entries.
 
+The first `Microsoft.UI.Text` contract-shape slice advances the baseline to
+7,279 ProGPU entries, 3,309 exact matches, and 13,312 missing entries. Text now
+records 531/535 exact official declarations. The remaining four missing
+declarations and ProGPU-only implementation details are tracked as the next
+runtime-class projection slice.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -231,6 +237,41 @@ platform-host work; the implementation does not simulate a native queue or
 silently change the cross-platform dispatch contract. The declaration report
 records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
 entries.
+
+The macOS CI allocation gate also exposed a deferred
+`ManualResetEventSlim.WaitHandle` materialization on a later contended
+synchronous send. The pooled work item now materializes that platform wait
+handle during its first preparation, which keeps the documented warmed path at
+zero caller-thread managed allocations. Ten isolated Release-process repeats
+of the 2,000-send invariant pass.
+
+### Microsoft.UI.Text contract shape
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Text namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text)
+- [TextGetOptions](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.textgetoptions)
+- [FindOptions](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.findoptions)
+- [FontWeights](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.fontweights)
+- [ITextRange](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.itextrange)
+- [RichEditTextDocument](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.text.richedittextdocument)
+
+Adopted: the official unsigned storage for the bitwise find/get/set option
+enums, exact published flag and undefined-effect values, the sealed
+non-abstract `FontWeights` runtime-class shape, `TextApiContract` identity and
+version metadata, contract metadata on the implemented public TOM types, and
+the official `Collapse(Boolean value)` parameter name. Existing TOM range,
+selection, RTF, paragraph, shaping, layout, and rendering behavior is retained;
+this slice changes only public projection metadata and constant representation.
+Font-weight getters remain fixed `O(1)` value construction, and a warmed
+100,000-iteration Release invariant verifies zero managed allocations.
+
+The implementation was derived from the locked official NuGet metadata and
+Microsoft documentation. No Microsoft method body or foreign implementation
+source was inspected. The remaining projection work must seal
+`RichEditTextRange` and hide ProGPU implementation classes without regressing
+the retained selection/range behavior; that refactor is intentionally kept out
+of this metadata-only checkpoint.
 
 ### Microsoft.UI.Windowing
 

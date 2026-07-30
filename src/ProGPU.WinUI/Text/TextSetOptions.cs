@@ -13,7 +13,7 @@ using ProGPU.Vector;
 namespace Microsoft.UI.Text;
 
 [Flags]
-public enum TextSetOptions
+public enum TextSetOptions : uint
 {
     None = 0,
     UnicodeBidi = 1,

@@ -12,6 +12,9 @@ using ProGPU.Vector;
 
 namespace Microsoft.UI.Text;
 
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
 public interface ITextRange
 {
     char Character { get; set; }
@@ -28,7 +31,7 @@ public interface ITextRange
 
     bool CanPaste(int format);
     void ChangeCase(LetterCase value);
-    void Collapse(bool start);
+    void Collapse(bool value);
     void Copy();
     void Cut();
     int Delete(TextRangeUnit unit, int count);

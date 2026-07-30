@@ -12,6 +12,9 @@ using ProGPU.Vector;
 
 namespace Microsoft.UI.Text;
 
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
 public class RichEditTextRange : ITextRange
 {
     private readonly RichEditTextDocument _document;
@@ -140,9 +143,9 @@ public class RichEditTextRange : ITextRange
         SetText(TextSetOptions.None, replacement);
     }
 
-    public virtual void Collapse(bool start)
+    public virtual void Collapse(bool value)
     {
-        int position = start ? NormalizedStart : NormalizedEnd;
+        int position = value ? NormalizedStart : NormalizedEnd;
         position = Math.Min(position, _document.TextLength);
         _start = position;
         _end = position;

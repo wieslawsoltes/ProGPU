@@ -17,5 +17,5 @@ public enum FormatEffect
     Off = 0,
     On = 1,
     Toggle = 2,
-    Undefined = 9999999
+    Undefined = 3
 }
