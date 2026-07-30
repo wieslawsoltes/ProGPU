@@ -578,7 +578,7 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             }
         }
 
-        long cached = Math.Max(0, (inactivePages + speculativePages + fileBackedPages) * pageSize);
+        long cached = ComputeCachedMemoryBytes(fileBackedPages, pageSize, physical);
         long available = Math.Max(0, (freePages + inactivePages + speculativePages) * pageSize);
         long used = Math.Max(0, physical - Math.Min(physical, available));
         return new MemoryCounters(
@@ -589,6 +589,22 @@ internal sealed class MacOsActivityMonitorDataSource : IActivityMonitorDataSourc
             Math.Max(0, wiredPages * pageSize),
             Math.Max(0, compressedPages * pageSize),
             swapUsed);
+    }
+
+    internal static long ComputeCachedMemoryBytes(
+        long fileBackedPages,
+        long pageSize,
+        long physicalMemoryBytes)
+    {
+        if (fileBackedPages <= 0 || pageSize <= 0 || physicalMemoryBytes <= 0)
+        {
+            return 0;
+        }
+
+        long cachedBytes = fileBackedPages > long.MaxValue / pageSize
+            ? long.MaxValue
+            : fileBackedPages * pageSize;
+        return Math.Min(cachedBytes, physicalMemoryBytes);
     }
 
     private static BatterySnapshot CaptureBattery(CancellationToken cancellationToken)
