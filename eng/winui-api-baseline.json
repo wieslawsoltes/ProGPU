@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "packageId": "Microsoft.WindowsAppSDK",
+      "packageVersion": "2.3.1",
+      "packageUri": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/2.3.1/microsoft.windowsappsdk.2.3.1.nupkg",
+      "packageSha512": "hp8CcpdSTtWX9Za7csGgmFIM4sD4Y7QJoafKyF3LXBdJS0UOfXHrvRrbHFl3Il/jTOjjzGhEPUG0yoiswg1dkA==",
+      "assets": [
+        {
+          "packagePath": "Microsoft.WindowsAppSDK.nuspec",
+          "outputName": "Microsoft.WindowsAppSDK.nuspec",
+          "role": "official component dependency graph"
+        }
+      ]
+    },
+    {
+      "packageId": "Microsoft.WindowsAppSDK.WinUI",
+      "packageVersion": "2.3.0",
+      "packageUri": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.winui/2.3.0/microsoft.windowsappsdk.winui.2.3.0.nupkg",
+      "packageSha512": "mrODErtzaYe7yNBtyzf3wX0xDOF4ZqoLYJnI/2NUF/m/g/6q/gHaLSUltT/f7LmDvNEjvrBulf1/oo6+ilYpGQ==",
+      "assets": [
+        {
+          "packagePath": "lib/net6.0-windows10.0.17763.0/Microsoft.WinUI.dll",
+          "outputName": "Microsoft.WinUI.dll",
+          "role": "managed XAML and text public projection metadata"
+        },
+        {
+          "packagePath": "metadata/Microsoft.UI.Xaml.winmd",
+          "outputName": "Microsoft.UI.Xaml.winmd",
+          "role": "authoritative XAML WinRT metadata"
+        },
+        {
+          "packagePath": "metadata/Microsoft.UI.Text.winmd",
+          "outputName": "Microsoft.UI.Text.winmd",
+          "role": "authoritative text WinRT metadata"
+        },
+        {
+          "packagePath": "lib/net6.0-windows10.0.17763.0/Microsoft.WinUI.xml",
+          "outputName": "Microsoft.WinUI.xml",
+          "role": "official XAML and text public API documentation"
+        }
+      ]
+    },
+    {
+      "packageId": "Microsoft.WindowsAppSDK.InteractiveExperiences",
+      "packageVersion": "2.1.3",
+      "packageUri": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.interactiveexperiences/2.1.3/microsoft.windowsappsdk.interactiveexperiences.2.1.3.nupkg",
+      "packageSha512": "JJRI/qhfV/HmUw+AW7QCI55XPHjrF6Yog1b4CUfQNsRlP8vBJq0Z93kGiVgRPnyWhNu7jUOHBsX3XEooPWXZuQ==",
+      "assets": [
+        {
+          "packagePath": "lib/net6.0-windows10.0.17763.0/Microsoft.InteractiveExperiences.Projection.dll",
+          "outputName": "Microsoft.InteractiveExperiences.Projection.dll",
+          "role": "managed Microsoft.UI composition, content, dispatching, input, and windowing projection metadata"
+        },
+        {
+          "packagePath": "metadata/10.0.17763.0/Microsoft.UI.winmd",
+          "outputName": "Microsoft.UI.winmd",
+          "role": "authoritative Microsoft.UI WinRT metadata"
+        },
+        {
+          "packagePath": "metadata/10.0.17763.0/Microsoft.UI.xml",
+          "outputName": "Microsoft.UI.xml",
+          "role": "official Microsoft.UI public API documentation"
+        }
+      ]
+    }
+  ],
+  "namespacePrefixes": [
+    "Microsoft.UI"
+  ],
+  "regressionBudget": {
+    "maximumMissingEntries": 13797,
+    "minimumMatchingEntries": 2824
+  }
+}

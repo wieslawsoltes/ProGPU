@@ -1,0 +1,56 @@
+name: WinUI API parity
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/ProGPU.WinUI/**
+      - src/ProGPU.WinRT/**
+      - tools/ProGPU.WinUI.ApiParity/**
+      - eng/progpu-winui-api-check.sh
+      - eng/winui-api-baseline.json
+      - docs/WINUI_API_PARITY.md
+      - .github/workflows/winui-api-parity.yml
+  push:
+    branches:
+      - main
+    paths:
+      - src/ProGPU.WinUI/**
+      - src/ProGPU.WinRT/**
+      - tools/ProGPU.WinUI.ApiParity/**
+      - eng/progpu-winui-api-check.sh
+      - eng/winui-api-baseline.json
+      - docs/WINUI_API_PARITY.md
+      - .github/workflows/winui-api-parity.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Compare official WinUI metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Verify official metadata and compare API surfaces
+        run: ./eng/progpu-winui-api-check.sh
+
+      - name: Upload parity report and provenance
+        uses: actions/upload-artifact@v7
+        with:
+          name: winui-api-parity
+          path: |
+            artifacts/winui-api/report/**
+            artifacts/winui-api/reference/provenance.json
+          if-no-files-found: error
