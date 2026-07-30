@@ -18,6 +18,214 @@ namespace ProGPU.Tests;
 public sealed class LinuxMediaProviderContractTests
 {
     [Fact]
+    public void LinuxColorOverlayPlanPreservesWinUiOrderAndTiming()
+    {
+        MediaCompositionExportRequest baseline =
+            CreateLinuxPreciseRequest(
+                [
+                    new MediaCompositionExportClip(
+                        null,
+                        TimeSpan.FromSeconds(8),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        0xFF101820u,
+                        new Dictionary<string, string>())
+                ]);
+        MediaCompositionExportRequest request =
+            baseline with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                    [
+                        CreateLinuxColorOverlay(
+                            0x80FF0000u,
+                            TimeSpan.FromSeconds(2),
+                            -32d,
+                            18d,
+                            160d,
+                            90d,
+                            0.75d),
+                        CreateLinuxColorOverlay(
+                            0xFF00FF00u,
+                            TimeSpan.FromSeconds(1),
+                            0d,
+                            0d,
+                            80d,
+                            45d,
+                            0.5d)
+                    ])
+                ]
+            };
+
+        Assert.True(
+            LinuxMediaColorOverlayPlanner.TryCapture(
+                request,
+                MediaEffectRegistry.Default,
+                out LinuxMediaColorOverlayPlan[] plans));
+        Assert.Equal(2, plans.Length);
+        Assert.Equal(0x80FF0000u, plans[0].ArgbColor);
+        Assert.Equal(
+            TimeSpan.FromSeconds(2).Ticks,
+            plans[0].StartTicks);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5).Ticks,
+            plans[0].EndTicks);
+        Assert.Equal(-0.1f, plans[0].Placement.X, 5);
+        Assert.Equal(0.1f, plans[0].Placement.Y, 5);
+        Assert.Equal(0.5f, plans[0].Placement.Width);
+        Assert.Equal(0.5f, plans[0].Placement.Height);
+        Assert.Equal(0.75f, plans[0].Placement.Opacity);
+        Assert.False(
+            plans[0].IsActive(
+                TimeSpan.FromSeconds(2).Ticks - 1));
+        Assert.True(
+            plans[0].IsActive(
+                TimeSpan.FromSeconds(2).Ticks));
+        Assert.False(
+            plans[0].IsActive(
+                TimeSpan.FromSeconds(5).Ticks));
+
+        Assert.True(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: true));
+        Assert.False(
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasNativeH264Path: true,
+                    hasNativeTwoPlaneH264EncoderPath:
+                        true,
+                    gpuAvailable: false));
+        Assert.Equal(
+            MediaCompositionExportVideoPath.GpuCopy,
+            LinuxV4l2PreciseMediaCompositionExportProvider
+                .GetCapabilitiesForRequest(request)
+                .VideoPath);
+    }
+
+    [Fact]
+    public void LinuxOverlayPlanRejectsUriAndCustomCompositors()
+    {
+        MediaCompositionExportRequest baseline =
+            CreateLinuxPreciseRequest(
+                [
+                    new MediaCompositionExportClip(
+                        null,
+                        TimeSpan.FromSeconds(4),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        0xFF000000u,
+                        new Dictionary<string, string>())
+                ]);
+        MediaCompositionExportOverlay uriOverlay =
+            new(
+                new MediaCompositionExportClip(
+                    new Uri("file:///tmp/overlay.mp4"),
+                    TimeSpan.FromSeconds(2),
+                    TimeSpan.Zero,
+                    TimeSpan.Zero,
+                    1d,
+                    null,
+                    new Dictionary<string, string>()),
+                TimeSpan.Zero,
+                0d,
+                0d,
+                160d,
+                90d,
+                1d,
+                AudioEnabled: false);
+        MediaCompositionExportRequest uriRequest =
+            baseline with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                        [uriOverlay])
+                ]
+            };
+        Assert.False(
+            LinuxMediaColorOverlayPlanner.TryCapture(
+                uriRequest,
+                MediaEffectRegistry.Default,
+                out _));
+
+        MediaCompositionExportRequest customRequest =
+            baseline with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                        [
+                            CreateLinuxColorOverlay(
+                                0xFFFFFFFFu,
+                                TimeSpan.Zero,
+                                0d,
+                                0d,
+                                160d,
+                                90d,
+                                1d)
+                        ])
+                    {
+                        CustomCompositorDefinition =
+                            new MediaCompositionEffectDefinition(
+                                "test.custom",
+                                new Dictionary<string, object?>())
+                    }
+                ]
+            };
+        Assert.False(
+            LinuxMediaColorOverlayPlanner.TryCapture(
+                customRequest,
+                MediaEffectRegistry.Default,
+                out _));
+    }
+
+    [Fact]
+    public void LinuxOverlayTimelineHotPathAllocatesNothing()
+    {
+        var plan =
+            new LinuxMediaColorOverlayPlan(
+                0xFFFFFFFFu,
+                10,
+                100,
+                new GpuTextureLayerPlacement(
+                    0f,
+                    0f,
+                    1f,
+                    1f,
+                    1f),
+                LinuxGpuVideoEffectPlan.Identity);
+        long checksum = 0;
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0;
+             index < 100_000;
+             index++)
+        {
+            if (plan.IsActive(index % 120))
+            {
+                checksum++;
+            }
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+
+        Assert.NotEqual(0, checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void LinuxPreciseCapabilityAcceptsOrderedUriAndColorClips()
     {
         MediaCompositionExportRequest request =
@@ -472,6 +680,10 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxV4l2PreciseMediaCompositionExportProvider.cs");
+        string planner = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxMediaColorOverlayPlanner.cs");
         string processor = ReadRepoFile(
             "src",
             "ProGPU.Backend",
@@ -496,6 +708,14 @@ public sealed class LinuxMediaProviderContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "GpuTextureGaussianBlur.Blur(",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerCompositor",
+            sink,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositeOverlays(",
             sink,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -533,6 +753,14 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Contains(
             "MediaCompositionVideoEffectResolver",
             provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LinuxMediaColorOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "compositionTicks < EndTicks",
+            planner,
             StringComparison.Ordinal);
         Assert.Contains(
             "LinuxGpuVideoEffectPlan effectPlan",
@@ -682,6 +910,83 @@ public sealed class LinuxMediaProviderContractTests
     }
 
     [Fact]
+    public void LinuxThumbnailCapabilityAcceptsColorOverlaysOnColorTimeline()
+    {
+        MediaCompositionExportRequest baseline =
+            CreateLinuxPreciseRequest(
+                [
+                    new MediaCompositionExportClip(
+                        null,
+                        TimeSpan.FromSeconds(4),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        0xFF111827u,
+                        new Dictionary<string, string>())
+                ]);
+        MediaCompositionExportRequest composition =
+            baseline with
+            {
+                OverlayLayers =
+                [
+                    new MediaCompositionExportOverlayLayer(
+                    [
+                        CreateLinuxColorOverlay(
+                            0x80F97316u,
+                            TimeSpan.FromSeconds(1),
+                            16d,
+                            9d,
+                            160d,
+                            90d,
+                            0.5d)
+                    ])
+                ]
+            };
+        var request =
+            new MediaCompositionThumbnailRequest(
+                composition,
+                [TimeSpan.FromSeconds(2)],
+                composition.EncodingProfile.Width,
+                composition.EncodingProfile.Height,
+                MediaCompositionThumbnailPrecision
+                    .NearestFrame);
+
+        Assert.True(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request,
+                    isLinux: true,
+                    hasH264Decoder: false,
+                    hasVulkanWebGpu: true));
+
+        MediaCompositionExportRequest uriComposition =
+            composition with
+            {
+                Clips =
+                [
+                    new MediaCompositionExportClip(
+                        new Uri("file:///tmp/source.mp4"),
+                        TimeSpan.FromSeconds(4),
+                        TimeSpan.Zero,
+                        TimeSpan.Zero,
+                        1d,
+                        null,
+                        new Dictionary<string, string>())
+                ]
+            };
+        Assert.False(
+            LinuxV4l2MediaCompositionThumbnailProvider
+                .CanRenderRequest(
+                    request with
+                    {
+                        Composition = uriComposition
+                    },
+                    isLinux: true,
+                    hasH264Decoder: true,
+                    hasVulkanWebGpu: true));
+    }
+
+    [Fact]
     public void LinuxThumbnailsRetainDecodeGpuAndReadbackState()
     {
         string provider = ReadRepoFile(
@@ -692,6 +997,10 @@ public sealed class LinuxMediaProviderContractTests
             "src",
             "ProGPU.Linux.Media",
             "LinuxWebGpuCompositionThumbnailRenderer.cs");
+        string planner = ReadRepoFile(
+            "src",
+            "ProGPU.Linux.Media",
+            "LinuxMediaColorOverlayPlanner.cs");
         string registration = ReadRepoFile(
             "src",
             "ProGPU.Linux.Media",
@@ -741,6 +1050,22 @@ public sealed class LinuxMediaProviderContractTests
         Assert.Contains(
             "GpuTextureGaussianBlur.Blur(",
             renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureLayerCompositor",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CompositeOverlays(",
+            renderer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LinuxMediaColorOverlayPlanner.TryCapture(",
+            provider,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "custom compositor definitions are rejected",
+            planner,
             StringComparison.Ordinal);
         Assert.Contains(
             "TextureUsage.RenderAttachment |",
@@ -2396,6 +2721,32 @@ public sealed class LinuxMediaProviderContractTests
                 0,
                 0),
             new Dictionary<string, string>());
+
+    private static MediaCompositionExportOverlay
+        CreateLinuxColorOverlay(
+        uint color,
+        TimeSpan delay,
+        double x,
+        double y,
+        double width,
+        double height,
+        double opacity) =>
+        new(
+            new MediaCompositionExportClip(
+                null,
+                TimeSpan.FromSeconds(4),
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromMilliseconds(750),
+                1d,
+                color,
+                new Dictionary<string, string>()),
+            delay,
+            x,
+            y,
+            width,
+            height,
+            opacity,
+            AudioEnabled: false);
 
     [Fact]
     public void PipeWireInteropAndRawAudioPodMatchSpaAbi()

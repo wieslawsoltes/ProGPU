@@ -90,7 +90,6 @@ public sealed class
             profile.FrameRateNumerator == 0 ||
             profile.FrameRateDenominator == 0 ||
             composition.Clips.Count == 0 ||
-            composition.OverlayLayers.Count != 0 ||
             composition.BackgroundAudioTracks.Count != 0)
         {
             return false;
@@ -106,7 +105,7 @@ public sealed class
                 composition.Clips[index];
             bool uri =
                 clip.SourceUri is
-                    { IsFile: true };
+                { IsFile: true };
             bool color =
                 clip.ArgbColor.HasValue;
             if (uri == color ||
@@ -144,6 +143,15 @@ public sealed class
         }
         if (hasUri &&
             !hasH264Decoder)
+        {
+            return false;
+        }
+        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+                composition,
+                effects ?? MediaEffectRegistry.Default,
+                out LinuxMediaColorOverlayPlan[]
+                    overlays) ||
+            overlays.Length != 0 && hasUri)
         {
             return false;
         }
@@ -190,6 +198,15 @@ public sealed class
         MediaCompositionThumbnailRequest request,
         CancellationToken cancellationToken)
     {
+        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+                request.Composition,
+                _effects,
+                out LinuxMediaColorOverlayPlan[]
+                    overlays))
+        {
+            throw new InvalidDataException(
+                "The Linux thumbnail overlay plan is invalid.");
+        }
         if (!LinuxV4l2PreciseMediaCompositionExportProvider
                 .TryGetActiveVulkanDawnContext(
                     out DawnGpuContext? dawn) ||
@@ -253,7 +270,10 @@ public sealed class
                     byte[] pixels =
                         renderer.RenderColor(
                             color,
-                            effectPlan);
+                            effectPlan,
+                            overlays,
+                            request.Positions[index]
+                                .Ticks);
                     results[index] =
                         Encode(
                             request,

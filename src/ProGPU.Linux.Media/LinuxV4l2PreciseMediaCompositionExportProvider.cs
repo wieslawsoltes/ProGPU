@@ -85,7 +85,6 @@ public sealed class
                 MediaCompositionTrimmingMode.Precise ||
             request.Clips.Count == 0 ||
             request.BackgroundAudioTracks.Count != 0 ||
-            request.OverlayLayers.Count != 0 ||
             audioRequested &&
             !string.Equals(
                 request.EncodingProfile.AudioSubtype,
@@ -136,7 +135,7 @@ public sealed class
                 !effectPlan.IsIdentity;
             bool hasSource =
                 clip.SourceUri is
-                    { IsFile: true };
+                { IsFile: true };
             bool hasColor =
                 clip.ArgbColor.HasValue;
             bool scaling =
@@ -207,6 +206,17 @@ public sealed class
                 scaling;
         }
 
+        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+                request,
+                effectRegistry ??
+                    MediaEffectRegistry.Default,
+                out LinuxMediaColorOverlayPlan[]
+                    overlays))
+        {
+            return false;
+        }
+        requiresGpu |= overlays.Length != 0;
+
         if (audioRequested &&
             !hasDeclaredAac &&
             !hasUnknownAudioMetadata)
@@ -264,6 +274,22 @@ public sealed class
                         effectPlan) &&
                 !effectPlan.IsIdentity;
         }
+        if (LinuxMediaColorOverlayPlanner.TryCapture(
+                request,
+                effectRegistry ??
+                    MediaEffectRegistry.Default,
+                out LinuxMediaColorOverlayPlan[]
+                    overlays))
+        {
+            for (int index = 0;
+                 index < overlays.Length;
+                 index++)
+            {
+                effects |=
+                    !overlays[index]
+                        .EffectPlan.IsIdentity;
+            }
+        }
         bool gpuComposition =
             RequiresGpuComposition(
                 request,
@@ -293,10 +319,11 @@ public sealed class
                 "zero-copy WebGPU lane. A single native-size identity URI " +
                 "clip retains direct " +
                 "decoder-to-encoder DMA-BUF transfer; ordered timelines " +
-                "use one GPU normalization pass. Matching selected AAC " +
+                "and standard positioned/opacity solid-color overlays use " +
+                "retained WebGPU passes in declared order. Matching selected AAC " +
                 "tracks remain compressed; edit lists retain exact trims " +
                 "and silent source/color spans. Audio gain/effects, " +
-                "background audio, overlays, and spatial effects are " +
+                "background audio, URI overlays, and custom compositors are " +
                 "not yet accepted.");
     }
 
@@ -387,6 +414,15 @@ public sealed class
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        if (!LinuxMediaColorOverlayPlanner.TryCapture(
+                request,
+                _effects,
+                out LinuxMediaColorOverlayPlan[]
+                    overlays))
+        {
+            throw new InvalidDataException(
+                "The Linux overlay plan is invalid.");
+        }
         IsoBmffCompositionTrack? audioTrack =
             request.EncodingProfile.AudioSubtype is
                 null
@@ -395,7 +431,8 @@ public sealed class
                     .Create(
                         request,
                         cancellationToken);
-        if (request.Clips.Count > 1)
+        if (request.Clips.Count > 1 ||
+            overlays.Length != 0)
         {
             if (!TryGetActiveVulkanDawnContext(
                     out DawnGpuContext? timelineDawn) ||
@@ -407,6 +444,7 @@ public sealed class
             TranscodeTimeline(
                 request,
                 timelineDawn,
+                overlays,
                 audioTrack,
                 spoolPath,
                 temporaryPath,
@@ -855,6 +893,8 @@ public sealed class
     private void TranscodeTimeline(
         MediaCompositionExportRequest request,
         DawnGpuContext dawn,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
         IsoBmffCompositionTrack? audioTrack,
         string spoolPath,
         string temporaryPath,
@@ -922,6 +962,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
+                        overlays,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -936,6 +977,7 @@ public sealed class
                         clipIndex,
                         encoder,
                         frameSink,
+                        overlays,
                         encodedSpool,
                         progress,
                         cancellationToken);
@@ -975,6 +1017,8 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -994,6 +1038,7 @@ public sealed class
                     argbColor,
                     presentationTime,
                     effectPlan,
+                    overlays,
                     encoder))
             {
                 ReportTimelineProgress(
@@ -1029,6 +1074,8 @@ public sealed class
         int clipIndex,
         V4l2StatefulVideoEncoder encoder,
         LinuxWebGpuNv12EncoderFrameSink frameSink,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
         IsoBmffH264AccessUnitSpool encodedSpool,
         IProgress<double>? progress,
         CancellationToken cancellationToken)
@@ -1167,6 +1214,7 @@ public sealed class
                                 in pendingFrame,
                                 outputTime,
                                 effectPlan,
+                                overlays,
                                 encoder))
                         {
                             pendingFrame = default;
@@ -1674,7 +1722,8 @@ public sealed class
         MediaCompositionExportRequest request,
         MediaEffectRegistry effects)
     {
-        if (request.Clips.Count > 1)
+        if (request.Clips.Count > 1 ||
+            request.OverlayLayers.Count != 0)
         {
             return true;
         }

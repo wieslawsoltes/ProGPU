@@ -25,6 +25,9 @@ internal sealed unsafe class
     private readonly GpuTexture _target;
     private readonly GpuTexture _blurSource;
     private readonly GpuTexture _blurIntermediate;
+    private GpuTexture? _overlaySource;
+    private GpuTextureLayerCompositor?
+        _layerCompositor;
     private readonly GpuTextureReadbackBuffer _readback;
     private readonly uint _width;
     private readonly uint _height;
@@ -140,8 +143,21 @@ internal sealed unsafe class
     /// </summary>
     internal byte[] RenderFrame(
         in V4l2DecodedFrame frame,
-        LinuxGpuVideoEffectPlan effectPlan)
+        LinuxGpuVideoEffectPlan effectPlan) =>
+        RenderFrame(
+            in frame,
+            effectPlan,
+            Array.Empty<LinuxMediaColorOverlayPlan>(),
+            compositionTicks: 0);
+
+    internal byte[] RenderFrame(
+        in V4l2DecodedFrame frame,
+        LinuxGpuVideoEffectPlan effectPlan,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
+        long compositionTicks)
     {
+        ArgumentNullException.ThrowIfNull(overlays);
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
@@ -211,6 +227,9 @@ internal sealed unsafe class
                     effectPlan.ColorTransform,
                     inFlightSlot: 0);
             }
+            CompositeOverlays(
+                overlays,
+                compositionTicks);
             byte[] pixels =
                 GC.AllocateUninitializedArray<byte>(
                     checked(
@@ -234,8 +253,21 @@ internal sealed unsafe class
 
     internal byte[] RenderColor(
         uint argbColor,
-        LinuxGpuVideoEffectPlan effectPlan)
+        LinuxGpuVideoEffectPlan effectPlan) =>
+        RenderColor(
+            argbColor,
+            effectPlan,
+            Array.Empty<LinuxMediaColorOverlayPlan>(),
+            compositionTicks: 0);
+
+    internal byte[] RenderColor(
+        uint argbColor,
+        LinuxGpuVideoEffectPlan effectPlan,
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
+        long compositionTicks)
     {
+        ArgumentNullException.ThrowIfNull(overlays);
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
@@ -246,6 +278,9 @@ internal sealed unsafe class
         GpuTextureClearer.Clear(
             _target,
             color);
+        CompositeOverlays(
+            overlays,
+            compositionTicks);
         byte[] pixels =
             GC.AllocateUninitializedArray<byte>(
                 checked(
@@ -267,6 +302,10 @@ internal sealed unsafe class
             return;
         }
         _readback.Dispose();
+        _layerCompositor?.Dispose();
+        _overlaySource?.Dispose();
+        _layerCompositor = null;
+        _overlaySource = null;
         _blurIntermediate.Dispose();
         _blurSource.Dispose();
         _target.Dispose();
@@ -311,5 +350,59 @@ internal sealed unsafe class
             A = ((argbColor >> 24) & 0xff) *
                 scale
         };
+    }
+
+    private void CompositeOverlays(
+        IReadOnlyList<LinuxMediaColorOverlayPlan>
+            overlays,
+        long compositionTicks)
+    {
+        GpuTexture? overlaySource = null;
+        for (int index = 0;
+             index < overlays.Count;
+             index++)
+        {
+            LinuxMediaColorOverlayPlan plan =
+                overlays[index];
+            if (!plan.IsActive(compositionTicks))
+            {
+                continue;
+            }
+            if (overlaySource is null)
+            {
+                EnsureOverlayResources();
+                overlaySource = _overlaySource!;
+            }
+            GpuTextureClearer.Clear(
+                overlaySource,
+                ApplyEffects(
+                    plan.ArgbColor,
+                    GpuTextureColorTransform
+                        .Identity));
+            _layerCompositor!.Composite(
+                overlaySource,
+                _target.ViewPtr,
+                plan.Placement,
+                plan.EffectPlan.ColorTransform);
+        }
+    }
+
+    private void EnsureOverlayResources()
+    {
+        _overlaySource ??=
+            new GpuTexture(
+                _context,
+                _width,
+                _height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding |
+                TextureUsage.RenderAttachment,
+                "Linux Media Thumbnail Color Overlay",
+                alphaMode:
+                    GpuTextureAlphaMode.Straight);
+        _layerCompositor ??=
+            new GpuTextureLayerCompositor(
+                _context,
+                TextureFormat.Rgba8Unorm);
     }
 }
