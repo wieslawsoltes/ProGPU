@@ -564,6 +564,157 @@ public sealed class InputFocusAndKeyboardTests
     }
 
     [Fact]
+    public void LightDismissActionIsStableAndSameThreadOnly()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            AppWindow appWindow =
+                AppWindow.Create();
+            InputLightDismissAction action =
+                InputLightDismissAction
+                    .GetForWindowId(appWindow.Id);
+
+            Assert.Same(
+                action,
+                InputLightDismissAction
+                    .GetForWindowId(appWindow.Id));
+            Assert.Null(
+                InputLightDismissAction
+                    .GetForWindowId(default));
+            Assert.Null(Task.Run(
+                () => InputLightDismissAction
+                    .GetForWindowId(appWindow.Id))
+                .GetAwaiter()
+                .GetResult());
+            Assert.False(Task.Run(
+                () => InputLightDismissRegistration
+                    .Notify(appWindow.Id))
+                .GetAwaiter()
+                .GetResult());
+
+            appWindow.Destroy();
+            Assert.Null(
+                InputLightDismissAction
+                    .GetForWindowId(appWindow.Id));
+        });
+    }
+
+    [Fact]
+    public void LightDismissTracksActivationLossAndTypedTriggers()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            AppWindow appWindow =
+                AppWindow.Create();
+            InputLightDismissAction action =
+                InputLightDismissAction
+                    .GetForWindowId(appWindow.Id);
+            int dismissed = 0;
+            action.Dismissed += (_, _) =>
+                dismissed++;
+
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Deactivated));
+            Assert.Equal(0, dismissed);
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Activated));
+            Assert.Equal(0, dismissed);
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Deactivated));
+            Assert.Equal(1, dismissed);
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Deactivated));
+            Assert.Equal(1, dismissed);
+
+            Assert.True(
+                InputLightDismissRegistration
+                    .Notify(appWindow.Id));
+            Assert.Equal(2, dismissed);
+
+            appWindow.Destroy();
+            Assert.False(
+                InputLightDismissRegistration
+                    .Notify(appWindow.Id));
+            Assert.False(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        default,
+                        InputActivationState.Deactivated));
+        });
+    }
+
+    [Fact]
+    public void LightDismissTypedTriggerRequiresAnExistingAction()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            AppWindow appWindow =
+                AppWindow.Create();
+
+            Assert.False(
+                InputLightDismissRegistration
+                    .Notify(appWindow.Id));
+            _ = InputLightDismissAction
+                .GetForWindowId(appWindow.Id);
+            Assert.True(
+                InputLightDismissRegistration
+                    .Notify(appWindow.Id));
+
+            appWindow.Destroy();
+        });
+    }
+
+    [Fact]
+    public void SubscriberFreeLightDismissTriggersAreAllocationFree()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            const int Count = 100_000;
+            AppWindow appWindow =
+                AppWindow.Create();
+            _ = InputLightDismissAction
+                .GetForWindowId(appWindow.Id);
+            Assert.True(
+                InputLightDismissRegistration
+                    .Notify(appWindow.Id));
+
+            _ = GC.GetAllocatedBytesForCurrentThread();
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            int delivered = 0;
+            for (int index = 0;
+                 index < Count;
+                 index++)
+            {
+                if (InputLightDismissRegistration
+                    .Notify(appWindow.Id))
+                {
+                    delivered++;
+                }
+            }
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() -
+                before;
+
+            Assert.Equal(Count, delivered);
+            Assert.Equal(0, allocated);
+            appWindow.Destroy();
+        });
+    }
+
+    [Fact]
     public void ActivationStateReadsAreAllocationFree()
     {
         RunOnDispatcherThread(() =>

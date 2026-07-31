@@ -109,9 +109,10 @@ declarations without adding ProGPU-only entries: 63 in `Microsoft.UI.Input`
 and 26 in the minimal `Microsoft.UI.Content` island/site foundation required
 by the official factories.
 
-The activation and pre-translate source slice advances the baseline to 7,422
-ProGPU entries, 3,538 exact matches, and 13,083 missing entries. It adds 11
-exact `Microsoft.UI.Input` declarations without adding ProGPU-only entries.
+The activation, pre-translate source, and light-dismiss slices advance the
+baseline to 7,428 ProGPU entries, 3,544 exact matches, and 13,077 missing
+entries. Together they add 17 exact `Microsoft.UI.Input` declarations without
+adding ProGPU-only entries.
 
 ## Clean-room implementation log
 
@@ -440,6 +441,40 @@ slice adds 11 exact declarations with zero new extras, advancing the official
 comparison to 7,422 candidate declarations, 3,538 exact matches, 13,083
 missing declarations, and 3,884 extras. No Microsoft implementation source or
 method body was inspected.
+
+### Microsoft.UI.Input light dismiss
+
+Primary contracts consulted:
+
+- [InputLightDismissAction](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputlightdismissaction)
+- [InputLightDismissAction.GetForWindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputlightdismissaction.getforwindowid)
+- [InputLightDismissAction.Dismissed](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputlightdismissaction.dismissed)
+- [InputLightDismissEventArgs](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputlightdismisseventargs)
+
+Adopted: one stable action per valid same-thread top-level window, null results
+for invalid or cross-thread window IDs, dismissal when an activated window
+loses activation, and implicit teardown with the associated window. The
+official event argument remains empty. Consecutive deactivated notifications
+do not duplicate a transition-based dismissal.
+
+Adapted for portable hosts: `InputLightDismissRegistration` is a typed seam
+outside the official namespace for Escape, Alt, app-command, hot-key, and
+pointer-outside triggers supplied by native or embedded hosts. It resolves the
+existing top-level action without reflection, boxing, or creating an action
+that an application never requested. Lookup is expected fixed `O(1)` work and
+bounded storage per live window. An event argument is created only when the
+official event has a subscriber; a warmed Release invariant delivers 100,000
+subscriber-free typed triggers with exactly zero managed allocations.
+
+The pinned stable metadata exposes `GetForWindowId` but not the newer
+`GetForIsland` factory, so ProGPU does not add that later declaration to the
+official projection. Focused tests cover stable identity, invalid and
+cross-thread lookup, change-only activation loss, typed triggers, lifecycle
+cleanup, contract versions, and the allocation invariant. This slice adds six
+exact declarations with zero new extras, advancing the official comparison to
+7,428 candidate declarations, 3,544 exact matches, 13,077 missing
+declarations, and 3,884 extras. No Microsoft implementation source or method
+body was inspected.
 
 ### Microsoft.UI.Windowing
 

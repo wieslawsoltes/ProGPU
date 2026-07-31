@@ -74,6 +74,8 @@ public sealed class InputContractValueTests
     [InlineData(typeof(KeyEventArgs), 0x00010004U)]
     [InlineData(typeof(InputActivationListener), 0x00010001U)]
     [InlineData(typeof(InputActivationListenerActivationChangedEventArgs), 0x00010001U)]
+    [InlineData(typeof(InputLightDismissAction), 0x00010000U)]
+    [InlineData(typeof(InputLightDismissEventArgs), 0x00010000U)]
     [InlineData(typeof(InputPreTranslateKeyboardSource), 0x00010004U)]
     public void InputValuesPublishOfficialContractVersion(
         Type type,
