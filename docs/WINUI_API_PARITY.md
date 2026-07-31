@@ -858,6 +858,42 @@ comparison advances to 7,598 candidate declarations, 3,746 exact matches,
 12,875 missing declarations, and 3,852 extras. No Microsoft implementation
 source or method body was inspected.
 
+### Microsoft.UI.Content state value contracts
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Content namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content)
+- [ContentAutomationOptions](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentautomationoptions)
+- [ContentCoordinateRoundingMode](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateroundingmode)
+- [ContentSizePolicy](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsizepolicy)
+- [PopupAnchor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.popupanchor)
+- [ContentDeferral.Complete](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentdeferral.complete)
+- [ContentIslandStateChangedEventArgs](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentislandstatechangedeventargs)
+- The pinned official projection metadata and `Microsoft.UI.xml`
+  documentation extracted by the deterministic API gate.
+
+Adopted: the exact four enum layouts and contract versions; owner-dispatcher
+thread affinity for content state deferrals; immutable environment, island,
+and requested-size change snapshots; and mutable automation-provider response
+objects with their documented null/false defaults. Adapted for deterministic
+portable lifecycle behavior: completion is idempotent and invokes the retained
+continuation at most once.
+
+The environment and island change snapshots pack their flags into one byte.
+Construction and every property read are fixed `O(1)` work; reads allocate no
+managed memory and do not initialize WebGPU. Deferral completion is fixed
+`O(1)` and clears the retained callback before invoking it. This state layer is
+kept independent of rendering so the later content island/site implementation
+can coalesce state changes before scheduling typed compositor work.
+
+Focused tests cover exact enum values, every immutable and mutable event-data
+property, single-completion behavior, wrong-thread rejection without consuming
+the deferral, and 100,000 warmed snapshot iterations with exactly zero managed
+allocations. The slice adds all 56 selected official declarations exactly. The
+official comparison advances to 7,654 candidate declarations, 3,802 exact
+matches, 12,819 missing declarations, and 3,852 extras. No Microsoft
+implementation source or method body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:
