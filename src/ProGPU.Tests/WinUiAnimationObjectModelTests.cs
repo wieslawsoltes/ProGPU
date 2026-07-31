@@ -1432,12 +1432,25 @@ public sealed class WinUiAnimationObjectModelTests
         var control = new AutoSuggestBox { TextMemberPath = "Name" };
         var reasons = new List<AutoSuggestionBoxTextChangeReason>();
         object? chosen = null;
+        string? textObservedWhenSuggestionWasChosen = null;
+        AutoSuggestBoxTextChangedEventArgs? firstTextChange = null;
+        AutoSuggestBoxTextChangedEventArgs? latestTextChange = null;
         AutoSuggestBoxQuerySubmittedEventArgs? submitted = null;
-        control.TextChanged += (_, args) => reasons.Add(args.Reason);
-        control.SuggestionChosen += (_, args) => chosen = args.SelectedItem;
+        control.TextChanged += (_, args) =>
+        {
+            reasons.Add(args.Reason);
+            firstTextChange ??= args;
+            latestTextChange = args;
+        };
+        control.SuggestionChosen += (sender, args) =>
+        {
+            chosen = args.SelectedItem;
+            textObservedWhenSuggestionWasChosen = sender.Text;
+        };
         control.QuerySubmitted += (_, args) => submitted = args;
 
         control.SetUserText("pro");
+        Assert.True(firstTextChange!.CheckCurrent());
         var suggestion = new Dictionary<string, object?> { ["Name"] = "ProGPU" };
         control.ChooseSuggestion(suggestion);
         control.SubmitQuery(suggestion);
@@ -1449,9 +1462,32 @@ public sealed class WinUiAnimationObjectModelTests
                 AutoSuggestionBoxTextChangeReason.SuggestionChosen
             },
             reasons);
+        Assert.Equal("pro", textObservedWhenSuggestionWasChosen);
         Assert.Equal("ProGPU", control.Text);
+        Assert.False(firstTextChange.CheckCurrent());
+        Assert.True(latestTextChange!.CheckCurrent());
         Assert.Same(suggestion, chosen);
         Assert.Same(suggestion, submitted!.ChosenSuggestion);
+        Assert.Equal("ProGPU", submitted.QueryText);
+
+        var activatedArgs = new AutoSuggestBoxTextChangedEventArgs
+        {
+            Reason = AutoSuggestionBoxTextChangeReason.ProgrammaticChange
+        };
+        Assert.Equal(
+            AutoSuggestionBoxTextChangeReason.ProgrammaticChange,
+            activatedArgs.Reason);
+        Assert.True(activatedArgs.CheckCurrent());
+
+        _ = latestTextChange.CheckCurrent();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool allCurrent = true;
+        for (int iteration = 0; iteration < 100_000; iteration++)
+            allCurrent &= latestTextChange.CheckCurrent();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allCurrent);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]

@@ -1738,6 +1738,42 @@ clock control and timed interpolation remain explicitly open; no metadata-only
 clock methods are claimed. No Microsoft or foreign implementation source or
 method body was inspected, copied, or adapted.
 
+### AutoSuggestBox typed event contract
+
+The next primary slice aligns all declarations owned by `AutoSuggestBox`, its
+three event-argument types, `AutoSuggestionBoxTextChangeReason`, and
+`InputPropertyAttribute`. It adds 33 exact matches and reconciles 28 former
+ProGPU-only declarations, advancing the pinned report to 8,947 candidate
+entries, 5,200 exact matches, 11,379 missing entries, and 3,747 extras. The
+remaining report entries containing `AutoSuggestBox` belong to the separate
+automation-peer, primitives-helper, and `NavigationView` contracts.
+
+The three events now use the official strongly typed WinRT delegates. A
+suggestion is reported before optional text replacement, text-change reasons
+flow through the dependency-property-backed event argument, and
+`CheckCurrent()` compares one captured monotonic text generation with the
+owner's current generation. The check is fixed `O(1)`, thread-independent,
+and performs exactly zero managed allocations across 100,000 warmed calls;
+it lets an asynchronous suggestion provider discard an obsolete result
+without copying or comparing text. The existing internal input harness still
+drives user, suggestion, and query transitions without expanding the public
+WinUI surface.
+
+Primary clean-room contracts consulted:
+
+- [AutoSuggestBox](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox)
+- [Auto-suggest box guidance](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/auto-suggest-box)
+- [AutoSuggestBox.SuggestionChosen](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox.suggestionchosen)
+- [AutoSuggestBoxTextChangedEventArgs.CheckCurrent](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.autosuggestboxtextchangedeventargs.checkcurrent)
+- [InputPropertyAttribute](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.inputpropertyattribute)
+- the pinned official NuGet ECMA-335 projection metadata and XML documentation.
+
+Focused tests cover official activation, mutable `Reason`, typed events,
+documented suggestion-before-text ordering, captured query values,
+generation invalidation, and the allocation-free warmed check. No Microsoft
+or foreign implementation source or method body was inspected, copied, or
+adapted.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be
