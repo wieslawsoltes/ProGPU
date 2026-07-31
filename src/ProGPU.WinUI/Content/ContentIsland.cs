@@ -84,6 +84,8 @@ public class ContentIsland :
 
     internal InputKeyboardSource? KeyboardSource { get; set; }
 
+    internal InputPointerSource? PointerSource { get; set; }
+
     internal InputFocusNavigationHost? FocusNavigationHost { get; set; }
 
     internal InputActivationListener? ActivationListener { get; set; }
@@ -122,6 +124,7 @@ public class ContentIsland :
         state.ContentIsland = this;
         FocusController?.Attach(state);
         KeyboardSource?.Attach(state);
+        PointerSource?.Attach(state);
         ActivationListener?.Attach(state);
     }
 
@@ -134,11 +137,13 @@ public class ContentIsland :
         _isClosed = true;
         FocusController?.Detach();
         KeyboardSource?.Detach();
+        PointerSource?.Detach();
         FocusNavigationHost?.Detach();
         ActivationListener?.Detach();
         PreTranslateKeyboardSource?.Detach();
         FocusController = null;
         KeyboardSource = null;
+        PointerSource = null;
         FocusNavigationHost = null;
         ActivationListener = null;
         PreTranslateKeyboardSource = null;

@@ -745,6 +745,246 @@ public sealed class InputFocusAndKeyboardTests
         });
     }
 
+    [Fact]
+    public void PointerSourceIsStableAndPublishesOrderedHandledEvents()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            WindowInputState previous =
+                InputSystem.Current;
+            WindowInputState state =
+                InputSystem.CreateExternalState();
+            var island = new TestContentIsland();
+            ContentIslandInputRegistration.Attach(
+                island,
+                state);
+
+            try
+            {
+                InputSystem.Current = state;
+                InputPointerSource source =
+                    InputPointerSource.GetForIsland(
+                        island);
+                Assert.Same(
+                    source,
+                    InputPointerSource.GetForIsland(
+                        island));
+                Assert.Equal(
+                    InputPointerSourceDeviceKinds
+                        .Touch |
+                    InputPointerSourceDeviceKinds.Pen |
+                    InputPointerSourceDeviceKinds.Mouse,
+                    source.DeviceKinds);
+
+                var order = new List<string>();
+                PointerEventArgs? pressed = null;
+                source.PointerEntered += (_, _) =>
+                    order.Add("entered");
+                source.PointerPressed += (_, args) =>
+                {
+                    order.Add("pressed");
+                    pressed = args;
+                    args.Handled = true;
+                };
+                source.PointerReleased += (_, _) =>
+                    order.Add("released");
+                source.PointerExited += (_, _) =>
+                    order.Add("exited");
+                source.PointerCaptureLost += (_, _) =>
+                    order.Add("capture-lost");
+
+                InputSystem.InjectPointer(
+                    CreatePointerInput(
+                        PointerInputKind.Pressed,
+                        isInContact: true));
+
+                Assert.Equal(
+                    ["entered", "pressed"],
+                    order);
+                Assert.NotNull(pressed);
+                Assert.Equal(
+                    7u,
+                    pressed!.CurrentPoint.PointerId);
+                Assert.Equal(
+                    10d,
+                    pressed.CurrentPoint.Position.X);
+                Assert.Equal(
+                    Windows.System
+                        .VirtualKeyModifiers.Control,
+                    pressed.KeyModifiers);
+                Assert.True(pressed.Handled);
+
+                InputSystem.InjectPointer(
+                    CreatePointerInput(
+                        PointerInputKind.Released,
+                        isInContact: false));
+                Assert.Equal(
+                    [
+                        "entered",
+                        "pressed",
+                        "released",
+                        "exited"
+                    ],
+                    order);
+
+                order.Clear();
+                InputSystem.InjectPointer(
+                    CreatePointerInput(
+                        PointerInputKind.Pressed,
+                        isInContact: true));
+                InputSystem.InjectPointer(
+                    CreatePointerInput(
+                        PointerInputKind.Canceled,
+                        isInContact: false));
+                Assert.Equal(
+                    [
+                        "entered",
+                        "pressed",
+                        "capture-lost"
+                    ],
+                    order);
+            }
+            finally
+            {
+                island.Dispose();
+                InputSystem.Current = previous;
+            }
+        });
+    }
+
+    [Fact]
+    public void PointerSourceCursorUsesTypedProviderAndDetaches()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            WindowInputState state =
+                InputSystem.CreateExternalState();
+            var provider =
+                new TestCursorProvider();
+            InputCursorProviderRegistration
+                .SetProvider(state, provider);
+            var island = new TestContentIsland();
+            ContentIslandInputRegistration.Attach(
+                island,
+                state);
+            InputPointerSource source =
+                InputPointerSource.GetForIsland(
+                    island);
+
+            var hand = InputSystemCursor.Create(
+                InputSystemCursorShape.Hand);
+            source.Cursor = hand;
+
+            Assert.Same(hand, provider.Cursor);
+            island.Dispose();
+            Assert.Null(provider.Cursor);
+            Assert.False(
+                InputPointerSourceRegistration.Raise(
+                    source,
+                    InputPointerSourceEventKind
+                        .RoutedAway,
+                    new PointerEventArgs(
+                        CreatePoint())));
+        });
+    }
+
+    [Fact]
+    public void PointerSourceInvalidOrCrossThreadIslandReturnsNull()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            var island = new TestContentIsland();
+            InputPointerSource? otherThreadResult =
+                InputPointerSource.GetForIsland(
+                    island);
+            var thread = new Thread(() =>
+            {
+                otherThreadResult =
+                    InputPointerSource.GetForIsland(
+                        island);
+            });
+            thread.Start();
+            thread.Join();
+            Assert.Null(otherThreadResult);
+
+            island.Dispose();
+            Assert.Null(
+                InputPointerSource.GetForIsland(
+                    island));
+        });
+    }
+
+    [Fact]
+    public void SubscriberFreePointerSourceDispatchIsAllocationFree()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            const int Count = 100_000;
+            var island = new TestContentIsland();
+            InputPointerSource source =
+                InputPointerSource.GetForIsland(
+                    island);
+            PointerInputEvent input =
+                CreatePointerInput(
+                    PointerInputKind.Moved,
+                    isInContact: false);
+            _ = source.Process(input);
+
+            _ = GC.GetAllocatedBytesForCurrentThread();
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            int handled = 0;
+            for (int index = 0;
+                 index < Count;
+                 index++)
+            {
+                if (source.Process(input))
+                    handled++;
+            }
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() -
+                before;
+
+            Assert.Equal(0, handled);
+            Assert.Equal(0, allocated);
+            island.Dispose();
+        });
+    }
+
+    private static PointerInputEvent CreatePointerInput(
+        PointerInputKind kind,
+        bool isInContact) =>
+        new(
+            kind,
+            7,
+            Windows.Devices.Input
+                .PointerDeviceType.Touch,
+            new System.Numerics.Vector2(10, 20),
+            100,
+            IsPrimary: true,
+            IsInContact: isInContact,
+            Pressure: isInContact ? 0.5f : 0f,
+            ContactRect:
+                new ProGPU.Scene.Rect(
+                    9,
+                    19,
+                    2,
+                    2),
+            Modifiers:
+                Microsoft.UI.Xaml.Input
+                    .VirtualKeyModifiers.Control);
+
+    private static PointerPoint CreatePoint() =>
+        new(
+            7,
+            100,
+            new System.Numerics.Vector2(10, 20),
+            new System.Numerics.Vector2(10, 20),
+            Windows.Devices.Input
+                .PointerDeviceType.Touch,
+            true,
+            new PointerPointProperties());
+
     private static int QueryState(
         InputKeyboardSource source,
         int count)
@@ -850,6 +1090,18 @@ public sealed class InputFocusAndKeyboardTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class TestCursorProvider :
+        IInputCursorProvider
+    {
+        public InputCursor? Cursor { get; private set; }
+
+        public void SetCursor(
+            InputCursor? cursor)
+        {
+            Cursor = cursor;
         }
     }
 }

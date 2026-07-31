@@ -41,6 +41,7 @@ public class WindowInputState
     internal Microsoft.UI.Content.ContentIsland? ContentIsland;
     internal IContentIslandFocusProvider? ContentIslandFocusProvider;
     internal Microsoft.UI.Input.InputKeyboardSource? KeyboardSource;
+    internal Microsoft.UI.Input.InputPointerSource? PointerSource;
     internal VirtualKeyStateMap KeyboardState;
     internal VirtualKeyStateMap MessageKeyboardState;
     internal bool HasHostFocus;
@@ -582,6 +583,12 @@ public static class InputSystem
 
         try
         {
+            if (Current.PointerSource?
+                    .Process(input) == true)
+            {
+                return;
+            }
+
             switch (input.Kind)
             {
                 case PointerInputKind.Pressed:
@@ -843,6 +850,8 @@ public static class InputSystem
                 break;
         }
 
+        cursor ??=
+            Current.PointerSource?.CursorCore;
         if (cursor?.IsDisposed == true)
             cursor = null;
         if (ReferenceEquals(Current.ActiveInputCursor, cursor))
@@ -851,6 +860,29 @@ public static class InputSystem
         Current.ActiveInputCursor = cursor;
         Current.InputCursorProvider?.SetCursor(cursor);
         SetMouseCursor(MapStandardCursor(cursor));
+    }
+
+    internal static void RefreshInputCursor(
+        WindowInputState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (ReferenceEquals(_currentState, state))
+        {
+            UpdateProtectedCursor();
+            return;
+        }
+
+        Microsoft.UI.Input.InputCursor? cursor =
+            state.PointerSource?.CursorCore;
+        if (ReferenceEquals(
+            state.ActiveInputCursor,
+            cursor))
+        {
+            return;
+        }
+        state.ActiveInputCursor = cursor;
+        state.InputCursorProvider?
+            .SetCursor(cursor);
     }
 
     private static StandardCursor MapStandardCursor(

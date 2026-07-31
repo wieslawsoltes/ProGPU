@@ -125,6 +125,12 @@ entries, 3,605 exact matches, and 13,016 missing entries while keeping
 ProGPU-only entries unchanged at 3,853. It adds all seven official
 `PointerEventArgs` declarations without adding a candidate-only declaration.
 
+The island pointer-source slice advances the baseline to 7,473 ProGPU
+entries, 3,620 exact matches, and 13,001 missing entries while keeping
+ProGPU-only entries unchanged at 3,853. It adds all 15 official
+`InputPointerSource` declarations without adding a candidate-only
+declaration.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -597,6 +603,51 @@ The slice adds all seven official declarations exactly. The official
 comparison advances to 7,458 candidate declarations, 3,605 exact matches,
 13,016 missing declarations, and 3,853 extras. No Microsoft implementation
 source or method body was inspected.
+
+### Microsoft.UI.Input island pointer source
+
+Primary contracts consulted:
+
+- [InputPointerSource](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersource)
+- [InputPointerSource.GetForIsland](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersource.getforisland)
+- [InputPointerSource.Cursor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersource.cursor)
+- [InputPointerSource.DeviceKinds](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersource.devicekinds)
+- [InputPointerSource event ordering](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersource#event-order)
+- [InputPointerSourceDeviceKinds](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpointersourcedevicekinds)
+
+Adopted: each valid same-thread `ContentIsland` owns at most one stable
+`InputPointerSource`; invalid, closed, and cross-thread island requests return
+null. The source reports touch, pen, and mouse support, retains a source
+cursor, and publishes the official entered, pressed, moved, released, exited,
+capture-lost, routed, and wheel events. A handled source event stops delivery
+into the higher-level XAML route. Capture loss and routed release are terminal
+states and do not synthesize a later release or exit.
+
+Adapted for ProGPU's existing typed input pipeline: attaching a
+`WindowInputState` attaches its island-owned pointer source, and the existing
+portable `PointerInputEvent` feed invokes the source before XAML routing.
+Source cursor state is the fallback beneath per-element protected cursors and
+flows through `IInputCursorProvider` without platform reflection. The
+package-neutral `InputPointerSourceRegistration` seam lets native or embedded
+hosts raise capture, boundary, and routed events that are not expressible by
+the ordinary point feed. Island disposal detaches state, clears handlers, and
+removes the cursor fallback.
+
+Dispatch is expected `O(1)` time and bounded state per active pointer. When no
+relevant event has subscribers, dispatch performs no event-args or point
+allocation; a warmed 100,000-event invariant allocates exactly zero managed
+bytes. Subscribed input creates one immutable `PointerEventArgs`/point
+snapshot for the native input report and shares it across the ordered source
+notifications from that report.
+
+Focused tests cover stable identity, invalid/cross-thread/closed factories,
+device flags, entered/pressed/released/exited order, capture-loss terminal
+order, handled propagation, point/modifier data, typed cursor delivery,
+teardown, routed host delivery, exact contract metadata, and subscriber-free
+allocation behavior. The slice adds all 15 official declarations exactly.
+The official comparison advances to 7,473 candidate declarations, 3,620 exact
+matches, 13,001 missing declarations, and 3,853 extras. No Microsoft
+implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 
