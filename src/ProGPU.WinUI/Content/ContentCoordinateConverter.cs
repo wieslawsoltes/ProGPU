@@ -182,29 +182,46 @@ public class ContentCoordinateConverter
 
     private Matrix3x2 GetLocalToScreenTransform()
     {
-        Matrix3x2 transform;
         if (_source is not null)
         {
-            transform =
+            Matrix3x2 sourceTransform =
                 _source.GetLocalToScreenTransform();
+            ValidateTransform(sourceTransform);
+            return sourceTransform;
         }
-        else
+
+        return GetWindowLocalToScreenTransform(
+            _windowId,
+            _appWindow);
+    }
+
+    internal static Matrix3x2
+        GetWindowLocalToScreenTransform(
+            WindowId windowId) =>
+        GetWindowLocalToScreenTransform(
+            windowId,
+            AppWindow.GetFromWindowId(windowId));
+
+    private static Matrix3x2
+        GetWindowLocalToScreenTransform(
+            WindowId windowId,
+            AppWindow? appWindow)
+    {
+        IContentCoordinatePlatformProvider?
+            provider =
+                WindowingPlatformServices
+                    .ContentCoordinates;
+        Matrix3x2 transform;
+        if (provider?.TryGetLocalToScreenTransform(
+                windowId,
+                out transform) != true)
         {
-            IContentCoordinatePlatformProvider?
-                provider =
-                    WindowingPlatformServices
-                        .ContentCoordinates;
-            if (provider?.TryGetLocalToScreenTransform(
-                    _windowId,
-                    out transform) != true)
-            {
-                PointInt32 position =
-                    _appWindow?.Position ?? default;
-                transform =
-                    Matrix3x2.CreateTranslation(
-                        position.X,
-                        position.Y);
-            }
+            PointInt32 position =
+                appWindow?.Position ?? default;
+            transform =
+                Matrix3x2.CreateTranslation(
+                    position.X,
+                    position.Y);
         }
 
         ValidateTransform(transform);

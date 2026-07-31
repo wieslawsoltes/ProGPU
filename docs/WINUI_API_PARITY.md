@@ -981,6 +981,58 @@ The official comparison advances to 7,691 candidate declarations, 3,839 exact
 matches, 12,782 missing declarations, and 3,852 extras. No Microsoft
 implementation source or method body was inspected.
 
+### Microsoft.UI.Content site and live view
+
+Primary contracts consulted:
+
+- [ContentSite](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsite)
+- [ContentSiteView](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsiteview)
+- [ContentSite.GetIslandStateChangeDeferral](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsite.getislandstatechangedeferral)
+- [ContentDeferral](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentdeferral)
+- [ContentSite.RasterizationScale](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsite.rasterizationscale)
+- [ContentIsland overview](https://learn.microsoft.com/windows/apps/develop/composition/content-island)
+- The pinned official projection metadata and `Microsoft.UI.xml`
+  documentation extracted by the deterministic API gate.
+
+Adopted: `ContentSite` is a host-side state owner with one stable
+`ContentSiteView`; the view exposes the most recent values and is explicitly
+not a point-in-time snapshot. Environment, dispatcher, coordinate converter,
+and view identities remain stable for the site lifetime. A disconnected site
+returns null from `GetIslandStateChangeDeferral`. Connected deferrals are
+owner-dispatcher-affine, nest, combine site changes, complete at most once, and
+are cancelled when the 1:1 island connection ends. Requested-size changes are
+visible before `RequestedStateChanged` is raised. Disposal is idempotent,
+disconnects the site, and raises framework-close before close.
+
+Adapted for ProGPU's portable bridge architecture: a shared immutable state
+object carries size, transforms, input policy, automation mode, scale, layout,
+visibility, and connection state. Typed internal bridge methods publish
+island-requested size, connection, automation, and local-to-client transforms
+without reflection or platform objects. The coordinate source composes the
+site's 2D affine local-to-client matrix with the live top-level window mapping.
+The public local-to-parent matrix retains the complete finite `Matrix4x4`;
+the flattened local-to-client coordinate mapping rejects perspective instead
+of silently producing incorrect screen coordinates. A zero override scale
+selects the positive parent scale; a positive override replaces it.
+
+Every view property read is lock-free fixed `O(1)` work. A changed site setter
+performs expected `O(1)` compare/exchange work and publishes one immutable
+snapshot. No-op setters reuse the current snapshot without allocation.
+Deferral creation and completion are `O(1)`; combined change storage is one
+packed flag value. A warmed Release test performs 100,000 complete view-read
+and no-op setter iterations with exactly zero managed allocations. This
+control-plane state does not initialize WebGPU; connected visual content and
+effects remain on the retained WebGPU compositor path.
+
+Focused tests cover stable identities and every property, scale/size/matrix
+validation, live site-plus-window coordinate composition, requested-size
+event ordering and no-op suppression, nested deferral coalescing, disconnect
+cancellation, close ordering and terminal behavior, and allocation-free live
+reads/no-op mutation. The slice adds all 54 selected official declarations
+exactly. The official comparison advances to 7,745 candidate declarations,
+3,893 exact matches, 12,728 missing declarations, and 3,852 extras. No
+Microsoft implementation source or method body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:
