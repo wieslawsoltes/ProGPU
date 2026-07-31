@@ -739,6 +739,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
     private CompositionBrush? _strokeBrush;
     private Brush? _strokeSceneBrush;
     private readonly Pen _strokePen;
+    private readonly SolidColorBrush _opaqueTextureMaskBrush;
     private double[]? _appliedDashArray;
     private bool _isStrokeNonScaling;
     private CompositionStrokeCap _strokeDashCap;
@@ -756,6 +757,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
     {
         StrokeDashArray = new CompositionStrokeDashArray(compositor, this);
         _strokePen = new Pen(new SolidColorBrush(Vector4.Zero), 0f);
+        _opaqueTextureMaskBrush = new SolidColorBrush(Vector4.One);
         Geometry = geometry;
     }
 
@@ -914,7 +916,15 @@ public sealed class CompositionSpriteShape : CompositionShape,
                 out bool popOpacityMask);
             try
             {
-                if (fill is not null)
+                if (fill is GpuTextureBrush textureBrush)
+                {
+                    RecordTextureFill(
+                        context,
+                        textureBrush,
+                        brushBounds,
+                        transform);
+                }
+                else if (fill is not null)
                     _geometry!.Record(context, fill, null, transform);
             }
             finally
@@ -935,15 +945,57 @@ public sealed class CompositionSpriteShape : CompositionShape,
                 out bool popOpacityMask);
             try
             {
-                Pen? stroke = UpdateStrokePen(strokeBrush, transform);
-                if (stroke is not null)
+                if (strokeBrush is GpuTextureBrush textureBrush)
+                {
+                    RecordTextureStroke(
+                        context,
+                        textureBrush,
+                        brushBounds,
+                        transform);
+                }
+                else
+                {
+                    Pen? stroke = UpdateStrokePen(strokeBrush, transform);
+                    if (stroke is not null)
                     _geometry!.Record(context, null, stroke, transform);
+                }
             }
             finally
             {
                 _strokeBrush.EndSceneBrush(context, popOpacityMask);
             }
         }
+    }
+
+    private void RecordTextureFill(
+        DrawingContext context,
+        GpuTextureBrush textureBrush,
+        in Rect brushBounds,
+        in Matrix4x4 transform)
+    {
+        PathGeometry? clipPath = _geometry!.GetClipPath();
+        if (clipPath is null)
+            return;
+        context.PushGeometryClip(clipPath, transform);
+        context.DrawRectangle(textureBrush, null, brushBounds);
+        context.PopGeometryClip();
+    }
+
+    private void RecordTextureStroke(
+        DrawingContext context,
+        GpuTextureBrush textureBrush,
+        in Rect brushBounds,
+        in Matrix4x4 transform)
+    {
+        PathGeometry? path = _geometry!.GetClipPath();
+        Pen? maskPen = UpdateStrokePen(
+            _opaqueTextureMaskBrush,
+            transform);
+        if (path is null || maskPen is null)
+            return;
+        context.PushOpacityMask(path, maskPen, brushBounds, transform);
+        context.DrawRectangle(textureBrush, null, brushBounds);
+        context.PopOpacityMask();
     }
 
     private Pen? UpdateStrokePen(

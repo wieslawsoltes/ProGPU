@@ -2,9 +2,13 @@ using System.Numerics;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
+using ProGPU.Backend;
+using ProGPU.Media;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 using Windows.Graphics;
+using Windows.Media.Playback;
 using Windows.UI;
 using Xunit;
 using Color = Windows.UI.Color;
@@ -13,6 +17,249 @@ namespace ProGPU.Tests;
 
 public sealed class WinUiCompositionTests
 {
+    [Fact]
+    public void SurfaceBrushPreservesOfficialDefaultsAndInvalidatesOwners()
+    {
+        using var compositor = new Compositor();
+        CompositionSurfaceBrush brush = compositor.CreateSurfaceBrush();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(40f, 24f);
+        visual.Brush = brush;
+
+        Assert.Null(brush.Surface);
+        Assert.Equal(
+            CompositionBitmapInterpolationMode.Linear,
+            brush.BitmapInterpolationMode);
+        Assert.Equal(CompositionStretch.Uniform, brush.Stretch);
+        Assert.Equal(0.5f, brush.HorizontalAlignmentRatio);
+        Assert.Equal(0.5f, brush.VerticalAlignmentRatio);
+        Assert.Equal(Vector2.Zero, brush.AnchorPoint);
+        Assert.Equal(Vector2.Zero, brush.CenterPoint);
+        Assert.Equal(Vector2.Zero, brush.Offset);
+        Assert.Equal(Vector2.One, brush.Scale);
+        Assert.Equal(0f, brush.RotationAngle);
+        Assert.Equal(0f, brush.RotationAngleInDegrees);
+        Assert.Equal(Matrix3x2.Identity, brush.TransformMatrix);
+        Assert.False(brush.SnapToPixels);
+
+        brush.HorizontalAlignmentRatio = -2f;
+        brush.VerticalAlignmentRatio = 3f;
+        Assert.Equal(0f, brush.HorizontalAlignmentRatio);
+        Assert.Equal(1f, brush.VerticalAlignmentRatio);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => brush.Scale = new Vector2(float.NaN, 1f));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => brush.TransformMatrix = new Matrix3x2(
+                1f,
+                0f,
+                0f,
+                1f,
+                float.PositiveInfinity,
+                0f));
+
+        long before = visual.SceneNode.ChangeVersion;
+        brush.Offset = Vector2.One;
+        Assert.True(visual.SceneNode.ChangeVersion > before);
+
+        brush.Offset = Vector2.Zero;
+        brush.Scale = Vector2.One;
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            brush.Offset = new Vector2(index & 1, 0f);
+            brush.BitmapInterpolationMode = (index & 1) == 0
+                ? CompositionBitmapInterpolationMode.Linear
+                : CompositionBitmapInterpolationMode.NearestNeighbor;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() -
+            allocatedBefore;
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void SurfaceBrushAcceptsStableMediaPlayerCompositionSurface()
+    {
+        using var player = new MediaPlayer();
+        ICompositionSurface first =
+            player.GetProGpuCompositionSurface();
+        ICompositionSurface second =
+            player.GetProGpuCompositionSurface();
+
+        Assert.Same(first, second);
+        Assert.IsAssignableFrom<IProGpuInvalidatingTextureSource>(first);
+
+        using var compositor = new Compositor();
+        CompositionSurfaceBrush brush =
+            compositor.CreateSurfaceBrush(first);
+        Assert.Same(first, brush.Surface);
+    }
+
+    [Fact]
+    public void SurfaceBrushSamplesRetainedGpuLeaseAndTracksFrameChanges()
+    {
+        using var window = new HeadlessWindow(64, 48);
+        var host = new FrameworkElement
+        {
+            Width = 64f,
+            Height = 48f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            var texture = new GpuTexture(
+                window.Context,
+                2,
+                1,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding | TextureUsage.CopyDst,
+                "WinUI composition surface",
+                alphaMode: GpuTextureAlphaMode.Straight);
+            using var surface = new TestCompositionSurface(texture);
+            texture.WritePixels<byte>(
+                [255, 0, 0, 255, 0, 0, 255, 255]);
+
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            CompositionSurfaceBrush brush =
+                compositor.CreateSurfaceBrush(surface);
+            brush.BitmapInterpolationMode =
+                CompositionBitmapInterpolationMode.NearestNeighbor;
+            brush.Stretch = CompositionStretch.Fill;
+            SpriteVisual visual = compositor.CreateSpriteVisual();
+            visual.Size = new Vector2(64f, 48f);
+            visual.Brush = brush;
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 8, 24));
+            AssertBlue(ReadPixel(pixels, window.Width, 56, 24));
+            Assert.Equal(1, surface.AcquireCount);
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, surface.AcquireCount);
+
+            texture.WritePixels<byte>(
+                [0, 255, 0, 255, 0, 255, 0, 255]);
+            surface.NotifyTextureChanged();
+            window.Render();
+            AssertGreen(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                32,
+                24));
+            Assert.Equal(2, surface.AcquireCount);
+
+            brush.Stretch = CompositionStretch.Uniform;
+            visual.Size = new Vector2(64f, 48f);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 32, 4));
+            AssertGreen(ReadPixel(pixels, window.Width, 32, 24));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void SurfaceBrushUsesGpuGeometryAndOpacityMaskPaths()
+    {
+        using var window = new HeadlessWindow(108, 36);
+        var host = new FrameworkElement
+        {
+            Width = 108f,
+            Height = 36f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            var texture = new GpuTexture(
+                window.Context,
+                1,
+                1,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding | TextureUsage.CopyDst,
+                "WinUI composition surface masks",
+                alphaMode: GpuTextureAlphaMode.Straight);
+            texture.WritePixels<byte>([255, 0, 0, 255]);
+            using var surface = new TestCompositionSurface(texture);
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            CompositionSurfaceBrush surfaceBrush =
+                compositor.CreateSurfaceBrush(surface);
+            surfaceBrush.Stretch = CompositionStretch.Fill;
+
+            ShapeVisual shapeVisual = compositor.CreateShapeVisual();
+            shapeVisual.Size = new Vector2(36f, 36f);
+            CompositionEllipseGeometry ellipse =
+                compositor.CreateEllipseGeometry();
+            ellipse.Center = new Vector2(18f);
+            ellipse.Radius = new Vector2(14f);
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(ellipse);
+            shape.FillBrush = surfaceBrush;
+            shapeVisual.Shapes.Add(shape);
+
+            SpriteVisual masked = compositor.CreateSpriteVisual();
+            masked.Offset = new Vector3(36f, 0f, 0f);
+            masked.Size = new Vector2(36f, 36f);
+            CompositionMaskBrush mask = compositor.CreateMaskBrush();
+            mask.Source = surfaceBrush;
+            mask.Mask = compositor.CreateColorBrush(
+                Color.FromArgb(128, 255, 255, 255));
+            masked.Brush = mask;
+
+            ShapeVisual strokeVisual = compositor.CreateShapeVisual();
+            strokeVisual.Offset = new Vector3(72f, 0f, 0f);
+            strokeVisual.Size = new Vector2(36f, 36f);
+            CompositionEllipseGeometry strokeEllipse =
+                compositor.CreateEllipseGeometry();
+            strokeEllipse.Center = new Vector2(18f);
+            strokeEllipse.Radius = new Vector2(14f);
+            CompositionSpriteShape strokeShape =
+                compositor.CreateSpriteShape(strokeEllipse);
+            strokeShape.StrokeBrush = surfaceBrush;
+            strokeShape.StrokeThickness = 4f;
+            strokeVisual.Shapes.Add(strokeShape);
+
+            ContainerVisual root = compositor.CreateContainerVisual();
+            root.Children.InsertAtTop(shapeVisual);
+            root.Children.InsertAtTop(masked);
+            root.Children.InsertAtTop(strokeVisual);
+            ElementCompositionPreview.SetElementChildVisual(host, root);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 2, 2));
+            AssertRed(ReadPixel(pixels, window.Width, 18, 18));
+            RgbaPixel maskedRed = ReadPixel(
+                pixels,
+                window.Width,
+                54,
+                18);
+            Assert.InRange(maskedRed.R, 115, 140);
+            AssertRed(ReadPixel(pixels, window.Width, 90, 4));
+            AssertDark(ReadPixel(pixels, window.Width, 90, 18));
+            Assert.True(
+                window.Compositor.Metrics.OpacityMaskPeakDemand > 0);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
     [Fact]
     public void PropertySetPreservesTypedValuesAndStatus()
     {
@@ -1742,6 +1989,38 @@ public sealed class WinUiCompositionTests
             $"Expected dark background, got {pixel}.");
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class TestCompositionSurface :
+        ICompositionSurface,
+        IProGpuInvalidatingTextureSource,
+        IDisposable
+    {
+        private readonly SharedGpuTextureSource _source;
+
+        public TestCompositionSurface(GpuTexture texture)
+        {
+            _source = new SharedGpuTextureSource(texture);
+        }
+
+        public event EventHandler? TextureChanged;
+
+        public int AcquireCount { get; private set; }
+
+        public void NotifyTextureChanged() =>
+            TextureChanged?.Invoke(this, EventArgs.Empty);
+
+        public bool TryGetGpuTexture(out GpuTexture texture) =>
+            _source.TryGetGpuTexture(out texture);
+
+        public bool TryAcquireGpuTextureLease(
+            out IProGpuTextureLease lease)
+        {
+            AcquireCount++;
+            return _source.TryAcquireGpuTextureLease(out lease);
+        }
+
+        public void Dispose() => _source.Dispose();
+    }
 
     private sealed class UnknownGeometrySource : IGeometrySource2D
     {

@@ -54,8 +54,14 @@ public sealed class CompositionMaskBrush :
         if (_source is null || _mask is null)
             return null;
 
-        _source.UpdateSceneBrush(bounds, ref _sourceSceneBrush);
-        _mask.UpdateSceneBrush(bounds, ref _maskSceneBrush);
+        _source.PrepareSceneBrush(
+            context,
+            bounds,
+            ref _sourceSceneBrush);
+        _mask.PrepareSceneBrush(
+            context,
+            bounds,
+            ref _maskSceneBrush);
         if (_sourceSceneBrush is null || _maskSceneBrush is null)
             return null;
 

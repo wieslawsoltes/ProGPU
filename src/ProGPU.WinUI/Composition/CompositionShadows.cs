@@ -250,7 +250,10 @@ public sealed class DropShadow : CompositionShadow, ICompositionBrushOwner
         }
         else
         {
-            _mask.UpdateSceneBrush(bounds, ref maskBrush);
+            _mask.PrepareSceneBrush(
+                maskVisual.Context,
+                bounds,
+                ref maskBrush);
         }
         if (maskBrush is not null && !bounds.IsEmpty)
             maskVisual.Context.DrawRectangle(maskBrush, null, bounds);

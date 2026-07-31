@@ -55,6 +55,12 @@ public class CompositionBrush : CompositionObject
         sceneBrush = null;
     }
 
+    internal virtual void PrepareSceneBrush(
+        DrawingContext context,
+        in Rect bounds,
+        ref Brush? sceneBrush) =>
+        UpdateSceneBrush(bounds, ref sceneBrush);
+
     internal virtual CompositionBrushInputKind InputKinds =>
         CompositionBrushInputKind.None;
 
@@ -64,7 +70,7 @@ public class CompositionBrush : CompositionObject
         ref Brush? sceneBrush,
         out bool popOpacityMask)
     {
-        UpdateSceneBrush(bounds, ref sceneBrush);
+        PrepareSceneBrush(context, bounds, ref sceneBrush);
         popOpacityMask = false;
         return sceneBrush;
     }

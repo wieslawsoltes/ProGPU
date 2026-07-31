@@ -25,6 +25,16 @@ public interface IProGpuTextureLeaseSource : IProGpuTextureSource
 }
 
 /// <summary>
+/// Reports content-identity changes for a retained texture source. Consumers
+/// use this notification to rebuild only the affected retained command stream;
+/// the texture itself continues to cross the boundary through a typed lease.
+/// </summary>
+public interface IProGpuInvalidatingTextureSource : IProGpuTextureLeaseSource
+{
+    event EventHandler? TextureChanged;
+}
+
+/// <summary>
 /// Materializes and leases a texture in the context that will consume it.
 /// CPU-backed or otherwise portable image sources use this seam to avoid
 /// allocating a texture before a presentation host has selected its device.

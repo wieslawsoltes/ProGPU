@@ -1671,6 +1671,37 @@ primary-source comparison, cross-engine decisions, resource bounds, and
 complexity record are in
 [`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
 
+### Composition retained WebGPU surfaces
+
+The next primary slice adds the exact public `ICompositionSurface`,
+`CompositionSurfaceBrush`, `CompositionBitmapInterpolationMode`, and both
+`Compositor.CreateSurfaceBrush` overloads. The pinned comparison adds exactly
+32 matching declarations with no new ProGPU-only declaration, advancing the
+report to 8,886 candidate entries, 5,100 exact matches, 11,479 missing entries,
+and the unchanged 3,786 existing extras.
+
+A brush acquires a typed same-device GPU texture lease only while rebuilding
+its retained command stream. The drawing context owns that lease through
+stable replay, so a compiled-scene cache hit neither reacquires the source nor
+copies pixels. A typed texture-change event invalidates only live brush owners.
+Stretch/alignment, the documented custom-transform order, physical-pixel
+snapping, and all ten official magnification/minification/mipmap filter modes
+compile into one clipped WebGPU texture quad. Shape fills use retained geometry
+clipping; shape strokes use one bounded GPU alpha mask. No CPU bitmap,
+readback, texture re-upload, reflection, guessed native handle, new shader, or
+external dependency is introduced by the composition layer.
+
+Focused Release tests cover exact defaults and validation, alignment clamping,
+zero-allocation warmed property mutation, red/blue same-device sampling,
+frame-event invalidation, lease reuse across a compiled-scene hit, uniform
+letterboxing, ellipse fill, ellipse stroke, and `CompositionMaskBrush`
+composition. The primary-source comparison, adopted/adapted/rejected choices,
+complexity, ownership boundary, and explicit external-import limitation are in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+`MediaPlayer.GetProGpuCompositionSurface()` returns one cached typed adapter
+over its existing decoded-frame surface, so media frames enter the same
+official brush contract without per-frame wrapper allocation or pixel copies.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

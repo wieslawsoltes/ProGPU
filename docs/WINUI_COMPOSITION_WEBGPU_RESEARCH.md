@@ -1,8 +1,8 @@
 # WinUI Composition retained WebGPU research
 
 This record is the clean-room design gate for the retained visual foundation,
-geometry/shape, clip, gradient, drop-shadow, and opacity-mask vertical slices of
-`Microsoft.UI.Composition` in ProGPU.
+geometry/shape, clip, gradient, drop-shadow, opacity-mask, and surface-brush
+vertical slices of `Microsoft.UI.Composition` in ProGPU.
 The authoritative API shape is the public ECMA-335/WinRT metadata and XML
 documentation from the repository's SHA-512-pinned
 `Microsoft.WindowsAppSDK.WinUI` `2.3.0` package.
@@ -24,6 +24,16 @@ implementation was inspected, copied, translated, or adapted.
 - [CompositionMaskBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionmaskbrush)
   defines the retained source and mask inputs and explicitly disallows using a
   mask brush as an effect-brush source.
+- [CompositionSurfaceBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionsurfacebrush)
+  defines surface stretch/alignment, pixel snapping, independently mutable
+  transforms, and the required order in which custom transforms follow the
+  initial stretch/alignment mapping.
+- [ICompositionSurface](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.icompositionsurface)
+  is the public provider-neutral marker for a source that can be sampled by a
+  composition brush.
+- [CompositionBitmapInterpolationMode](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionbitmapinterpolationmode)
+  defines the ten exact nearest/linear magnification, minification, and mip
+  sampling combinations.
 - [CompositionGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositiongradientbrush),
   [CompositionLinearGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionlineargradientbrush),
   and [CompositionRadialGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionradialgradientbrush)
@@ -82,6 +92,9 @@ implementation was inspected, copied, translated, or adapted.
 - [Direct2D brushes](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-brushes-overview)
   define linear/radial gradient stops, brush-space transforms, color
   interpolation, and clamp/wrap/mirror extension as retained GPU draw state.
+- [Direct2D bitmap-brush interpolation](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmapbrush-setinterpolationmode)
+  distinguishes exact nearest-pixel sampling from four-neighbor linear
+  sampling, including the subpixel-translation quality tradeoff.
 - [Direct2D performance guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
   recommends batching, resource reuse, atlases, and avoiding unnecessary
   flushes or interop transitions.
@@ -112,6 +125,10 @@ implementation was inspected, copied, translated, or adapted.
 - [Skia API overview](https://skia.org/docs/user/api/) and
   [`SkPicture`](https://api.skia.org/classSkPicture.html) preserve a reusable
   ordered command stream separately from its GPU replay.
+- [`SkImage::makeShader`](https://api.skia.org/classSkImage.html) and
+  [`SkSamplingOptions`](https://api.skia.org/structSkSamplingOptions.html)
+  retain image identity, local transform, filter mode, and mip mode as shader
+  inputs instead of requiring CPU-side resampling.
 - [`SkGradientShader`](https://api.skia.org/classSkGradientShader.html)
   exposes linear/radial gradient points, ordered stops, tile modes, color-space
   interpolation, and a local matrix as retained shader inputs.
@@ -127,6 +144,10 @@ implementation was inspected, copied, translated, or adapted.
 - [Firefox rendering overview](https://searchfox.org/firefox-main/source/gfx/docs/RenderingOverview.rst)
   documents WebRender's display-list to retained-scene, culling, resource
   preparation, batching, render-task, and GPU-command stages.
+- [WebRender external-image binding](https://searchfox.org/mozilla-central/source/gfx/webrender_bindings/src/bindings.rs)
+  uses explicit lock/unlock lifetime around either a native texture handle or
+  raw-data fallback, while its renderer resolves retained external identities
+  to device textures only for rendering.
 - [WebRender gradient shaders](https://searchfox.org/firefox-main/source/gfx/wr/webrender/res/)
   keep linear/radial gradient evaluation and stop sampling in batched GPU
   paint stages rather than materializing one image per gradient.
@@ -147,6 +168,11 @@ implementation was inspected, copied, translated, or adapted.
   pipelines, render passes, buffer/texture usages, submission, and device
   loss. A lost device invalidates its buffers, textures, and pipelines and
   requires their recreation.
+- The WebGPU specification's `GPUExternalTexture` contract defines an
+  immutable imported snapshot of video-frame data whose zero-copy behavior is
+  implementation-dependent. This supports a future browser/native import
+  adapter, but does not justify claiming that every platform import is
+  physically copy-free without backend evidence.
 
 ## Cross-engine comparison and decisions
 
@@ -158,6 +184,7 @@ implementation was inspected, copied, translated, or adapted.
 | Gradient representation | WinUI, Direct2D/Win2D, Skia, WebRender, and Vello retain gradient geometry, ordered stops, extend mode, interpolation, and local transforms as paint data evaluated by the renderer. | Each gradient owner caches one typed ProGPU vector brush. Observable collection order remains unchanged while a stable retained snapshot is sorted only after stop mutation. The existing WebGPU gradient-stop storage buffer and vector shader perform interpolation; no gradient creates a texture, render pass, CPU bitmap, or readback. |
 | Shadow representation | WinUI retains one shareable shadow object and chooses between a sprite rectangle, inherited visual alpha, or explicit brush alpha. Direct2D/Win2D, Skia, and WebRender execute blur/tint/composite work on GPU intermediates. | Each shadow owner retains one scene `DropShadowEffect`. The source subtree is rendered once into the existing bounded effect texture; an explicit or rectangular mask uses one additional retained texture, while inherited content reuses source alpha. The existing WebGPU compute path performs a sharp pass or separable blur and the original source is composited once above it. |
 | Opacity-mask representation | WinUI composes two retained brushes; Direct2D multiplies source visibility by mask alpha; Skia brackets compositing in a saved layer; WebRender retains clip/mask render tasks; Vello encodes push/pop layer scopes. | `CompositionMaskBrush` retains typed source and mask objects and records one push/source-draw/pop scope. Solid masks use ProGPU's analytic WebGPU mask uniforms; gradients use the existing bounded GPU mask texture and gradient shader. Shapes bracket fill and stroke independently only when a scoped brush is present, preserving the ordinary one-record fast path. |
+| Surface/image representation | WinUI retains an `ICompositionSurface` and brush mapping state; Direct2D and Skia retain image/bitmap brushes with sampler state; WebRender locks external image lifetimes around rendering; Vello renders into and composites caller-owned GPU textures; WebGPU binds device-owned textures and defines separately imported video snapshots. | `CompositionSurfaceBrush` acquires one typed same-device texture lease only while rebuilding its retained command stream. The drawing context owns that lease until invalidation/disposal; cache hits reuse it. Stretch/alignment/custom transforms, pixel snapping, and all ten official filter combinations compile into one clipped WebGPU texture quad. No CPU pixels, upload, readback, reflection, native-handle guessing, or extra composition surface is introduced. |
 | Clip representation | WinUI and Skia retain transformed rectangle, rounded-rectangle, and path clips; Direct2D recommends an axis-aligned clip instead of a layer; WebGPU exposes a render-pass scissor while Vello/WebRender retain geometry masks and render tasks for general paths. | Each composition visual stores at most one typed local `VisualCompositeClip`. Axis-aligned rectangles intersect the existing WebGPU scissor stack. Rotated rectangles and canonical per-corner rounded rectangles use the existing analytic GPU mask. General paths use one bounds-sized R8 GPU mask. No clip creates a CPU bitmap, readback, visual-sized intermediate surface, or per-frame geometry. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
@@ -201,6 +228,10 @@ Adopted:
 - `CompositionMaskBrush`, its source/mask ownership and factory, documented
   brush-combination validation, alpha multiplication, nested invalidation,
   and retained sprite/shape mask scopes.
+- `ICompositionSurface`, `CompositionSurfaceBrush`,
+  `CompositionBitmapInterpolationMode`, the two exact compositor factories,
+  documented defaults, alignment clamping, stretch/alignment/custom-transform
+  ordering, pixel snapping, and every official filter combination.
 
 Adapted:
 
@@ -232,6 +263,16 @@ Adapted:
   both inputs are assigned. Available color and gradient inputs are accepted
   according to the documented combination table; unsupported nested mask
   inputs fail transactionally.
+- a surface marker becomes renderable only through the public neutral
+  `IProGpuTextureLeaseSource` contract. An optional
+  `IProGpuInvalidatingTextureSource` event advances only live retained owners;
+  sources without it remain valid immutable surfaces. This keeps native media,
+  browser video, application textures, and future external providers outside
+  the WinUI assembly boundary while preserving typed ownership.
+- the drawing context retains a successful same-device lease as a scene
+  resource. A compiled-scene hit neither reacquires the lease nor uploads
+  pixels; a content notification disposes the prior retained lease through the
+  normal scene invalidation path before recording the next frame.
 
 Rejected:
 
@@ -245,6 +286,8 @@ Rejected:
   remains an exact De Casteljau or analytic arc sub-segment;
 - polling parent sizes each frame, runtime reflection, boxed drawing-context
   adapters, and unconditional root invalidation;
+- CPU readback/resampling, per-frame texture upload, guessed native handles,
+  or treating a WebGPU external-texture import as universally zero-copy;
 - copying Microsoft projection code or any Skia, WebRender, Vello, Parley, or
   HarfBuzz implementation structure.
 
@@ -311,6 +354,14 @@ Rejected:
   GPU with `O(P)` storage/work, then multiplies source fragments by its alpha.
   Stable brushes reuse scene-brush identity, command capacity, mask resources,
   and pipelines; warmed color changes allocate no managed memory.
+- A surface property mutation is fixed `O(1)` apart from notifying `S` weak
+  live owners. Recording after invalidation performs one `O(1)` lease acquire,
+  emits one four-vertex/six-index texture quad, and retains no pixel-sized CPU
+  storage. Stable compiled-scene replay performs no new lease acquire. Shape
+  fills add one retained geometry clip; texture strokes add one bounded
+  path-alpha mask with `O(P)` GPU work/storage for `P` covered device pixels.
+  The six non-default mixed filters lazily retain at most six device samplers;
+  the other four enum values reuse existing nearest or linear samplers.
 
 ## Current validation and explicit boundary
 
@@ -381,7 +432,22 @@ masks use the existing analytic WebGPU mask path; gradients use the existing
 bounded GPU mask texture and shader path. No CPU bitmap, readback, reflection,
 shader literal, platform renderer fork, or external dependency is introduced.
 
+The surface-brush slice additionally covers the exact marker, enum values,
+sealed type, properties, defaults, and both factories; finite-value validation,
+alignment clamping, same-compositor validation for composition-owned providers,
+all filter mappings, stretch/alignment and custom transforms, physical-pixel
+snapping, retained lease ownership, source-event invalidation, compiled-scene
+reuse, sprite pixels, shape-fill geometry clipping, shape-stroke alpha masks,
+composition-mask input, and the stable cached `MediaPlayer` surface adapter.
+A warmed Release invariant reports zero managed
+allocations across 10,000 alternating offset/filter property updates. A live
+two-pixel GPU texture is sampled directly and changes color after a texture
+write plus typed notification without CPU readback or re-upload by the brush.
+Native/browser decoders must still prove whether their platform texture import
+is physically zero-copy; the Composition path itself adds no copy.
+
 This is not full Composition parity. General composition effects,
-surfaces/external textures, animations, interaction
-tracking, projected shadows, and lighting remain missing until each has a real
-typed WebGPU implementation and its own correctness/performance gate.
+surface-production factories and platform external-texture imports,
+animations, interaction tracking, projected shadows, and lighting remain
+missing until each has a real typed WebGPU implementation and its own
+correctness/performance gate.

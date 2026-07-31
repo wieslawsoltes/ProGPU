@@ -221,7 +221,13 @@ public enum TextureSamplingMode
     Linear,
     Nearest,
     Cubic,
-    LinearMipmap
+    LinearMipmap,
+    MagLinearMinLinearMipNearest,
+    MagLinearMinNearestMipLinear,
+    MagLinearMinNearestMipNearest,
+    MagNearestMinLinearMipLinear,
+    MagNearestMinLinearMipNearest,
+    MagNearestMinNearestMipLinear
 }
 
 public enum TexturePatchKind : byte
@@ -601,6 +607,7 @@ public struct RenderCommand
     public byte TextureMaxAnisotropy;
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
+    public bool SnapTextureToPixels;
     public bool HasImageEffect;
     public ImageEffectCommandData ImageEffect;
 
@@ -1068,6 +1075,55 @@ public class DrawingContext :
                 .Add(RetainedResourceLease.Create(
                     textureLease,
                     leasedTexture));
+        }
+
+        texture = leasedTexture;
+        return true;
+    }
+
+    /// <summary>
+    /// Retains the current same-device texture without selecting a consumer
+    /// context. This is used by retained composition surfaces whose command
+    /// recording can occur before the host compositor begins a frame. Device
+    /// compatibility remains validated by the compositor before binding.
+    /// </summary>
+    public bool TryRetainTexture(
+        IProGpuTextureLeaseSource source,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (source.TryGetGpuTexture(out GpuTexture currentTexture) &&
+            currentTexture is not null &&
+            !currentTexture.IsDisposed &&
+            HasRetainedResourceIdentity(currentTexture))
+        {
+            texture = currentTexture;
+            return true;
+        }
+
+        if (!source.TryAcquireGpuTextureLease(out IProGpuTextureLease lease))
+        {
+            texture = null!;
+            return false;
+        }
+
+        GpuTexture leasedTexture = lease.Texture;
+        if (leasedTexture is null || leasedTexture.IsDisposed)
+        {
+            lease.Dispose();
+            texture = null!;
+            return false;
+        }
+
+        if (HasRetainedResourceIdentity(leasedTexture))
+        {
+            lease.Dispose();
+        }
+        else
+        {
+            (_retainedResources ??= new List<RetainedResourceLease>())
+                .Add(RetainedResourceLease.Create(lease, leasedTexture));
         }
 
         texture = leasedTexture;
@@ -1711,6 +1767,24 @@ public class DrawingContext :
             Type = RenderCommandType.PushOpacityMask,
             Picture = maskPicture,
             Rect = bounds
+        });
+    }
+
+    public void PushOpacityMask(
+        PathGeometry geometry,
+        Pen pen,
+        Rect bounds,
+        Matrix4x4 transform)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(pen);
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushOpacityMask,
+            Path = geometry,
+            Pen = pen,
+            Rect = bounds,
+            Transform = transform
         });
     }
 

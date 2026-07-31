@@ -212,6 +212,20 @@ public sealed class Compositor : IDisposable
         return new CompositionRadialGradientBrush(this);
     }
 
+    public CompositionSurfaceBrush CreateSurfaceBrush()
+    {
+        ThrowIfDisposed();
+        return new CompositionSurfaceBrush(this);
+    }
+
+    public CompositionSurfaceBrush CreateSurfaceBrush(
+        ICompositionSurface surface)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(surface);
+        return new CompositionSurfaceBrush(this, surface);
+    }
+
     public ShapeVisual CreateShapeVisual()
     {
         ThrowIfDisposed();
