@@ -20,7 +20,8 @@ public enum RoslynXamlMetadataEditCapabilities
 {
     None = 0,
     UpdateMethodBody = 1,
-    UpdatePropertyAccessor = 2
+    UpdatePropertyAccessor = 2,
+    UpdateEventAccessor = 4
 }
 
 public enum RoslynXamlMetadataDeltaStatus
@@ -101,10 +102,10 @@ public sealed class RoslynXamlMetadataDeltaUpdate
 
 /// <summary>
 /// Owns one accepted Roslyn compilation and its Edit-and-Continue baseline.
-/// This producer slice accepts ordinary C# method bodies and property/indexer
-/// accessor bodies. Candidate compilation, declaration shape, and Roslyn emit
-/// validation complete before a host can observe the detached delta or advance
-/// the baseline.
+/// This producer slice accepts ordinary C# method bodies, property/indexer
+/// accessor bodies, and custom event accessor bodies. Candidate compilation,
+/// declaration shape, and Roslyn emit validation complete before a host can
+/// observe the detached delta or advance the baseline.
 /// </summary>
 /// <remarks>
 /// Initial emission is O(T + B) time and O(B) retained storage for T syntax
@@ -192,7 +193,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
 
     public RoslynXamlMetadataEditCapabilities Capabilities =>
         RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
-        RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor;
+        RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor |
+        RoslynXamlMetadataEditCapabilities.UpdateEventAccessor;
 
     public long Generation
     {
@@ -658,7 +660,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 case AccessorDeclarationSyntax accessor
                     when accessor.Parent?.Parent is
                         PropertyDeclarationSyntax or
-                        IndexerDeclarationSyntax:
+                        IndexerDeclarationSyntax or
+                        EventDeclarationSyntax:
                     candidateBody = (SyntaxNode?)accessor.Body ??
                         accessor.ExpressionBody;
                     if (candidateBody != null)
@@ -776,7 +779,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         {
             if (node.Parent?.Parent is not
                 (PropertyDeclarationSyntax or
-                IndexerDeclarationSyntax))
+                IndexerDeclarationSyntax or
+                EventDeclarationSyntax))
             {
                 return base.VisitAccessorDeclaration(node);
             }
