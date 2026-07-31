@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.UI.Dispatching;
 using Windows.Foundation.Metadata;
 using Windows.UI;
@@ -53,6 +54,42 @@ public sealed class Compositor : IDisposable
         return new CompositionEllipseGeometry(this);
     }
 
+    public CompositionGeometricClip CreateGeometricClip()
+    {
+        ThrowIfDisposed();
+        return new CompositionGeometricClip(this);
+    }
+
+    public CompositionGeometricClip CreateGeometricClip(
+        CompositionGeometry geometry)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(geometry);
+        EnsureSameCompositor(geometry);
+        return new CompositionGeometricClip(this, geometry);
+    }
+
+    public InsetClip CreateInsetClip()
+    {
+        ThrowIfDisposed();
+        return new InsetClip(this);
+    }
+
+    public InsetClip CreateInsetClip(
+        float leftInset,
+        float topInset,
+        float rightInset,
+        float bottomInset)
+    {
+        ThrowIfDisposed();
+        return new InsetClip(
+            this,
+            leftInset,
+            topInset,
+            rightInset,
+            bottomInset);
+    }
+
     public CompositionLineGeometry CreateLineGeometry()
     {
         ThrowIfDisposed();
@@ -83,6 +120,45 @@ public sealed class Compositor : IDisposable
     {
         ThrowIfDisposed();
         return new CompositionRectangleGeometry(this);
+    }
+
+    public RectangleClip CreateRectangleClip()
+    {
+        ThrowIfDisposed();
+        return new RectangleClip(this);
+    }
+
+    public RectangleClip CreateRectangleClip(
+        float left,
+        float top,
+        float right,
+        float bottom)
+    {
+        ThrowIfDisposed();
+        return new RectangleClip(this, left, top, right, bottom);
+    }
+
+    public RectangleClip CreateRectangleClip(
+        float left,
+        float top,
+        float right,
+        float bottom,
+        Vector2 topLeftRadius,
+        Vector2 topRightRadius,
+        Vector2 bottomRightRadius,
+        Vector2 bottomLeftRadius)
+    {
+        ThrowIfDisposed();
+        return new RectangleClip(
+            this,
+            left,
+            top,
+            right,
+            bottom,
+            topLeftRadius,
+            topRightRadius,
+            bottomRightRadius,
+            bottomLeftRadius);
     }
 
     public CompositionRoundedRectangleGeometry

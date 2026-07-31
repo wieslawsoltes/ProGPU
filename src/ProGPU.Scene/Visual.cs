@@ -604,6 +604,36 @@ public class Visual
         }
     }
 
+    /// <summary>
+    /// Gets or sets one retained visual-local clip with an independent
+    /// transform. Rectangle clips use the render-pass scissor fast path when
+    /// the composed transform remains axis aligned; path clips use the
+    /// existing analytic or bounded R8 WebGPU mask path.
+    /// </summary>
+    public VisualCompositeClip? LocalCompositeClip
+    {
+        get => _coldState?.LocalCompositeClip;
+        set
+        {
+            VisualCompositeClip? current =
+                _coldState?.LocalCompositeClip;
+            if (current == value)
+                return;
+
+            if (value is null)
+            {
+                if (_coldState is { } state)
+                    state.LocalCompositeClip = null;
+            }
+            else
+            {
+                GetOrCreateColdState().LocalCompositeClip = value;
+            }
+
+            InvalidateVisualState();
+        }
+    }
+
     public Brush? OpacityMask
     {
         get => _coldState?.OpacityMask;
@@ -965,6 +995,7 @@ public class Visual
         public VisualCompositeClip[] OuterCompositeClips =
             Array.Empty<VisualCompositeClip>();
         public PathGeometry? GeometryClip;
+        public VisualCompositeClip? LocalCompositeClip;
         public Brush? OpacityMask;
         public GpuPicture? OpacityMaskPicture;
         public Rect? OpacityMaskBounds;

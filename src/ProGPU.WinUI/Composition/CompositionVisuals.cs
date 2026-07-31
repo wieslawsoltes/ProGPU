@@ -120,12 +120,13 @@ public sealed class CompositionColorBrush : CompositionBrush
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
-public class Visual : CompositionObject
+public class Visual : CompositionObject, ICompositionClipOwner
 {
     private readonly bool _ownsSceneNode;
     private ContainerVisual? _parent;
     private ProGPU.Scene.ContainerVisual? _externalHost;
     private Vector2 _anchorPoint;
+    private CompositionClip? _clip;
     private Vector3 _centerPoint;
     private Vector3 _offset;
     private Quaternion _orientation = Quaternion.Identity;
@@ -202,6 +203,23 @@ public class Visual : CompositionObject
         {
             if (SetFinite(ref _centerPoint, value))
                 RefreshSceneState();
+        }
+    }
+
+    public CompositionClip? Clip
+    {
+        get => _clip;
+        set
+        {
+            ThrowIfDisposed();
+            if (ReferenceEquals(_clip, value))
+                return;
+            if (value is not null)
+                EnsureSameCompositor(value);
+            _clip?.RemoveOwner(this);
+            _clip = value;
+            _clip?.AddOwner(this);
+            RefreshSceneClip();
         }
     }
 
@@ -411,6 +429,9 @@ public class Visual : CompositionObject
     internal override void OnDisposed()
     {
         DetachFromCurrentParent();
+        _clip?.RemoveOwner(this);
+        _clip = null;
+        SceneNode.LocalCompositeClip = null;
         if (_ownsSceneNode)
             SceneNode.ClearChildren();
         base.OnDisposed();
@@ -462,11 +483,31 @@ public class Visual : CompositionObject
         SceneNode.RenderTransformOrigin = Vector2.Zero;
         SceneNode.Size = _effectiveSize;
         SceneNode.Transform = localTransform;
+        RefreshSceneClip();
         if (sizeChanged &&
             SceneNode is CompositionSceneNode compositionNode)
         {
             compositionNode.UpdateContent();
         }
+    }
+
+    void ICompositionClipOwner.NotifyClipChanged() =>
+        RefreshSceneClip();
+
+    void ICompositionClipOwner.NotifyClipDisposed(CompositionClip clip)
+    {
+        if (!ReferenceEquals(_clip, clip))
+            return;
+        _clip = null;
+        SceneNode.LocalCompositeClip = null;
+    }
+
+    private void RefreshSceneClip()
+    {
+        SceneNode.LocalCompositeClip =
+            _clip?.TryCreateSceneClip(_effectiveSize, out VisualCompositeClip value) == true
+                ? value
+                : null;
     }
 
     private bool SetFinite(

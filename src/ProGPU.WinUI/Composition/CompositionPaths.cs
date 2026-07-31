@@ -111,6 +111,17 @@ public sealed class CompositionPathGeometry : CompositionGeometry
         _trimmedPath = null;
         _trimmedCache = null;
     }
+
+    internal override PathGeometry? GetClipPath()
+    {
+        if (_path is null)
+            return null;
+        if (HasFullTrim)
+            return _path.Data.Geometry;
+        return _trimmedPath ??= _path.Data.CreateTrimmed(
+            TrimOrigin,
+            TrimLength);
+    }
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
@@ -202,17 +213,10 @@ public sealed class CompositionRoundedRectangleGeometry : CompositionGeometry
             return;
         }
 
-        _pathData ??= new CompositionPathData(
-            PrimitivePathGeometry.CreateRoundedRectangle(
-                _offset.X,
-                _offset.Y,
-                _size.X,
-                _size.Y,
-                radius.X,
-                radius.Y));
+        EnsurePathData();
         if (_trimmedPath is null)
         {
-            _trimmedPath = _pathData.CreateTrimmed(
+            _trimmedPath = _pathData!.CreateTrimmed(
                 TrimOrigin,
                 TrimLength);
             _trimmedCache = RenderCommandGeometryCache.ForPath(
@@ -232,11 +236,39 @@ public sealed class CompositionRoundedRectangleGeometry : CompositionGeometry
         _trimmedCache = null;
     }
 
+    internal override PathGeometry GetClipPath()
+    {
+        EnsurePathData();
+        if (HasFullTrim)
+            return _pathData!.Geometry;
+        return _trimmedPath ??= _pathData!.CreateTrimmed(
+            TrimOrigin,
+            TrimLength);
+    }
+
     private void InvalidateGeometry()
     {
         _pathData = null;
         _trimmedPath = null;
         _trimmedCache = null;
         NotifyOwnersChanged();
+    }
+
+    private void EnsurePathData()
+    {
+        if (_pathData is not null)
+            return;
+
+        Vector2 radius = new(
+            MathF.Min(_cornerRadius.X, _size.X * 0.5f),
+            MathF.Min(_cornerRadius.Y, _size.Y * 0.5f));
+        _pathData = new CompositionPathData(
+            PrimitivePathGeometry.CreateRoundedRectangle(
+                _offset.X,
+                _offset.Y,
+                _size.X,
+                _size.Y,
+                radius.X,
+                radius.Y));
     }
 }

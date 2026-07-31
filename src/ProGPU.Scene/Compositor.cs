@@ -1393,7 +1393,8 @@ public unsafe partial class Compositor : IDisposable
         Opacity = 4,
         OpacityMask = 8,
         GeometryClip = 16,
-        OuterClipChain = 32
+        OuterClipChain = 32,
+        LocalCompositeClip = 64
     }
 
     private BatchType _currentBatchType = BatchType.None;
@@ -13679,6 +13680,8 @@ SceneStateUploadComplete:
         bool hasClip = visual.ClipBounds.HasValue;
         bool hasOuterClip = visual.OuterClipBounds.HasValue;
         bool hasGeometryClip = visual.GeometryClip != null;
+        VisualCompositeClip? localCompositeClip =
+            visual.LocalCompositeClip;
         ReadOnlySpan<VisualCompositeClip> outerCompositeClips =
             visual.OuterCompositeClips;
 
@@ -13690,6 +13693,25 @@ SceneStateUploadComplete:
         if (hasOuterClip)
         {
             PushHitTestClip(visual.OuterClipBounds.GetValueOrDefault(), parentTransform);
+        }
+
+        if (localCompositeClip is { } localClip)
+        {
+            Matrix4x4 transform = localClip.Transform * globalTransform;
+            if (localClip.Bounds.HasValue)
+            {
+                PushHitTestClip(localClip.Bounds.Value, transform);
+            }
+            else if (localClip.Geometry != null)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PushGeometryClip,
+                        Path = localClip.Geometry
+                    },
+                    transform);
+            }
         }
 
         for (int index = 0; index < outerCompositeClips.Length; index++)
@@ -13738,6 +13760,16 @@ SceneStateUploadComplete:
         }
         finally
         {
+            if (hasGeometryClip)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PopGeometryClip
+                    },
+                    Matrix4x4.Identity);
+            }
+
             for (int index = outerCompositeClips.Length - 1;
                  index >= 0;
                  index--)
@@ -13757,11 +13789,21 @@ SceneStateUploadComplete:
                 }
             }
 
-            if (hasGeometryClip)
+            if (localCompositeClip is { } localClipToPop)
             {
-                AddHitTestStateCommand(
-                    new RenderCommand { Type = RenderCommandType.PopGeometryClip },
-                    Matrix4x4.Identity);
+                if (localClipToPop.Bounds.HasValue)
+                {
+                    PopHitTestClip();
+                }
+                else if (localClipToPop.Geometry != null)
+                {
+                    AddHitTestStateCommand(
+                        new RenderCommand
+                        {
+                            Type = RenderCommandType.PopGeometryClip
+                        },
+                        Matrix4x4.Identity);
+                }
             }
 
             if (hasOuterClip)
@@ -13794,6 +13836,30 @@ SceneStateUploadComplete:
             PushClipRect(node.OuterClipBounds.Value, parentTransform);
             PushHitTestClip(node.OuterClipBounds.Value, parentTransform);
             scope |= VisualCompositeScope.OuterClip;
+        }
+
+        if (node.LocalCompositeClip is { } localClip)
+        {
+            Matrix4x4 transform =
+                localClip.Transform * compositeTransform;
+            if (localClip.Bounds.HasValue)
+            {
+                PushClipRect(localClip.Bounds.Value, transform);
+                PushHitTestClip(localClip.Bounds.Value, transform);
+                scope |= VisualCompositeScope.LocalCompositeClip;
+            }
+            else if (localClip.Geometry != null)
+            {
+                PushGeometryClipValue(localClip.Geometry, transform);
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PushGeometryClip,
+                        Path = localClip.Geometry
+                    },
+                    transform);
+                scope |= VisualCompositeScope.LocalCompositeClip;
+            }
         }
 
         ReadOnlySpan<VisualCompositeClip> outerCompositeClips =
@@ -13912,6 +13978,26 @@ SceneStateUploadComplete:
                         Matrix4x4.Identity);
                     PopClipRect();
                 }
+            }
+        }
+
+        if ((scope & VisualCompositeScope.LocalCompositeClip) != 0 &&
+            node.LocalCompositeClip is { } localClip)
+        {
+            if (localClip.Bounds.HasValue)
+            {
+                PopHitTestClip();
+                PopClipRect();
+            }
+            else if (localClip.Geometry != null)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PopGeometryClip
+                    },
+                    Matrix4x4.Identity);
+                PopClipRect();
             }
         }
 

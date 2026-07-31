@@ -48,6 +48,16 @@ implementation was inspected, copied, translated, or adapted.
 - [CompositionRoundedRectangleGeometry](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionroundedrectanglegeometry)
   defines retained size, offset, corner radius, and inherited trim state for a
   rounded rectangle.
+- [Visual.Clip](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.visual.clip)
+  defines a retained clip in the visual's coordinate space.
+  [CompositionClip.AnchorPoint](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionclip.anchorpoint)
+  defines the normalized clip-size anchor, while the remaining clip transform
+  properties define an independently animatable local transform.
+- [InsetClip](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.insetclip),
+  [RectangleClip](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.rectangleclip),
+  and [CompositionGeometricClip](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositiongeometricclip)
+  define edge-relative rectangles, independent per-corner radii, and reusable
+  geometry/view-box clips respectively. Negative edge insets are valid.
 - [Direct2D resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains)
   separates reusable CPU descriptions from device-owned GPU resources.
 - [Direct2D performance guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
@@ -56,6 +66,9 @@ implementation was inspected, copied, translated, or adapted.
 - [Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview)
   treats intermediate layers as bounded compositing resources rather than a
   default for every visual.
+- [Direct2D axis-aligned clips](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient)
+  recommends a clip rectangle instead of allocating a layer when its simpler
+  semantics are sufficient.
 - [Direct2D path geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview)
   separate reusable geometry descriptions from the draw operation that
   supplies fill and stroke state.
@@ -67,6 +80,9 @@ implementation was inspected, copied, translated, or adapted.
 - [Skia API overview](https://skia.org/docs/user/api/) and
   [`SkPicture`](https://api.skia.org/classSkPicture.html) preserve a reusable
   ordered command stream separately from its GPU replay.
+- [`SkCanvas`](https://skia.googlesource.com/skia/+/refs/heads/main/include/core/SkCanvas.h)
+  exposes transformed rectangle, rounded-rectangle, and path clip primitives
+  whose result intersects the current clip stack.
 - [SkParagraph sources](https://skia.googlesource.com/skia/+/main/modules/skparagraph/)
   retain shaping and line-layout results on the CPU side of the renderer.
 - [Firefox rendering overview](https://searchfox.org/firefox-main/source/gfx/docs/RenderingOverview.rst)
@@ -91,6 +107,7 @@ implementation was inspected, copied, translated, or adapted.
 | Startup and lazy initialization | WinUI composition creates lightweight retained objects; Direct2D and WebGPU defer device resources to their owning device. | Constructing a public `Compositor`, visual, brush, or property set creates no `WgpuContext`, shader, pipeline, texture, or buffer. A host initializes WebGPU only when it renders. |
 | Retained scene reuse | WinUI/DirectComposition retain visual identity; WebRender, Vello, and `SkPicture` retain scene or command identity. | Each public composition `Visual` owns one stable `ProGPU.Scene.ContainerVisual`. A color sprite records one immutable-until-invalidated rectangle command and uses the existing compiled-scene and incremental-page caches. No second renderer or display list is introduced. |
 | Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, path-data, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses, rectangles, and rounded rectangles remain analytic commands. A `CompositionPath` snapshots typed ProGPU lines, quadratics, cubics, and arcs once; path and rounded-rectangle trims retain exact sub-segments selected from bounded length tables. Geometry-cache identity is retained with every source/trimmed path. No per-shape surface, pass, texture, or bitmap is created. |
+| Clip representation | WinUI and Skia retain transformed rectangle, rounded-rectangle, and path clips; Direct2D recommends an axis-aligned clip instead of a layer; WebGPU exposes a render-pass scissor while Vello/WebRender retain geometry masks and render tasks for general paths. | Each composition visual stores at most one typed local `VisualCompositeClip`. Axis-aligned rectangles intersect the existing WebGPU scissor stack. Rotated rectangles and canonical per-corner rounded rectangles use the existing analytic GPU mask. General paths use one bounds-sized R8 GPU mask. No clip creates a CPU bitmap, readback, visual-sized intermediate surface, or per-frame geometry. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
 | Demand-driven upload | Direct2D recommends resource reuse; WebRender uploads demanded resources after visibility analysis. | A solid sprite contributes one ordinary retained rectangle. Existing dirty-range scene uploads write only changed GPU buffer ranges. Color changes invalidate owners but do not allocate or upload an intermediate CPU bitmap. |
@@ -118,6 +135,10 @@ Adopted:
 - `IGeometrySource2D`, immutable `CompositionPath` snapshots,
   `CompositionPathGeometry`, analytic `CompositionRoundedRectangleGeometry`,
   and the exact associated compositor factories and properties.
+- `CompositionClip`, `InsetClip`, `RectangleClip`,
+  `CompositionGeometricClip`, `Visual.Clip`, all pinned factories and
+  transform properties, including shared weak-owner invalidation and
+  geometry/view-box reuse.
 
 Adapted:
 
@@ -134,6 +155,10 @@ Adapted:
 - nested shape transforms and the view-box mapping are composed into the
   existing retained command transforms, while mutable brushes and geometries
   invalidate every live typed owner.
+- clip transforms compose in visual-local space. A null geometric-clip
+  geometry is treated as a no-op; this is an explicit clean-room inference
+  from the documented nullable default and the requirement that a default
+  clip object be safe before geometry is assigned.
 
 Rejected:
 
@@ -183,6 +208,14 @@ Rejected:
   quadratic, cubic, or arc sub-segments. Stable replay retains both path and
   `RenderCommandGeometryCache`; path replacement, shape transforms, and
   rounded-rectangle property updates are allocation-free after warmup.
+- An inset or square rectangle clip update is fixed `O(1)` per live visual
+  owner and allocation-free after owner registration. Stable rectangle clips
+  use the WebGPU scissor with `O(1)` CPU/GPU state. A rounded rectangle owns
+  one retained path of at most eight segments and uses fixed-work radius
+  normalization. General geometric-clip preparation is `O(S)` only when its
+  retained path changes; stable frames reuse the path and compiled mask state.
+  A general clip mask stores `O(B)` bytes for its bounded device-pixel area
+  `B`, while scissor clips allocate no texture storage.
 
 ## Current validation and explicit boundary
 
@@ -214,7 +247,16 @@ boolean-combined path representation is rejected explicitly until a typed
 adapter defines its Composition trim semantics; it never degrades to empty or
 flattened output.
 
-This is not full Composition parity. Clips, shadows, effects,
+The clip slice additionally covers exact pinned defaults and factories,
+same-compositor validation, clip disposal, inset scissor pixels, canonical
+per-corner rounded-mask pixels, geometric ellipse/view-box pixels, geometry
+and radius invalidation, compiled-scene reuse, and exactly zero managed
+allocations across 10,000 warmed inset/transform mutations. Clip hit testing
+uses the same retained clip stack and transforms as color rendering. The
+rounded and general paths remain device-independent retained geometry until
+the existing WebGPU compositor selects its analytic or bounded R8 mask.
+
+This is not full Composition parity. Shadows, effects,
 surfaces/external textures, animations, interaction
 tracking, projected shadows, and lighting remain missing until each has a real
 typed WebGPU implementation and its own correctness/performance gate.

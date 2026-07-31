@@ -8,6 +8,16 @@ using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Composition;
 
+internal interface ICompositionGeometryOwner
+{
+    void NotifyGeometryChanged();
+}
+
+internal interface ICompositionViewBoxOwner
+{
+    void NotifyViewBoxChanged();
+}
+
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public enum CompositionStrokeCap
 {
@@ -38,7 +48,7 @@ public enum CompositionStretch
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public class CompositionGeometry : CompositionObject
 {
-    private List<WeakReference<CompositionSpriteShape>>? _owners;
+    private List<WeakReference<ICompositionGeometryOwner>>? _owners;
     private float _trimEnd = 1f;
     private float _trimOffset;
     private float _trimStart;
@@ -94,13 +104,13 @@ public class CompositionGeometry : CompositionObject
         }
     }
 
-    internal void AddOwner(CompositionSpriteShape owner)
+    internal void AddOwner(ICompositionGeometryOwner owner)
     {
-        List<WeakReference<CompositionSpriteShape>> owners =
-            _owners ??= new List<WeakReference<CompositionSpriteShape>>();
+        List<WeakReference<ICompositionGeometryOwner>> owners =
+            _owners ??= new List<WeakReference<ICompositionGeometryOwner>>();
         for (int index = owners.Count - 1; index >= 0; index--)
         {
-            if (!owners[index].TryGetTarget(out CompositionSpriteShape? existing))
+            if (!owners[index].TryGetTarget(out ICompositionGeometryOwner? existing))
             {
                 owners.RemoveAt(index);
                 continue;
@@ -110,17 +120,17 @@ public class CompositionGeometry : CompositionObject
                 return;
         }
 
-        owners.Add(new WeakReference<CompositionSpriteShape>(owner));
+        owners.Add(new WeakReference<ICompositionGeometryOwner>(owner));
     }
 
-    internal void RemoveOwner(CompositionSpriteShape owner)
+    internal void RemoveOwner(ICompositionGeometryOwner owner)
     {
         if (_owners is null)
             return;
 
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (!_owners[index].TryGetTarget(out CompositionSpriteShape? existing) ||
+            if (!_owners[index].TryGetTarget(out ICompositionGeometryOwner? existing) ||
                 ReferenceEquals(existing, owner))
             {
                 _owners.RemoveAt(index);
@@ -135,6 +145,8 @@ public class CompositionGeometry : CompositionObject
         Matrix4x4 transform)
     {
     }
+
+    internal virtual PathGeometry? GetClipPath() => null;
 
     private void SetTrim(ref float field, float value)
     {
@@ -159,8 +171,8 @@ public class CompositionGeometry : CompositionObject
 
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (_owners[index].TryGetTarget(out CompositionSpriteShape? owner))
-                owner.NotifyShapeChanged();
+            if (_owners[index].TryGetTarget(out ICompositionGeometryOwner? owner))
+                owner.NotifyGeometryChanged();
             else
                 _owners.RemoveAt(index);
         }
@@ -179,6 +191,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
 {
     private Vector2 _center;
     private Vector2 _radius;
+    private PathGeometry? _fullPath;
     private PathGeometry? _trimmedPath;
     private RenderCommandGeometryCache? _trimmedCache;
 
@@ -197,6 +210,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
             if (_center == value)
                 return;
             _center = value;
+            _fullPath = null;
             _trimmedPath = null;
             _trimmedCache = null;
             NotifyOwnersChanged();
@@ -215,6 +229,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
             if (_radius == value)
                 return;
             _radius = value;
+            _fullPath = null;
             _trimmedPath = null;
             _trimmedCache = null;
             NotifyOwnersChanged();
@@ -261,6 +276,17 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
         _trimmedCache = null;
     }
 
+    internal override PathGeometry GetClipPath()
+    {
+        if (!HasFullTrim)
+            return _trimmedPath ??= CreateTrimmedPath();
+
+        return _fullPath ??= PrimitivePathGeometry.CreateEllipse(
+            _center,
+            _radius.X,
+            _radius.Y);
+    }
+
     private PathGeometry CreateTrimmedPath()
     {
         float length = TrimLength;
@@ -297,6 +323,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
 {
     private Vector2 _offset;
     private Vector2 _size;
+    private PathGeometry? _fullPath;
     private PathGeometry? _trimmedPath;
     private RenderCommandGeometryCache? _trimmedCache;
 
@@ -315,6 +342,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
             if (_offset == value)
                 return;
             _offset = value;
+            _fullPath = null;
             _trimmedPath = null;
             _trimmedCache = null;
             NotifyOwnersChanged();
@@ -333,6 +361,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
             if (_size == value)
                 return;
             _size = value;
+            _fullPath = null;
             _trimmedPath = null;
             _trimmedCache = null;
             NotifyOwnersChanged();
@@ -375,6 +404,18 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
     {
         _trimmedPath = null;
         _trimmedCache = null;
+    }
+
+    internal override PathGeometry GetClipPath()
+    {
+        if (!HasFullTrim)
+            return _trimmedPath ??= CreateTrimmedPath();
+
+        return _fullPath ??= PrimitivePathGeometry.CreateRectangle(
+            _offset.X,
+            _offset.Y,
+            _size.X,
+            _size.Y);
     }
 
     private PathGeometry CreateTrimmedPath()
@@ -524,6 +565,9 @@ public sealed class CompositionLineGeometry : CompositionGeometry
         _path = null;
         _pathCache = null;
     }
+
+    internal override PathGeometry GetClipPath() =>
+        _path ??= CreatePath();
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
@@ -684,7 +728,8 @@ public sealed class CompositionContainerShape : CompositionShape
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public sealed class CompositionSpriteShape : CompositionShape,
-    ICompositionBrushOwner
+    ICompositionBrushOwner,
+    ICompositionGeometryOwner
 {
     private CompositionBrush? _fillBrush;
     private CompositionGeometry? _geometry;
@@ -790,6 +835,9 @@ public sealed class CompositionSpriteShape : CompositionShape,
     }
 
     void ICompositionBrushOwner.NotifyBrushValueChanged() =>
+        NotifyShapeChanged();
+
+    void ICompositionGeometryOwner.NotifyGeometryChanged() =>
         NotifyShapeChanged();
 
     internal override void Record(
@@ -1161,7 +1209,7 @@ public sealed class CompositionShapeCollection :
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
-public sealed class ShapeVisual : ContainerVisual
+public sealed class ShapeVisual : ContainerVisual, ICompositionViewBoxOwner
 {
     private CompositionViewBox? _viewBox;
 
@@ -1196,6 +1244,9 @@ public sealed class ShapeVisual : ContainerVisual
             node.UpdateContent();
     }
 
+    void ICompositionViewBoxOwner.NotifyViewBoxChanged() =>
+        NotifyShapesChanged();
+
     internal void RecordShapes(DrawingContext context)
     {
         Matrix3x2 transform = _viewBox?.CreateTransform(EffectiveSize) ??
@@ -1214,7 +1265,7 @@ public sealed class ShapeVisual : ContainerVisual
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public sealed class CompositionViewBox : CompositionObject
 {
-    private List<WeakReference<ShapeVisual>>? _owners;
+    private List<WeakReference<ICompositionViewBoxOwner>>? _owners;
     private float _horizontalAlignmentRatio = 0.5f;
     private Vector2 _offset;
     private Vector2 _size;
@@ -1263,13 +1314,13 @@ public sealed class CompositionViewBox : CompositionObject
         set => SetRatio(ref _verticalAlignmentRatio, value);
     }
 
-    internal void AddOwner(ShapeVisual owner)
+    internal void AddOwner(ICompositionViewBoxOwner owner)
     {
-        List<WeakReference<ShapeVisual>> owners =
-            _owners ??= new List<WeakReference<ShapeVisual>>();
+        List<WeakReference<ICompositionViewBoxOwner>> owners =
+            _owners ??= new List<WeakReference<ICompositionViewBoxOwner>>();
         for (int index = owners.Count - 1; index >= 0; index--)
         {
-            if (!owners[index].TryGetTarget(out ShapeVisual? existing))
+            if (!owners[index].TryGetTarget(out ICompositionViewBoxOwner? existing))
             {
                 owners.RemoveAt(index);
                 continue;
@@ -1277,16 +1328,16 @@ public sealed class CompositionViewBox : CompositionObject
             if (ReferenceEquals(existing, owner))
                 return;
         }
-        owners.Add(new WeakReference<ShapeVisual>(owner));
+        owners.Add(new WeakReference<ICompositionViewBoxOwner>(owner));
     }
 
-    internal void RemoveOwner(ShapeVisual owner)
+    internal void RemoveOwner(ICompositionViewBoxOwner owner)
     {
         if (_owners is null)
             return;
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (!_owners[index].TryGetTarget(out ShapeVisual? existing) ||
+            if (!_owners[index].TryGetTarget(out ICompositionViewBoxOwner? existing) ||
                 ReferenceEquals(existing, owner))
             {
                 _owners.RemoveAt(index);
@@ -1355,8 +1406,8 @@ public sealed class CompositionViewBox : CompositionObject
             return;
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (_owners[index].TryGetTarget(out ShapeVisual? owner))
-                owner.NotifyShapesChanged();
+            if (_owners[index].TryGetTarget(out ICompositionViewBoxOwner? owner))
+                owner.NotifyViewBoxChanged();
             else
                 _owners.RemoveAt(index);
         }

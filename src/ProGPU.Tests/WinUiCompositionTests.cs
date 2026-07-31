@@ -265,6 +265,245 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void ClipFactoriesPreserveDefaultsOwnershipAndValidation()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(80f, 60f);
+        InsetClip inset = compositor.CreateInsetClip(1f, 2f, 3f, 4f);
+        RectangleClip rectangle = compositor.CreateRectangleClip(
+            5f,
+            6f,
+            7f,
+            8f,
+            new Vector2(1f, 2f),
+            new Vector2(3f, 4f),
+            new Vector2(5f, 6f),
+            new Vector2(7f, 8f));
+        CompositionGeometricClip geometric =
+            compositor.CreateGeometricClip();
+
+        Assert.Equal(Vector2.Zero, inset.AnchorPoint);
+        Assert.Equal(Vector2.Zero, inset.CenterPoint);
+        Assert.Equal(Vector2.Zero, inset.Offset);
+        Assert.Equal(Vector2.One, inset.Scale);
+        Assert.Equal(Matrix3x2.Identity, inset.TransformMatrix);
+        Assert.Equal(1f, inset.LeftInset);
+        Assert.Equal(2f, inset.TopInset);
+        Assert.Equal(3f, inset.RightInset);
+        Assert.Equal(4f, inset.BottomInset);
+        Assert.Equal(new Vector2(1f, 2f), rectangle.TopLeftRadius);
+        Assert.Equal(new Vector2(3f, 4f), rectangle.TopRightRadius);
+        Assert.Equal(new Vector2(5f, 6f), rectangle.BottomRightRadius);
+        Assert.Equal(new Vector2(7f, 8f), rectangle.BottomLeftRadius);
+        Assert.Null(geometric.Geometry);
+        Assert.Null(geometric.ViewBox);
+
+        visual.Clip = geometric;
+        Assert.Null(visual.SceneNode.LocalCompositeClip);
+        visual.Clip = inset;
+        Assert.NotNull(visual.SceneNode.LocalCompositeClip);
+        inset.Dispose();
+        Assert.Null(visual.Clip);
+        Assert.Null(visual.SceneNode.LocalCompositeClip);
+
+        using var foreignCompositor = new Compositor();
+        Assert.Throws<InvalidOperationException>(
+            () => visual.Clip = foreignCompositor.CreateInsetClip());
+        Assert.Throws<InvalidOperationException>(
+            () => geometric.Geometry =
+                foreignCompositor.CreateEllipseGeometry());
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => rectangle.TopLeftRadius = new Vector2(-1f, 2f));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => rectangle.RotationAngle = float.NaN);
+    }
+
+    [Fact]
+    public void SharedClipsAndGeometriesInvalidateEveryLiveVisualOwner()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual first = compositor.CreateSpriteVisual();
+        SpriteVisual second = compositor.CreateSpriteVisual();
+        first.Size = second.Size = new Vector2(40f, 30f);
+        InsetClip inset = compositor.CreateInsetClip(1f, 2f, 3f, 4f);
+        first.Clip = inset;
+        second.Clip = inset;
+        long firstVersion = first.SceneNode.ChangeVersion;
+        long secondVersion = second.SceneNode.ChangeVersion;
+
+        inset.LeftInset = 5f;
+
+        Assert.True(first.SceneNode.ChangeVersion > firstVersion);
+        Assert.True(second.SceneNode.ChangeVersion > secondVersion);
+
+        CompositionEllipseGeometry ellipse =
+            compositor.CreateEllipseGeometry();
+        ellipse.Center = new Vector2(10f);
+        ellipse.Radius = new Vector2(8f);
+        first.Clip = compositor.CreateGeometricClip(ellipse);
+        second.Clip = compositor.CreateGeometricClip(ellipse);
+        firstVersion = first.SceneNode.ChangeVersion;
+        secondVersion = second.SceneNode.ChangeVersion;
+
+        ellipse.Radius = new Vector2(6f);
+
+        Assert.True(first.SceneNode.ChangeVersion > firstVersion);
+        Assert.True(second.SceneNode.ChangeVersion > secondVersion);
+    }
+
+    [Fact]
+    public void InsetAndRoundedRectangleClipsRenderOnRetainedWebGpuScene()
+    {
+        using var window = new HeadlessWindow(72, 52);
+        var host = new FrameworkElement
+        {
+            Width = 72f,
+            Height = 52f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            SpriteVisual sprite = compositor.CreateSpriteVisual();
+            sprite.Size = new Vector2(72f, 52f);
+            sprite.Brush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+            InsetClip inset = compositor.CreateInsetClip(8f, 6f, 10f, 8f);
+            sprite.Clip = inset;
+            ElementCompositionPreview.SetElementChildVisual(host, sprite);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 4, 20));
+            AssertRed(ReadPixel(pixels, window.Width, 20, 20));
+            AssertDark(ReadPixel(pixels, window.Width, 66, 20));
+
+            inset.Offset = new Vector2(4f, 0f);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 9, 20));
+            AssertRed(ReadPixel(pixels, window.Width, 14, 20));
+
+            inset.RotationAngle = 0.1f;
+            window.Render();
+            Assert.True(
+                window.Compositor.Metrics.AffineRectangleMaskPeakDemand > 0);
+
+            RectangleClip rounded = compositor.CreateRectangleClip(
+                8f,
+                6f,
+                10f,
+                8f,
+                new Vector2(10f),
+                new Vector2(10f),
+                new Vector2(10f),
+                new Vector2(10f));
+            sprite.Clip = rounded;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 9, 7));
+            AssertRed(ReadPixel(pixels, window.Width, 18, 16));
+            Assert.True(
+                window.Compositor.Metrics.RoundedGeometryMaskPeakDemand > 0);
+
+            rounded.TopLeftRadius = Vector2.Zero;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 9, 7));
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void GeometricClipAndViewBoxRenderAndTrackGeometryChanges()
+    {
+        using var window = new HeadlessWindow(64, 48);
+        var host = new FrameworkElement
+        {
+            Width = 64f,
+            Height = 48f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            SpriteVisual sprite = compositor.CreateSpriteVisual();
+            sprite.Size = new Vector2(64f, 48f);
+            sprite.Brush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            CompositionEllipseGeometry ellipse =
+                compositor.CreateEllipseGeometry();
+            ellipse.Center = new Vector2(8f, 8f);
+            ellipse.Radius = new Vector2(6f, 5f);
+            CompositionViewBox viewBox = compositor.CreateViewBox();
+            viewBox.Size = new Vector2(16f, 16f);
+            viewBox.Stretch = CompositionStretch.Fill;
+            CompositionGeometricClip clip =
+                compositor.CreateGeometricClip(ellipse);
+            clip.ViewBox = viewBox;
+            sprite.Clip = clip;
+            ElementCompositionPreview.SetElementChildVisual(host, sprite);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 2, 2));
+            AssertBlue(ReadPixel(pixels, window.Width, 32, 24));
+            AssertDark(ReadPixel(pixels, window.Width, 58, 42));
+
+            ellipse.Radius = new Vector2(8f, 8f);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertBlue(ReadPixel(pixels, window.Width, 4, 24));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedClipScalarAndTransformUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(40f, 30f);
+        InsetClip clip = compositor.CreateInsetClip(1f, 2f, 3f, 4f);
+        visual.Clip = clip;
+
+        clip.LeftInset = 2f;
+        clip.LeftInset = 1f;
+        clip.Offset = Vector2.One;
+        clip.Offset = Vector2.Zero;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            clip.LeftInset = (index & 1) + 1f;
+            clip.Offset = new Vector2(index & 1, 0f);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void ShapeCollectionsPreserveOwnershipAndRejectCyclesTransactionally()
     {
         using var compositor = new Compositor();
