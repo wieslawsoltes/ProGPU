@@ -2204,6 +2204,42 @@ namespace Demo { public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
         Assert.Equal(
             "__xamlBindingLifetime",
             invocation.ArgumentList.Arguments[5].Expression.ToString());
+
+        var profile = new WinUiXamlProfile();
+        var document = XamlParser.Parse(
+            SourceText.From(xaml),
+            "MainPage.xaml").Document;
+        var emitted = new CSharpXamlEmitter().Emit(
+            document,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var projection = Assert.Single(
+            XamlProjectionMap.Read(
+                Assert.Single(emitted.Sources)
+                    .UnformattedSyntaxTree!),
+            entry =>
+                entry.Kind ==
+                XamlProjectionKind.Binding);
+        Assert.NotEqual(0UL, projection.StableNodeId);
+        Assert.Equal(
+            "{Binding Path=Customer.Name, Mode=TwoWay,\n" +
+            "                            ElementName=SourceText, FallbackValue=missing}",
+            xaml.Substring(
+                projection.SourceSpan.Start,
+                projection.SourceSpan.Length));
+        var projectedStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            projection.GeneratedNode.AsNode());
+        Assert.Contains(
+            "BindingOperations.SetBinding",
+            projectedStatement.Expression.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2427,6 +2463,55 @@ namespace Demo {
             lifecycleStatements[1],
             StringComparison.Ordinal);
         Assert.Equal("Bindings.Initialize();", lifecycleStatements[^1]);
+
+        var profile = new WinUiXamlProfile();
+        var document = XamlParser.Parse(
+            SourceText.From(xaml),
+            "MainPage.xaml").Document;
+        var emitted = new CSharpXamlEmitter().Emit(
+            document,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var bindingProjections = XamlProjectionMap
+            .Read(
+                Assert.Single(emitted.Sources)
+                    .UnformattedSyntaxTree!)
+            .Where(
+                entry =>
+                    entry.Kind ==
+                    XamlProjectionKind.Binding)
+            .ToArray();
+        Assert.Equal(4, bindingProjections.Length);
+        Assert.Equal(
+            4,
+            bindingProjections
+                .Select(entry => entry.StableNodeId)
+                .Distinct()
+                .Count());
+        Assert.All(
+            bindingProjections,
+            projection =>
+            {
+                Assert.StartsWith(
+                    "{x:Bind ",
+                    xaml.Substring(
+                        projection.SourceSpan.Start,
+                        projection.SourceSpan.Length),
+                    StringComparison.Ordinal);
+                var projectedStatement = Assert.IsType<
+                    ExpressionStatementSyntax>(
+                    projection.GeneratedNode.AsNode());
+                Assert.Contains(
+                    "CompiledBindingOperations.SetBinding",
+                    projectedStatement.Expression.ToString(),
+                    StringComparison.Ordinal);
+            });
     }
 
     [Fact]
