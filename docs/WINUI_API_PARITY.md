@@ -1472,6 +1472,46 @@ declaration report records 192/192 exact `Microsoft.UI.Windowing` entries with
 no missing or extra entries; this does not overstate those remaining host
 integration tasks.
 
+### Microsoft.UI.Composition retained WebGPU foundation
+
+The first Composition slice adds exact public contracts for typed property
+sets, compositor ownership and six implemented factories, color brushes,
+retained visual/container/sprite trees, ordered visual collections, and the
+three `ElementCompositionPreview` methods that expose and attach renderable
+visuals. A custom child is retained as the last scene child, so it renders
+above ordinary XAML content even after later ordinary child insertions.
+Composition objects created by different compositors cannot be combined.
+
+Each composition visual owns one stable ProGPU retained scene node. A color
+sprite owns one reusable rectangle command and flows through the existing
+WebGPU vector batching, compiled-scene cache, bounded incremental pages, dirty
+GPU-buffer uploads, device-generation checks, and physical-framebuffer path.
+No new shader, render pass, surface, texture, CPU bitmap, readback, runtime
+reflection, or external dependency is introduced. Relative size uses the
+documented `Size + RelativeSizeAdjustment * Parent.EffectiveSize` equation and
+a typed parent-size notification rather than frame polling.
+
+Typed property-set values use inline tagged storage instead of boxing. A
+warmed Release invariant reports zero managed allocations across 10,000
+existing-key inserts and alternating visual-offset updates. Focused WebGPU
+pixel tests verify color output, shared-brush invalidation, persistent
+top-child order, compiled-scene reuse, visual removal, and relative-size
+propagation after a XAML host resize. Collection tests verify bottom-to-top
+enumeration, reparenting, cycle rejection, and compositor ownership.
+
+The pinned metadata comparison adds 138 exact declarations without adding a
+ProGPU-only declaration. It advances the report to 8,578 candidate entries,
+4,792 exact matches, 11,787 missing entries, and 3,786 extras. This is not a
+claim of full Composition parity: clips, shadows, effects, surfaces, shapes,
+animations, interactions, and lighting remain missing until their observable
+behavior is implemented.
+
+The complete cross-engine design record, primary sources, adopted/adapted/
+rejected decisions, complexity, and explicit boundary are in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+Only pinned public metadata and official documentation were used; no Microsoft
+method body or foreign renderer implementation was inspected or adapted.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be
