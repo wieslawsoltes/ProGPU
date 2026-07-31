@@ -33,10 +33,15 @@ valid EnC metadata logs, and real method/property/event-accessor/constructor/
 operator/method-insertion/constructor-insertion `MetadataUpdater.ApplyUpdate`
 execution are covered. Constructor,
 destructor, operator, and conversion-operator bodies retain exact method
-symbols; initializer and declaration changes still fail closed. Field,
+symbols; initializer and declaration changes still fail closed. Unsupported
+edit diagnostics retain exact candidate method locations for additions and
+declaration changes, accepted-baseline method locations for deletions, and a
+deterministic candidate document location for broader declaration/member/
+topology changes. Environment-only incompatibilities remain unlocated because
+no source edit owns them. Field,
 property, type, and static-constructor insertion, deletion, and broader
-runtime capabilities, source-located rude
-edits, combined XAML/metadata publication ordering, partial-publication
+runtime capabilities, XAML-origin rude-edit routing, combined XAML/metadata
+publication ordering, partial-publication
 recovery, and multi-project delta ownership remain.
 This checkpoint supersedes the earlier metadata-delta-producer milestone;
 remaining items describe expansion and host coordination rather than absence

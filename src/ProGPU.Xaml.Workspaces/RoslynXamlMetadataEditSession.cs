@@ -298,7 +298,10 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 baseline,
                 addedMethodKeys,
                 "a declaration, member signature, non-method body, or " +
-                "syntax-tree topology changed");
+                "syntax-tree topology changed",
+                GetFirstSourceLocation(
+                    candidate,
+                    cancellationToken));
         }
 
         foreach (string key in previousShape.Methods.Keys)
@@ -312,7 +315,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     candidate,
                     baseline,
                     addedMethodKeys,
-                    "the declared method set removed '" + key + "'");
+                    "the declared method set removed '" + key + "'",
+                    GetSourceLocation(
+                        previousShape.Methods[key].Symbol));
             }
             if (!string.Equals(
                     previousShape.Methods[key]
@@ -325,7 +330,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     candidate,
                     baseline,
                     addedMethodKeys,
-                    "the declaration of '" + key + "' changed");
+                    "the declaration of '" + key + "' changed",
+                    GetSourceLocation(candidateMethod.Symbol));
             }
         }
 
@@ -370,7 +376,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     addedMethodKeys,
                     "the added member '" + item.Key + "' is not a " +
                     "non-virtual ordinary method or instance " +
-                    "constructor");
+                    "constructor",
+                    GetSourceLocation(item.Value.Symbol));
             }
 
             edits.Add(new SemanticEdit(
@@ -519,7 +526,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         Compilation candidate,
         EmitBaseline baseline,
         ImmutableHashSet<string> addedMethodKeys,
-        string reason) =>
+        string reason,
+        Location? location = null) =>
         CreateRejected(
             generation,
             candidate,
@@ -530,8 +538,29 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             ImmutableArray.Create(
                 Diagnostic.Create(
                     UnsupportedEditDescriptor,
-                    Location.None,
+                    location ?? Location.None,
                     reason)));
+
+    private static Location GetFirstSourceLocation(
+        Compilation compilation,
+        CancellationToken cancellationToken)
+    {
+        foreach (SyntaxTree tree in compilation.SyntaxTrees
+                     .OrderBy(
+                         static item => item.FilePath,
+                         StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return tree.GetRoot(cancellationToken).GetLocation();
+        }
+
+        return Location.None;
+    }
+
+    private static Location GetSourceLocation(ISymbol symbol) =>
+        symbol.Locations.FirstOrDefault(
+            static location => location.IsInSource) ??
+        Location.None;
 
     private RoslynXamlMetadataDeltaUpdate CreateRejected(
         long generation,

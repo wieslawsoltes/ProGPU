@@ -351,9 +351,14 @@ public sealed class XamlMetadataDeltaSessionTests
         Assert.Equal(
             RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
             deleted.Status);
-        Assert.Contains(
+        Diagnostic deletionDiagnostic = Assert.Single(
             deleted.Diagnostics,
             static diagnostic => diagnostic.Id == "PGXAML8010");
+        Assert.True(deletionDiagnostic.Location.IsInSource);
+        Assert.Equal(
+            "Added",
+            deletionDiagnostic.Location.SourceTree!.GetText()
+                .ToString(deletionDiagnostic.Location.SourceSpan));
         Assert.Equal(2, session.Generation);
     }
 
@@ -440,6 +445,17 @@ public sealed class XamlMetadataDeltaSessionTests
             Assert.Equal(
                 RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
                 virtualMethod.Status);
+            Diagnostic diagnostic = Assert.Single(
+                virtualMethod.Diagnostics,
+                static item => item.Id == "PGXAML8010");
+            Assert.True(diagnostic.Location.IsInSource);
+            Assert.Equal(
+                "Target.cs",
+                diagnostic.Location.SourceTree!.FilePath);
+            Assert.Equal(
+                "Added",
+                diagnostic.Location.SourceTree.GetText()
+                    .ToString(diagnostic.Location.SourceSpan));
         }
 
         using (var session = new RoslynXamlMetadataEditSession(
@@ -502,6 +518,14 @@ public sealed class XamlMetadataDeltaSessionTests
         Assert.Contains(
             update.Diagnostics,
             static diagnostic => diagnostic.Id == "PGXAML8010");
+        Diagnostic unsupported = Assert.Single(
+            update.Diagnostics,
+            static diagnostic => diagnostic.Id == "PGXAML8010");
+        Assert.True(unsupported.Location.IsInSource);
+        Assert.Equal(
+            "Value",
+            unsupported.Location.SourceTree!.GetText()
+                .ToString(unsupported.Location.SourceSpan));
         Assert.Equal(0, session.Generation);
     }
 
@@ -547,6 +571,12 @@ public sealed class XamlMetadataDeltaSessionTests
             shapeChange.Diagnostics,
             static diagnostic =>
                 diagnostic.Id == "PGXAML8010");
+        Assert.True(
+            shapeChange.Diagnostics[0].Location.IsInSource);
+        Assert.Equal(
+            "Target.cs",
+            shapeChange.Diagnostics[0]
+                .Location.SourceTree!.FilePath);
         Assert.Equal(
             RoslynXamlMetadataDeltaCommitResult
                 .RejectedInvalidCandidate,

@@ -129,6 +129,8 @@ Already implemented:
   generation, and an immutable exact set of methods inserted in accepted
   generations;
 - candidate-first compiler diagnostics and declaration-shape validation;
+- source-located unsupported-edit diagnostics for exact method additions,
+  declaration changes, deletions, and broader candidate topology changes;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
 - transactional no-op/ready/rejected states plus foreign, invalid, disposed,
@@ -152,7 +154,8 @@ Remaining implementation:
 
 Required implementation:
 
-- rude-edit and unsupported-runtime diagnostics with original C# or XAML locations where available;
+- XAML-origin routing for rude-edit diagnostics and typed unsupported-runtime
+  diagnostics where no C# source location is available;
 - complete capability negotiation for runtime metadata update, dynamic code,
   additions and other runtime-specific edit support;
 - candidate-first ordering: validate the XAML artifact, produce and validate metadata deltas, apply metadata, publish the XAML replacement, then commit both baselines;
