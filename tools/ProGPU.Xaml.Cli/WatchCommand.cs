@@ -47,6 +47,8 @@ internal static partial class Program
             ParsePositiveOption(
                 args,
                 "--max-updates");
+        var performanceBudget =
+            ParseWatchPerformanceBudget(args);
         var useStandardInput =
             HasOption(args, "--stdin");
         var json = HasOption(args, "--json");
@@ -124,10 +126,16 @@ internal static partial class Program
                 file,
                 output,
                 artifactWritten,
+                performanceBudget,
                 json);
             lastAccepted = initial.Accepted;
             if (maximumUpdates == sequence)
-                return lastAccepted ? 0 : 1;
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    initial.Telemetry);
+            }
 
             if (useStandardInput)
             {
@@ -139,6 +147,7 @@ internal static partial class Program
                     profile.Id,
                     maximumUpdates,
                     sequence,
+                    performanceBudget,
                     json,
                     cancellation.Token,
                     lastAccepted);
@@ -152,6 +161,7 @@ internal static partial class Program
                 profile.Id,
                 maximumUpdates,
                 sequence,
+                performanceBudget,
                 json,
                 cancellation.Token,
                 lastAccepted);
@@ -176,6 +186,8 @@ internal static partial class Program
             string framework,
             int? maximumUpdates,
             long sequence,
+            RoslynXamlProjectWatchPerformanceBudget?
+                performanceBudget,
             bool json,
             CancellationToken cancellationToken,
             bool lastAccepted)
@@ -190,7 +202,10 @@ internal static partial class Program
                     "quit",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return lastAccepted ? 0 : 1;
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
             }
 
             if (!string.Equals(
@@ -231,12 +246,18 @@ internal static partial class Program
                     file,
                     output,
                     wroteArtifact,
+                    performanceBudget,
                     json);
                 lastAccepted = result.Accepted;
             }
 
             if (maximumUpdates == sequence)
-                return lastAccepted ? 0 : 1;
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
+            }
         }
 
         return 0;
@@ -251,6 +272,8 @@ internal static partial class Program
             string framework,
             int? maximumUpdates,
             long sequence,
+            RoslynXamlProjectWatchPerformanceBudget?
+                performanceBudget,
             bool json,
             CancellationToken cancellationToken,
             bool lastAccepted)
@@ -342,10 +365,16 @@ internal static partial class Program
                 file,
                 output,
                 wroteArtifact,
+                performanceBudget,
                 json);
             lastAccepted = result.Accepted;
             if (maximumUpdates == sequence)
-                return lastAccepted ? 0 : 1;
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
+            }
         }
 
         return 0;
@@ -841,6 +870,96 @@ internal static partial class Program
         return parsed;
     }
 
+    private static
+        RoslynXamlProjectWatchPerformanceBudget?
+        ParseWatchPerformanceBudget(
+            string[] args)
+    {
+        var minimumSampleCount =
+            ParsePositiveOption(
+                args,
+                "--budget-min-samples");
+        TimeSpan? maximumP95Duration = null;
+        if (TryGetOption(
+                args,
+                "--max-p95-ms",
+                out var durationValue))
+        {
+            if (!double.TryParse(
+                    durationValue,
+                    NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture,
+                    out var milliseconds) ||
+                !double.IsFinite(milliseconds) ||
+                milliseconds < 0 ||
+                milliseconds >
+                TimeSpan.MaxValue.TotalMilliseconds)
+            {
+                throw new ArgumentException(
+                    "--max-p95-ms must be a finite non-negative number.");
+            }
+
+            maximumP95Duration =
+                TimeSpan.FromMilliseconds(milliseconds);
+        }
+
+        long? maximumP95AllocatedBytes = null;
+        if (TryGetOption(
+                args,
+                "--max-p95-allocated-bytes",
+                out var allocationValue))
+        {
+            if (!long.TryParse(
+                    allocationValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var allocatedBytes) ||
+                allocatedBytes < 0)
+            {
+                throw new ArgumentException(
+                    "--max-p95-allocated-bytes must be a non-negative integer.");
+            }
+
+            maximumP95AllocatedBytes =
+                allocatedBytes;
+        }
+
+        if (!maximumP95Duration.HasValue &&
+            !maximumP95AllocatedBytes.HasValue)
+        {
+            if (minimumSampleCount.HasValue)
+            {
+                throw new ArgumentException(
+                    "--budget-min-samples requires a P95 duration or allocation budget.");
+            }
+
+            return null;
+        }
+
+        return new
+            RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount ?? 1,
+                maximumP95Duration,
+                maximumP95AllocatedBytes);
+    }
+
+    private static int GetWatchExitCode(
+        bool lastAccepted,
+        RoslynXamlProjectWatchPerformanceBudget?
+            performanceBudget,
+        in RoslynXamlProjectWatchTelemetry telemetry)
+    {
+        if (!lastAccepted)
+            return 1;
+        if (performanceBudget == null)
+            return 0;
+        return performanceBudget
+            .Evaluate(telemetry)
+            .Passed
+            ? 0
+            : 1;
+    }
+
     private static void WriteWatchResult(
         RoslynXamlProjectWatchResult result,
         long sequence,
@@ -848,11 +967,15 @@ internal static partial class Program
         string file,
         string output,
         bool artifactWritten,
+        RoslynXamlProjectWatchPerformanceBudget?
+            performanceBudget,
         bool json)
     {
         var update = result.Update;
         var plan = update?.Delta;
         var telemetry = result.Telemetry;
+        var budgetResult =
+            performanceBudget?.Evaluate(telemetry);
         var diagnostics =
             GetWatchDiagnostics(update)
                 .ToArray();
@@ -967,6 +1090,41 @@ internal static partial class Program
                         telemetry
                             .P99AllocatedBytesUpperBound
                 },
+                performanceBudget =
+                    performanceBudget == null
+                        ? null
+                        : new
+                        {
+                            status =
+                                budgetResult!.Value
+                                    .Status.ToString(),
+                            violations =
+                                budgetResult.Value
+                                    .Violations.ToString(),
+                            minimumSamples =
+                                performanceBudget
+                                    .MinimumSampleCount,
+                            completedSamples =
+                                budgetResult.Value
+                                    .CompletedSampleCount,
+                            allocationSamples =
+                                budgetResult.Value
+                                    .AllocationSampleCount,
+                            maximumP95DurationMilliseconds =
+                                performanceBudget
+                                    .MaximumP95Duration?
+                                    .TotalMilliseconds,
+                            observedP95DurationUpperBoundMilliseconds =
+                                budgetResult.Value
+                                    .P95DurationUpperBound
+                                    .TotalMilliseconds,
+                            maximumP95AllocatedBytes =
+                                performanceBudget
+                                    .MaximumP95AllocatedBytes,
+                            observedP95AllocatedBytesUpperBound =
+                                budgetResult.Value
+                                    .P95AllocatedBytesUpperBound
+                        },
                 message = result.Message,
                 diagnostics =
                     ProjectDiagnostics(
@@ -1015,6 +1173,10 @@ internal static partial class Program
                     .ToString(
                         CultureInfo.InvariantCulture)
                 : "unavailable") +
+            " budget=" +
+            (budgetResult.HasValue
+                ? budgetResult.Value.Status.ToString()
+                : "disabled") +
             " — " +
             result.Message);
     }

@@ -100,6 +100,9 @@ public sealed class XamlCliWatchTests
             Assert.True(
                 initial.P99DurationUpperBoundMilliseconds >=
                 initial.P95DurationUpperBoundMilliseconds);
+            Assert.Equal(
+                "InsufficientSamples",
+                initial.PerformanceBudgetStatus);
             Assert.True(File.Exists(output));
             var initialImage =
                 await File.ReadAllBytesAsync(
@@ -149,6 +152,9 @@ public sealed class XamlCliWatchTests
                 reload.P99AllocatedBytesUpperBound >=
                 reload.P95AllocatedBytesUpperBound);
             Assert.Equal(
+                "Passed",
+                reload.PerformanceBudgetStatus);
+            Assert.Equal(
                 initial.Generation + 1,
                 reload.Generation);
             Assert.Equal(
@@ -186,11 +192,103 @@ public sealed class XamlCliWatchTests
         }
     }
 
+    [Fact]
+    public async Task WatchCommandFailsBoundedRunWithInsufficientBudgetSamples()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var configuration =
+            new DirectoryInfo(
+                AppContext.BaseDirectory)
+                .Parent?.Name ??
+            throw new InvalidOperationException(
+                "The test configuration directory could not be located.");
+        var cliAssembly = Path.Combine(
+            repositoryRoot,
+            "tools",
+            "ProGPU.Xaml.Cli",
+            "bin",
+            configuration,
+            "net10.0",
+            "ProGPU.Xaml.Cli.dll");
+        var project = Path.Combine(
+            repositoryRoot,
+            "src",
+            "ProGPU.Samples",
+            "ProGPU.Samples.csproj");
+        var xaml = Path.Combine(
+            repositoryRoot,
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "XamlCompilerWelcomePage.xaml");
+        var temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(
+            temporaryDirectory);
+        var output = Path.Combine(
+            temporaryDirectory,
+            "preview.dll");
+        using var process = new Process
+        {
+            StartInfo =
+                CreateStartInfo(
+                    cliAssembly,
+                    xaml,
+                    project,
+                    output,
+                    maximumUpdates: 1,
+                    minimumBudgetSamples: 2)
+        };
+        using var timeout =
+            new CancellationTokenSource(
+                TimeSpan.FromMinutes(1));
+        try
+        {
+            Assert.True(process.Start());
+            var result = ParseResult(
+                await process.StandardOutput
+                    .ReadLineAsync(timeout.Token));
+            await process.WaitForExitAsync(
+                timeout.Token);
+            var error =
+                await process.StandardError
+                    .ReadToEndAsync(timeout.Token);
+
+            Assert.Equal(
+                "InsufficientSamples",
+                result.PerformanceBudgetStatus);
+            Assert.Equal(1, result.Completed);
+            Assert.Equal(1, process.ExitCode);
+            Assert.DoesNotContain(
+                "PGXAMLCLI",
+                error,
+                StringComparison.Ordinal);
+            Assert.True(File.Exists(output));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(
+                    entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            Directory.Delete(
+                temporaryDirectory,
+                recursive: true);
+        }
+    }
+
     private static ProcessStartInfo CreateStartInfo(
         string cliAssembly,
         string xaml,
         string project,
-        string output)
+        string output,
+        int maximumUpdates = 2,
+        int minimumBudgetSamples = 2)
     {
         var startInfo =
             new ProcessStartInfo("dotnet")
@@ -215,7 +313,25 @@ public sealed class XamlCliWatchTests
         startInfo.ArgumentList.Add("--json");
         startInfo.ArgumentList.Add(
             "--max-updates");
-        startInfo.ArgumentList.Add("2");
+        startInfo.ArgumentList.Add(
+            maximumUpdates.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add(
+            "--budget-min-samples");
+        startInfo.ArgumentList.Add(
+            minimumBudgetSamples.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add(
+            "--max-p95-ms");
+        startInfo.ArgumentList.Add("60000");
+        startInfo.ArgumentList.Add(
+            "--max-p95-allocated-bytes");
+        startInfo.ArgumentList.Add(
+            long.MaxValue.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
         return startInfo;
     }
 
@@ -230,6 +346,9 @@ public sealed class XamlCliWatchTests
         var root = document.RootElement;
         var telemetry =
             root.GetProperty("telemetry");
+        var performanceBudget =
+            root.GetProperty(
+                "performanceBudget");
         return new WatchResult(
             root.GetProperty("status")
                 .GetString()!,
@@ -294,7 +413,10 @@ public sealed class XamlCliWatchTests
                 .GetInt64(),
             telemetry.GetProperty(
                     "p99AllocatedBytesUpperBound")
-                .GetInt64());
+                .GetInt64(),
+            performanceBudget.GetProperty(
+                    "status")
+                .GetString()!);
     }
 
     private static string FindRepositoryRoot()
@@ -346,5 +468,6 @@ public sealed class XamlCliWatchTests
         long AverageAllocatedBytes,
         long MedianAllocatedBytesUpperBound,
         long P95AllocatedBytesUpperBound,
-        long P99AllocatedBytesUpperBound);
+        long P99AllocatedBytesUpperBound,
+        string PerformanceBudgetStatus);
 }

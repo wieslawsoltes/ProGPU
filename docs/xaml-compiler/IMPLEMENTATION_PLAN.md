@@ -25,8 +25,15 @@ allocation observations from the Workspaces session. The CLI supplies the
 runtime allocation counter and publishes the snapshot in JSON Lines. Fixed
 base-2 histograms now add allocation-free recording and bounded median/P95/P99
 upper bounds for duration and allocation, alongside exact cumulative averages.
-Remaining host performance work is to establish and enforce representative
-percentile and allocation budgets from those signals.
+An immutable Workspaces budget contract now evaluates P95 duration and/or
+observational allocation bounds after a caller-selected minimum sample count.
+Evaluation is fixed-work and allocation-free, returns
+insufficient/passed/exceeded plus independent violation flags, and does not
+alter compilation or publication. CLI watch exposes the same thresholds,
+publishes structured budget evidence, and fails bounded successful runs until
+the configured budget conclusively passes. Remaining host performance work is
+to calibrate representative platform/workload thresholds from repeated final
+binaries and commit those values to cross-platform gates.
 
 8. **Additional frameworks — planned.** Ship independent Avalonia, WPF, and MAUI profile/runtime packages against the same v2+ contracts, then publish a documented third-party extension SDK and compatibility suite.
 

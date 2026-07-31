@@ -10303,14 +10303,14 @@ namespace Demo {
     {
         if (root == null) yield break;
         foreach (var member in root.Members)
-        foreach (var value in member.Values)
-        {
-            yield return value;
-            if (value is XamlBoundObject child)
-                foreach (var descendant in DescendantValues(child)) yield return descendant;
-            else if (value is XamlBoundBinding binding)
-                foreach (var descendant in DescendantValues(binding.Extension)) yield return descendant;
-        }
+            foreach (var value in member.Values)
+            {
+                yield return value;
+                if (value is XamlBoundObject child)
+                    foreach (var descendant in DescendantValues(child)) yield return descendant;
+                else if (value is XamlBoundBinding binding)
+                    foreach (var descendant in DescendantValues(binding.Extension)) yield return descendant;
+            }
     }
 
     private static IEnumerable<XamlIrObject> DescendantIr(XamlIrObject? root)
@@ -10318,20 +10318,20 @@ namespace Demo {
         if (root == null) yield break;
         yield return root;
         foreach (var operation in root.Operations)
-        foreach (var value in operation.Values.OfType<XamlIrObject>())
-        foreach (var descendant in DescendantIr(value)) yield return descendant;
+            foreach (var value in operation.Values.OfType<XamlIrObject>())
+                foreach (var descendant in DescendantIr(value)) yield return descendant;
     }
 
     private static IEnumerable<XamlIrValue> DescendantIrValues(XamlIrObject? root)
     {
         if (root == null) yield break;
         foreach (var operation in root.Operations)
-        foreach (var value in operation.Values)
-        {
-            yield return value;
-            if (value is XamlIrObject child)
-                foreach (var descendant in DescendantIrValues(child)) yield return descendant;
-        }
+            foreach (var value in operation.Values)
+            {
+                yield return value;
+                if (value is XamlIrObject child)
+                    foreach (var descendant in DescendantIrValues(child)) yield return descendant;
+            }
     }
 
     private sealed class DependencyMetadataProvider : ProGPU.Xaml.Schema.IXamlSchemaMetadataProvider
@@ -10492,7 +10492,8 @@ namespace Demo {
         public string MetadataProviderId => "tests.designer-annotations";
         public int MetadataPriority => 2000;
         public IReadOnlyList<ProGPU.Xaml.Schema.XamlSchemaAttributeRule>
-            AttributeRules { get; } =
+            AttributeRules
+        { get; } =
             ProGPU.Xaml.Roslyn.XamlSchemaAttributeCatalog.Wpf.Where(rule =>
                     string.Equals(
                         rule.Semantic,
@@ -13282,7 +13283,71 @@ namespace Demo {
             telemetry.P99AllocatedBytesUpperBound);
         Assert.Equal(telemetry, watch.Telemetry);
 
+        var insufficient =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 10,
+                maximumP95Duration:
+                    TimeSpan.MaxValue,
+                maximumP95AllocatedBytes:
+                    long.MaxValue)
+            .Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus
+                .InsufficientSamples,
+            insufficient.Status);
+        Assert.False(insufficient.IsConclusive);
+        Assert.False(insufficient.Passed);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetViolation.None,
+            insufficient.Violations);
+
+        var passingBudget =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 9,
+                maximumP95Duration:
+                    TimeSpan.MaxValue,
+                maximumP95AllocatedBytes:
+                    long.MaxValue);
+        var passed =
+            passingBudget.Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus.Passed,
+            passed.Status);
+        Assert.True(passed.IsConclusive);
+        Assert.True(passed.Passed);
+        Assert.Equal(
+            telemetry.CompletedCount,
+            passed.CompletedSampleCount);
+        Assert.Equal(
+            telemetry.AllocationMeasurementCount,
+            passed.AllocationSampleCount);
+        Assert.Equal(
+            telemetry.P95DurationUpperBound,
+            passed.P95DurationUpperBound);
+        Assert.Equal(
+            telemetry.P95AllocatedBytesUpperBound,
+            passed.P95AllocatedBytesUpperBound);
+
+        var exceeded =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 9,
+                maximumP95Duration:
+                    TimeSpan.Zero,
+                maximumP95AllocatedBytes: 63)
+            .Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus.Exceeded,
+            exceeded.Status);
+        Assert.False(exceeded.Passed);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetViolation
+                .P95Duration |
+            RoslynXamlProjectWatchBudgetViolation
+                .P95AllocatedBytes,
+            exceeded.Violations);
+
         _ = watch.Telemetry;
+        _ = passingBudget.Evaluate(watch.Telemetry);
         var allocatedBeforeReads =
             GC.GetAllocatedBytesForCurrentThread();
         long observedTicks = 0;
@@ -13291,7 +13356,8 @@ namespace Demo {
              index++)
         {
             observedTicks ^=
-                watch.Telemetry
+                passingBudget
+                    .Evaluate(watch.Telemetry)
                     .P95DurationUpperBound
                     .Ticks;
         }
@@ -13300,6 +13366,32 @@ namespace Demo {
             allocatedBeforeReads;
         GC.KeepAlive(observedTicks);
         Assert.Equal(0, allocatedByReads);
+    }
+
+    [Fact]
+    public void ProjectWatchPerformanceBudgetRejectsInvalidConfiguration()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 0,
+                    maximumP95Duration:
+                        TimeSpan.FromSeconds(1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1,
+                    maximumP95Duration:
+                        TimeSpan.FromTicks(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1,
+                    maximumP95AllocatedBytes: -1));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1));
     }
 
     private sealed class SteppedAllocationCounter :
