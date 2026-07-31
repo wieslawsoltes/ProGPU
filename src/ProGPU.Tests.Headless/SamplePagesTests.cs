@@ -143,31 +143,55 @@ public class SamplePagesTests : IDisposable
             "ProGPU.Samples.Playground.Document",
             Assert.IsAssignableFrom<FrameworkElement>(
                 previewHost.Content).GetType().FullName);
+        Assert.Contains(
+            "Project watch protocol 1.0",
+            root.Children.OfType<TextBlock>().Last().Text,
+            StringComparison.Ordinal);
 
         var editor = root.Children
             .OfType<TextBox>()
             .First();
+        var initialPreview = previewHost.Content;
         editor.Text = editor.Text.Replace(
-            "ProGPU.Samples.Playground.Document",
-            "ProGPU.Samples.Playground.EditedDocument",
+            "Hello from the XAML playground",
+            "Edited through project watch protocol 1.0",
             StringComparison.Ordinal);
         for (var attempt = 0;
              attempt < 400 &&
-             !string.Equals(
-                 (previewHost.Content as FrameworkElement)?
-                    .GetType().FullName,
-                 "ProGPU.Samples.Playground.EditedDocument",
-                 StringComparison.Ordinal);
+             ReferenceEquals(initialPreview, previewHost.Content);
              attempt++)
         {
             Microsoft.UI.Xaml.UIThread.RunPending();
             await Task.Delay(25);
         }
 
+        Assert.NotSame(initialPreview, previewHost.Content);
         Assert.Equal(
-            "ProGPU.Samples.Playground.EditedDocument",
+            "ProGPU.Samples.Playground.Document",
             Assert.IsAssignableFrom<FrameworkElement>(
                 previewHost.Content).GetType().FullName);
+
+        var acceptedPreview = previewHost.Content;
+        editor.Text = editor.Text.Replace(
+            "ProGPU.Samples.Playground.Document",
+            "ProGPU.Samples.Playground.ChangedTarget",
+            StringComparison.Ordinal);
+        for (var attempt = 0;
+             attempt < 400 &&
+             !status.Text.Contains(
+                 "last good",
+                 StringComparison.OrdinalIgnoreCase);
+             attempt++)
+        {
+            Microsoft.UI.Xaml.UIThread.RunPending();
+            await Task.Delay(25);
+        }
+
+        Assert.Same(acceptedPreview, previewHost.Content);
+        Assert.Contains(
+            "last good",
+            status.Text,
+            StringComparison.OrdinalIgnoreCase);
 
         onClick.Invoke(permission, null);
         Assert.Contains("disabled", status.Text);
