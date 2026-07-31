@@ -800,6 +800,64 @@ advances to 7,541 candidate declarations, 3,688 exact matches, 12,933 missing
 declarations, and 3,853 extras. No Microsoft implementation source or method
 body was inspected.
 
+### Microsoft.UI.Input.DragDrop
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Input.DragDrop namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop)
+- [DragDropManager](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.dragdropmanager)
+- [DragOperation](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.dragoperation)
+- [DragOperation.StartAsync](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.dragoperation.startasync)
+- [DragInfo](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.draginfo)
+- [IDropOperationTarget](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.idropoperationtarget)
+- [DragUIOverride](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.dragdrop.draguioverride)
+- [DataPackageOperation](https://learn.microsoft.com/uwp/api/windows.applicationmodel.datatransfer.datapackageoperation)
+- [BitmapPixelFormat](https://learn.microsoft.com/uwp/api/windows.graphics.imaging.bitmappixelformat)
+- [BitmapAlphaMode](https://learn.microsoft.com/uwp/api/windows.graphics.imaging.bitmapalphamode)
+- The pinned `Microsoft.UI.xml` documentation and projection metadata
+  extracted by the deterministic API gate.
+
+Adopted: each `GetForIsland` call creates a new manager association; a
+`TargetRequested` handler supplies the typed drop target; concurrency is
+disabled by default and can be enabled explicitly. A `DragOperation` owns its
+data package, allowed operations, content mode, and optional software-bitmap
+visual. Starting is single-use and completes only when the native host drops
+or cancels the pointer. Target callbacks are serialized in enter, over,
+leave, and drop order, and every queued callback retains its call-time pointer
+snapshot. Returned operations are intersected with the source's
+allowed-operation mask.
+
+Adapted for portable desktop, mobile, and browser hosts: the typed
+`DragDropManagerRegistration` seam drives active pointer sessions without
+reflection or XAML-owned event wrappers. A host can read an atomic
+`DragDropVisualSnapshot` containing the retained bitmap identity, anchor,
+caption, and visibility flags, allowing a native drag image or one WebGPU
+texture upload to be reused throughout the operation. The core does not
+initialize WebGPU merely to configure or negotiate a drag. The neutral
+`Windows.ApplicationModel.DataTransfer` package/view and
+`Windows.Graphics.Imaging.SoftwareBitmap` identity, metadata, and lifetime
+contracts live in ProGPU.WinRT so non-XAML hosts can share them. Platform
+adapters remain responsible for associating a native or WebGPU-backed pixel
+resource with that identity.
+
+Session lookup and each lifecycle transition are expected `O(1)`; disposing a
+manager is `O(A)` for `A` active operations. The target's asynchronous work is
+serialized without blocking the caller thread. Data lookup is expected
+`O(1)` and enumerating format ownership is `O(F)` for `F` formats. Visual
+snapshot reads are `O(1)`, atomic, and allocation-free. A warmed Release test
+performs 100,000 manager property reads with exactly zero managed
+allocations.
+
+Focused tests cover exact enums, new manager identity, closed-island lookup,
+missing targets, ordered asynchronous lifecycle delivery, data and position
+snapshots, result masking, single and concurrent operation policy,
+independent pointer sessions, bitmap anchor validation, typed visual
+snapshots, cancellation, island teardown, idempotent disposal, and allocation
+behavior. The slice adds all 58 official declarations exactly. The official
+comparison advances to 7,598 candidate declarations, 3,746 exact matches,
+12,875 missing declarations, and 3,852 extras. No Microsoft implementation
+source or method body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:

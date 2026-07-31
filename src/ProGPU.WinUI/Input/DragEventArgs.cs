@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace Microsoft.UI.Xaml;
@@ -37,24 +36,23 @@ public static class StandardDataFormats
     public static string StorageItems => "StorageItems";
 }
 
-public class DataPackage
+public class DataPackage :
+    Windows.ApplicationModel.DataTransfer.DataPackage
 {
-    private readonly Dictionary<string, object> _properties = new(StringComparer.OrdinalIgnoreCase);
+    public string? GetText() =>
+        GetView().GetTextAsync()
+            .GetAwaiter()
+            .GetResult();
 
-    public void SetText(string value) => SetData(StandardDataFormats.Text, value);
-    public string? GetText() => GetData(StandardDataFormats.Text) as string;
+    public new object? GetData(
+        string formatId) =>
+        GetView().GetDataAsync(formatId)
+            .GetAwaiter()
+            .GetResult();
 
-    public void SetData(string formatId, object value)
-    {
-        _properties[formatId] = value;
-    }
-
-    public object? GetData(string formatId)
-    {
-        return _properties.TryGetValue(formatId, out var value) ? value : null;
-    }
-
-    public bool Contains(string formatId) => _properties.ContainsKey(formatId);
+    public new bool Contains(
+        string formatId) =>
+        GetView().Contains(formatId);
 }
 
 public class DragEventArgs : RoutedEventArgs
