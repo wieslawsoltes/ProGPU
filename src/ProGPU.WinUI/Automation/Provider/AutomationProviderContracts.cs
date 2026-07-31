@@ -102,6 +102,60 @@ public interface IScrollItemProvider
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface IScrollProvider
+{
+    bool HorizontallyScrollable { get; }
+
+    double HorizontalScrollPercent { get; }
+
+    double HorizontalViewSize { get; }
+
+    bool VerticallyScrollable { get; }
+
+    double VerticalScrollPercent { get; }
+
+    double VerticalViewSize { get; }
+
+    void Scroll(
+        ScrollAmount horizontalAmount,
+        ScrollAmount verticalAmount);
+
+    void SetScrollPercent(
+        double horizontalPercent,
+        double verticalPercent);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ISelectionItemProvider
+{
+    bool IsSelected { get; }
+
+    IRawElementProviderSimple SelectionContainer { get; }
+
+    void AddToSelection();
+
+    void RemoveFromSelection();
+
+    void Select();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ISelectionProvider
+{
+    bool CanSelectMultiple { get; }
+
+    bool IsSelectionRequired { get; }
+
+    IRawElementProviderSimple[] GetSelection();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface ITableItemProvider
 {
     IRawElementProviderSimple[] GetColumnHeaderItems();

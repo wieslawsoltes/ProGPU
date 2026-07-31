@@ -26,6 +26,18 @@ public enum RowOrColumnMajor
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public enum ScrollAmount
+{
+    LargeDecrement = 0,
+    SmallDecrement = 1,
+    NoAmount = 2,
+    LargeIncrement = 3,
+    SmallIncrement = 4
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum ToggleState
 {
     Off = 0,

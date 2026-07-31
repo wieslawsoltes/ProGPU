@@ -1082,8 +1082,12 @@ Primary contracts consulted:
 - [IGridProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.igridprovider)
 - [IGridItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.igriditemprovider)
 - [ITableProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itableprovider)
+- [IScrollProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iscrollprovider)
+- [ISelectionProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iselectionprovider)
+- [ISelectionItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iselectionitemprovider)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
 - [RowOrColumnMajor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.roworcolumnmajor)
+- [ScrollAmount](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.scrollamount)
 - [ToggleState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.togglestate)
 - [Grid control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementinggrid)
 - [Table control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementingtable)
@@ -1131,10 +1135,26 @@ framework-side allocation or WebGPU work.
 
 Focused reflection tests reject extra members, writable properties, incorrect
 parameter/result types, enum-value drift, and contract-version drift. The
-grid/table slice adds all 23 selected official declarations exactly. Across
-the four automation-provider slices, all 79 selected declarations now match.
-The official comparison advances to 7,836 candidate declarations, 3,984 exact
-matches, 12,637 missing declarations, and 3,852 extras. No Microsoft
+grid/table slice adds all 23 selected official declarations exactly.
+
+The scroll/selection slice adds the exact version-1 container and item
+boundaries. Scroll providers report independent axis availability, position,
+and viewport percentages and accept typed relative or absolute movement.
+Selection containers report cardinality policy and selected providers;
+selection items report current membership and their typed container, with
+separate add, remove, and exclusive-select operations. `ScrollAmount`
+preserves the official large-decrement, small-decrement, no-op,
+large-increment, and small-increment identities.
+
+These declarations contain no fallback scrolling, selection state machine,
+reflection, allocation, platform accessibility transport, or WebGPU work.
+Concrete automation peers remain responsible for honoring control-specific
+range, cardinality, and event semantics. Focused tests reject extra members,
+writable state, incorrect parameters/results, enum-value drift, and
+contract-version drift. The slice adds all 30 selected declarations exactly.
+Across the five automation-provider slices, all 109 selected declarations now
+match. The official comparison advances to 7,866 candidate declarations,
+4,014 exact matches, 12,607 missing declarations, and 3,852 extras. No Microsoft
 implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing

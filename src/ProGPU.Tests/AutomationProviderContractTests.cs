@@ -9,6 +9,93 @@ namespace ProGPU.Tests;
 public sealed class AutomationProviderContractTests
 {
     [Fact]
+    public void ScrollAndSelectionProvidersMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(IScrollProvider),
+            (nameof(IScrollProvider.HorizontallyScrollable),
+                typeof(bool)),
+            (nameof(IScrollProvider.HorizontalScrollPercent),
+                typeof(double)),
+            (nameof(IScrollProvider.HorizontalViewSize),
+                typeof(double)),
+            (nameof(IScrollProvider.VerticallyScrollable),
+                typeof(bool)),
+            (nameof(IScrollProvider.VerticalScrollPercent),
+                typeof(double)),
+            (nameof(IScrollProvider.VerticalViewSize),
+                typeof(double)));
+        AssertDeclaredMethods(
+            typeof(IScrollProvider),
+            new ExpectedMethod(
+                nameof(IScrollProvider.Scroll),
+                typeof(void),
+                typeof(ScrollAmount),
+                typeof(ScrollAmount)),
+            new ExpectedMethod(
+                nameof(IScrollProvider.SetScrollPercent),
+                typeof(void),
+                typeof(double),
+                typeof(double)));
+
+        AssertReadOnlyProperties(
+            typeof(ISelectionProvider),
+            (nameof(ISelectionProvider.CanSelectMultiple),
+                typeof(bool)),
+            (nameof(ISelectionProvider.IsSelectionRequired),
+                typeof(bool)));
+        AssertDeclaredMethods(
+            typeof(ISelectionProvider),
+            new ExpectedMethod(
+                nameof(ISelectionProvider.GetSelection),
+                typeof(IRawElementProviderSimple[])));
+
+        AssertReadOnlyProperties(
+            typeof(ISelectionItemProvider),
+            (nameof(ISelectionItemProvider.IsSelected),
+                typeof(bool)),
+            (nameof(ISelectionItemProvider.SelectionContainer),
+                typeof(IRawElementProviderSimple)));
+        AssertDeclaredMethods(
+            typeof(ISelectionItemProvider),
+            new ExpectedMethod(
+                nameof(ISelectionItemProvider.AddToSelection),
+                typeof(void)),
+            new ExpectedMethod(
+                nameof(
+                    ISelectionItemProvider
+                        .RemoveFromSelection),
+                typeof(void)),
+            new ExpectedMethod(
+                nameof(ISelectionItemProvider.Select),
+                typeof(void)));
+
+        Type[] selectedContracts =
+        [
+            typeof(IScrollProvider),
+            typeof(ISelectionItemProvider),
+            typeof(ISelectionProvider),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
+    [Fact]
+    public void ScrollAmountMatchesOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(ScrollAmount),
+            (nameof(ScrollAmount.LargeDecrement), 0),
+            (nameof(ScrollAmount.SmallDecrement), 1),
+            (nameof(ScrollAmount.NoAmount), 2),
+            (nameof(ScrollAmount.LargeIncrement), 3),
+            (nameof(ScrollAmount.SmallIncrement), 4));
+        AssertWinUiContractVersion(typeof(ScrollAmount));
+    }
+
+    [Fact]
     public void GridAndTableProviderInterfacesMatchOfficialShape()
     {
         AssertReadOnlyProperties(
