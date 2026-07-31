@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using System.Reflection;
 using Windows.Foundation.Metadata;
@@ -475,6 +476,72 @@ public sealed class AutomationProviderContractTests
         {
             AssertWinUiContractVersion(contract);
         }
+    }
+
+    [Fact]
+    public void DockAndCustomNavigationProvidersMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(IDockProvider),
+            (nameof(IDockProvider.DockPosition),
+                typeof(DockPosition)));
+        AssertDeclaredMethods(
+            typeof(IDockProvider),
+            new ExpectedMethod(
+                nameof(IDockProvider.SetDockPosition),
+                typeof(void),
+                typeof(DockPosition)));
+
+        AssertReadOnlyProperties(
+            typeof(ICustomNavigationProvider));
+        AssertDeclaredMethods(
+            typeof(ICustomNavigationProvider),
+            new ExpectedMethod(
+                nameof(
+                    ICustomNavigationProvider
+                        .NavigateCustom),
+                typeof(object),
+                typeof(
+                    AutomationNavigationDirection)));
+
+        AssertWinUiContractVersion(
+            typeof(IDockProvider));
+        AssertWinUiContractVersion(
+            typeof(ICustomNavigationProvider));
+    }
+
+    [Fact]
+    public void DockAndCustomNavigationEnumsMatchOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(DockPosition),
+            (nameof(DockPosition.Top), 0),
+            (nameof(DockPosition.Left), 1),
+            (nameof(DockPosition.Bottom), 2),
+            (nameof(DockPosition.Right), 3),
+            (nameof(DockPosition.Fill), 4),
+            (nameof(DockPosition.None), 5));
+        AssertEnumValues(
+            typeof(AutomationNavigationDirection),
+            (nameof(
+                AutomationNavigationDirection.Parent), 0),
+            (nameof(
+                AutomationNavigationDirection
+                    .NextSibling), 1),
+            (nameof(
+                AutomationNavigationDirection
+                    .PreviousSibling), 2),
+            (nameof(
+                AutomationNavigationDirection
+                    .FirstChild), 3),
+            (nameof(
+                AutomationNavigationDirection
+                    .LastChild), 4));
+
+        AssertWinUiContractVersion(
+            typeof(DockPosition));
+        AssertWinUiContractVersion(
+            typeof(AutomationNavigationDirection));
     }
 
     private static void AssertDeclaredMethods(

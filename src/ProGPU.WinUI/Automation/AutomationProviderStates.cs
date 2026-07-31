@@ -5,6 +5,19 @@ namespace Microsoft.UI.Xaml.Automation;
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public enum DockPosition
+{
+    Top = 0,
+    Left = 1,
+    Bottom = 2,
+    Right = 3,
+    Fill = 4,
+    None = 5
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum ExpandCollapseState
 {
     Collapsed = 0,

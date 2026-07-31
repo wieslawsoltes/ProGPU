@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Automation.Provider;
@@ -17,6 +18,26 @@ public interface IAnnotationProvider
     string DateTime { get; }
 
     IRawElementProviderSimple Target { get; }
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ICustomNavigationProvider
+{
+    object NavigateCustom(
+        AutomationNavigationDirection direction);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IDockProvider
+{
+    DockPosition DockPosition { get; }
+
+    void SetDockPosition(
+        DockPosition dockPosition);
 }
 
 [ContractVersion(

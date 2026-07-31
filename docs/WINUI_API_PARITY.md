@@ -1091,6 +1091,10 @@ Primary contracts consulted:
 - [IAnnotationProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iannotationprovider)
 - [IDragProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.idragprovider)
 - [IMultipleViewProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.imultipleviewprovider)
+- [IDockProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.idockprovider)
+- [ICustomNavigationProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.icustomnavigationprovider)
+- [DockPosition](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.dockposition)
+- [AutomationNavigationDirection](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.peers.automationnavigationdirection)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
 - [RowOrColumnMajor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.roworcolumnmajor)
 - [ScrollAmount](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.scrollamount)
@@ -1202,6 +1206,23 @@ all 178 selected declarations now match. The official comparison advances to
 7,935 candidate declarations, 4,083 exact matches, 12,538 missing
 declarations, and 3,852 extras. No Microsoft implementation source or method
 body was inspected.
+
+The dock/custom-navigation slice adds the exact version-1 provider boundaries
+for querying and changing a control's dock position and traversing a custom
+logical automation tree. `DockPosition` preserves top, left, bottom, right,
+fill, and none identities. `AutomationNavigationDirection` preserves parent,
+next/previous sibling, and first/last child identities.
+
+These declarations add no docking layout, navigation tree, native
+accessibility transport, reflection, allocation, or rendering work. Concrete
+automation peers own provider lookup, containment validation, and movement
+behavior. Focused reflection tests reject extra or writable members,
+incorrect parameter/result types, enum-value drift, and contract-version
+drift. This slice adds all 24 selected declarations exactly. Across the eight
+automation-provider slices, all 202 selected declarations now match. The
+official comparison advances to 7,959 candidate declarations, 4,107 exact
+matches, 12,514 missing declarations, and 3,852 extras. No Microsoft
+implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 
