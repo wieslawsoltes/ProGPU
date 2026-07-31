@@ -1347,6 +1347,328 @@ namespace Demo {
     }
 
     [Fact]
+    public void ReverseProjectionUpdatesOnlyConsistentGeneratedNames()
+    {
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute {
+    public string? Name { get; set; }
+  }
+  public static class XamlTemplateFactory {
+    public static void BeginNameScope(object root) { }
+    public static void RegisterName(object root, string name, object value) { }
+  }
+}
+namespace Microsoft.UI.Xaml {
+  public class FrameworkElement {
+    public string? Name { get; set; }
+    public string? AlternateName { get; set; }
+  }
+}
+namespace Microsoft.UI.Xaml.HotReload {
+  public interface IHotReloadable {
+    void Reload(HotReloadContext context);
+  }
+  public sealed class HotReloadContext { }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  [Microsoft.UI.Xaml.Markup.ContentProperty(Name="Content")]
+  public class Page : Microsoft.UI.Xaml.FrameworkElement {
+    public object? Content { get; set; }
+  }
+  public class Button : Microsoft.UI.Xaml.FrameworkElement { }
+}
+namespace Demo {
+  public partial class MainPage : Microsoft.UI.Xaml.Controls.Page {
+    internal Microsoft.UI.Xaml.Controls.Button AlternateButton = null!;
+  }
+}
+""";
+        const string xaml = """
+<Page
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="Demo.MainPage">
+  <Button x:Name="PrimaryButton" />
+</Page>
+""";
+        var compilation = CSharpCompilation.Create(
+            "NameReverseProjection",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
+        var profile = new WinUiXamlProfile();
+        var document = XamlParser.Parse(
+            SourceText.From(xaml),
+            "MainPage.xaml").Document;
+        var emitted = new CSharpXamlEmitter().Emit(
+            document,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic =>
+                diagnostic.Severity == DiagnosticSeverity.Error);
+        var generated = Assert.Single(emitted.Sources);
+        var originalTree = generated.UnformattedSyntaxTree!;
+        var originalRoot = originalTree.GetRoot();
+        var nameProjections = XamlProjectionMap
+            .Read(originalTree)
+            .Where(entry =>
+                entry.Kind == XamlProjectionKind.Name)
+            .ToArray();
+        var fieldProjection = Assert.Single(
+            nameProjections,
+            entry => entry.MemberId == null);
+        var runtimeProjection = Assert.Single(
+            nameProjections,
+            entry => entry.MemberId != null);
+        Assert.Equal(
+            fieldProjection.StableNodeId,
+            runtimeProjection.StableNodeId);
+
+        var fieldStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            fieldProjection.GeneratedNode.AsNode());
+        var fieldAssignment = Assert.IsType<
+            AssignmentExpressionSyntax>(
+            fieldStatement.Expression);
+        var fieldAccess = Assert.IsType<
+            MemberAccessExpressionSyntax>(
+            fieldAssignment.Left);
+        var fieldDeclarator = originalRoot
+            .DescendantNodes()
+            .OfType<VariableDeclaratorSyntax>()
+            .Single(variable =>
+                variable.Identifier.ValueText ==
+                "PrimaryButton");
+        var renamedRoot = originalRoot.ReplaceNodes(
+            new SyntaxNode[]
+            {
+                fieldDeclarator,
+                fieldAccess
+            },
+            (node, _) =>
+                ReferenceEquals(node, fieldDeclarator)
+                    ? fieldDeclarator.WithIdentifier(
+                        SyntaxFactory.Identifier(
+                            "SecondaryButton"))
+                    : fieldAccess.WithName(
+                        SyntaxFactory.IdentifierName(
+                            "SecondaryButton")));
+        var renamedTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)renamedRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var originalCompilation =
+            compilation.AddSyntaxTrees(originalTree);
+        var renamedCompilation =
+            compilation.AddSyntaxTrees(renamedTree);
+        Assert.DoesNotContain(
+            renamedCompilation.GetDiagnostics(),
+            diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var renamed = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                renamedCompilation.GetSemanticModel(
+                    renamedTree));
+
+        Assert.True(
+            renamed.Succeeded,
+            string.Join(
+                Environment.NewLine,
+                renamed.Conflicts.Select(
+                    conflict => conflict.Message)));
+        Assert.Contains(
+            "x:Name=\"SecondaryButton\"",
+            renamed.GetChangedText().ToString(),
+            StringComparison.Ordinal);
+
+        var runtimeStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            runtimeProjection.GeneratedNode.AsNode());
+        var runtimeAssignment = Assert.IsType<
+            AssignmentExpressionSyntax>(
+            runtimeStatement.Expression);
+        var runtimeLiteral = Assert.IsType<
+            LiteralExpressionSyntax>(
+            runtimeAssignment.Right);
+        var literalChangedRoot = originalRoot.ReplaceNode(
+            runtimeLiteral,
+            SyntaxFactory.LiteralExpression(
+                SyntaxKind.StringLiteralExpression,
+                SyntaxFactory.Literal(
+                    "RuntimeRenamed")));
+        var literalChangedTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)literalChangedRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var literalChanged = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                compilation
+                    .AddSyntaxTrees(literalChangedTree)
+                    .GetSemanticModel(literalChangedTree));
+
+        Assert.True(
+            literalChanged.Succeeded,
+            string.Join(
+                Environment.NewLine,
+                literalChanged.Conflicts.Select(
+                    conflict => conflict.Message)));
+        Assert.Contains(
+            "x:Name=\"RuntimeRenamed\"",
+            literalChanged.GetChangedText().ToString(),
+            StringComparison.Ordinal);
+
+        var conflictingRoot = renamedRoot.ReplaceNode(
+            renamedRoot
+                .DescendantNodes()
+                .OfType<LiteralExpressionSyntax>()
+                .Single(literal =>
+                    literal.Token.ValueText ==
+                    "PrimaryButton" &&
+                    literal.Parent is
+                        AssignmentExpressionSyntax),
+            SyntaxFactory.LiteralExpression(
+                SyntaxKind.StringLiteralExpression,
+                SyntaxFactory.Literal(
+                    "ConflictingName")));
+        var conflictingTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)conflictingRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var conflicting = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                compilation
+                    .AddSyntaxTrees(conflictingTree)
+                    .GetSemanticModel(conflictingTree));
+
+        Assert.False(conflicting.Succeeded);
+        Assert.Contains(
+            conflicting.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind
+                    .InconsistentProjection);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            conflicting.GetChangedText().ToString());
+
+        var runtimeTarget = Assert.IsType<
+            MemberAccessExpressionSyntax>(
+            runtimeAssignment.Left);
+        var wrongTargetRoot = originalRoot.ReplaceNode(
+            runtimeTarget,
+            runtimeTarget.WithName(
+                SyntaxFactory.IdentifierName(
+                    "AlternateName")));
+        var wrongTargetTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)wrongTargetRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var wrongTarget = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                compilation
+                    .AddSyntaxTrees(wrongTargetTree)
+                    .GetSemanticModel(wrongTargetTree));
+
+        Assert.False(wrongTarget.Succeeded);
+        Assert.Contains(
+            wrongTarget.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind.SymbolChanged);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            wrongTarget.GetChangedText().ToString());
+
+        var wrongFieldRoot = originalRoot.ReplaceNode(
+            fieldAccess,
+            fieldAccess.WithName(
+                SyntaxFactory.IdentifierName(
+                    "AlternateButton")));
+        var wrongFieldTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)wrongFieldRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var wrongField = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                compilation
+                    .AddSyntaxTrees(wrongFieldTree)
+                    .GetSemanticModel(wrongFieldTree));
+
+        Assert.False(wrongField.Succeeded);
+        Assert.Contains(
+            wrongField.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind.SymbolChanged);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            wrongField.GetChangedText().ToString());
+
+        var keywordRoot = originalRoot.ReplaceNodes(
+            new SyntaxNode[]
+            {
+                fieldDeclarator,
+                fieldAccess
+            },
+            (node, _) =>
+                ReferenceEquals(node, fieldDeclarator)
+                    ? fieldDeclarator.WithIdentifier(
+                        SyntaxFactory.Identifier(
+                            "@class"))
+                    : fieldAccess.WithName(
+                        SyntaxFactory.IdentifierName(
+                            SyntaxFactory.Identifier(
+                                "@class"))));
+        var keywordTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)keywordRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var keyword = new XamlReverseProjectionService()
+            .ApplyNameEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(
+                    originalTree),
+                compilation
+                    .AddSyntaxTrees(keywordTree)
+                    .GetSemanticModel(keywordTree));
+
+        Assert.False(keyword.Succeeded);
+        Assert.Contains(
+            keyword.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind
+                    .UnsupportedEdit);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            keyword.GetChangedText().ToString());
+    }
+
+    [Fact]
     public void IncrementalGeneratorEmitsCompilableWinUiBindingActivation()
     {
         const string program = """

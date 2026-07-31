@@ -1997,7 +1997,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     SyntaxFactory.AssignmentExpression(
                         SyntaxKind.SimpleAssignmentExpression,
                         MemberAccess(SyntaxFactory.ThisExpression(), text.Text),
-                        ownerExpression)), operation.SourceSpan, operation.StableId, null, XamlProjectionKind.Name));
+                        ownerExpression)), text.SourceSpan, text.StableId, null, XamlProjectionKind.Name));
             }
 
             var runtimeName = owner.Type.Symbol.RuntimeNameMemberName;
@@ -2008,8 +2008,8 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 AddStatement(Assignment(
                     MemberAccess(ownerExpression, runtimeName!),
                     WinUiXamlProfile.StringLiteral(text.Text)),
-                    operation.SourceSpan,
-                    operation.StableId,
+                    text.SourceSpan,
+                    text.StableId,
                     runtimeMember,
                     XamlProjectionKind.Name);
             }
