@@ -442,6 +442,7 @@ namespace Microsoft.UI.Xaml.Input
 {
 using InputPointerDeviceType = Microsoft.UI.Input.PointerDeviceType;
 using LegacyPointerDeviceType = Windows.Devices.Input.PointerDeviceType;
+using Microsoft.UI.Xaml.Markup;
 
 public sealed class Pointer
 {
@@ -648,26 +649,80 @@ public delegate void ManipulationDeltaEventHandler(object sender, ManipulationDe
 public delegate void ManipulationInertiaStartingEventHandler(object sender, ManipulationInertiaStartingRoutedEventArgs e);
 public delegate void ManipulationCompletedEventHandler(object sender, ManipulationCompletedRoutedEventArgs e);
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum InputScopeNameValue
 {
     Default = 0,
-    Url,
-    EmailSmtpAddress,
-    Number,
-    TelephoneNumber,
-    Search,
-    Chat,
-    NameOrPhoneNumber,
-    Password,
-    NumericPin
+    Url = 1,
+    EmailSmtpAddress = 5,
+    PersonalFullName = 7,
+    CurrencyAmountAndSymbol = 20,
+    CurrencyAmount = 21,
+    DateMonthNumber = 23,
+    DateDayNumber = 24,
+    DateYear = 25,
+    Digits = 28,
+    Number = 29,
+    Password = 31,
+    TelephoneNumber = 32,
+    TelephoneCountryCode = 33,
+    TelephoneAreaCode = 34,
+    TelephoneLocalNumber = 35,
+    TimeHour = 37,
+    TimeMinutesOrSeconds = 38,
+    NumberFullWidth = 39,
+    AlphanumericHalfWidth = 40,
+    AlphanumericFullWidth = 41,
+    Hiragana = 44,
+    KatakanaHalfWidth = 45,
+    KatakanaFullWidth = 46,
+    Hanja = 47,
+    HangulHalfWidth = 48,
+    HangulFullWidth = 49,
+    Search = 50,
+    Formula = 51,
+    SearchIncremental = 52,
+    ChineseHalfWidth = 53,
+    ChineseFullWidth = 54,
+    NativeScript = 55,
+    Text = 57,
+    Chat = 58,
+    NameOrPhoneNumber = 59,
+    EmailNameOrAddress = 60,
+    Maps = 62,
+    NumericPassword = 63,
+    NumericPin = 64,
+    AlphanumericPin = 65,
+    FormulaNumber = 67,
+    ChatWithoutEmoji = 68
 }
 
-public sealed class InputScopeName
+[ContentProperty(Name = nameof(NameValue))]
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class InputScopeName :
+    Microsoft.UI.Xaml.DependencyObject
 {
+    public InputScopeName()
+    {
+    }
+
+    public InputScopeName(InputScopeNameValue nameValue)
+    {
+        NameValue = nameValue;
+    }
+
     public InputScopeNameValue NameValue { get; set; }
 }
 
-public sealed class InputScope
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class InputScope :
+    Microsoft.UI.Xaml.DependencyObject
 {
     public IList<InputScopeName> Names { get; } = new List<InputScopeName>();
 }

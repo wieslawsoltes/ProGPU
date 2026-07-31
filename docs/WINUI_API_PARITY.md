@@ -1374,6 +1374,50 @@ typed dependency-property engine; no foreign implementation body or control
 flow was copied. Native Windows-only property objects, reflection, global
 mutable collection defaults, and a second automation store were rejected.
 
+### Microsoft.UI.Xaml.Input input scopes
+
+The input-scope slice aligns all 43 official `InputScopeNameValue` names and
+numeric identities, including the intentional gaps in the WinUI contract. It
+also aligns `InputScope` and `InputScopeName` as sealed dependency objects,
+adds the value constructor and `NameValue` content-property metadata, and
+retains one mutable `Names` collection for each scope. The parameterless name
+uses `Default`; the value constructor stores its caller value directly. The
+root `ContentPropertyAttribute` projection now exposes the official public
+`Name` field, explicit single-use class target, and contract version. This
+corrects the custom-attribute encoding for every existing content-property
+declaration without changing the compiler's typed content-member semantics.
+
+Construction performs fixed `O(1)` work. Name-value reads and stable collection
+access are `O(1)` and allocation-free after construction; collection append is
+amortized `O(1)` with `O(N)` retained storage for `N` names. A warmed
+one-million-iteration read invariant reports exactly zero managed allocations.
+The existing browser, Android, and iOS text-input adapters continue to select
+keyboard behavior by typed enum identity, so correcting the public numeric
+values does not add conversion, reflection, native transport, or rendering
+work.
+
+Focused tests reject enum-name/value drift, inheritance or sealing drift,
+constructor/default drift, content-property drift, unstable collection
+ownership, contract-version drift, and warmed allocations. The exact pinned
+comparison adds 79 matches and removes 40 extras, advancing to 8,440 candidate
+declarations, 4,654 exact matches, 11,925 missing declarations, and 3,786
+extras. The three selected input-scope types and
+`ContentPropertyAttribute` have zero missing entries and zero extras.
+
+Primary clean-room contracts consulted:
+
+- pinned `Microsoft.WinUI.dll`, `Microsoft.UI.Xaml.winmd`, and
+  `Microsoft.WinUI.xml` from `Microsoft.WindowsAppSDK.WinUI` `2.3.0`;
+- [InputScope](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.input.inputscope?view=windows-app-sdk-1.8);
+- [InputScopeName](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.input.inputscopename?view=windows-app-sdk-1.8);
+- [InputScopeNameValue](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.input.inputscopenamevalue?view=windows-app-sdk-1.8);
+- [public WinUI IDL declaration at the reviewed commit](https://github.com/microsoft/microsoft-ui-xaml/blob/25d2cb1c6e4086dd14b387a4a149cce0649dbe17/src/dxaml/xcp/dxaml/idl/winrt/core/microsoft.ui.xaml.coretypes.idl).
+
+Only public declarations and documented behavior were used. ProGPU's existing
+dependency-object and collection storage were retained; no Microsoft input
+scope implementation body, generated wrapper control flow, or native keyboard
+implementation was inspected or adapted.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:
