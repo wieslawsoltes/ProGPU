@@ -97,6 +97,7 @@ public sealed class InputContractValueTests
     [InlineData(typeof(TappedEventArgs), 0x00010000U)]
     [InlineData(typeof(IPointerPointTransform), 0x00010000U)]
     [InlineData(typeof(Microsoft.UI.Input.PointerDeviceType), 0x00010000U)]
+    [InlineData(typeof(PointerEventArgs), 0x00010000U)]
     [InlineData(typeof(PointerPoint), 0x00010000U)]
     [InlineData(typeof(PointerPointProperties), 0x00010000U)]
     [InlineData(typeof(PointerUpdateKind), 0x00010000U)]

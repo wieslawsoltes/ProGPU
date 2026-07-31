@@ -120,6 +120,11 @@ entries, 3,598 exact matches, and 13,023 missing entries. It adds five exact
 contract declarations and reconciles 21 getter-only property identities,
 reducing ProGPU-only entries to 3,853.
 
+The pointer-event snapshot slice advances the baseline to 7,458 ProGPU
+entries, 3,605 exact matches, and 13,016 missing entries while keeping
+ProGPU-only entries unchanged at 3,853. It adds all seven official
+`PointerEventArgs` declarations without adding a candidate-only declaration.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -553,6 +558,45 @@ identities into exact getter-only matches. The official comparison advances
 to 7,451 candidate declarations, 3,598 exact matches, 13,023 missing
 declarations, and 3,853 extras. No Microsoft implementation source or method
 body was inspected.
+
+### Microsoft.UI.Input pointer event snapshots
+
+Primary contracts consulted:
+
+- [PointerEventArgs](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointereventargs)
+- [PointerEventArgs.CurrentPoint](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointereventargs.currentpoint)
+- [PointerEventArgs.Handled](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointereventargs.handled)
+- [PointerEventArgs.GetIntermediatePoints](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointereventargs.getintermediatepoints)
+- [PointerEventArgs.GetIntermediateTransformedPoints](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointereventargs.getintermediatetransformedpoints)
+- [PointerRoutedEventArgs intermediate-point ordering](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.input.pointerroutedeventargs.getintermediatepoints)
+- [VirtualKeyModifiers](https://learn.microsoft.com/uwp/api/windows.system.virtualkeymodifiers)
+
+Adopted: `PointerEventArgs` is a sealed, publicly non-constructible event
+snapshot with getter-only current-point and modifier state, mutable handled
+state, and an `IList<PointerPoint>` history. A connected event retains at
+most 64 chronological samples, including its current point as the final
+sample. Application transforms preserve that order and return an empty
+collection if any position or contact-bounds transform fails, so callers
+never observe a partial transformed history.
+
+Adapted for ProGPU's typed input pipeline: an internal constructor accepts a
+canonical current point and history that precedes it, keeps the newest 63
+history entries, appends the current point, and publishes one read-only
+collection for the event lifetime. Construction is bounded `O(min(H, 63))`
+time and storage for `H` host samples. Repeated current-point, modifier, and
+intermediate-point reads are `O(1)` and allocation-free. Successful
+transformation is `O(P)` time and storage for at most 64 points; failure is
+all-or-empty with bounded discarded work. The path is typed and
+reflection-free.
+
+Focused tests cover exact metadata, modifier values, handled state, the
+64-sample tail policy, chronological/current-point identity, read-only
+publication, successful position/contact transforms, failure atomicity, null
+validation, and a warmed 100,000-iteration zero-allocation read invariant.
+The slice adds all seven official declarations exactly. The official
+comparison advances to 7,458 candidate declarations, 3,605 exact matches,
+13,016 missing declarations, and 3,853 extras. No Microsoft implementation
+source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 

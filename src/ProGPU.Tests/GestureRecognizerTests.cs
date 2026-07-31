@@ -4,6 +4,7 @@ using Windows.Foundation;
 using Xunit;
 using InputPointerDeviceType = Microsoft.UI.Input.PointerDeviceType;
 using NativePointerDeviceType = Windows.Devices.Input.PointerDeviceType;
+using SystemPointerModifiers = Windows.System.VirtualKeyModifiers;
 
 namespace ProGPU.Tests;
 
@@ -382,6 +383,179 @@ public sealed class GestureRecognizerTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void PointerEventArgsMetadataMatchesOfficialProjection()
+    {
+        Type type = typeof(PointerEventArgs);
+
+        Assert.True(type.IsSealed);
+        Assert.Equal(typeof(object), type.BaseType);
+        Assert.Empty(type.GetConstructors());
+        Assert.Equal(
+            typeof(PointerPoint),
+            type.GetProperty(
+                nameof(PointerEventArgs.CurrentPoint))!
+                .PropertyType);
+        Assert.Null(
+            type.GetProperty(
+                nameof(PointerEventArgs.CurrentPoint))!
+                .SetMethod);
+        Assert.Equal(
+            typeof(SystemPointerModifiers),
+            type.GetProperty(
+                nameof(PointerEventArgs.KeyModifiers))!
+                .PropertyType);
+        Assert.Null(
+            type.GetProperty(
+                nameof(PointerEventArgs.KeyModifiers))!
+                .SetMethod);
+        Assert.NotNull(
+            type.GetProperty(
+                nameof(PointerEventArgs.Handled))!
+                .SetMethod);
+
+        var transformedMethod =
+            type.GetMethod(
+                nameof(PointerEventArgs
+                    .GetIntermediateTransformedPoints))!;
+        Assert.Equal(
+            typeof(IList<PointerPoint>),
+            transformedMethod.ReturnType);
+        var transformParameter =
+            Assert.Single(
+                transformedMethod.GetParameters());
+        Assert.Equal("transform",
+            transformParameter.Name);
+        Assert.Equal(
+            typeof(IPointerPointTransform),
+            transformParameter.ParameterType);
+    }
+
+    [Fact]
+    public void PointerEventArgsRetainsBoundedChronologicalSnapshot()
+    {
+        PointerPoint[] history =
+            Enumerable.Range(1, 70)
+                .Select(index =>
+                    Point(
+                        (uint)index,
+                        index,
+                        index * 2,
+                        (ulong)index,
+                        true))
+                .ToArray();
+        PointerPoint current =
+            Point(71, 71, 142, 71, true);
+        var args = new PointerEventArgs(
+            current,
+            SystemPointerModifiers.Control |
+                SystemPointerModifiers.Shift,
+            history);
+
+        IList<PointerPoint> points =
+            args.GetIntermediatePoints();
+
+        Assert.Same(
+            points,
+            args.GetIntermediatePoints());
+        Assert.Equal(64, points.Count);
+        Assert.Equal(8u, points[0].PointerId);
+        Assert.Same(current, points[^1]);
+        Assert.Same(current, args.CurrentPoint);
+        Assert.Equal(
+            SystemPointerModifiers.Control |
+                SystemPointerModifiers.Shift,
+            args.KeyModifiers);
+        Assert.False(args.Handled);
+        args.Handled = true;
+        Assert.True(args.Handled);
+        Assert.Throws<NotSupportedException>(
+            () => points.Add(current));
+    }
+
+    [Fact]
+    public void PointerEventArgsTransformsAllPointsOrReturnsEmpty()
+    {
+        PointerPoint[] history =
+        [
+            Point(1, 1, 2, 1, true),
+            Point(2, 3, 4, 2, true)
+        ];
+        PointerPoint current =
+            Point(3, 5, 6, 3, true);
+        var args = new PointerEventArgs(
+            current,
+            historyBeforeCurrentPoint: history);
+
+        IList<PointerPoint> transformed =
+            args.GetIntermediateTransformedPoints(
+                new OffsetTransform(10, 20));
+
+        Assert.Equal(3, transformed.Count);
+        Assert.Equal(11d,
+            transformed[0].Position.X);
+        Assert.Equal(22d,
+            transformed[0].Position.Y);
+        Assert.Equal(15d,
+            transformed[^1].Position.X);
+        Assert.Equal(26d,
+            transformed[^1].Position.Y);
+        Assert.Equal(
+            history[0].Properties.Pressure,
+            transformed[0].Properties.Pressure);
+        Assert.Empty(
+            args.GetIntermediateTransformedPoints(
+                new RejectPointTransform(3)));
+        Assert.Throws<ArgumentNullException>(
+            () => args
+                .GetIntermediateTransformedPoints(
+                    null!));
+    }
+
+    [Fact]
+    public void PointerEventArgsSnapshotReadsAreAllocationFree()
+    {
+        const int Count = 100_000;
+        var args = new PointerEventArgs(
+            Point(1, 1, 2, 1, true),
+            SystemPointerModifiers.Menu);
+
+        _ = ReadPointerEventArgs(args, Count);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        int checksum =
+            ReadPointerEventArgs(args, Count);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+
+        GC.KeepAlive(checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    private static int ReadPointerEventArgs(
+        PointerEventArgs args,
+        int count)
+    {
+        int checksum = 0;
+        for (int index = 0;
+             index < count;
+             index++)
+        {
+            IList<PointerPoint> points =
+                args.GetIntermediatePoints();
+            checksum ^=
+                (int)args.CurrentPoint.PointerId;
+            checksum ^= points.Count;
+            checksum ^=
+                (int)points[^1].PointerId;
+            checksum ^=
+                (int)args.KeyModifiers;
+        }
+        return checksum;
+    }
+
     private static int ReadPointerProperties(
         PointerPointProperties properties,
         int count)
@@ -447,6 +621,30 @@ public sealed class GestureRecognizerTests
         public bool TryTransformBounds(Rect inRect, out Rect outRect)
         {
             outRect = new Rect(inRect.X + x, inRect.Y + y, inRect.Width, inRect.Height);
+            return true;
+        }
+    }
+
+    private sealed class RejectPointTransform(
+        double rejectedX) :
+        IPointerPointTransform
+    {
+        public IPointerPointTransform Inverse =>
+            this;
+
+        public bool TryTransform(
+            Point inPoint,
+            out Point outPoint)
+        {
+            outPoint = inPoint;
+            return inPoint.X != rejectedX;
+        }
+
+        public bool TryTransformBounds(
+            Rect inRect,
+            out Rect outRect)
+        {
+            outRect = inRect;
             return true;
         }
     }

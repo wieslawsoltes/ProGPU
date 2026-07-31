@@ -1,5 +1,18 @@
 namespace Windows.System;
 
+[Flags]
+[Windows.Foundation.Metadata.ContractVersion(
+    "Windows.Foundation.UniversalApiContract",
+    0x00010000)]
+public enum VirtualKeyModifiers
+{
+    None = 0,
+    Control = 1,
+    Menu = 2,
+    Shift = 4,
+    Windows = 8
+}
+
 public enum VirtualKey
 {
     None = 0,

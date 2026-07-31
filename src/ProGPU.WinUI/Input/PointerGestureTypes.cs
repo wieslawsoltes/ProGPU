@@ -207,6 +207,88 @@ public sealed class PointerPoint
 [ContractVersion(
     "Microsoft.Foundation.WindowsAppSDKContract",
     0x00010000)]
+public sealed class PointerEventArgs
+{
+    private const int MaximumPointCount = 64;
+    private static readonly IList<PointerPoint>
+        EmptyPoints = Array.Empty<PointerPoint>();
+    private readonly IList<PointerPoint>
+        _intermediatePoints;
+
+    internal PointerEventArgs(
+        PointerPoint currentPoint,
+        Windows.System.VirtualKeyModifiers keyModifiers =
+            Windows.System.VirtualKeyModifiers.None,
+        IReadOnlyList<PointerPoint>?
+            historyBeforeCurrentPoint = null)
+    {
+        ArgumentNullException.ThrowIfNull(currentPoint);
+
+        CurrentPoint = currentPoint;
+        KeyModifiers = keyModifiers;
+
+        int availableHistoryCount =
+            historyBeforeCurrentPoint?.Count ?? 0;
+        int historyCount = Math.Min(
+            availableHistoryCount,
+            MaximumPointCount - 1);
+        int historyStart =
+            availableHistoryCount - historyCount;
+        var points =
+            new PointerPoint[historyCount + 1];
+        for (int index = 0;
+             index < historyCount;
+             index++)
+        {
+            points[index] =
+                historyBeforeCurrentPoint![
+                    historyStart + index];
+        }
+        points[^1] = currentPoint;
+        _intermediatePoints =
+            Array.AsReadOnly(points);
+    }
+
+    public PointerPoint CurrentPoint { get; }
+
+    public bool Handled { get; set; }
+
+    public Windows.System.VirtualKeyModifiers
+        KeyModifiers { get; }
+
+    public IList<PointerPoint>
+        GetIntermediatePoints() =>
+        _intermediatePoints;
+
+    public IList<PointerPoint>
+        GetIntermediateTransformedPoints(
+            IPointerPointTransform transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+
+        var transformedPoints =
+            new PointerPoint[_intermediatePoints.Count];
+        for (int index = 0;
+             index < transformedPoints.Length;
+             index++)
+        {
+            PointerPoint? transformed =
+                _intermediatePoints[index]
+                    .GetTransformedPoint(transform);
+            if (transformed is null)
+                return EmptyPoints;
+            transformedPoints[index] =
+                transformed;
+        }
+
+        return Array.AsReadOnly(
+            transformedPoints);
+    }
+}
+
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public interface IPointerPointTransform
 {
     IPointerPointTransform Inverse { get; }
