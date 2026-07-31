@@ -5,6 +5,36 @@ namespace Microsoft.UI.Xaml.Automation;
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public enum AnnotationType
+{
+    Unknown = 60000,
+    SpellingError = 60001,
+    GrammarError = 60002,
+    Comment = 60003,
+    FormulaError = 60004,
+    TrackChanges = 60005,
+    Header = 60006,
+    Footer = 60007,
+    Highlighted = 60008,
+    Endnote = 60009,
+    Footnote = 60010,
+    InsertionChange = 60011,
+    DeletionChange = 60012,
+    MoveChange = 60013,
+    FormatChange = 60014,
+    UnsyncedChange = 60015,
+    EditingLockedChange = 60016,
+    ExternalChange = 60017,
+    ConflictingChange = 60018,
+    Author = 60019,
+    AdvancedProofingIssue = 60020,
+    DataValidationError = 60021,
+    CircularReferenceError = 60022
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum DockPosition
 {
     Top = 0,

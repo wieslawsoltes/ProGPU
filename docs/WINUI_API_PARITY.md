@@ -1093,6 +1093,10 @@ Primary contracts consulted:
 - [IMultipleViewProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.imultipleviewprovider)
 - [IDockProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.idockprovider)
 - [ICustomNavigationProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.icustomnavigationprovider)
+- [ISpreadsheetProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ispreadsheetprovider)
+- [ISpreadsheetItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ispreadsheetitemprovider)
+- [IStylesProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.istylesprovider)
+- [AnnotationType](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.annotationtype)
 - [DockPosition](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.dockposition)
 - [AutomationNavigationDirection](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.peers.automationnavigationdirection)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
@@ -1223,6 +1227,25 @@ automation-provider slices, all 202 selected declarations now match. The
 official comparison advances to 7,959 candidate declarations, 4,107 exact
 matches, 12,514 missing declarations, and 3,852 extras. No Microsoft
 implementation source or method body was inspected.
+
+The spreadsheet/styles slice adds the exact version-1 provider boundaries for
+finding named spreadsheet cells, exposing cell formulas and annotation
+providers/types, and reporting document-content visual style metadata. The
+official `AnnotationType` identities from unknown through circular-reference
+error retain their assigned 60000–60022 values. Style colors reuse the
+existing `Windows.UI.Color` value contract.
+
+These declarations do not add a spreadsheet model, formula evaluator,
+annotation store, style registry, reflection, native accessibility transport,
+allocation policy, or rendering work. Concrete automation peers own lookup,
+array ownership, and accessibility-event behavior. Focused reflection tests
+reject extra or writable members, incorrect parameter/result/property types,
+enum-value drift, and contract-version drift. This slice adds all 43 selected
+declarations exactly. Across the nine automation-provider slices, all 245
+selected declarations now match. The official comparison advances to 8,002
+candidate declarations, 4,150 exact matches, 12,471 missing declarations,
+and 3,852 extras. No Microsoft implementation source or method body was
+inspected.
 
 ### Microsoft.UI.Windowing
 

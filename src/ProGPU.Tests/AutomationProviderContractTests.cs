@@ -544,6 +544,111 @@ public sealed class AutomationProviderContractTests
             typeof(AutomationNavigationDirection));
     }
 
+    [Fact]
+    public void SpreadsheetAndStylesProvidersMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(ISpreadsheetItemProvider),
+            (nameof(
+                ISpreadsheetItemProvider.Formula),
+                typeof(string)));
+        AssertDeclaredMethods(
+            typeof(ISpreadsheetItemProvider),
+            new ExpectedMethod(
+                nameof(
+                    ISpreadsheetItemProvider
+                        .GetAnnotationObjects),
+                typeof(IRawElementProviderSimple[])),
+            new ExpectedMethod(
+                nameof(
+                    ISpreadsheetItemProvider
+                        .GetAnnotationTypes),
+                typeof(AnnotationType[])));
+
+        AssertReadOnlyProperties(
+            typeof(ISpreadsheetProvider));
+        AssertDeclaredMethods(
+            typeof(ISpreadsheetProvider),
+            new ExpectedMethod(
+                nameof(
+                    ISpreadsheetProvider
+                        .GetItemByName),
+                typeof(IRawElementProviderSimple),
+                typeof(string)));
+
+        AssertReadOnlyProperties(
+            typeof(IStylesProvider),
+            (nameof(
+                IStylesProvider.ExtendedProperties),
+                typeof(string)),
+            (nameof(IStylesProvider.FillColor),
+                typeof(Windows.UI.Color)),
+            (nameof(
+                IStylesProvider.FillPatternColor),
+                typeof(Windows.UI.Color)),
+            (nameof(
+                IStylesProvider.FillPatternStyle),
+                typeof(string)),
+            (nameof(IStylesProvider.Shape),
+                typeof(string)),
+            (nameof(IStylesProvider.StyleId),
+                typeof(int)),
+            (nameof(IStylesProvider.StyleName),
+                typeof(string)));
+        AssertDeclaredMethods(
+            typeof(IStylesProvider));
+
+        AssertWinUiContractVersion(
+            typeof(ISpreadsheetItemProvider));
+        AssertWinUiContractVersion(
+            typeof(ISpreadsheetProvider));
+        AssertWinUiContractVersion(
+            typeof(IStylesProvider));
+    }
+
+    [Fact]
+    public void AnnotationTypeMatchesOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(AnnotationType),
+            (nameof(AnnotationType.Unknown), 60000),
+            (nameof(AnnotationType.SpellingError), 60001),
+            (nameof(AnnotationType.GrammarError), 60002),
+            (nameof(AnnotationType.Comment), 60003),
+            (nameof(AnnotationType.FormulaError), 60004),
+            (nameof(AnnotationType.TrackChanges), 60005),
+            (nameof(AnnotationType.Header), 60006),
+            (nameof(AnnotationType.Footer), 60007),
+            (nameof(AnnotationType.Highlighted), 60008),
+            (nameof(AnnotationType.Endnote), 60009),
+            (nameof(AnnotationType.Footnote), 60010),
+            (nameof(AnnotationType.InsertionChange), 60011),
+            (nameof(AnnotationType.DeletionChange), 60012),
+            (nameof(AnnotationType.MoveChange), 60013),
+            (nameof(AnnotationType.FormatChange), 60014),
+            (nameof(AnnotationType.UnsyncedChange), 60015),
+            (nameof(
+                AnnotationType.EditingLockedChange),
+                60016),
+            (nameof(AnnotationType.ExternalChange), 60017),
+            (nameof(
+                AnnotationType.ConflictingChange),
+                60018),
+            (nameof(AnnotationType.Author), 60019),
+            (nameof(
+                AnnotationType.AdvancedProofingIssue),
+                60020),
+            (nameof(
+                AnnotationType.DataValidationError),
+                60021),
+            (nameof(
+                AnnotationType.CircularReferenceError),
+                60022));
+
+        AssertWinUiContractVersion(
+            typeof(AnnotationType));
+    }
+
     private static void AssertDeclaredMethods(
         Type interfaceType,
         params ExpectedMethod[] expected)

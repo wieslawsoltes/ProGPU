@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Windows.Foundation.Metadata;
+using Windows.UI;
 
 namespace Microsoft.UI.Xaml.Automation.Provider;
 
@@ -216,6 +217,47 @@ public interface ISelectionProvider
     bool IsSelectionRequired { get; }
 
     IRawElementProviderSimple[] GetSelection();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ISpreadsheetItemProvider
+{
+    string Formula { get; }
+
+    IRawElementProviderSimple[] GetAnnotationObjects();
+
+    AnnotationType[] GetAnnotationTypes();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ISpreadsheetProvider
+{
+    IRawElementProviderSimple GetItemByName(
+        string name);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IStylesProvider
+{
+    string ExtendedProperties { get; }
+
+    Color FillColor { get; }
+
+    Color FillPatternColor { get; }
+
+    string FillPatternStyle { get; }
+
+    string Shape { get; }
+
+    int StyleId { get; }
+
+    string StyleName { get; }
 }
 
 [ContractVersion(
