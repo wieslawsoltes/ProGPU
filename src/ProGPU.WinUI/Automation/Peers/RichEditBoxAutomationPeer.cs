@@ -1,13 +1,29 @@
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Automation.Peers;
 
 /// <summary>Value and virtualized text-pattern bridge for the retained rich editor.</summary>
-public sealed class RichEditBoxAutomationPeer : FrameworkElementAutomationPeer, IValueProvider, ITextProvider
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public class RichEditBoxAutomationPeer : FrameworkElementAutomationPeer, IValueProvider, ITextProvider
 {
     private RichEditBox RichOwner => (RichEditBox)Owner;
+
+    protected internal RichEditBoxAutomationPeer(
+        WinRT.IObjectReference objRef)
+        : base(objRef)
+    {
+    }
+
+    protected RichEditBoxAutomationPeer(
+        WinRT.DerivedComposed _)
+        : base(_)
+    {
+    }
 
     public RichEditBoxAutomationPeer(RichEditBox owner)
         : base(owner)
@@ -20,15 +36,22 @@ public sealed class RichEditBoxAutomationPeer : FrameworkElementAutomationPeer, 
         new RichEditTextRangeProvider(RichOwner, 0, RichOwner.Text.Length);
     public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Single;
 
-    public override object? GetPattern(PatternInterface patternInterface) => patternInterface switch
-    {
-        PatternInterface.Value or PatternInterface.Text or PatternInterface.Text2 => this,
-        _ => base.GetPattern(patternInterface)
-    };
+    internal object GetPatternValue(
+        PatternInterface patternInterface) =>
+        patternInterface switch
+        {
+            PatternInterface.Value or PatternInterface.Text or PatternInterface.Text2 => this,
+            _ => null!
+        };
 
-    public override string GetClassName() => nameof(RichEditBox);
-    public override AutomationControlType GetAutomationControlType() => AutomationControlType.Document;
-    public override string GetName() => RichOwner.Header?.ToString() ?? RichOwner.Description?.ToString() ?? string.Empty;
+    internal AutomationControlType
+        GetAutomationControlTypeValue() =>
+        AutomationControlType.Document;
+
+    internal string GetNameValue() =>
+        RichOwner.Header?.ToString() ??
+        RichOwner.Description?.ToString() ??
+        string.Empty;
 
     public void SetValue(string value)
     {

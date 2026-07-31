@@ -1,5 +1,8 @@
 namespace Microsoft.UI.Xaml.Automation.Peers;
 
+[Windows.Foundation.Metadata.ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum PatternInterface
 {
     Invoke = 0,
@@ -22,5 +25,18 @@ public enum PatternInterface
     Text = 17,
     ItemContainer = 18,
     VirtualizedItem = 19,
-    Text2 = 20
+    Text2 = 20,
+    TextChild = 21,
+    TextRange = 22,
+    Annotation = 23,
+    Drag = 24,
+    DropTarget = 25,
+    ObjectModel = 26,
+    Spreadsheet = 27,
+    SpreadsheetItem = 28,
+    Styles = 29,
+    Transform2 = 30,
+    SynchronizedInput = 31,
+    TextEdit = 32,
+    CustomNavigation = 33
 }

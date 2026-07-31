@@ -118,6 +118,17 @@ public interface IInvokeProvider
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface IItemContainerProvider
+{
+    IRawElementProviderSimple FindItemByProperty(
+        IRawElementProviderSimple startAfter,
+        AutomationProperty automationProperty,
+        object value);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface IMultipleViewProvider
 {
     int CurrentView { get; }

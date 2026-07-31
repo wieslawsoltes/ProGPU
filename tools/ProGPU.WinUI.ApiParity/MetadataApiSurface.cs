@@ -115,7 +115,8 @@ internal sealed record MetadataApiSurface(
         {
             var implementation = reader.GetInterfaceImplementation(interfaceHandle);
             var interfaceName = formatter.GetTypeName(implementation.Interface);
-            if (ShouldIncludeApiInterface(kind, interfaceName))
+            if (IsExternallyVisibleInterface(reader, implementation.Interface) &&
+                ShouldIncludeApiInterface(kind, interfaceName))
                 entries.Add($"interface|{typeName}|{interfaceName}");
         }
 
@@ -369,6 +370,24 @@ internal sealed record MetadataApiSurface(
             !interfaceName.StartsWith(
                 "System.IEquatable`1<",
                 StringComparison.Ordinal);
+    }
+
+    private static bool IsExternallyVisibleInterface(
+        MetadataReader reader,
+        EntityHandle interfaceHandle)
+    {
+        // An interface implemented through a TypeDefinition belongs to this
+        // module, so its visibility is knowable. Projected WinRT assemblies
+        // use private *Overrides interfaces as implementation plumbing on
+        // otherwise public classes; those are not a consumable API contract.
+        // Type references/specifications resolve outside this local metadata
+        // surface and remain part of the public relationship. This is O(1)
+        // work and storage per implemented-interface row.
+        return interfaceHandle.Kind != HandleKind.TypeDefinition ||
+            IsExternallyVisible(
+                reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)interfaceHandle),
+                reader);
     }
 
     private static bool ShouldIncludeApiMethod(

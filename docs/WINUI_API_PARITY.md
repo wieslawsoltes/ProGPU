@@ -58,9 +58,11 @@ semantic custom attribute is compared by type and raw ECMA-335 value blob.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
-runtime-class query/equality helpers, COM cast interfaces, and delegate
-`BeginInvoke`/`EndInvoke` methods that are absent from the official XML API
-documentation. Every entry is ordinally sorted.
+runtime-class query/equality helpers, COM cast interfaces, locally declared
+non-public implementation interfaces, and delegate `BeginInvoke`/`EndInvoke`
+methods that are absent from the official XML API documentation. External
+public interface relationships remain compared. Every entry is ordinally
+sorted.
 For `M` metadata declarations, extraction is
 `O(M log M)` time and `O(M)` storage; comparison is `O(M + P)` expected time and
 `O(M + P)` storage for official entries `M` and ProGPU entries `P`.
@@ -1274,6 +1276,52 @@ automation-provider slices, all 275 selected declarations now match. The
 official comparison advances to 8,029 candidate declarations, 4,180 exact
 matches, 12,441 missing declarations, and 3,849 extras. No Microsoft
 implementation source or method body was inspected.
+
+The automation-peer foundation slice aligns the official non-abstract
+`AutomationPeer` dependency-object contract and its public-wrapper/protected-
+virtual-Core extension pattern. It adds the typed navigation, annotation,
+heading, landmark, live-region, notification, orientation, structure-change,
+text-edit, runtime-ID, control-type, and pattern identities plus the exact item
+container and raw-element provider boundaries. `AutomationPeerAnnotation`
+stores its type and peer through stable dependency properties.
+
+Provider conversion creates at most one stable raw-element wrapper per peer.
+The normal path performs one allocation on first use, then uses a volatile
+read; contended first use publishes one identity with an atomic compare and
+exchange. A warmed one-million-iteration conversion invariant reports exactly
+zero managed allocations. Raw-element runtime IDs use one atomic increment and
+two inline 32-bit fields, so generation and equality are fixed `O(1)` work and
+storage. Parent/child navigation is `O(1)` for direct parent and endpoint-child
+queries and `O(C)` for sibling lookup across `C` children, with no navigation
+scratch allocation. Event, notification, property, structure, text-edit, and
+invalidation forwarding stays typed and reflection-free behind a caller-owned
+platform callback seam. Framework-element and rich-edit default behavior routes
+through internal typed helpers from the public base Core methods, preserving
+the projected metadata shape without reflection or duplicate public overrides.
+
+The metadata tool now excludes 42 locally declared, inaccessible WinRT
+projection override-interface edges from both sides. A public C# type cannot
+legally implement those private generated interfaces, and the official XML
+consumer contract does not expose them; external public interface edges remain
+checked. The resulting locked surface is 16,579 official declarations. This
+slice advances ProGPU to 8,280 candidate declarations, 4,440 exact matches,
+12,139 missing declarations, and 3,840 extras. Exact framework-element owner,
+constructor, contract-version, and rich-edit projection identities then advance
+the same 8,280 declarations to 4,448 exact matches, 12,131 missing declarations,
+and 3,832 extras. Every selected automation-peer
+foundation declaration has zero missing entries and zero extras. Focused tests
+cover wrapper/Core shape and dispatch, navigation, stable provider identity,
+zero-allocation warmed conversion, event forwarding, annotations, runtime IDs,
+enum identities, and contract versions.
+
+Primary clean-room contracts consulted:
+
+- [AutomationPeer](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.peers.automationpeer?view=windows-app-sdk-1.8)
+- [Custom automation peers](https://learn.microsoft.com/en-us/windows/apps/design/accessibility/custom-automation-peers)
+- [IItemContainerProvider](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iitemcontainerprovider?view=windows-app-sdk-1.8)
+- [IRawElementProviderSimple](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.irawelementprovidersimple?view=windows-app-sdk-1.8)
+
+No Microsoft implementation source or decompiled method body was inspected.
 
 ### Microsoft.UI.Windowing
 

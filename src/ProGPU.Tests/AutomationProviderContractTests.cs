@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
+using Microsoft.UI.Xaml;
 using System.Reflection;
 using Windows.Foundation.Metadata;
 using Xunit;
@@ -756,6 +757,356 @@ public sealed class AutomationProviderContractTests
             typeof(SynchronizedInputType));
     }
 
+    [Fact]
+    public void AutomationPeerAndItemContainerMatchOfficialShape()
+    {
+        Assert.Equal(
+            typeof(DependencyObject),
+            typeof(AutomationPeer).BaseType);
+        Assert.False(typeof(AutomationPeer).IsAbstract);
+
+        string[] wrapperCorePairs =
+        [
+            nameof(AutomationPeer.GetAcceleratorKey),
+            nameof(AutomationPeer.GetAccessKey),
+            nameof(AutomationPeer.GetAnnotations),
+            nameof(AutomationPeer.GetAutomationControlType),
+            nameof(AutomationPeer.GetAutomationId),
+            nameof(AutomationPeer.GetBoundingRectangle),
+            nameof(AutomationPeer.GetChildren),
+            nameof(AutomationPeer.GetClassName),
+            nameof(AutomationPeer.GetClickablePoint),
+            nameof(AutomationPeer.GetControlledPeers),
+            nameof(AutomationPeer.GetCulture),
+            nameof(AutomationPeer.GetElementFromPoint),
+            nameof(AutomationPeer.GetFocusedElement),
+            nameof(AutomationPeer.GetFullDescription),
+            nameof(AutomationPeer.GetHeadingLevel),
+            nameof(AutomationPeer.GetHelpText),
+            nameof(AutomationPeer.GetItemStatus),
+            nameof(AutomationPeer.GetItemType),
+            nameof(AutomationPeer.GetLabeledBy),
+            nameof(AutomationPeer.GetLandmarkType),
+            nameof(AutomationPeer.GetLevel),
+            nameof(AutomationPeer.GetLiveSetting),
+            nameof(AutomationPeer.GetLocalizedControlType),
+            nameof(AutomationPeer.GetLocalizedLandmarkType),
+            nameof(AutomationPeer.GetName),
+            nameof(AutomationPeer.GetOrientation),
+            nameof(AutomationPeer.GetPattern),
+            nameof(AutomationPeer.GetPeerFromPoint),
+            nameof(AutomationPeer.GetPositionInSet),
+            nameof(AutomationPeer.GetSizeOfSet),
+            nameof(AutomationPeer.HasKeyboardFocus),
+            nameof(AutomationPeer.IsContentElement),
+            nameof(AutomationPeer.IsControlElement),
+            nameof(AutomationPeer.IsDataValidForForm),
+            nameof(AutomationPeer.IsDialog),
+            nameof(AutomationPeer.IsEnabled),
+            nameof(AutomationPeer.IsKeyboardFocusable),
+            nameof(AutomationPeer.IsOffscreen),
+            nameof(AutomationPeer.IsPassword),
+            nameof(AutomationPeer.IsPeripheral),
+            nameof(AutomationPeer.IsRequiredForForm),
+            nameof(AutomationPeer.Navigate),
+            nameof(AutomationPeer.SetFocus),
+            nameof(AutomationPeer.ShowContextMenu),
+        ];
+        foreach (var wrapperName in wrapperCorePairs)
+        {
+            MethodInfo wrapper = Assert.Single(
+                typeof(AutomationPeer).GetMethods(
+                    BindingFlags.Public |
+                    BindingFlags.Instance |
+                    BindingFlags.DeclaredOnly),
+                method => method.Name == wrapperName);
+            Assert.False(wrapper.IsVirtual);
+
+            MethodInfo core = Assert.Single(
+                typeof(AutomationPeer).GetMethods(
+                    BindingFlags.NonPublic |
+                    BindingFlags.Instance |
+                    BindingFlags.DeclaredOnly),
+                method => method.Name == wrapperName + "Core");
+            Assert.True(core.IsFamily);
+            Assert.True(core.IsVirtual);
+        }
+
+        AssertDeclaredMethods(
+            typeof(IItemContainerProvider),
+            new ExpectedMethod(
+                nameof(IItemContainerProvider.FindItemByProperty),
+                typeof(IRawElementProviderSimple),
+                typeof(IRawElementProviderSimple),
+                typeof(AutomationProperty),
+                typeof(object)));
+        AssertWinUiContractVersion(
+            typeof(IItemContainerProvider));
+
+        Assert.True(typeof(IRawElementProviderSimple).IsSealed);
+        Assert.Equal(
+            typeof(DependencyObject),
+            typeof(IRawElementProviderSimple).BaseType);
+        Assert.Empty(
+            typeof(IRawElementProviderSimple).GetProperties(
+                BindingFlags.Public |
+                BindingFlags.Instance |
+                BindingFlags.DeclaredOnly));
+        Assert.Empty(
+            typeof(IRawElementProviderSimple).GetConstructors(
+                BindingFlags.Public |
+                BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void AutomationPeerDispatchNavigationAndProviderIdentityAreTypedAndBounded()
+    {
+        var parent = new ProbeAutomationPeer("parent");
+        var first = new ProbeAutomationPeer("first");
+        var second = new ProbeAutomationPeer("second");
+        parent.ChildPeers.Add(first);
+        parent.ChildPeers.Add(second);
+        first.SetParent(parent);
+        second.SetParent(parent);
+
+        Assert.Equal("first", first.GetName());
+        Assert.Equal(
+            AutomationControlType.Button,
+            first.GetAutomationControlType());
+        Assert.Same(parent, first.GetParent());
+        Assert.Same(parent, first.Navigate(
+            AutomationNavigationDirection.Parent));
+        Assert.Same(first, parent.Navigate(
+            AutomationNavigationDirection.FirstChild));
+        Assert.Same(second, parent.Navigate(
+            AutomationNavigationDirection.LastChild));
+        Assert.Same(second, first.Navigate(
+            AutomationNavigationDirection.NextSibling));
+        Assert.Same(first, second.Navigate(
+            AutomationNavigationDirection.PreviousSibling));
+        Assert.Null(first.Navigate(
+            AutomationNavigationDirection.PreviousSibling));
+        Assert.Null(second.Navigate(
+            AutomationNavigationDirection.NextSibling));
+
+        first.SetFocus();
+        first.ShowContextMenu();
+        Assert.True(first.FocusRequested);
+        Assert.True(first.ContextMenuRequested);
+
+        IRawElementProviderSimple provider =
+            first.GetProvider(first);
+        Assert.Same(provider, first.GetProvider(first));
+        Assert.Same(first, first.GetPeer(provider));
+
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (var iteration = 0;
+             iteration < 1_000_000;
+             iteration++)
+        {
+            provider = first.GetProvider(first);
+        }
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
+        Assert.Same(first, first.GetPeer(provider));
+
+        RawElementProviderRuntimeId firstId =
+            AutomationPeer.GenerateRawElementProviderRuntimeId();
+        RawElementProviderRuntimeId secondId =
+            AutomationPeer.GenerateRawElementProviderRuntimeId();
+        Assert.NotEqual(firstId, secondId);
+        Assert.Equal(firstId, new RawElementProviderRuntimeId(
+            firstId.Part1,
+            firstId.Part2));
+
+        var owner = new Microsoft.UI.Xaml.Controls.Button
+        {
+            IsEnabled = true,
+            Visibility = Visibility.Visible,
+        };
+        var frameworkPeer =
+            new FrameworkElementAutomationPeer(owner);
+        Assert.Equal(nameof(Microsoft.UI.Xaml.Controls.Button),
+            frameworkPeer.GetClassName());
+        Assert.True(frameworkPeer.IsContentElement());
+        Assert.True(frameworkPeer.IsControlElement());
+        Assert.True(frameworkPeer.IsEnabled());
+        Assert.False(frameworkPeer.IsOffscreen());
+        owner.Visibility = Visibility.Collapsed;
+        Assert.True(frameworkPeer.IsOffscreen());
+    }
+
+    [Fact]
+    public void AutomationPeerEventsAndAnnotationsPreserveTypedState()
+    {
+        var peer = new ProbeAutomationPeer("event-source");
+        var child = new ProbeAutomationPeer("child");
+        var property = new AutomationProperty(17);
+        var changedData = new[] { "composition" };
+        var automationEvents = new List<AutomationEvents>();
+        AutomationPeer? notificationPeer = null;
+        AutomationPeer? propertyPeer = null;
+        AutomationPeer? structurePeer = null;
+        AutomationPeer? textPeer = null;
+        AutomationPeer? invalidatedPeer = null;
+
+        try
+        {
+            AutomationPeerEventRuntime.ListenerProbe =
+                eventId => eventId ==
+                    AutomationEvents.AutomationFocusChanged;
+            AutomationPeerEventRuntime.PeerInvalidated =
+                source => invalidatedPeer = source;
+            AutomationPeerEventRuntime.AutomationEventRaised =
+                (_, eventId) => automationEvents.Add(eventId);
+            AutomationPeerEventRuntime.NotificationEventRaised =
+                (source, _, _, _, _) => notificationPeer = source;
+            AutomationPeerEventRuntime.PropertyChangedEventRaised =
+                (source, actualProperty, oldValue, newValue) =>
+                {
+                    propertyPeer = source;
+                    Assert.Same(property, actualProperty);
+                    Assert.Equal("old", oldValue);
+                    Assert.Equal("new", newValue);
+                };
+            AutomationPeerEventRuntime.StructureChangedEventRaised =
+                (source, changeType, actualChild) =>
+                {
+                    structurePeer = source;
+                    Assert.Equal(
+                        AutomationStructureChangeType.ChildAdded,
+                        changeType);
+                    Assert.Same(child, actualChild);
+                };
+            AutomationPeerEventRuntime.TextEditTextChangedEventRaised =
+                (source, changeType, actualData) =>
+                {
+                    textPeer = source;
+                    Assert.Equal(
+                        AutomationTextEditChangeType.Composition,
+                        changeType);
+                    Assert.Same(changedData, actualData);
+                };
+
+            Assert.True(AutomationPeer.ListenerExists(
+                AutomationEvents.AutomationFocusChanged));
+            peer.InvalidatePeer();
+            peer.RaiseAutomationEvent(
+                AutomationEvents.AutomationFocusChanged);
+            peer.RaiseNotificationEvent(
+                AutomationNotificationKind.ActionCompleted,
+                AutomationNotificationProcessing.MostRecent,
+                "complete",
+                "activity");
+            peer.RaisePropertyChangedEvent(
+                property,
+                "old",
+                "new");
+            peer.RaiseStructureChangedEvent(
+                AutomationStructureChangeType.ChildAdded,
+                child);
+            peer.RaiseTextEditTextChangedEvent(
+                AutomationTextEditChangeType.Composition,
+                changedData);
+
+            Assert.Same(peer, invalidatedPeer);
+            Assert.Same(peer, notificationPeer);
+            Assert.Same(peer, propertyPeer);
+            Assert.Same(peer, structurePeer);
+            Assert.Same(peer, textPeer);
+            Assert.Equal(
+                [
+                    AutomationEvents.AutomationFocusChanged,
+                    AutomationEvents.PropertyChanged,
+                    AutomationEvents.StructureChanged,
+                    AutomationEvents.TextEditTextChanged,
+                ],
+                automationEvents);
+        }
+        finally
+        {
+            AutomationPeerEventRuntime.Reset();
+        }
+
+        var annotation = new AutomationPeerAnnotation(
+            AnnotationType.Comment,
+            peer);
+        Assert.Equal(AnnotationType.Comment, annotation.Type);
+        Assert.Same(peer, annotation.Peer);
+        Assert.Same(
+            AutomationPeerAnnotation.TypeProperty,
+            AutomationPeerAnnotation.TypeProperty);
+        Assert.Same(
+            AutomationPeerAnnotation.PeerProperty,
+            AutomationPeerAnnotation.PeerProperty);
+    }
+
+    [Fact]
+    public void AutomationPeerEnumsMatchOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(AutomationHeadingLevel),
+            (nameof(AutomationHeadingLevel.None), 0),
+            (nameof(AutomationHeadingLevel.Level1), 1),
+            (nameof(AutomationHeadingLevel.Level2), 2),
+            (nameof(AutomationHeadingLevel.Level3), 3),
+            (nameof(AutomationHeadingLevel.Level4), 4),
+            (nameof(AutomationHeadingLevel.Level5), 5),
+            (nameof(AutomationHeadingLevel.Level6), 6),
+            (nameof(AutomationHeadingLevel.Level7), 7),
+            (nameof(AutomationHeadingLevel.Level8), 8),
+            (nameof(AutomationHeadingLevel.Level9), 9));
+        AssertEnumValues(
+            typeof(AutomationLandmarkType),
+            (nameof(AutomationLandmarkType.None), 0),
+            (nameof(AutomationLandmarkType.Custom), 1),
+            (nameof(AutomationLandmarkType.Form), 2),
+            (nameof(AutomationLandmarkType.Main), 3),
+            (nameof(AutomationLandmarkType.Navigation), 4),
+            (nameof(AutomationLandmarkType.Search), 5));
+        AssertEnumValues(
+            typeof(AutomationLiveSetting),
+            (nameof(AutomationLiveSetting.Off), 0),
+            (nameof(AutomationLiveSetting.Polite), 1),
+            (nameof(AutomationLiveSetting.Assertive), 2));
+        AssertEnumValues(
+            typeof(AutomationOrientation),
+            (nameof(AutomationOrientation.None), 0),
+            (nameof(AutomationOrientation.Horizontal), 1),
+            (nameof(AutomationOrientation.Vertical), 2));
+        AssertEnumValues(
+            typeof(AutomationTextEditChangeType),
+            (nameof(AutomationTextEditChangeType.None), 0),
+            (nameof(AutomationTextEditChangeType.AutoCorrect), 1),
+            (nameof(AutomationTextEditChangeType.Composition), 2),
+            (nameof(
+                AutomationTextEditChangeType.CompositionFinalized),
+                3));
+
+        Type[] selectedContracts =
+        [
+            typeof(AutomationEvents),
+            typeof(AutomationHeadingLevel),
+            typeof(AutomationLandmarkType),
+            typeof(AutomationLiveSetting),
+            typeof(AutomationNotificationKind),
+            typeof(AutomationNotificationProcessing),
+            typeof(AutomationOrientation),
+            typeof(AutomationStructureChangeType),
+            typeof(AutomationTextEditChangeType),
+            typeof(RawElementProviderRuntimeId),
+            typeof(AutomationPeerAnnotation),
+            typeof(AutomationPeer),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
     private static void AssertDeclaredMethods(
         Type interfaceType,
         params ExpectedMethod[] expected)
@@ -883,4 +1234,43 @@ public sealed class AutomationProviderContractTests
         string Name,
         Type ReturnType,
         params Type[] ParameterTypes);
+
+    private sealed class ProbeAutomationPeer : AutomationPeer
+    {
+        private readonly string _name;
+
+        public ProbeAutomationPeer(string name) =>
+            _name = name;
+
+        public List<AutomationPeer> ChildPeers { get; } = [];
+
+        public bool FocusRequested { get; private set; }
+
+        public bool ContextMenuRequested { get; private set; }
+
+        public IRawElementProviderSimple GetProvider(
+            AutomationPeer peer) =>
+            ProviderFromPeer(peer);
+
+        public AutomationPeer GetPeer(
+            IRawElementProviderSimple provider) =>
+            PeerFromProvider(provider);
+
+        protected override string GetNameCore() =>
+            _name;
+
+        protected override AutomationControlType
+            GetAutomationControlTypeCore() =>
+            AutomationControlType.Button;
+
+        protected override IList<AutomationPeer>
+            GetChildrenCore() =>
+            ChildPeers;
+
+        protected override void SetFocusCore() =>
+            FocusRequested = true;
+
+        protected override void ShowContextMenuCore() =>
+            ContextMenuRequested = true;
+    }
 }
