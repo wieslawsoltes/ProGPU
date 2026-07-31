@@ -47,10 +47,11 @@ from this same result. The project-context playground now consumes the same
 transport with one immutable Roslyn project, a caller-owned per-page session,
 fresh baselines across execution-permission changes, and last-good retention
 for changed targets. A typed workspace/project selector now resolves each request
-from one caller-owned current solution, recovers recreated IDs through unique
-normalized paths, retains caller-owned unsaved text, and unsubscribes without
-taking workspace or transport ownership. IDE UX and wire serialization remain
-adapter-owned.
+from one caller-owned current solution, refreshes its normalized fallbacks when
+the selected project or document path changes, recovers subsequently recreated
+IDs through those unique paths, retains caller-owned unsaved text, and
+unsubscribes without taking workspace or transport ownership. IDE UX and wire
+serialization remain adapter-owned.
 
 8. **Additional frameworks — planned.** Ship independent Avalonia, WPF, and MAUI profile/runtime packages against the same v2+ contracts, then publish a documented third-party extension SDK and compatibility suite.
 

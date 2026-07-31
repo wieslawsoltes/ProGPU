@@ -91,7 +91,7 @@ Already implemented:
 - immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, including fixed-histogram median/P95/P99 upper bounds and CLI JSON Lines publication;
 - an immutable allocation-free P95 performance-budget evaluator plus CLI duration/allocation thresholds, minimum-sample gating, structured results, and failing bounded-run exit status;
 - a versioned immutable IDE/playground/CLI watch transport that forwards Roslyn project/document/text snapshots into a caller-owned session and returns bounded detached results without retaining compiler graphs;
-- an IDE-neutral workspace/project-selector adapter that observes caller-owned current solution snapshots, retains only stable IDs/path fallbacks plus unsaved text, recovers recreated project/document identities, and delegates directly to the shared transport;
+- an IDE-neutral workspace/project-selector adapter that observes caller-owned current solution snapshots, retains only stable IDs/path fallbacks plus unsaved text, refreshes path fallbacks across selected project/document renames, recovers subsequently recreated identities, and delegates directly to the shared transport;
 - the sample playground now reuses one immutable process-wide Roslyn project while each page owns its watch pipeline, submits unsaved editor text through transport protocol `1.0`, projects only accepted compiler snapshots, and retains the last good inspection/preview after rejected target changes;
 - process coverage against a real MSBuild-loaded sample.
 

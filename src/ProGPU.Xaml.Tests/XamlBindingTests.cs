@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.CodeAnalysis.Text;
 using System.Collections.Immutable;
 using System.Text;
@@ -13448,6 +13449,135 @@ public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
     }
 
     [Fact]
+    public void WorkspaceProjectSelectorRefreshesRenamedPathsBeforeIdRecreation()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage" />
+""";
+        var workspaceRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.SelectorRename",
+            Guid.NewGuid().ToString("N"));
+        var originalProjectPath = Path.Combine(
+            workspaceRoot,
+            "PreviewProject.csproj");
+        var originalDocumentPath = Path.Combine(
+            workspaceRoot,
+            "Pages",
+            "MainPage.xaml");
+        var renamedProjectPath = Path.Combine(
+            workspaceRoot,
+            "RenamedPreviewProject.csproj");
+        var renamedDocumentPath = Path.Combine(
+            workspaceRoot,
+            "RenamedPages",
+            "RenamedMainPage.xaml");
+        var projectId = ProjectId.CreateNewId();
+        var documentId = DocumentId.CreateNewId(projectId);
+        using var workspace = new ReloadableWorkspace();
+        workspace.AddProjectSnapshot(
+            CreateReloadableProjectInfo(
+                projectId,
+                documentId,
+                originalProjectPath,
+                originalDocumentPath,
+                pageXaml));
+
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                static (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(session);
+        using var adapter =
+            new RoslynXamlWorkspaceProjectSelectorAdapter(
+                workspace,
+                transport);
+        var changed = new List<
+            RoslynXamlWorkspaceSelectionSnapshot>();
+        adapter.SelectionChanged += (_, args) =>
+            changed.Add(args.Selection);
+        var selected = adapter.Select(projectId, documentId);
+        var unsaved = SourceText.From(
+            pageXaml.Replace(" />", " Tag=\"unsaved\" />"));
+        adapter.SetUnsavedText(unsaved);
+
+        workspace.ReloadProjectSnapshot(
+            CreateReloadableProjectInfo(
+                projectId,
+                documentId,
+                renamedProjectPath,
+                renamedDocumentPath,
+                pageXaml));
+        var renamed = adapter.Selection;
+        Assert.True(renamed.CanSubmit);
+        Assert.True(renamed.Revision > selected.Revision);
+        Assert.Equal(projectId, renamed.ProjectId);
+        Assert.Equal(documentId, renamed.DocumentId);
+        Assert.Equal(
+            Path.GetFullPath(renamedProjectPath),
+            renamed.ProjectFilePath);
+        Assert.Equal(
+            Path.GetFullPath(renamedDocumentPath),
+            renamed.DocumentFilePath);
+        Assert.True(renamed.HasUnsavedText);
+        Assert.True(adapter.TryCreateRequest(
+            80,
+            out var renamedRequest,
+            immediate: true));
+        Assert.Same(unsaved, renamedRequest!.UnsavedText);
+        Assert.Equal(projectId, renamedRequest.Project.Id);
+        Assert.Equal(documentId, renamedRequest.XamlDocumentId);
+
+        workspace.RemoveProjectSnapshot(projectId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.ProjectUnavailable,
+            adapter.Selection.Status);
+        var replacementProjectId = ProjectId.CreateNewId();
+        var replacementDocumentId =
+            DocumentId.CreateNewId(replacementProjectId);
+        workspace.AddProjectSnapshot(
+            CreateReloadableProjectInfo(
+                replacementProjectId,
+                replacementDocumentId,
+                renamedProjectPath,
+                renamedDocumentPath,
+                pageXaml));
+        var recovered = adapter.Selection;
+        Assert.True(recovered.CanSubmit);
+        Assert.Equal(replacementProjectId, recovered.ProjectId);
+        Assert.Equal(replacementDocumentId, recovered.DocumentId);
+        Assert.True(recovered.HasUnsavedText);
+        Assert.True(adapter.TryCreateRequest(
+            81,
+            out var recoveredRequest));
+        Assert.Same(unsaved, recoveredRequest!.UnsavedText);
+        Assert.Equal(
+            replacementProjectId,
+            recoveredRequest.Project.Id);
+        Assert.Equal(
+            replacementDocumentId,
+            recoveredRequest.XamlDocumentId);
+        Assert.True(changed.Count >= 5);
+        for (var index = 1; index < changed.Count; index++)
+        {
+            Assert.True(
+                changed[index].Revision >
+                changed[index - 1].Revision);
+        }
+    }
+
+    [Fact]
     public async Task ProjectWatchSessionDebouncesSupersededSnapshotsAndRetainsLastGoodState()
     {
         const string baselineXaml = """
@@ -13944,6 +14074,56 @@ public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
                 SourceText.From(text),
                 PreservationMode.PreserveIdentity)
             .GetProject(project.Id)!;
+
+    private static ProjectInfo CreateReloadableProjectInfo(
+        ProjectId projectId,
+        DocumentId documentId,
+        string projectFilePath,
+        string documentFilePath,
+        string xaml)
+    {
+        var document = DocumentInfo.Create(
+            documentId,
+            Path.GetFileName(documentFilePath),
+            folders: null,
+            loader: TextLoader.From(
+                TextAndVersion.Create(
+                    SourceText.From(xaml),
+                    VersionStamp.Create())),
+            filePath: documentFilePath);
+        return ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "PreviewProject",
+            "PreviewProject",
+            LanguageNames.CSharp,
+            filePath: projectFilePath,
+            compilationOptions:
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary),
+            parseOptions:
+                new CSharpParseOptions(LanguageVersion.Preview),
+            additionalDocuments: new[] { document });
+    }
+
+    private sealed class ReloadableWorkspace : Workspace
+    {
+        public ReloadableWorkspace()
+            : base(
+                MefHostServices.DefaultHost,
+                nameof(ReloadableWorkspace))
+        {
+        }
+
+        public void AddProjectSnapshot(ProjectInfo project) =>
+            OnProjectAdded(project);
+
+        public void ReloadProjectSnapshot(ProjectInfo project) =>
+            OnProjectReloaded(project);
+
+        public void RemoveProjectSnapshot(ProjectId projectId) =>
+            OnProjectRemoved(projectId);
+    }
 
     private static PreviewProjectFixture CreatePreviewProject(
         string targetXaml,

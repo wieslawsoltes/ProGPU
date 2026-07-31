@@ -337,12 +337,9 @@ public sealed class RoslynXamlWorkspaceProjectSelectorAdapter :
             return;
         }
 
-        if (_projectFilePath == null &&
-            !string.IsNullOrWhiteSpace(project.FilePath))
-        {
-            _projectFilePath = NormalizeOptionalPath(
-                project.FilePath);
-        }
+        RefreshNormalizedPath(
+            project.FilePath,
+            ref _projectFilePath);
 
         TextDocument? document = _documentId == null
             ? null
@@ -388,12 +385,9 @@ public sealed class RoslynXamlWorkspaceProjectSelectorAdapter :
             return;
         }
 
-        if (_documentFilePath == null &&
-            !string.IsNullOrWhiteSpace(document.FilePath))
-        {
-            _documentFilePath = NormalizeOptionalPath(
-                document.FilePath);
-        }
+        RefreshNormalizedPath(
+            document.FilePath,
+            ref _documentFilePath);
         _status = RoslynXamlWorkspaceSelectionStatus.Ready;
     }
 
@@ -468,6 +462,29 @@ public sealed class RoslynXamlWorkspaceProjectSelectorAdapter :
         if (string.IsNullOrWhiteSpace(path))
             return null;
         return Path.GetFullPath(path);
+    }
+
+    private static void RefreshNormalizedPath(
+        string? observedPath,
+        ref string? retainedPath)
+    {
+        if (string.IsNullOrWhiteSpace(observedPath) ||
+            string.Equals(
+                observedPath,
+                retainedPath,
+                PathComparison))
+        {
+            return;
+        }
+
+        var normalized = NormalizeOptionalPath(observedPath);
+        if (!string.Equals(
+                normalized,
+                retainedPath,
+                PathComparison))
+        {
+            retainedPath = normalized;
+        }
     }
 
     private RoslynXamlWorkspaceSelectionSnapshot CreateSnapshot() =>
