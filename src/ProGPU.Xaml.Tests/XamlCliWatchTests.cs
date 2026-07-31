@@ -72,6 +72,7 @@ public sealed class XamlCliWatchTests
                         timeout.Token);
             var initial =
                 ParseResult(initialLine);
+            Assert.Equal("1.0", initial.ProtocolVersion);
             Assert.Equal(
                 "Applied",
                 initial.Status);
@@ -122,6 +123,7 @@ public sealed class XamlCliWatchTests
                         timeout.Token);
             var reload =
                 ParseResult(reloadLine);
+            Assert.Equal("1.0", reload.ProtocolVersion);
             Assert.Equal(
                 "AcceptedWithoutRuntimeChange",
                 reload.Status);
@@ -350,6 +352,8 @@ public sealed class XamlCliWatchTests
             root.GetProperty(
                 "performanceBudget");
         return new WatchResult(
+            root.GetProperty("protocolVersion")
+                .GetString()!,
             root.GetProperty("status")
                 .GetString()!,
             root.GetProperty("commitResult")
@@ -447,6 +451,7 @@ public sealed class XamlCliWatchTests
     }
 
     private sealed record WatchResult(
+        string ProtocolVersion,
         string Status,
         string CommitResult,
         string? Mode,

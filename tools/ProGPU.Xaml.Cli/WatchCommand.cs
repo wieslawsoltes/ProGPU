@@ -96,6 +96,9 @@ internal static partial class Program
                 },
                 debounce,
                 GcWatchAllocationCounter.Instance);
+        var transport =
+            new RoslynXamlProjectWatchTransport(
+                session);
         using var cancellation =
             new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler =
@@ -109,19 +112,19 @@ internal static partial class Program
         {
             var sequence = 0L;
             var lastAccepted = false;
+            sequence++;
             var initial = await SubmitWatchSnapshotAsync(
-                session,
+                transport,
                 projectPath,
                 file,
+                sequence,
                 immediate: true,
                 cancellation.Token);
-            sequence++;
             artifactWritten =
                 artifactWritten &&
                 initial.Accepted;
             WriteWatchResult(
                 initial,
-                sequence,
                 profile.Id,
                 file,
                 output,
@@ -141,6 +144,7 @@ internal static partial class Program
             {
                 return await RunStandardInputWatchAsync(
                     session,
+                    transport,
                     projectPath,
                     file,
                     output,
@@ -155,6 +159,7 @@ internal static partial class Program
 
             return await RunFileSystemWatchAsync(
                 session,
+                transport,
                 projectPath,
                 file,
                 output,
@@ -180,6 +185,7 @@ internal static partial class Program
     private static async Task<int>
         RunStandardInputWatchAsync(
             RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
             string file,
             string output,
@@ -226,22 +232,21 @@ internal static partial class Program
             }
             else
             {
+                sequence++;
                 var result =
                     await SubmitWatchSnapshotAsync(
-                        session,
+                        transport,
                         projectPath,
                         file,
+                        sequence,
                         immediate: true,
                         cancellationToken);
-                sequence++;
                 var wroteArtifact =
                     result.Accepted &&
-                    result.Update?
-                        .RequiresRuntimePublication ==
+                    result.RequiresRuntimePublication ==
                     true;
                 WriteWatchResult(
                     result,
-                    sequence,
                     framework,
                     file,
                     output,
@@ -266,6 +271,7 @@ internal static partial class Program
     private static async Task<int>
         RunFileSystemWatchAsync(
             RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
             string file,
             string output,
@@ -307,16 +313,19 @@ internal static partial class Program
                 subscription
                     .TakeRefreshRequested();
 
-            RoslynXamlProjectWatchResult result;
+            RoslynXamlProjectWatchResultSnapshot result;
             try
             {
+                var requestSequence =
+                    checked(sequence + 1);
                 if (refreshSubscription)
                 {
                     var submission =
                         await SubmitWatchSnapshotAndLoadInputSetAsync(
-                            session,
+                            transport,
                             projectPath,
                             file,
+                            requestSequence,
                             cancellationToken);
                     subscription.Update(
                         submission.InputSet);
@@ -326,9 +335,10 @@ internal static partial class Program
                 {
                     result =
                         await SubmitWatchSnapshotAsync(
-                            session,
+                            transport,
                             projectPath,
                             file,
+                            requestSequence,
                             immediate: false,
                             cancellationToken);
                 }
@@ -355,12 +365,10 @@ internal static partial class Program
             sequence++;
             var wroteArtifact =
                 result.Accepted &&
-                result.Update?
-                    .RequiresRuntimePublication ==
+                result.RequiresRuntimePublication ==
                 true;
             WriteWatchResult(
                 result,
-                sequence,
                 framework,
                 file,
                 output,
@@ -610,11 +618,12 @@ internal static partial class Program
     }
 
     private static async Task<
-        RoslynXamlProjectWatchResult>
+        RoslynXamlProjectWatchResultSnapshot>
         SubmitWatchSnapshotAsync(
-            RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
             string file,
+            long sequence,
             bool immediate,
             CancellationToken cancellationToken)
     {
@@ -626,19 +635,21 @@ internal static partial class Program
             loaded.Project,
             file,
             out var documentId);
-        return await session.SubmitAsync(
-            project,
-            documentId,
-            immediate: immediate,
-                cancellationToken:
-                    cancellationToken);
+        return await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                sequence,
+                project,
+                documentId,
+                immediate: immediate),
+            cancellationToken);
     }
 
     private static async Task<WatchSnapshotSubmission>
         SubmitWatchSnapshotAndLoadInputSetAsync(
-            RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
             string file,
+            long sequence,
             CancellationToken cancellationToken)
     {
         using var loaded =
@@ -657,12 +668,13 @@ internal static partial class Program
                 project,
                 evaluatedBuildInputs.Paths,
                 explicitInputs: new[] { file });
-        var result = await session.SubmitAsync(
-            project,
-            documentId,
-            immediate: false,
-            cancellationToken:
-                cancellationToken);
+        var result = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                sequence,
+                project,
+                documentId,
+                immediate: false),
+            cancellationToken);
         return new WatchSnapshotSubmission(
             result,
             inputSet);
@@ -670,7 +682,7 @@ internal static partial class Program
 
     private readonly record struct
         WatchSnapshotSubmission(
-            RoslynXamlProjectWatchResult Result,
+            RoslynXamlProjectWatchResultSnapshot Result,
             RoslynXamlProjectWatchInputSet InputSet);
 
     private static async Task<LoadedWatchProject>
@@ -961,8 +973,7 @@ internal static partial class Program
     }
 
     private static void WriteWatchResult(
-        RoslynXamlProjectWatchResult result,
-        long sequence,
+        RoslynXamlProjectWatchResultSnapshot snapshot,
         string framework,
         string file,
         string output,
@@ -971,53 +982,48 @@ internal static partial class Program
             performanceBudget,
         bool json)
     {
-        var update = result.Update;
-        var plan = update?.Delta;
-        var telemetry = result.Telemetry;
+        var telemetry = snapshot.Telemetry;
         var budgetResult =
             performanceBudget?.Evaluate(telemetry);
-        var diagnostics =
-            GetWatchDiagnostics(update)
-                .ToArray();
         if (json)
         {
             WriteJsonLine(new
             {
                 command = "watch",
-                sequence,
-                version = result.Version,
+                protocolVersion =
+                    snapshot.ProtocolVersion.ToString(),
+                sequence = snapshot.Sequence,
+                version = snapshot.Version,
                 framework,
                 path = file,
-                status = result.Status.ToString(),
+                status = snapshot.Status.ToString(),
                 commitResult =
-                    result.CommitResult?.ToString(),
+                    snapshot.CommitResult?.ToString(),
                 generation =
-                    result.CommittedGeneration,
-                mode = plan?.Mode.ToString(),
-                action = plan?.Action.ToString(),
+                    snapshot.CommittedGeneration,
+                mode = snapshot.Mode?.ToString(),
+                action = snapshot.Action?.ToString(),
                 metadataReasons =
-                    plan?.MetadataReasons.Select(
+                    snapshot.MetadataReasons.Select(
                         static reason =>
                             reason.ToString()),
-                isInitial = update?.IsInitial,
+                isInitial = snapshot.IsInitial,
                 requiresRuntimePublication =
-                    update?
-                        .RequiresRuntimePublication,
+                    snapshot.RequiresRuntimePublication,
                 artifactWritten,
                 output,
                 resourceUri =
-                    update?.Current.ResourceUri,
+                    snapshot.ResourceUri,
                 qualifiedTypeName =
-                    update?.Current
-                        .QualifiedTypeName,
+                    snapshot.QualifiedTypeName,
                 targetDocumentChanged =
-                    plan?.TargetDocumentChanged,
+                    snapshot.TargetDocumentChanged,
                 targetDependencyChanged =
-                    plan?.TargetDependencyChanged,
+                    snapshot.TargetDependencyChanged,
                 metadataChanged =
-                    plan?.MetadataChanged,
+                    snapshot.MetadataChanged,
                 durationMilliseconds =
-                    result.Duration
+                    snapshot.Duration
                         .TotalMilliseconds,
                 telemetry = new
                 {
@@ -1125,27 +1131,33 @@ internal static partial class Program
                                 budgetResult.Value
                                     .P95AllocatedBytesUpperBound
                         },
-                message = result.Message,
+                message = snapshot.Message,
+                diagnosticsTruncated =
+                    snapshot.DiagnosticsTruncated,
+                textTruncated =
+                    snapshot.TextTruncated,
                 diagnostics =
-                    ProjectDiagnostics(
-                        diagnostics)
+                    ProjectWatchDiagnostics(
+                        snapshot.Diagnostics)
             });
             return;
         }
 
-        PrintDiagnostics(diagnostics);
+        PrintProjectWatchDiagnostics(
+            snapshot.Diagnostics,
+            snapshot.DiagnosticsTruncated);
         Console.WriteLine(
             "[watch " +
-            sequence.ToString(
+            snapshot.Sequence.ToString(
                 CultureInfo.InvariantCulture) +
             "] " +
-            result.Status +
+            snapshot.Status +
             " generation=" +
-            result.CommittedGeneration.ToString(
+            snapshot.CommittedGeneration.ToString(
                     CultureInfo.InvariantCulture) +
             " action=" +
-            (plan?.Action.ToString() ??
-             (update?.IsInitial == true
+            (snapshot.Action?.ToString() ??
+             (snapshot.IsInitial == true
                  ? "Initial"
                  : "None")) +
             " artifact=" +
@@ -1178,7 +1190,7 @@ internal static partial class Program
                 ? budgetResult.Value.Status.ToString()
                 : "disabled") +
             " — " +
-            result.Message);
+            snapshot.Message);
     }
 
     private sealed class GcWatchAllocationCounter :
@@ -1212,6 +1224,9 @@ internal static partial class Program
             WriteJsonLine(new
             {
                 command = "watch",
+                protocolVersion =
+                    RoslynXamlProjectWatchProtocolVersion
+                        .Current.ToString(),
                 sequence,
                 framework,
                 path = file,
@@ -1229,32 +1244,66 @@ internal static partial class Program
         }
     }
 
-    private static IEnumerable<Diagnostic>
-        GetWatchDiagnostics(
-            RoslynXamlProjectPreviewUpdate? update)
+    private static object[] ProjectWatchDiagnostics(
+        IEnumerable<RoslynXamlProjectWatchDiagnosticSnapshot>
+            diagnostics) =>
+        diagnostics.Select(
+            static diagnostic =>
+                (object)new
+                {
+                    id = diagnostic.Id,
+                    severity =
+                        diagnostic.Severity.ToString(),
+                    message = diagnostic.Message,
+                    path = diagnostic.Path,
+                    startLine = diagnostic.StartLine,
+                    startCharacter =
+                        diagnostic.StartCharacter,
+                    endLine = diagnostic.EndLine,
+                    endCharacter =
+                        diagnostic.EndCharacter,
+                    textTruncated =
+                        diagnostic.TextTruncated
+                })
+            .ToArray();
+
+    private static void PrintProjectWatchDiagnostics(
+        IEnumerable<RoslynXamlProjectWatchDiagnosticSnapshot>
+            diagnostics,
+        bool truncated)
     {
-        if (update == null)
-            return Array.Empty<Diagnostic>();
-        IEnumerable<Diagnostic> diagnostics =
-            update.Delta == null
-                ? Array.Empty<Diagnostic>()
-                : update.Delta.Diagnostics;
-        diagnostics = diagnostics.Concat(
-            update.Current.Artifact?.Diagnostics ??
-            update.Current.CompilationInspection
-                .CompilationResult.Diagnostics);
-        return diagnostics
-            .Where(
-                static diagnostic =>
-                    diagnostic.Severity !=
-                    DiagnosticSeverity.Hidden)
-            .GroupBy(
-                static diagnostic =>
-                    diagnostic.ToString(),
-                StringComparer.Ordinal)
-            .Select(
-                static group =>
-                    group.First());
+        foreach (var diagnostic in diagnostics)
+        {
+            var writer =
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error
+                    ? Console.Error
+                    : Console.Out;
+            writer.WriteLine(
+                (string.IsNullOrEmpty(diagnostic.Path)
+                    ? string.Empty
+                    : diagnostic.Path +
+                      "(" +
+                      (diagnostic.StartLine + 1)
+                          .ToString(
+                              CultureInfo.InvariantCulture) +
+                      "," +
+                      (diagnostic.StartCharacter + 1)
+                          .ToString(
+                              CultureInfo.InvariantCulture) +
+                      "): ") +
+                diagnostic.Severity.ToString()
+                    .ToLowerInvariant() +
+                " " +
+                diagnostic.Id +
+                ": " +
+                diagnostic.Message);
+        }
+        if (truncated)
+        {
+            Console.Error.WriteLine(
+                "Additional diagnostics were omitted by the project-watch transport bound.");
+        }
     }
 
     private static void WriteJsonLine(

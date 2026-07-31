@@ -35,6 +35,17 @@ the configured budget conclusively passes. Remaining host performance work is
 to calibrate representative platform/workload thresholds from repeated final
 binaries and commit those values to cross-platform gates.
 
+The Workspaces host now also exposes protocol `1.0` of a typed project-watch
+transport. Immutable requests carry the Roslyn project, additional-document ID,
+optional unsaved text, immediacy, and caller sequence; incompatible major or
+future minor contracts fail before session submission. The transport delegates
+to a caller-owned watch session and returns a detached bounded result with no
+project, compilation, syntax tree, source graph, prepared update, or artifact
+ownership. Both diagnostic inspection and retention are capped, individual
+fields are truncated explicitly, and the CLI JSON Lines output is projected
+from this same result. Next connect the transport to a real IDE/project selector
+and a project-context playground mode; wire serialization remains adapter-owned.
+
 8. **Additional frameworks — planned.** Ship independent Avalonia, WPF, and MAUI profile/runtime packages against the same v2+ contracts, then publish a documented third-party extension SDK and compatibility suite.
 
 ## Current evidence checkpoint

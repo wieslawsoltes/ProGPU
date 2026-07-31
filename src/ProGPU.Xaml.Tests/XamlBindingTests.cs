@@ -13008,6 +13008,176 @@ namespace Demo {
     }
 
     [Fact]
+    public async Task ProjectWatchTransportVersionsBoundsAndDetachesHostResults()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="transport" />
+</Page>
+""";
+        const string invalidXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock MissingProperty="invalid" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(
+                session,
+                new RoslynXamlProjectWatchTransportOptions
+                {
+                    MaximumDiagnosticCount = 8,
+                    MaximumTextLength = 32
+                });
+
+        var current =
+            RoslynXamlProjectWatchProtocolVersion.Current;
+        Assert.Equal(
+            new RoslynXamlProjectWatchProtocolVersion(1, 0),
+            current);
+        Assert.Equal("1.0", current.ToString());
+        Assert.True(current.CanServe(current));
+        Assert.False(
+            current.CanServe(
+                new RoslynXamlProjectWatchProtocolVersion(1, 1)));
+        Assert.False(
+            current.CanServe(
+                new RoslynXamlProjectWatchProtocolVersion(2, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchProtocolVersion(-1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchRequest(
+                    -1,
+                    fixture.Project,
+                    fixture.TargetXamlDocumentId));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchTransport(
+                    session,
+                    new RoslynXamlProjectWatchTransportOptions
+                    {
+                        MaximumDiagnosticCount =
+                            RoslynXamlProjectWatchTransportOptions
+                                .AbsoluteMaximumDiagnosticCount + 1
+                    }));
+
+        var incompatible =
+            new RoslynXamlProjectWatchRequest(
+                40,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true,
+                protocolVersion:
+                    new RoslynXamlProjectWatchProtocolVersion(2, 0));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => transport.SubmitAsync(incompatible));
+        Assert.Equal(0, session.Version);
+
+        var accepted = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                41,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true));
+        Assert.Equal(current, accepted.ProtocolVersion);
+        Assert.Equal(41, accepted.Sequence);
+        Assert.Equal(1, accepted.Version);
+        Assert.Equal(
+            RoslynXamlProjectWatchStatus.Applied,
+            accepted.Status);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            accepted.CommitResult);
+        Assert.True(accepted.Accepted);
+        Assert.True(accepted.IsInitial);
+        Assert.True(accepted.RequiresRuntimePublication);
+        Assert.True(accepted.Diagnostics.Length <= 8);
+        Assert.DoesNotContain(
+            accepted.Diagnostics,
+            static diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        Assert.True(accepted.TextTruncated);
+        Assert.True(accepted.Message.Length <= 32);
+        Assert.DoesNotContain(
+            typeof(RoslynXamlProjectWatchResultSnapshot)
+                .GetProperties(),
+            static property =>
+                typeof(Project).IsAssignableFrom(
+                    property.PropertyType) ||
+                typeof(Compilation).IsAssignableFrom(
+                    property.PropertyType) ||
+                typeof(SyntaxTree).IsAssignableFrom(
+                    property.PropertyType) ||
+                property.PropertyType ==
+                    typeof(RoslynXamlProjectPreviewUpdate));
+
+        var rejected = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                42,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                SourceText.From(invalidXaml),
+                immediate: true));
+        Assert.Equal(42, rejected.Sequence);
+        Assert.Equal(
+            RoslynXamlProjectWatchStatus.Rejected,
+            rejected.Status);
+        Assert.False(rejected.Accepted);
+        Assert.NotEmpty(rejected.Diagnostics);
+        Assert.All(
+            rejected.Diagnostics,
+            static diagnostic =>
+            {
+                Assert.False(string.IsNullOrEmpty(diagnostic.Id));
+                Assert.True(diagnostic.Message.Length <= 32);
+            });
+
+        var zeroDiagnosticTransport =
+            new RoslynXamlProjectWatchTransport(
+                session,
+                new RoslynXamlProjectWatchTransportOptions
+                {
+                    MaximumDiagnosticCount = 0,
+                    MaximumTextLength = 32
+                });
+        var bounded = await zeroDiagnosticTransport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                43,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                SourceText.From(invalidXaml),
+                immediate: true));
+        Assert.Empty(bounded.Diagnostics);
+        Assert.True(bounded.DiagnosticsTruncated);
+    }
+
+    [Fact]
     public async Task ProjectWatchSessionDebouncesSupersededSnapshotsAndRetainsLastGoodState()
     {
         const string baselineXaml = """
