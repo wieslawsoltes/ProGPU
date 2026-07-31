@@ -62,6 +62,16 @@ public sealed class InputContractValueTests
     [InlineData(typeof(InputDesktopNamedResourceCursor), 0x00010001U)]
     [InlineData(typeof(InputDesktopResourceCursor), 0x00010000U)]
     [InlineData(typeof(InputSystemCursor), 0x00010000U)]
+    [InlineData(typeof(CharacterReceivedEventArgs), 0x00010004U)]
+    [InlineData(typeof(ContextMenuKeyEventArgs), 0x00010004U)]
+    [InlineData(typeof(FocusChangedEventArgs), 0x00010004U)]
+    [InlineData(typeof(FocusNavigationRequest), 0x00010005U)]
+    [InlineData(typeof(FocusNavigationRequestEventArgs), 0x00010005U)]
+    [InlineData(typeof(InputFocusController), 0x00010004U)]
+    [InlineData(typeof(InputFocusNavigationHost), 0x00010005U)]
+    [InlineData(typeof(InputKeyboardSource), 0x00010000U)]
+    [InlineData(typeof(InputObject), 0x00010000U)]
+    [InlineData(typeof(KeyEventArgs), 0x00010004U)]
     public void InputValuesPublishOfficialContractVersion(
         Type type,
         uint expectedVersion)

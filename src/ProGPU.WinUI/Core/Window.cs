@@ -1174,7 +1174,13 @@ public class Window : DependencyObject
         if (_inputState != null)
         {
             InputSystem.Current = _inputState;
-            if (!focused)
+            if (focused)
+            {
+                InputSystem.SetHostFocus(
+                    _inputState,
+                    true);
+            }
+            else
             {
                 InputSystem.InjectFocusLost();
             }

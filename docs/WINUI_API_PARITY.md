@@ -103,6 +103,12 @@ The `Microsoft.UI.Input` cursor slice advances the baseline to 7,322 ProGPU
 entries, 3,438 exact matches, and 13,183 missing entries. It adds 28 exact
 declarations without adding ProGPU-only entries.
 
+The focus and keyboard source slice advances the baseline to 7,411 ProGPU
+entries, 3,527 exact matches, and 13,094 missing entries. It adds 89 exact
+declarations without adding ProGPU-only entries: 63 in `Microsoft.UI.Input`
+and 26 in the minimal `Microsoft.UI.Content` island/site foundation required
+by the official factories.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -339,6 +345,57 @@ declaration, advancing the official comparison to 7,322 candidate
 declarations, 3,438 exact matches, 13,183 missing declarations, and 3,884
 extras. Repeated reads of a warmed system cursor shape allocate zero managed
 bytes across 100,000 iterations.
+
+### Microsoft.UI.Input focus and keyboard sources
+
+Primary contracts consulted:
+
+- [InputObject](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputobject)
+- [InputFocusController](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputfocuscontroller)
+- [InputFocusNavigationHost](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputfocusnavigationhost)
+- [FocusNavigationRequest](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.focusnavigationrequest)
+- [InputKeyboardSource](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputkeyboardsource)
+- [InputKeyboardSource.GetKeyState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputkeyboardsource.getkeystate)
+- [InputKeyboardSource.GetCurrentKeyState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputkeyboardsource.getcurrentkeystate)
+- [ContentIsland](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentisland)
+- [VirtualKey](https://learn.microsoft.com/uwp/api/windows.system.virtualkey)
+- [CoreVirtualKeyStates](https://learn.microsoft.com/uwp/api/windows.ui.core.corevirtualkeystates)
+
+Adopted: dispatcher-thread affinity; one stable focus controller and keyboard
+source per content island; explicit focus acquisition; change-only got/lost
+notifications; request/result propagation between an island controller and its
+navigation host; normal versus Alt/system key event separation; per-message
+versus live key-state snapshots; UTF-16 character notification; context-menu
+key fallback; and down/locked state semantics. Navigation result handlers do
+not implicitly set focus.
+
+Adapted for portability: `ContentIslandInputRegistration`,
+`IContentIslandFocusProvider`, and `IContentIslandSiteProvider` are typed host
+seams outside the official `Microsoft.UI` namespace. They let desktop, mobile,
+browser, Avalonia, LibreWPF, and LibreWinForms hosts associate native focus and
+input state without reflection or platform types in the projection. Existing
+Silk input is translated through an explicit key map rather than relying on
+incompatible enum ordinals. A native host can inject complete timestamp and
+physical-key status through the value-only `KeyboardInputEvent`.
+
+Live and message key states are stored in eight fixed 64-bit bitsets. A state
+read or update is fixed `O(1)` time and storage and performs no managed
+allocation. Official event argument objects are created only when their event
+has a subscriber. A warmed Release invariant performs 200,000 live/message
+state reads with exactly zero managed allocations. Focus and key transitions
+are covered for stable object identity, lifecycle cleanup, dispatcher
+affinity, navigation results, handled events, system keys, context-menu keys,
+characters, and lock toggles.
+
+Deferred platform integration: each host still needs to supply native scan
+codes, repeat counts, extended-key state, OS focus activation, and lock-state
+resynchronization after out-of-process changes. The portable Silk fallback
+uses a zero scan code and repeat count one, while preserving the public typed
+injection seam for exact native data. This slice adds 89 exact declarations
+without adding ProGPU-only declarations, advancing the official comparison to
+7,411 candidate declarations, 3,527 exact matches, 13,094 missing
+declarations, and 3,884 extras. No Microsoft source or method body was
+inspected.
 
 ### Microsoft.UI.Windowing
 

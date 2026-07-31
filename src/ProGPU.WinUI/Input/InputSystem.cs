@@ -38,6 +38,13 @@ public class WindowInputState
     public Action<StandardCursor>? CursorChanged;
     internal IInputCursorProvider? InputCursorProvider;
     internal Microsoft.UI.Input.InputCursor? ActiveInputCursor;
+    internal Microsoft.UI.Content.ContentIsland? ContentIsland;
+    internal IContentIslandFocusProvider? ContentIslandFocusProvider;
+    internal Microsoft.UI.Input.InputKeyboardSource? KeyboardSource;
+    internal VirtualKeyStateMap KeyboardState;
+    internal VirtualKeyStateMap MessageKeyboardState;
+    internal bool HasHostFocus;
+    internal Action<bool>? HostFocusChanged;
     internal FrameworkElement? ComposingElement;
     internal RelativePointerCaptureState RelativePointerCapture { get; } = new();
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
@@ -473,6 +480,51 @@ public static class InputSystem
         long remainingTicks = elapsedTicks % Stopwatch.Frequency;
         var fractionalMicros = (ulong)((UInt128)(ulong)remainingTicks * 1_000_000UL / (ulong)Stopwatch.Frequency);
         return (ulong)wholeSeconds * 1_000_000UL + fractionalMicros;
+    }
+
+    internal static bool InjectKeyboardInput(
+        WindowInputState state,
+        in KeyboardInputEvent input)
+    {
+        WindowInputState previous = Current;
+        try
+        {
+            Current = state;
+            bool wasDown =
+                (state.KeyboardState.Get(input.VirtualKey) &
+                    Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+            state.KeyboardState.SetDown(
+                input.VirtualKey,
+                !input.IsReleased);
+            if (!input.IsReleased &&
+                !wasDown &&
+                input.VirtualKey is
+                    Windows.System.VirtualKey.CapitalLock or
+                    Windows.System.VirtualKey.NumberKeyLock or
+                    Windows.System.VirtualKey.Scroll)
+            {
+                state.KeyboardState.ToggleLocked(
+                    input.VirtualKey);
+            }
+            state.MessageKeyboardState =
+                state.KeyboardState;
+            return state.KeyboardSource?
+                .RaiseKey(input) == true;
+        }
+        finally
+        {
+            Current = previous;
+        }
+    }
+
+    internal static void SetHostFocus(
+        WindowInputState state,
+        bool hasFocus)
+    {
+        if (state.HasHostFocus == hasFocus)
+            return;
+        state.HasHostFocus = hasFocus;
+        state.HostFocusChanged?.Invoke(hasFocus);
     }
 
     private static PointerInputEvent CreateMouseEvent(PointerInputKind kind, Vector2 position) => new(
@@ -1828,12 +1880,6 @@ public static class InputSystem
         _hoverCancellation = null;
         DismissToolTip();
 
-        if (key == Key.F12 || (key == Key.D && IsControlPressedDynamic() && IsShiftPressedDynamic()))
-        {
-            DevToolsService.ToggleDevTools();
-            return;
-        }
-
         if (key == Key.ShiftLeft || key == Key.ShiftRight)
         {
             _isShiftPressed = true;
@@ -1845,6 +1891,40 @@ public static class InputSystem
         if (key == Key.AltLeft || key == Key.AltRight)
         {
             _isAltPressed = true;
+        }
+
+        var virtualKey =
+            SilkVirtualKeyMap.FromSilk(key);
+        bool wasKeyDown =
+            (Current.KeyboardState.Get(virtualKey) &
+                Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+        bool isSystemKey =
+            _isAltPressed ||
+            key is Key.AltLeft or Key.AltRight;
+        var keyStatus = new Microsoft.UI.Input.PhysicalKeyStatus(
+            1,
+            0,
+            false,
+            isSystemKey,
+            wasKeyDown,
+            false);
+        var keyboardInput = new KeyboardInputEvent(
+            virtualKey,
+            keyStatus,
+            GetTimestamp(),
+            isSystemKey,
+            false);
+        if (InjectKeyboardInput(
+            Current,
+            keyboardInput))
+        {
+            return;
+        }
+
+        if (key == Key.F12 || (key == Key.D && IsControlPressedDynamic() && IsShiftPressedDynamic()))
+        {
+            DevToolsService.ToggleDevTools();
+            return;
         }
 
         // Assemble active VirtualKeyModifiers
@@ -1898,10 +1978,29 @@ public static class InputSystem
                 FocusManager.TryMoveFocus(FocusNavigationDirection.Right);
             }
         }
+
+        if (!handled &&
+            (key == Key.Menu ||
+             (key == Key.F10 &&
+              IsShiftPressedDynamic())) &&
+            Current.KeyboardSource?
+                .RaiseContextMenuKey() == true)
+        {
+            return;
+        }
     }
 
     private static void OnKeyUp(Key key)
     {
+        var virtualKey =
+            SilkVirtualKeyMap.FromSilk(key);
+        bool wasKeyDown =
+            (Current.KeyboardState.Get(virtualKey) &
+                Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+        bool isSystemKey =
+            _isAltPressed ||
+            key is Key.AltLeft or Key.AltRight;
+
         if (key == Key.ShiftLeft || key == Key.ShiftRight)
         {
             _isShiftPressed = false;
@@ -1915,6 +2014,23 @@ public static class InputSystem
             _isAltPressed = false;
         }
 
+        var keyStatus = new Microsoft.UI.Input.PhysicalKeyStatus(
+            1,
+            0,
+            false,
+            isSystemKey,
+            wasKeyDown,
+            true);
+        var keyboardInput = new KeyboardInputEvent(
+            virtualKey,
+            keyStatus,
+            GetTimestamp(),
+            isSystemKey,
+            true);
+        bool handled = InjectKeyboardInput(
+            Current,
+            keyboardInput);
+
         if (key == Key.ShiftLeft || key == Key.ShiftRight || key == Key.ControlLeft || key == Key.ControlRight)
         {
             if (!DevToolsService.IsInspectModeActive)
@@ -1923,7 +2039,8 @@ public static class InputSystem
             }
         }
 
-        if (_focusedElement != null)
+        if (!handled &&
+            _focusedElement != null)
         {
             _focusedElement.OnKeyUp(new KeyRoutedEventArgs { Key = key });
         }
@@ -1931,6 +2048,20 @@ public static class InputSystem
 
     private static void OnKeyChar(char c)
     {
+        if (Current.KeyboardSource?
+            .RaiseCharacter(
+                c,
+                new Microsoft.UI.Input.PhysicalKeyStatus(
+                    1,
+                    0,
+                    false,
+                    _isAltPressed,
+                    false,
+                    false)) == true)
+        {
+            return;
+        }
+
         if (_focusedElement != null)
         {
             _focusedElement.OnCharacterReceived(new CharacterReceivedRoutedEventArgs { Character = c });
@@ -1971,6 +2102,7 @@ public static class InputSystem
 
         ReleasePointerCapture();
         IsKeyboardFocusActive = false;
+        SetHostFocus(Current, false);
         _hoverCancellation?.Cancel();
         _hoverCancellation = null;
         DismissToolTip();
