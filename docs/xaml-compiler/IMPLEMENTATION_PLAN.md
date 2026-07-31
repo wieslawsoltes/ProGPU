@@ -22,18 +22,20 @@ Current compiler checkpoint: class-backed ordinary event attributes retain exact
 The expanded executable metadata-update checkpoint exposes a disposable
 framework-neutral Workspaces edit session. It owns one accepted C#
 `Compilation`, portable PE/PDB baseline, module metadata, `EmitBaseline`,
-explicit method-body, property/indexer-accessor, and custom-event-accessor
-capabilities, and
-generation. Candidate diagnostics,
+explicit method-body, property/indexer-accessor, custom-event-accessor,
+special-method-body, ordinary-method-insertion, and instance-constructor-
+insertion capabilities and generation. Candidate diagnostics,
 environment identity, and declaration shape validate before Roslyn
 `EmitDifference` produces detached metadata, IL, and PDB payloads plus updated
 method tokens. No-op, ready, rejected, stale, foreign, invalid, and disposed
 states are transactional; two committed generations, rejection recovery,
 valid EnC metadata logs, and real method/property/event-accessor/constructor/
-operator `MetadataUpdater.ApplyUpdate` execution are covered. Constructor,
+operator/method-insertion/constructor-insertion `MetadataUpdater.ApplyUpdate`
+execution are covered. Constructor,
 destructor, operator, and conversion-operator bodies retain exact method
-symbols; initializer and declaration changes still fail closed. Declaration
-insertion/deletion and broader runtime capabilities, source-located rude
+symbols; initializer and declaration changes still fail closed. Field,
+property, type, and static-constructor insertion, deletion, and broader
+runtime capabilities, source-located rude
 edits, combined XAML/metadata publication ordering, partial-publication
 recovery, and multi-project delta ownership remain.
 This checkpoint supersedes the earlier metadata-delta-producer milestone;

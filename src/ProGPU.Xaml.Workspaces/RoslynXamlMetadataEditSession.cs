@@ -25,7 +25,8 @@ public enum RoslynXamlMetadataEditCapabilities
     UpdateConstructorBody = 8,
     UpdateDestructorBody = 16,
     UpdateOperatorBody = 32,
-    AddMethodToExistingType = 64
+    AddMethodToExistingType = 64,
+    AddInstanceConstructorToExistingType = 128
 }
 
 public enum RoslynXamlMetadataDeltaStatus
@@ -112,10 +113,10 @@ public sealed class RoslynXamlMetadataDeltaUpdate
 /// Owns one accepted Roslyn compilation and its Edit-and-Continue baseline.
 /// This producer slice accepts ordinary C# method bodies, property/indexer
 /// accessor bodies, custom event accessor bodies, constructors, destructors,
-/// user-defined operators, and insertion of non-virtual ordinary methods into
-/// existing types. Candidate compilation, declaration shape, and Roslyn emit
-/// validation complete before a host can observe the detached delta or
-/// advance the baseline.
+/// user-defined operators, and insertion of non-virtual ordinary methods or
+/// instance constructors into existing types. Candidate compilation,
+/// declaration shape, and Roslyn emit validation complete before a host can
+/// observe the detached delta or advance the baseline.
 /// </summary>
 /// <remarks>
 /// Initial emission is O(T + B) time and O(B) retained storage for T syntax
@@ -211,7 +212,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
         RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
         RoslynXamlMetadataEditCapabilities.UpdateOperatorBody |
-        RoslynXamlMetadataEditCapabilities.AddMethodToExistingType;
+        RoslynXamlMetadataEditCapabilities.AddMethodToExistingType |
+        RoslynXamlMetadataEditCapabilities
+            .AddInstanceConstructorToExistingType;
 
     public long Generation
     {
@@ -366,7 +369,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     baseline,
                     addedMethodKeys,
                     "the added member '" + item.Key + "' is not a " +
-                    "non-virtual ordinary method");
+                    "non-virtual ordinary method or instance " +
+                    "constructor");
             }
 
             edits.Add(new SemanticEdit(
@@ -724,13 +728,21 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
 
         private static bool SupportsInsertion(
             SyntaxNode node,
-            IMethodSymbol symbol) =>
-            node is MethodDeclarationSyntax &&
-            symbol.MethodKind == MethodKind.Ordinary &&
-            !symbol.IsAbstract &&
-            !symbol.IsVirtual &&
-            !symbol.IsOverride &&
-            symbol.ExplicitInterfaceImplementations.IsEmpty;
+            IMethodSymbol symbol)
+        {
+            if (node is ConstructorDeclarationSyntax)
+            {
+                return symbol.MethodKind == MethodKind.Constructor &&
+                    !symbol.IsStatic;
+            }
+
+            return node is MethodDeclarationSyntax &&
+                symbol.MethodKind == MethodKind.Ordinary &&
+                !symbol.IsAbstract &&
+                !symbol.IsVirtual &&
+                !symbol.IsOverride &&
+                symbol.ExplicitInterfaceImplementations.IsEmpty;
+        }
 
         private static bool TryGetExecutableBody(
             SemanticModel model,
@@ -920,6 +932,12 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             node.Body is not null || node.ExpressionBody is not null
                 ? null
                 : base.VisitMethodDeclaration(node);
+
+        public override SyntaxNode? VisitConstructorDeclaration(
+            ConstructorDeclarationSyntax node) =>
+            node.Body is not null || node.ExpressionBody is not null
+                ? null
+                : base.VisitConstructorDeclaration(node);
     }
 
     private class ExecutableBodyEraser : CSharpSyntaxRewriter

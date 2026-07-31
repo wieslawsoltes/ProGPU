@@ -124,9 +124,10 @@ Already implemented:
 - a disposable framework-neutral C# edit session owning one accepted
   `Compilation`, initial PE/portable PDB, module metadata, `EmitBaseline`,
   explicit ordinary-method, property/indexer-accessor, custom-event-accessor,
-  constructor, destructor, user-defined operator, and non-virtual ordinary-
-  method insertion capabilities, monotonic generation, and an immutable exact
-  set of methods inserted in accepted generations;
+  constructor, destructor, user-defined operator, non-virtual ordinary-method
+  insertion, and instance-constructor insertion capabilities, monotonic
+  generation, and an immutable exact set of methods inserted in accepted
+  generations;
 - candidate-first compiler diagnostics and declaration-shape validation;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
@@ -141,10 +142,11 @@ Already implemented:
   method-symbol updates while auto-property initializer, constructor
   initializer, and declaration changes fail closed.
 - exact `SemanticEditKind.Insert` production for non-virtual ordinary methods
-  added to an existing declaration, including generation-two updates through
-  the accepted added-symbol identity set; deletion, virtual/override/explicit-
-  interface insertion, field/property/constructor/type addition, and existing
-  signature/attribute changes fail closed before emission.
+  and instance constructors added to an existing declaration, including
+  generation-two updates through the accepted added-symbol identity set;
+  deletion, virtual/override/explicit-interface/static-constructor insertion,
+  field/property/type addition, and existing signature/attribute changes fail
+  closed before emission.
 
 Remaining implementation:
 
