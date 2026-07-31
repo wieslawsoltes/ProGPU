@@ -56,6 +56,12 @@ public sealed class Compositor : IDisposable
         return new CompositionColorGradientStop(this, offset, color);
     }
 
+    public DropShadow CreateDropShadow()
+    {
+        ThrowIfDisposed();
+        return new DropShadow(this);
+    }
+
     public CompositionContainerShape CreateContainerShape()
     {
         ThrowIfDisposed();
@@ -108,6 +114,12 @@ public sealed class Compositor : IDisposable
     {
         ThrowIfDisposed();
         return new CompositionLineGeometry(this);
+    }
+
+    public LayerVisual CreateLayerVisual()
+    {
+        ThrowIfDisposed();
+        return new LayerVisual(this);
     }
 
     public CompositionLinearGradientBrush CreateLinearGradientBrush()

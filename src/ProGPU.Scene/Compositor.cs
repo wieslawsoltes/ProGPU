@@ -1423,10 +1423,13 @@ public unsafe partial class Compositor : IDisposable
 
         public GpuTexture? Destination { get; private set; }
 
+        public GpuTexture? MaskSource { get; private set; }
+
         public void EnsureSize(uint width, uint height)
         {
             Source.Resize(width, height);
             Destination?.Resize(width, height);
+            MaskSource?.Resize(width, height);
         }
 
         public GpuTexture EnsureTemporary(
@@ -1469,6 +1472,24 @@ public unsafe partial class Compositor : IDisposable
             return Destination;
         }
 
+        public GpuTexture EnsureMaskSource(
+            WgpuContext context,
+            uint width,
+            uint height)
+        {
+            MaskSource ??= new GpuTexture(
+                context,
+                width,
+                height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                TextureUsage.TextureBinding,
+                "Effect Mask Source",
+                alphaMode: GpuTextureAlphaMode.Premultiplied);
+            MaskSource.Resize(width, height);
+            return MaskSource;
+        }
+
         public void ReleaseTemporary()
         {
             Temporary?.Dispose();
@@ -1481,13 +1502,21 @@ public unsafe partial class Compositor : IDisposable
             Destination = null;
         }
 
+        public void ReleaseMaskSource()
+        {
+            MaskSource?.Dispose();
+            MaskSource = null;
+        }
+
         public void Dispose()
         {
             Source.Dispose();
             Temporary?.Dispose();
             Destination?.Dispose();
+            MaskSource?.Dispose();
             Temporary = null;
             Destination = null;
+            MaskSource = null;
         }
     }
 
@@ -13428,6 +13457,17 @@ SceneStateUploadComplete:
             else if (effect is DropShadowEffect shadowResources)
             {
                 activeTextures.EnsureDestination(_context, w, h);
+                if (shadowResources.OpacityMaskVisual is not null)
+                {
+                    activeTextures.EnsureMaskSource(
+                        _context,
+                        w,
+                        h);
+                }
+                else
+                {
+                    activeTextures.ReleaseMaskSource();
+                }
                 if (shadowResources.BlurRadius > 0.01f)
                 {
                     activeTextures.EnsureTemporary(
@@ -13445,6 +13485,7 @@ SceneStateUploadComplete:
             {
                 activeTextures.ReleaseTemporary();
                 activeTextures.ReleaseDestination();
+                activeTextures.ReleaseMaskSource();
             }
 
             _elementsRenderingEffects.Add(fe);
@@ -13480,11 +13521,25 @@ SceneStateUploadComplete:
             }
             else if (fe.Effect is DropShadowEffect shadowEffect)
             {
+                GpuTexture shadowSource = activeTextures.Source;
+                if (shadowEffect.OpacityMaskVisual is { } maskVisual)
+                {
+                    RenderOffscreen(
+                        maskVisual,
+                        logicalRenderWidth,
+                        logicalRenderHeight,
+                        activeTextures.MaskSource!,
+                        -paddedRect.Position,
+                        dpiScale,
+                        includeRootTransform: false,
+                        includeRootVisualState: false);
+                    shadowSource = activeTextures.MaskSource!;
+                }
                 // We pass zero offset to the compute shader because we handle offset dynamically in DrawTextureOnMain on the CPU
                 if (shadowEffect.BlurRadius > 0.01f)
                 {
                     _compute.ApplyDropShadow(
-                        activeTextures.Source,
+                        shadowSource,
                         activeTextures.Temporary!,
                         activeTextures.Destination!,
                         Vector2.Zero,
@@ -13494,7 +13549,7 @@ SceneStateUploadComplete:
                 else
                 {
                     _compute.ApplySharpDropShadow(
-                        activeTextures.Source,
+                        shadowSource,
                         activeTextures.Destination!,
                         Vector2.Zero,
                         shadowEffect.Color);

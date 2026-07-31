@@ -356,6 +356,203 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void DropShadowPreservesWinUiDefaultsOwnershipAndValidation()
+    {
+        using var compositor = new Compositor();
+        DropShadow shadow = compositor.CreateDropShadow();
+        SpriteVisual sprite = compositor.CreateSpriteVisual();
+        LayerVisual layer = compositor.CreateLayerVisual();
+
+        Assert.Equal(9f, shadow.BlurRadius);
+        Assert.Equal(Color.FromArgb(255, 0, 0, 0), shadow.Color);
+        Assert.Null(shadow.Mask);
+        Assert.Equal(Vector3.Zero, shadow.Offset);
+        Assert.Equal(1f, shadow.Opacity);
+        Assert.Equal(
+            CompositionDropShadowSourcePolicy.Default,
+            shadow.SourcePolicy);
+
+        sprite.Shadow = shadow;
+        layer.Shadow = shadow;
+        Assert.Same(shadow, sprite.Shadow);
+        Assert.Same(shadow, layer.Shadow);
+
+        using var foreignCompositor = new Compositor();
+        Assert.Throws<InvalidOperationException>(
+            () => shadow.Mask = foreignCompositor.CreateColorBrush());
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => shadow.BlurRadius = -1f);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => shadow.BlurRadius = float.NaN);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => shadow.Opacity = 1.1f);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => shadow.Offset = new Vector3(float.PositiveInfinity));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => shadow.SourcePolicy =
+                (CompositionDropShadowSourcePolicy)42);
+
+        shadow.Dispose();
+        Assert.Null(sprite.Shadow);
+        Assert.Null(layer.Shadow);
+    }
+
+    [Fact]
+    public void SpriteDropShadowSwitchesBetweenRectangleContentAndExplicitMask()
+    {
+        using var window = new HeadlessWindow(64, 36);
+        var host = new FrameworkElement
+        {
+            Width = 64f,
+            Height = 36f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            SpriteVisual sprite = compositor.CreateSpriteVisual();
+            sprite.Offset = new Vector3(8f, 8f, 0f);
+            sprite.Size = new Vector2(16f, 16f);
+            sprite.Brush = compositor.CreateColorBrush(
+                Color.FromArgb(0, 255, 0, 0));
+            DropShadow shadow = compositor.CreateDropShadow();
+            shadow.BlurRadius = 0f;
+            shadow.Color = Color.FromArgb(255, 0, 255, 0);
+            shadow.Offset = new Vector3(24f, 0f, 0f);
+            sprite.Shadow = shadow;
+            ElementCompositionPreview.SetElementChildVisual(host, sprite);
+
+            window.Render();
+            AssertGreen(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                40,
+                16));
+
+            shadow.SourcePolicy =
+                CompositionDropShadowSourcePolicy.InheritFromVisualContent;
+            window.Render();
+            AssertDark(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                40,
+                16));
+
+            CompositionColorBrush mask = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 255, 255));
+            shadow.Mask = mask;
+            window.Render();
+            AssertGreen(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                40,
+                16));
+
+            mask.Color = Color.FromArgb(0, 255, 255, 255);
+            window.Render();
+            AssertDark(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                40,
+                16));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void LayerDropShadowInheritsChildAlphaAndUsesGpuBlur()
+    {
+        using var window = new HeadlessWindow(72, 40);
+        var host = new FrameworkElement
+        {
+            Width = 72f,
+            Height = 40f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            LayerVisual layer = compositor.CreateLayerVisual();
+            layer.Offset = new Vector3(8f, 8f, 0f);
+            layer.Size = new Vector2(20f, 20f);
+            SpriteVisual child = compositor.CreateSpriteVisual();
+            child.Offset = new Vector3(6f, 6f, 0f);
+            child.Size = new Vector2(8f, 8f);
+            child.Brush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+            layer.Children.InsertAtTop(child);
+            DropShadow shadow = compositor.CreateDropShadow();
+            shadow.BlurRadius = 3f;
+            shadow.Color = Color.FromArgb(255, 0, 0, 255);
+            shadow.Offset = new Vector3(28f, 0f, 0f);
+            layer.Shadow = shadow;
+            ElementCompositionPreview.SetElementChildVisual(host, layer);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 18, 18));
+            RgbaPixel center = ReadPixel(pixels, window.Width, 46, 18);
+            Assert.True(
+                center.B > 80 && center.B > center.R && center.B > center.G,
+                $"Expected a blue inherited shadow, got {center}.");
+            RgbaPixel softEdge = ReadPixel(pixels, window.Width, 41, 18);
+            Assert.True(
+                softEdge.B > 0 && softEdge.B < center.B,
+                $"Expected a soft GPU-blurred edge, got {softEdge} versus {center}.");
+
+            child.Offset = new Vector3(2f, 6f, 0f);
+            window.Render();
+            pixels = window.ReadPixels();
+            Assert.True(ReadPixel(pixels, window.Width, 42, 18).B > 80);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedDropShadowPropertyUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(40f, 24f);
+        DropShadow shadow = compositor.CreateDropShadow();
+        shadow.BlurRadius = 0f;
+        visual.Shadow = shadow;
+
+        shadow.Offset = Vector3.UnitX;
+        shadow.Offset = Vector3.Zero;
+        shadow.Color = Color.FromArgb(255, 0, 255, 0);
+        shadow.Color = Color.FromArgb(255, 0, 0, 0);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            shadow.Offset = new Vector3(index & 1, 0f, 0f);
+            shadow.Color = (index & 1) == 0
+                ? Color.FromArgb(255, 0, 0, 0)
+                : Color.FromArgb(255, 0, 255, 0);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void VisualCollectionKeepsBottomToTopOrderAndOwnership()
     {
         using var compositor = new Compositor();

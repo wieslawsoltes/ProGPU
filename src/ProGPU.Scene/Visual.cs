@@ -1453,6 +1453,7 @@ public class DropShadowEffect : EffectBase
     private float _blurRadius;
     private Vector2 _offset;
     private Vector4 _color;
+    private Visual? _opacityMaskVisual;
 
     public float BlurRadius
     {
@@ -1493,11 +1494,40 @@ public class DropShadowEffect : EffectBase
         }
     }
 
+    /// <summary>
+    /// Gets or sets an optional retained visual whose alpha replaces the
+    /// shadow source alpha. The original effect owner remains the color
+    /// source composited above the generated shadow.
+    /// </summary>
+    public Visual? OpacityMaskVisual
+    {
+        get => _opacityMaskVisual;
+        set
+        {
+            if (!ReferenceEquals(_opacityMaskVisual, value))
+            {
+                _opacityMaskVisual = value;
+                Invalidate();
+            }
+        }
+    }
+
     public DropShadowEffect(float blurRadius = 5f, Vector2 offset = default, Vector4 color = default)
     {
         BlurRadius = blurRadius;
         Offset = offset;
         Color = color == default ? new Vector4(0f, 0f, 0f, 0.5f) : color;
+    }
+
+    internal override int GetRenderCacheKey()
+    {
+        var hash = new HashCode();
+        hash.Add(GetType());
+        hash.Add(ChangeVersion);
+        hash.Add(_opacityMaskVisual);
+        hash.Add(_opacityMaskVisual?.ChangeVersion ?? 0L);
+        hash.Add(_opacityMaskVisual?.TreeVersion ?? 0L);
+        return hash.ToHashCode();
     }
 }
 

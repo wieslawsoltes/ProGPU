@@ -13,6 +13,13 @@ internal interface ICompositionBrushOwner
     void NotifyBrushValueChanged();
 }
 
+internal interface ICompositionShadowOwner
+{
+    void NotifyShadowChanged();
+
+    void NotifyShadowDisposed(CompositionShadow shadow);
+}
+
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public class CompositionBrush : CompositionObject
 {
@@ -132,13 +139,19 @@ public sealed class CompositionColorBrush : CompositionBrush
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
-public class Visual : CompositionObject, ICompositionClipOwner
+public class Visual :
+    CompositionObject,
+    ICompositionClipOwner,
+    ICompositionShadowOwner
 {
     private readonly bool _ownsSceneNode;
     private ContainerVisual? _parent;
     private ProGPU.Scene.ContainerVisual? _externalHost;
     private Vector2 _anchorPoint;
     private CompositionClip? _clip;
+    private CompositionShadow? _shadow;
+    private DropShadowEffect? _sceneShadow;
+    private bool _defaultShadowInheritsContent;
     private Vector3 _centerPoint;
     private Vector3 _offset;
     private Quaternion _orientation = Quaternion.Identity;
@@ -393,6 +406,27 @@ public class Visual : CompositionObject, ICompositionClipOwner
 
     internal Vector2 EffectiveSize => _effectiveSize;
 
+    internal CompositionShadow? GetShadow() => _shadow;
+
+    internal void SetShadow(
+        CompositionShadow? value,
+        bool defaultInheritsContent)
+    {
+        ThrowIfDisposed();
+        if (ReferenceEquals(_shadow, value) &&
+            _defaultShadowInheritsContent == defaultInheritsContent)
+        {
+            return;
+        }
+        if (value is not null)
+            EnsureSameCompositor(value);
+        _shadow?.RemoveOwner(this);
+        _shadow = value;
+        _defaultShadowInheritsContent = defaultInheritsContent;
+        _shadow?.AddOwner(this);
+        RefreshSceneShadow();
+    }
+
     internal void SetCompositionParent(ContainerVisual? parent)
     {
         _parent = parent;
@@ -442,7 +476,11 @@ public class Visual : CompositionObject, ICompositionClipOwner
     {
         DetachFromCurrentParent();
         _clip?.RemoveOwner(this);
+        _shadow?.RemoveOwner(this);
         _clip = null;
+        _shadow = null;
+        _sceneShadow = null;
+        SceneNode.Effect = null;
         SceneNode.LocalCompositeClip = null;
         if (_ownsSceneNode)
             SceneNode.ClearChildren();
@@ -501,6 +539,8 @@ public class Visual : CompositionObject, ICompositionClipOwner
         {
             compositionNode.UpdateContent();
         }
+        if (sizeChanged)
+            RefreshSceneShadow();
     }
 
     void ICompositionClipOwner.NotifyClipChanged() =>
@@ -512,6 +552,37 @@ public class Visual : CompositionObject, ICompositionClipOwner
             return;
         _clip = null;
         SceneNode.LocalCompositeClip = null;
+    }
+
+    void ICompositionShadowOwner.NotifyShadowChanged() =>
+        RefreshSceneShadow();
+
+    void ICompositionShadowOwner.NotifyShadowDisposed(
+        CompositionShadow shadow)
+    {
+        if (!ReferenceEquals(_shadow, shadow))
+            return;
+        _shadow = null;
+        _sceneShadow = null;
+        SceneNode.Effect = null;
+    }
+
+    private void RefreshSceneShadow()
+    {
+        if (_shadow is null)
+        {
+            _sceneShadow = null;
+            SceneNode.Effect = null;
+            return;
+        }
+
+        _shadow.UpdateSceneEffect(
+            this,
+            _defaultShadowInheritsContent,
+            new Rect(0f, 0f, _effectiveSize.X, _effectiveSize.Y),
+            ref _sceneShadow);
+        SceneNode.Effect = _sceneShadow;
+        SceneNode.Invalidate();
     }
 
     private void RefreshSceneClip()
@@ -624,6 +695,12 @@ public sealed class SpriteVisual : ContainerVisual, ICompositionBrushOwner
         }
     }
 
+    public CompositionShadow? Shadow
+    {
+        get => GetShadow();
+        set => SetShadow(value, defaultInheritsContent: false);
+    }
+
     internal void NotifyBrushChanged()
     {
         if (SceneNode is CompositionSceneNode node)
@@ -638,6 +715,21 @@ public sealed class SpriteVisual : ContainerVisual, ICompositionBrushOwner
         _brush?.RemoveOwner(this);
         _brush = null;
         base.OnDisposed();
+    }
+}
+
+[ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
+public sealed class LayerVisual : ContainerVisual
+{
+    internal LayerVisual(Compositor compositor)
+        : base(compositor)
+    {
+    }
+
+    public CompositionShadow? Shadow
+    {
+        get => GetShadow();
+        set => SetShadow(value, defaultInheritsContent: true);
     }
 }
 

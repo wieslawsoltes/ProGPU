@@ -1,7 +1,7 @@
 # WinUI Composition retained WebGPU research
 
 This record is the clean-room design gate for the retained visual foundation,
-geometry/shape, clip, and gradient vertical slices of
+geometry/shape, clip, gradient, and drop-shadow vertical slices of
 `Microsoft.UI.Composition` in ProGPU.
 The authoritative API shape is the public ECMA-335/WinRT metadata and XML
 documentation from the repository's SHA-512-pinned
@@ -26,6 +26,14 @@ implementation was inspected, copied, translated, or adapted.
   define retained color stops, absolute/relative coordinates, clamp/wrap/
   mirror extension, RGB interpolation, brush transforms, and the documented
   radial defaults.
+- [DropShadow](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow),
+  [DropShadow.Mask](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow.mask),
+  and [CompositionDropShadowSourcePolicy](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositiondropshadowsourcepolicy)
+  define retained color, opacity, offset, blur, explicit-mask, rectangular
+  sprite-default, and visual-content-alpha shadow state.
+- [LayerVisual](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.layervisual)
+  defines a retained layer whose shadow derives from the combined alpha of its
+  children by default.
 - [ElementCompositionPreview](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.hosting.elementcompositionpreview)
   exposes the backing XAML visual and a custom composition visual.
 - [SetElementChildVisual](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.hosting.elementcompositionpreview.setelementchildvisual)
@@ -90,12 +98,19 @@ implementation was inspected, copied, translated, or adapted.
 - [Win2D `CanvasLinearGradientBrush`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Brushes_CanvasLinearGradientBrush.htm)
   exposes retained stops, endpoints, transform, edge behavior, color spaces,
   and device ownership over Direct2D.
+- [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur)
+  documents a GPU effect with bounded blur growth and quality/performance
+  tradeoffs, while [Win2D `ShadowEffect`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_ShadowEffect.htm)
+  exposes retained blur and color inputs over that effect model.
 - [Skia API overview](https://skia.org/docs/user/api/) and
   [`SkPicture`](https://api.skia.org/classSkPicture.html) preserve a reusable
   ordered command stream separately from its GPU replay.
 - [`SkGradientShader`](https://api.skia.org/classSkGradientShader.html)
   exposes linear/radial gradient points, ordered stops, tile modes, color-space
   interpolation, and a local matrix as retained shader inputs.
+- [`SkImageFilters::DropShadow`](https://api.skia.org/classSkImageFilters.html)
+  models offset, blur sigma, color, and shadow-only/source-composite variants
+  as an image-filter operation rather than CPU raster output.
 - [`SkCanvas`](https://skia.googlesource.com/skia/+/refs/heads/main/include/core/SkCanvas.h)
   exposes transformed rectangle, rounded-rectangle, and path clip primitives
   whose result intersects the current clip stack.
@@ -107,6 +122,9 @@ implementation was inspected, copied, translated, or adapted.
 - [WebRender gradient shaders](https://searchfox.org/firefox-main/source/gfx/wr/webrender/res/)
   keep linear/radial gradient evaluation and stop sampling in batched GPU
   paint stages rather than materializing one image per gradient.
+- [WebRender render tasks](https://searchfox.org/firefox-main/source/gfx/wr/webrender/src/render_task.rs)
+  represent blur and picture intermediates as bounded GPU render-graph work
+  whose resources are reused through retained scene state.
 - [Vello](https://github.com/linebender/vello) retains an encoded scene and
   performs compute-oriented GPU rasterization into a caller-provided texture.
 - [Peniko](https://github.com/linebender/peniko), Vello's paint vocabulary,
@@ -130,6 +148,7 @@ implementation was inspected, copied, translated, or adapted.
 | Retained scene reuse | WinUI/DirectComposition retain visual identity; WebRender, Vello, and `SkPicture` retain scene or command identity. | Each public composition `Visual` owns one stable `ProGPU.Scene.ContainerVisual`. A color sprite records one immutable-until-invalidated rectangle command and uses the existing compiled-scene and incremental-page caches. No second renderer or display list is introduced. |
 | Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, path-data, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses, rectangles, and rounded rectangles remain analytic commands. A `CompositionPath` snapshots typed ProGPU lines, quadratics, cubics, and arcs once; path and rounded-rectangle trims retain exact sub-segments selected from bounded length tables. Geometry-cache identity is retained with every source/trimmed path. No per-shape surface, pass, texture, or bitmap is created. |
 | Gradient representation | WinUI, Direct2D/Win2D, Skia, WebRender, and Vello retain gradient geometry, ordered stops, extend mode, interpolation, and local transforms as paint data evaluated by the renderer. | Each gradient owner caches one typed ProGPU vector brush. Observable collection order remains unchanged while a stable retained snapshot is sorted only after stop mutation. The existing WebGPU gradient-stop storage buffer and vector shader perform interpolation; no gradient creates a texture, render pass, CPU bitmap, or readback. |
+| Shadow representation | WinUI retains one shareable shadow object and chooses between a sprite rectangle, inherited visual alpha, or explicit brush alpha. Direct2D/Win2D, Skia, and WebRender execute blur/tint/composite work on GPU intermediates. | Each shadow owner retains one scene `DropShadowEffect`. The source subtree is rendered once into the existing bounded effect texture; an explicit or rectangular mask uses one additional retained texture, while inherited content reuses source alpha. The existing WebGPU compute path performs a sharp pass or separable blur and the original source is composited once above it. |
 | Clip representation | WinUI and Skia retain transformed rectangle, rounded-rectangle, and path clips; Direct2D recommends an axis-aligned clip instead of a layer; WebGPU exposes a render-pass scissor while Vello/WebRender retain geometry masks and render tasks for general paths. | Each composition visual stores at most one typed local `VisualCompositeClip`. Axis-aligned rectangles intersect the existing WebGPU scissor stack. Rotated rectangles and canonical per-corner rounded rectangles use the existing analytic GPU mask. General paths use one bounds-sized R8 GPU mask. No clip creates a CPU bitmap, readback, visual-sized intermediate surface, or per-frame geometry. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
@@ -166,6 +185,10 @@ Adopted:
   their observable list contract, exact enums/factories/defaults, relative and
   absolute mapping, clamp/wrap/mirror extension, RGB/RGB-linear interpolation,
   and independently mutable brush transforms.
+- `CompositionShadow`, `DropShadow`, `CompositionDropShadowSourcePolicy`,
+  `SpriteVisual.Shadow`, `LayerVisual.Shadow`, and their factories, including
+  exact defaults, shared ownership, rectangular/inherited/explicit mask
+  selection, retained WebGPU blur, and original-source compositing.
 
 Adapted:
 
@@ -186,6 +209,11 @@ Adapted:
   geometry is treated as a no-op; this is an explicit clean-room inference
   from the documented nullable default and the requirement that a default
   clip object be safe before geometry is assigned.
+- a default `SpriteVisual` shadow uses a retained opaque rectangle mask while
+  a default `LayerVisual` shadow reuses its combined child alpha; an explicit
+  brush mask takes precedence for both. This maps the documented public
+  policy onto one provider-neutral scene effect without exposing WinUI types
+  to the WebGPU backend.
 
 Rejected:
 
@@ -250,6 +278,14 @@ Rejected:
   retained path changes; stable frames reuse the path and compiled mask state.
   A general clip mask stores `O(B)` bytes for its bounded device-pixel area
   `B`, while scissor clips allocate no texture storage.
+- A shadow property change is fixed `O(1)` apart from notifying `S` weak live
+  owners. For `P` padded device pixels and snapped radius `R`, a sharp shadow
+  is `O(P)` work and one destination texture; a blurred shadow is `O(P*R)`
+  work across two separable WebGPU compute passes with one quarter-width
+  packed temporary and one destination. Explicit/default rectangle masks add
+  one retained `O(P)` RGBA texture; inherited content alpha adds none. Stable
+  owners reuse all textures, pipelines, bind-group cache entries, mask command
+  capacity, and effect identity.
 
 ## Current validation and explicit boundary
 
@@ -300,7 +336,17 @@ zero managed allocations across 10,000 warmed stop-color/endpoint updates.
 It reuses the existing WebGPU gradient buffer and vector shader on desktop,
 mobile, and browser backends and adds no platform-specific rendering fork.
 
-This is not full Composition parity. Shadows, effects, surfaces/external
-textures, animations, interaction
+The shadow slice additionally covers exact pinned inheritance, enum values,
+properties, defaults, factories, `SpriteVisual` and `LayerVisual` ownership,
+same-compositor mask validation, disposal, rectangular sprite defaults,
+inherited layer/content alpha, explicit brush-mask precedence, sharp and soft
+WebGPU pixels, mask/child-position invalidation, and exactly zero managed
+allocations across 10,000 warmed offset/color updates. The implementation
+reuses ProGPU's existing embedded, complexity-documented shadow compute
+shaders and bounded effect-texture cache; it adds no shader literal, CPU blur,
+readback, platform renderer fork, reflection, or external dependency.
+
+This is not full Composition parity. General composition effects,
+surfaces/external textures, animations, interaction
 tracking, projected shadows, and lighting remain missing until each has a real
 typed WebGPU implementation and its own correctness/performance gate.

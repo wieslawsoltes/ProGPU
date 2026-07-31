@@ -1617,6 +1617,35 @@ warmed endpoint/color updates. The primary sources and cross-engine decisions
 are recorded in
 [`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
 
+### Composition retained WebGPU drop shadows
+
+The next primary slice adds exact public contracts for `CompositionShadow`,
+`DropShadow`, `CompositionDropShadowSourcePolicy`, `SpriteVisual.Shadow`,
+`LayerVisual` and its `Shadow`, plus `Compositor.CreateDropShadow` and
+`CreateLayerVisual`. The pinned comparison adds 23 exact matches without a
+new ProGPU-only declaration, advancing the report to 8,849 candidate entries,
+5,063 exact matches, 11,516 missing entries, and the unchanged 3,786 existing
+extras. `LayerVisual.Effect` remains an explicit future composition-effect
+brush slice rather than a metadata-only stub.
+
+Each owner retains one typed scene drop-shadow effect. A `SpriteVisual` uses
+an opaque rectangle by default, `InheritFromVisualContent` and a default
+`LayerVisual` use rendered content alpha, and an explicit brush mask takes
+precedence. The owner subtree is rendered once into the existing bounded
+effect source. Sharp shadows use one WebGPU compute dispatch; blurred shadows
+reuse the existing separable compute pipelines, a packed quarter-width
+temporary, and a destination texture. The source is then composited once over
+the shadow. There is no CPU blur, readback, runtime reflection, external
+dependency, new shader literal, or platform-specific rendering path.
+
+Focused tests cover exact defaults and validation, same-compositor ownership,
+shared disposal, rectangular/inherited/explicit alpha sources, live mask and
+child-position invalidation, sharp pixels, soft GPU-blurred pixels, and
+exactly zero managed allocations across 10,000 warmed offset/color updates.
+The primary-source comparison, adopted/adapted/rejected decisions, resource
+bounds, and complexity record are in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be
