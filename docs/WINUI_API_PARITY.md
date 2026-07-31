@@ -109,10 +109,11 @@ declarations without adding ProGPU-only entries: 63 in `Microsoft.UI.Input`
 and 26 in the minimal `Microsoft.UI.Content` island/site foundation required
 by the official factories.
 
-The activation, pre-translate source, and light-dismiss slices advance the
-baseline to 7,428 ProGPU entries, 3,544 exact matches, and 13,077 missing
-entries. Together they add 17 exact `Microsoft.UI.Input` declarations without
-adding ProGPU-only entries.
+The activation, pre-translate source, light-dismiss, and existing-gesture
+metadata slices advance the baseline to 7,446 ProGPU entries, 3,572 exact
+matches, and 13,049 missing entries. They add 45 exact
+`Microsoft.UI.Input` declarations and reconcile 10 existing ProGPU-only
+metadata identities.
 
 ## Clean-room implementation log
 
@@ -475,6 +476,42 @@ exact declarations with zero new extras, advancing the official comparison to
 7,428 candidate declarations, 3,544 exact matches, 13,077 missing
 declarations, and 3,884 extras. No Microsoft implementation source or method
 body was inspected.
+
+### Microsoft.UI.Input existing gesture metadata
+
+Primary contracts consulted:
+
+- [Microsoft.UI.Input namespace](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input)
+- [GestureRecognizer](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.gesturerecognizer)
+- [GestureSettings](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.gesturesettings)
+- [ManipulationDelta](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.manipulationdelta)
+- [ManipulationVelocities](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.manipulationvelocities)
+- [CrossSlideThresholds](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.crossslidethresholds)
+- [MouseWheelParameters](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.mousewheelparameters)
+- [Touch interactions](https://learn.microsoft.com/windows/apps/design/input/touch-interactions)
+
+This slice reconciles the already implemented clean-room gesture engine with
+the pinned public WinRT metadata; it does not replace or modify gesture
+algorithms. Contract-version attributes now cover the recognizer, settings and
+state enums, value structs, event arguments, and mouse-wheel settings.
+Constructor and equality-operator parameter names match the official
+projection, and `IsInertial` is publicly getter-only while retaining an
+internal backing field for the existing state machine.
+
+The retained recognizer remains typed and reflection-free in production.
+Pointer ingestion is `O(P)` per sample for `P` active contacts with `O(P)`
+contact storage; value construction, equality, and state reads remain fixed
+`O(1)` work without heap allocation. Existing focused tests continue to cover
+tap/double-tap, drag, cross-slide, hold, wheel, multi-contact translate/scale/
+rotate, completion, and manual inertia. New metadata tests cover all 18
+contract versions, the three value constructors, equality parameters, and the
+getter-only inertia state.
+
+The slice adds 18 candidate declarations, converts 10 mismatched candidate
+identities to exact matches, and therefore adds 28 exact matches while
+removing 10 extras. The official comparison advances to 7,446 candidate
+declarations, 3,572 exact matches, 13,049 missing declarations, and 3,874
+extras. No Microsoft implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 

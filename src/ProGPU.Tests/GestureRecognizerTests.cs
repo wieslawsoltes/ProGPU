@@ -28,6 +28,52 @@ public sealed class GestureRecognizerTests
     }
 
     [Fact]
+    public void ValueMetadataMatchesTheOfficialWinRtProjection()
+    {
+        Assert.Equal(
+            ["_Translation", "_Scale", "_Rotation", "_Expansion"],
+            typeof(ManipulationDelta)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(static parameter =>
+                    parameter.Name));
+        Assert.Equal(
+            ["_Linear", "_Angular", "_Expansion"],
+            typeof(ManipulationVelocities)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(static parameter =>
+                    parameter.Name));
+        Assert.Equal(
+            [
+                "_SelectionStart",
+                "_SpeedBumpStart",
+                "_SpeedBumpEnd",
+                "_RearrangeStart"
+            ],
+            typeof(CrossSlideThresholds)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(static parameter =>
+                    parameter.Name));
+        Assert.Equal(
+            ["x", "y"],
+            typeof(ManipulationDelta)
+                .GetMethod("op_Equality")!
+                .GetParameters()
+                .Select(static parameter =>
+                    parameter.Name));
+        Assert.Null(
+            typeof(GestureRecognizer)
+                .GetProperty(
+                    nameof(GestureRecognizer.IsInertial))!
+                .SetMethod);
+    }
+
+    [Fact]
     public void TapAndDoubleTapReportOfficialTapCounts()
     {
         var recognizer = new GestureRecognizer

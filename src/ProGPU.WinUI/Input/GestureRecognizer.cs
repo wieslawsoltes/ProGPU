@@ -1,8 +1,12 @@
 using System.Numerics;
 using Windows.Foundation;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Input;
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 [Flags]
 public enum GestureSettings : uint
 {
@@ -26,6 +30,9 @@ public enum GestureSettings : uint
     ManipulationMultipleFingerPanning = 65536
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum DraggingState
 {
     Started,
@@ -33,6 +40,9 @@ public enum DraggingState
     Completed
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum CrossSlidingState
 {
     Started,
@@ -44,6 +54,9 @@ public enum CrossSlidingState
     Completed
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum HoldingState
 {
     Started,
@@ -51,14 +64,21 @@ public enum HoldingState
     Canceled
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public struct ManipulationDelta : IEquatable<ManipulationDelta>
 {
-    public ManipulationDelta(Point translation, float scale, float rotation, float expansion)
+    public ManipulationDelta(
+        Point _Translation,
+        float _Scale,
+        float _Rotation,
+        float _Expansion)
     {
-        Translation = translation;
-        Scale = scale;
-        Rotation = rotation;
-        Expansion = expansion;
+        Translation = _Translation;
+        Scale = _Scale;
+        Rotation = _Rotation;
+        Expansion = _Expansion;
     }
 
     public Point Translation;
@@ -72,17 +92,29 @@ public struct ManipulationDelta : IEquatable<ManipulationDelta>
         Rotation == other.Rotation && Expansion == other.Expansion;
     public override readonly bool Equals(object? obj) => obj is ManipulationDelta other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(Translation, Scale, Rotation, Expansion);
-    public static bool operator ==(ManipulationDelta left, ManipulationDelta right) => left.Equals(right);
-    public static bool operator !=(ManipulationDelta left, ManipulationDelta right) => !left.Equals(right);
+    public static bool operator ==(
+        ManipulationDelta x,
+        ManipulationDelta y) =>
+        x.Equals(y);
+    public static bool operator !=(
+        ManipulationDelta x,
+        ManipulationDelta y) =>
+        !x.Equals(y);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public struct ManipulationVelocities : IEquatable<ManipulationVelocities>
 {
-    public ManipulationVelocities(Point linear, float angular, float expansion)
+    public ManipulationVelocities(
+        Point _Linear,
+        float _Angular,
+        float _Expansion)
     {
-        Linear = linear;
-        Angular = angular;
-        Expansion = expansion;
+        Linear = _Linear;
+        Angular = _Angular;
+        Expansion = _Expansion;
     }
 
     public Point Linear;
@@ -93,18 +125,31 @@ public struct ManipulationVelocities : IEquatable<ManipulationVelocities>
         Linear.Equals(other.Linear) && Angular == other.Angular && Expansion == other.Expansion;
     public override readonly bool Equals(object? obj) => obj is ManipulationVelocities other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(Linear, Angular, Expansion);
-    public static bool operator ==(ManipulationVelocities left, ManipulationVelocities right) => left.Equals(right);
-    public static bool operator !=(ManipulationVelocities left, ManipulationVelocities right) => !left.Equals(right);
+    public static bool operator ==(
+        ManipulationVelocities x,
+        ManipulationVelocities y) =>
+        x.Equals(y);
+    public static bool operator !=(
+        ManipulationVelocities x,
+        ManipulationVelocities y) =>
+        !x.Equals(y);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public struct CrossSlideThresholds : IEquatable<CrossSlideThresholds>
 {
-    public CrossSlideThresholds(float selectionStart, float speedBumpStart, float speedBumpEnd, float rearrangeStart)
+    public CrossSlideThresholds(
+        float _SelectionStart,
+        float _SpeedBumpStart,
+        float _SpeedBumpEnd,
+        float _RearrangeStart)
     {
-        SelectionStart = selectionStart;
-        SpeedBumpStart = speedBumpStart;
-        SpeedBumpEnd = speedBumpEnd;
-        RearrangeStart = rearrangeStart;
+        SelectionStart = _SelectionStart;
+        SpeedBumpStart = _SpeedBumpStart;
+        SpeedBumpEnd = _SpeedBumpEnd;
+        RearrangeStart = _RearrangeStart;
     }
 
     public float SelectionStart;
@@ -117,10 +162,19 @@ public struct CrossSlideThresholds : IEquatable<CrossSlideThresholds>
         SpeedBumpEnd == other.SpeedBumpEnd && RearrangeStart == other.RearrangeStart;
     public override readonly bool Equals(object? obj) => obj is CrossSlideThresholds other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(SelectionStart, SpeedBumpStart, SpeedBumpEnd, RearrangeStart);
-    public static bool operator ==(CrossSlideThresholds left, CrossSlideThresholds right) => left.Equals(right);
-    public static bool operator !=(CrossSlideThresholds left, CrossSlideThresholds right) => !left.Equals(right);
+    public static bool operator ==(
+        CrossSlideThresholds x,
+        CrossSlideThresholds y) =>
+        x.Equals(y);
+    public static bool operator !=(
+        CrossSlideThresholds x,
+        CrossSlideThresholds y) =>
+        !x.Equals(y);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class MouseWheelParameters
 {
     internal MouseWheelParameters()
@@ -133,6 +187,9 @@ public sealed class MouseWheelParameters
     public Point PageTranslation { get; set; } = new(80, 240);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class TappedEventArgs
 {
     internal TappedEventArgs(PointerDeviceType pointerDeviceType, Point position, uint tapCount) =>
@@ -142,6 +199,9 @@ public sealed class TappedEventArgs
     public uint TapCount { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class RightTappedEventArgs
 {
     internal RightTappedEventArgs(PointerDeviceType pointerDeviceType, Point position) =>
@@ -150,6 +210,9 @@ public sealed class RightTappedEventArgs
     public Point Position { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class HoldingEventArgs
 {
     internal HoldingEventArgs(PointerDeviceType pointerDeviceType, Point position, HoldingState state) =>
@@ -159,6 +222,9 @@ public sealed class HoldingEventArgs
     public Point Position { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class DraggingEventArgs
 {
     internal DraggingEventArgs(PointerDeviceType pointerDeviceType, Point position, DraggingState state) =>
@@ -168,6 +234,9 @@ public sealed class DraggingEventArgs
     public Point Position { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class CrossSlidingEventArgs
 {
     internal CrossSlidingEventArgs(PointerDeviceType pointerDeviceType, Point position, CrossSlidingState state) =>
@@ -177,6 +246,9 @@ public sealed class CrossSlidingEventArgs
     public Point Position { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class ManipulationStartedEventArgs
 {
     internal ManipulationStartedEventArgs(ManipulationDelta cumulative, PointerDeviceType type, Point position) =>
@@ -186,6 +258,9 @@ public sealed class ManipulationStartedEventArgs
     public Point Position { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class ManipulationUpdatedEventArgs
 {
     internal ManipulationUpdatedEventArgs(ManipulationDelta cumulative, ManipulationDelta delta,
@@ -199,6 +274,9 @@ public sealed class ManipulationUpdatedEventArgs
     public ManipulationVelocities Velocities { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class ManipulationInertiaStartingEventArgs
 {
     internal ManipulationInertiaStartingEventArgs(ManipulationDelta cumulative, ManipulationDelta delta,
@@ -212,6 +290,9 @@ public sealed class ManipulationInertiaStartingEventArgs
     public ManipulationVelocities Velocities { get; }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class ManipulationCompletedEventArgs
 {
     internal ManipulationCompletedEventArgs(ManipulationDelta cumulative, PointerDeviceType type,
@@ -227,6 +308,9 @@ public sealed class ManipulationCompletedEventArgs
 /// Clean-room implementation of the Windows App SDK gesture recognizer contract.
 /// Pointer processing is O(P) per sample for P active contacts and stores O(P) state.
 /// </summary>
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class GestureRecognizer
 {
     private const float StartThreshold = 4f;
@@ -243,6 +327,7 @@ public sealed class GestureRecognizer
     private bool _manipulating;
     private bool _holding;
     private bool _tapCandidate;
+    private bool _isInertial;
     private Point _lastTapPosition;
     private PointerDeviceType _lastTapDevice;
     private ulong _lastTapTimestamp;
@@ -264,7 +349,7 @@ public sealed class GestureRecognizer
     public float InertiaTranslationDeceleration { get; set; }
     public float InertiaTranslationDisplacement { get; set; }
     public bool IsActive => _contacts.Count != 0 || _dragging || _crossSliding || _manipulating || IsInertial;
-    public bool IsInertial { get; private set; }
+    public bool IsInertial => _isInertial;
     public bool ManipulationExact { get; set; }
     public MouseWheelParameters MouseWheelParameters { get; } = new();
     public Point PivotCenter { get; set; }
@@ -658,7 +743,7 @@ public sealed class GestureRecognizer
 
     private void StartInertia()
     {
-        IsInertial = true;
+        _isInertial = true;
         ManipulationInertiaStarting?.Invoke(this,
             new ManipulationInertiaStartingEventArgs(_cumulative, _lastDelta, _deviceType, _position, _velocities));
         if (!AutoProcessInertia) return;
@@ -687,7 +772,7 @@ public sealed class GestureRecognizer
         _inertiaCancellation?.Dispose();
         _inertiaCancellation = null;
         bool wasInertial = IsInertial;
-        IsInertial = false;
+        _isInertial = false;
         if (raiseCompleted && (wasInertial || _manipulating)) CompleteManipulation();
     }
 
