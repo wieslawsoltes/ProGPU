@@ -850,9 +850,10 @@ public static class VisualStateManager
         out DependencyProperty property)
     {
         string targetName = Storyboard.GetTargetName(timeline);
-        var resolvedTarget = string.IsNullOrEmpty(targetName)
-            ? root
-            : FindName(root, targetName) as DependencyObject;
+        var resolvedTarget = Storyboard.GetTarget(timeline) ??
+            (string.IsNullOrEmpty(targetName)
+                ? root
+                : FindName(root, targetName) as DependencyObject);
         if (resolvedTarget == null)
         {
             target = null!;

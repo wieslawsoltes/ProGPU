@@ -1702,6 +1702,42 @@ complexity, ownership boundary, and explicit external-import limitation are in
 over its existing decoded-frame surface, so media frames enter the same
 official brush contract without per-frame wrapper allocation or pixel copies.
 
+### WinUI animation timing value foundation
+
+The next primary slice aligns the exact public `Timeline`, `RepeatBehavior`,
+`RepeatBehaviorType`, `ClockState`, `TimelineCollection`, and
+`Storyboard.SetTarget` contracts. It adds 67 exact matches and reconciles 11
+former ProGPU-only declarations, advancing the pinned report to 8,942
+candidate entries, 5,167 exact matches, 11,412 missing entries, and 3,775
+extras.
+
+`RepeatBehavior` is a fixed-size CPU value with count, duration, and forever
+modes, invariant/provider-aware formatting, value equality, and explicit
+invalid-constructor rejection. Timeline dependency-property identities are
+stable process-wide values, and the documented default repeat is one
+iteration. `TimelineCollection` is the strongly typed ordered storyboard
+container. `Storyboard.SetTarget` retains a typed dependency-object reference;
+visual-state application resolves that direct target before namescope lookup
+and continues through the existing animation-precedence dependency-property
+layer. Transform, opacity, and other compositor-backed property changes still
+invalidate only their retained visual state; this slice creates no frame
+timer, geometry rebuild, WebGPU resource, reflection path, or per-frame
+allocation.
+
+Primary clean-room contracts consulted:
+
+- [Timeline](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.media.animation.timeline)
+- [RepeatBehavior](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.media.animation.repeatbehavior)
+- [Storyboard.SetTarget](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.media.animation.storyboard.settarget)
+- the pinned official NuGet ECMA-335 projection metadata and XML documentation.
+
+Focused tests cover count/duration/forever values, formatting, equality,
+constructor validation, official timeline defaults, typed collection
+ownership, and direct-object visual-state targeting. Standalone storyboard
+clock control and timed interpolation remain explicitly open; no metadata-only
+clock methods are claimed. No Microsoft or foreign implementation source or
+method body was inspected, copied, or adapted.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

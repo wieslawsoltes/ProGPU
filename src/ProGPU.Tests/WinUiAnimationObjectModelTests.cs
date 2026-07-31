@@ -116,6 +116,83 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void RepeatBehaviorPreservesWinUiTimingValueSemantics()
+    {
+        var count = new RepeatBehavior(2.5d);
+        var duration = new RepeatBehavior(TimeSpan.FromSeconds(4));
+        RepeatBehavior forever = RepeatBehavior.Forever;
+
+        Assert.True(count.HasCount);
+        Assert.False(count.HasDuration);
+        Assert.Equal(
+            "2.5x",
+            count.ToString(
+                global::System.Globalization.CultureInfo.InvariantCulture));
+        Assert.True(duration.HasDuration);
+        Assert.False(duration.HasCount);
+        Assert.Equal(
+            "00:00:04",
+            duration.ToString(
+                global::System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(RepeatBehaviorType.Forever, forever.Type);
+        Assert.Equal("Forever", forever.ToString());
+        Assert.Equal(new RepeatBehavior(2.5d), count);
+        Assert.True(count == new RepeatBehavior(2.5d));
+        Assert.True(count != new RepeatBehavior(3d));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RepeatBehavior(double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RepeatBehavior(TimeSpan.FromTicks(-1)));
+    }
+
+    [Fact]
+    public void TimelineDefaultsAndDirectStoryboardTargetAreTyped()
+    {
+        var animation = new DoubleAnimation { To = 0.75d };
+        var root = new Button();
+        var target = new Button { Opacity = 0.25d };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        var active = new VisualState
+        {
+            Name = "Active",
+            Storyboard = storyboard
+        };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        VisualStateManager.GetVisualStateGroups(root).Add(group);
+
+        Assert.Equal(new RepeatBehavior(1d), animation.RepeatBehavior);
+        Assert.False(animation.AllowDependentAnimations);
+        Assert.IsType<TimelineCollection>(storyboard.Children);
+        Assert.True(VisualStateManager.GoToState(root, "Active", false));
+        Assert.Equal(0.75d, target.Opacity);
+    }
+
+    [Fact]
+    public void RepeatBehaviorHotValueOperationsAllocateNothing()
+    {
+        var left = new RepeatBehavior(2.5d);
+        var right = new RepeatBehavior(2.5d);
+        _ = left == right;
+        _ = left.GetHashCode();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        double checksum = 0d;
+
+        for (var index = 0; index < 100_000; index++)
+        {
+            if (left == right && left.HasCount)
+                checksum += left.Count;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(250_000d, checksum);
+        Assert.Equal(0L, allocated);
+    }
+
+    [Fact]
     public void VisualStateOwnsItsStoryboardContent()
     {
         var storyboard = new Storyboard();

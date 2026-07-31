@@ -1,7 +1,11 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Markup;
+using WinRT;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Media.Animation;
 
@@ -11,24 +15,142 @@ public enum FillBehavior
     Stop = 1
 }
 
-/// <summary>Base object for time-based WinUI animation declarations.</summary>
-public abstract class Timeline : DependencyObject
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public enum ClockState
 {
-    public static readonly DependencyProperty AutoReverseProperty = DependencyProperty.Register(
+    Active = 0,
+    Filling = 1,
+    Stopped = 2
+}
+
+public enum RepeatBehaviorType
+{
+    Count = 0,
+    Duration = 1,
+    Forever = 2
+}
+
+public struct RepeatBehavior : IFormattable
+{
+    public RepeatBehavior(double count)
+    {
+        if (!double.IsFinite(count) || count < 0d)
+            throw new ArgumentOutOfRangeException(nameof(count));
+
+        Count = count;
+        Duration = TimeSpan.Zero;
+        Type = RepeatBehaviorType.Count;
+    }
+
+    public RepeatBehavior(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(duration));
+
+        Count = 0d;
+        Duration = duration;
+        Type = RepeatBehaviorType.Duration;
+    }
+
+    public static RepeatBehavior Forever => new()
+    {
+        Type = RepeatBehaviorType.Forever
+    };
+
+    public double Count { get; set; }
+
+    public TimeSpan Duration { get; set; }
+
+    public RepeatBehaviorType Type { get; set; }
+
+    public bool HasCount => Type == RepeatBehaviorType.Count;
+
+    public bool HasDuration => Type == RepeatBehaviorType.Duration;
+
+    public bool Equals(RepeatBehavior repeatBehavior) =>
+        Type == repeatBehavior.Type &&
+        Count.Equals(repeatBehavior.Count) &&
+        Duration.Equals(repeatBehavior.Duration);
+
+    public override bool Equals(object? value) =>
+        value is RepeatBehavior repeatBehavior && Equals(repeatBehavior);
+
+    public static bool Equals(
+        RepeatBehavior repeatBehavior1,
+        RepeatBehavior repeatBehavior2) =>
+        repeatBehavior1.Equals(repeatBehavior2);
+
+    public override int GetHashCode() =>
+        HashCode.Combine((int)Type, Count, Duration);
+
+    public override string ToString() =>
+        ToString(CultureInfo.CurrentCulture);
+
+    public string ToString(IFormatProvider? formatProvider) => Type switch
+    {
+        RepeatBehaviorType.Forever => "Forever",
+        RepeatBehaviorType.Duration => Duration.ToString(null, formatProvider),
+        _ => Count.ToString(formatProvider) + "x"
+    };
+
+    string IFormattable.ToString(
+        string? format,
+        IFormatProvider? formatProvider) =>
+        ToString(formatProvider);
+
+    public static bool operator ==(
+        RepeatBehavior repeatBehavior1,
+        RepeatBehavior repeatBehavior2) =>
+        Equals(repeatBehavior1, repeatBehavior2);
+
+    public static bool operator !=(
+        RepeatBehavior repeatBehavior1,
+        RepeatBehavior repeatBehavior2) =>
+        !Equals(repeatBehavior1, repeatBehavior2);
+}
+
+/// <summary>Base object for time-based WinUI animation declarations.</summary>
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public class Timeline : DependencyObject
+{
+    public static DependencyProperty AutoReverseProperty { get; } = DependencyProperty.Register(
         nameof(AutoReverse), typeof(bool), typeof(Timeline),
         new PropertyMetadata(false));
-    public static readonly DependencyProperty BeginTimeProperty = DependencyProperty.Register(
+    public static DependencyProperty BeginTimeProperty { get; } = DependencyProperty.Register(
         nameof(BeginTime), typeof(TimeSpan?), typeof(Timeline),
         new PropertyMetadata(null));
-    public static readonly DependencyProperty DurationProperty = DependencyProperty.Register(
+    public static DependencyProperty DurationProperty { get; } = DependencyProperty.Register(
         nameof(Duration), typeof(Duration), typeof(Timeline),
         new PropertyMetadata(Duration.Automatic));
-    public static readonly DependencyProperty FillBehaviorProperty = DependencyProperty.Register(
+    public static DependencyProperty FillBehaviorProperty { get; } = DependencyProperty.Register(
         nameof(FillBehavior), typeof(FillBehavior), typeof(Timeline),
         new PropertyMetadata(FillBehavior.HoldEnd));
-    public static readonly DependencyProperty SpeedRatioProperty = DependencyProperty.Register(
+    public static DependencyProperty RepeatBehaviorProperty { get; } = DependencyProperty.Register(
+        nameof(RepeatBehavior), typeof(RepeatBehavior), typeof(Timeline),
+        new PropertyMetadata(new RepeatBehavior(1d)));
+    public static DependencyProperty SpeedRatioProperty { get; } = DependencyProperty.Register(
         nameof(SpeedRatio), typeof(double), typeof(Timeline),
         new PropertyMetadata(1d));
+
+    protected Timeline()
+    {
+    }
+
+    protected internal Timeline(IObjectReference objRef)
+    {
+        ArgumentNullException.ThrowIfNull(objRef);
+    }
+
+    protected Timeline(DerivedComposed _)
+    {
+        ArgumentNullException.ThrowIfNull(_);
+    }
+
+    public bool AllowDependentAnimations { get; set; }
 
     public bool AutoReverse
     {
@@ -50,14 +172,20 @@ public abstract class Timeline : DependencyObject
         get => (FillBehavior)(GetValue(FillBehaviorProperty) ?? FillBehavior.HoldEnd);
         set => SetValue(FillBehaviorProperty, value);
     }
+    public RepeatBehavior RepeatBehavior
+    {
+        get => (RepeatBehavior)(
+            GetValue(RepeatBehaviorProperty) ?? new RepeatBehavior(1d));
+        set => SetValue(RepeatBehaviorProperty, value);
+    }
     public double SpeedRatio
     {
         get => (double)(GetValue(SpeedRatioProperty) ?? 1d);
         set => SetValue(SpeedRatioProperty, value);
     }
-    public event EventHandler? Completed;
+    public event EventHandler<object>? Completed;
 
-    protected void RaiseCompleted() => Completed?.Invoke(this, EventArgs.Empty);
+    internal void RaiseCompleted() => Completed?.Invoke(this, EventArgs.Empty);
 }
 
 /// <summary>Identifies a point in an animation timeline.</summary>
@@ -375,16 +503,61 @@ public sealed class DoubleAnimationUsingKeyFrames : Timeline
     public bool EnableDependentAnimation { get; set; }
 }
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class TimelineCollection : IList<Timeline>
+{
+    private readonly List<Timeline> _items = new();
+
+    [IndexerName("ListItem")]
+    public Timeline this[int index]
+    {
+        get => _items[index];
+        set => _items[index] = value;
+    }
+
+    public int Count => _items.Count;
+
+    public bool IsReadOnly => false;
+
+    public void Add(Timeline item) => _items.Add(item);
+
+    public void Clear() => _items.Clear();
+
+    public bool Contains(Timeline item) => _items.Contains(item);
+
+    public void CopyTo(Timeline[] array, int arrayIndex) =>
+        _items.CopyTo(array, arrayIndex);
+
+    public IEnumerator<Timeline> GetEnumerator() =>
+        _items.GetEnumerator();
+
+    public int IndexOf(Timeline item) => _items.IndexOf(item);
+
+    public void Insert(int index, Timeline item) =>
+        _items.Insert(index, item);
+
+    public bool Remove(Timeline item) => _items.Remove(item);
+
+    public void RemoveAt(int index) => _items.RemoveAt(index);
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+}
+
 [ContentProperty(Name = nameof(Children))]
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public sealed class Storyboard : Timeline
 {
-    public static readonly DependencyProperty TargetNameProperty = DependencyProperty.RegisterAttached(
+    public static DependencyProperty TargetNameProperty { get; } = DependencyProperty.RegisterAttached(
         "TargetName", typeof(string), typeof(Storyboard), new PropertyMetadata(string.Empty));
 
-    public static readonly DependencyProperty TargetPropertyProperty = DependencyProperty.RegisterAttached(
+    public static DependencyProperty TargetPropertyProperty { get; } = DependencyProperty.RegisterAttached(
         "TargetProperty", typeof(string), typeof(Storyboard), new PropertyMetadata(string.Empty));
 
-    public new Collection<Timeline> Children { get; } = new();
+    public new TimelineCollection Children { get; } = new();
 
     public static string GetTargetName(Timeline element)
     {
@@ -409,4 +582,23 @@ public sealed class Storyboard : Timeline
         ArgumentNullException.ThrowIfNull(element);
         element.SetValue(TargetPropertyProperty, path ?? string.Empty);
     }
+
+    public static void SetTarget(
+        Timeline timeline,
+        DependencyObject target)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        ArgumentNullException.ThrowIfNull(target);
+        timeline.SetValue(TargetProperty, target);
+    }
+
+    internal static DependencyObject? GetTarget(Timeline timeline) =>
+        timeline.GetValue(TargetProperty) as DependencyObject;
+
+    internal static readonly DependencyProperty TargetProperty =
+        DependencyProperty.RegisterAttached(
+            "Target",
+            typeof(DependencyObject),
+            typeof(Storyboard),
+            new PropertyMetadata(null));
 }
