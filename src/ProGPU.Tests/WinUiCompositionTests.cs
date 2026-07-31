@@ -261,6 +261,201 @@ public sealed class WinUiCompositionTests
         }
     }
 
+    [Fact]
+    public void ShapeCollectionsPreserveOwnershipAndRejectCyclesTransactionally()
+    {
+        using var compositor = new Compositor();
+        ShapeVisual visual = compositor.CreateShapeVisual();
+        CompositionContainerShape group = compositor.CreateContainerShape();
+        CompositionSpriteShape first = compositor.CreateSpriteShape();
+        CompositionSpriteShape second = compositor.CreateSpriteShape();
+        CompositionViewBox viewBox = compositor.CreateViewBox();
+
+        Assert.Equal(CompositionStretch.Uniform, viewBox.Stretch);
+        Assert.Equal(0.5f, viewBox.HorizontalAlignmentRatio);
+        Assert.Equal(0.5f, viewBox.VerticalAlignmentRatio);
+        Assert.Equal(Vector2.One, first.Scale);
+        Assert.Equal(1f, compositor.CreateLineGeometry().TrimEnd);
+        Assert.Equal(10f, first.StrokeMiterLimit);
+
+        visual.Shapes.Add(first);
+        visual.Shapes.Insert(0, second);
+        group.Shapes.Add(first);
+
+        Assert.Equal([second], visual.Shapes.ToArray());
+        Assert.Equal([first], group.Shapes.ToArray());
+
+        visual.Shapes.Add(group);
+        Assert.Throws<InvalidOperationException>(
+            () => group.Shapes.Add(group));
+        Assert.Equal([first], group.Shapes.ToArray());
+
+        using var foreignCompositor = new Compositor();
+        CompositionSpriteShape foreign =
+            foreignCompositor.CreateSpriteShape();
+        Assert.Throws<InvalidOperationException>(
+            () => visual.Shapes[0] = foreign);
+        Assert.Same(second, visual.Shapes[0]);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => visual.Shapes.Insert(3, second));
+        Assert.Equal([second, group], visual.Shapes.ToArray());
+    }
+
+    [Fact]
+    public void RetainedCompositionShapesRenderAndInvalidateThroughWebGpu()
+    {
+        using var window = new HeadlessWindow(80, 56);
+        var host = new FrameworkElement
+        {
+            Width = 80f,
+            Height = 56f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(80f, 56f);
+            CompositionEllipseGeometry ellipse =
+                compositor.CreateEllipseGeometry();
+            ellipse.Center = new Vector2(20f, 20f);
+            ellipse.Radius = new Vector2(10f, 8f);
+            CompositionColorBrush fill = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+            CompositionSpriteShape ellipseShape =
+                compositor.CreateSpriteShape(ellipse);
+            ellipseShape.FillBrush = fill;
+
+            CompositionRectangleGeometry rectangle =
+                compositor.CreateRectangleGeometry();
+            rectangle.Offset = new Vector2(42f, 10f);
+            rectangle.Size = new Vector2(20f, 18f);
+            CompositionSpriteShape rectangleShape =
+                compositor.CreateSpriteShape(rectangle);
+            rectangleShape.FillBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+
+            visual.Shapes.Add(ellipseShape);
+            visual.Shapes.Add(rectangleShape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 20, 20));
+            AssertBlue(ReadPixel(pixels, window.Width, 50, 18));
+
+            ellipseShape.Offset = new Vector2(8f, 0f);
+            fill.Color = Color.FromArgb(255, 0, 255, 0);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 17, 20));
+            AssertGreen(ReadPixel(pixels, window.Width, 28, 20));
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedCompositionShapeUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        ShapeVisual visual = compositor.CreateShapeVisual();
+        CompositionEllipseGeometry ellipse =
+            compositor.CreateEllipseGeometry();
+        ellipse.Center = new Vector2(8f, 8f);
+        ellipse.Radius = new Vector2(6f, 4f);
+        CompositionColorBrush brush = compositor.CreateColorBrush(
+            Color.FromArgb(255, 255, 0, 0));
+        CompositionSpriteShape shape =
+            compositor.CreateSpriteShape(ellipse);
+        shape.FillBrush = brush;
+        visual.Shapes.Add(shape);
+
+        shape.Offset = Vector2.One;
+        shape.Offset = Vector2.Zero;
+        brush.Color = Color.FromArgb(255, 0, 255, 0);
+        brush.Color = Color.FromArgb(255, 255, 0, 0);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            shape.Offset = new Vector2(index & 1, 0f);
+            brush.Color = (index & 1) == 0
+                ? Color.FromArgb(255, 255, 0, 0)
+                : Color.FromArgb(255, 0, 255, 0);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void ViewBoxAndTrimmedLineMapThroughRetainedShapeCommands()
+    {
+        using var window = new HeadlessWindow(80, 40);
+        var host = new FrameworkElement
+        {
+            Width = 80f,
+            Height = 40f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(80f, 40f);
+            CompositionViewBox viewBox = compositor.CreateViewBox();
+            viewBox.Size = new Vector2(20f, 20f);
+            viewBox.Stretch = CompositionStretch.Uniform;
+            visual.ViewBox = viewBox;
+
+            CompositionLineGeometry line = compositor.CreateLineGeometry();
+            line.Start = new Vector2(0f, 10f);
+            line.End = new Vector2(20f, 10f);
+            line.TrimStart = 0.25f;
+            line.TrimEnd = 0.75f;
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(line);
+            shape.StrokeBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            shape.StrokeThickness = 4f;
+            shape.IsStrokeNonScaling = true;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 25, 20));
+            AssertBlue(ReadPixel(pixels, window.Width, 40, 20));
+            AssertDark(ReadPixel(pixels, window.Width, 55, 20));
+
+            viewBox.HorizontalAlignmentRatio = 0f;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertBlue(ReadPixel(pixels, window.Width, 20, 20));
+            AssertDark(ReadPixel(pixels, window.Width, 40, 20));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(
         byte[] pixels,
         uint width,

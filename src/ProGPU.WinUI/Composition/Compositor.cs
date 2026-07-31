@@ -41,10 +41,61 @@ public sealed class Compositor : IDisposable
         return new CompositionColorBrush(this, color);
     }
 
+    public CompositionContainerShape CreateContainerShape()
+    {
+        ThrowIfDisposed();
+        return new CompositionContainerShape(this);
+    }
+
+    public CompositionEllipseGeometry CreateEllipseGeometry()
+    {
+        ThrowIfDisposed();
+        return new CompositionEllipseGeometry(this);
+    }
+
+    public CompositionLineGeometry CreateLineGeometry()
+    {
+        ThrowIfDisposed();
+        return new CompositionLineGeometry(this);
+    }
+
     public CompositionPropertySet CreatePropertySet()
     {
         ThrowIfDisposed();
         return new CompositionPropertySet(this);
+    }
+
+    public CompositionRectangleGeometry CreateRectangleGeometry()
+    {
+        ThrowIfDisposed();
+        return new CompositionRectangleGeometry(this);
+    }
+
+    public ShapeVisual CreateShapeVisual()
+    {
+        ThrowIfDisposed();
+        return new ShapeVisual(this);
+    }
+
+    public CompositionSpriteShape CreateSpriteShape()
+    {
+        ThrowIfDisposed();
+        return new CompositionSpriteShape(this);
+    }
+
+    public CompositionSpriteShape CreateSpriteShape(
+        CompositionGeometry geometry)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(geometry);
+        EnsureSameCompositor(geometry);
+        return new CompositionSpriteShape(this, geometry);
+    }
+
+    public CompositionViewBox CreateViewBox()
+    {
+        ThrowIfDisposed();
+        return new CompositionViewBox(this);
     }
 
     public ContainerVisual CreateContainerVisual()
@@ -82,5 +133,14 @@ public sealed class Compositor : IDisposable
     {
         if (_isDisposed)
             throw new ObjectDisposedException(nameof(Compositor));
+    }
+
+    private void EnsureSameCompositor(CompositionObject value)
+    {
+        if (!ReferenceEquals(this, value.Compositor))
+        {
+            throw new InvalidOperationException(
+                "Composition objects must belong to the same Compositor.");
+        }
     }
 }

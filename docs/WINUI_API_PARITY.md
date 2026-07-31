@@ -1501,16 +1501,58 @@ enumeration, reparenting, cycle rejection, and compositor ownership.
 
 The pinned metadata comparison adds 138 exact declarations without adding a
 ProGPU-only declaration. It advances the report to 8,578 candidate entries,
-4,792 exact matches, 11,787 missing entries, and 3,786 extras. This is not a
-claim of full Composition parity: clips, shadows, effects, surfaces, shapes,
-animations, interactions, and lighting remain missing until their observable
-behavior is implemented.
+4,792 exact matches, 11,787 missing entries, and 3,786 extras. At that
+checkpoint, clips, shadows, effects, surfaces, shapes, animations,
+interactions, and lighting were still missing pending observable behavior.
 
 The complete cross-engine design record, primary sources, adopted/adapted/
 rejected decisions, complexity, and explicit boundary are in
 [`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
 Only pinned public metadata and official documentation were used; no Microsoft
 method body or foreign renderer implementation was inspected or adapted.
+
+### Microsoft.UI.Composition retained WebGPU shapes
+
+The next Composition slice adds exact public contracts and functional retained
+implementations for `ShapeVisual`, `CompositionShape`, container and sprite
+shapes, line/ellipse/rectangle geometries, geometry trimming, stroke caps and
+joins, shape/dash collections, `CompositionViewBox`, and all corresponding
+`Compositor` factories. The selected types and factories have zero missing and
+zero extra API entries against the pinned official metadata.
+
+A `ShapeVisual` records its ordered nested shape hierarchy into one reusable
+ProGPU drawing-command cache. Full ellipses and rectangles remain analytic;
+trimmed ellipses use an exact arc, trimmed rectangles use a bounded corner
+path, and lines use one retained segment. Shape/view-box transforms, fills,
+strokes, dash state, and non-scaling thickness flow into the existing WebGPU
+vector renderer, compiled-scene cache, dirty-range uploads, physical
+framebuffer, and device-generation recovery. The implementation creates no
+per-shape surface, render pass, texture, CPU bitmap, readback, shader, runtime
+reflection, or external dependency.
+
+Recording after a mutation is `O(S + C + D)` for `S` shapes, `C` retained path
+segments, and `D` changed dash entries; unchanged frames reuse the compiled
+scene. Full primitive recording is fixed work and a trimmed rectangle emits at
+most five segments. Dash storage is snapshotted only after a dash mutation.
+A warmed Release invariant reports exactly zero managed allocations across
+10,000 alternating shape-transform and shared-brush-color updates.
+
+Focused tests verify collection order and ownership, same-compositor
+reparenting, transactional cycle rejection, transform/color invalidation,
+compiled-scene reuse, analytic ellipse/rectangle WebGPU pixels, view-box
+stretch/alignment, trimmed-line pixels, and the allocation invariant. The
+pinned comparison adds 124 exact declarations without adding a ProGPU-only
+declaration, advancing the report to 8,702 candidate entries, 4,916 exact
+matches, 11,663 missing entries, and 3,786 extras.
+
+Primary clean-room contracts consulted include the official Composition
+visual-tree and visual-layer documentation, `CompositionSpriteShape`,
+`CompositionGeometry` trim, `CompositionViewBox`/stretch, Direct2D path
+geometry and geometry-realization guidance, and the existing cross-engine
+sources recorded in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+No Microsoft or foreign renderer implementation body was inspected, copied,
+or adapted.
 
 ## Implementation policy
 

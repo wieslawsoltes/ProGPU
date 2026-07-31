@@ -1,9 +1,10 @@
 # WinUI Composition retained WebGPU research
 
-This record is the clean-room design gate for the first
-`Microsoft.UI.Composition` vertical slice in ProGPU. The authoritative API
-shape is the public ECMA-335/WinRT metadata and XML documentation from the
-repository's SHA-512-pinned `Microsoft.WindowsAppSDK.WinUI` `2.3.0` package.
+This record is the clean-room design gate for the retained visual foundation
+and geometry/shape vertical slices of `Microsoft.UI.Composition` in ProGPU.
+The authoritative API shape is the public ECMA-335/WinRT metadata and XML
+documentation from the repository's SHA-512-pinned
+`Microsoft.WindowsAppSDK.WinUI` `2.3.0` package.
 No Microsoft method body, generated projection body, or foreign renderer
 implementation was inspected, copied, translated, or adapted.
 
@@ -28,6 +29,15 @@ implementation was inspected, copied, translated, or adapted.
 - [Visual.RelativeSizeAdjustment](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.visual.relativesizeadjustment)
   gives the exact effective-size equation: local size plus the component-wise
   relative adjustment multiplied by parent effective size.
+- [CompositionSpriteShape](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionspriteshape)
+  defines a retained geometry with independently mutable fill, stroke, dash,
+  cap, join, thickness, and non-scaling-stroke state.
+- [CompositionGeometry.TrimStart](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositiongeometry.trimstart)
+  and the corresponding trim-end/offset contracts define normalized retained
+  geometry trimming without changing geometry identity.
+- [CompositionViewBox](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionviewbox)
+  and [CompositionViewBox.Stretch](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionviewbox.stretch)
+  define source bounds, stretch policy, and alignment for a `ShapeVisual`.
 - [Direct2D resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains)
   separates reusable CPU descriptions from device-owned GPU resources.
 - [Direct2D performance guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
@@ -36,6 +46,12 @@ implementation was inspected, copied, translated, or adapted.
 - [Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview)
   treats intermediate layers as bounded compositing resources rather than a
   default for every visual.
+- [Direct2D path geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview)
+  separate reusable geometry descriptions from the draw operation that
+  supplies fill and stroke state.
+- [Direct2D geometry realizations](https://learn.microsoft.com/en-us/windows/win32/direct2d/geometry-realizations-overview)
+  describe caching reusable fill/stroke geometry work when repeated draws
+  justify the retained GPU resource.
 - [Win2D device-loss handling](https://microsoft.github.io/Win2D/WinUI3/html/HandlingDeviceLost.htm)
   recreates the device and all resources owned by it as one recovery event.
 - [Skia API overview](https://skia.org/docs/user/api/) and
@@ -64,6 +80,7 @@ implementation was inspected, copied, translated, or adapted.
 | --- | --- | --- |
 | Startup and lazy initialization | WinUI composition creates lightweight retained objects; Direct2D and WebGPU defer device resources to their owning device. | Constructing a public `Compositor`, visual, brush, or property set creates no `WgpuContext`, shader, pipeline, texture, or buffer. A host initializes WebGPU only when it renders. |
 | Retained scene reuse | WinUI/DirectComposition retain visual identity; WebRender, Vello, and `SkPicture` retain scene or command identity. | Each public composition `Visual` owns one stable `ProGPU.Scene.ContainerVisual`. A color sprite records one immutable-until-invalidated rectangle command and uses the existing compiled-scene and incremental-page caches. No second renderer or display list is introduced. |
+| Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses and rectangles remain analytic commands; trimmed lines, ellipses, and rectangles retain bounded path objects. No per-shape surface, pass, texture, or bitmap is created. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
 | Demand-driven upload | Direct2D recommends resource reuse; WebRender uploads demanded resources after visibility analysis. | A solid sprite contributes one ordinary retained rectangle. Existing dirty-range scene uploads write only changed GPU buffer ranges. Color changes invalidate owners but do not allocate or upload an intermediate CPU bitmap. |
@@ -85,6 +102,9 @@ Adopted:
 - shared mutable color brushes with change propagation to every live owner;
 - a typed property set whose result distinguishes success, type mismatch, and
   missing values.
+- retained shape/container collections, same-compositor reparenting and cycle
+  rejection, independent shape transforms, geometry trim state, sprite fill
+  and stroke state, and view-box stretch/alignment.
 
 Adapted:
 
@@ -98,12 +118,17 @@ Adapted:
   current WebGPU scene compiler already transports without reflection;
 - relative parent sizing is delivered by a typed `IParentSizeDependentVisual`
   notification only when the parent's retained size changes.
+- nested shape transforms and the view-box mapping are composed into the
+  existing retained command transforms, while mutable brushes and geometries
+  invalidate every live typed owner.
 
 Rejected:
 
-- metadata-only public stubs for clips, shadows, effects, surfaces, shapes, or
+- metadata-only public stubs for clips, shadows, effects, surfaces, or
   animations whose pixels or timing are not implemented yet;
 - one native surface, render pass, texture, or CPU bitmap per sprite;
+- sampled polyline approximations for ellipse and rectangle trims when an
+  exact retained arc or bounded corner path is available;
 - polling parent sizes each frame, runtime reflection, boxed drawing-context
   adapters, and unconditional root invalidation;
 - copying Microsoft projection code or any Skia, WebRender, Vello, Parley, or
@@ -128,6 +153,14 @@ Rejected:
 - A color sprite owns one reusable drawing context, one command slot, and one
   shared scene brush. Stable frames reuse the compiled scene and issue no
   composition-specific managed allocation or CPU-to-GPU bitmap upload.
+- Recording a changed shape hierarchy is `O(S + C + D)` for `S` shapes, `C`
+  retained path segments, and `D` changed dash values. Stable replay reuses
+  the compiled scene. Full ellipses/rectangles and trimmed ellipses/lines use
+  fixed work; a trimmed rectangle emits at most five line segments.
+- Shape and brush property changes are fixed `O(1)` apart from notifying their
+  live owners. Dash snapshots allocate `O(D)` only after dash-list mutation;
+  warmed transform and color mutations reuse retained command-list capacity
+  and allocate no managed memory.
 
 ## Current validation and explicit boundary
 
@@ -138,7 +171,13 @@ WebGPU pixel output and color invalidation through `ElementCompositionPreview`,
 persistent top-child ordering after a later ordinary insertion, compiled-scene
 reuse, removal, and relative-size propagation after a XAML host resize.
 
-This is a foundation slice, not full Composition parity. Clips, shadows,
-effects, surfaces/external textures, shapes/geometries, animations, interaction
+The shape slice additionally covers collection ownership, same-compositor
+reparenting, transactional cycle rejection, analytic ellipse/rectangle WebGPU
+pixels, nested transforms, shared brush invalidation, compiled-scene reuse,
+view-box stretch/alignment, trimmed-line output, and exactly zero managed
+allocations across 10,000 warmed shape-transform/color updates.
+
+This is not full Composition parity. Path and rounded-rectangle geometries,
+clips, shadows, effects, surfaces/external textures, animations, interaction
 tracking, projected shadows, and lighting remain missing until each has a real
 typed WebGPU implementation and its own correctness/performance gate.

@@ -8,10 +8,15 @@ using WinUiColor = Windows.UI.Color;
 
 namespace Microsoft.UI.Composition;
 
+internal interface ICompositionBrushOwner
+{
+    void NotifyBrushValueChanged();
+}
+
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public class CompositionBrush : CompositionObject
 {
-    private List<WeakReference<SpriteVisual>>? _owners;
+    private List<WeakReference<ICompositionBrushOwner>>? _owners;
 
     protected internal CompositionBrush(IObjectReference objRef)
         : base(objRef)
@@ -28,13 +33,13 @@ public class CompositionBrush : CompositionObject
     {
     }
 
-    internal void AddOwner(SpriteVisual owner)
+    internal void AddOwner(ICompositionBrushOwner owner)
     {
-        List<WeakReference<SpriteVisual>> owners =
-            _owners ??= new List<WeakReference<SpriteVisual>>();
+        List<WeakReference<ICompositionBrushOwner>> owners =
+            _owners ??= new List<WeakReference<ICompositionBrushOwner>>();
         for (int index = owners.Count - 1; index >= 0; index--)
         {
-            if (!owners[index].TryGetTarget(out SpriteVisual? existing))
+            if (!owners[index].TryGetTarget(out ICompositionBrushOwner? existing))
             {
                 owners.RemoveAt(index);
                 continue;
@@ -44,17 +49,17 @@ public class CompositionBrush : CompositionObject
                 return;
         }
 
-        owners.Add(new WeakReference<SpriteVisual>(owner));
+        owners.Add(new WeakReference<ICompositionBrushOwner>(owner));
     }
 
-    internal void RemoveOwner(SpriteVisual owner)
+    internal void RemoveOwner(ICompositionBrushOwner owner)
     {
         if (_owners is null)
             return;
 
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (!_owners[index].TryGetTarget(out SpriteVisual? existing) ||
+            if (!_owners[index].TryGetTarget(out ICompositionBrushOwner? existing) ||
                 ReferenceEquals(existing, owner))
             {
                 _owners.RemoveAt(index);
@@ -69,7 +74,7 @@ public class CompositionBrush : CompositionObject
 
         for (int index = _owners.Count - 1; index >= 0; index--)
         {
-            if (_owners[index].TryGetTarget(out SpriteVisual? owner))
+            if (_owners[index].TryGetTarget(out ICompositionBrushOwner? owner))
                 owner.NotifyBrushValueChanged();
             else
                 _owners.RemoveAt(index);
@@ -540,7 +545,7 @@ public class ContainerVisual : Visual
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
-public sealed class SpriteVisual : ContainerVisual
+public sealed class SpriteVisual : ContainerVisual, ICompositionBrushOwner
 {
     private CompositionBrush? _brush;
 
@@ -572,7 +577,8 @@ public sealed class SpriteVisual : ContainerVisual
             node.UpdateContent();
     }
 
-    internal void NotifyBrushValueChanged() => SceneNode.Invalidate();
+    void ICompositionBrushOwner.NotifyBrushValueChanged() =>
+        SceneNode.Invalidate();
 
     internal override void OnDisposed()
     {
@@ -737,6 +743,15 @@ internal sealed class CompositionSceneNode :
                 colorBrush.SceneBrush,
                 null,
                 new Rect(0f, 0f, Size.X, Size.Y));
+        }
+        else if (Owner is ShapeVisual shapeVisual)
+        {
+            ClipBounds = new Rect(0f, 0f, Size.X, Size.Y);
+            shapeVisual.RecordShapes(_commands);
+        }
+        else
+        {
+            ClipBounds = null;
         }
         Invalidate();
     }
