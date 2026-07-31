@@ -80,6 +80,17 @@ public sealed class XamlCliWatchTests
                 initial.CommitResult);
             Assert.True(
                 initial.ArtifactWritten);
+            Assert.Equal(1, initial.Submitted);
+            Assert.Equal(1, initial.Completed);
+            Assert.Equal(1, initial.Applied);
+            Assert.Equal(0, initial.CacheHits);
+            Assert.Equal(0, initial.CurrentQueueDepth);
+            Assert.Equal(1, initial.MaximumQueueDepth);
+            Assert.Equal(
+                1,
+                initial.AllocationMeasurements);
+            Assert.True(
+                initial.LastAllocatedBytes >= 0);
             Assert.True(File.Exists(output));
             var initialImage =
                 await File.ReadAllBytesAsync(
@@ -109,6 +120,17 @@ public sealed class XamlCliWatchTests
             Assert.Equal("None", reload.Action);
             Assert.False(
                 reload.ArtifactWritten);
+            Assert.Equal(2, reload.Submitted);
+            Assert.Equal(2, reload.Completed);
+            Assert.Equal(1, reload.Applied);
+            Assert.Equal(1, reload.CacheHits);
+            Assert.Equal(0, reload.CurrentQueueDepth);
+            Assert.Equal(1, reload.MaximumQueueDepth);
+            Assert.Equal(
+                2,
+                reload.AllocationMeasurements);
+            Assert.True(
+                reload.LastAllocatedBytes >= 0);
             Assert.Equal(
                 initial.Generation + 1,
                 reload.Generation);
@@ -189,6 +211,8 @@ public sealed class XamlCliWatchTests
         using var document =
             JsonDocument.Parse(line!);
         var root = document.RootElement;
+        var telemetry =
+            root.GetProperty("telemetry");
         return new WatchResult(
             root.GetProperty("status")
                 .GetString()!,
@@ -209,7 +233,27 @@ public sealed class XamlCliWatchTests
                 .GetInt64(),
             root.GetProperty(
                     "artifactWritten")
-                .GetBoolean());
+                .GetBoolean(),
+            telemetry.GetProperty("submitted")
+                .GetInt64(),
+            telemetry.GetProperty("completed")
+                .GetInt64(),
+            telemetry.GetProperty("applied")
+                .GetInt64(),
+            telemetry.GetProperty("cacheHits")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "currentQueueDepth")
+                .GetInt32(),
+            telemetry.GetProperty(
+                    "maximumQueueDepth")
+                .GetInt32(),
+            telemetry.GetProperty(
+                    "allocationMeasurements")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "lastAllocatedBytes")
+                .GetInt64());
     }
 
     private static string FindRepositoryRoot()
@@ -245,5 +289,13 @@ public sealed class XamlCliWatchTests
         string? Mode,
         string? Action,
         long Generation,
-        bool ArtifactWritten);
+        bool ArtifactWritten,
+        long Submitted,
+        long Completed,
+        long Applied,
+        long CacheHits,
+        int CurrentQueueDepth,
+        int MaximumQueueDepth,
+        long AllocationMeasurements,
+        long LastAllocatedBytes);
 }

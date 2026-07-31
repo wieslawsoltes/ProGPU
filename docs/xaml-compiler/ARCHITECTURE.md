@@ -304,6 +304,19 @@ Stable IDs are structural, deterministic, and independent of process hash random
 
 `RoslynXamlProjectWatchSession` is the framework-neutral latest-wins adapter over immutable project snapshots. It owns only bounded debounce/cancellation state and delegates compilation, delta creation, and baseline ownership to `RoslynXamlProjectPreviewCoordinator`. A new input cancels older preparation; an independently stale result is prepared again against the latest committed generation. Syntax-only or unrelated semantic no-ops commit without invoking a runtime publisher. Publication remains serialized with baseline commit, and the publisher receives the operation token. The host contract treats a `true` publication result as an irreversible external commit, so the coordinator commits the matching baseline without a post-publication cancellation check.
 
+The same session publishes an immutable `RoslynXamlProjectWatchTelemetry`
+value snapshot. Submission, completion, outcome, cache-hit, cancellation,
+fault, current/maximum outstanding depth, elapsed, and optional allocation
+aggregates update in fixed `O(1)` work under the existing session gate; reading
+the value snapshot allocates nothing. Elapsed measurement uses monotonic
+`Stopwatch` timestamps and does not allocate a stopwatch object per operation.
+The `netstandard2.0` Workspaces layer accepts only an optional typed monotonic
+allocation counter. The .NET CLI supplies `GC.GetTotalAllocatedBytes(false)`;
+its deltas are approximate process-wide observations and can overlap when
+operations overlap, so they are diagnostic signals rather than exact
+per-compilation attribution. A missing, negative, or throwing host counter
+suppresses only that measurement and never changes compiler state.
+
 The standalone `watch` command is one transport over this service. It reloads a fresh `MSBuildWorkspace` project snapshot per signal and publishes accepted PE images through a transactional file replacement. Its standard-input `reload`/`quit` protocol and JSON Lines stream are deterministic test/automation surfaces; its file-system adapter coalesces signals through a bounded channel.
 
 `RoslynXamlProjectWatchInputSet` snapshots the target plus every loaded reachable project reference. It retains typed declarations for each project directory/file, source, AdditionalDocument, analyzer-config document, evaluated build input, and explicit host input. Nested recursive roots are collapsed; linked/evaluated/explicit files outside all roots are selected exactly, so the CLI does not watch an unrelated common ancestor. Exact external files are grouped by parent directory to bound native watcher count without broadening the accepted event set. Exact project documents inside a root can trigger even when their extension is not in the ordinary XAML/C#/MSBuild discovery filter. Construction is `O(P + R + D log D)` for reachable projects `P`, reference edges `R`, and declarations `D`; the bounded signal channel and latest-wins compilation contract are unchanged.

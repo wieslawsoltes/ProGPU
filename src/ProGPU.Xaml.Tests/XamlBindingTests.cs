@@ -13099,7 +13099,8 @@ namespace Demo {
                     return Task.FromResult(
                         allowPublication);
                 },
-                TimeSpan.FromMilliseconds(75));
+                TimeSpan.FromMilliseconds(75),
+                new SteppedAllocationCounter());
 
         var initial = await watch.SubmitAsync(
             fixture.Project,
@@ -13208,13 +13209,125 @@ namespace Demo {
                 cancellationToken:
                     canceled.Token));
 
+        using var activeCancellation =
+            new CancellationTokenSource();
+        var activeCanceledTask =
+            watch.SubmitAsync(
+                thirdProject,
+                fixture.TargetXamlDocumentId,
+                cancellationToken:
+                    activeCancellation.Token);
+        activeCancellation.Cancel();
+        await Assert.ThrowsAsync<
+            OperationCanceledException>(
+            () => activeCanceledTask);
+
         var stoppedTask = watch.SubmitAsync(
             thirdProject,
             fixture.TargetXamlDocumentId);
         watch.Dispose();
+        var stopped = await stoppedTask;
         Assert.Equal(
             RoslynXamlProjectWatchStatus.Stopped,
-            (await stoppedTask).Status);
+            stopped.Status);
+
+        var telemetry = stopped.Telemetry;
+        Assert.Equal(9, telemetry.SubmittedCount);
+        Assert.Equal(9, telemetry.CompletedCount);
+        Assert.Equal(3, telemetry.AppliedCount);
+        Assert.Equal(1, telemetry.CacheHitCount);
+        Assert.Equal(2, telemetry.RejectedCount);
+        Assert.Equal(1, telemetry.SupersededCount);
+        Assert.Equal(1, telemetry.StoppedCount);
+        Assert.Equal(
+            1,
+            telemetry.CallerCanceledCount);
+        Assert.Equal(0, telemetry.FaultedCount);
+        Assert.Equal(3, telemetry.CanceledWorkCount);
+        Assert.Equal(0, telemetry.CurrentQueueDepth);
+        Assert.True(
+            telemetry.MaximumQueueDepth >= 2);
+        Assert.True(
+            telemetry.TotalDuration > TimeSpan.Zero);
+        Assert.True(
+            telemetry.MaximumDuration >=
+            telemetry.LastDuration);
+        Assert.Equal(
+            9,
+            telemetry.AllocationMeasurementCount);
+        Assert.True(
+            telemetry.TotalAllocatedBytes > 0);
+        Assert.True(
+            telemetry.MaximumAllocatedBytes >=
+            telemetry.LastAllocatedBytes);
+        Assert.Equal(telemetry, watch.Telemetry);
+    }
+
+    private sealed class SteppedAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        private long _allocatedBytes;
+
+        public long GetTotalAllocatedBytes() =>
+            Interlocked.Add(
+                ref _allocatedBytes,
+                64);
+    }
+
+    [Fact]
+    public async Task ProjectWatchTelemetryCountsFaultsWithoutTrustingAllocationCounter()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="fault" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        using var watch =
+            new RoslynXamlProjectWatchSession(
+                new RoslynXamlProjectPreviewCoordinator(
+                    new WinUiXamlProfile()),
+                (_, _) =>
+                    throw new InvalidOperationException(
+                        "publisher failed"),
+                TimeSpan.Zero,
+                new ThrowingAllocationCounter());
+
+        var exception = await Assert.ThrowsAsync<
+            InvalidOperationException>(
+            () => watch.SubmitAsync(
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true));
+        Assert.Equal(
+            "publisher failed",
+            exception.Message);
+
+        var telemetry = watch.Telemetry;
+        Assert.Equal(1, telemetry.SubmittedCount);
+        Assert.Equal(1, telemetry.CompletedCount);
+        Assert.Equal(1, telemetry.FaultedCount);
+        Assert.Equal(0, telemetry.CurrentQueueDepth);
+        Assert.Equal(
+            0,
+            telemetry.AllocationMeasurementCount);
+    }
+
+    private sealed class ThrowingAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        public long GetTotalAllocatedBytes() =>
+            throw new InvalidOperationException(
+                "telemetry unavailable");
     }
 
     private static Task<RoslynXamlProjectPreview>

@@ -92,7 +92,8 @@ internal static partial class Program
                     artifactWritten = true;
                     return Task.FromResult(true);
                 },
-                debounce);
+                debounce,
+                GcWatchAllocationCounter.Instance);
         using var cancellation =
             new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler =
@@ -851,6 +852,7 @@ internal static partial class Program
     {
         var update = result.Update;
         var plan = update?.Delta;
+        var telemetry = result.Telemetry;
         var diagnostics =
             GetWatchDiagnostics(update)
                 .ToArray();
@@ -894,6 +896,51 @@ internal static partial class Program
                 durationMilliseconds =
                     result.Duration
                         .TotalMilliseconds,
+                telemetry = new
+                {
+                    submitted =
+                        telemetry.SubmittedCount,
+                    completed =
+                        telemetry.CompletedCount,
+                    applied =
+                        telemetry.AppliedCount,
+                    cacheHits =
+                        telemetry.CacheHitCount,
+                    rejected =
+                        telemetry.RejectedCount,
+                    canceledWork =
+                        telemetry.CanceledWorkCount,
+                    superseded =
+                        telemetry.SupersededCount,
+                    stopped =
+                        telemetry.StoppedCount,
+                    callerCanceled =
+                        telemetry.CallerCanceledCount,
+                    faulted =
+                        telemetry.FaultedCount,
+                    currentQueueDepth =
+                        telemetry.CurrentQueueDepth,
+                    maximumQueueDepth =
+                        telemetry.MaximumQueueDepth,
+                    totalDurationMilliseconds =
+                        telemetry.TotalDuration
+                            .TotalMilliseconds,
+                    lastDurationMilliseconds =
+                        telemetry.LastDuration
+                            .TotalMilliseconds,
+                    maximumDurationMilliseconds =
+                        telemetry.MaximumDuration
+                            .TotalMilliseconds,
+                    allocationMeasurements =
+                        telemetry
+                            .AllocationMeasurementCount,
+                    totalAllocatedBytes =
+                        telemetry.TotalAllocatedBytes,
+                    lastAllocatedBytes =
+                        telemetry.LastAllocatedBytes,
+                    maximumAllocatedBytes =
+                        telemetry.MaximumAllocatedBytes
+                },
                 message = result.Message,
                 diagnostics =
                     ProjectDiagnostics(
@@ -921,8 +968,35 @@ internal static partial class Program
             (artifactWritten
                 ? output
                 : "unchanged") +
+            " cacheHits=" +
+            telemetry.CacheHitCount.ToString(
+                CultureInfo.InvariantCulture) +
+            " queue=" +
+            telemetry.CurrentQueueDepth.ToString(
+                CultureInfo.InvariantCulture) +
+            "/" +
+            telemetry.MaximumQueueDepth.ToString(
+                CultureInfo.InvariantCulture) +
             " — " +
             result.Message);
+    }
+
+    private sealed class GcWatchAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        public static GcWatchAllocationCounter
+            Instance
+        {
+            get;
+        } = new();
+
+        private GcWatchAllocationCounter()
+        {
+        }
+
+        public long GetTotalAllocatedBytes() =>
+            GC.GetTotalAllocatedBytes(
+                precise: false);
     }
 
     private static void WriteWatchHostFailure(
