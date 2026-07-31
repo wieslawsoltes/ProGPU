@@ -1079,8 +1079,14 @@ Primary contracts consulted:
 - [IRangeValueProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.irangevalueprovider)
 - [IToggleProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itoggleprovider)
 - [IValueProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ivalueprovider)
+- [IGridProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.igridprovider)
+- [IGridItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.igriditemprovider)
+- [ITableProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itableprovider)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
+- [RowOrColumnMajor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.roworcolumnmajor)
 - [ToggleState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.togglestate)
+- [Grid control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementinggrid)
+- [Table control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementingtable)
 - The pinned official projection metadata and `Microsoft.UI.Xaml.xml`
   documentation extracted by the deterministic API gate.
 
@@ -1111,10 +1117,24 @@ forwarding state changes through the later platform accessibility transport.
 Focused reflection tests reject extra methods or properties, writable
 properties, incorrect method parameter or result types, incorrect enum
 underlying types or values, and contract-version drift. The stateful slice
-adds all 32 selected official declarations exactly. Across the three
-automation-provider slices, all 56 selected declarations now match. The
-official comparison advances to 7,813 candidate declarations, 3,961 exact
-matches, 12,660 missing declarations, and 3,852 extras. No Microsoft
+adds all 32 selected official declarations exactly.
+
+The grid/table slice adds the exact version-1 provider boundaries for
+two-dimensional containers, cells, and header-aware tables. Grid coordinates
+are zero-based; cells expose their row, column, spans, and containing provider;
+tables expose row/column headers plus the official row-major, column-major,
+and indeterminate traversal identities. The declarations deliberately do not
+invent cell storage, lookup policy, or a native accessibility transport.
+Concrete peers own those behaviors and can implement these typed contracts
+without reflection or boxed adapters. Contract reads and calls have no
+framework-side allocation or WebGPU work.
+
+Focused reflection tests reject extra members, writable properties, incorrect
+parameter/result types, enum-value drift, and contract-version drift. The
+grid/table slice adds all 23 selected official declarations exactly. Across
+the four automation-provider slices, all 79 selected declarations now match.
+The official comparison advances to 7,836 candidate declarations, 3,984 exact
+matches, 12,637 missing declarations, and 3,852 extras. No Microsoft
 implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing

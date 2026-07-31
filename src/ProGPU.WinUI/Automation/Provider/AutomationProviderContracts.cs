@@ -18,6 +18,36 @@ public interface IExpandCollapseProvider
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface IGridItemProvider
+{
+    int Column { get; }
+
+    int ColumnSpan { get; }
+
+    IRawElementProviderSimple ContainingGrid { get; }
+
+    int Row { get; }
+
+    int RowSpan { get; }
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IGridProvider
+{
+    int ColumnCount { get; }
+
+    int RowCount { get; }
+
+    IRawElementProviderSimple GetItem(
+        int row,
+        int column);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface IDropTargetProvider
 {
     string DropEffect { get; }
@@ -77,6 +107,18 @@ public interface ITableItemProvider
     IRawElementProviderSimple[] GetColumnHeaderItems();
 
     IRawElementProviderSimple[] GetRowHeaderItems();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ITableProvider
+{
+    RowOrColumnMajor RowOrColumnMajor { get; }
+
+    IRawElementProviderSimple[] GetColumnHeaders();
+
+    IRawElementProviderSimple[] GetRowHeaders();
 }
 
 [ContractVersion(

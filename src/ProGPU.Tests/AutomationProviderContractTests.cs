@@ -9,6 +9,67 @@ namespace ProGPU.Tests;
 public sealed class AutomationProviderContractTests
 {
     [Fact]
+    public void GridAndTableProviderInterfacesMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(IGridProvider),
+            (nameof(IGridProvider.ColumnCount), typeof(int)),
+            (nameof(IGridProvider.RowCount), typeof(int)));
+        AssertDeclaredMethods(
+            typeof(IGridProvider),
+            new ExpectedMethod(
+                nameof(IGridProvider.GetItem),
+                typeof(IRawElementProviderSimple),
+                typeof(int),
+                typeof(int)));
+
+        AssertReadOnlyProperties(
+            typeof(IGridItemProvider),
+            (nameof(IGridItemProvider.Column), typeof(int)),
+            (nameof(IGridItemProvider.ColumnSpan), typeof(int)),
+            (nameof(IGridItemProvider.ContainingGrid),
+                typeof(IRawElementProviderSimple)),
+            (nameof(IGridItemProvider.Row), typeof(int)),
+            (nameof(IGridItemProvider.RowSpan), typeof(int)));
+        AssertDeclaredMethods(typeof(IGridItemProvider));
+
+        AssertReadOnlyProperties(
+            typeof(ITableProvider),
+            (nameof(ITableProvider.RowOrColumnMajor),
+                typeof(RowOrColumnMajor)));
+        AssertDeclaredMethods(
+            typeof(ITableProvider),
+            new ExpectedMethod(
+                nameof(ITableProvider.GetColumnHeaders),
+                typeof(IRawElementProviderSimple[])),
+            new ExpectedMethod(
+                nameof(ITableProvider.GetRowHeaders),
+                typeof(IRawElementProviderSimple[])));
+
+        Type[] selectedContracts =
+        [
+            typeof(IGridItemProvider),
+            typeof(IGridProvider),
+            typeof(ITableProvider),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
+    [Fact]
+    public void RowOrColumnMajorMatchesOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(RowOrColumnMajor),
+            (nameof(RowOrColumnMajor.RowMajor), 0),
+            (nameof(RowOrColumnMajor.ColumnMajor), 1),
+            (nameof(RowOrColumnMajor.Indeterminate), 2));
+        AssertWinUiContractVersion(typeof(RowOrColumnMajor));
+    }
+
+    [Fact]
     public void StatefulProviderInterfacesMatchOfficialShape()
     {
         AssertReadOnlyProperties(
