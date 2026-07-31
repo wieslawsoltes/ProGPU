@@ -1587,6 +1587,36 @@ The built-in provider explicitly rejects ProGPU's internal boolean-combined
 path representation until its Composition trim semantics are defined; this
 boundary never silently substitutes empty or flattened output.
 
+### Composition retained WebGPU gradients
+
+The next primary slice adds exact public contracts for
+`CompositionGradientBrush`, `CompositionLinearGradientBrush`,
+`CompositionRadialGradientBrush`, `CompositionColorGradientStop`, its
+observable `IList<T>` collection, the three associated enums, and all four
+`Compositor` factories. The pinned comparison adds exactly 70 matching
+declarations with no new ProGPU-only declarations, advancing the report to
+8,826 candidate entries, 5,040 exact matches, 11,539 missing entries, and the
+unchanged 3,786 extras.
+
+Each sprite or shape owner retains one typed ProGPU vector brush. Stop color
+and offset changes propagate through weak typed owners into the retained scene;
+observable collection order is preserved while a stable `O(G log G)` snapshot
+for `G` stops is rebuilt only after mutation. Relative and absolute mapping,
+linear/radial geometry, independent brush transforms, clamp/wrap/mirror
+extension, and RGB/RGB-linear interpolation flow directly into the existing
+WebGPU gradient-stop storage buffer and vector shader. No gradient creates a
+texture, render pass, surface, CPU bitmap, readback, runtime reflection, or
+external dependency.
+
+Focused tests cover official defaults, collection/indexer behavior,
+same-compositor ownership, explicit invalid-value failure, stable offset
+ordering, linear/radial sprite pixels, shape-fill pixels, absolute and relative
+coordinates, transformed wrap sampling, linear-RGB output, stop invalidation,
+compiled-scene reuse, and exactly zero managed allocations across 10,000
+warmed endpoint/color updates. The primary sources and cross-engine decisions
+are recorded in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

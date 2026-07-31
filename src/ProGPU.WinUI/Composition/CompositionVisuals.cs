@@ -33,6 +33,13 @@ public class CompositionBrush : CompositionObject
     {
     }
 
+    internal virtual void UpdateSceneBrush(
+        in Rect bounds,
+        ref Brush? sceneBrush)
+    {
+        sceneBrush = null;
+    }
+
     internal void AddOwner(ICompositionBrushOwner owner)
     {
         List<WeakReference<ICompositionBrushOwner>> owners =
@@ -110,6 +117,11 @@ public sealed class CompositionColorBrush : CompositionBrush
     }
 
     internal SolidColorBrush SceneBrush { get; }
+
+    internal override void UpdateSceneBrush(
+        in Rect bounds,
+        ref Brush? sceneBrush) =>
+        sceneBrush = SceneBrush;
 
     private static Vector4 ToVector(WinUiColor color) =>
         new(
@@ -619,7 +631,7 @@ public sealed class SpriteVisual : ContainerVisual, ICompositionBrushOwner
     }
 
     void ICompositionBrushOwner.NotifyBrushValueChanged() =>
-        SceneNode.Invalidate();
+        NotifyBrushChanged();
 
     internal override void OnDisposed()
     {
@@ -753,6 +765,7 @@ internal sealed class CompositionSceneNode :
     IParentSizeDependentVisual
 {
     private readonly DrawingContext _commands = new();
+    private Brush? _sceneBrush;
 
     internal Visual? Owner { get; set; }
 
@@ -774,16 +787,20 @@ internal sealed class CompositionSceneNode :
     internal void UpdateContent()
     {
         _commands.Clear();
-        if (Owner is SpriteVisual
-            {
-                Brush: CompositionColorBrush colorBrush
-            } && Size.X > 0f && Size.Y > 0f)
+        if (Owner is SpriteVisual { Brush: { } brush } &&
+            Size.X > 0f && Size.Y > 0f)
         {
+            brush.UpdateSceneBrush(
+                new Rect(0f, 0f, Size.X, Size.Y),
+                ref _sceneBrush);
             _commands.EnsureCommandCapacity(1);
-            _commands.DrawRectangle(
-                colorBrush.SceneBrush,
-                null,
-                new Rect(0f, 0f, Size.X, Size.Y));
+            if (_sceneBrush is not null)
+            {
+                _commands.DrawRectangle(
+                    _sceneBrush,
+                    null,
+                    new Rect(0f, 0f, Size.X, Size.Y));
+            }
         }
         else if (Owner is ShapeVisual shapeVisual)
         {
@@ -793,6 +810,7 @@ internal sealed class CompositionSceneNode :
         else
         {
             ClipBounds = null;
+            _sceneBrush = null;
         }
         Invalidate();
     }

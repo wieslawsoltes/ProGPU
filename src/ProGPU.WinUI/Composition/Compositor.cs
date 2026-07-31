@@ -42,6 +42,20 @@ public sealed class Compositor : IDisposable
         return new CompositionColorBrush(this, color);
     }
 
+    public CompositionColorGradientStop CreateColorGradientStop()
+    {
+        ThrowIfDisposed();
+        return new CompositionColorGradientStop(this, 0f, default);
+    }
+
+    public CompositionColorGradientStop CreateColorGradientStop(
+        float offset,
+        Color color)
+    {
+        ThrowIfDisposed();
+        return new CompositionColorGradientStop(this, offset, color);
+    }
+
     public CompositionContainerShape CreateContainerShape()
     {
         ThrowIfDisposed();
@@ -94,6 +108,12 @@ public sealed class Compositor : IDisposable
     {
         ThrowIfDisposed();
         return new CompositionLineGeometry(this);
+    }
+
+    public CompositionLinearGradientBrush CreateLinearGradientBrush()
+    {
+        ThrowIfDisposed();
+        return new CompositionLinearGradientBrush(this);
     }
 
     public CompositionPathGeometry CreatePathGeometry()
@@ -166,6 +186,12 @@ public sealed class Compositor : IDisposable
     {
         ThrowIfDisposed();
         return new CompositionRoundedRectangleGeometry(this);
+    }
+
+    public CompositionRadialGradientBrush CreateRadialGradientBrush()
+    {
+        ThrowIfDisposed();
+        return new CompositionRadialGradientBrush(this);
     }
 
     public ShapeVisual CreateShapeVisual()

@@ -103,6 +103,259 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void GradientFactoriesPreserveDefaultsCollectionsAndOwnership()
+    {
+        using var compositor = new Compositor();
+        CompositionLinearGradientBrush linear =
+            compositor.CreateLinearGradientBrush();
+        CompositionRadialGradientBrush radial =
+            compositor.CreateRadialGradientBrush();
+        CompositionColorGradientStop empty =
+            compositor.CreateColorGradientStop();
+        CompositionColorGradientStop red =
+            compositor.CreateColorGradientStop(
+                1f,
+                Color.FromArgb(255, 255, 0, 0));
+
+        Assert.Equal(Vector2.Zero, linear.AnchorPoint);
+        Assert.Equal(Vector2.Zero, linear.CenterPoint);
+        Assert.Equal(Vector2.Zero, linear.Offset);
+        Assert.Equal(Vector2.One, linear.Scale);
+        Assert.Equal(Matrix3x2.Identity, linear.TransformMatrix);
+        Assert.Equal(Vector2.Zero, linear.StartPoint);
+        Assert.Equal(Vector2.One, linear.EndPoint);
+        Assert.Equal(CompositionGradientExtendMode.Clamp, linear.ExtendMode);
+        Assert.Equal(CompositionColorSpace.Auto, linear.InterpolationSpace);
+        Assert.Equal(CompositionMappingMode.Relative, linear.MappingMode);
+        Assert.Empty(linear.ColorStops);
+        Assert.Equal(default, empty.Color);
+        Assert.Equal(0f, empty.Offset);
+        Assert.Equal(new Vector2(0.5f), radial.EllipseCenter);
+        Assert.Equal(new Vector2(0.5f), radial.EllipseRadius);
+        Assert.Equal(Vector2.Zero, radial.GradientOriginOffset);
+
+        linear.ColorStops.Add(red);
+        linear.ColorStops.Insert(0, empty);
+        Assert.Equal([empty, red], linear.ColorStops.ToArray());
+        Assert.Same(red, linear.ColorStops[1]);
+        linear.ColorStops[1] = empty;
+        Assert.Equal([empty, empty], linear.ColorStops.ToArray());
+        Assert.True(linear.ColorStops.Remove(empty));
+        Assert.Single(linear.ColorStops);
+        linear.ColorStops.Clear();
+        Assert.Empty(linear.ColorStops);
+
+        using var foreignCompositor = new Compositor();
+        CompositionColorGradientStop foreign =
+            foreignCompositor.CreateColorGradientStop();
+        Assert.Throws<InvalidOperationException>(
+            () => linear.ColorStops.Add(foreign));
+        Assert.Empty(linear.ColorStops);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => empty.Offset = float.NaN);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => empty.Offset = 1.1f);
+        Assert.Throws<NotSupportedException>(
+            () => linear.InterpolationSpace = CompositionColorSpace.Hsl);
+    }
+
+    [Fact]
+    public void LinearAndRadialGradientsRenderThroughRetainedWebGpuScene()
+    {
+        using var window = new HeadlessWindow(72, 52);
+        var host = new FrameworkElement
+        {
+            Width = 72f,
+            Height = 52f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            SpriteVisual linearVisual = compositor.CreateSpriteVisual();
+            linearVisual.Size = new Vector2(72f, 24f);
+            CompositionLinearGradientBrush linear =
+                compositor.CreateLinearGradientBrush();
+            linear.StartPoint = Vector2.Zero;
+            linear.EndPoint = Vector2.UnitX;
+            CompositionColorGradientStop linearEnd =
+                compositor.CreateColorGradientStop(
+                    1f,
+                    Color.FromArgb(255, 0, 0, 255));
+            linear.ColorStops.Add(linearEnd);
+            linear.ColorStops.Add(compositor.CreateColorGradientStop(
+                0f,
+                Color.FromArgb(255, 255, 0, 0)));
+            linearVisual.Brush = linear;
+
+            SpriteVisual radialVisual = compositor.CreateSpriteVisual();
+            radialVisual.Offset = new Vector3(0f, 28f, 0f);
+            radialVisual.Size = new Vector2(40f, 24f);
+            CompositionRadialGradientBrush radial =
+                compositor.CreateRadialGradientBrush();
+            radial.ColorStops.Add(compositor.CreateColorGradientStop(
+                0f,
+                Color.FromArgb(255, 255, 0, 0)));
+            radial.ColorStops.Add(compositor.CreateColorGradientStop(
+                1f,
+                Color.FromArgb(255, 0, 0, 255)));
+            radialVisual.Brush = radial;
+
+            ContainerVisual root = compositor.CreateContainerVisual();
+            root.RelativeSizeAdjustment = Vector2.One;
+            root.Children.InsertAtTop(linearVisual);
+            root.Children.InsertAtTop(radialVisual);
+            ElementCompositionPreview.SetElementChildVisual(host, root);
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 2, 12));
+            RgbaPixel linearMiddle =
+                ReadPixel(pixels, window.Width, 36, 12);
+            Assert.True(
+                linearMiddle.R > 90 && linearMiddle.B > 90,
+                $"Expected a mixed linear-gradient color, got {linearMiddle}.");
+            AssertBlue(ReadPixel(pixels, window.Width, 70, 12));
+            AssertRed(ReadPixel(pixels, window.Width, 20, 40));
+            AssertBlue(ReadPixel(pixels, window.Width, 38, 40));
+
+            linearEnd.Color = Color.FromArgb(255, 0, 255, 0);
+            window.Render();
+            AssertGreen(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                70,
+                12));
+
+            linearEnd.Color = Color.FromArgb(255, 0, 0, 255);
+            linear.MappingMode = CompositionMappingMode.Absolute;
+            linear.StartPoint = Vector2.Zero;
+            linear.EndPoint = new Vector2(20f, 0f);
+            linear.ExtendMode = CompositionGradientExtendMode.Wrap;
+            linear.TransformMatrix =
+                Matrix3x2.CreateTranslation(10f, 0f);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 10, 12));
+            RgbaPixel wrapped = ReadPixel(pixels, window.Width, 1, 12);
+            Assert.True(
+                wrapped.R > 80 && wrapped.B > 80,
+                $"Expected a wrapped gradient color, got {wrapped}.");
+
+            linear.MappingMode = CompositionMappingMode.Relative;
+            linear.StartPoint = Vector2.Zero;
+            linear.EndPoint = Vector2.UnitX;
+            linear.ExtendMode = CompositionGradientExtendMode.Clamp;
+            linear.TransformMatrix = Matrix3x2.Identity;
+            linear.InterpolationSpace = CompositionColorSpace.RgbLinear;
+            window.Render();
+            RgbaPixel linearLight =
+                ReadPixel(window.ReadPixels(), window.Width, 36, 12);
+            Assert.True(
+                linearLight.R > 160 && linearLight.B > 160,
+                $"Expected linear-RGB interpolation, got {linearLight}.");
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void CompositionShapeUsesTheSameRetainedGradientBrushPath()
+    {
+        using var window = new HeadlessWindow(64, 28);
+        var host = new FrameworkElement
+        {
+            Width = 64f,
+            Height = 28f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(64f, 28f);
+            CompositionRectangleGeometry geometry =
+                compositor.CreateRectangleGeometry();
+            geometry.Size = visual.Size;
+            CompositionLinearGradientBrush brush =
+                compositor.CreateLinearGradientBrush();
+            brush.StartPoint = Vector2.Zero;
+            brush.EndPoint = Vector2.UnitX;
+            brush.ColorStops.Add(compositor.CreateColorGradientStop(
+                0f,
+                Color.FromArgb(255, 255, 0, 0)));
+            brush.ColorStops.Add(compositor.CreateColorGradientStop(
+                1f,
+                Color.FromArgb(255, 0, 0, 255)));
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(geometry);
+            shape.FillBrush = brush;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 2, 14));
+            AssertBlue(ReadPixel(pixels, window.Width, 62, 14));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedGradientPropertyAndStopUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(40f, 24f);
+        CompositionLinearGradientBrush brush =
+            compositor.CreateLinearGradientBrush();
+        CompositionColorGradientStop start =
+            compositor.CreateColorGradientStop(
+                0f,
+                Color.FromArgb(255, 255, 0, 0));
+        brush.ColorStops.Add(start);
+        brush.ColorStops.Add(compositor.CreateColorGradientStop(
+            1f,
+            Color.FromArgb(255, 0, 0, 255)));
+        visual.Brush = brush;
+
+        brush.StartPoint = Vector2.UnitY;
+        brush.StartPoint = Vector2.Zero;
+        start.Color = Color.FromArgb(255, 0, 255, 0);
+        start.Color = Color.FromArgb(255, 255, 0, 0);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            brush.StartPoint = new Vector2(0f, index & 1);
+            start.Color = (index & 1) == 0
+                ? Color.FromArgb(255, 255, 0, 0)
+                : Color.FromArgb(255, 0, 255, 0);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void VisualCollectionKeepsBottomToTopOrderAndOwnership()
     {
         using var compositor = new Compositor();

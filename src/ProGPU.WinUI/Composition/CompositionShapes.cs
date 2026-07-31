@@ -652,7 +652,8 @@ public class CompositionShape : CompositionObject
 
     internal virtual void Record(
         DrawingContext context,
-        Matrix3x2 parentTransform)
+        Matrix3x2 parentTransform,
+        in Rect brushBounds)
     {
     }
 
@@ -704,10 +705,11 @@ public sealed class CompositionContainerShape : CompositionShape
 
     internal override void Record(
         DrawingContext context,
-        Matrix3x2 parentTransform)
+        Matrix3x2 parentTransform,
+        in Rect brushBounds)
     {
         Matrix3x2 transform = GetTransform(parentTransform);
-        Shapes.Record(context, transform);
+        Shapes.Record(context, transform, brushBounds);
     }
 
     internal bool Contains(CompositionShape candidate)
@@ -732,8 +734,10 @@ public sealed class CompositionSpriteShape : CompositionShape,
     ICompositionGeometryOwner
 {
     private CompositionBrush? _fillBrush;
+    private Brush? _fillSceneBrush;
     private CompositionGeometry? _geometry;
     private CompositionBrush? _strokeBrush;
+    private Brush? _strokeSceneBrush;
     private readonly Pen _strokePen;
     private double[]? _appliedDashArray;
     private bool _isStrokeNonScaling;
@@ -842,19 +846,21 @@ public sealed class CompositionSpriteShape : CompositionShape,
 
     internal override void Record(
         DrawingContext context,
-        Matrix3x2 parentTransform)
+        Matrix3x2 parentTransform,
+        in Rect brushBounds)
     {
         if (_geometry is null)
             return;
 
         Matrix3x2 transform2D = GetTransform(parentTransform);
         Matrix4x4 transform = ToMatrix4x4(transform2D);
-        Brush? fill = (_fillBrush as CompositionColorBrush)?.SceneBrush;
+        _fillBrush?.UpdateSceneBrush(brushBounds, ref _fillSceneBrush);
+        Brush? fill = _fillBrush is null ? null : _fillSceneBrush;
         Pen? stroke = null;
-        if (_strokeBrush is CompositionColorBrush colorStroke &&
-            _strokeThickness > 0f)
+        _strokeBrush?.UpdateSceneBrush(brushBounds, ref _strokeSceneBrush);
+        if (_strokeSceneBrush is not null && _strokeThickness > 0f)
         {
-            _strokePen.Brush = colorStroke.SceneBrush;
+            _strokePen.Brush = _strokeSceneBrush;
             _strokePen.Thickness = _isStrokeNonScaling
                 ? _strokeThickness /
                   TransformMetrics.GetStrokeScale(transform)
@@ -883,7 +889,9 @@ public sealed class CompositionSpriteShape : CompositionShape,
         _strokeBrush?.RemoveOwner(this);
         _geometry?.RemoveOwner(this);
         _fillBrush = null;
+        _fillSceneBrush = null;
         _strokeBrush = null;
+        _strokeSceneBrush = null;
         _geometry = null;
         StrokeDashArray.Dispose();
         base.OnDisposed();
@@ -1189,10 +1197,11 @@ public sealed class CompositionShapeCollection :
 
     internal void Record(
         DrawingContext context,
-        Matrix3x2 parentTransform)
+        Matrix3x2 parentTransform,
+        in Rect brushBounds)
     {
         foreach (CompositionShape shape in _items)
-            shape.Record(context, parentTransform);
+            shape.Record(context, parentTransform, brushBounds);
     }
 
     private void ValidateInsertion(CompositionShape item)
@@ -1251,7 +1260,12 @@ public sealed class ShapeVisual : ContainerVisual, ICompositionViewBoxOwner
     {
         Matrix3x2 transform = _viewBox?.CreateTransform(EffectiveSize) ??
             Matrix3x2.Identity;
-        Shapes.Record(context, transform);
+        var bounds = new Rect(
+            0f,
+            0f,
+            EffectiveSize.X,
+            EffectiveSize.Y);
+        Shapes.Record(context, transform, bounds);
     }
 
     internal override void OnDisposed()
