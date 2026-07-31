@@ -180,6 +180,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
     private Vector2 _center;
     private Vector2 _radius;
     private PathGeometry? _trimmedPath;
+    private RenderCommandGeometryCache? _trimmedCache;
 
     internal CompositionEllipseGeometry(Compositor compositor)
         : base(compositor)
@@ -197,6 +198,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
                 return;
             _center = value;
             _trimmedPath = null;
+            _trimmedCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -214,6 +216,7 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
                 return;
             _radius = value;
             _trimmedPath = null;
+            _trimmedCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -238,11 +241,25 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
             return;
         }
 
-        _trimmedPath ??= CreateTrimmedPath();
-        context.DrawPath(fill, stroke, _trimmedPath, transform);
+        if (_trimmedPath is null)
+        {
+            _trimmedPath = CreateTrimmedPath();
+            _trimmedCache = RenderCommandGeometryCache.ForPath(
+                _trimmedPath);
+        }
+        context.DrawPath(
+            fill,
+            stroke,
+            _trimmedPath,
+            transform,
+            _trimmedCache!);
     }
 
-    internal override void OnTrimChanged() => _trimmedPath = null;
+    internal override void OnTrimChanged()
+    {
+        _trimmedPath = null;
+        _trimmedCache = null;
+    }
 
     private PathGeometry CreateTrimmedPath()
     {
@@ -281,6 +298,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
     private Vector2 _offset;
     private Vector2 _size;
     private PathGeometry? _trimmedPath;
+    private RenderCommandGeometryCache? _trimmedCache;
 
     internal CompositionRectangleGeometry(Compositor compositor)
         : base(compositor)
@@ -298,6 +316,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
                 return;
             _offset = value;
             _trimmedPath = null;
+            _trimmedCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -315,6 +334,7 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
                 return;
             _size = value;
             _trimmedPath = null;
+            _trimmedCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -337,11 +357,25 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
             return;
         }
 
-        _trimmedPath ??= CreateTrimmedPath();
-        context.DrawPath(fill, stroke, _trimmedPath, transform);
+        if (_trimmedPath is null)
+        {
+            _trimmedPath = CreateTrimmedPath();
+            _trimmedCache = RenderCommandGeometryCache.ForPath(
+                _trimmedPath);
+        }
+        context.DrawPath(
+            fill,
+            stroke,
+            _trimmedPath,
+            transform,
+            _trimmedCache!);
     }
 
-    internal override void OnTrimChanged() => _trimmedPath = null;
+    internal override void OnTrimChanged()
+    {
+        _trimmedPath = null;
+        _trimmedCache = null;
+    }
 
     private PathGeometry CreateTrimmedPath()
     {
@@ -405,6 +439,7 @@ public sealed class CompositionLineGeometry : CompositionGeometry
     private Vector2 _end;
     private Vector2 _start;
     private PathGeometry? _path;
+    private RenderCommandGeometryCache? _pathCache;
 
     internal CompositionLineGeometry(Compositor compositor)
         : base(compositor)
@@ -422,6 +457,7 @@ public sealed class CompositionLineGeometry : CompositionGeometry
                 return;
             _end = value;
             _path = null;
+            _pathCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -437,6 +473,7 @@ public sealed class CompositionLineGeometry : CompositionGeometry
                 return;
             _start = value;
             _path = null;
+            _pathCache = null;
             NotifyOwnersChanged();
         }
     }
@@ -449,8 +486,17 @@ public sealed class CompositionLineGeometry : CompositionGeometry
     {
         if (stroke is null)
             return;
-        _path ??= CreatePath();
-        context.DrawPath(null, stroke, _path, transform);
+        if (_path is null)
+        {
+            _path = CreatePath();
+            _pathCache = RenderCommandGeometryCache.ForPath(_path);
+        }
+        context.DrawPath(
+            null,
+            stroke,
+            _path,
+            transform,
+            _pathCache!);
     }
 
     private PathGeometry CreatePath()
@@ -473,7 +519,11 @@ public sealed class CompositionLineGeometry : CompositionGeometry
         return path;
     }
 
-    internal override void OnTrimChanged() => _path = null;
+    internal override void OnTrimChanged()
+    {
+        _path = null;
+        _pathCache = null;
+    }
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]

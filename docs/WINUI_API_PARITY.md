@@ -1554,6 +1554,39 @@ sources recorded in
 No Microsoft or foreign renderer implementation body was inspected, copied,
 or adapted.
 
+### Composition retained WebGPU paths and rounded rectangles
+
+The next primary slice adds exact `IGeometrySource2D`, `CompositionPath`,
+`CompositionPathGeometry`, `CompositionRoundedRectangleGeometry`, and
+corresponding `Compositor` factory contracts. All 15 selected declarations
+match the pinned official metadata with no selected missing or ProGPU-only
+entries. The report advances to 8,717 candidate declarations, 4,931 exact
+matches, 11,648 missing declarations, and the unchanged 3,786 existing extras.
+
+`ProGPU.Vector.PathGeometry` is the built-in typed geometry source. Constructing
+a `CompositionPath` takes one immutable deep snapshot, so later caller
+mutation cannot alter retained pixels. Full path geometry reuses that source
+and its `RenderCommandGeometryCache`; full rounded rectangles remain one
+analytic WebGPU command. Trimmed paths and rounded rectangles use bounded
+cumulative-length evidence only to locate trim parameters, then emit exact
+line, De Casteljau quadratic/cubic, and analytic elliptical-arc sub-segments.
+There is no polyline rendering fallback, CPU bitmap, readback, new shader,
+surface, render pass, runtime reflection, native-handle probe, or external
+dependency.
+
+Snapshot preparation is `O(S*K)` bounded time/storage for `S` source segments
+and at most `K=128` samples per curved segment. A changed trim is
+`O(S log K)` and stable replay is retained. Focused tests cover defaults,
+factories, source ownership, unsupported provider failure, full and trimmed
+WebGPU pixels, wrapped trim offset, line/quadratic/cubic/arc preservation,
+invalidation, compiled-scene reuse, and exactly zero managed allocations over
+10,000 warmed mixed path/shape updates. The clean-room primary-source and
+cross-engine record is in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+The built-in provider explicitly rejects ProGPU's internal boolean-combined
+path representation until its Composition trim semantics are defined; this
+boundary never silently substitutes empty or flattened output.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

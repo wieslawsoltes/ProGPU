@@ -38,6 +38,16 @@ implementation was inspected, copied, translated, or adapted.
 - [CompositionViewBox](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionviewbox)
   and [CompositionViewBox.Stretch](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionviewbox.stretch)
   define source bounds, stretch policy, and alignment for a `ShapeVisual`.
+- [Windows.Graphics](https://learn.microsoft.com/en-us/uwp/api/windows.graphics)
+  defines `IGeometrySource2D` as the marker that allows a typed geometry
+  provider to become Composition path data.
+- [CompositionPath](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionpath)
+  defines an immutable path-data wrapper over `IGeometrySource2D`, while
+  [CompositionPathGeometry.Path](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionpathgeometry.path)
+  supplies those connected lines and curves to a mutable retained geometry.
+- [CompositionRoundedRectangleGeometry](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionroundedrectanglegeometry)
+  defines retained size, offset, corner radius, and inherited trim state for a
+  rounded rectangle.
 - [Direct2D resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains)
   separates reusable CPU descriptions from device-owned GPU resources.
 - [Direct2D performance guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance)
@@ -80,7 +90,7 @@ implementation was inspected, copied, translated, or adapted.
 | --- | --- | --- |
 | Startup and lazy initialization | WinUI composition creates lightweight retained objects; Direct2D and WebGPU defer device resources to their owning device. | Constructing a public `Compositor`, visual, brush, or property set creates no `WgpuContext`, shader, pipeline, texture, or buffer. A host initializes WebGPU only when it renders. |
 | Retained scene reuse | WinUI/DirectComposition retain visual identity; WebRender, Vello, and `SkPicture` retain scene or command identity. | Each public composition `Visual` owns one stable `ProGPU.Scene.ContainerVisual`. A color sprite records one immutable-until-invalidated rectangle command and uses the existing compiled-scene and incremental-page caches. No second renderer or display list is introduced. |
-| Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses and rectangles remain analytic commands; trimmed lines, ellipses, and rectangles retain bounded path objects. No per-shape surface, pass, texture, or bitmap is created. |
+| Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, path-data, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses, rectangles, and rounded rectangles remain analytic commands. A `CompositionPath` snapshots typed ProGPU lines, quadratics, cubics, and arcs once; path and rounded-rectangle trims retain exact sub-segments selected from bounded length tables. Geometry-cache identity is retained with every source/trimmed path. No per-shape surface, pass, texture, or bitmap is created. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
 | Demand-driven upload | Direct2D recommends resource reuse; WebRender uploads demanded resources after visibility analysis. | A solid sprite contributes one ordinary retained rectangle. Existing dirty-range scene uploads write only changed GPU buffer ranges. Color changes invalidate owners but do not allocate or upload an intermediate CPU bitmap. |
@@ -105,6 +115,9 @@ Adopted:
 - retained shape/container collections, same-compositor reparenting and cycle
   rejection, independent shape transforms, geometry trim state, sprite fill
   and stroke state, and view-box stretch/alignment.
+- `IGeometrySource2D`, immutable `CompositionPath` snapshots,
+  `CompositionPathGeometry`, analytic `CompositionRoundedRectangleGeometry`,
+  and the exact associated compositor factories and properties.
 
 Adapted:
 
@@ -129,6 +142,9 @@ Rejected:
 - one native surface, render pass, texture, or CPU bitmap per sprite;
 - sampled polyline approximations for ellipse and rectangle trims when an
   exact retained arc or bounded corner path is available;
+- flattening trimmed quadratic, cubic, or elliptical-arc output into a sampled
+  polyline: bounded samples estimate distance only, while emitted geometry
+  remains an exact De Casteljau or analytic arc sub-segment;
 - polling parent sizes each frame, runtime reflection, boxed drawing-context
   adapters, and unconditional root invalidation;
 - copying Microsoft projection code or any Skia, WebRender, Vello, Parley, or
@@ -161,6 +177,12 @@ Rejected:
   live owners. Dash snapshots allocate `O(D)` only after dash-list mutation;
   warmed transform and color mutations reuse retained command-list capacity
   and allocate no managed memory.
+- Creating a `CompositionPath` snapshots `S` retained segments and builds at
+  most `K=128` cumulative-length samples per curved segment: `O(S*K)` bounded
+  time/storage once. A trim rebuild is `O(S log K)` and emits exact line,
+  quadratic, cubic, or arc sub-segments. Stable replay retains both path and
+  `RenderCommandGeometryCache`; path replacement, shape transforms, and
+  rounded-rectangle property updates are allocation-free after warmup.
 
 ## Current validation and explicit boundary
 
@@ -177,7 +199,22 @@ pixels, nested transforms, shared brush invalidation, compiled-scene reuse,
 view-box stretch/alignment, trimmed-line output, and exactly zero managed
 allocations across 10,000 warmed shape-transform/color updates.
 
-This is not full Composition parity. Path and rounded-rectangle geometries,
-clips, shadows, effects, surfaces/external textures, animations, interaction
+The path/rounded-rectangle slice additionally covers exact pinned factories,
+defaults and marker interfaces; immutable source snapshots; explicit failure
+for an unregistered external marker implementation; full analytic rounded
+rectangle pixels; trimmed rounded-corner arcs and trim-offset invalidation;
+line, quadratic, cubic, and elliptical-arc path trimming; compiled-scene
+reuse; and exactly zero managed allocations across 10,000 warmed mixed path,
+rounded-rectangle, trimmed line, trimmed ellipse, and trimmed rectangle
+updates. Distance sampling is bounded and never replaces the exact emitted
+curve. The current built-in typed provider is `ProGPU.Vector.PathGeometry`;
+future external geometry providers require an explicit reviewed typed adapter
+instead of reflection or native-handle probing. ProGPU's internal
+boolean-combined path representation is rejected explicitly until a typed
+adapter defines its Composition trim semantics; it never degrades to empty or
+flattened output.
+
+This is not full Composition parity. Clips, shadows, effects,
+surfaces/external textures, animations, interaction
 tracking, projected shadows, and lighting remain missing until each has a real
 typed WebGPU implementation and its own correctness/performance gate.

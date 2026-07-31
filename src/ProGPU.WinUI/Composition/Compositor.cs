@@ -59,6 +59,20 @@ public sealed class Compositor : IDisposable
         return new CompositionLineGeometry(this);
     }
 
+    public CompositionPathGeometry CreatePathGeometry()
+    {
+        ThrowIfDisposed();
+        return new CompositionPathGeometry(this);
+    }
+
+    public CompositionPathGeometry CreatePathGeometry(
+        CompositionPath path)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(path);
+        return new CompositionPathGeometry(this, path);
+    }
+
     public CompositionPropertySet CreatePropertySet()
     {
         ThrowIfDisposed();
@@ -69,6 +83,13 @@ public sealed class Compositor : IDisposable
     {
         ThrowIfDisposed();
         return new CompositionRectangleGeometry(this);
+    }
+
+    public CompositionRoundedRectangleGeometry
+        CreateRoundedRectangleGeometry()
+    {
+        ThrowIfDisposed();
+        return new CompositionRoundedRectangleGeometry(this);
     }
 
     public ShapeVisual CreateShapeVisual()

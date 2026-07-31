@@ -3,8 +3,11 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
 using ProGPU.Tests.Headless;
+using ProGPU.Vector;
+using Windows.Graphics;
 using Windows.UI;
 using Xunit;
+using Color = Windows.UI.Color;
 
 namespace ProGPU.Tests;
 
@@ -456,6 +459,340 @@ public sealed class WinUiCompositionTests
         }
     }
 
+    [Fact]
+    public void PathAndRoundedRectangleFactoriesPreserveTypedContracts()
+    {
+        using var compositor = new Compositor();
+        CompositionPathGeometry empty =
+            compositor.CreatePathGeometry();
+        CompositionRoundedRectangleGeometry rounded =
+            compositor.CreateRoundedRectangleGeometry();
+
+        Assert.Null(empty.Path);
+        Assert.Equal(Vector2.Zero, rounded.CornerRadius);
+        Assert.Equal(Vector2.Zero, rounded.Offset);
+        Assert.Equal(Vector2.Zero, rounded.Size);
+
+        PathGeometry source = PrimitivePathGeometry.CreateRectangle(
+            1f,
+            2f,
+            3f,
+            4f);
+        var path = new CompositionPath(source);
+        CompositionPathGeometry initialized =
+            compositor.CreatePathGeometry(path);
+        Assert.Same(path, initialized.Path);
+        Assert.IsAssignableFrom<IGeometrySource2D>(path);
+        Assert.IsAssignableFrom<IGeometrySource2D>(source);
+
+        Assert.Throws<ArgumentNullException>(
+            () => compositor.CreatePathGeometry(null!));
+        Assert.Throws<NotSupportedException>(
+            () => new CompositionPath(new UnknownGeometrySource()));
+        Assert.Throws<NotSupportedException>(
+            () => new CompositionPath(new PathGeometry
+            {
+                IsCombined = true,
+                PathA = source,
+                PathB = source
+            }));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => rounded.CornerRadius = new Vector2(-1f, 2f));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => rounded.Size = new Vector2(float.NaN, 2f));
+    }
+
+    [Fact]
+    public void PathAndRoundedRectangleRenderAndInvalidateThroughWebGpu()
+    {
+        using var window = new HeadlessWindow(96, 64);
+        var host = new FrameworkElement
+        {
+            Width = 96f,
+            Height = 64f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(96f, 64f);
+
+            CompositionRoundedRectangleGeometry rounded =
+                compositor.CreateRoundedRectangleGeometry();
+            rounded.Offset = new Vector2(8f, 8f);
+            rounded.Size = new Vector2(32f, 24f);
+            rounded.CornerRadius = new Vector2(8f, 8f);
+            CompositionSpriteShape roundedShape =
+                compositor.CreateSpriteShape(rounded);
+            roundedShape.FillBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+
+            var source = new PathGeometry();
+            var figure = new PathFigure(new Vector2(50f, 42f))
+            {
+                IsFilled = false
+            };
+            var sourceLine = new LineSegment(new Vector2(90f, 42f));
+            figure.Segments.Add(sourceLine);
+            source.Figures.Add(figure);
+            var path = new CompositionPath(source);
+            CompositionPathGeometry pathGeometry =
+                compositor.CreatePathGeometry(path);
+            pathGeometry.TrimStart = 0.25f;
+            pathGeometry.TrimEnd = 0.75f;
+            CompositionSpriteShape pathShape =
+                compositor.CreateSpriteShape(pathGeometry);
+            pathShape.StrokeBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            pathShape.StrokeThickness = 4f;
+
+            sourceLine.Point = new Vector2(52f, 42f);
+            visual.Shapes.Add(roundedShape);
+            visual.Shapes.Add(pathShape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+            window.Render();
+
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 8, 8));
+            AssertRed(ReadPixel(pixels, window.Width, 24, 20));
+            AssertDark(ReadPixel(pixels, window.Width, 54, 42));
+            AssertBlue(ReadPixel(pixels, window.Width, 70, 42));
+            AssertDark(ReadPixel(pixels, window.Width, 86, 42));
+
+            rounded.CornerRadius = Vector2.Zero;
+            pathGeometry.Path = null;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 8, 8));
+            AssertDark(ReadPixel(pixels, window.Width, 70, 42));
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void TrimmedRoundedRectangleUsesRetainedExactArcSegments()
+    {
+        using var window = new HeadlessWindow(56, 48);
+        var host = new FrameworkElement
+        {
+            Width = 56f,
+            Height = 48f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(56f, 48f);
+            CompositionRoundedRectangleGeometry rounded =
+                compositor.CreateRoundedRectangleGeometry();
+            rounded.Offset = new Vector2(8f, 8f);
+            rounded.Size = new Vector2(32f, 24f);
+            rounded.CornerRadius = new Vector2(8f, 6f);
+            rounded.TrimStart = 0f;
+            rounded.TrimEnd = 0.25f;
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(rounded);
+            shape.StrokeBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 255, 0));
+            shape.StrokeThickness = 3f;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertGreen(ReadPixel(pixels, window.Width, 24, 8));
+            AssertGreen(ReadPixel(pixels, window.Width, 36, 9));
+            AssertDark(ReadPixel(pixels, window.Width, 24, 32));
+
+            rounded.TrimOffset = 0.5f;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 24, 8));
+            AssertGreen(ReadPixel(pixels, window.Width, 24, 32));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void TrimmedCompositionPathPreservesBezierAndArcSegments()
+    {
+        using var window = new HeadlessWindow(96, 40);
+        var host = new FrameworkElement
+        {
+            Width = 96f,
+            Height = 40f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(96f, 40f);
+            var source = new PathGeometry();
+
+            var quadratic = new PathFigure(new Vector2(4f, 24f))
+            {
+                IsFilled = false
+            };
+            quadratic.Segments.Add(
+                new QuadraticBezierSegment(
+                    new Vector2(16f, 4f),
+                    new Vector2(28f, 24f)));
+            source.Figures.Add(quadratic);
+
+            var cubic = new PathFigure(new Vector2(34f, 24f))
+            {
+                IsFilled = false
+            };
+            cubic.Segments.Add(
+                new CubicBezierSegment(
+                    new Vector2(40f, 4f),
+                    new Vector2(52f, 36f),
+                    new Vector2(58f, 16f)));
+            source.Figures.Add(cubic);
+
+            var arc = new PathFigure(new Vector2(64f, 24f))
+            {
+                IsFilled = false
+            };
+            arc.Segments.Add(
+                new ArcSegment(
+                    new Vector2(88f, 24f),
+                    new Vector2(12f, 10f),
+                    0f,
+                    false,
+                    SweepDirection.Clockwise));
+            source.Figures.Add(arc);
+
+            CompositionPathGeometry geometry =
+                compositor.CreatePathGeometry(
+                    new CompositionPath(source));
+            geometry.TrimStart = 0.05f;
+            geometry.TrimEnd = 0.95f;
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(geometry);
+            shape.StrokeBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            shape.StrokeThickness = 2f;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] first = window.ReadPixels();
+            int bluePixels = 0;
+            for (int index = 0; index < first.Length; index += 4)
+            {
+                if (first[index + 2] > 150 &&
+                    first[index] < 80 &&
+                    first[index + 1] < 80)
+                {
+                    bluePixels++;
+                }
+            }
+            Assert.True(
+                bluePixels > 50,
+                $"Expected retained curved stroke pixels, got {bluePixels}.");
+
+            geometry.TrimOffset = 0.2f;
+            window.Render();
+            byte[] shifted = window.ReadPixels();
+            Assert.False(first.SequenceEqual(shifted));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedPathAndRoundedRectangleUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        ShapeVisual visual = compositor.CreateShapeVisual();
+        CompositionRoundedRectangleGeometry rounded =
+            compositor.CreateRoundedRectangleGeometry();
+        rounded.Size = new Vector2(20f, 12f);
+        CompositionSpriteShape roundedShape =
+            compositor.CreateSpriteShape(rounded);
+        visual.Shapes.Add(roundedShape);
+
+        CompositionPath first = new(
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 8f, 8f));
+        CompositionPath second = new(
+            PrimitivePathGeometry.CreateEllipse(
+                new Vector2(4f, 4f),
+                4f,
+                4f));
+        CompositionPathGeometry path =
+            compositor.CreatePathGeometry(first);
+        CompositionSpriteShape pathShape =
+            compositor.CreateSpriteShape(path);
+        visual.Shapes.Add(pathShape);
+
+        CompositionLineGeometry line = compositor.CreateLineGeometry();
+        line.Start = Vector2.Zero;
+        line.End = new Vector2(12f, 0f);
+        line.TrimStart = 0.25f;
+        line.TrimEnd = 0.75f;
+        visual.Shapes.Add(compositor.CreateSpriteShape(line));
+
+        CompositionEllipseGeometry ellipse =
+            compositor.CreateEllipseGeometry();
+        ellipse.Center = new Vector2(4f, 4f);
+        ellipse.Radius = new Vector2(4f, 3f);
+        ellipse.TrimStart = 0.1f;
+        ellipse.TrimEnd = 0.9f;
+        visual.Shapes.Add(compositor.CreateSpriteShape(ellipse));
+
+        CompositionRectangleGeometry rectangle =
+            compositor.CreateRectangleGeometry();
+        rectangle.Size = new Vector2(8f, 6f);
+        rectangle.TrimStart = 0.1f;
+        rectangle.TrimEnd = 0.9f;
+        visual.Shapes.Add(compositor.CreateSpriteShape(rectangle));
+
+        rounded.Offset = Vector2.One;
+        rounded.Offset = Vector2.Zero;
+        path.Path = second;
+        path.Path = first;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            rounded.Offset = new Vector2(index & 1, 0f);
+            path.Path = (index & 1) == 0 ? first : second;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
     private static RgbaPixel ReadPixel(
         byte[] pixels,
         uint width,
@@ -491,4 +828,8 @@ public sealed class WinUiCompositionTests
             $"Expected dark background, got {pixel}.");
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class UnknownGeometrySource : IGeometrySource2D
+    {
+    }
 }
