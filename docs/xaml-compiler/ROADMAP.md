@@ -134,6 +134,9 @@ Already implemented:
 - typed immutable per-session runtime capability restriction for method,
   accessor, special-method, and supported insertion edits, with pre-emission
   rejection at the affected symbol;
+- an explicit immutable XAML diagnostic origin that routes coordinated rude-
+  edit and unavailable-runtime-capability failures to an exact XAML path,
+  span, and line span without retaining the caller's source text;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
 - transactional no-op/ready/rejected states plus foreign, invalid, disposed,
@@ -157,8 +160,8 @@ Remaining implementation:
 
 Required implementation:
 
-- XAML-origin routing for rude-edit diagnostics and typed unsupported-runtime
-  diagnostics where no C# source location is available;
+- automatic projection of changed stable XAML identities into the diagnostic-
+  origin contract at the project coordinator boundary;
 - host adapters that discover runtime metadata-update and dynamic-code support
   and project it into the typed capability snapshot, plus broader
   runtime-specific additions;

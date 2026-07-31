@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Text;
 
 namespace ProGPU.Xaml.Workspaces;
 
@@ -45,6 +46,46 @@ public enum RoslynXamlMetadataDeltaCommitResult
     RejectedStale,
     RejectedForeignSession,
     RejectedDisposed
+}
+
+/// <summary>
+/// Identifies the exact XAML source span that caused a coordinated metadata
+/// edit. The edit session projects only its detached Roslyn location into a
+/// rejected update and never retains the caller's source text.
+/// </summary>
+public sealed class RoslynXamlMetadataEditDiagnosticOrigin
+{
+    public RoslynXamlMetadataEditDiagnosticOrigin(
+        string path,
+        SourceText sourceText,
+        TextSpan sourceSpan)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException(
+                "A XAML diagnostic path is required.",
+                nameof(path));
+        SourceText text = sourceText ??
+            throw new ArgumentNullException(nameof(sourceText));
+        if (sourceSpan.Start < 0 ||
+            sourceSpan.End > text.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceSpan));
+        }
+
+        Path = path;
+        SourceSpan = sourceSpan;
+        LineSpan = text.Lines.GetLinePositionSpan(sourceSpan);
+    }
+
+    public string Path { get; }
+
+    public TextSpan SourceSpan { get; }
+
+    public LinePositionSpan LineSpan { get; }
+
+    internal Location CreateLocation() =>
+        Location.Create(Path, SourceSpan, LineSpan);
 }
 
 /// <summary>
@@ -240,6 +281,32 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     public RoslynXamlMetadataDeltaUpdate Prepare(
         Compilation candidate,
         CancellationToken cancellationToken = default)
+        => PrepareCore(
+            candidate,
+            diagnosticOrigin: null,
+            cancellationToken);
+
+    public RoslynXamlMetadataDeltaUpdate Prepare(
+        Compilation candidate,
+        RoslynXamlMetadataEditDiagnosticOrigin diagnosticOrigin,
+        CancellationToken cancellationToken = default)
+    {
+        if (diagnosticOrigin == null)
+        {
+            throw new ArgumentNullException(
+                nameof(diagnosticOrigin));
+        }
+
+        return PrepareCore(
+            candidate,
+            diagnosticOrigin,
+            cancellationToken);
+    }
+
+    private RoslynXamlMetadataDeltaUpdate PrepareCore(
+        Compilation candidate,
+        RoslynXamlMetadataEditDiagnosticOrigin? diagnosticOrigin,
+        CancellationToken cancellationToken)
     {
         if (candidate == null)
             throw new ArgumentNullException(nameof(candidate));
@@ -288,7 +355,10 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 baseline,
                 addedMethodKeys,
                 "assembly identity, compilation options, or metadata " +
-                "references changed");
+                "references changed",
+                GetDiagnosticLocation(
+                    diagnosticOrigin,
+                    Location.None));
         }
 
         CompilationShape previousShape =
@@ -311,9 +381,11 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 addedMethodKeys,
                 "a declaration, member signature, non-method body, or " +
                 "syntax-tree topology changed",
-                GetFirstSourceLocation(
-                    candidate,
-                    cancellationToken));
+                GetDiagnosticLocation(
+                    diagnosticOrigin,
+                    GetFirstSourceLocation(
+                        candidate,
+                        cancellationToken)));
         }
 
         foreach (string key in previousShape.Methods.Keys)
@@ -328,8 +400,10 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     baseline,
                     addedMethodKeys,
                     "the declared method set removed '" + key + "'",
-                    GetSourceLocation(
-                        previousShape.Methods[key].Symbol));
+                    GetDiagnosticLocation(
+                        diagnosticOrigin,
+                        GetSourceLocation(
+                            previousShape.Methods[key].Symbol)));
             }
             if (!string.Equals(
                     previousShape.Methods[key]
@@ -343,7 +417,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     baseline,
                     addedMethodKeys,
                     "the declaration of '" + key + "' changed",
-                    GetSourceLocation(candidateMethod.Symbol));
+                    GetDiagnosticLocation(
+                        diagnosticOrigin,
+                        GetSourceLocation(candidateMethod.Symbol)));
             }
         }
 
@@ -374,7 +450,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     addedMethodKeys,
                     "runtime capability '" + requiredCapability +
                     "' is unavailable for '" + key + "'",
-                    GetSourceLocation(newMethod.Symbol));
+                    GetDiagnosticLocation(
+                        diagnosticOrigin,
+                        GetSourceLocation(newMethod.Symbol)));
             }
 
             edits.Add(new SemanticEdit(
@@ -403,7 +481,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     "the added member '" + item.Key + "' is not a " +
                     "non-virtual ordinary method or instance " +
                     "constructor",
-                    GetSourceLocation(item.Value.Symbol));
+                    GetDiagnosticLocation(
+                        diagnosticOrigin,
+                        GetSourceLocation(item.Value.Symbol)));
             }
 
             RoslynXamlMetadataEditCapabilities requiredCapability =
@@ -421,7 +501,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     addedMethodKeys,
                     "runtime capability '" + requiredCapability +
                     "' is unavailable for '" + item.Key + "'",
-                    GetSourceLocation(item.Value.Symbol));
+                    GetDiagnosticLocation(
+                        diagnosticOrigin,
+                        GetSourceLocation(item.Value.Symbol)));
             }
 
             edits.Add(new SemanticEdit(
@@ -605,6 +687,11 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         symbol.Locations.FirstOrDefault(
             static location => location.IsInSource) ??
         Location.None;
+
+    private static Location GetDiagnosticLocation(
+        RoslynXamlMetadataEditDiagnosticOrigin? diagnosticOrigin,
+        Location fallback) =>
+        diagnosticOrigin?.CreateLocation() ?? fallback;
 
     private static RoslynXamlMetadataEditCapabilities
         GetUpdateCapability(IMethodSymbol symbol) =>

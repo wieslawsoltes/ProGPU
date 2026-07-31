@@ -230,6 +230,105 @@ public sealed class XamlMetadataDeltaSessionTests
     }
 
     [Fact]
+    public void XamlDiagnosticOriginRoutesUnsupportedMetadataEdits()
+    {
+        const string initialSource =
+            "public static class Target { " +
+            "public static int Value() => 1; }";
+        SourceText xamlText = SourceText.From(
+            "<Button\n    Width=\"120\" />",
+            System.Text.Encoding.UTF8);
+        var sourceSpan = new TextSpan(
+            xamlText.ToString().IndexOf(
+                "Width",
+                StringComparison.Ordinal),
+            "Width".Length);
+        var origin =
+            new RoslynXamlMetadataEditDiagnosticOrigin(
+                "Views/Player.xaml",
+                xamlText,
+                sourceSpan);
+
+        Assert.Equal("Views/Player.xaml", origin.Path);
+        Assert.Equal(sourceSpan, origin.SourceSpan);
+        Assert.Equal(
+            new LinePositionSpan(
+                new LinePosition(1, 4),
+                new LinePosition(1, 9)),
+            origin.LineSpan);
+
+        using var capabilitySession =
+            new RoslynXamlMetadataEditSession(
+                CreateCompilation(initialSource),
+                RoslynXamlMetadataEditCapabilities.None);
+        RoslynXamlMetadataDeltaUpdate capabilityRejected =
+            capabilitySession.Prepare(
+                CreateCompilation(
+                    "public static class Target { " +
+                    "public static int Value() => 2; }"),
+                origin);
+
+        AssertXamlDiagnosticOrigin(
+            capabilityRejected,
+            sourceSpan,
+            origin.LineSpan);
+        Assert.Contains(
+            nameof(RoslynXamlMetadataEditCapabilities.UpdateMethodBody),
+            Assert.Single(capabilityRejected.Diagnostics).GetMessage(),
+            StringComparison.Ordinal);
+
+        using var environmentSession =
+            new RoslynXamlMetadataEditSession(
+                CreateCompilation(initialSource));
+        RoslynXamlMetadataDeltaUpdate environmentRejected =
+            environmentSession.Prepare(
+                CreateCompilation(
+                    initialSource,
+                    CreateReference("1.2.3.4")),
+                origin);
+
+        AssertXamlDiagnosticOrigin(
+            environmentRejected,
+            sourceSpan,
+            origin.LineSpan);
+        Assert.Contains(
+            "metadata references changed",
+            Assert.Single(environmentRejected.Diagnostics)
+                .GetMessage(),
+            StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentException>(
+            () => new RoslynXamlMetadataEditDiagnosticOrigin(
+                " ",
+                xamlText,
+                sourceSpan));
+        Assert.Throws<ArgumentNullException>(
+            () => capabilitySession.Prepare(
+                CreateCompilation(initialSource),
+                diagnosticOrigin: null!));
+    }
+
+    private static void AssertXamlDiagnosticOrigin(
+        RoslynXamlMetadataDeltaUpdate update,
+        TextSpan sourceSpan,
+        LinePositionSpan lineSpan)
+    {
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+            update.Status);
+        Diagnostic diagnostic = Assert.Single(update.Diagnostics);
+        Assert.Equal("PGXAML8010", diagnostic.Id);
+        Assert.Equal(sourceSpan, diagnostic.Location.SourceSpan);
+        FileLinePositionSpan actual =
+            diagnostic.Location.GetLineSpan();
+        Assert.Equal("Views/Player.xaml", actual.Path);
+        Assert.Equal(lineSpan, actual.Span);
+        Assert.Empty(update.MetadataDelta);
+        Assert.Empty(update.IlDelta);
+        Assert.Empty(update.PdbDelta);
+    }
+
+    [Fact]
     public void PropertyAndIndexerAccessorBodiesProduceMethodDeltas()
     {
         using var session = new RoslynXamlMetadataEditSession(
