@@ -240,6 +240,19 @@ public sealed class RoslynXamlCompilationInspectionService
                         nameValue.SourceSpan,
                         nameValue.StableId);
                     break;
+                case XamlBoundEventHandler eventHandler:
+                    projection.Add(
+                        XamlInspectionEntryKind.BoundValue,
+                        frame.Depth,
+                        "EventHandler " +
+                        eventHandler.RequestedName,
+                        eventHandler.Method?.ToDisplayString(
+                            SymbolDisplayFormat
+                                .FullyQualifiedFormat) ??
+                        "<unresolved>",
+                        eventHandler.SourceSpan,
+                        eventHandler.StableId);
+                    break;
                 case XamlBoundBinding bindingValue:
                     projection.Add(
                         XamlInspectionEntryKind.BoundValue,
@@ -421,6 +434,17 @@ public sealed class RoslynXamlCompilationInspectionService
                     break;
                 case XamlIrNameReference nameValue:
                     AddIrValue(projection, frame, "NameReference", nameValue.Name);
+                    break;
+                case XamlIrEventHandler eventHandler:
+                    AddIrValue(
+                        projection,
+                        frame,
+                        "EventHandler",
+                        eventHandler.Value.Method
+                            ?.ToDisplayString(
+                                SymbolDisplayFormat
+                                    .FullyQualifiedFormat) ??
+                        eventHandler.Value.RequestedName);
                     break;
                 case XamlIrBinding bindingValue:
                     AddIrValue(

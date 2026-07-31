@@ -104,6 +104,15 @@ public sealed class XamlIrNameReference : XamlIrValue
     public string Name { get; }
 }
 
+public sealed class XamlIrEventHandler : XamlIrValue
+{
+    public XamlIrEventHandler(XamlBoundEventHandler value)
+        : base(value?.SourceSpan ?? default, value?.StableId ?? 0) =>
+        Value = value!;
+
+    public XamlBoundEventHandler Value { get; }
+}
+
 public sealed class XamlIrCompiledBinding : XamlIrValue
 {
     public XamlIrCompiledBinding(XamlBoundCompiledBinding binding, XamlIrObject extension)
@@ -317,6 +326,7 @@ public sealed class XamlConstructionLowerer
                     XamlBoundStaticMemberValue staticValue => new XamlIrStaticMember(staticValue),
                     XamlBoundFactoryMethodValue factoryValue => new XamlIrFactoryMethod(factoryValue),
                     XamlBoundNameReferenceValue referenceValue => new XamlIrNameReference(referenceValue),
+                    XamlBoundEventHandler eventHandler => new XamlIrEventHandler(eventHandler),
                     XamlBoundCompiledBinding compiledBinding => new XamlIrCompiledBinding(
                         compiledBinding,
                         LowerObject(

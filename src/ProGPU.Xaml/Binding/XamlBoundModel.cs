@@ -157,6 +157,41 @@ public sealed class XamlBoundNameReferenceValue : XamlBoundValue
     public string Name { get; }
 }
 
+/// <summary>
+/// A code-behind event handler selected against the exact event delegate during
+/// semantic binding. Failed selection remains explicit diagnostic evidence.
+/// </summary>
+public sealed class XamlBoundEventHandler : XamlBoundValue
+{
+    public XamlBoundEventHandler(
+        string requestedName,
+        IEventSymbol eventSymbol,
+        IMethodSymbol delegateInvokeMethod,
+        IMethodSymbol? method,
+        Diagnostic? diagnostic,
+        TextSpan sourceSpan,
+        ulong stableId)
+        : base(sourceSpan, stableId)
+    {
+        RequestedName = requestedName ??
+            throw new ArgumentNullException(nameof(requestedName));
+        EventSymbol = eventSymbol ??
+            throw new ArgumentNullException(nameof(eventSymbol));
+        DelegateInvokeMethod = delegateInvokeMethod ??
+            throw new ArgumentNullException(
+                nameof(delegateInvokeMethod));
+        Method = method;
+        Diagnostic = diagnostic;
+    }
+
+    public string RequestedName { get; }
+    public IEventSymbol EventSymbol { get; }
+    public IMethodSymbol DelegateInvokeMethod { get; }
+    public IMethodSymbol? Method { get; }
+    public Diagnostic? Diagnostic { get; }
+    public bool IsError => Method == null;
+}
+
 public enum XamlCompiledBindingMode
 {
     Default,

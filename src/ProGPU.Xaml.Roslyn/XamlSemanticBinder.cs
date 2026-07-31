@@ -777,6 +777,12 @@ public sealed class XamlSemanticBinder
                              "System.Type",
                              StringComparison.Ordinal))
                     values.Add(BindTypeValue(text, parentObject));
+                else if (memberReference.Symbol?.Kind ==
+                         XamlMemberKind.Event &&
+                         _rootClassType != null)
+                    values.Add(BindEventHandlerValue(
+                        text,
+                        memberReference.Symbol));
                 else
                     values.Add(BindTextValue(text, memberReference, parentType));
             }
@@ -2568,6 +2574,155 @@ public sealed class XamlSemanticBinder
             text.SourceSpan,
             "7.3.17");
         return new XamlBoundFactoryMethodValue(null, raw, diagnostic, text.SourceSpan, text.StableId);
+    }
+
+    private XamlBoundValue BindEventHandlerValue(
+        XamlInfosetText text,
+        XamlMemberInfo member)
+    {
+        var requestedName = text.Text.Trim();
+        if (member.Symbol is not IEventSymbol eventSymbol ||
+            eventSymbol.Type is not INamedTypeSymbol delegateType ||
+            delegateType.DelegateInvokeMethod is not
+                { } delegateInvokeMethod)
+        {
+            Error(
+                "PGXAML2084",
+                $"Event '{member.Name}' does not expose a usable delegate signature.",
+                text.SourceSpan,
+                "6.2.1.2");
+            return new XamlBoundText(
+                requestedName,
+                text.IsCData,
+                text.SourceSpan,
+                text.StableId);
+        }
+
+        IMethodSymbol? selected =
+            ResolveCodeBehindEventHandler(
+                _rootClassType!.Symbol,
+                requestedName,
+                delegateInvokeMethod,
+                out var compatibleCount);
+        Diagnostic? diagnostic = null;
+        if (selected == null)
+        {
+            var reason = compatibleCount > 1
+                ? "is ambiguous"
+                : "was not found or does not match the event delegate";
+            diagnostic = Error(
+                "PGXAML2084",
+                $"Code-behind event handler '{requestedName}' {reason} '{eventSymbol.Type.ToDisplayString()}'.",
+                text.SourceSpan,
+                "6.2.1.2");
+        }
+
+        return new XamlBoundEventHandler(
+            requestedName,
+            eventSymbol,
+            delegateInvokeMethod,
+            selected,
+            diagnostic,
+            text.SourceSpan,
+            text.StableId);
+    }
+
+    private IMethodSymbol? ResolveCodeBehindEventHandler(
+        ITypeSymbol rootType,
+        string methodName,
+        IMethodSymbol delegateInvokeMethod,
+        out int compatibleCount)
+    {
+        compatibleCount = 0;
+        if (rootType is not INamedTypeSymbol named ||
+            string.IsNullOrWhiteSpace(methodName))
+        {
+            return null;
+        }
+
+        var candidates = new List<IMethodSymbol>();
+        for (var current = named;
+             current != null;
+             current = current.BaseType)
+        {
+            var declared = current.GetMembers(methodName)
+                .OfType<IMethodSymbol>()
+                .Where(method =>
+                    method.MethodKind == MethodKind.Ordinary &&
+                    IsAccessibleFromGeneratedClass(method))
+                .ToArray();
+            if (declared.Length == 0)
+                continue;
+            candidates.AddRange(declared);
+            break;
+        }
+
+        var compatible =
+            new List<IMethodSymbol>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            if (candidate.IsStatic ||
+                candidate.IsGenericMethod ||
+                !candidate.ReturnsVoid ||
+                candidate.Parameters.Length !=
+                    delegateInvokeMethod.Parameters.Length)
+            {
+                continue;
+            }
+
+            var isCompatible = true;
+            for (var index = 0;
+                 index < candidate.Parameters.Length;
+                 index++)
+            {
+                IParameterSymbol source =
+                    delegateInvokeMethod.Parameters[index];
+                IParameterSymbol target =
+                    candidate.Parameters[index];
+                if (source.RefKind != target.RefKind ||
+                    !_typeSystem.IsAssignable(
+                        source.Type,
+                        target.Type))
+                {
+                    isCompatible = false;
+                    break;
+                }
+            }
+
+            if (isCompatible)
+                compatible.Add(candidate);
+        }
+
+        compatibleCount = compatible.Count;
+        if (compatible.Count == 1)
+            return compatible[0];
+
+        IMethodSymbol? exact = null;
+        foreach (var candidate in compatible)
+        {
+            var isExact = true;
+            for (var index = 0;
+                 index < candidate.Parameters.Length;
+                 index++)
+            {
+                if (!SymbolEqualityComparer.Default.Equals(
+                        candidate.Parameters[index].Type,
+                        delegateInvokeMethod.Parameters[index]
+                            .Type))
+                {
+                    isExact = false;
+                    break;
+                }
+            }
+
+            if (!isExact)
+                continue;
+            if (exact != null)
+                return null;
+            exact = candidate;
+        }
+
+        return exact;
     }
 
     private static bool IsIntrinsicPositionalMember(

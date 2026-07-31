@@ -2,6 +2,7 @@ using System.Text;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using ProGPU.Xaml.Binding;
@@ -17,6 +18,95 @@ namespace ProGPU.Xaml.Tests;
 
 public sealed class XamlGeneratorHarnessTests
 {
+    [Fact]
+    public void OrdinaryEventHandlerCompilesAsDirectTypedSubscription()
+    {
+        // SEM-035, TST-078
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute {
+    public string? Name { get; set; }
+  }
+}
+namespace Microsoft.UI.Xaml.HotReload {
+  public interface IHotReloadable { void Reload(HotReloadContext context); }
+  public sealed class HotReloadContext { }
+}
+namespace Microsoft.UI.Xaml {
+  public class FrameworkElement { }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  public class Page : Microsoft.UI.Xaml.FrameworkElement {
+    public object? Content { get; set; }
+  }
+  public class Button : Microsoft.UI.Xaml.FrameworkElement {
+    public event System.EventHandler? Click;
+  }
+}
+namespace Demo {
+  public partial class MainPage : Microsoft.UI.Xaml.Controls.Page {
+    private void OnClick(object? sender, System.EventArgs args) { }
+  }
+}
+""";
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <Page.Content>
+    <Button Click="OnClick" />
+  </Page.Content>
+</Page>
+""";
+        var compilation = CSharpCompilation.Create(
+            "OrdinaryEventHarness",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            generators: new[]
+            {
+                new ProGpuXamlSourceGenerator().AsSourceGenerator()
+            },
+            additionalTexts: new AdditionalText[]
+            {
+                new InMemoryAdditionalText("MainPage.xaml", xaml)
+            },
+            parseOptions: CSharpParseOptions.Default);
+
+        driver = driver.RunGeneratorsAndUpdateCompilation(
+            compilation,
+            out var output,
+            out var generatorDiagnostics);
+
+        Assert.DoesNotContain(
+            generatorDiagnostics,
+            diagnostic => diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        Assert.DoesNotContain(
+            output.GetDiagnostics(),
+            diagnostic => diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var generated = Assert.Single(
+            Assert.Single(driver.GetRunResult().Results)
+                .GeneratedSources);
+        var subscription = Assert.Single(
+            generated.SyntaxTree.GetRoot().DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>(),
+            assignment => assignment.IsKind(
+                SyntaxKind.AddAssignmentExpression));
+        Assert.Equal("this.OnClick", subscription.Right.ToString());
+        Assert.DoesNotContain(
+            generated.SyntaxTree.GetRoot().DescendantNodes()
+                .OfType<InvocationExpressionSyntax>(),
+            invocation =>
+                invocation.Expression.ToString().Contains(
+                    "Reflection",
+                    StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ConditionalWinUiAttributeEmitsStructuredRuntimeIfStatement()
     {

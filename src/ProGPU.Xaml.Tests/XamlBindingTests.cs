@@ -1039,6 +1039,252 @@ namespace Demo {
     }
 
     [Fact]
+    public void OrdinaryEventHandlerRetainsExactSymbolsThroughEmission()
+    {
+        // SEM-035, TST-078
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.EventPage">
+  <Button Click="OnClick" />
+</Page>
+""";
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        private void OnClick(object? sender, System.EventArgs args) { }
+        private void OnClick(object? sender, object args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var bound = new XamlSemanticBinder().Bind(
+            Convert(xaml),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+
+        Assert.DoesNotContain(
+            bound.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var handler = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundEventHandler>());
+        Assert.Equal("Click", handler.EventSymbol.Name);
+        Assert.Equal("Invoke", handler.DelegateInvokeMethod.Name);
+        Assert.Equal("OnClick", handler.Method?.Name);
+        Assert.Equal(Accessibility.Private, handler.Method?.DeclaredAccessibility);
+        Assert.Equal(
+            "System.EventArgs",
+            handler.Method?.Parameters[1].Type.ToDisplayString());
+        Assert.False(handler.IsError);
+
+        var program = new XamlConstructionLowerer().Lower(bound);
+        var irHandler = Assert.Single(
+            DescendantIrValues(program.Root).OfType<XamlIrEventHandler>());
+        Assert.Same(handler, irHandler.Value);
+
+        var emitted = new CSharpXamlEmitter().Emit(
+            Convert(xaml),
+            typeSystem,
+            profile,
+            new XamlCompilerOptions { Strict = false });
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var generatedTree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        var subscription = Assert.Single(
+            generatedTree.GetRoot().DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>(),
+            assignment => assignment.IsKind(
+                SyntaxKind.AddAssignmentExpression));
+        Assert.Equal("this.OnClick", subscription.Right.ToString());
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(generatedTree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+        var sourceInspection = new XamlDocumentInspectionService().Inspect(
+            SourceText.From(xaml),
+            "EventPage.xaml");
+        var inspection =
+            new RoslynXamlCompilationInspectionService().Inspect(
+                sourceInspection,
+                typeSystem,
+                profile,
+                new RoslynXamlCompilationInspectionOptions
+                {
+                    CompilerOptions = new XamlCompilerOptions
+                    {
+                        Strict = false
+                    }
+                });
+        Assert.Contains(
+            inspection.Bound.Entries,
+            entry =>
+                entry.Kind == XamlInspectionEntryKind.BoundValue &&
+                entry.Name == "EventHandler OnClick" &&
+                entry.Value.Contains(
+                    "OnClick",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            inspection.Ir.Entries,
+            entry =>
+                entry.Kind == XamlInspectionEntryKind.IrValue &&
+                entry.Name == "EventHandler" &&
+                entry.Value.Contains(
+                    "OnClick",
+                    StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("private static void OnClick(object? sender, System.EventArgs args) { }")]
+    [InlineData("private void OnClick<T>(object? sender, System.EventArgs args) { }")]
+    [InlineData("private int OnClick(object? sender, System.EventArgs args) => 0;")]
+    [InlineData("private void OnClick(object? sender) { }")]
+    [InlineData("private void OnClick(ref object? sender, System.EventArgs args) { }")]
+    public void OrdinaryEventHandlerRejectsUnusableCodeBehindMethod(
+        string method)
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText($$"""
+namespace Demo
+{
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        {{method}}
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var bound = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.EventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            new RoslynXamlTypeSystem(compilation, profile),
+            new XamlSemanticBindingOptions { Strict = false });
+
+        var diagnostic = Assert.Single(
+            bound.Diagnostics,
+            item => item.Id == "PGXAML2084");
+        var handler = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundEventHandler>());
+        Assert.Null(handler.Method);
+        Assert.Same(diagnostic, handler.Diagnostic);
+        Assert.True(handler.IsError);
+    }
+
+    [Fact]
+    public void OrdinaryEventHandlerRejectsAmbiguousCompatibleOverloads()
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public delegate void StringEventHandler(string sender, System.EventArgs args);
+    public class EventButton : Microsoft.UI.Xaml.Controls.Button
+    {
+        public event StringEventHandler? Custom;
+    }
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        private void OnCustom(object sender, System.EventArgs args) { }
+        private void OnCustom(System.IComparable sender, System.EventArgs args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var bound = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.EventPage">
+  <local:EventButton Custom="OnCustom" />
+</Page>
+"""),
+            new RoslynXamlTypeSystem(compilation, profile),
+            new XamlSemanticBindingOptions { Strict = false });
+
+        Assert.Contains(bound.Diagnostics, item => item.Id == "PGXAML2084");
+        Assert.True(
+            Assert.Single(
+                DescendantValues(bound.Root)
+                    .OfType<XamlBoundEventHandler>())
+                .IsError);
+    }
+
+    [Fact]
+    public void OrdinaryEventHandlerHonorsAccessibleTypeLayerNameHiding()
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public class EventPageBase : Microsoft.UI.Xaml.Controls.Page
+    {
+        protected void OnClick(object? sender, System.EventArgs args) { }
+    }
+    public partial class InheritedEventPage : EventPageBase { }
+    public partial class ShadowedEventPage : EventPageBase
+    {
+        private static void OnClick(object? sender, System.EventArgs args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+
+        var inherited = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.InheritedEventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+        var inheritedHandler = Assert.Single(
+            DescendantValues(inherited.Root)
+                .OfType<XamlBoundEventHandler>());
+        Assert.Equal(
+            "EventPageBase",
+            inheritedHandler.Method?.ContainingType.Name);
+        Assert.DoesNotContain(
+            inherited.Diagnostics,
+            item => item.Id == "PGXAML2084");
+
+        var shadowed = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.ShadowedEventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+        Assert.Contains(
+            shadowed.Diagnostics,
+            item => item.Id == "PGXAML2084");
+        Assert.Null(
+            Assert.Single(
+                DescendantValues(shadowed.Root)
+                    .OfType<XamlBoundEventHandler>())
+                .Method);
+    }
+
+    [Fact]
     public void DeferredTemplateContentCreatesIndependentNameScopes()
     {
         const string xaml = """

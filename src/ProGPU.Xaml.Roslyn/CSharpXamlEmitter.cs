@@ -2049,6 +2049,33 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 _hasCompiledBindings = true;
                 return;
             }
+
+            var boundHandler = operation.Values
+                .OfType<XamlIrEventHandler>()
+                .SingleOrDefault();
+            if (boundHandler != null)
+            {
+                if (boundHandler.Value.Method == null)
+                    return;
+
+                var typedHandler = MemberAccess(
+                    SyntaxFactory.ThisExpression(),
+                    boundHandler.Value.Method.Name);
+                AddStatement(
+                    SyntaxFactory.ExpressionStatement(
+                        SyntaxFactory.AssignmentExpression(
+                            SyntaxKind.AddAssignmentExpression,
+                            MemberAccess(
+                                ownerExpression,
+                                member.CSharpName),
+                            typedHandler)),
+                    operation.SourceSpan,
+                    operation.StableId,
+                    member.Symbol,
+                    XamlProjectionKind.Event);
+                return;
+            }
+
             var handlerName = operation.Values.OfType<XamlIrText>().FirstOrDefault()?.Text;
             if (handlerName == null || !SyntaxFacts.IsValidIdentifier(handlerName))
             {
