@@ -1646,6 +1646,31 @@ The primary-source comparison, adopted/adapted/rejected decisions, resource
 bounds, and complexity record are in
 [`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
 
+### Composition retained WebGPU opacity masks
+
+The next primary slice adds the exact public `CompositionMaskBrush` type,
+`Source` and `Mask` properties, and `Compositor.CreateMaskBrush`. The pinned
+comparison adds exactly five matching declarations with no new ProGPU-only
+declaration, advancing the report to 8,854 candidate entries, 5,068 exact
+matches, 11,511 missing entries, and the unchanged 3,786 existing extras.
+
+Each mask brush retains typed source and mask brush inputs and propagates their
+changes through weak typed owners. A sprite records exactly one retained
+push/source-draw/pop sequence. Solid masks use the existing analytic WebGPU
+mask uniforms without a mask texture; gradients use the existing bounded GPU
+mask texture and gradient shader. Shape fill and stroke are scoped
+independently only when either uses a mask brush, preserving the ordinary
+single-record fast path. Unsupported nested mask inputs and cross-compositor
+inputs fail transactionally.
+
+Focused tests cover exact defaults and ownership, supported input validation,
+alpha-gradient sprite pixels, live source/mask invalidation, retained command
+count, independent shape fill/stroke masks, and exactly zero managed
+allocations across 10,000 warmed source/mask color updates. The
+primary-source comparison, cross-engine decisions, resource bounds, and
+complexity record are in
+[`WINUI_COMPOSITION_WEBGPU_RESEARCH.md`](WINUI_COMPOSITION_WEBGPU_RESEARCH.md).
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

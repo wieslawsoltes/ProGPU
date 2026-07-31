@@ -356,6 +356,231 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void MaskBrushPreservesDefaultsOwnershipAndSupportedInputs()
+    {
+        using var compositor = new Compositor();
+        CompositionMaskBrush brush = compositor.CreateMaskBrush();
+        CompositionColorBrush source = compositor.CreateColorBrush();
+        CompositionLinearGradientBrush mask =
+            compositor.CreateLinearGradientBrush();
+
+        Assert.Null(brush.Source);
+        Assert.Null(brush.Mask);
+
+        brush.Source = source;
+        brush.Mask = mask;
+        Assert.Same(source, brush.Source);
+        Assert.Same(mask, brush.Mask);
+
+        using var foreignCompositor = new Compositor();
+        Assert.Throws<InvalidOperationException>(
+            () => brush.Source = foreignCompositor.CreateColorBrush());
+        Assert.Throws<InvalidOperationException>(
+            () => brush.Mask = foreignCompositor.CreateColorBrush());
+
+        CompositionMaskBrush nested = compositor.CreateMaskBrush();
+        Assert.Throws<ArgumentException>(() => brush.Source = nested);
+        Assert.Throws<ArgumentException>(() => brush.Mask = nested);
+        Assert.Same(source, brush.Source);
+        Assert.Same(mask, brush.Mask);
+
+        brush.Mask = source;
+        brush.Source = null;
+        Assert.Null(brush.Source);
+        Assert.Same(source, brush.Mask);
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(8f, 8f);
+        visual.Brush = brush;
+        long version = visual.SceneNode.ChangeVersion;
+        source.Color = Color.FromArgb(255, 1, 2, 3);
+        Assert.True(visual.SceneNode.ChangeVersion > version);
+    }
+
+    [Fact]
+    public void MaskBrushRendersAndInvalidatesThroughRetainedWebGpuScene()
+    {
+        using var window = new HeadlessWindow(64, 28);
+        var host = new FrameworkElement
+        {
+            Width = 64f,
+            Height = 28f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            SpriteVisual visual = compositor.CreateSpriteVisual();
+            visual.Size = new Vector2(64f, 28f);
+            CompositionColorBrush source = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+            CompositionLinearGradientBrush mask =
+                compositor.CreateLinearGradientBrush();
+            CompositionColorGradientStop transparent =
+                compositor.CreateColorGradientStop(
+                    0f,
+                    Color.FromArgb(0, 255, 255, 255));
+            CompositionColorGradientStop opaque =
+                compositor.CreateColorGradientStop(
+                    1f,
+                    Color.FromArgb(255, 255, 255, 255));
+            mask.StartPoint = Vector2.Zero;
+            mask.EndPoint = Vector2.UnitX;
+            mask.ColorStops.Add(transparent);
+            mask.ColorStops.Add(opaque);
+            CompositionMaskBrush brush = compositor.CreateMaskBrush();
+            brush.Source = source;
+            brush.Mask = mask;
+            visual.Brush = brush;
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 1, 14));
+            AssertRed(ReadPixel(pixels, window.Width, 62, 14));
+            RgbaPixel middle = ReadPixel(pixels, window.Width, 32, 14);
+            Assert.True(
+                middle.R > 70 && middle.R < 210,
+                $"Expected a partially masked red pixel, got {middle}.");
+
+            source.Color = Color.FromArgb(255, 0, 255, 0);
+            opaque.Color = Color.FromArgb(0, 255, 255, 255);
+            window.Render();
+            AssertDark(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                62,
+                14));
+
+            opaque.Color = Color.FromArgb(255, 255, 255, 255);
+            window.Render();
+            AssertGreen(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                62,
+                14));
+            Assert.Equal(
+                3,
+                ((CompositionSceneNode)visual.SceneNode).RenderCommandCount);
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void ShapeFillAndStrokeUseIndependentMaskBrushScopes()
+    {
+        using var window = new HeadlessWindow(56, 40);
+        var host = new FrameworkElement
+        {
+            Width = 56f,
+            Height = 40f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(56f, 40f);
+            CompositionRectangleGeometry geometry =
+                compositor.CreateRectangleGeometry();
+            geometry.Offset = new Vector2(8f, 8f);
+            geometry.Size = new Vector2(40f, 24f);
+
+            CompositionColorBrush fillMask = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 255, 255));
+            CompositionMaskBrush fill = compositor.CreateMaskBrush();
+            fill.Source = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 0, 0));
+            fill.Mask = fillMask;
+
+            CompositionColorBrush strokeMask = compositor.CreateColorBrush(
+                Color.FromArgb(255, 255, 255, 255));
+            CompositionMaskBrush stroke = compositor.CreateMaskBrush();
+            stroke.Source = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            stroke.Mask = strokeMask;
+
+            CompositionSpriteShape shape =
+                compositor.CreateSpriteShape(geometry);
+            shape.FillBrush = fill;
+            shape.StrokeBrush = stroke;
+            shape.StrokeThickness = 4f;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertRed(ReadPixel(pixels, window.Width, 28, 20));
+            AssertBlue(ReadPixel(pixels, window.Width, 8, 20));
+
+            fillMask.Color = Color.FromArgb(0, 255, 255, 255);
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertDark(ReadPixel(pixels, window.Width, 28, 20));
+            AssertBlue(ReadPixel(pixels, window.Width, 8, 20));
+
+            strokeMask.Color = Color.FromArgb(0, 255, 255, 255);
+            window.Render();
+            AssertDark(ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                8,
+                20));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WarmedMaskBrushInputUpdatesAllocateNoManagedMemory()
+    {
+        using var compositor = new Compositor();
+        SpriteVisual visual = compositor.CreateSpriteVisual();
+        visual.Size = new Vector2(40f, 24f);
+        CompositionColorBrush source = compositor.CreateColorBrush(
+            Color.FromArgb(255, 255, 0, 0));
+        CompositionColorBrush mask = compositor.CreateColorBrush(
+            Color.FromArgb(255, 255, 255, 255));
+        CompositionMaskBrush brush = compositor.CreateMaskBrush();
+        brush.Source = source;
+        brush.Mask = mask;
+        visual.Brush = brush;
+
+        source.Color = Color.FromArgb(255, 0, 255, 0);
+        source.Color = Color.FromArgb(255, 255, 0, 0);
+        mask.Color = Color.FromArgb(0, 255, 255, 255);
+        mask.Color = Color.FromArgb(255, 255, 255, 255);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            source.Color = (index & 1) == 0
+                ? Color.FromArgb(255, 255, 0, 0)
+                : Color.FromArgb(255, 0, 255, 0);
+            mask.Color = (index & 1) == 0
+                ? Color.FromArgb(255, 255, 255, 255)
+                : Color.FromArgb(0, 255, 255, 255);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void DropShadowPreservesWinUiDefaultsOwnershipAndValidation()
     {
         using var compositor = new Compositor();

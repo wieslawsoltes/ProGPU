@@ -507,6 +507,10 @@ public class CompositionGradientBrush : CompositionBrush
         }
     }
 
+    internal override CompositionBrushInputKind InputKinds =>
+        CompositionBrushInputKind.MaskSource |
+        CompositionBrushInputKind.OpacityMask;
+
     internal override void UpdateSceneBrush(
         in Rect bounds,
         ref SceneBrush? sceneBrush)

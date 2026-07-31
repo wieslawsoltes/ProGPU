@@ -128,6 +128,12 @@ public sealed class Compositor : IDisposable
         return new CompositionLinearGradientBrush(this);
     }
 
+    public CompositionMaskBrush CreateMaskBrush()
+    {
+        ThrowIfDisposed();
+        return new CompositionMaskBrush(this);
+    }
+
     public CompositionPathGeometry CreatePathGeometry()
     {
         ThrowIfDisposed();

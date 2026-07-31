@@ -20,6 +20,14 @@ internal interface ICompositionShadowOwner
     void NotifyShadowDisposed(CompositionShadow shadow);
 }
 
+[Flags]
+internal enum CompositionBrushInputKind
+{
+    None = 0,
+    MaskSource = 1,
+    OpacityMask = 2
+}
+
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
 public class CompositionBrush : CompositionObject
 {
@@ -46,6 +54,30 @@ public class CompositionBrush : CompositionObject
     {
         sceneBrush = null;
     }
+
+    internal virtual CompositionBrushInputKind InputKinds =>
+        CompositionBrushInputKind.None;
+
+    internal virtual Brush? BeginSceneBrush(
+        DrawingContext context,
+        in Rect bounds,
+        ref Brush? sceneBrush,
+        out bool popOpacityMask)
+    {
+        UpdateSceneBrush(bounds, ref sceneBrush);
+        popOpacityMask = false;
+        return sceneBrush;
+    }
+
+    internal virtual void EndSceneBrush(
+        DrawingContext context,
+        bool popOpacityMask)
+    {
+    }
+
+    internal virtual bool RequiresSceneBrushScope => false;
+
+    internal virtual int SceneCommandOverhead => 0;
 
     internal void AddOwner(ICompositionBrushOwner owner)
     {
@@ -124,6 +156,10 @@ public sealed class CompositionColorBrush : CompositionBrush
     }
 
     internal SolidColorBrush SceneBrush { get; }
+
+    internal override CompositionBrushInputKind InputKinds =>
+        CompositionBrushInputKind.MaskSource |
+        CompositionBrushInputKind.OpacityMask;
 
     internal override void UpdateSceneBrush(
         in Rect bounds,
@@ -882,16 +918,26 @@ internal sealed class CompositionSceneNode :
         if (Owner is SpriteVisual { Brush: { } brush } &&
             Size.X > 0f && Size.Y > 0f)
         {
-            brush.UpdateSceneBrush(
-                new Rect(0f, 0f, Size.X, Size.Y),
-                ref _sceneBrush);
-            _commands.EnsureCommandCapacity(1);
-            if (_sceneBrush is not null)
+            var bounds = new Rect(0f, 0f, Size.X, Size.Y);
+            _commands.EnsureCommandCapacity(1 + brush.SceneCommandOverhead);
+            Brush? sceneBrush = brush.BeginSceneBrush(
+                _commands,
+                bounds,
+                ref _sceneBrush,
+                out bool popOpacityMask);
+            try
             {
-                _commands.DrawRectangle(
-                    _sceneBrush,
-                    null,
-                    new Rect(0f, 0f, Size.X, Size.Y));
+                if (sceneBrush is not null)
+                {
+                    _commands.DrawRectangle(
+                        sceneBrush,
+                        null,
+                        bounds);
+                }
+            }
+            finally
+            {
+                brush.EndSceneBrush(_commands, popOpacityMask);
             }
         }
         else if (Owner is ShapeVisual shapeVisual)

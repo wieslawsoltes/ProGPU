@@ -854,32 +854,17 @@ public sealed class CompositionSpriteShape : CompositionShape,
 
         Matrix3x2 transform2D = GetTransform(parentTransform);
         Matrix4x4 transform = ToMatrix4x4(transform2D);
-        _fillBrush?.UpdateSceneBrush(brushBounds, ref _fillSceneBrush);
-        Brush? fill = _fillBrush is null ? null : _fillSceneBrush;
-        Pen? stroke = null;
-        _strokeBrush?.UpdateSceneBrush(brushBounds, ref _strokeSceneBrush);
-        if (_strokeSceneBrush is not null && _strokeThickness > 0f)
+        if ((_fillBrush?.RequiresSceneBrushScope ?? false) ||
+            (_strokeBrush?.RequiresSceneBrushScope ?? false))
         {
-            _strokePen.Brush = _strokeSceneBrush;
-            _strokePen.Thickness = _isStrokeNonScaling
-                ? _strokeThickness /
-                  TransformMetrics.GetStrokeScale(transform)
-                : _strokeThickness;
-            _strokePen.LineJoin = ToLineJoin(_strokeLineJoin);
-            _strokePen.MiterLimit = Math.Max(1f, _strokeMiterLimit);
-            _strokePen.StartLineCap = ToLineCap(_strokeStartCap);
-            _strokePen.EndLineCap = ToLineCap(_strokeEndCap);
-            _strokePen.DashCap = ToLineCap(_strokeDashCap);
-            _strokePen.DashOffset = _strokeDashOffset;
-            double[]? dashArray = StrokeDashArray.GetSnapshot();
-            if (!ReferenceEquals(_appliedDashArray, dashArray))
-            {
-                _strokePen.DashArray = dashArray;
-                _appliedDashArray = dashArray;
-            }
-            stroke = _strokePen;
+            RecordWithBrushScopes(context, brushBounds, transform);
+            return;
         }
 
+        _fillBrush?.UpdateSceneBrush(brushBounds, ref _fillSceneBrush);
+        Brush? fill = _fillBrush is null ? null : _fillSceneBrush;
+        _strokeBrush?.UpdateSceneBrush(brushBounds, ref _strokeSceneBrush);
+        Pen? stroke = UpdateStrokePen(_strokeSceneBrush, transform);
         _geometry.Record(context, fill, stroke, transform);
     }
 
@@ -910,6 +895,82 @@ public sealed class CompositionSpriteShape : CompositionShape,
         field = value;
         field?.AddOwner(this);
         NotifyShapeChanged();
+    }
+
+    private void RecordWithBrushScopes(
+        DrawingContext context,
+        in Rect brushBounds,
+        in Matrix4x4 transform)
+    {
+        if (_fillBrush is not null)
+        {
+            context.EnsureCommandCapacity(
+                context.Commands.Count + 1 +
+                _fillBrush.SceneCommandOverhead);
+            Brush? fill = _fillBrush.BeginSceneBrush(
+                context,
+                brushBounds,
+                ref _fillSceneBrush,
+                out bool popOpacityMask);
+            try
+            {
+                if (fill is not null)
+                    _geometry!.Record(context, fill, null, transform);
+            }
+            finally
+            {
+                _fillBrush.EndSceneBrush(context, popOpacityMask);
+            }
+        }
+
+        if (_strokeBrush is not null)
+        {
+            context.EnsureCommandCapacity(
+                context.Commands.Count + 1 +
+                _strokeBrush.SceneCommandOverhead);
+            Brush? strokeBrush = _strokeBrush.BeginSceneBrush(
+                context,
+                brushBounds,
+                ref _strokeSceneBrush,
+                out bool popOpacityMask);
+            try
+            {
+                Pen? stroke = UpdateStrokePen(strokeBrush, transform);
+                if (stroke is not null)
+                    _geometry!.Record(context, null, stroke, transform);
+            }
+            finally
+            {
+                _strokeBrush.EndSceneBrush(context, popOpacityMask);
+            }
+        }
+    }
+
+    private Pen? UpdateStrokePen(
+        Brush? strokeBrush,
+        in Matrix4x4 transform)
+    {
+        if (strokeBrush is null || _strokeThickness <= 0f)
+            return null;
+
+        _strokePen.Brush = strokeBrush;
+        _strokePen.Thickness = _isStrokeNonScaling
+            ? _strokeThickness /
+              TransformMetrics.GetStrokeScale(transform)
+            : _strokeThickness;
+        _strokePen.LineJoin = ToLineJoin(_strokeLineJoin);
+        _strokePen.MiterLimit = Math.Max(1f, _strokeMiterLimit);
+        _strokePen.StartLineCap = ToLineCap(_strokeStartCap);
+        _strokePen.EndLineCap = ToLineCap(_strokeEndCap);
+        _strokePen.DashCap = ToLineCap(_strokeDashCap);
+        _strokePen.DashOffset = _strokeDashOffset;
+        double[]? dashArray = StrokeDashArray.GetSnapshot();
+        if (!ReferenceEquals(_appliedDashArray, dashArray))
+        {
+            _strokePen.DashArray = dashArray;
+            _appliedDashArray = dashArray;
+        }
+        return _strokePen;
     }
 
     private void SetFinite(

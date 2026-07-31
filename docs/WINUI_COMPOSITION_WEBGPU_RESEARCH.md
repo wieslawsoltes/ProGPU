@@ -1,7 +1,7 @@
 # WinUI Composition retained WebGPU research
 
 This record is the clean-room design gate for the retained visual foundation,
-geometry/shape, clip, gradient, and drop-shadow vertical slices of
+geometry/shape, clip, gradient, drop-shadow, and opacity-mask vertical slices of
 `Microsoft.UI.Composition` in ProGPU.
 The authoritative API shape is the public ECMA-335/WinRT metadata and XML
 documentation from the repository's SHA-512-pinned
@@ -19,7 +19,11 @@ implementation was inspected, copied, translated, or adapted.
   defines stable visual identity, ordered children, inherited transforms, and
   content-bearing primitive visuals.
 - [Composition brushes](https://learn.microsoft.com/en-us/windows/apps/develop/composition/composition-brushes)
-  defines a `CompositionBrush` as `SpriteVisual` content.
+  defines a `CompositionBrush` as `SpriteVisual` content, documents supported
+  mask/source brush combinations, and specifies alpha-driven opacity masking.
+- [CompositionMaskBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionmaskbrush)
+  defines the retained source and mask inputs and explicitly disallows using a
+  mask brush as an effect-brush source.
 - [CompositionGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositiongradientbrush),
   [CompositionLinearGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionlineargradientbrush),
   and [CompositionRadialGradientBrush](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionradialgradientbrush)
@@ -84,6 +88,9 @@ implementation was inspected, copied, translated, or adapted.
 - [Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview)
   treats intermediate layers as bounded compositing resources rather than a
   default for every visual.
+- [Direct2D opacity masks](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview)
+  defines mask alpha as the visibility multiplier for source pixels and
+  distinguishes rectangular, geometry, and grouped-content mask scopes.
 - [Direct2D axis-aligned clips](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient)
   recommends a clip rectangle instead of allocating a layer when its simpler
   semantics are sufficient.
@@ -113,7 +120,8 @@ implementation was inspected, copied, translated, or adapted.
   as an image-filter operation rather than CPU raster output.
 - [`SkCanvas`](https://skia.googlesource.com/skia/+/refs/heads/main/include/core/SkCanvas.h)
   exposes transformed rectangle, rounded-rectangle, and path clip primitives
-  whose result intersects the current clip stack.
+  whose result intersects the current clip stack, together with bounded
+  save-layer scopes for compositing source content through an alpha mask.
 - [SkParagraph sources](https://skia.googlesource.com/skia/+/main/modules/skparagraph/)
   retain shaping and line-layout results on the CPU side of the renderer.
 - [Firefox rendering overview](https://searchfox.org/firefox-main/source/gfx/docs/RenderingOverview.rst)
@@ -149,6 +157,7 @@ implementation was inspected, copied, translated, or adapted.
 | Geometry and shape reuse | WinUI separates mutable shape, geometry, brush, path-data, and view-box identity; Direct2D separates reusable geometry descriptions from draw state and optional realizations. | A `ShapeVisual` flattens its ordered shape hierarchy into one retained ProGPU command cache. Full ellipses, rectangles, and rounded rectangles remain analytic commands. A `CompositionPath` snapshots typed ProGPU lines, quadratics, cubics, and arcs once; path and rounded-rectangle trims retain exact sub-segments selected from bounded length tables. Geometry-cache identity is retained with every source/trimmed path. No per-shape surface, pass, texture, or bitmap is created. |
 | Gradient representation | WinUI, Direct2D/Win2D, Skia, WebRender, and Vello retain gradient geometry, ordered stops, extend mode, interpolation, and local transforms as paint data evaluated by the renderer. | Each gradient owner caches one typed ProGPU vector brush. Observable collection order remains unchanged while a stable retained snapshot is sorted only after stop mutation. The existing WebGPU gradient-stop storage buffer and vector shader perform interpolation; no gradient creates a texture, render pass, CPU bitmap, or readback. |
 | Shadow representation | WinUI retains one shareable shadow object and chooses between a sprite rectangle, inherited visual alpha, or explicit brush alpha. Direct2D/Win2D, Skia, and WebRender execute blur/tint/composite work on GPU intermediates. | Each shadow owner retains one scene `DropShadowEffect`. The source subtree is rendered once into the existing bounded effect texture; an explicit or rectangular mask uses one additional retained texture, while inherited content reuses source alpha. The existing WebGPU compute path performs a sharp pass or separable blur and the original source is composited once above it. |
+| Opacity-mask representation | WinUI composes two retained brushes; Direct2D multiplies source visibility by mask alpha; Skia brackets compositing in a saved layer; WebRender retains clip/mask render tasks; Vello encodes push/pop layer scopes. | `CompositionMaskBrush` retains typed source and mask objects and records one push/source-draw/pop scope. Solid masks use ProGPU's analytic WebGPU mask uniforms; gradients use the existing bounded GPU mask texture and gradient shader. Shapes bracket fill and stroke independently only when a scoped brush is present, preserving the ordinary one-record fast path. |
 | Clip representation | WinUI and Skia retain transformed rectangle, rounded-rectangle, and path clips; Direct2D recommends an axis-aligned clip instead of a layer; WebGPU exposes a render-pass scissor while Vello/WebRender retain geometry masks and render tasks for general paths. | Each composition visual stores at most one typed local `VisualCompositeClip`. Axis-aligned rectangles intersect the existing WebGPU scissor stack. Rotated rectangles and canonical per-corner rounded rectangles use the existing analytic GPU mask. General paths use one bounds-sized R8 GPU mask. No clip creates a CPU bitmap, readback, visual-sized intermediate surface, or per-frame geometry. |
 | Visibility and culling | WebRender culls the retained scene before expensive work; WinUI visual visibility and opacity are composited properties. | `IsVisible`, opacity, effective size, and the full local matrix update the existing scene node. Existing ProGPU clip culling and zero-opacity subtree rejection remain authoritative. |
 | Cache keys and eviction | WebRender uses bounded generation-safe caches; Direct2D/Win2D bind GPU resources to a device. | The slice adds no device resource cache. It reuses ProGPU's target/DPI/atlas-generation-sensitive compiled-scene keys, bounded incremental pages, bounded atlases, and context identity checks. |
@@ -189,6 +198,9 @@ Adopted:
   `SpriteVisual.Shadow`, `LayerVisual.Shadow`, and their factories, including
   exact defaults, shared ownership, rectangular/inherited/explicit mask
   selection, retained WebGPU blur, and original-source compositing.
+- `CompositionMaskBrush`, its source/mask ownership and factory, documented
+  brush-combination validation, alpha multiplication, nested invalidation,
+  and retained sprite/shape mask scopes.
 
 Adapted:
 
@@ -214,6 +226,12 @@ Adapted:
   brush mask takes precedence for both. This maps the documented public
   policy onto one provider-neutral scene effect without exposing WinUI types
   to the WebGPU backend.
+- WinUI mask inputs map to ProGPU's typed scene brushes. A missing source or
+  mask produces no pixels; this is a clean-room inference from the nullable
+  defaults and the requirement that a newly created mask brush be safe before
+  both inputs are assigned. Available color and gradient inputs are accepted
+  according to the documented combination table; unsupported nested mask
+  inputs fail transactionally.
 
 Rejected:
 
@@ -286,6 +304,13 @@ Rejected:
   one retained `O(P)` RGBA texture; inherited content alpha adds none. Stable
   owners reuse all textures, pipelines, bind-group cache entries, mask command
   capacity, and effect identity.
+- A mask-brush input replacement is fixed `O(1)` apart from notifying `S` weak
+  live owners. Recording adds exactly two retained scope commands around the
+  ordinary source draw. A solid mask uses fixed `O(1)` analytic state and no
+  mask texture. A non-solid mask rasterizes `P` bounded device pixels on the
+  GPU with `O(P)` storage/work, then multiplies source fragments by its alpha.
+  Stable brushes reuse scene-brush identity, command capacity, mask resources,
+  and pipelines; warmed color changes allocate no managed memory.
 
 ## Current validation and explicit boundary
 
@@ -345,6 +370,16 @@ allocations across 10,000 warmed offset/color updates. The implementation
 reuses ProGPU's existing embedded, complexity-documented shadow compute
 shaders and bounded effect-texture cache; it adds no shader literal, CPU blur,
 readback, platform renderer fork, reflection, or external dependency.
+
+The opacity-mask slice additionally covers the exact sealed type, nullable
+source/mask properties, factory, same-compositor ownership, supported input
+categories, transactional rejection of nested mask brushes, retained
+push/draw/pop command structure, alpha-gradient sprite pixels, independent
+shape fill/stroke scopes, nested source/mask invalidation, and exactly zero
+managed allocations across 10,000 warmed source/mask color updates. Solid
+masks use the existing analytic WebGPU mask path; gradients use the existing
+bounded GPU mask texture and shader path. No CPU bitmap, readback, reflection,
+shader literal, platform renderer fork, or external dependency is introduced.
 
 This is not full Composition parity. General composition effects,
 surfaces/external textures, animations, interaction
