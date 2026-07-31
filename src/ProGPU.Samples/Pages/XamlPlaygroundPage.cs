@@ -215,7 +215,9 @@ public static class XamlPlaygroundPage
             projectPipeline?.Dispose();
             projectPipeline = null;
             var host = CompilationHost.Value;
-            if (host.Project == null || host.XamlDocumentId == null)
+            if (host.Workspace == null ||
+                host.Project == null ||
+                host.XamlDocumentId == null)
             {
                 status.Text =
                     "Compilation-backed inspection is unavailable: " +
@@ -245,10 +247,20 @@ public static class XamlPlaygroundPage
                 coordinator,
                 PublishPreviewAsync,
                 TimeSpan.FromMilliseconds(300));
+            var transport =
+                new RoslynXamlProjectWatchTransport(session);
+            var selector =
+                new RoslynXamlWorkspaceProjectSelectorAdapter(
+                    host.Workspace,
+                    transport);
+            selector.Select(
+                host.Project.Id,
+                host.XamlDocumentId);
             projectPipeline = new PlaygroundProjectPipeline(
                 coordinator,
                 session,
-                new RoslynXamlProjectWatchTransport(session));
+                transport,
+                selector);
         }
 
         void ScheduleInspection(bool immediate)
@@ -269,13 +281,11 @@ public static class XamlPlaygroundPage
             status.Text = immediate
                 ? "Compiling immutable project snapshot…"
                 : "Waiting for project edits to settle…";
-            pipeline.Transport.SubmitAsync(
-                    new RoslynXamlProjectWatchRequest(
-                        version,
-                        host.Project,
-                        host.XamlDocumentId,
-                        SourceText.From(editor.Text ?? string.Empty),
-                        immediate))
+            pipeline.Selector.SetUnsavedText(
+                SourceText.From(editor.Text ?? string.Empty));
+            pipeline.Selector.SubmitAsync(
+                    version,
+                    immediate)
                 .ContinueWith(
                     task =>
                     {
@@ -546,7 +556,13 @@ public static class XamlPlaygroundPage
                     "Playground.xaml",
                     SourceText.From(InitialSource),
                     filePath: "Playground.xaml");
-            var project = solution.GetProject(projectId) ??
+            if (!workspace.TryApplyChanges(solution))
+            {
+                throw new InvalidOperationException(
+                    "The immutable playground project could not be applied to its workspace.");
+            }
+            var project = workspace.CurrentSolution
+                .GetProject(projectId) ??
                 throw new InvalidOperationException(
                     "The immutable playground project could not be created.");
             return new PlaygroundCompilationHost(
@@ -599,17 +615,24 @@ public static class XamlPlaygroundPage
         public PlaygroundProjectPipeline(
             RoslynXamlProjectPreviewCoordinator coordinator,
             RoslynXamlProjectWatchSession session,
-            RoslynXamlProjectWatchTransport transport)
+            RoslynXamlProjectWatchTransport transport,
+            RoslynXamlWorkspaceProjectSelectorAdapter selector)
         {
             Coordinator = coordinator;
             Session = session;
             Transport = transport;
+            Selector = selector;
         }
 
         public RoslynXamlProjectPreviewCoordinator Coordinator { get; }
         public RoslynXamlProjectWatchSession Session { get; }
         public RoslynXamlProjectWatchTransport Transport { get; }
+        public RoslynXamlWorkspaceProjectSelectorAdapter Selector { get; }
 
-        public void Dispose() => Session.Dispose();
+        public void Dispose()
+        {
+            Selector.Dispose();
+            Session.Dispose();
+        }
     }
 }

@@ -13178,6 +13178,276 @@ namespace Demo {
     }
 
     [Fact]
+    public async Task WorkspaceProjectSelectorUsesCurrentSnapshotsAndRecoversReloadedIds()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="workspace" />
+</Page>
+""";
+        const string editedXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="unsaved" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        var workspaceRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.Selector",
+            Guid.NewGuid().ToString("N"));
+        var projectPath = Path.Combine(
+            workspaceRoot,
+            "PreviewProject.csproj");
+        var documentPath = Path.Combine(
+            workspaceRoot,
+            "Pages",
+            "MainPage.xaml");
+        var projectId = fixture.Project.Id;
+        var documentId = fixture.TargetXamlDocumentId;
+        var nonXamlDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var initialSolution = fixture.Project.Solution
+            .WithProjectFilePath(projectId, projectPath)
+            .RemoveAdditionalDocument(documentId)
+            .AddAdditionalDocument(
+                documentId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath)
+            .AddAdditionalDocument(
+                nonXamlDocumentId,
+                "Notes.txt",
+                SourceText.From("not xaml"),
+                filePath: Path.Combine(
+                    workspaceRoot,
+                    "Notes.txt"));
+        Assert.True(
+            fixture.Workspace.TryApplyChanges(initialSolution));
+
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                static (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(session);
+        using var adapter =
+            new RoslynXamlWorkspaceProjectSelectorAdapter(
+                fixture.Workspace,
+                transport);
+        var changed = new List<
+            RoslynXamlWorkspaceSelectionSnapshot>();
+        adapter.SelectionChanged += (_, args) =>
+            changed.Add(args.Selection);
+
+        var selected = adapter.Select(
+            projectId,
+            documentId);
+        Assert.True(selected.CanSubmit);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.Ready,
+            selected.Status);
+        Assert.Equal(Path.GetFullPath(projectPath),
+            selected.ProjectFilePath);
+        Assert.Equal(Path.GetFullPath(documentPath),
+            selected.DocumentFilePath);
+        Assert.False(selected.HasUnsavedText);
+
+        var unsaved = SourceText.From(editedXaml);
+        var unsavedSelection = adapter.SetUnsavedText(unsaved);
+        Assert.True(unsavedSelection.HasUnsavedText);
+        Assert.True(
+            unsavedSelection.Revision > selected.Revision);
+        Assert.True(adapter.TryCreateRequest(
+            70,
+            out var request,
+            immediate: true));
+        Assert.NotNull(request);
+        Assert.Same(unsaved, request!.UnsavedText);
+        Assert.Same(
+            fixture.Workspace.CurrentSolution
+                .GetProject(projectId),
+            request.Project);
+        Assert.Equal(documentId, request.XamlDocumentId);
+        var accepted = await adapter.SubmitAsync(
+            71,
+            immediate: true);
+        Assert.True(accepted.Accepted);
+        Assert.Equal(71, accepted.Sequence);
+
+        var invalidSelection = adapter.Select(
+            projectId,
+            fixture.TargetCodeDocumentId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus
+                .NotAdditionalDocument,
+            invalidSelection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            72,
+            out _));
+        var nonXamlSelection = adapter.Select(
+            projectId,
+            nonXamlDocumentId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.NotXamlDocument,
+            nonXamlSelection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            72,
+            out _));
+
+        adapter.Select(
+            projectId,
+            documentId,
+            projectPath,
+            documentPath);
+        adapter.SetUnsavedText(unsaved);
+        var removed = fixture.Workspace.CurrentSolution
+            .RemoveAdditionalDocument(documentId);
+        Assert.True(fixture.Workspace.TryApplyChanges(removed));
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus
+                .DocumentUnavailable,
+            adapter.Selection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            73,
+            out _));
+
+        var replacementDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var restored = fixture.Workspace.CurrentSolution
+            .AddAdditionalDocument(
+                replacementDocumentId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath);
+        Assert.True(fixture.Workspace.TryApplyChanges(restored));
+        var recoveredDocument = adapter.Selection;
+        Assert.True(recoveredDocument.CanSubmit);
+        Assert.Equal(
+            replacementDocumentId,
+            recoveredDocument.DocumentId);
+        Assert.True(recoveredDocument.HasUnsavedText);
+
+        var replacementProjectId = ProjectId.CreateNewId();
+        var replacementXamlId =
+            DocumentId.CreateNewId(replacementProjectId);
+        var reloaded = fixture.Workspace.CurrentSolution
+            .RemoveProject(projectId)
+            .AddProject(
+                ProjectInfo.Create(
+                    replacementProjectId,
+                    VersionStamp.Create(),
+                    "PreviewProject",
+                    "PreviewProject",
+                    LanguageNames.CSharp,
+                    filePath: projectPath,
+                    compilationOptions:
+                        new CSharpCompilationOptions(
+                            OutputKind.DynamicallyLinkedLibrary),
+                    parseOptions:
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview,
+                            preprocessorSymbols:
+                                new[] { "PROJECT_PREVIEW" })))
+            .AddMetadataReferences(
+                replacementProjectId,
+                PlatformReferences())
+            .AddDocument(
+                DocumentId.CreateNewId(replacementProjectId),
+                "Framework.cs",
+                SourceText.From(Framework))
+            .AddDocument(
+                DocumentId.CreateNewId(replacementProjectId),
+                "MainPage.cs",
+                SourceText.From("""
+#if PROJECT_PREVIEW
+namespace Demo;
+public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
+{
+    public MainPage() { InitializeComponent(); }
+}
+#endif
+"""))
+            .AddAdditionalDocument(
+                replacementXamlId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath);
+        Assert.True(fixture.Workspace.TryApplyChanges(reloaded));
+        var recoveredProject = adapter.Selection;
+        Assert.True(recoveredProject.CanSubmit);
+        Assert.Equal(
+            replacementProjectId,
+            recoveredProject.ProjectId);
+        Assert.Equal(
+            replacementXamlId,
+            recoveredProject.DocumentId);
+        Assert.True(adapter.TryCreateRequest(
+            74,
+            out var reloadedRequest));
+        Assert.Equal(
+            replacementProjectId,
+            reloadedRequest!.Project.Id);
+        Assert.Same(unsaved, reloadedRequest.UnsavedText);
+        Assert.True(changed.Count >= 7);
+
+        var selectionChecksum = 0L;
+        for (var index = 0; index < 10_000; index++)
+            selectionChecksum += adapter.Selection.Revision;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var allocationBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 1_000_000; index++)
+        {
+            var current = adapter.Selection;
+            selectionChecksum += current.Revision;
+        }
+        var allocationAfter =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.True(selectionChecksum > 0);
+        Assert.Equal(allocationBefore, allocationAfter);
+
+        var revisionBeforeDispose =
+            adapter.Selection.Revision;
+        adapter.Dispose();
+        var postDispose = fixture.Workspace.CurrentSolution
+            .WithAdditionalDocumentText(
+                replacementXamlId,
+                SourceText.From(editedXaml));
+        Assert.True(fixture.Workspace.TryApplyChanges(postDispose));
+        Assert.Equal(
+            revisionBeforeDispose,
+            changed[changed.Count - 1].Revision);
+        Assert.Throws<ObjectDisposedException>(
+            () => _ = adapter.Selection);
+        Assert.Throws<ObjectDisposedException>(
+            () => adapter.TryCreateRequest(75, out _));
+    }
+
+    [Fact]
     public async Task ProjectWatchSessionDebouncesSupersededSnapshotsAndRetainsLastGoodState()
     {
         const string baselineXaml = """
