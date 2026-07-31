@@ -24,7 +24,8 @@ public enum RoslynXamlMetadataEditCapabilities
     UpdateEventAccessor = 4,
     UpdateConstructorBody = 8,
     UpdateDestructorBody = 16,
-    UpdateOperatorBody = 32
+    UpdateOperatorBody = 32,
+    AddMethodToExistingType = 64
 }
 
 public enum RoslynXamlMetadataDeltaStatus
@@ -56,6 +57,7 @@ public sealed class RoslynXamlMetadataDeltaUpdate
         long baselineGeneration,
         Compilation compilation,
         EmitBaseline baseline,
+        ImmutableHashSet<string> addedMethodKeys,
         RoslynXamlMetadataDeltaStatus status,
         ImmutableArray<byte> metadataDelta,
         ImmutableArray<byte> ilDelta,
@@ -67,6 +69,7 @@ public sealed class RoslynXamlMetadataDeltaUpdate
         BaselineGeneration = baselineGeneration;
         Compilation = compilation;
         Baseline = baseline;
+        AddedMethodKeys = addedMethodKeys;
         Status = status;
         MetadataDelta = metadataDelta;
         IlDelta = ilDelta;
@@ -80,6 +83,8 @@ public sealed class RoslynXamlMetadataDeltaUpdate
     internal Compilation Compilation { get; }
 
     internal EmitBaseline Baseline { get; }
+
+    internal ImmutableHashSet<string> AddedMethodKeys { get; }
 
     public long BaselineGeneration { get; }
 
@@ -107,16 +112,18 @@ public sealed class RoslynXamlMetadataDeltaUpdate
 /// Owns one accepted Roslyn compilation and its Edit-and-Continue baseline.
 /// This producer slice accepts ordinary C# method bodies, property/indexer
 /// accessor bodies, custom event accessor bodies, constructors, destructors,
-/// and user-defined operators. Candidate compilation, declaration shape, and
-/// Roslyn emit validation complete before a host can observe the detached
-/// delta or advance the baseline.
+/// user-defined operators, and insertion of non-virtual ordinary methods into
+/// existing types. Candidate compilation, declaration shape, and Roslyn emit
+/// validation complete before a host can observe the detached delta or
+/// advance the baseline.
 /// </summary>
 /// <remarks>
 /// Initial emission is O(T + B) time and O(B) retained storage for T syntax
-/// tokens and B PE bytes. Preparation is O(T + M log M + D) time and
-/// O(T + M + D) temporary/output storage for M methods and D delta bytes.
-/// The session retains one compilation, one baseline, and one initial module;
-/// committing replaces rather than accumulates generations.
+/// tokens and B PE bytes. Preparation is O(T + M log M + A + D) time and
+/// O(T + M + A + D) temporary/output storage for M methods, A accepted added
+/// method identities, and D delta bytes. The session retains one compilation,
+/// one baseline, one initial module, and O(A) exact keys; committing replaces
+/// rather than accumulates generations.
 /// </remarks>
 public sealed class RoslynXamlMetadataEditSession : IDisposable
 {
@@ -137,6 +144,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     private readonly ModuleMetadata _module;
     private Compilation _compilation;
     private EmitBaseline _baseline;
+    private ImmutableHashSet<string> _addedMethodKeys =
+        ImmutableHashSet.Create<string>(StringComparer.Ordinal);
     private long _generation;
     private bool _disposed;
 
@@ -201,7 +210,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         RoslynXamlMetadataEditCapabilities.UpdateEventAccessor |
         RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
         RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
-        RoslynXamlMetadataEditCapabilities.UpdateOperatorBody;
+        RoslynXamlMetadataEditCapabilities.UpdateOperatorBody |
+        RoslynXamlMetadataEditCapabilities.AddMethodToExistingType;
 
     public long Generation
     {
@@ -222,12 +232,14 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
 
         Compilation previous;
         EmitBaseline baseline;
+        ImmutableHashSet<string> addedMethodKeys;
         long generation;
         lock (_gate)
         {
             ThrowIfDisposed();
             previous = _compilation;
             baseline = _baseline;
+            addedMethodKeys = _addedMethodKeys;
             generation = _generation;
         }
 
@@ -245,6 +257,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 generation,
                 candidate,
                 baseline,
+                addedMethodKeys,
                 RoslynXamlMetadataDeltaStatus
                     .RejectedCompilation,
                 compilationErrors);
@@ -258,6 +271,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 generation,
                 candidate,
                 baseline,
+                addedMethodKeys,
                 "assembly identity, compilation options, or metadata " +
                 "references changed");
         }
@@ -279,19 +293,37 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 generation,
                 candidate,
                 baseline,
+                addedMethodKeys,
                 "a declaration, member signature, non-method body, or " +
                 "syntax-tree topology changed");
         }
 
-        if (!previousShape.Methods.Keys.SequenceEqual(
-                candidateShape.Methods.Keys,
-                StringComparer.Ordinal))
+        foreach (string key in previousShape.Methods.Keys)
         {
-            return CreateUnsupported(
-                generation,
-                candidate,
-                baseline,
-                "the declared method set changed");
+            if (!candidateShape.Methods.TryGetValue(
+                    key,
+                    out MethodBodyRecord? candidateMethod))
+            {
+                return CreateUnsupported(
+                    generation,
+                    candidate,
+                    baseline,
+                    addedMethodKeys,
+                    "the declared method set removed '" + key + "'");
+            }
+            if (!string.Equals(
+                    previousShape.Methods[key]
+                        .DeclarationFingerprint,
+                    candidateMethod.DeclarationFingerprint,
+                    StringComparison.Ordinal))
+            {
+                return CreateUnsupported(
+                    generation,
+                    candidate,
+                    baseline,
+                    addedMethodKeys,
+                    "the declaration of '" + key + "' changed");
+            }
         }
 
         var edits = ImmutableArray.CreateBuilder<SemanticEdit>();
@@ -319,6 +351,37 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 instrumentation: default));
         }
 
+        ImmutableHashSet<string>.Builder nextAddedMethodKeys =
+            addedMethodKeys.ToBuilder();
+        foreach (KeyValuePair<string, MethodBodyRecord> item in
+                 candidateShape.Methods)
+        {
+            if (previousShape.Methods.ContainsKey(item.Key))
+                continue;
+            if (!item.Value.SupportsInsertion)
+            {
+                return CreateUnsupported(
+                    generation,
+                    candidate,
+                    baseline,
+                    addedMethodKeys,
+                    "the added member '" + item.Key + "' is not a " +
+                    "non-virtual ordinary method");
+            }
+
+            edits.Add(new SemanticEdit(
+                SemanticEditKind.Insert,
+                oldSymbol: null,
+                item.Value.Symbol,
+                syntaxMap: null,
+                runtimeRudeEdit: null,
+                instrumentation: default));
+            nextAddedMethodKeys.Add(item.Key);
+        }
+
+        ImmutableHashSet<string> nextAddedMethods =
+            nextAddedMethodKeys.ToImmutable();
+
         if (edits.Count == 0)
         {
             return new RoslynXamlMetadataDeltaUpdate(
@@ -326,6 +389,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 generation,
                 candidate,
                 baseline,
+                nextAddedMethods,
                 RoslynXamlMetadataDeltaStatus.NoChanges,
                 ImmutableArray<byte>.Empty,
                 ImmutableArray<byte>.Empty,
@@ -337,10 +401,14 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         using var metadata = new MemoryStream();
         using var il = new MemoryStream();
         using var pdb = new MemoryStream();
+        var previouslyAddedSymbols = previousShape.Methods
+            .Where(item => addedMethodKeys.Contains(item.Key))
+            .Select(static item => (ISymbol)item.Value.Symbol)
+            .ToImmutableHashSet(SymbolEqualityComparer.Default);
         EmitDifferenceResult emit = candidate.EmitDifference(
             baseline,
             edits,
-            static _ => false,
+            previouslyAddedSymbols.Contains,
             metadata,
             il,
             pdb,
@@ -352,6 +420,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 generation,
                 candidate,
                 baseline,
+                addedMethodKeys,
                 RoslynXamlMetadataDeltaStatus.RejectedEmit,
                 diagnostics);
         }
@@ -361,6 +430,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             generation,
             candidate,
             emit.Baseline!,
+            nextAddedMethods,
             RoslynXamlMetadataDeltaStatus.Ready,
             ImmutableArray.CreateRange(metadata.ToArray()),
             ImmutableArray.CreateRange(il.ToArray()),
@@ -404,6 +474,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
 
             _compilation = update.Compilation;
             _baseline = update.Baseline;
+            _addedMethodKeys = update.AddedMethodKeys;
             checked
             {
                 _generation++;
@@ -443,11 +514,13 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         long generation,
         Compilation candidate,
         EmitBaseline baseline,
+        ImmutableHashSet<string> addedMethodKeys,
         string reason) =>
         CreateRejected(
             generation,
             candidate,
             baseline,
+            addedMethodKeys,
             RoslynXamlMetadataDeltaStatus
                 .RejectedUnsupportedEdit,
             ImmutableArray.Create(
@@ -460,6 +533,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         long generation,
         Compilation candidate,
         EmitBaseline baseline,
+        ImmutableHashSet<string> addedMethodKeys,
         RoslynXamlMetadataDeltaStatus status,
         ImmutableArray<Diagnostic> diagnostics) =>
         new RoslynXamlMetadataDeltaUpdate(
@@ -467,6 +541,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             generation,
             candidate,
             baseline,
+            addedMethodKeys,
             status,
             ImmutableArray<byte>.Empty,
             ImmutableArray<byte>.Empty,
@@ -595,7 +670,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     tree.Options);
                 AppendTokens(
                     declaration,
-                    ExecutableBodyEraser.Instance.Visit(root)!);
+                    CompilationDeclarationEraser.Instance.Visit(root)!);
                 declaration.AppendLine();
 
                 SemanticModel model =
@@ -622,6 +697,10 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                                 .FullyQualifiedFormat);
                     var body = new StringBuilder();
                     AppendTokens(body, bodyNode);
+                    var methodDeclaration = new StringBuilder();
+                    AppendTokens(
+                        methodDeclaration,
+                        ExecutableBodyEraser.Instance.Visit(node)!);
                     if (methods.ContainsKey(key))
                     {
                         throw new InvalidOperationException(
@@ -632,7 +711,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                         key,
                         new MethodBodyRecord(
                             symbol,
-                            body.ToString()));
+                            body.ToString(),
+                            methodDeclaration.ToString(),
+                            SupportsInsertion(node, symbol)));
                 }
             }
 
@@ -640,6 +721,16 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 declaration.ToString(),
                 methods.ToImmutable());
         }
+
+        private static bool SupportsInsertion(
+            SyntaxNode node,
+            IMethodSymbol symbol) =>
+            node is MethodDeclarationSyntax &&
+            symbol.MethodKind == MethodKind.Ordinary &&
+            !symbol.IsAbstract &&
+            !symbol.IsVirtual &&
+            !symbol.IsOverride &&
+            symbol.ExplicitInterfaceImplementations.IsEmpty;
 
         private static bool TryGetExecutableBody(
             SemanticModel model,
@@ -799,18 +890,39 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     {
         public MethodBodyRecord(
             IMethodSymbol symbol,
-            string bodyFingerprint)
+            string bodyFingerprint,
+            string declarationFingerprint,
+            bool supportsInsertion)
         {
             Symbol = symbol;
             BodyFingerprint = bodyFingerprint;
+            DeclarationFingerprint = declarationFingerprint;
+            SupportsInsertion = supportsInsertion;
         }
 
         public IMethodSymbol Symbol { get; }
 
         public string BodyFingerprint { get; }
+
+        public string DeclarationFingerprint { get; }
+
+        public bool SupportsInsertion { get; }
     }
 
-    private sealed class ExecutableBodyEraser : CSharpSyntaxRewriter
+    private sealed class CompilationDeclarationEraser :
+        ExecutableBodyEraser
+    {
+        public new static CompilationDeclarationEraser Instance { get; } =
+            new();
+
+        public override SyntaxNode? VisitMethodDeclaration(
+            MethodDeclarationSyntax node) =>
+            node.Body is not null || node.ExpressionBody is not null
+                ? null
+                : base.VisitMethodDeclaration(node);
+    }
+
+    private class ExecutableBodyEraser : CSharpSyntaxRewriter
     {
         public static ExecutableBodyEraser Instance { get; } = new();
 

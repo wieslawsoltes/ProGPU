@@ -124,8 +124,9 @@ Already implemented:
 - a disposable framework-neutral C# edit session owning one accepted
   `Compilation`, initial PE/portable PDB, module metadata, `EmitBaseline`,
   explicit ordinary-method, property/indexer-accessor, custom-event-accessor,
-  constructor, destructor, and user-defined operator capabilities, and
-  monotonic generation;
+  constructor, destructor, user-defined operator, and non-virtual ordinary-
+  method insertion capabilities, monotonic generation, and an immutable exact
+  set of methods inserted in accepted generations;
 - candidate-first compiler diagnostics and declaration-shape validation;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
@@ -133,12 +134,17 @@ Already implemented:
   and stale commit rejection;
 - consecutive committed generations and real `MetadataUpdater.ApplyUpdate`
   execution gates for methods, property accessors, event accessors,
-  constructors, and operators under the runtime's explicit editable-assembly
-  capability;
+  constructors, operators, and inserted static/instance methods under the
+  runtime's explicit editable-assembly capability;
 - exact block/expression-bodied getter, setter, indexer, event `add`, and event
   `remove`, constructor, destructor, operator, and conversion-operator
   method-symbol updates while auto-property initializer, constructor
   initializer, and declaration changes fail closed.
+- exact `SemanticEditKind.Insert` production for non-virtual ordinary methods
+  added to an existing declaration, including generation-two updates through
+  the accepted added-symbol identity set; deletion, virtual/override/explicit-
+  interface insertion, field/property/constructor/type addition, and existing
+  signature/attribute changes fail closed before emission.
 
 Remaining implementation:
 
