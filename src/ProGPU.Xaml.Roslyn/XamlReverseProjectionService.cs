@@ -68,6 +68,80 @@ public sealed class XamlReverseProjectionResult
 /// </summary>
 public sealed class XamlReverseProjectionService
 {
+    /// <summary>
+    /// Applies every supported semantic inverse when a canonical
+    /// serialization plan is unavailable. Use the bound-document overload
+    /// when save-policy enforcement is required.
+    /// </summary>
+    public XamlReverseProjectionResult ApplyEdits(
+        XamlSyntaxTree xamlTree,
+        SemanticModel originalGeneratedModel,
+        SemanticModel changedGeneratedModel)
+    {
+        if (xamlTree == null)
+            throw new ArgumentNullException(nameof(xamlTree));
+        if (originalGeneratedModel == null)
+            throw new ArgumentNullException(
+                nameof(originalGeneratedModel));
+        if (changedGeneratedModel == null)
+            throw new ArgumentNullException(
+                nameof(changedGeneratedModel));
+
+        return Compose(
+            xamlTree,
+            ApplyLiteralEdits(
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel),
+            ApplyEventHandlerEdits(
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel),
+            ApplyNameEdits(
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel));
+    }
+
+    /// <summary>
+    /// Applies every supported semantic inverse against one immutable XAML
+    /// and generated-C# snapshot. No source edit is returned when any rule
+    /// reports a conflict or when two rules claim overlapping source spans.
+    /// </summary>
+    public XamlReverseProjectionResult ApplyEdits(
+        XamlBoundDocument boundDocument,
+        XamlSyntaxTree xamlTree,
+        SemanticModel originalGeneratedModel,
+        SemanticModel changedGeneratedModel)
+    {
+        if (boundDocument == null)
+            throw new ArgumentNullException(nameof(boundDocument));
+        if (xamlTree == null)
+            throw new ArgumentNullException(nameof(xamlTree));
+        if (originalGeneratedModel == null)
+            throw new ArgumentNullException(
+                nameof(originalGeneratedModel));
+        if (changedGeneratedModel == null)
+            throw new ArgumentNullException(
+                nameof(changedGeneratedModel));
+
+        return Compose(
+            xamlTree,
+            ApplyLiteralEdits(
+                boundDocument,
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel),
+            ApplyEventHandlerEdits(
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel),
+            ApplyNameEdits(
+                xamlTree,
+                originalGeneratedModel,
+                changedGeneratedModel));
+    }
+
     public XamlReverseProjectionResult ApplyNameEdits(
         XamlSyntaxTree xamlTree,
         SemanticModel originalGeneratedModel,
@@ -895,6 +969,73 @@ public sealed class XamlReverseProjectionService
             }
         }
         return builder.ToString();
+    }
+
+    private static XamlReverseProjectionResult Compose(
+        XamlSyntaxTree xamlTree,
+        params XamlReverseProjectionResult[] results)
+    {
+        var conflicts =
+            ImmutableArray.CreateBuilder<
+                XamlReverseProjectionConflict>();
+        var changes = ImmutableArray.CreateBuilder<TextChange>();
+        foreach (var result in results)
+        {
+            conflicts.AddRange(result.Conflicts);
+            changes.AddRange(result.Changes);
+        }
+
+        var orderedChanges = changes
+            .OrderBy(static change => change.Span.Start)
+            .ThenBy(static change => change.Span.Length)
+            .ThenBy(
+                static change => change.NewText,
+                StringComparer.Ordinal)
+            .ToArray();
+        if (conflicts.Count == 0)
+        {
+            for (var index = 1;
+                 index < orderedChanges.Length;
+                 index++)
+            {
+                if (!ConflictsWith(
+                        orderedChanges[index - 1].Span,
+                        orderedChanges[index].Span))
+                {
+                    continue;
+                }
+
+                conflicts.Add(
+                    new XamlReverseProjectionConflict(
+                        XamlReverseProjectionConflictKind
+                            .OverlappingEdit,
+                        0,
+                        "Multiple reverse-projection rules claim overlapping XAML source spans."));
+                break;
+            }
+        }
+
+        return new XamlReverseProjectionResult(
+            xamlTree,
+            conflicts.Count == 0
+                ? orderedChanges.ToImmutableArray()
+                : ImmutableArray<TextChange>.Empty,
+            conflicts.ToImmutable());
+    }
+
+    private static bool ConflictsWith(
+        TextSpan left,
+        TextSpan right)
+    {
+        if (!left.IsEmpty && !right.IsEmpty)
+            return left.OverlapsWith(right);
+        if (left.IsEmpty && right.IsEmpty)
+            return left.Start == right.Start;
+        if (left.IsEmpty)
+            return left.Start >= right.Start &&
+                left.Start <= right.End;
+        return right.Start >= left.Start &&
+            right.Start <= left.End;
     }
 
     private static string ProjectionKey(XamlProjectionEntry entry) =>

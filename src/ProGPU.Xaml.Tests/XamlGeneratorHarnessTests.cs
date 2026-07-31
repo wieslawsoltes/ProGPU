@@ -1669,6 +1669,407 @@ namespace Demo {
     }
 
     [Fact]
+    public void ReverseProjectionComposesSupportedEditsTransactionally()
+    {
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute {
+    public string? Name { get; set; }
+  }
+  public static class XamlTemplateFactory {
+    public static void BeginNameScope(object root) { }
+    public static void RegisterName(object root, string name, object value) { }
+  }
+}
+namespace Microsoft.UI.Xaml {
+  public class FrameworkElement { public string? Name { get; set; } }
+}
+namespace Microsoft.UI.Xaml.HotReload {
+  public interface IHotReloadable {
+    void Reload(HotReloadContext context);
+  }
+  public sealed class HotReloadContext { }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  [Microsoft.UI.Xaml.Markup.ContentProperty(Name="Content")]
+  public class Page : Microsoft.UI.Xaml.FrameworkElement {
+    public object? Content { get; set; }
+  }
+  public class Button : Microsoft.UI.Xaml.FrameworkElement {
+    public string? Text { get; set; }
+    [System.ComponentModel.DesignerSerializationVisibility(
+      System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string? HiddenText { get; set; }
+    public event System.EventHandler? Click;
+    public event System.EventHandler? DoubleClick;
+  }
+}
+namespace Demo {
+  public partial class MainPage : Microsoft.UI.Xaml.Controls.Page {
+    private void OnClick(object sender, System.EventArgs args) { }
+    private void OnAlternateClick(object sender, System.EventArgs args) { }
+  }
+}
+""";
+        const string xaml = """
+<Page
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="Demo.MainPage">
+  <Button
+      x:Name="PrimaryButton"
+      Text="Original"
+      HiddenText="Secret"
+      Click="OnClick" />
+</Page>
+""";
+        var compilation = CSharpCompilation.Create(
+            "ComposedReverseProjection",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
+        var profile = new WinUiXamlProfile();
+        var document = XamlParser.Parse(
+            SourceText.From(xaml),
+            "MainPage.xaml").Document;
+        var typeSystem =
+            new RoslynXamlTypeSystem(compilation, profile);
+        var emitted = new CSharpXamlEmitter().Emit(
+            document,
+            typeSystem,
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var originalTree = Assert.Single(
+            emitted.Sources).UnformattedSyntaxTree!;
+        var originalRoot = originalTree.GetRoot();
+        var projections = XamlProjectionMap
+            .Read(originalTree);
+        var fieldStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            Assert.Single(
+                projections,
+                entry =>
+                    entry.Kind == XamlProjectionKind.Name &&
+                    entry.MemberId == null)
+                .GeneratedNode.AsNode());
+        var fieldAccess = Assert.IsType<
+            MemberAccessExpressionSyntax>(
+            Assert.IsType<AssignmentExpressionSyntax>(
+                fieldStatement.Expression).Left);
+        var fieldDeclarator = originalRoot
+            .DescendantNodes()
+            .OfType<VariableDeclaratorSyntax>()
+            .Single(variable =>
+                variable.Identifier.ValueText ==
+                "PrimaryButton");
+        var textLiteral = originalRoot
+            .DescendantNodes()
+            .OfType<LiteralExpressionSyntax>()
+            .Single(literal =>
+                literal.Token.ValueText == "Original");
+        var hiddenLiteral = originalRoot
+            .DescendantNodes()
+            .OfType<LiteralExpressionSyntax>()
+            .Single(literal =>
+                literal.Token.ValueText == "Secret");
+        var eventStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            Assert.Single(
+                projections,
+                entry =>
+                    entry.Kind == XamlProjectionKind.Event)
+                .GeneratedNode.AsNode());
+        var eventAssignment = Assert.IsType<
+            AssignmentExpressionSyntax>(
+            eventStatement.Expression);
+        var eventHandler = Assert.IsType<
+            MemberAccessExpressionSyntax>(
+            eventAssignment.Right);
+
+        var changedRoot = originalRoot.ReplaceNodes(
+            new SyntaxNode[]
+            {
+                fieldDeclarator,
+                fieldAccess,
+                textLiteral,
+                eventHandler
+            },
+            (node, _) =>
+            {
+                if (ReferenceEquals(node, fieldDeclarator))
+                {
+                    return fieldDeclarator.WithIdentifier(
+                        SyntaxFactory.Identifier(
+                            "SecondaryButton"));
+                }
+                if (ReferenceEquals(node, fieldAccess))
+                {
+                    return fieldAccess.WithName(
+                        SyntaxFactory.IdentifierName(
+                            "SecondaryButton"));
+                }
+                if (ReferenceEquals(node, textLiteral))
+                {
+                    return SyntaxFactory.LiteralExpression(
+                            SyntaxKind.StringLiteralExpression,
+                            SyntaxFactory.Literal(
+                                "Changed & value"))
+                        .WithAdditionalAnnotations(
+                            textLiteral.GetAnnotations(
+                                XamlProjectionMap
+                                    .AnnotationKind));
+                }
+                return eventHandler.WithName(
+                    SyntaxFactory.IdentifierName(
+                        "OnAlternateClick"));
+            });
+        var changedTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)changedRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var originalCompilation =
+            compilation.AddSyntaxTrees(originalTree);
+        var changedCompilation =
+            compilation.AddSyntaxTrees(changedTree);
+        Assert.DoesNotContain(
+            changedCompilation.GetDiagnostics(),
+            diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        var bound = new XamlSemanticBinder().Bind(
+            new XamlInfosetConverter().Convert(
+                document,
+                new XamlInfosetConversionOptions
+                {
+                    Mode = XamlParseMode.Recovering
+                }),
+            typeSystem);
+        var service = new XamlReverseProjectionService();
+        var result = service.ApplyEdits(
+            bound,
+            document.SyntaxTree,
+            originalCompilation.GetSemanticModel(
+                originalTree),
+            changedCompilation.GetSemanticModel(
+                changedTree));
+
+        Assert.True(
+            result.Succeeded,
+            string.Join(
+                Environment.NewLine,
+                result.Conflicts.Select(
+                    conflict => conflict.Message)));
+        Assert.Equal(3, result.Changes.Length);
+        Assert.True(
+            result.Changes
+                .Select(change => change.Span.Start)
+                .SequenceEqual(
+                    result.Changes
+                        .Select(change => change.Span.Start)
+                        .OrderBy(position => position)));
+        var changedXaml = result.GetChangedText().ToString();
+        Assert.Contains(
+            "x:Name=\"SecondaryButton\"",
+            changedXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text=\"Changed &amp; value\"",
+            changedXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Click=\"OnAlternateClick\"",
+            changedXaml,
+            StringComparison.Ordinal);
+        Assert.Empty(
+            XamlParser.Parse(
+                    result.GetChangedText(),
+                    "MainPage.xaml",
+                    new XamlParseOptions
+                    {
+                        Mode = XamlParseMode.Strict
+                    })
+                .GetDiagnostics());
+
+        var changedEventTarget = changedRoot
+            .DescendantNodes()
+            .OfType<MemberAccessExpressionSyntax>()
+            .Single(access =>
+                access.Name.Identifier.ValueText ==
+                    "Click" &&
+                access.Parent is
+                    AssignmentExpressionSyntax assignment &&
+                assignment.IsKind(
+                    SyntaxKind.AddAssignmentExpression));
+        var conflictingRoot = changedRoot.ReplaceNode(
+            changedEventTarget,
+            changedEventTarget.WithName(
+                SyntaxFactory.IdentifierName(
+                    "DoubleClick")));
+        var conflictingTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)conflictingRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var conflicting = service.ApplyEdits(
+            bound,
+            document.SyntaxTree,
+            originalCompilation.GetSemanticModel(
+                originalTree),
+            compilation
+                .AddSyntaxTrees(conflictingTree)
+                .GetSemanticModel(conflictingTree));
+
+        Assert.False(conflicting.Succeeded);
+        Assert.Contains(
+            conflicting.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind
+                    .SymbolChanged);
+        Assert.Empty(conflicting.Changes);
+        Assert.Equal(
+            xaml,
+            conflicting.GetChangedText().ToString());
+
+        var policyRoot = originalRoot.ReplaceNodes(
+            new SyntaxNode[]
+            {
+                hiddenLiteral,
+                eventHandler
+            },
+            (node, _) =>
+                ReferenceEquals(node, hiddenLiteral)
+                    ? SyntaxFactory.LiteralExpression(
+                            SyntaxKind.StringLiteralExpression,
+                            SyntaxFactory.Literal(
+                                "Changed secret"))
+                        .WithAdditionalAnnotations(
+                            hiddenLiteral.GetAnnotations(
+                                XamlProjectionMap
+                                    .AnnotationKind))
+                    : eventHandler.WithName(
+                        SyntaxFactory.IdentifierName(
+                            "OnAlternateClick")));
+        var policyTree = CSharpSyntaxTree.Create(
+            (CSharpSyntaxNode)policyRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var rejectedByPolicy = service.ApplyEdits(
+            bound,
+            document.SyntaxTree,
+            originalCompilation.GetSemanticModel(
+                originalTree),
+            compilation
+                .AddSyntaxTrees(policyTree)
+                .GetSemanticModel(policyTree));
+
+        Assert.False(rejectedByPolicy.Succeeded);
+        Assert.Contains(
+            rejectedByPolicy.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind
+                    .SerializationPolicyChanged);
+        Assert.Empty(rejectedByPolicy.Changes);
+        Assert.Equal(
+            xaml,
+            rejectedByPolicy.GetChangedText().ToString());
+
+        var runtimeNameProjection = Assert.Single(
+            projections,
+            entry =>
+                entry.Kind == XamlProjectionKind.Name &&
+                entry.MemberId != null);
+        var runtimeNameStatement = Assert.IsType<
+            ExpressionStatementSyntax>(
+            runtimeNameProjection.GeneratedNode.AsNode());
+        var runtimeNameLiteral = Assert.IsType<
+            LiteralExpressionSyntax>(
+            Assert.IsType<AssignmentExpressionSyntax>(
+                runtimeNameStatement.Expression).Right);
+        var nameAnnotation = Assert.Single(
+            runtimeNameStatement.GetAnnotations(
+                XamlProjectionMap.AnnotationKind));
+        var duplicateData = nameAnnotation.Data!
+            .Split(';');
+        duplicateData[3] =
+            ((int)XamlProjectionKind.Literal).ToString(
+                System.Globalization.CultureInfo
+                    .InvariantCulture);
+        var duplicateLiteralAnnotation =
+            new SyntaxAnnotation(
+                XamlProjectionMap.AnnotationKind,
+                string.Join(";", duplicateData));
+        var duplicateOriginalRoot =
+            originalRoot.ReplaceNode(
+                runtimeNameLiteral,
+                runtimeNameLiteral
+                    .WithAdditionalAnnotations(
+                        duplicateLiteralAnnotation));
+        var duplicatedRuntimeNameLiteral =
+            duplicateOriginalRoot
+                .DescendantNodes()
+                .OfType<LiteralExpressionSyntax>()
+                .Single(literal =>
+                    literal.Token.ValueText ==
+                        "PrimaryButton" &&
+                    literal.GetAnnotations(
+                            XamlProjectionMap
+                                .AnnotationKind)
+                        .Any());
+        var duplicateChangedRoot =
+            duplicateOriginalRoot.ReplaceNode(
+                duplicatedRuntimeNameLiteral,
+                SyntaxFactory.LiteralExpression(
+                        SyntaxKind.StringLiteralExpression,
+                        SyntaxFactory.Literal(
+                            "OverlappingName"))
+                    .WithAdditionalAnnotations(
+                        duplicatedRuntimeNameLiteral
+                            .GetAnnotations(
+                                XamlProjectionMap
+                                    .AnnotationKind)));
+        var duplicateOriginalTree =
+            CSharpSyntaxTree.Create(
+                (CSharpSyntaxNode)duplicateOriginalRoot,
+                CSharpParseOptions.Default,
+                originalTree.FilePath,
+                Encoding.UTF8);
+        var duplicateChangedTree =
+            CSharpSyntaxTree.Create(
+                (CSharpSyntaxNode)duplicateChangedRoot,
+                CSharpParseOptions.Default,
+                originalTree.FilePath,
+                Encoding.UTF8);
+        var overlapping = service.ApplyEdits(
+            document.SyntaxTree,
+            compilation
+                .AddSyntaxTrees(duplicateOriginalTree)
+                .GetSemanticModel(duplicateOriginalTree),
+            compilation
+                .AddSyntaxTrees(duplicateChangedTree)
+                .GetSemanticModel(duplicateChangedTree));
+
+        Assert.False(overlapping.Succeeded);
+        Assert.Contains(
+            overlapping.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind
+                    .OverlappingEdit);
+        Assert.Empty(overlapping.Changes);
+        Assert.Equal(
+            xaml,
+            overlapping.GetChangedText().ToString());
+    }
+
+    [Fact]
     public void IncrementalGeneratorEmitsCompilableWinUiBindingActivation()
     {
         const string program = """
