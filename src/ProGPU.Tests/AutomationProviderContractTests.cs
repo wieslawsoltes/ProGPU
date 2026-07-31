@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml;
+using System.Globalization;
 using System.Reflection;
 using Windows.Foundation.Metadata;
 using Xunit;
@@ -1042,6 +1043,225 @@ public sealed class AutomationProviderContractTests
         Assert.Same(
             AutomationPeerAnnotation.PeerProperty,
             AutomationPeerAnnotation.PeerProperty);
+    }
+
+    [Fact]
+    public void AutomationAttachedPropertiesAndIdentifiersAreExactStableAndAllocationFree()
+    {
+        string[] attachedPropertyNames =
+        [
+            "AcceleratorKeyProperty",
+            "AccessKeyProperty",
+            "AccessibilityViewProperty",
+            "AnnotationsProperty",
+            "AutomationControlTypeProperty",
+            "AutomationIdProperty",
+            "ControlledPeersProperty",
+            "CultureProperty",
+            "DescribedByProperty",
+            "FlowsFromProperty",
+            "FlowsToProperty",
+            "FullDescriptionProperty",
+            "HeadingLevelProperty",
+            "HelpTextProperty",
+            "IsDataValidForFormProperty",
+            "IsDialogProperty",
+            "IsPeripheralProperty",
+            "IsRequiredForFormProperty",
+            "ItemStatusProperty",
+            "ItemTypeProperty",
+            "LabeledByProperty",
+            "LandmarkTypeProperty",
+            "LevelProperty",
+            "LiveSettingProperty",
+            "LocalizedControlTypeProperty",
+            "LocalizedLandmarkTypeProperty",
+            "NameProperty",
+            "PositionInSetProperty",
+            "SizeOfSetProperty",
+        ];
+        PropertyInfo[] attachedProperties =
+            typeof(AutomationProperties)
+                .GetProperties(
+                    BindingFlags.Public |
+                    BindingFlags.Static)
+                .OrderBy(property => property.Name)
+                .ToArray();
+        Assert.Equal(
+            attachedPropertyNames.Order(),
+            attachedProperties.Select(property => property.Name));
+        Assert.All(
+            attachedProperties,
+            property =>
+            {
+                Assert.Equal(
+                    typeof(DependencyProperty),
+                    property.PropertyType);
+                Assert.True(property.CanRead);
+                Assert.False(property.CanWrite);
+                var dependencyProperty =
+                    Assert.IsType<DependencyProperty>(
+                        property.GetValue(null));
+                Assert.Same(
+                    dependencyProperty,
+                    property.GetValue(null));
+                Assert.True(dependencyProperty.IsAttached);
+                Assert.Equal(
+                    typeof(AutomationProperties),
+                    dependencyProperty.OwnerType);
+                Assert.Equal(
+                    property.Name[..^"Property".Length],
+                    dependencyProperty.Name);
+            });
+        Assert.Empty(
+            typeof(AutomationProperties).GetFields(
+                BindingFlags.Public |
+                BindingFlags.Static));
+
+        PropertyInfo[] identifiers =
+            typeof(AutomationElementIdentifiers)
+                .GetProperties(
+                    BindingFlags.Public |
+                    BindingFlags.Static)
+                .OrderBy(property => property.Name)
+                .ToArray();
+        Assert.Equal(39, identifiers.Length);
+        Assert.All(
+            identifiers,
+            property => Assert.Equal(
+                typeof(AutomationProperty),
+                property.PropertyType));
+        AutomationProperty[] identifierValues = identifiers
+            .Select(property =>
+                Assert.IsType<AutomationProperty>(
+                    property.GetValue(null)))
+            .ToArray();
+        Assert.Equal(
+            identifierValues.Length,
+            identifierValues.Distinct().Count());
+        Assert.All(
+            identifiers,
+            property => Assert.Same(
+                property.GetValue(null),
+                property.GetValue(null)));
+        Assert.True(typeof(AutomationElementIdentifiers).IsSealed);
+        Assert.False(typeof(AutomationElementIdentifiers).IsAbstract);
+        Assert.Empty(
+            typeof(AutomationElementIdentifiers).GetFields(
+                BindingFlags.Public |
+                BindingFlags.Static));
+
+        var element = new Microsoft.UI.Xaml.Controls.Button();
+        var secondElement =
+            new Microsoft.UI.Xaml.Controls.Button();
+        Assert.Equal(string.Empty,
+            AutomationProperties.GetAcceleratorKey(element));
+        Assert.Equal(string.Empty,
+            AutomationProperties.GetAccessKey(element));
+        Assert.Equal(AccessibilityView.Content,
+            AutomationProperties.GetAccessibilityView(element));
+        Assert.Equal(AutomationControlType.Button,
+            AutomationProperties.GetAutomationControlType(element));
+        Assert.Equal(string.Empty,
+            AutomationProperties.GetAutomationId(element));
+        Assert.Equal(CultureInfo.CurrentUICulture.LCID,
+            AutomationProperties.GetCulture(element));
+        Assert.Equal(AutomationHeadingLevel.None,
+            AutomationProperties.GetHeadingLevel(element));
+        Assert.False(
+            AutomationProperties.GetIsDataValidForForm(element));
+        Assert.False(AutomationProperties.GetIsDialog(element));
+        Assert.False(AutomationProperties.GetIsPeripheral(element));
+        Assert.False(
+            AutomationProperties.GetIsRequiredForForm(element));
+        Assert.Equal(AutomationLandmarkType.None,
+            AutomationProperties.GetLandmarkType(element));
+        Assert.Equal(-1, AutomationProperties.GetLevel(element));
+        Assert.Equal(AutomationLiveSetting.Off,
+            AutomationProperties.GetLiveSetting(element));
+        Assert.Equal(-1,
+            AutomationProperties.GetPositionInSet(element));
+        Assert.Equal(-1,
+            AutomationProperties.GetSizeOfSet(element));
+
+        IList<AutomationAnnotation> annotations =
+            AutomationProperties.GetAnnotations(element);
+        Assert.Same(
+            annotations,
+            AutomationProperties.GetAnnotations(element));
+        Assert.NotSame(
+            annotations,
+            AutomationProperties.GetAnnotations(secondElement));
+        Assert.Same(
+            AutomationProperties.GetControlledPeers(element),
+            AutomationProperties.GetControlledPeers(element));
+        Assert.Same(
+            AutomationProperties.GetDescribedBy(element),
+            AutomationProperties.GetDescribedBy(element));
+        Assert.Same(
+            AutomationProperties.GetFlowsFrom(element),
+            AutomationProperties.GetFlowsFrom(element));
+        Assert.Same(
+            AutomationProperties.GetFlowsTo(element),
+            AutomationProperties.GetFlowsTo(element));
+
+        AutomationProperties.SetName(element, "Submit");
+        AutomationProperties.SetAutomationId(element, "submit");
+        AutomationProperties.SetPositionInSet(element, 2);
+        AutomationProperties.SetSizeOfSet(element, 5);
+        AutomationProperties.SetLevel(element, 3);
+        AutomationProperties.SetHeadingLevel(
+            element,
+            AutomationHeadingLevel.Level2);
+        Assert.Equal("Submit", AutomationProperties.GetName(element));
+        Assert.Equal("submit",
+            AutomationProperties.GetAutomationId(element));
+        Assert.Equal(2,
+            AutomationProperties.GetPositionInSet(element));
+        Assert.Equal(5,
+            AutomationProperties.GetSizeOfSet(element));
+        Assert.Equal(3, AutomationProperties.GetLevel(element));
+        Assert.Equal(AutomationHeadingLevel.Level2,
+            AutomationProperties.GetHeadingLevel(element));
+
+        var annotation = new AutomationAnnotation(
+            AnnotationType.Comment,
+            element);
+        Assert.Equal(AnnotationType.Comment, annotation.Type);
+        Assert.Same(element, annotation.Element);
+        Assert.Same(
+            AutomationAnnotation.TypeProperty,
+            AutomationAnnotation.TypeProperty);
+        Assert.Same(
+            AutomationAnnotation.ElementProperty,
+            AutomationAnnotation.ElementProperty);
+        Assert.Equal(
+            AnnotationType.Unknown,
+            new AutomationAnnotation().Type);
+
+        _ = AutomationProperties.GetName(element);
+        _ = AutomationProperties.GetAnnotations(element);
+        _ = AutomationElementIdentifiers.NameProperty;
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (var iteration = 0;
+             iteration < 1_000_000;
+             iteration++)
+        {
+            _ = AutomationProperties.GetName(element);
+            _ = AutomationProperties.GetLevel(element);
+            _ = AutomationProperties.GetAnnotations(element);
+            _ = AutomationElementIdentifiers.NameProperty;
+        }
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
+
+        AssertWinUiContractVersion(typeof(AutomationProperties));
+        AssertWinUiContractVersion(
+            typeof(AutomationElementIdentifiers));
+        AssertWinUiContractVersion(typeof(AutomationAnnotation));
     }
 
     [Fact]

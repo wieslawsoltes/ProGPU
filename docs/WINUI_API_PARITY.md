@@ -1323,6 +1323,57 @@ Primary clean-room contracts consulted:
 
 No Microsoft implementation source or decompiled method body was inspected.
 
+### Microsoft.UI.Xaml.Automation attached properties
+
+The automation attached-property slice adds the complete official
+`AutomationProperties` surface, all 39
+`AutomationElementIdentifiers` identities, and the required
+`AutomationAnnotation` dependency object. The 29 attached dependency-property
+identities are stable process-wide objects. Scalar reads and writes perform
+fixed `O(1)` indexed dependency-property work, and every warmed getter is
+allocation-free. The five read-only collection properties create one mutable
+list on first access per owning element, retain that identity, and then perform
+`O(1)` allocation-free reads; list mutation retains normal `O(1)` amortized
+append behavior and `O(N)` storage for `N` relationships or annotations.
+`FrameworkElement.Name` now uses an internal dependency-property identity, so
+compiled `{TemplateBinding Name}` expressions resolve through the same typed
+runtime path without adding a non-official public `NameProperty` declaration.
+
+Defaults follow the official contracts: accessibility uses the content view,
+heading/landmark/live states use their none/off identities, strings and Boolean
+values are empty/false, culture captures the current UI locale, and level,
+position, and set size use the documented `-1` unset sentinel. Automation
+property identifiers retain the Windows UI Automation numeric identities
+behind stable typed singletons. The previous public WPF-style mixed/unsupported
+sentinels are now private to rich-text provider dispatch, preserving behavior
+while removing two properties that do not exist in the WinUI contract.
+
+Focused tests reject public-field projection drift, missing or writable
+properties, dependency-property owner/name/attachment drift, duplicate or
+unstable automation identifiers, shared collection defaults, scalar-default
+drift, annotation-constructor drift, and contract-version drift. A warmed
+one-million-iteration property/identifier/list-read invariant reports exactly
+zero managed allocations. The exact pinned comparison adds 127 matches and
+removes six extras, advancing to 8,401 candidate declarations, 4,575 exact
+matches, 12,004 missing declarations, and 3,826 extras.
+
+Primary clean-room contracts and behavior records consulted:
+
+- [AutomationProperties](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.automationproperties?view=windows-app-sdk-1.8)
+- [AutomationElementIdentifiers](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.automationelementidentifiers?view=windows-app-sdk-1.8)
+- [AutomationAnnotation](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.automationannotation?view=windows-app-sdk-1.8)
+- [UI Automation element property identifiers](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-automation-element-propids)
+- [WinUI declaration model at the reviewed commit](https://github.com/microsoft/microsoft-ui-xaml/blob/188f602b27cdb47572b28c380e9c087b02e1ccee/dxaml/xcp/tools/XCPTypesAutoGen/XamlOM/Model/Microsoft.UI.Xaml.Automation.cs)
+- [WinUI dependency-property defaults at the reviewed commit](https://github.com/microsoft/microsoft-ui-xaml/blob/188f602b27cdb47572b28c380e9c087b02e1ccee/dxaml/xcp/components/DependencyObject/DependencyProperty.cpp)
+
+The pinned NuGet assembly/XML metadata determined the managed surface. The
+official declaration model and default-value table were used only to confirm
+observable collection creation and scalar defaults. ProGPU's implementation,
+storage helpers, tests, and file organization are original and use its existing
+typed dependency-property engine; no foreign implementation body or control
+flow was copied. Native Windows-only property objects, reflection, global
+mutable collection defaults, and a second automation store were rejected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:

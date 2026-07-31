@@ -367,11 +367,17 @@ public partial class FrameworkElement
 
     public IList<KeyboardAccelerator> KeyboardAccelerators { get; } = new List<KeyboardAccelerator>();
 
-    private string _name = string.Empty;
+    internal static readonly DependencyProperty NameProperty =
+        DependencyProperty.Register(
+            nameof(Name),
+            typeof(string),
+            typeof(FrameworkElement),
+            new PropertyMetadata(string.Empty));
+
     public string Name
     {
-        get => _name;
-        set { if (_name != value) { _name = value; OnPropertyChanged(); } }
+        get => (string?)GetValue(NameProperty) ?? string.Empty;
+        set => SetValue(NameProperty, value ?? string.Empty);
     }
 
     private object? _tag;
