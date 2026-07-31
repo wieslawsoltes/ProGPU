@@ -932,6 +932,55 @@ advances to 7,679 candidate declarations, 3,827 exact matches, 12,794 missing
 declarations, and 3,852 extras. No Microsoft implementation source or method
 body was inspected.
 
+### Microsoft.UI.Content coordinate conversion
+
+Primary contracts consulted:
+
+- [ContentCoordinateConverter](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateconverter)
+- [ContentCoordinateConverter.ConvertLocalToScreen](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateconverter.convertlocaltoscreen)
+- [ContentCoordinateConverter.ConvertScreenToLocal](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateconverter.convertscreentolocal)
+- [ContentCoordinateConverter.CreateForWindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateconverter.createforwindowid)
+- [ContentCoordinateRoundingMode](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentcoordinateroundingmode)
+- [System.Numerics.Matrix3x2](https://learn.microsoft.com/dotnet/api/system.numerics.matrix3x2)
+- The pinned official projection metadata and `Microsoft.UI.xml`
+  documentation extracted by the deterministic API gate.
+
+Adopted: the exact non-sealed converter surface, a required nonzero top-level
+window identity, local-to-screen conversion adjusted by the complete affine
+mapping (including platform rasterization scale), inverse screen-to-local
+conversion, one transform snapshot per array operation, and axis-aligned
+bounds for converted rectangles. `Auto` follows the current Microsoft Learn
+contract and truncates toward zero; `Floor`, `Round`, and `Ceiling` apply their
+named behavior, with midpoint rounding away from zero for the explicit
+`Round` mode. The older pinned XML describes `Auto` in terms of the current
+FPU setting; deterministic truncation was selected because it is the current
+publicly documented behavior and is stable across managed platforms.
+
+Adapted for portable desktop, mobile, and browser hosts:
+`IContentCoordinatePlatformProvider` supplies a live typed `Matrix3x2` for a
+`WindowId`. The matrix includes the native client-to-screen origin and current
+rasterization scale, and can also represent rotation or skew. ProGPU-owned
+`AppWindow` instances retain a lock-free live-position fallback when a host
+provider is absent. The later `ContentSite` and `ContentIsland` work can use an
+internal typed transform source without reflection, boxed adapters, or
+platform-specific types in the public WinUI contract.
+
+Scalar conversion and rectangle conversion are fixed `O(1)` work and allocate
+no managed memory. Array conversion is `O(P)` time and exactly `O(P)` result
+storage for `P` points; the transform is resolved and inverted at most once.
+Invalid, non-finite, singular, or overflowing mappings fail explicitly.
+Coordinate conversion is a CPU-only value service and does not initialize
+WebGPU.
+
+Focused tests cover nonzero window identity, live platform transform changes,
+forward/inverse mapping, all four rounding modes, one-snapshot array
+conversion, rotated rectangle bounds, invalid input and transforms, and
+100,000 warmed forward/inverse scalar iterations with exactly zero managed
+allocations. The slice adds all 12 selected official declarations exactly.
+The official comparison advances to 7,691 candidate declarations, 3,839 exact
+matches, 12,782 missing declarations, and 3,852 extras. No Microsoft
+implementation source or method body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:

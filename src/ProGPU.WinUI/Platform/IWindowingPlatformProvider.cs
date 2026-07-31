@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.UI;
 using Windows.Graphics;
 
@@ -37,9 +38,28 @@ public interface IAppWindowPlatformProvider
         bool atBottom);
 }
 
+public interface IContentCoordinatePlatformProvider
+{
+    bool TryGetLocalToScreenTransform(
+        WindowId windowId,
+        out Matrix3x2 localToScreen);
+}
+
 public static class WindowingPlatformServices
 {
+    private static IContentCoordinatePlatformProvider?
+        s_contentCoordinates;
+
     public static IWindowingDisplayAreaProvider? DisplayAreas { get; set; }
 
     public static IAppWindowPlatformProvider? AppWindows { get; set; }
+
+    public static IContentCoordinatePlatformProvider? ContentCoordinates
+    {
+        get => Volatile.Read(
+            ref s_contentCoordinates);
+        set => Volatile.Write(
+            ref s_contentCoordinates,
+            value);
+    }
 }
