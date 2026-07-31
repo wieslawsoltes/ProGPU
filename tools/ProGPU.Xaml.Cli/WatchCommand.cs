@@ -146,7 +146,6 @@ internal static partial class Program
             return await RunFileSystemWatchAsync(
                 session,
                 projectPath,
-                projectDirectory,
                 file,
                 output,
                 profile.Id,
@@ -246,7 +245,6 @@ internal static partial class Program
         RunFileSystemWatchAsync(
             RoslynXamlProjectWatchSession session,
             string projectPath,
-            string projectDirectory,
             string file,
             string output,
             string framework,
@@ -265,27 +263,47 @@ internal static partial class Program
                     SingleReader = true,
                     SingleWriter = false
                 });
-        using var projectWatcher =
-            CreateProjectWatcher(
-                projectDirectory,
-                changedPath =>
-                    signals.Writer.TryWrite(
-                        changedPath));
-        FileSystemWatcher? externalFileWatcher = null;
-        if (!IsUnderDirectory(
-                file,
-                projectDirectory))
+        var inputSet = await LoadWatchInputSetAsync(
+            projectPath,
+            file,
+            cancellationToken);
+        var watchers = new List<FileSystemWatcher>(
+            inputSet.RecursiveDirectories.Length +
+            inputSet.ExplicitFiles.Length);
+        var exactFiles = new HashSet<string>(
+            inputSet.Files,
+            Path.DirectorySeparatorChar == '\\'
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        try
         {
-            externalFileWatcher =
-                CreateSingleFileWatcher(
-                    file,
-                    changedPath =>
-                        signals.Writer.TryWrite(
-                            changedPath));
-        }
+            foreach (var directory in
+                     inputSet.RecursiveDirectories)
+            {
+                watchers.Add(
+                    CreateProjectWatcher(
+                        directory,
+                        changedPath =>
+                            IsWatchInput(changedPath) ||
+                            (!IsBuildOutput(changedPath) &&
+                             exactFiles.Contains(
+                                 Path.GetFullPath(
+                                     changedPath))),
+                        changedPath =>
+                            signals.Writer.TryWrite(
+                                changedPath)));
+            }
+            foreach (var inputFile in
+                     inputSet.ExplicitFiles)
+            {
+                watchers.Add(
+                    CreateSingleFileWatcher(
+                        inputFile,
+                        changedPath =>
+                            signals.Writer.TryWrite(
+                                changedPath)));
+            }
 
-        using (externalFileWatcher)
-        {
             while (!cancellationToken
                        .IsCancellationRequested)
             {
@@ -344,8 +362,33 @@ internal static partial class Program
                     return lastAccepted ? 0 : 1;
             }
         }
+        finally
+        {
+            foreach (var watcher in watchers)
+                watcher.Dispose();
+        }
 
         return 0;
+    }
+
+    private static async Task<
+        RoslynXamlProjectWatchInputSet>
+        LoadWatchInputSetAsync(
+            string projectPath,
+            string file,
+            CancellationToken cancellationToken)
+    {
+        using var loaded =
+            await OpenWatchProjectAsync(
+                projectPath,
+                cancellationToken);
+        var project = EnsureAdditionalDocument(
+            loaded.Project,
+            file,
+            out _);
+        return RoslynXamlProjectWatchInputSet.Create(
+            project,
+            explicitInputs: new[] { file });
     }
 
     private static async Task<
@@ -382,7 +425,7 @@ internal static partial class Program
             MSBuildLocator.RegisterDefaults();
         var workspace = CliMsBuildWorkspace.Create();
         workspace.LoadMetadataForReferencedProjects =
-            true;
+            false;
         workspace.RegisterWorkspaceFailedHandler(
             eventArgs =>
                 Console.Error.WriteLine(
@@ -409,6 +452,7 @@ internal static partial class Program
     private static FileSystemWatcher
         CreateProjectWatcher(
             string projectDirectory,
+            Func<string, bool> isInput,
             Action<string> changed)
     {
         var watcher =
@@ -426,14 +470,14 @@ internal static partial class Program
         FileSystemEventHandler onChange =
             (_, eventArgs) =>
             {
-                if (IsWatchInput(eventArgs.FullPath))
+                if (isInput(eventArgs.FullPath))
                     changed(eventArgs.FullPath);
             };
         RenamedEventHandler onRename =
             (_, eventArgs) =>
             {
-                if (IsWatchInput(eventArgs.FullPath) ||
-                    IsWatchInput(eventArgs.OldFullPath))
+                if (isInput(eventArgs.FullPath) ||
+                    isInput(eventArgs.OldFullPath))
                 {
                     changed(eventArgs.FullPath);
                 }
@@ -509,22 +553,6 @@ internal static partial class Program
                extension.Equals(
                    ".resw",
                    StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsUnderDirectory(
-        string path,
-        string directory)
-    {
-        var relative =
-            Path.GetRelativePath(directory, path);
-        return !relative.Equals(
-                   "..",
-                   StringComparison.Ordinal) &&
-               !relative.StartsWith(
-                   ".." +
-                   Path.DirectorySeparatorChar,
-                   StringComparison.Ordinal) &&
-               !Path.IsPathRooted(relative);
     }
 
     private static TimeSpan ParseWatchDebounce(
