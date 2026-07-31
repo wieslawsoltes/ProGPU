@@ -131,6 +131,11 @@ ProGPU-only entries unchanged at 3,853. It adds all 15 official
 `InputPointerSource` declarations without adding a candidate-only
 declaration.
 
+The pointer-prediction slice advances the baseline to 7,480 ProGPU entries,
+3,627 exact matches, and 12,994 missing entries while keeping ProGPU-only
+entries unchanged at 3,853. It adds all seven official `PointerPredictor`
+declarations without adding a candidate-only declaration.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -648,6 +653,47 @@ allocation behavior. The slice adds all 15 official declarations exactly.
 The official comparison advances to 7,473 candidate declarations, 3,620 exact
 matches, 13,001 missing declarations, and 3,853 extras. No Microsoft
 implementation source or method body was inspected.
+
+### Microsoft.UI.Input pointer prediction
+
+Primary contracts consulted:
+
+- [PointerPredictor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpredictor)
+- [PointerPredictor.CreateForInputPointerSource](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpredictor.createforinputpointersource)
+- [PointerPredictor.GetPredictedPoints](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpredictor.getpredictedpoints)
+- [PointerPredictor.PredictionTime](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpredictor.predictiontime)
+- [PointerPredictor.Dispose](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpredictor.dispose)
+
+Adopted: a predictor is created for an `InputPointerSource`, defaults to a
+15-millisecond horizon, emits no points until it has processed ten samples,
+and derives its output count from that horizon and the observed reporting
+cadence. Predicted points advance timestamp, position, pressure, X tilt, and Y
+tilt; all other public point and property state is cloned from the caller's
+current point. Disposal is idempotent and rejects later use.
+
+Adapted as an original portable implementation: a fixed 16-sample ring keeps
+monotonic history for one pointer and resets on pointer identity or timestamp
+discontinuities. Five independent ordinary least-squares lines predict X, Y,
+pressure, X tilt, and Y tilt against timestamp. Pressure is clamped to
+`[0, 1]`, tilt to `[-90, 90]`, timestamps saturate on overflow, and at most 64
+owned prediction points are returned for an unbounded caller horizon. This
+keeps the implementation deterministic and dependency-free across desktop,
+mobile, and browser runtimes.
+
+Appending history is `O(1)` time and fixed storage. A prediction is `O(H + P)`
+time and `O(P)` returned storage for at most `H = 16` retained samples and
+`P = 64` output points; there are no transient lists or per-call history
+copies. Duplicate prehistory samples reuse the shared empty result. A warmed
+100,000-call prehistory invariant allocates exactly zero managed bytes.
+
+Focused tests cover the ten-sample threshold, 15-millisecond default, cadence
+and output count, linear position/pressure/tilt extrapolation, unchanged
+property cloning, configurable/zero/invalid horizons, the 64-point cap,
+pointer and timestamp resets, idempotent disposal, exact contract metadata,
+and allocation behavior. The slice adds all seven official declarations
+exactly. The official comparison advances to 7,480 candidate declarations,
+3,627 exact matches, 12,994 missing declarations, and 3,853 extras. No
+Microsoft implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 

@@ -53,6 +53,7 @@ public sealed class InputContractValueTests
     [InlineData(typeof(InputActivationState), 0x00010001U)]
     [InlineData(typeof(InputPointerSourceDeviceKinds), 0x00010000U)]
     [InlineData(typeof(InputPointerSource), 0x00010000U)]
+    [InlineData(typeof(PointerPredictor), 0x00010000U)]
     [InlineData(typeof(InputSystemCursorShape), 0x00010000U)]
     [InlineData(typeof(MoveSizeOperation), 0x00010006U)]
     [InlineData(typeof(NonClientRegionKind), 0x00010004U)]

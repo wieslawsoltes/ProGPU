@@ -134,6 +134,34 @@ public sealed class PointerPointProperties
             XTilt,
             YTilt,
             MouseWheelDelta);
+
+    internal PointerPointProperties
+        WithPrediction(
+            float pressure,
+            float xTilt,
+            float yTilt) =>
+        new(
+            ContactRect,
+            IsBarrelButtonPressed,
+            IsHorizontalMouseWheel,
+            IsInRange,
+            IsInverted,
+            IsLeftButtonPressed,
+            IsMiddleButtonPressed,
+            IsRightButtonPressed,
+            IsXButton1Pressed,
+            IsXButton2Pressed,
+            IsPrimary,
+            IsCanceled,
+            IsEraser,
+            Orientation,
+            PointerUpdateKind,
+            pressure,
+            TouchConfidence,
+            Twist,
+            xTilt,
+            yTilt,
+            MouseWheelDelta);
 }
 
 [ContractVersion(
@@ -167,13 +195,38 @@ public sealed class PointerPoint
         Microsoft.UI.Input.PointerDeviceType deviceType,
         bool isInContact,
         PointerPointProperties properties)
+        : this(
+            pointerId,
+            unchecked((uint)timestamp),
+            timestamp,
+            position,
+            rawPosition,
+            Windows.Devices.Input.PointerDevice
+                .GetPointerDevice(legacyDeviceType),
+            deviceType,
+            isInContact,
+            properties)
+    {
+    }
+
+    private PointerPoint(
+        uint pointerId,
+        uint frameId,
+        ulong timestamp,
+        Vector2 position,
+        Vector2 rawPosition,
+        Windows.Devices.Input.PointerDevice
+            pointerDevice,
+        Microsoft.UI.Input.PointerDeviceType deviceType,
+        bool isInContact,
+        PointerPointProperties properties)
     {
         PointerId = pointerId;
         Timestamp = timestamp;
-        FrameId = unchecked((uint)timestamp);
+        FrameId = frameId;
         Position = new Windows.Foundation.Point(position.X, position.Y);
         RawPosition = rawPosition;
-        PointerDevice = Windows.Devices.Input.PointerDevice.GetPointerDevice(legacyDeviceType);
+        PointerDevice = pointerDevice;
         PointerDeviceType = deviceType;
         IsInContact = isInContact;
         Properties = properties;
@@ -202,6 +255,21 @@ public sealed class PointerPoint
         return new PointerPoint(PointerId, Timestamp, transformed, transformed,
             PointerDevice.PointerDeviceType, PointerDeviceType, IsInContact, transformedProperties);
     }
+
+    internal PointerPoint WithPrediction(
+        ulong timestamp,
+        Vector2 position,
+        PointerPointProperties properties) =>
+        new(
+            PointerId,
+            FrameId,
+            timestamp,
+            position,
+            position,
+            PointerDevice,
+            PointerDeviceType,
+            IsInContact,
+            properties);
 }
 
 [ContractVersion(
