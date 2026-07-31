@@ -143,6 +143,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     private readonly MemoryStream _initialPeStream;
     private readonly PEReader _initialPeReader;
     private readonly ModuleMetadata _module;
+    private readonly RoslynXamlMetadataEditCapabilities _capabilities;
     private Compilation _compilation;
     private EmitBaseline _baseline;
     private ImmutableHashSet<string> _addedMethodKeys =
@@ -153,10 +154,29 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     public RoslynXamlMetadataEditSession(
         Compilation initialCompilation,
         CancellationToken cancellationToken = default)
+        : this(
+            initialCompilation,
+            GetAllCapabilities(),
+            cancellationToken)
+    {
+    }
+
+    public RoslynXamlMetadataEditSession(
+        Compilation initialCompilation,
+        RoslynXamlMetadataEditCapabilities capabilities,
+        CancellationToken cancellationToken = default)
     {
         _compilation = initialCompilation ??
             throw new ArgumentNullException(
                 nameof(initialCompilation));
+        RoslynXamlMetadataEditCapabilities allCapabilities =
+            GetAllCapabilities();
+        if ((capabilities & ~allCapabilities) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(capabilities));
+        }
+        _capabilities = capabilities;
         EnsureCSharpCompilation(initialCompilation);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -206,15 +226,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     public ImmutableArray<byte> InitialPdbImage { get; }
 
     public RoslynXamlMetadataEditCapabilities Capabilities =>
-        RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
-        RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor |
-        RoslynXamlMetadataEditCapabilities.UpdateEventAccessor |
-        RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
-        RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
-        RoslynXamlMetadataEditCapabilities.UpdateOperatorBody |
-        RoslynXamlMetadataEditCapabilities.AddMethodToExistingType |
-        RoslynXamlMetadataEditCapabilities
-            .AddInstanceConstructorToExistingType;
+        _capabilities;
 
     public long Generation
     {
@@ -351,6 +363,20 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 continue;
             }
 
+            RoslynXamlMetadataEditCapabilities requiredCapability =
+                GetUpdateCapability(newMethod.Symbol);
+            if ((_capabilities & requiredCapability) == 0)
+            {
+                return CreateUnsupported(
+                    generation,
+                    candidate,
+                    baseline,
+                    addedMethodKeys,
+                    "runtime capability '" + requiredCapability +
+                    "' is unavailable for '" + key + "'",
+                    GetSourceLocation(newMethod.Symbol));
+            }
+
             edits.Add(new SemanticEdit(
                 SemanticEditKind.Update,
                 oldMethod.Symbol,
@@ -377,6 +403,24 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     "the added member '" + item.Key + "' is not a " +
                     "non-virtual ordinary method or instance " +
                     "constructor",
+                    GetSourceLocation(item.Value.Symbol));
+            }
+
+            RoslynXamlMetadataEditCapabilities requiredCapability =
+                item.Value.Symbol.MethodKind == MethodKind.Constructor
+                    ? RoslynXamlMetadataEditCapabilities
+                        .AddInstanceConstructorToExistingType
+                    : RoslynXamlMetadataEditCapabilities
+                        .AddMethodToExistingType;
+            if ((_capabilities & requiredCapability) == 0)
+            {
+                return CreateUnsupported(
+                    generation,
+                    candidate,
+                    baseline,
+                    addedMethodKeys,
+                    "runtime capability '" + requiredCapability +
+                    "' is unavailable for '" + item.Key + "'",
                     GetSourceLocation(item.Value.Symbol));
             }
 
@@ -561,6 +605,41 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         symbol.Locations.FirstOrDefault(
             static location => location.IsInSource) ??
         Location.None;
+
+    private static RoslynXamlMetadataEditCapabilities
+        GetUpdateCapability(IMethodSymbol symbol) =>
+        symbol.MethodKind switch
+        {
+            MethodKind.PropertyGet or MethodKind.PropertySet =>
+                RoslynXamlMetadataEditCapabilities
+                    .UpdatePropertyAccessor,
+            MethodKind.EventAdd or MethodKind.EventRemove or
+                MethodKind.EventRaise =>
+                RoslynXamlMetadataEditCapabilities
+                    .UpdateEventAccessor,
+            MethodKind.Constructor or MethodKind.StaticConstructor =>
+                RoslynXamlMetadataEditCapabilities
+                    .UpdateConstructorBody,
+            MethodKind.Destructor =>
+                RoslynXamlMetadataEditCapabilities
+                    .UpdateDestructorBody,
+            MethodKind.UserDefinedOperator or MethodKind.Conversion =>
+                RoslynXamlMetadataEditCapabilities
+                    .UpdateOperatorBody,
+            _ => RoslynXamlMetadataEditCapabilities.UpdateMethodBody
+        };
+
+    private static RoslynXamlMetadataEditCapabilities
+        GetAllCapabilities() =>
+        RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
+        RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor |
+        RoslynXamlMetadataEditCapabilities.UpdateEventAccessor |
+        RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
+        RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
+        RoslynXamlMetadataEditCapabilities.UpdateOperatorBody |
+        RoslynXamlMetadataEditCapabilities.AddMethodToExistingType |
+        RoslynXamlMetadataEditCapabilities
+            .AddInstanceConstructorToExistingType;
 
     private RoslynXamlMetadataDeltaUpdate CreateRejected(
         long generation,

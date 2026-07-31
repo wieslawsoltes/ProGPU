@@ -40,7 +40,11 @@ deterministic candidate document location for broader declaration/member/
 topology changes. Environment-only incompatibilities remain unlocated because
 no source edit owns them. Field,
 property, type, and static-constructor insertion, deletion, and broader
-runtime capabilities, XAML-origin rude-edit routing, combined XAML/metadata
+runtime capabilities are supplied as an immutable typed session snapshot;
+edits that require a missing method-body, accessor, special-method, or
+insertion capability fail before `EmitDifference` with an exact source
+location. Dynamic-code/runtime support discovery, XAML-origin rude-edit
+routing, combined XAML/metadata
 publication ordering, partial-publication
 recovery, and multi-project delta ownership remain.
 This checkpoint supersedes the earlier metadata-delta-producer milestone;

@@ -131,6 +131,9 @@ Already implemented:
 - candidate-first compiler diagnostics and declaration-shape validation;
 - source-located unsupported-edit diagnostics for exact method additions,
   declaration changes, deletions, and broader candidate topology changes;
+- typed immutable per-session runtime capability restriction for method,
+  accessor, special-method, and supported insertion edits, with pre-emission
+  rejection at the affected symbol;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
 - transactional no-op/ready/rejected states plus foreign, invalid, disposed,
@@ -156,8 +159,9 @@ Required implementation:
 
 - XAML-origin routing for rude-edit diagnostics and typed unsupported-runtime
   diagnostics where no C# source location is available;
-- complete capability negotiation for runtime metadata update, dynamic code,
-  additions and other runtime-specific edit support;
+- host adapters that discover runtime metadata-update and dynamic-code support
+  and project it into the typed capability snapshot, plus broader
+  runtime-specific additions;
 - candidate-first ordering: validate the XAML artifact, produce and validate metadata deltas, apply metadata, publish the XAML replacement, then commit both baselines;
 - an explicit recovery state when metadata publication succeeds but framework replacement fails; no silent divergence;
 - typed adapters for .NET metadata update handlers and framework-specific tree replacement;

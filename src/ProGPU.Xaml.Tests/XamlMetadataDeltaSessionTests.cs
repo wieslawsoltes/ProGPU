@@ -106,6 +106,130 @@ public sealed class XamlMetadataDeltaSessionTests
     }
 
     [Fact]
+    public void RuntimeCapabilitiesRejectUnsupportedEditsBeforeEmission()
+    {
+        CSharpCompilation initial = CreateCompilation(
+            "public static class Target { " +
+            "public static int Value() => 1; }");
+        using var unavailable = new RoslynXamlMetadataEditSession(
+            initial,
+            RoslynXamlMetadataEditCapabilities.None);
+
+        Assert.Equal(
+            RoslynXamlMetadataEditCapabilities.None,
+            unavailable.Capabilities);
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.NoChanges,
+            unavailable.Prepare(initial).Status);
+        RoslynXamlMetadataDeltaUpdate rejected =
+            unavailable.Prepare(CreateCompilation(
+                "public static class Target { " +
+                "public static int Value() => 2; }"));
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+            rejected.Status);
+        Diagnostic diagnostic = Assert.Single(
+            rejected.Diagnostics,
+            static item => item.Id == "PGXAML8010");
+        Assert.Contains(
+            nameof(RoslynXamlMetadataEditCapabilities.UpdateMethodBody),
+            diagnostic.GetMessage(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "Value",
+            diagnostic.Location.SourceTree!.GetText()
+                .ToString(diagnostic.Location.SourceSpan));
+        Assert.Empty(rejected.MetadataDelta);
+        Assert.Equal(0, unavailable.Generation);
+
+        using var updateOnly = new RoslynXamlMetadataEditSession(
+            initial,
+            RoslynXamlMetadataEditCapabilities.UpdateMethodBody);
+        RoslynXamlMetadataDeltaUpdate insertion =
+            updateOnly.Prepare(CreateCompilation(
+                "public static class Target { " +
+                "public static int Value() => 1; " +
+                "public static int Added() => 2; }"));
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+            insertion.Status);
+        Assert.Contains(
+            nameof(RoslynXamlMetadataEditCapabilities
+                .AddMethodToExistingType),
+            Assert.Single(insertion.Diagnostics).GetMessage(),
+            StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RoslynXamlMetadataEditSession(
+                initial,
+                (RoslynXamlMetadataEditCapabilities)(1 << 30)));
+    }
+
+    [Fact]
+    public void RuntimeCapabilityClassificationCoversEveryUpdateKind()
+    {
+        RoslynXamlMetadataEditCapabilities all =
+            RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
+            RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor |
+            RoslynXamlMetadataEditCapabilities.UpdateEventAccessor |
+            RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
+            RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
+            RoslynXamlMetadataEditCapabilities.UpdateOperatorBody |
+            RoslynXamlMetadataEditCapabilities.AddMethodToExistingType |
+            RoslynXamlMetadataEditCapabilities
+                .AddInstanceConstructorToExistingType;
+        var cases = new[]
+        {
+            (
+                RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor,
+                "public sealed class Target { public int Value => 1; }",
+                "public sealed class Target { public int Value => 2; }"),
+            (
+                RoslynXamlMetadataEditCapabilities.UpdateEventAccessor,
+                "public sealed class Target { public event System.Action " +
+                "Value { add { } remove { } } }",
+                "public sealed class Target { public event System.Action " +
+                "Value { add { _ = value; } remove { } } }"),
+            (
+                RoslynXamlMetadataEditCapabilities.UpdateConstructorBody,
+                "public sealed class Target { public Target() { } }",
+                "public sealed class Target { public Target() { " +
+                "System.GC.KeepAlive(this); } }"),
+            (
+                RoslynXamlMetadataEditCapabilities.UpdateDestructorBody,
+                "public sealed class Target { ~Target() { } }",
+                "public sealed class Target { ~Target() { " +
+                "System.GC.KeepAlive(this); } }"),
+            (
+                RoslynXamlMetadataEditCapabilities.UpdateOperatorBody,
+                "public sealed class Target { public static Target " +
+                "operator +(Target left, Target right) => left; }",
+                "public sealed class Target { public static Target " +
+                "operator +(Target left, Target right) => right; }")
+        };
+
+        foreach (var item in cases)
+        {
+            using var session = new RoslynXamlMetadataEditSession(
+                CreateCompilation(item.Item2),
+                all & ~item.Item1);
+            RoslynXamlMetadataDeltaUpdate update = session.Prepare(
+                CreateCompilation(item.Item3));
+
+            Assert.Equal(
+                RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+                update.Status);
+            Assert.Contains(
+                item.Item1.ToString(),
+                Assert.Single(update.Diagnostics).GetMessage(),
+                StringComparison.Ordinal);
+            Assert.True(update.Diagnostics[0].Location.IsInSource);
+            Assert.Empty(update.MetadataDelta);
+            Assert.Equal(0, session.Generation);
+        }
+    }
+
+    [Fact]
     public void PropertyAndIndexerAccessorBodiesProduceMethodDeltas()
     {
         using var session = new RoslynXamlMetadataEditSession(
