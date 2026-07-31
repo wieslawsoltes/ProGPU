@@ -103,6 +103,7 @@ jobs:
         shell: bash
         run: |
           dotnet restore integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
+            --configfile "${{ github.workspace }}/.worktrees/avalonia-12.0.5/NuGet.Config" \
             -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
             -p:ProGpuSourceRoot="${{ github.workspace }}" \
             -p:UseSkiaSharpShim=true
