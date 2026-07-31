@@ -109,6 +109,10 @@ declarations without adding ProGPU-only entries: 63 in `Microsoft.UI.Input`
 and 26 in the minimal `Microsoft.UI.Content` island/site foundation required
 by the official factories.
 
+The activation and pre-translate source slice advances the baseline to 7,422
+ProGPU entries, 3,538 exact matches, and 13,083 missing entries. It adds 11
+exact `Microsoft.UI.Input` declarations without adding ProGPU-only entries.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -396,6 +400,46 @@ without adding ProGPU-only declarations, advancing the official comparison to
 7,411 candidate declarations, 3,527 exact matches, 13,094 missing
 declarations, and 3,884 extras. No Microsoft source or method body was
 inspected.
+
+### Microsoft.UI.Input activation and pre-translation
+
+Primary contracts consulted:
+
+- [InputActivationListener](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationlistener)
+- [InputActivationListener.GetForIsland](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationlistener.getforisland)
+- [InputActivationListener.GetForWindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationlistener.getforwindowid)
+- [InputActivationListener.InputActivationChanged](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationlistener.inputactivationchanged)
+- [InputActivationState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputactivationstate)
+- [InputPreTranslateKeyboardSource](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpretranslatekeyboardsource)
+- [InputPreTranslateKeyboardSource.GetForIsland](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputpretranslatekeyboardsource.getforisland)
+
+Adopted: one stable activation listener per valid same-thread content island or
+top-level window ID, null lookup results for invalid or cross-thread objects,
+change-only activation notifications, stable pre-translate source identity,
+and implicit source teardown with the associated object. Island activation
+reuses host-focus transitions; window activation reuses the existing XAML
+Window event and retained current state. Code and pointer activation both map
+to the official `Activated` input state.
+
+Adapted for portable hosts: `InputActivationRegistration` is a typed seam
+outside the official namespace that resolves an `AppWindow` ID and forwards
+native activation through the existing Window notification path. Lookup and
+state reads are expected fixed `O(1)` work; window lookup uses the existing
+bounded registry lock. Subscriber-free state transitions do not allocate an
+event argument, and a warmed Release invariant performs 100,000 state reads
+with exactly zero managed allocations.
+
+The pinned stable `InputPreTranslateKeyboardSource` metadata exposes only its
+dispatcher and same-island singleton factory. ProGPU therefore does not invent
+public pre-translation events; platform keyboard input continues through the
+typed value source delivered in the previous slice until an official contract
+adds a callable event surface. Focused tests cover island/window identity,
+invalid and cross-thread lookup, change-only event delivery, object teardown,
+pre-translate lifetime, contract versions, and the allocation invariant. The
+slice adds 11 exact declarations with zero new extras, advancing the official
+comparison to 7,422 candidate declarations, 3,538 exact matches, 13,083
+missing declarations, and 3,884 extras. No Microsoft implementation source or
+method body was inspected.
 
 ### Microsoft.UI.Windowing
 

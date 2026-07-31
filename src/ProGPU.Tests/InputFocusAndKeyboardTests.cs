@@ -4,10 +4,12 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.WinUI.Platform;
+using ProGPU.WinUI.Input;
 using Silk.NET.Input;
 using Windows.Foundation;
 using Windows.System;
 using Windows.UI.Core;
+using Microsoft.UI.Windowing;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -418,6 +420,180 @@ public sealed class InputFocusAndKeyboardTests
         });
     }
 
+    [Fact]
+    public void ActivationListenerTracksIslandFocusChangesOnly()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            WindowInputState previous = InputSystem.Current;
+            WindowInputState state =
+                InputSystem.CreateExternalState();
+            var island = new TestContentIsland();
+            ContentIslandInputRegistration.Attach(
+                island,
+                state);
+
+            try
+            {
+                InputSystem.Current = state;
+                InputActivationListener listener =
+                    InputActivationListener
+                        .GetForIsland(island);
+                Assert.Same(
+                    listener,
+                    InputActivationListener
+                        .GetForIsland(island));
+                Assert.Equal(
+                    InputActivationState.Deactivated,
+                    listener.State);
+                int changes = 0;
+                listener.InputActivationChanged +=
+                    (_, _) => changes++;
+
+                Assert.True(
+                    InputFocusController
+                        .GetForIsland(island)
+                        .TrySetFocus());
+                Assert.Equal(
+                    InputActivationState.Activated,
+                    listener.State);
+                Assert.Equal(1, changes);
+
+                Assert.True(
+                    InputFocusController
+                        .GetForIsland(island)
+                        .TrySetFocus());
+                Assert.Equal(1, changes);
+
+                InputSystem.InjectFocusLost();
+                Assert.Equal(
+                    InputActivationState.Deactivated,
+                    listener.State);
+                Assert.Equal(2, changes);
+            }
+            finally
+            {
+                island.Dispose();
+                InputSystem.Current = previous;
+            }
+        });
+    }
+
+    [Fact]
+    public void ActivationListenerTracksAppWindowAndInvalidLookups()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            AppWindow appWindow =
+                AppWindow.Create();
+            InputActivationListener listener =
+                InputActivationListener
+                    .GetForWindowId(appWindow.Id);
+            Assert.Same(
+                listener,
+                InputActivationListener
+                    .GetForWindowId(appWindow.Id));
+            Assert.Equal(
+                InputActivationState.Deactivated,
+                listener.State);
+            Assert.Null(
+                InputActivationListener
+                    .GetForWindowId(default));
+            int changes = 0;
+            listener.InputActivationChanged +=
+                (_, _) => changes++;
+
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Activated));
+            Assert.Equal(
+                InputActivationState.Activated,
+                listener.State);
+            Assert.Equal(1, changes);
+            Assert.True(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Activated));
+            Assert.Equal(1, changes);
+
+            Assert.Null(Task.Run(
+                () => InputActivationListener
+                    .GetForWindowId(appWindow.Id))
+                .GetAwaiter()
+                .GetResult());
+
+            appWindow.Destroy();
+            Assert.Equal(
+                InputActivationState.None,
+                listener.State);
+            Assert.False(
+                InputActivationRegistration
+                    .NotifyWindowActivation(
+                        appWindow.Id,
+                        InputActivationState.Deactivated));
+        });
+    }
+
+    [Fact]
+    public void PreTranslateKeyboardSourceIsStableAndSameThreadOnly()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            var island = new TestContentIsland();
+            InputPreTranslateKeyboardSource source =
+                InputPreTranslateKeyboardSource
+                    .GetForIsland(island);
+            Assert.Same(
+                source,
+                InputPreTranslateKeyboardSource
+                    .GetForIsland(island));
+            Assert.Null(Task.Run(
+                () => InputPreTranslateKeyboardSource
+                    .GetForIsland(island))
+                .GetAwaiter()
+                .GetResult());
+
+            island.Dispose();
+            Assert.Null(
+                InputPreTranslateKeyboardSource
+                    .GetForIsland(island));
+        });
+    }
+
+    [Fact]
+    public void ActivationStateReadsAreAllocationFree()
+    {
+        RunOnDispatcherThread(() =>
+        {
+            const int Count = 100_000;
+            var island = new TestContentIsland();
+            ContentIslandInputRegistration.Attach(
+                island,
+                InputSystem.CreateExternalState());
+            InputActivationListener listener =
+                InputActivationListener
+                    .GetForIsland(island);
+            int checksum = ReadActivationState(
+                listener,
+                Count);
+            _ = GC.GetAllocatedBytesForCurrentThread();
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            checksum ^= ReadActivationState(
+                listener,
+                Count);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() -
+                before;
+            GC.KeepAlive(checksum);
+            Assert.Equal(0, allocated);
+            island.Dispose();
+        });
+    }
+
     private static int QueryState(
         InputKeyboardSource source,
         int count)
@@ -433,6 +609,20 @@ public sealed class InputFocusAndKeyboardTests
             checksum ^=
                 (int)source.GetKeyState(
                     VirtualKey.A);
+        }
+        return checksum;
+    }
+
+    private static int ReadActivationState(
+        InputActivationListener listener,
+        int count)
+    {
+        int checksum = 0;
+        for (int index = 0;
+             index < count;
+             index++)
+        {
+            checksum ^= (int)listener.State;
         }
         return checksum;
     }

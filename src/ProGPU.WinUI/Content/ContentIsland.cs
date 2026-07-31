@@ -86,6 +86,11 @@ public class ContentIsland :
 
     internal InputFocusNavigationHost? FocusNavigationHost { get; set; }
 
+    internal InputActivationListener? ActivationListener { get; set; }
+
+    internal InputPreTranslateKeyboardSource?
+        PreTranslateKeyboardSource { get; set; }
+
     internal void VerifyAccess()
     {
         if (!DispatcherQueue.HasThreadAccess)
@@ -117,6 +122,7 @@ public class ContentIsland :
         state.ContentIsland = this;
         FocusController?.Attach(state);
         KeyboardSource?.Attach(state);
+        ActivationListener?.Attach(state);
     }
 
     public void Dispose()
@@ -129,9 +135,13 @@ public class ContentIsland :
         FocusController?.Detach();
         KeyboardSource?.Detach();
         FocusNavigationHost?.Detach();
+        ActivationListener?.Detach();
+        PreTranslateKeyboardSource?.Detach();
         FocusController = null;
         KeyboardSource = null;
         FocusNavigationHost = null;
+        ActivationListener = null;
+        PreTranslateKeyboardSource = null;
         if (InputState is not null &&
             ReferenceEquals(InputState.ContentIsland, this))
         {

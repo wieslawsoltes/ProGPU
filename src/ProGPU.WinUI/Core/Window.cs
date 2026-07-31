@@ -71,6 +71,8 @@ public class Window : DependencyObject
     private Window? _owner;
     private bool _isRendering;
     private bool _isExternalHostActive;
+    private WindowActivationState _activationState =
+        WindowActivationState.Deactivated;
     private bool _isClosed;
     private bool _visible;
     private Windows.Foundation.Rect _bounds = new(0, 0, 1280, 800);
@@ -652,8 +654,12 @@ public class Window : DependencyObject
     public void NotifyHostActivationChanged(WindowActivationState state)
     {
         if (_isClosed) return;
+        _activationState = state;
         Activated?.Invoke(this, new WindowActivatedEventArgs(state));
     }
+
+    internal WindowActivationState ActivationState =>
+        _activationState;
 
     /// <summary>
     /// Updates visibility from an external platform host.
