@@ -136,6 +136,12 @@ The pointer-prediction slice advances the baseline to 7,480 ProGPU entries,
 entries unchanged at 3,853. It adds all seven official `PointerPredictor`
 declarations without adding a candidate-only declaration.
 
+The non-client pointer-source slice advances the baseline to 7,540 ProGPU
+entries, 3,687 exact matches, and 12,934 missing entries while keeping
+ProGPU-only entries unchanged at 3,853. It adds all 60 official declarations
+across `InputNonClientPointerSource` and its eight event-argument types without
+adding a candidate-only declaration.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -694,6 +700,65 @@ and allocation behavior. The slice adds all seven official declarations
 exactly. The official comparison advances to 7,480 candidate declarations,
 3,627 exact matches, 12,994 missing declarations, and 3,853 extras. No
 Microsoft implementation source or method body was inspected.
+
+### Microsoft.UI.Input non-client pointer source
+
+Primary contracts consulted:
+
+- [InputNonClientPointerSource](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputnonclientpointersource)
+- [SetRegionRects](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputnonclientpointersource.setregionrects)
+- [GetRegionRects](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.inputnonclientpointersource.getregionrects)
+- [NonClientRegionKind](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.nonclientregionkind)
+- [NonClientPointerEventArgs](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.nonclientpointereventargs)
+- [NonClientRegionsChangedEventArgs](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.nonclientregionschangedeventargs)
+- [EnteringMoveSizeEventArgs.MoveSizeWindowId](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.enteringmovesizeeventargs.movesizewindowid)
+- [WindowRectChangingEventArgs.AllowRectChange](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.windowrectchangingeventargs.allowrectchange)
+- [WindowRectChangingEventArgs.ShowWindow](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.windowrectchangingeventargs.showwindow)
+
+Adopted: a valid same-thread `AppWindow` owns one stable source associated
+with its dispatcher. The source retains independently configured rectangles
+for all ten official non-client region kinds, raises change notifications only
+when partition boundaries actually change, and publishes the complete pointer,
+caption, move-size, and window-rectangle event family. Entering a move-size
+loop defaults its target to the initiating window. A proposed rectangle is
+allowed by default, and its show state begins with the native host's current
+window visibility.
+
+Adapted for ProGPU's portable window hosts: a package-neutral typed
+`InputNonClientPointerSourceRegistration` feed accepts native values and
+returns mutable move-size and rectangle decisions through value `out`/`ref`
+parameters. It never boxes event state and does not create a source merely
+because a native message arrived. Source destruction follows the owning
+`AppWindow`: registration lookup stops, retained regions and subscribers are
+released, and later public region access fails explicitly.
+
+Region storage is one fixed ten-slot array. Setting a region performs
+`O(R)` comparison and owned-copy work for `R` rectangles; get performs the
+required `O(R)` public ownership copy; clear is `O(1)` for one kind and fixed
+`O(10)` for all kinds. Native hit testing is `O(R)` with half-open rectangle
+bounds and no temporary collection. Subscriber-free pointer dispatch is
+expected `O(1)` and creates no event args. A warmed Release test on macOS
+26.4.1 arm64, Apple M3 Pro, .NET SDK 10.0.201 performs 100,000 combined
+subscriber-free dispatch and region-hit-test iterations with exactly zero
+managed allocations.
+
+The matching standalone Release workload performs 100,000,000 combined
+iterations in 2,905.253 milliseconds with zero managed allocations after
+warmup. Xcode Instruments 16.0 records the same 100,000,000-iteration binary
+to completion with the Allocations/VM Tracker template in 4.117849 seconds and
+the Time Profiler template in 3.643442 seconds. The native traces and exported
+tables are retained under `artifacts/input-nonclient-perf/`; this new-feature
+measurement is a workload characterization, not a before/after improvement
+claim.
+
+Focused tests cover stable identity, dispatcher affinity, invalid/cross-thread
+lookup, defensive input/getter ownership, no-op replacement, exact region
+change batches, event ordering and state, move-size target replacement,
+rectangle/visibility veto results, teardown, contract versions, and the
+allocation invariant. The slice adds all 60 official declarations exactly.
+The official comparison advances to 7,540 candidate declarations, 3,687 exact
+matches, 12,934 missing declarations, and 3,853 extras. No Microsoft
+implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 
