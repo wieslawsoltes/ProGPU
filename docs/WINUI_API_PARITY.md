@@ -1069,28 +1069,33 @@ body was inspected.
 Primary contracts consulted:
 
 - [IDropTargetProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.idroptargetprovider)
+- [IInvokeProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iinvokeprovider)
+- [IObjectModelProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iobjectmodelprovider)
+- [IScrollItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iscrollitemprovider)
 - [ITableItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itableitemprovider)
 - [ITextChildProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextchildprovider)
+- [IVirtualizedItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ivirtualizeditemprovider)
 - The pinned official projection metadata and `Microsoft.UI.Xaml.xml`
   documentation extracted by the deterministic API gate.
 
 Adopted: the exact version-1 provider boundaries for drop-target effect
-reporting, table-item row/column header retrieval, and text-child
-container/range exposure. The interfaces reuse the existing typed raw-element
-and text-range provider contracts. They add no runtime dispatch, reflection,
-allocation, platform accessibility bridge, or rendering work by themselves;
-custom and framework automation peers can implement them without a parallel
-ProGPU-only abstraction.
+reporting, stateless invocation, underlying object-model access, scroll-item
+visibility, virtualized-item realization, table-item row/column header
+retrieval, and text-child container/range exposure. The interfaces reuse the
+existing typed raw-element and text-range provider contracts. They add no
+runtime dispatch, reflection, allocation, platform accessibility bridge, or
+rendering work by themselves; custom and framework automation peers can
+implement them without a parallel ProGPU-only abstraction.
 
 Focused reflection tests cover the complete declared property and method sets,
-read-only shape, parameter count, and exact result types. Concrete provider
-behavior and native accessibility transport remain separate future slices and
-are not claimed here.
+read-only shape, parameter count, exact result types, and version-1 WinUI
+contract identity. Concrete provider behavior and native accessibility
+transport remain separate future slices and are not claimed here.
 
-The slice adds all 12 selected official declarations exactly. The official
-comparison advances to 7,769 candidate declarations, 3,917 exact matches,
-12,704 missing declarations, and 3,852 extras. No Microsoft implementation
-source or method body was inspected.
+The two automation-provider slices add all 24 selected official declarations
+exactly. The official comparison advances to 7,781 candidate declarations,
+3,929 exact matches, 12,692 missing declarations, and 3,852 extras. No
+Microsoft implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 

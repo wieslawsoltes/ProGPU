@@ -1,4 +1,6 @@
 using Microsoft.UI.Xaml.Automation.Provider;
+using System.Reflection;
+using Windows.Foundation.Metadata;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -8,6 +10,18 @@ public sealed class AutomationProviderContractTests
     [Fact]
     public void SelectedProviderInterfacesMatchOfficialShape()
     {
+        AssertParameterlessMethod(
+            typeof(IInvokeProvider),
+            nameof(IInvokeProvider.Invoke),
+            typeof(void));
+        AssertParameterlessMethod(
+            typeof(IObjectModelProvider),
+            nameof(IObjectModelProvider.GetUnderlyingObjectModel),
+            typeof(object));
+        AssertParameterlessMethod(
+            typeof(IScrollItemProvider),
+            nameof(IScrollItemProvider.ScrollIntoView),
+            typeof(void));
         AssertReadOnlyProperties(
             typeof(IDropTargetProvider),
             (nameof(IDropTargetProvider.DropEffect),
@@ -26,6 +40,25 @@ public sealed class AutomationProviderContractTests
                 typeof(IRawElementProviderSimple)),
             (nameof(ITextChildProvider.TextRange),
                 typeof(ITextRangeProvider)));
+        AssertParameterlessMethod(
+            typeof(IVirtualizedItemProvider),
+            nameof(IVirtualizedItemProvider.Realize),
+            typeof(void));
+
+        Type[] selectedContracts =
+        [
+            typeof(IDropTargetProvider),
+            typeof(IInvokeProvider),
+            typeof(IObjectModelProvider),
+            typeof(IScrollItemProvider),
+            typeof(ITableItemProvider),
+            typeof(ITextChildProvider),
+            typeof(IVirtualizedItemProvider),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
     }
 
     private static void AssertReadOnlyProperties(
@@ -73,5 +106,35 @@ public sealed class AutomationProviderContractTests
             Assert.Equal(item.ReturnType, method.ReturnType);
             Assert.Empty(method.GetParameters());
         }
+    }
+
+    private static void AssertParameterlessMethod(
+        Type interfaceType,
+        string methodName,
+        Type returnType)
+    {
+        var method = Assert.Single(interfaceType.GetMethods());
+        Assert.Equal(methodName, method.Name);
+        Assert.Equal(returnType, method.ReturnType);
+        Assert.Empty(method.GetParameters());
+        Assert.Empty(interfaceType.GetProperties());
+        Assert.Empty(interfaceType.GetEvents());
+    }
+
+    private static void AssertWinUiContractVersion(Type type)
+    {
+        CustomAttributeData attribute = Assert.Single(
+            type.GetCustomAttributesData(),
+            static candidate =>
+                candidate.AttributeType ==
+                typeof(ContractVersionAttribute));
+        Assert.Equal(
+            "Microsoft.UI.Xaml.WinUIContract",
+            Assert.IsType<string>(
+                attribute.ConstructorArguments[0].Value));
+        Assert.Equal(
+            0x00010000U,
+            Assert.IsType<uint>(
+                attribute.ConstructorArguments[1].Value));
     }
 }
