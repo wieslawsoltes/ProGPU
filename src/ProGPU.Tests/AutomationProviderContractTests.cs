@@ -421,6 +421,62 @@ public sealed class AutomationProviderContractTests
         }
     }
 
+    [Fact]
+    public void AnnotationDragAndMultipleViewProvidersMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(IAnnotationProvider),
+            (nameof(IAnnotationProvider.AnnotationTypeId),
+                typeof(int)),
+            (nameof(IAnnotationProvider.AnnotationTypeName),
+                typeof(string)),
+            (nameof(IAnnotationProvider.Author), typeof(string)),
+            (nameof(IAnnotationProvider.DateTime), typeof(string)),
+            (nameof(IAnnotationProvider.Target),
+                typeof(IRawElementProviderSimple)));
+        AssertDeclaredMethods(typeof(IAnnotationProvider));
+
+        AssertReadOnlyProperties(
+            typeof(IDragProvider),
+            (nameof(IDragProvider.DropEffect), typeof(string)),
+            (nameof(IDragProvider.DropEffects), typeof(string[])),
+            (nameof(IDragProvider.IsGrabbed), typeof(bool)));
+        AssertDeclaredMethods(
+            typeof(IDragProvider),
+            new ExpectedMethod(
+                nameof(IDragProvider.GetGrabbedItems),
+                typeof(IRawElementProviderSimple[])));
+
+        AssertReadOnlyProperties(
+            typeof(IMultipleViewProvider),
+            (nameof(IMultipleViewProvider.CurrentView),
+                typeof(int)));
+        AssertDeclaredMethods(
+            typeof(IMultipleViewProvider),
+            new ExpectedMethod(
+                nameof(IMultipleViewProvider.GetSupportedViews),
+                typeof(int[])),
+            new ExpectedMethod(
+                nameof(IMultipleViewProvider.GetViewName),
+                typeof(string),
+                typeof(int)),
+            new ExpectedMethod(
+                nameof(IMultipleViewProvider.SetCurrentView),
+                typeof(void),
+                typeof(int)));
+
+        Type[] selectedContracts =
+        [
+            typeof(IAnnotationProvider),
+            typeof(IDragProvider),
+            typeof(IMultipleViewProvider),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
     private static void AssertDeclaredMethods(
         Type interfaceType,
         params ExpectedMethod[] expected)

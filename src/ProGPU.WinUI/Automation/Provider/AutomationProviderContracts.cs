@@ -6,6 +6,36 @@ namespace Microsoft.UI.Xaml.Automation.Provider;
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface IAnnotationProvider
+{
+    int AnnotationTypeId { get; }
+
+    string AnnotationTypeName { get; }
+
+    string Author { get; }
+
+    string DateTime { get; }
+
+    IRawElementProviderSimple Target { get; }
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IDragProvider
+{
+    string DropEffect { get; }
+
+    string[] DropEffects { get; }
+
+    bool IsGrabbed { get; }
+
+    IRawElementProviderSimple[] GetGrabbedItems();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface IExpandCollapseProvider
 {
     ExpandCollapseState ExpandCollapseState { get; }
@@ -61,6 +91,20 @@ public interface IDropTargetProvider
 public interface IInvokeProvider
 {
     void Invoke();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IMultipleViewProvider
+{
+    int CurrentView { get; }
+
+    int[] GetSupportedViews();
+
+    string GetViewName(int viewId);
+
+    void SetCurrentView(int viewId);
 }
 
 [ContractVersion(

@@ -1088,6 +1088,9 @@ Primary contracts consulted:
 - [ITransformProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itransformprovider)
 - [ITransformProvider2](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itransformprovider2)
 - [IWindowProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iwindowprovider)
+- [IAnnotationProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iannotationprovider)
+- [IDragProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.idragprovider)
+- [IMultipleViewProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.imultipleviewprovider)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
 - [RowOrColumnMajor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.roworcolumnmajor)
 - [ScrollAmount](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.scrollamount)
@@ -1177,6 +1180,26 @@ enum-value drift, and contract-version drift. This slice adds all 50 selected
 official declarations exactly. Across the six automation-provider slices,
 all 159 selected declarations now match. The official comparison advances to
 7,916 candidate declarations, 4,064 exact matches, 12,557 missing
+declarations, and 3,852 extras. No Microsoft implementation source or method
+body was inspected.
+
+The annotation/drag/multiple-view slice adds the exact version-1 provider
+boundaries for document annotations, active drag descriptions, and controls
+with multiple representations. Annotation providers expose the official type,
+author, creation-time, and typed target properties. Drag providers expose the
+current and supported drop effects, grabbed state, and typed grabbed-item
+providers. Multiple-view providers report the current identifier and expose
+the official discovery, naming, and transition methods.
+
+These interfaces are allocation-free capability contracts and reuse the
+existing typed raw-element provider boundary. They add no annotation store,
+drag state machine, view registry, reflection, native accessibility
+transport, or rendering work. Concrete automation peers own those behaviors.
+Focused reflection tests reject extra or writable members, incorrect
+parameter/result types, and contract-version drift. This slice adds all 19
+selected declarations exactly. Across the seven automation-provider slices,
+all 178 selected declarations now match. The official comparison advances to
+7,935 candidate declarations, 4,083 exact matches, 12,538 missing
 declarations, and 3,852 extras. No Microsoft implementation source or method
 body was inspected.
 
