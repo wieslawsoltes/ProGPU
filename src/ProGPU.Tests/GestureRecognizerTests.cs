@@ -295,6 +295,115 @@ public sealed class GestureRecognizerTests
         Assert.Equal(point.PointerDeviceType, transformed.PointerDeviceType);
     }
 
+    [Fact]
+    public void PointerPointPropertiesAreImmutableTypedSnapshots()
+    {
+        var properties = new PointerPointProperties(
+            contactRect: new Rect(1, 2, 3, 4),
+            isBarrelButtonPressed: true,
+            isHorizontalMouseWheel: true,
+            isInRange: false,
+            isInverted: true,
+            isLeftButtonPressed: true,
+            isMiddleButtonPressed: true,
+            isRightButtonPressed: true,
+            isXButton1Pressed: true,
+            isXButton2Pressed: true,
+            isPrimary: true,
+            isCanceled: true,
+            isEraser: true,
+            orientation: 15f,
+            pointerUpdateKind:
+                PointerUpdateKind.RightButtonReleased,
+            pressure: 0.75f,
+            touchConfidence: false,
+            twist: 30f,
+            xTilt: 10f,
+            yTilt: 20f,
+            mouseWheelDelta: 120);
+
+        Assert.All(
+            typeof(PointerPointProperties)
+                .GetProperties(),
+            static property =>
+                Assert.Null(property.SetMethod));
+        Assert.Equal(
+            new Rect(1, 2, 3, 4),
+            properties.ContactRect);
+        Assert.True(
+            properties.IsBarrelButtonPressed);
+        Assert.True(
+            properties.IsHorizontalMouseWheel);
+        Assert.False(properties.IsInRange);
+        Assert.True(properties.IsInverted);
+        Assert.True(properties.IsLeftButtonPressed);
+        Assert.True(properties.IsMiddleButtonPressed);
+        Assert.True(properties.IsRightButtonPressed);
+        Assert.True(properties.IsXButton1Pressed);
+        Assert.True(properties.IsXButton2Pressed);
+        Assert.True(properties.IsPrimary);
+        Assert.True(properties.IsCanceled);
+        Assert.True(properties.IsEraser);
+        Assert.Equal(15f, properties.Orientation);
+        Assert.Equal(
+            PointerUpdateKind.RightButtonReleased,
+            properties.PointerUpdateKind);
+        Assert.Equal(0.75f, properties.Pressure);
+        Assert.False(properties.TouchConfidence);
+        Assert.Equal(30f, properties.Twist);
+        Assert.Equal(10f, properties.XTilt);
+        Assert.Equal(20f, properties.YTilt);
+        Assert.Equal(120, properties.MouseWheelDelta);
+    }
+
+    [Fact]
+    public void PointerPointPropertyReadsAreAllocationFree()
+    {
+        const int Count = 100_000;
+        var properties = new PointerPointProperties(
+            contactRect: new Rect(1, 2, 3, 4),
+            isPrimary: true,
+            pressure: 0.75f,
+            mouseWheelDelta: 120);
+        _ = ReadPointerProperties(
+            properties,
+            Count);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        int checksum = ReadPointerProperties(
+            properties,
+            Count);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() -
+            before;
+
+        GC.KeepAlive(checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    private static int ReadPointerProperties(
+        PointerPointProperties properties,
+        int count)
+    {
+        int checksum = 0;
+        for (int index = 0;
+             index < count;
+             index++)
+        {
+            checksum ^= properties.MouseWheelDelta;
+            checksum ^=
+                BitConverter.SingleToInt32Bits(
+                    properties.Pressure);
+            checksum ^=
+                properties.IsPrimary ? 1 : 0;
+            checksum ^=
+                properties.ContactRect.Width
+                    .GetHashCode();
+        }
+        return checksum;
+    }
+
     private static PointerPoint Point(
         uint id,
         float x,
@@ -312,15 +421,18 @@ public sealed class GestureRecognizerTests
             new System.Numerics.Vector2(x, y),
             device,
             contact,
-            new PointerPointProperties
-            {
-                IsPrimary = true,
-                IsInRange = true,
-                IsLeftButtonPressed = left,
-                IsRightButtonPressed = right,
-                MouseWheelDelta = wheel,
-                ContactRect = new Rect(x - 1, y - 1, 2, 2)
-            });
+            new PointerPointProperties(
+                contactRect:
+                    new Rect(
+                        x - 1,
+                        y - 1,
+                        2,
+                        2),
+                isInRange: true,
+                isLeftButtonPressed: left,
+                isRightButtonPressed: right,
+                isPrimary: true,
+                mouseWheelDelta: wheel));
 
     private sealed class OffsetTransform(double x, double y) : IPointerPointTransform
     {

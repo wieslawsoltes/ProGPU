@@ -95,6 +95,11 @@ public sealed class InputContractValueTests
     [InlineData(typeof(MouseWheelParameters), 0x00010000U)]
     [InlineData(typeof(RightTappedEventArgs), 0x00010000U)]
     [InlineData(typeof(TappedEventArgs), 0x00010000U)]
+    [InlineData(typeof(IPointerPointTransform), 0x00010000U)]
+    [InlineData(typeof(Microsoft.UI.Input.PointerDeviceType), 0x00010000U)]
+    [InlineData(typeof(PointerPoint), 0x00010000U)]
+    [InlineData(typeof(PointerPointProperties), 0x00010000U)]
+    [InlineData(typeof(PointerUpdateKind), 0x00010000U)]
     public void InputValuesPublishOfficialContractVersion(
         Type type,
         uint expectedVersion)

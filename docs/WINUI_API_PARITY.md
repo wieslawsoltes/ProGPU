@@ -115,6 +115,11 @@ matches, and 13,049 missing entries. They add 45 exact
 `Microsoft.UI.Input` declarations and reconcile 10 existing ProGPU-only
 metadata identities.
 
+The immutable pointer-property slice advances the baseline to 7,451 ProGPU
+entries, 3,598 exact matches, and 13,023 missing entries. It adds five exact
+contract declarations and reconciles 21 getter-only property identities,
+reducing ProGPU-only entries to 3,853.
+
 ## Clean-room implementation log
 
 ### Microsoft.UI foundation identifiers and interop surface
@@ -512,6 +517,42 @@ identities to exact matches, and therefore adds 28 exact matches while
 removing 10 extras. The official comparison advances to 7,446 candidate
 declarations, 3,572 exact matches, 13,049 missing declarations, and 3,874
 extras. No Microsoft implementation source or method body was inspected.
+
+### Microsoft.UI.Input pointer value snapshots
+
+Primary contracts consulted:
+
+- [PointerPoint](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpoint)
+- [PointerPointProperties](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpointproperties)
+- [PointerDeviceType](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerdevicetype)
+- [PointerUpdateKind](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerupdatekind)
+- [IPointerPointTransform](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.ipointerpointtransform)
+- [IPointerPointTransform.TryTransform](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.ipointerpointtransform.trytransform)
+
+Adopted: `PointerPointProperties` is an immutable public snapshot whose 21
+properties are getter-only, and pointer points preserve that snapshot along
+with frame, pointer, timestamp, position, device, and contact state.
+Transformed points create one new snapshot with transformed contact bounds
+while retaining every remaining input property.
+
+Adapted for ProGPU's typed input pipeline: hosts and routed input construct the
+snapshot through one internal value-only constructor. There are no public or
+nonpublic property setters in metadata, no reflection, and no mutable
+post-publication state. Snapshot creation and all property reads are fixed
+`O(1)` work and storage. A transformed point performs two caller-supplied
+transform calls and creates the required result point and property snapshot;
+it does not allocate an intermediate property map. A warmed Release invariant
+performs 100,000 reads across boolean, integer, floating-point, and rectangle
+properties with exactly zero managed allocations.
+
+Focused tests cover getter-only reflection metadata, all property values,
+transformed position/contact bounds and retained identity metadata, defaults,
+contract versions, and the allocation invariant. The slice adds five
+contract declarations and converts 21 mismatched setter-bearing candidate
+identities into exact getter-only matches. The official comparison advances
+to 7,451 candidate declarations, 3,598 exact matches, 13,023 missing
+declarations, and 3,853 extras. No Microsoft implementation source or method
+body was inspected.
 
 ### Microsoft.UI.Windowing
 

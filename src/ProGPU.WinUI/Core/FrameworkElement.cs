@@ -87,21 +87,22 @@ public class PointerRoutedEventArgs : RoutedEventArgs
         ScreenPosition,
         Pointer.LegacyPointerDeviceType,
         Pointer.IsInContact,
-        new PointerPointProperties
-        {
-            IsLeftButtonPressed = IsLeftButtonPressed,
-            IsMiddleButtonPressed = IsMiddleButtonPressed,
-            IsRightButtonPressed = IsRightButtonPressed,
-            IsPrimary = IsPrimary,
-            IsCanceled = IsCanceled,
-            Pressure = Pressure,
-            ContactRect = new Windows.Foundation.Rect(
+        new PointerPointProperties(
+            contactRect: new Windows.Foundation.Rect(
                 ContactRect.X,
                 ContactRect.Y,
                 ContactRect.Width,
                 ContactRect.Height),
-            MouseWheelDelta = (int)WheelDelta
-        });
+            isLeftButtonPressed:
+                IsLeftButtonPressed,
+            isMiddleButtonPressed:
+                IsMiddleButtonPressed,
+            isRightButtonPressed:
+                IsRightButtonPressed,
+            isPrimary: IsPrimary,
+            isCanceled: IsCanceled,
+            pressure: Pressure,
+            mouseWheelDelta: (int)WheelDelta));
 }
 
 public partial class FrameworkElement

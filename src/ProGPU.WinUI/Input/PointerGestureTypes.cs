@@ -1,5 +1,6 @@
 using System.Numerics;
 using ProGPU.Scene;
+using Windows.Foundation.Metadata;
 
 namespace Windows.Devices.Input
 {
@@ -27,35 +28,117 @@ namespace Microsoft.UI.Input
 {
 using Windows.Devices.Input;
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class PointerPointProperties
 {
-    internal PointerPointProperties()
+    internal PointerPointProperties(
+        Windows.Foundation.Rect contactRect = default,
+        bool isBarrelButtonPressed = false,
+        bool isHorizontalMouseWheel = false,
+        bool isInRange = true,
+        bool isInverted = false,
+        bool isLeftButtonPressed = false,
+        bool isMiddleButtonPressed = false,
+        bool isRightButtonPressed = false,
+        bool isXButton1Pressed = false,
+        bool isXButton2Pressed = false,
+        bool isPrimary = false,
+        bool isCanceled = false,
+        bool isEraser = false,
+        float orientation = 0f,
+        PointerUpdateKind pointerUpdateKind =
+            PointerUpdateKind.Other,
+        float pressure = 0f,
+        bool touchConfidence = true,
+        float twist = 0f,
+        float xTilt = 0f,
+        float yTilt = 0f,
+        int mouseWheelDelta = 0)
     {
+        ContactRect = contactRect;
+        IsBarrelButtonPressed =
+            isBarrelButtonPressed;
+        IsHorizontalMouseWheel =
+            isHorizontalMouseWheel;
+        IsInRange = isInRange;
+        IsInverted = isInverted;
+        IsLeftButtonPressed =
+            isLeftButtonPressed;
+        IsMiddleButtonPressed =
+            isMiddleButtonPressed;
+        IsRightButtonPressed =
+            isRightButtonPressed;
+        IsXButton1Pressed =
+            isXButton1Pressed;
+        IsXButton2Pressed =
+            isXButton2Pressed;
+        IsPrimary = isPrimary;
+        IsCanceled = isCanceled;
+        IsEraser = isEraser;
+        Orientation = orientation;
+        PointerUpdateKind = pointerUpdateKind;
+        Pressure = pressure;
+        TouchConfidence = touchConfidence;
+        Twist = twist;
+        XTilt = xTilt;
+        YTilt = yTilt;
+        MouseWheelDelta = mouseWheelDelta;
     }
 
-    public Windows.Foundation.Rect ContactRect { get; internal set; }
-    public bool IsBarrelButtonPressed { get; internal set; }
-    public bool IsHorizontalMouseWheel { get; internal set; }
-    public bool IsInRange { get; internal set; } = true;
-    public bool IsInverted { get; internal set; }
-    public bool IsLeftButtonPressed { get; internal set; }
-    public bool IsMiddleButtonPressed { get; internal set; }
-    public bool IsRightButtonPressed { get; internal set; }
-    public bool IsXButton1Pressed { get; internal set; }
-    public bool IsXButton2Pressed { get; internal set; }
-    public bool IsPrimary { get; internal set; }
-    public bool IsCanceled { get; internal set; }
-    public bool IsEraser { get; internal set; }
-    public float Orientation { get; internal set; }
-    public PointerUpdateKind PointerUpdateKind { get; internal set; }
-    public float Pressure { get; internal set; }
-    public bool TouchConfidence { get; internal set; } = true;
-    public float Twist { get; internal set; }
-    public float XTilt { get; internal set; }
-    public float YTilt { get; internal set; }
-    public int MouseWheelDelta { get; internal set; }
+    public Windows.Foundation.Rect ContactRect { get; }
+    public bool IsBarrelButtonPressed { get; }
+    public bool IsHorizontalMouseWheel { get; }
+    public bool IsInRange { get; }
+    public bool IsInverted { get; }
+    public bool IsLeftButtonPressed { get; }
+    public bool IsMiddleButtonPressed { get; }
+    public bool IsRightButtonPressed { get; }
+    public bool IsXButton1Pressed { get; }
+    public bool IsXButton2Pressed { get; }
+    public bool IsPrimary { get; }
+    public bool IsCanceled { get; }
+    public bool IsEraser { get; }
+    public float Orientation { get; }
+    public PointerUpdateKind PointerUpdateKind { get; }
+    public float Pressure { get; }
+    public bool TouchConfidence { get; }
+    public float Twist { get; }
+    public float XTilt { get; }
+    public float YTilt { get; }
+    public int MouseWheelDelta { get; }
+
+    internal PointerPointProperties
+        WithContactRect(
+            Windows.Foundation.Rect contactRect) =>
+        new(
+            contactRect,
+            IsBarrelButtonPressed,
+            IsHorizontalMouseWheel,
+            IsInRange,
+            IsInverted,
+            IsLeftButtonPressed,
+            IsMiddleButtonPressed,
+            IsRightButtonPressed,
+            IsXButton1Pressed,
+            IsXButton2Pressed,
+            IsPrimary,
+            IsCanceled,
+            IsEraser,
+            Orientation,
+            PointerUpdateKind,
+            Pressure,
+            TouchConfidence,
+            Twist,
+            XTilt,
+            YTilt,
+            MouseWheelDelta);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class PointerPoint
 {
     internal PointerPoint(
@@ -112,36 +195,18 @@ public sealed class PointerPoint
         ArgumentNullException.ThrowIfNull(transform);
         if (!transform.TryTransform(Position, out var transformedPosition) ||
             !transform.TryTransformBounds(Properties.ContactRect, out var transformedContactRect)) return null;
-        var transformedProperties = new PointerPointProperties
-        {
-            ContactRect = transformedContactRect,
-            IsBarrelButtonPressed = Properties.IsBarrelButtonPressed,
-            IsHorizontalMouseWheel = Properties.IsHorizontalMouseWheel,
-            IsInRange = Properties.IsInRange,
-            IsInverted = Properties.IsInverted,
-            IsLeftButtonPressed = Properties.IsLeftButtonPressed,
-            IsMiddleButtonPressed = Properties.IsMiddleButtonPressed,
-            IsRightButtonPressed = Properties.IsRightButtonPressed,
-            IsXButton1Pressed = Properties.IsXButton1Pressed,
-            IsXButton2Pressed = Properties.IsXButton2Pressed,
-            IsPrimary = Properties.IsPrimary,
-            IsCanceled = Properties.IsCanceled,
-            IsEraser = Properties.IsEraser,
-            Orientation = Properties.Orientation,
-            PointerUpdateKind = Properties.PointerUpdateKind,
-            Pressure = Properties.Pressure,
-            TouchConfidence = Properties.TouchConfidence,
-            Twist = Properties.Twist,
-            XTilt = Properties.XTilt,
-            YTilt = Properties.YTilt,
-            MouseWheelDelta = Properties.MouseWheelDelta
-        };
+        PointerPointProperties transformedProperties =
+            Properties.WithContactRect(
+                transformedContactRect);
         var transformed = new Vector2((float)transformedPosition.X, (float)transformedPosition.Y);
         return new PointerPoint(PointerId, Timestamp, transformed, transformed,
             PointerDevice.PointerDeviceType, PointerDeviceType, IsInContact, transformedProperties);
     }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public interface IPointerPointTransform
 {
     IPointerPointTransform Inverse { get; }
@@ -149,6 +214,9 @@ public interface IPointerPointTransform
     bool TryTransformBounds(Windows.Foundation.Rect inRect, out Windows.Foundation.Rect outRect);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum PointerDeviceType
 {
     Touch = 0,
@@ -157,6 +225,9 @@ public enum PointerDeviceType
     Touchpad = 3
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum PointerUpdateKind
 {
     Other = 0,
