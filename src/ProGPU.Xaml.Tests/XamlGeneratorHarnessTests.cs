@@ -1852,6 +1852,28 @@ namespace Demo {
                     Mode = XamlParseMode.Recovering
                 }),
             typeSystem);
+        XamlReverseProjectionContext? externalContext = null;
+        var externalService = new XamlReverseProjectionService(
+            XamlReverseProjectionRuleRegistry.Create(
+                new CallbackReverseProjectionRule(
+                    "test.bound-context",
+                    priority: 0,
+                    context =>
+                    {
+                        externalContext = context;
+                        return new XamlReverseProjectionRuleResult();
+                    })));
+        var externalNoOp = externalService.ApplyEdits(
+            bound,
+            document.SyntaxTree,
+            originalCompilation.GetSemanticModel(
+                originalTree),
+            originalCompilation.GetSemanticModel(
+                originalTree));
+        Assert.True(externalNoOp.Succeeded);
+        Assert.Empty(externalNoOp.Changes);
+        Assert.Same(bound, externalContext!.BoundDocument);
+
         var service = new XamlReverseProjectionService();
         var result = service.ApplyEdits(
             bound,

@@ -24,7 +24,9 @@ public enum XamlReverseProjectionConflictKind
     MissingXamlOrigin,
     OverlappingEdit,
     SerializationPolicyChanged,
-    InconsistentProjection
+    InconsistentProjection,
+    ExternalRuleFailed,
+    InvalidRuleResult
 }
 
 public sealed class XamlReverseProjectionConflict
@@ -68,6 +70,18 @@ public sealed class XamlReverseProjectionResult
 /// </summary>
 public sealed class XamlReverseProjectionService
 {
+    private readonly XamlReverseProjectionRuleRegistry _ruleRegistry;
+
+    public XamlReverseProjectionService()
+        : this(XamlReverseProjectionRuleRegistry.Empty)
+    {
+    }
+
+    public XamlReverseProjectionService(
+        XamlReverseProjectionRuleRegistry ruleRegistry) =>
+        _ruleRegistry = ruleRegistry ??
+            throw new ArgumentNullException(nameof(ruleRegistry));
+
     /// <summary>
     /// Applies every supported semantic inverse when a canonical
     /// serialization plan is unavailable. Use the bound-document overload
@@ -87,8 +101,11 @@ public sealed class XamlReverseProjectionService
             throw new ArgumentNullException(
                 nameof(changedGeneratedModel));
 
-        return Compose(
+        return ComposeWithExternalRules(
+            boundDocument: null,
             xamlTree,
+            originalGeneratedModel,
+            changedGeneratedModel,
             ApplyLiteralEdits(
                 xamlTree,
                 originalGeneratedModel,
@@ -125,8 +142,11 @@ public sealed class XamlReverseProjectionService
             throw new ArgumentNullException(
                 nameof(changedGeneratedModel));
 
-        return Compose(
+        return ComposeWithExternalRules(
+            boundDocument,
             xamlTree,
+            originalGeneratedModel,
+            changedGeneratedModel,
             ApplyLiteralEdits(
                 boundDocument,
                 xamlTree,
@@ -971,9 +991,98 @@ public sealed class XamlReverseProjectionService
         return builder.ToString();
     }
 
+    private XamlReverseProjectionResult ComposeWithExternalRules(
+        XamlBoundDocument? boundDocument,
+        XamlSyntaxTree xamlTree,
+        SemanticModel originalGeneratedModel,
+        SemanticModel changedGeneratedModel,
+        params XamlReverseProjectionResult[] builtInResults)
+    {
+        if (_ruleRegistry.Count == 0)
+            return Compose(xamlTree, builtInResults);
+
+        var results = new List<XamlReverseProjectionResult>(
+            builtInResults.Length + _ruleRegistry.Count);
+        results.AddRange(builtInResults);
+        var context = new XamlReverseProjectionContext(
+            xamlTree,
+            boundDocument,
+            originalGeneratedModel,
+            changedGeneratedModel);
+        foreach (var registration in
+                 _ruleRegistry.Registrations)
+        {
+            results.Add(
+                ApplyExternalRule(registration, context));
+        }
+
+        return Compose(xamlTree, results);
+    }
+
+    private static XamlReverseProjectionResult ApplyExternalRule(
+        XamlReverseProjectionRuleRegistration registration,
+        XamlReverseProjectionContext context)
+    {
+        XamlReverseProjectionRuleResult? ruleResult;
+        try
+        {
+            ruleResult = registration.Rule.Apply(context);
+        }
+        catch (Exception exception)
+        {
+            return RuleFailure(
+                context.SourceTree,
+                XamlReverseProjectionConflictKind
+                    .ExternalRuleFailed,
+                $"Reverse-projection rule '{registration.Id}' threw '{exception.GetType().FullName}'.");
+        }
+
+        if (ruleResult == null)
+        {
+            return RuleFailure(
+                context.SourceTree,
+                XamlReverseProjectionConflictKind
+                    .InvalidRuleResult,
+                $"Reverse-projection rule '{registration.Id}' returned null.");
+        }
+
+        var textLength = context.SourceTree.GetText().Length;
+        foreach (var change in ruleResult.Changes)
+        {
+            if (change.Span.Start < 0 ||
+                change.Span.End > textLength ||
+                change.NewText == null)
+            {
+                return RuleFailure(
+                    context.SourceTree,
+                    XamlReverseProjectionConflictKind
+                        .InvalidRuleResult,
+                    $"Reverse-projection rule '{registration.Id}' returned an invalid text change.");
+            }
+        }
+
+        return new XamlReverseProjectionResult(
+            context.SourceTree,
+            ruleResult.Changes,
+            ruleResult.Conflicts);
+    }
+
+    private static XamlReverseProjectionResult RuleFailure(
+        XamlSyntaxTree xamlTree,
+        XamlReverseProjectionConflictKind kind,
+        string message) =>
+        new(
+            xamlTree,
+            ImmutableArray<TextChange>.Empty,
+            ImmutableArray.Create(
+                new XamlReverseProjectionConflict(
+                    kind,
+                    0,
+                    message)));
+
     private static XamlReverseProjectionResult Compose(
         XamlSyntaxTree xamlTree,
-        params XamlReverseProjectionResult[] results)
+        IEnumerable<XamlReverseProjectionResult> results)
     {
         var conflicts =
             ImmutableArray.CreateBuilder<
