@@ -1178,6 +1178,175 @@ namespace Demo { public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
     }
 
     [Fact]
+    public void ReverseProjectionUpdatesOnlyCompatibleEventHandlerMethods()
+    {
+        const string program = """
+namespace Microsoft.UI.Xaml.Markup {
+  [System.AttributeUsage(System.AttributeTargets.Class)]
+  public sealed class ContentPropertyAttribute : System.Attribute {
+    public string? Name { get; set; }
+  }
+  public static class XamlTemplateFactory {
+    public static void BeginNameScope(object root) { }
+    public static void RegisterName(object root, string name, object value) { }
+  }
+}
+namespace Microsoft.UI.Xaml {
+  public class FrameworkElement { public string? Name { get; set; } }
+}
+namespace Microsoft.UI.Xaml.Controls {
+  [Microsoft.UI.Xaml.Markup.ContentProperty(Name="Content")]
+  public class Page : Microsoft.UI.Xaml.FrameworkElement {
+    public object? Content { get; set; }
+  }
+  public class Button : Microsoft.UI.Xaml.FrameworkElement {
+    public event System.EventHandler? Click;
+    public event System.EventHandler? DoubleClick;
+  }
+}
+namespace Demo {
+  public partial class MainPage : Microsoft.UI.Xaml.Controls.Page {
+    private void OnClick(object sender, System.EventArgs args) { }
+    private void OnAlternateClick(object sender, System.EventArgs args) { }
+  }
+}
+""";
+        const string xaml = """
+<Page
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="Demo.MainPage">
+  <Button Click="OnClick" />
+</Page>
+""";
+        var compilation = CSharpCompilation.Create(
+            "EventReverseProjection",
+            new[] { CSharpSyntaxTree.ParseText(program) },
+            PlatformReferences(),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
+        var profile = new WinUiXamlProfile();
+        var document = XamlParser.Parse(
+            SourceText.From(xaml),
+            "MainPage.xaml").Document;
+        var emitted = new CSharpXamlEmitter().Emit(
+            document,
+            new RoslynXamlTypeSystem(compilation, profile),
+            profile,
+            new XamlCompilerOptions());
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic =>
+                diagnostic.Severity == DiagnosticSeverity.Error);
+        var generated = Assert.Single(emitted.Sources);
+        var originalTree = generated.UnformattedSyntaxTree!;
+        var originalRoot = originalTree.GetRoot();
+        var eventProjection = Assert.Single(
+            XamlProjectionMap.Read(originalTree),
+            entry => entry.Kind == XamlProjectionKind.Event);
+        var statement = Assert.IsType<
+            Microsoft.CodeAnalysis.CSharp.Syntax
+                .ExpressionStatementSyntax>(
+            eventProjection.GeneratedNode.AsNode());
+        var subscription = Assert.IsType<
+            Microsoft.CodeAnalysis.CSharp.Syntax
+                .AssignmentExpressionSyntax>(
+            statement.Expression);
+        var originalHandler = Assert.IsType<
+            Microsoft.CodeAnalysis.CSharp.Syntax
+                .MemberAccessExpressionSyntax>(
+            subscription.Right);
+        var alternateHandler = originalHandler.WithName(
+            SyntaxFactory.IdentifierName("OnAlternateClick"));
+        var changedRoot = originalRoot.ReplaceNode(
+            originalHandler,
+            alternateHandler);
+        var changedTree = CSharpSyntaxTree.Create(
+            (Microsoft.CodeAnalysis.CSharp.CSharpSyntaxNode)
+                changedRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var originalCompilation =
+            compilation.AddSyntaxTrees(originalTree);
+        var changedCompilation =
+            compilation.AddSyntaxTrees(changedTree);
+        var reverse = new XamlReverseProjectionService()
+            .ApplyEventHandlerEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(originalTree),
+                changedCompilation.GetSemanticModel(changedTree));
+
+        Assert.True(
+            reverse.Succeeded,
+            string.Join(
+                Environment.NewLine,
+                reverse.Conflicts.Select(
+                    conflict => conflict.Message)));
+        Assert.Contains(
+            "Click=\"OnAlternateClick\"",
+            reverse.GetChangedText().ToString(),
+            StringComparison.Ordinal);
+
+        var changedTarget = Assert.IsType<
+            Microsoft.CodeAnalysis.CSharp.Syntax
+                .MemberAccessExpressionSyntax>(
+            subscription.Left).WithName(
+                SyntaxFactory.IdentifierName("DoubleClick"));
+        var wrongEventRoot = originalRoot.ReplaceNode(
+            subscription.Left,
+            changedTarget);
+        var wrongEventTree = CSharpSyntaxTree.Create(
+            (Microsoft.CodeAnalysis.CSharp.CSharpSyntaxNode)
+                wrongEventRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var rejected = new XamlReverseProjectionService()
+            .ApplyEventHandlerEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(originalTree),
+                compilation
+                    .AddSyntaxTrees(wrongEventTree)
+                    .GetSemanticModel(wrongEventTree));
+
+        Assert.False(rejected.Succeeded);
+        Assert.Contains(
+            rejected.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind.SymbolChanged);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            rejected.GetChangedText().ToString());
+
+        var unsupportedRoot = originalRoot.ReplaceNode(
+            originalHandler,
+            SyntaxFactory.IdentifierName("OnAlternateClick"));
+        var unsupportedTree = CSharpSyntaxTree.Create(
+            (Microsoft.CodeAnalysis.CSharp.CSharpSyntaxNode)
+                unsupportedRoot,
+            CSharpParseOptions.Default,
+            originalTree.FilePath,
+            Encoding.UTF8);
+        var unsupported = new XamlReverseProjectionService()
+            .ApplyEventHandlerEdits(
+                document.SyntaxTree,
+                originalCompilation.GetSemanticModel(originalTree),
+                compilation
+                    .AddSyntaxTrees(unsupportedTree)
+                    .GetSemanticModel(unsupportedTree));
+
+        Assert.False(unsupported.Succeeded);
+        Assert.Contains(
+            unsupported.Conflicts,
+            conflict => conflict.Kind ==
+                XamlReverseProjectionConflictKind.UnsupportedEdit);
+        Assert.Equal(
+            document.SyntaxTree.GetText().ToString(),
+            unsupported.GetChangedText().ToString());
+    }
+
+    [Fact]
     public void IncrementalGeneratorEmitsCompilableWinUiBindingActivation()
     {
         const string program = """

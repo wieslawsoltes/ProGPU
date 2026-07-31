@@ -61,11 +61,181 @@ public sealed class XamlReverseProjectionResult
 }
 
 /// <summary>
-/// Applies only registered, unambiguous C#-literal-to-XAML-attribute inversions. Projection
-/// annotations identify nodes; semantic models prove member identity. Text matching is never used.
+/// Applies only registered, unambiguous generated-C#-to-XAML-attribute inversions.
+/// Projection annotations identify nodes; semantic models prove member and handler identity.
+/// Text matching is never used.
 /// </summary>
 public sealed class XamlReverseProjectionService
 {
+    public XamlReverseProjectionResult ApplyEventHandlerEdits(
+        XamlSyntaxTree xamlTree,
+        SemanticModel originalGeneratedModel,
+        SemanticModel changedGeneratedModel)
+    {
+        if (xamlTree == null) throw new ArgumentNullException(nameof(xamlTree));
+        if (originalGeneratedModel == null)
+            throw new ArgumentNullException(nameof(originalGeneratedModel));
+        if (changedGeneratedModel == null)
+            throw new ArgumentNullException(nameof(changedGeneratedModel));
+
+        var conflicts =
+            ImmutableArray.CreateBuilder<XamlReverseProjectionConflict>();
+        var changes = ImmutableArray.CreateBuilder<TextChange>();
+        var originalEntries = XamlProjectionMap
+            .Read(originalGeneratedModel.SyntaxTree)
+            .Where(static entry =>
+                entry.Kind == XamlProjectionKind.Event)
+            .ToArray();
+        var changedEntries = XamlProjectionMap
+            .Read(changedGeneratedModel.SyntaxTree)
+            .Where(static entry =>
+                entry.Kind == XamlProjectionKind.Event)
+            .GroupBy(
+                static entry => ProjectionKey(entry),
+                StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToArray(),
+                StringComparer.Ordinal);
+        var checksum = RoslynXamlSourceChecksum.ComputeHex(
+            xamlTree.GetText());
+
+        foreach (var original in originalEntries)
+        {
+            if (!string.Equals(
+                    original.Checksum,
+                    checksum,
+                    StringComparison.Ordinal))
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.StaleXaml,
+                    original,
+                    "The XAML checksum no longer matches the generated projection."));
+                continue;
+            }
+            if (!changedEntries.TryGetValue(
+                    ProjectionKey(original),
+                    out var candidates))
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.MissingProjection,
+                    original,
+                    "The edited C# tree removed the registered event projection annotation."));
+                continue;
+            }
+            if (candidates.Length != 1)
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.AmbiguousProjection,
+                    original,
+                    "The edited C# tree contains multiple nodes for one XAML event projection."));
+                continue;
+            }
+
+            var changed = candidates[0];
+            if (!TryGetSimpleEventSubscription(
+                    original.GeneratedNode,
+                    out var originalAssignment,
+                    out var originalHandler) ||
+                !TryGetSimpleEventSubscription(
+                    changed.GeneratedNode,
+                    out var changedAssignment,
+                    out var changedHandler))
+            {
+                if (!original.GeneratedNode.IsEquivalentTo(
+                        changed.GeneratedNode))
+                {
+                    conflicts.Add(Conflict(
+                        XamlReverseProjectionConflictKind.UnsupportedEdit,
+                        original,
+                        "Only direct 'this.Handler' event subscriptions can be reversed."));
+                }
+                continue;
+            }
+
+            var originalEvent = originalGeneratedModel
+                .GetSymbolInfo(originalAssignment.Left)
+                .Symbol;
+            var changedEvent = changedGeneratedModel
+                .GetSymbolInfo(changedAssignment.Left)
+                .Symbol;
+            if (originalEvent is not IEventSymbol ||
+                changedEvent is not IEventSymbol ||
+                !SameSymbolIdentity(originalEvent, changedEvent) ||
+                !MatchesMemberId(original.MemberId, originalEvent))
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.SymbolChanged,
+                    original,
+                    "The edited subscription no longer targets the projected Roslyn event symbol."));
+                continue;
+            }
+
+            var originalMethod = originalGeneratedModel
+                .GetSymbolInfo(originalHandler)
+                .Symbol as IMethodSymbol;
+            var changedMethod = changedGeneratedModel
+                .GetSymbolInfo(changedHandler)
+                .Symbol as IMethodSymbol;
+            if (originalMethod == null ||
+                changedMethod == null ||
+                originalMethod.IsStatic ||
+                changedMethod.IsStatic ||
+                originalMethod.MethodKind != MethodKind.Ordinary ||
+                changedMethod.MethodKind != MethodKind.Ordinary)
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.UnsupportedEdit,
+                    original,
+                    "The edited event handler must resolve to one ordinary instance method."));
+                continue;
+            }
+            if (SameSymbolIdentity(originalMethod, changedMethod))
+                continue;
+            if (!SyntaxFacts.IsValidIdentifier(changedMethod.Name))
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.UnsupportedEdit,
+                    original,
+                    "The edited event handler name is not a valid XAML code-behind identifier."));
+                continue;
+            }
+
+            var attribute = FindAttribute(
+                xamlTree.GetRoot(),
+                original.StableNodeId);
+            if (attribute == null)
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.MissingXamlOrigin,
+                    original,
+                    "The projected event stable node is not an attribute in the current XAML tree."));
+                continue;
+            }
+            if (changes.Any(change =>
+                    change.Span.OverlapsWith(attribute.ValueSpan)))
+            {
+                conflicts.Add(Conflict(
+                    XamlReverseProjectionConflictKind.OverlappingEdit,
+                    original,
+                    "Multiple C# edits map to overlapping XAML attribute values."));
+                continue;
+            }
+            changes.Add(new TextChange(
+                attribute.ValueSpan,
+                changedMethod.Name));
+        }
+
+        if (conflicts.Count != 0)
+            changes.Clear();
+        return new XamlReverseProjectionResult(
+            xamlTree,
+            changes
+                .OrderBy(static change => change.Span.Start)
+                .ToImmutableArray(),
+            conflicts.ToImmutable());
+    }
+
     public XamlReverseProjectionResult ApplyLiteralEdits(
         XamlBoundDocument boundDocument,
         XamlSyntaxTree xamlTree,
@@ -241,6 +411,31 @@ public sealed class XamlReverseProjectionService
             !ReferenceEquals(candidate.Right, node)) return false;
         assignment = candidate;
         literal = value;
+        return true;
+    }
+
+    private static bool TryGetSimpleEventSubscription(
+        SyntaxNodeOrToken nodeOrToken,
+        out AssignmentExpressionSyntax assignment,
+        out MemberAccessExpressionSyntax handler)
+    {
+        assignment = null!;
+        handler = null!;
+        var node = nodeOrToken.AsNode();
+        if (node is not ExpressionStatementSyntax
+            {
+                Expression: AssignmentExpressionSyntax candidate
+            } ||
+            !candidate.IsKind(SyntaxKind.AddAssignmentExpression) ||
+            candidate.Right is not MemberAccessExpressionSyntax
+            {
+                Expression: ThisExpressionSyntax
+            } memberAccess)
+        {
+            return false;
+        }
+        assignment = candidate;
+        handler = memberAccess;
         return true;
     }
 

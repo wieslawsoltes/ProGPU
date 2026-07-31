@@ -2069,15 +2069,19 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                                 ownerExpression,
                                 member.CSharpName),
                             typedHandler)),
-                    operation.SourceSpan,
-                    operation.StableId,
+                    boundHandler.SourceSpan,
+                    boundHandler.StableId,
                     member.Symbol,
                     XamlProjectionKind.Event);
                 return;
             }
 
-            var handlerName = operation.Values.OfType<XamlIrText>().FirstOrDefault()?.Text;
-            if (handlerName == null || !SyntaxFacts.IsValidIdentifier(handlerName))
+            var handlerText = operation.Values
+                .OfType<XamlIrText>()
+                .FirstOrDefault();
+            var handlerName = handlerText?.Text;
+            if (handlerName == null ||
+                !SyntaxFacts.IsValidIdentifier(handlerName))
             {
                 AddError("PGXAML3003", $"Event handler '{handlerName}' is not a valid C# method name.",
                     operation.SourceSpan, "6.2.1.2");
@@ -2087,7 +2091,11 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             AddStatement(SyntaxFactory.ExpressionStatement(SyntaxFactory.AssignmentExpression(
                 SyntaxKind.AddAssignmentExpression,
                 MemberAccess(ownerExpression, member.CSharpName),
-                handler)), operation.SourceSpan, operation.StableId, member.Symbol, XamlProjectionKind.Event);
+                handler)),
+                handlerText!.SourceSpan,
+                handlerText.StableId,
+                member.Symbol,
+                XamlProjectionKind.Event);
         }
 
         private ExpressionSyntax? GetCompiledBindingSource(XamlIrCompiledBinding binding)
