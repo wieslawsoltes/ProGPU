@@ -119,6 +119,7 @@ jobs:
           dotnet test tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj \
             --configuration Release \
             --no-restore \
+            -m:1 \
             --filter "FullyQualifiedName~DawnNativeWindowSourceTests"
           dotnet build tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj \
             --configuration Release
