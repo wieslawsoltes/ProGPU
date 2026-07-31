@@ -19,7 +19,8 @@ namespace ProGPU.Xaml.Workspaces;
 public enum RoslynXamlMetadataEditCapabilities
 {
     None = 0,
-    UpdateMethodBody = 1
+    UpdateMethodBody = 1,
+    UpdatePropertyAccessor = 2
 }
 
 public enum RoslynXamlMetadataDeltaStatus
@@ -100,9 +101,10 @@ public sealed class RoslynXamlMetadataDeltaUpdate
 
 /// <summary>
 /// Owns one accepted Roslyn compilation and its Edit-and-Continue baseline.
-/// This first producer slice accepts C# method-body edits only. Candidate
-/// compilation, declaration shape, and Roslyn emit validation complete before
-/// a host can observe the detached delta or advance the baseline.
+/// This producer slice accepts ordinary C# method bodies and property/indexer
+/// accessor bodies. Candidate compilation, declaration shape, and Roslyn emit
+/// validation complete before a host can observe the detached delta or advance
+/// the baseline.
 /// </summary>
 /// <remarks>
 /// Initial emission is O(T + B) time and O(B) retained storage for T syntax
@@ -189,7 +191,8 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     public ImmutableArray<byte> InitialPdbImage { get; }
 
     public RoslynXamlMetadataEditCapabilities Capabilities =>
-        RoslynXamlMetadataEditCapabilities.UpdateMethodBody;
+        RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
+        RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor;
 
     public long Generation
     {
@@ -583,26 +586,21 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                     tree.Options);
                 AppendTokens(
                     declaration,
-                    MethodBodyEraser.Instance.Visit(root)!);
+                    ExecutableBodyEraser.Instance.Visit(root)!);
                 declaration.AppendLine();
 
                 SemanticModel model =
                     compilation.GetSemanticModel(tree);
-                foreach (MethodDeclarationSyntax method in
-                         root.DescendantNodes()
-                             .OfType<MethodDeclarationSyntax>())
+                foreach (SyntaxNode node in root.DescendantNodes())
                 {
                     cancellationToken
                         .ThrowIfCancellationRequested();
-                    if (method.Body == null &&
-                        method.ExpressionBody == null)
-                    {
-                        continue;
-                    }
-                    if (model.GetDeclaredSymbol(
-                            method,
-                            cancellationToken) is not
-                        IMethodSymbol symbol)
+                    if (!TryGetExecutableBody(
+                            model,
+                            node,
+                            cancellationToken,
+                            out IMethodSymbol symbol,
+                            out SyntaxNode bodyNode))
                     {
                         continue;
                     }
@@ -614,14 +612,7 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                             SymbolDisplayFormat
                                 .FullyQualifiedFormat);
                     var body = new StringBuilder();
-                    if (method.Body != null)
-                        AppendTokens(body, method.Body);
-                    else if (method.ExpressionBody != null)
-                    {
-                        AppendTokens(
-                            body,
-                            method.ExpressionBody);
-                    }
+                    AppendTokens(body, bodyNode);
                     if (methods.ContainsKey(key))
                     {
                         throw new InvalidOperationException(
@@ -639,6 +630,67 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             return new CompilationShape(
                 declaration.ToString(),
                 methods.ToImmutable());
+        }
+
+        private static bool TryGetExecutableBody(
+            SemanticModel model,
+            SyntaxNode node,
+            CancellationToken cancellationToken,
+            out IMethodSymbol symbol,
+            out SyntaxNode body)
+        {
+            symbol = null!;
+            body = null!;
+            IMethodSymbol? candidateSymbol = null;
+            SyntaxNode? candidateBody = null;
+            switch (node)
+            {
+                case MethodDeclarationSyntax method:
+                    candidateBody = (SyntaxNode?)method.Body ??
+                        method.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            method,
+                            cancellationToken);
+                    }
+                    break;
+                case AccessorDeclarationSyntax accessor
+                    when accessor.Parent?.Parent is
+                        PropertyDeclarationSyntax or
+                        IndexerDeclarationSyntax:
+                    candidateBody = (SyntaxNode?)accessor.Body ??
+                        accessor.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            accessor,
+                            cancellationToken);
+                    }
+                    break;
+                case PropertyDeclarationSyntax property
+                    when property.ExpressionBody != null:
+                    candidateBody = property.ExpressionBody;
+                    candidateSymbol = model.GetDeclaredSymbol(
+                            property,
+                            cancellationToken)?
+                        .GetMethod;
+                    break;
+                case IndexerDeclarationSyntax indexer
+                    when indexer.ExpressionBody != null:
+                    candidateBody = indexer.ExpressionBody;
+                    candidateSymbol = model.GetDeclaredSymbol(
+                            indexer,
+                            cancellationToken)?
+                        .GetMethod;
+                    break;
+            }
+
+            if (candidateSymbol is null || candidateBody is null)
+                return false;
+            symbol = candidateSymbol;
+            body = candidateBody;
+            return true;
         }
 
         private static void AppendTokens(
@@ -707,9 +759,9 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
         public string BodyFingerprint { get; }
     }
 
-    private sealed class MethodBodyEraser : CSharpSyntaxRewriter
+    private sealed class ExecutableBodyEraser : CSharpSyntaxRewriter
     {
-        public static MethodBodyEraser Instance { get; } = new();
+        public static ExecutableBodyEraser Instance { get; } = new();
 
         public override SyntaxNode? VisitMethodDeclaration(
             MethodDeclarationSyntax node) =>
@@ -718,5 +770,32 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                 .WithSemicolonToken(
                     SyntaxFactory.Token(
                         SyntaxKind.SemicolonToken));
+
+        public override SyntaxNode? VisitAccessorDeclaration(
+            AccessorDeclarationSyntax node)
+        {
+            if (node.Parent?.Parent is not
+                (PropertyDeclarationSyntax or
+                IndexerDeclarationSyntax))
+            {
+                return base.VisitAccessorDeclaration(node);
+            }
+
+            return node.WithBody(null)
+                    .WithExpressionBody(null)
+                    .WithSemicolonToken(
+                        SyntaxFactory.Token(
+                            SyntaxKind.SemicolonToken));
+        }
+
+        public override SyntaxNode? VisitPropertyDeclaration(
+            PropertyDeclarationSyntax node) =>
+            base.VisitPropertyDeclaration(
+                node.WithExpressionBody(null));
+
+        public override SyntaxNode? VisitIndexerDeclaration(
+            IndexerDeclarationSyntax node) =>
+            base.VisitIndexerDeclaration(
+                node.WithExpressionBody(null));
     }
 }
