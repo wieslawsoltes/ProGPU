@@ -1085,10 +1085,16 @@ Primary contracts consulted:
 - [IScrollProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iscrollprovider)
 - [ISelectionProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iselectionprovider)
 - [ISelectionItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iselectionitemprovider)
+- [ITransformProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itransformprovider)
+- [ITransformProvider2](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itransformprovider2)
+- [IWindowProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iwindowprovider)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
 - [RowOrColumnMajor](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.roworcolumnmajor)
 - [ScrollAmount](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.scrollamount)
 - [ToggleState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.togglestate)
+- [WindowInteractionState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.windowinteractionstate)
+- [WindowVisualState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.windowvisualstate)
+- [ZoomUnit](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.zoomunit)
 - [Grid control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementinggrid)
 - [Table control pattern](https://learn.microsoft.com/windows/win32/winauto/uiauto-implementingtable)
 - The pinned official projection metadata and `Microsoft.UI.Xaml.xml`
@@ -1152,10 +1158,27 @@ Concrete automation peers remain responsible for honoring control-specific
 range, cardinality, and event semantics. Focused tests reject extra members,
 writable state, incorrect parameters/results, enum-value drift, and
 contract-version drift. The slice adds all 30 selected declarations exactly.
-Across the five automation-provider slices, all 109 selected declarations now
-match. The official comparison advances to 7,866 candidate declarations,
-4,014 exact matches, 12,607 missing declarations, and 3,852 extras. No Microsoft
-implementation source or method body was inspected.
+
+The transform/window slice adds the exact version-1 movement, resize,
+rotation, viewport zoom, and window-state provider boundaries.
+`ITransformProvider2` inherits the base transform provider and adds only its
+four zoom properties and two zoom operations. The window provider reports
+interaction, visual, modal, topmost, maximize, and minimize capabilities and
+exposes close, visual-state transition, and bounded idle-wait operations.
+`WindowInteractionState`, `WindowVisualState`, and `ZoomUnit` preserve every
+official integral identity.
+
+These are capability contracts only. They do not move a visual, mutate a
+native window, block a UI thread, allocate state, invoke WebGPU, or implement
+an accessibility transport. Concrete peers must validate requested geometry,
+zoom levels, process-idle policy, and platform support. Focused tests reject
+inheritance drift, extra or writable members, incorrect parameters/results,
+enum-value drift, and contract-version drift. This slice adds all 50 selected
+official declarations exactly. Across the six automation-provider slices,
+all 159 selected declarations now match. The official comparison advances to
+7,916 candidate declarations, 4,064 exact matches, 12,557 missing
+declarations, and 3,852 extras. No Microsoft implementation source or method
+body was inspected.
 
 ### Microsoft.UI.Windowing
 

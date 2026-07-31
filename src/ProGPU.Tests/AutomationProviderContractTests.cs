@@ -9,6 +9,122 @@ namespace ProGPU.Tests;
 public sealed class AutomationProviderContractTests
 {
     [Fact]
+    public void TransformAndWindowProvidersMatchOfficialShape()
+    {
+        AssertReadOnlyProperties(
+            typeof(ITransformProvider),
+            (nameof(ITransformProvider.CanMove), typeof(bool)),
+            (nameof(ITransformProvider.CanResize), typeof(bool)),
+            (nameof(ITransformProvider.CanRotate), typeof(bool)));
+        AssertDeclaredMethods(
+            typeof(ITransformProvider),
+            new ExpectedMethod(
+                nameof(ITransformProvider.Move),
+                typeof(void),
+                typeof(double),
+                typeof(double)),
+            new ExpectedMethod(
+                nameof(ITransformProvider.Resize),
+                typeof(void),
+                typeof(double),
+                typeof(double)),
+            new ExpectedMethod(
+                nameof(ITransformProvider.Rotate),
+                typeof(void),
+                typeof(double)));
+
+        Assert.Equal(
+            new[] { typeof(ITransformProvider) },
+            typeof(ITransformProvider2).GetInterfaces());
+        AssertReadOnlyProperties(
+            typeof(ITransformProvider2),
+            (nameof(ITransformProvider2.CanZoom), typeof(bool)),
+            (nameof(ITransformProvider2.MaxZoom), typeof(double)),
+            (nameof(ITransformProvider2.MinZoom), typeof(double)),
+            (nameof(ITransformProvider2.ZoomLevel),
+                typeof(double)));
+        AssertDeclaredMethods(
+            typeof(ITransformProvider2),
+            new ExpectedMethod(
+                nameof(ITransformProvider2.Zoom),
+                typeof(void),
+                typeof(double)),
+            new ExpectedMethod(
+                nameof(ITransformProvider2.ZoomByUnit),
+                typeof(void),
+                typeof(ZoomUnit)));
+
+        AssertReadOnlyProperties(
+            typeof(IWindowProvider),
+            (nameof(IWindowProvider.InteractionState),
+                typeof(WindowInteractionState)),
+            (nameof(IWindowProvider.IsModal), typeof(bool)),
+            (nameof(IWindowProvider.IsTopmost), typeof(bool)),
+            (nameof(IWindowProvider.Maximizable), typeof(bool)),
+            (nameof(IWindowProvider.Minimizable), typeof(bool)),
+            (nameof(IWindowProvider.VisualState),
+                typeof(WindowVisualState)));
+        AssertDeclaredMethods(
+            typeof(IWindowProvider),
+            new ExpectedMethod(
+                nameof(IWindowProvider.Close),
+                typeof(void)),
+            new ExpectedMethod(
+                nameof(IWindowProvider.SetVisualState),
+                typeof(void),
+                typeof(WindowVisualState)),
+            new ExpectedMethod(
+                nameof(IWindowProvider.WaitForInputIdle),
+                typeof(bool),
+                typeof(int)));
+
+        Type[] selectedContracts =
+        [
+            typeof(ITransformProvider),
+            typeof(ITransformProvider2),
+            typeof(IWindowProvider),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
+    [Fact]
+    public void TransformAndWindowProviderEnumsMatchOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(WindowInteractionState),
+            (nameof(WindowInteractionState.Running), 0),
+            (nameof(WindowInteractionState.Closing), 1),
+            (nameof(
+                WindowInteractionState
+                    .ReadyForUserInteraction), 2),
+            (nameof(
+                WindowInteractionState
+                    .BlockedByModalWindow), 3),
+            (nameof(WindowInteractionState.NotResponding), 4));
+        AssertEnumValues(
+            typeof(WindowVisualState),
+            (nameof(WindowVisualState.Normal), 0),
+            (nameof(WindowVisualState.Maximized), 1),
+            (nameof(WindowVisualState.Minimized), 2));
+        AssertEnumValues(
+            typeof(ZoomUnit),
+            (nameof(ZoomUnit.NoAmount), 0),
+            (nameof(ZoomUnit.LargeDecrement), 1),
+            (nameof(ZoomUnit.SmallDecrement), 2),
+            (nameof(ZoomUnit.LargeIncrement), 3),
+            (nameof(ZoomUnit.SmallIncrement), 4));
+
+        AssertWinUiContractVersion(
+            typeof(WindowInteractionState));
+        AssertWinUiContractVersion(
+            typeof(WindowVisualState));
+        AssertWinUiContractVersion(typeof(ZoomUnit));
+    }
+
+    [Fact]
     public void ScrollAndSelectionProvidersMatchOfficialShape()
     {
         AssertReadOnlyProperties(

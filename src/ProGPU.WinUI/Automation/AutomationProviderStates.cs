@@ -44,3 +44,37 @@ public enum ToggleState
     On = 1,
     Indeterminate = 2
 }
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public enum WindowInteractionState
+{
+    Running = 0,
+    Closing = 1,
+    ReadyForUserInteraction = 2,
+    BlockedByModalWindow = 3,
+    NotResponding = 4
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public enum WindowVisualState
+{
+    Normal = 0,
+    Maximized = 1,
+    Minimized = 2
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public enum ZoomUnit
+{
+    NoAmount = 0,
+    LargeDecrement = 1,
+    SmallDecrement = 2,
+    LargeIncrement = 3,
+    SmallIncrement = 4
+}

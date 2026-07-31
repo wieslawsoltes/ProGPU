@@ -198,7 +198,68 @@ public interface IToggleProvider
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface ITransformProvider
+{
+    bool CanMove { get; }
+
+    bool CanResize { get; }
+
+    bool CanRotate { get; }
+
+    void Move(double x, double y);
+
+    void Resize(double width, double height);
+
+    void Rotate(double degrees);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ITransformProvider2 :
+    ITransformProvider
+{
+    bool CanZoom { get; }
+
+    double MaxZoom { get; }
+
+    double MinZoom { get; }
+
+    double ZoomLevel { get; }
+
+    void Zoom(double zoom);
+
+    void ZoomByUnit(ZoomUnit zoomUnit);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface IVirtualizedItemProvider
 {
     void Realize();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface IWindowProvider
+{
+    WindowInteractionState InteractionState { get; }
+
+    WindowVisualState VisualState { get; }
+
+    bool IsModal { get; }
+
+    bool IsTopmost { get; }
+
+    bool Maximizable { get; }
+
+    bool Minimizable { get; }
+
+    void Close();
+
+    void SetVisualState(WindowVisualState state);
+
+    bool WaitForInputIdle(int milliseconds);
 }
