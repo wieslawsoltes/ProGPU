@@ -931,6 +931,21 @@ internal static partial class Program
                     maximumDurationMilliseconds =
                         telemetry.MaximumDuration
                             .TotalMilliseconds,
+                    averageDurationMilliseconds =
+                        telemetry.AverageDuration
+                            .TotalMilliseconds,
+                    medianDurationUpperBoundMilliseconds =
+                        telemetry
+                            .MedianDurationUpperBound
+                            .TotalMilliseconds,
+                    p95DurationUpperBoundMilliseconds =
+                        telemetry
+                            .P95DurationUpperBound
+                            .TotalMilliseconds,
+                    p99DurationUpperBoundMilliseconds =
+                        telemetry
+                            .P99DurationUpperBound
+                            .TotalMilliseconds,
                     allocationMeasurements =
                         telemetry
                             .AllocationMeasurementCount,
@@ -939,7 +954,18 @@ internal static partial class Program
                     lastAllocatedBytes =
                         telemetry.LastAllocatedBytes,
                     maximumAllocatedBytes =
-                        telemetry.MaximumAllocatedBytes
+                        telemetry.MaximumAllocatedBytes,
+                    averageAllocatedBytes =
+                        telemetry.AverageAllocatedBytes,
+                    medianAllocatedBytesUpperBound =
+                        telemetry
+                            .MedianAllocatedBytesUpperBound,
+                    p95AllocatedBytesUpperBound =
+                        telemetry
+                            .P95AllocatedBytesUpperBound,
+                    p99AllocatedBytesUpperBound =
+                        telemetry
+                            .P99AllocatedBytesUpperBound
                 },
                 message = result.Message,
                 diagnostics =
@@ -977,6 +1003,18 @@ internal static partial class Program
             "/" +
             telemetry.MaximumQueueDepth.ToString(
                 CultureInfo.InvariantCulture) +
+            " p95Ms=" +
+            telemetry.P95DurationUpperBound
+                .TotalMilliseconds.ToString(
+                    "0.###",
+                    CultureInfo.InvariantCulture) +
+            " allocP95=" +
+            (telemetry.HasAllocationMeasurements
+                ? telemetry
+                    .P95AllocatedBytesUpperBound
+                    .ToString(
+                        CultureInfo.InvariantCulture)
+                : "unavailable") +
             " — " +
             result.Message);
     }

@@ -88,14 +88,14 @@ Already implemented:
 - standalone `watch` with human and JSON Lines output plus transactional artifact writes;
 - immutable deterministic watch-input discovery over the target and reachable loaded Roslyn project graph, including project roots/files, source, additional, analyzer-config, linked external, and explicit/evaluated host inputs;
 - installed-MSBuild evaluation of resolved external imports, exact-file watcher grouping, and transactional subscription refresh after build/project graph signals;
-- immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, with CLI JSON Lines publication;
+- immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, including fixed-histogram median/P95/P99 upper bounds and CLI JSON Lines publication;
 - process coverage against a real MSBuild-loaded sample.
 
 Remaining exit work:
 
 - add a versioned IDE/playground transport that sends immutable snapshots and structured results without owning compiler state;
 - add automated rapid add/remove/rename project-graph and conditional-import recovery coverage on Windows, macOS, and Linux;
-- publish representative percentile and allocation budgets from the watch telemetry;
+- establish and enforce representative percentile and allocation budgets from the published watch distributions;
 - prove rapid edit storms, delete/rename, project reload, and host shutdown behavior on Windows, macOS, and Linux.
 
 ### M3 — Roslyn metadata-delta production and transport

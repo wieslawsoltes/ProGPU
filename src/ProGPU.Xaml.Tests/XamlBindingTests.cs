@@ -13252,6 +13252,15 @@ namespace Demo {
         Assert.True(
             telemetry.MaximumDuration >=
             telemetry.LastDuration);
+        Assert.True(
+            telemetry.AverageDuration >
+            TimeSpan.Zero);
+        Assert.True(
+            telemetry.MedianDurationUpperBound <=
+            telemetry.P95DurationUpperBound);
+        Assert.True(
+            telemetry.P95DurationUpperBound <=
+            telemetry.P99DurationUpperBound);
         Assert.Equal(
             9,
             telemetry.AllocationMeasurementCount);
@@ -13260,7 +13269,37 @@ namespace Demo {
         Assert.True(
             telemetry.MaximumAllocatedBytes >=
             telemetry.LastAllocatedBytes);
+        Assert.True(
+            telemetry.AverageAllocatedBytes >= 64);
+        Assert.True(
+            telemetry.MedianAllocatedBytesUpperBound >=
+            64);
+        Assert.True(
+            telemetry.MedianAllocatedBytesUpperBound <=
+            telemetry.P95AllocatedBytesUpperBound);
+        Assert.True(
+            telemetry.P95AllocatedBytesUpperBound <=
+            telemetry.P99AllocatedBytesUpperBound);
         Assert.Equal(telemetry, watch.Telemetry);
+
+        _ = watch.Telemetry;
+        var allocatedBeforeReads =
+            GC.GetAllocatedBytesForCurrentThread();
+        long observedTicks = 0;
+        for (var index = 0;
+             index < 100_000;
+             index++)
+        {
+            observedTicks ^=
+                watch.Telemetry
+                    .P95DurationUpperBound
+                    .Ticks;
+        }
+        var allocatedByReads =
+            GC.GetAllocatedBytesForCurrentThread() -
+            allocatedBeforeReads;
+        GC.KeepAlive(observedTicks);
+        Assert.Equal(0, allocatedByReads);
     }
 
     private sealed class SteppedAllocationCounter :
@@ -13320,6 +13359,18 @@ namespace Demo {
         Assert.Equal(
             0,
             telemetry.AllocationMeasurementCount);
+        Assert.Equal(
+            0,
+            telemetry.AverageAllocatedBytes);
+        Assert.Equal(
+            0,
+            telemetry.MedianAllocatedBytesUpperBound);
+        Assert.Equal(
+            0,
+            telemetry.P95AllocatedBytesUpperBound);
+        Assert.Equal(
+            0,
+            telemetry.P99AllocatedBytesUpperBound);
     }
 
     private sealed class ThrowingAllocationCounter :

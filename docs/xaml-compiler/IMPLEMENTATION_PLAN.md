@@ -22,9 +22,11 @@ Current compiler checkpoint: class-backed ordinary event attributes retain exact
 The watch performance-telemetry checkpoint now exposes immutable cumulative
 outcome, cache-hit, cancellation, fault, queue-depth, duration, and optional
 allocation observations from the Workspaces session. The CLI supplies the
-runtime allocation counter and publishes the snapshot in JSON Lines.
-Remaining host performance work is to establish representative percentile and
-allocation budgets from those signals.
+runtime allocation counter and publishes the snapshot in JSON Lines. Fixed
+base-2 histograms now add allocation-free recording and bounded median/P95/P99
+upper bounds for duration and allocation, alongside exact cumulative averages.
+Remaining host performance work is to establish and enforce representative
+percentile and allocation budgets from those signals.
 
 8. **Additional frameworks — planned.** Ship independent Avalonia, WPF, and MAUI profile/runtime packages against the same v2+ contracts, then publish a documented third-party extension SDK and compatibility suite.
 

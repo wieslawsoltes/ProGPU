@@ -73,6 +73,10 @@ public sealed class RoslynXamlProjectWatchSession :
     private readonly
         IRoslynXamlProjectWatchAllocationCounter?
         _allocationCounter;
+    private readonly RoslynXamlProjectWatchHistogram
+        _durationHistogram = new();
+    private readonly RoslynXamlProjectWatchHistogram
+        _allocationHistogram = new();
     private readonly TimeSpan _debounce;
     private readonly CancellationTokenSource _lifetime =
         new CancellationTokenSource();
@@ -92,10 +96,16 @@ public sealed class RoslynXamlProjectWatchSession :
     private long _totalDurationTicks;
     private long _lastDurationTicks;
     private long _maximumDurationTicks;
+    private long _medianDurationTicksUpperBound;
+    private long _p95DurationTicksUpperBound;
+    private long _p99DurationTicksUpperBound;
     private long _allocationMeasurementCount;
     private long _totalAllocatedBytes;
     private long _lastAllocatedBytes;
     private long _maximumAllocatedBytes;
+    private long _medianAllocatedBytesUpperBound;
+    private long _p95AllocatedBytesUpperBound;
+    private long _p99AllocatedBytesUpperBound;
     private bool _disposed;
 
     public RoslynXamlProjectWatchSession(
@@ -476,6 +486,12 @@ public sealed class RoslynXamlProjectWatchSession :
                 _maximumDurationTicks =
                     duration.Ticks;
             }
+            _durationHistogram.Record(
+                duration.Ticks);
+            _durationHistogram.GetUpperBounds(
+                out _medianDurationTicksUpperBound,
+                out _p95DurationTicksUpperBound,
+                out _p99DurationTicksUpperBound);
 
             if (startedAllocatedBytes.HasValue &&
                 completedAllocatedBytes.HasValue)
@@ -501,6 +517,12 @@ public sealed class RoslynXamlProjectWatchSession :
                     _maximumAllocatedBytes =
                         allocatedBytes;
                 }
+                _allocationHistogram.Record(
+                    allocatedBytes);
+                _allocationHistogram.GetUpperBounds(
+                    out _medianAllocatedBytesUpperBound,
+                    out _p95AllocatedBytesUpperBound,
+                    out _p99AllocatedBytesUpperBound);
             }
 
             return GetTelemetryLocked();
@@ -527,10 +549,19 @@ public sealed class RoslynXamlProjectWatchSession :
                 _lastDurationTicks),
             TimeSpan.FromTicks(
                 _maximumDurationTicks),
+            TimeSpan.FromTicks(
+                _medianDurationTicksUpperBound),
+            TimeSpan.FromTicks(
+                _p95DurationTicksUpperBound),
+            TimeSpan.FromTicks(
+                _p99DurationTicksUpperBound),
             _allocationMeasurementCount,
             _totalAllocatedBytes,
             _lastAllocatedBytes,
-            _maximumAllocatedBytes);
+            _maximumAllocatedBytes,
+            _medianAllocatedBytesUpperBound,
+            _p95AllocatedBytesUpperBound,
+            _p99AllocatedBytesUpperBound);
 
     private long? TryReadAllocatedBytes()
     {

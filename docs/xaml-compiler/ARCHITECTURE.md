@@ -310,6 +310,13 @@ fault, current/maximum outstanding depth, elapsed, and optional allocation
 aggregates update in fixed `O(1)` work under the existing session gate; reading
 the value snapshot allocates nothing. Elapsed measurement uses monotonic
 `Stopwatch` timestamps and does not allocate a stopwatch object per operation.
+Two fixed 65-bucket base-2 cumulative histograms retain duration ticks and
+allocation-byte observations. Recording performs at most 63 shifts and no
+allocation; terminal aggregation scans each fixed bucket set once and caches
+nearest-rank median, P95, and P99 upper bounds. Snapshot reads then copy fixed
+fields in `O(1)`. The upper-bound names make the power-of-two approximation
+explicit. Average values are derived from the saturating totals and counts
+without retaining individual samples.
 The `netstandard2.0` Workspaces layer accepts only an optional typed monotonic
 allocation counter. The .NET CLI supplies `GC.GetTotalAllocatedBytes(false)`;
 its deltas are approximate process-wide observations and can overlap when

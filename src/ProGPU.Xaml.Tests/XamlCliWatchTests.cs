@@ -91,6 +91,15 @@ public sealed class XamlCliWatchTests
                 initial.AllocationMeasurements);
             Assert.True(
                 initial.LastAllocatedBytes >= 0);
+            Assert.True(
+                initial.AverageDurationMilliseconds >
+                0);
+            Assert.True(
+                initial.P95DurationUpperBoundMilliseconds >=
+                initial.MedianDurationUpperBoundMilliseconds);
+            Assert.True(
+                initial.P99DurationUpperBoundMilliseconds >=
+                initial.P95DurationUpperBoundMilliseconds);
             Assert.True(File.Exists(output));
             var initialImage =
                 await File.ReadAllBytesAsync(
@@ -131,6 +140,14 @@ public sealed class XamlCliWatchTests
                 reload.AllocationMeasurements);
             Assert.True(
                 reload.LastAllocatedBytes >= 0);
+            Assert.True(
+                reload.AverageAllocatedBytes >= 0);
+            Assert.True(
+                reload.P95AllocatedBytesUpperBound >=
+                reload.MedianAllocatedBytesUpperBound);
+            Assert.True(
+                reload.P99AllocatedBytesUpperBound >=
+                reload.P95AllocatedBytesUpperBound);
             Assert.Equal(
                 initial.Generation + 1,
                 reload.Generation);
@@ -253,6 +270,30 @@ public sealed class XamlCliWatchTests
                 .GetInt64(),
             telemetry.GetProperty(
                     "lastAllocatedBytes")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "averageDurationMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "medianDurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "p95DurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "p99DurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "averageAllocatedBytes")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "medianAllocatedBytesUpperBound")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "p95AllocatedBytesUpperBound")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "p99AllocatedBytesUpperBound")
                 .GetInt64());
     }
 
@@ -297,5 +338,13 @@ public sealed class XamlCliWatchTests
         int CurrentQueueDepth,
         int MaximumQueueDepth,
         long AllocationMeasurements,
-        long LastAllocatedBytes);
+        long LastAllocatedBytes,
+        double AverageDurationMilliseconds,
+        double MedianDurationUpperBoundMilliseconds,
+        double P95DurationUpperBoundMilliseconds,
+        double P99DurationUpperBoundMilliseconds,
+        long AverageAllocatedBytes,
+        long MedianAllocatedBytesUpperBound,
+        long P95AllocatedBytesUpperBound,
+        long P99AllocatedBytesUpperBound);
 }
