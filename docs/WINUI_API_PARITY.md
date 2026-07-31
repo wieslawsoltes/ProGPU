@@ -1075,6 +1075,12 @@ Primary contracts consulted:
 - [ITableItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itableitemprovider)
 - [ITextChildProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextchildprovider)
 - [IVirtualizedItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ivirtualizeditemprovider)
+- [IExpandCollapseProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.iexpandcollapseprovider)
+- [IRangeValueProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.irangevalueprovider)
+- [IToggleProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itoggleprovider)
+- [IValueProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ivalueprovider)
+- [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
+- [ToggleState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.togglestate)
 - The pinned official projection metadata and `Microsoft.UI.Xaml.xml`
   documentation extracted by the deterministic API gate.
 
@@ -1092,10 +1098,24 @@ read-only shape, parameter count, exact result types, and version-1 WinUI
 contract identity. Concrete provider behavior and native accessibility
 transport remain separate future slices and are not claimed here.
 
-The two automation-provider slices add all 24 selected official declarations
-exactly. The official comparison advances to 7,781 candidate declarations,
-3,929 exact matches, 12,692 missing declarations, and 3,852 extras. No
-Microsoft implementation source or method body was inspected.
+The stateful provider slice adds the exact version-1 boundaries for controls
+that expand or collapse, cycle through toggle states, expose an editable
+string value, or expose a numeric value constrained by a range. It also adds
+the official integral identities for collapsed, expanded, partially expanded,
+leaf, off, on, and indeterminate states. These declarations remain typed,
+reflection-free, allocation-free capability contracts. They do not add an
+alternate state machine: each automation peer remains responsible for
+reporting its current state, enforcing read-only policy and range bounds, and
+forwarding state changes through the later platform accessibility transport.
+
+Focused reflection tests reject extra methods or properties, writable
+properties, incorrect method parameter or result types, incorrect enum
+underlying types or values, and contract-version drift. The stateful slice
+adds all 32 selected official declarations exactly. Across the three
+automation-provider slices, all 56 selected declarations now match. The
+official comparison advances to 7,813 candidate declarations, 3,961 exact
+matches, 12,660 missing declarations, and 3,852 extras. No Microsoft
+implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 
