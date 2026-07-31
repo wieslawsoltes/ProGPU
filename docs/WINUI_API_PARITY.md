@@ -894,6 +894,44 @@ official comparison advances to 7,654 candidate declarations, 3,802 exact
 matches, 12,819 missing declarations, and 3,852 extras. No Microsoft
 implementation source or method body was inspected.
 
+### Microsoft.UI.Content environment propagation
+
+Primary contracts consulted:
+
+- [ContentSiteEnvironment](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsiteenvironment)
+- [ContentSiteEnvironment.NotifySettingChanged](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsiteenvironment.notifysettingchanged)
+- [ContentSiteEnvironmentView](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentsiteenvironmentview)
+- [ContentIslandEnvironment](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentislandenvironment)
+- [ContentIslandEnvironment.StateChanged](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentislandenvironment.statechanged)
+- [ContentIslandEnvironment.SettingChanged](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.contentislandenvironment.settingchanged)
+- The pinned official projection metadata and `Microsoft.UI.xml`
+  documentation extracted by the deterministic API gate.
+
+Adopted: a mutable site environment, one identity-stable live read-only site
+view, one unique island environment per island, immediate state visibility,
+and asynchronous island environment notifications. The bridge policy remains
+explicit: setting a site property does not silently propagate it. A typed
+internal attach/propagate seam lets the later site bridge choose when to copy a
+consistent environment snapshot into an island.
+
+Site and island state is published as immutable snapshots. Individual
+property reads are lock-free fixed `O(1)` work with no managed allocation.
+Changing one site property performs expected `O(1)` compare/exchange work and
+allocates one cold-path snapshot. Propagation is fixed `O(1)`; changes made
+before dispatcher delivery are combined into one state event and one cached
+dispatcher callback. Setting notification preserves call order and is `O(I)`
+for `I` attached islands. No environment operation initializes WebGPU or
+mutates compositor resources.
+
+Focused tests cover stable view identity, live state, display-scale
+validation, immediate propagation, asynchronous delivery, change-flag
+coalescing, ordered setting notifications, detach behavior, and 100,000 warmed
+site-view/island reads with exactly zero managed allocations. The slice adds
+all 25 selected official declarations exactly. The official comparison
+advances to 7,679 candidate declarations, 3,827 exact matches, 12,794 missing
+declarations, and 3,852 extras. No Microsoft implementation source or method
+body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:
