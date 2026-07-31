@@ -29,8 +29,10 @@ environment identity, and declaration shape validate before Roslyn
 `EmitDifference` produces detached metadata, IL, and PDB payloads plus updated
 method tokens. No-op, ready, rejected, stale, foreign, invalid, and disposed
 states are transactional; two committed generations, rejection recovery,
-valid EnC metadata logs, and real method/property/event-accessor
-`MetadataUpdater.ApplyUpdate` execution are covered. Declaration
+valid EnC metadata logs, and real method/property/event-accessor/constructor/
+operator `MetadataUpdater.ApplyUpdate` execution are covered. Constructor,
+destructor, operator, and conversion-operator bodies retain exact method
+symbols; initializer and declaration changes still fail closed. Declaration
 insertion/deletion and broader runtime capabilities, source-located rude
 edits, combined XAML/metadata publication ordering, partial-publication
 recovery, and multi-project delta ownership remain.

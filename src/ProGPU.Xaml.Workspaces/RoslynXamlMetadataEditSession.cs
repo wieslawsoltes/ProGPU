@@ -21,7 +21,10 @@ public enum RoslynXamlMetadataEditCapabilities
     None = 0,
     UpdateMethodBody = 1,
     UpdatePropertyAccessor = 2,
-    UpdateEventAccessor = 4
+    UpdateEventAccessor = 4,
+    UpdateConstructorBody = 8,
+    UpdateDestructorBody = 16,
+    UpdateOperatorBody = 32
 }
 
 public enum RoslynXamlMetadataDeltaStatus
@@ -103,9 +106,10 @@ public sealed class RoslynXamlMetadataDeltaUpdate
 /// <summary>
 /// Owns one accepted Roslyn compilation and its Edit-and-Continue baseline.
 /// This producer slice accepts ordinary C# method bodies, property/indexer
-/// accessor bodies, and custom event accessor bodies. Candidate compilation,
-/// declaration shape, and Roslyn emit validation complete before a host can
-/// observe the detached delta or advance the baseline.
+/// accessor bodies, custom event accessor bodies, constructors, destructors,
+/// and user-defined operators. Candidate compilation, declaration shape, and
+/// Roslyn emit validation complete before a host can observe the detached
+/// delta or advance the baseline.
 /// </summary>
 /// <remarks>
 /// Initial emission is O(T + B) time and O(B) retained storage for T syntax
@@ -194,7 +198,10 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
     public RoslynXamlMetadataEditCapabilities Capabilities =>
         RoslynXamlMetadataEditCapabilities.UpdateMethodBody |
         RoslynXamlMetadataEditCapabilities.UpdatePropertyAccessor |
-        RoslynXamlMetadataEditCapabilities.UpdateEventAccessor;
+        RoslynXamlMetadataEditCapabilities.UpdateEventAccessor |
+        RoslynXamlMetadataEditCapabilities.UpdateConstructorBody |
+        RoslynXamlMetadataEditCapabilities.UpdateDestructorBody |
+        RoslynXamlMetadataEditCapabilities.UpdateOperatorBody;
 
     public long Generation
     {
@@ -657,6 +664,47 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
                             cancellationToken);
                     }
                     break;
+                case ConstructorDeclarationSyntax constructor:
+                    candidateBody = (SyntaxNode?)constructor.Body ??
+                        constructor.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            constructor,
+                            cancellationToken);
+                    }
+                    break;
+                case DestructorDeclarationSyntax destructor:
+                    candidateBody = (SyntaxNode?)destructor.Body ??
+                        destructor.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            destructor,
+                            cancellationToken);
+                    }
+                    break;
+                case OperatorDeclarationSyntax operatorDeclaration:
+                    candidateBody =
+                        (SyntaxNode?)operatorDeclaration.Body ??
+                        operatorDeclaration.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            operatorDeclaration,
+                            cancellationToken);
+                    }
+                    break;
+                case ConversionOperatorDeclarationSyntax conversion:
+                    candidateBody = (SyntaxNode?)conversion.Body ??
+                        conversion.ExpressionBody;
+                    if (candidateBody != null)
+                    {
+                        candidateSymbol = model.GetDeclaredSymbol(
+                            conversion,
+                            cancellationToken);
+                    }
+                    break;
                 case AccessorDeclarationSyntax accessor
                     when accessor.Parent?.Parent is
                         PropertyDeclarationSyntax or
@@ -768,6 +816,38 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
 
         public override SyntaxNode? VisitMethodDeclaration(
             MethodDeclarationSyntax node) =>
+            node.WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(
+                    SyntaxFactory.Token(
+                        SyntaxKind.SemicolonToken));
+
+        public override SyntaxNode? VisitConstructorDeclaration(
+            ConstructorDeclarationSyntax node) =>
+            node.WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(
+                    SyntaxFactory.Token(
+                        SyntaxKind.SemicolonToken));
+
+        public override SyntaxNode? VisitDestructorDeclaration(
+            DestructorDeclarationSyntax node) =>
+            node.WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(
+                    SyntaxFactory.Token(
+                        SyntaxKind.SemicolonToken));
+
+        public override SyntaxNode? VisitOperatorDeclaration(
+            OperatorDeclarationSyntax node) =>
+            node.WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(
+                    SyntaxFactory.Token(
+                        SyntaxKind.SemicolonToken));
+
+        public override SyntaxNode? VisitConversionOperatorDeclaration(
+            ConversionOperatorDeclarationSyntax node) =>
             node.WithBody(null)
                 .WithExpressionBody(null)
                 .WithSemicolonToken(

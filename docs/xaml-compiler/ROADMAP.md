@@ -106,12 +106,25 @@ Remaining exit work:
 
 State: active/expanded producer slice and MVP-blocking.
 
+Primary clean-room contracts for this lane are Roslyn's public
+[`SemanticEdit`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.emit.semanticedit),
+[`Compilation.EmitDifference`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.compilation.emitdifference),
+and .NET
+[`MetadataUpdater`](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.metadataupdater)
+APIs together with the ECMA-335 metadata model and the published
+[C# classes](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/classes)
+and
+[operators](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/expressions#124-operators)
+specifications. ProGPU uses only those contracts and independently observed
+delta/runtime behavior; no compiler or IDE implementation source is copied,
+translated, or structurally reproduced.
+
 Already implemented:
 
 - a disposable framework-neutral C# edit session owning one accepted
   `Compilation`, initial PE/portable PDB, module metadata, `EmitBaseline`,
-  explicit method-body, property/indexer-accessor, and custom-event-accessor
-  capabilities, and
+  explicit ordinary-method, property/indexer-accessor, custom-event-accessor,
+  constructor, destructor, and user-defined operator capabilities, and
   monotonic generation;
 - candidate-first compiler diagnostics and declaration-shape validation;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
@@ -119,11 +132,13 @@ Already implemented:
 - transactional no-op/ready/rejected states plus foreign, invalid, disposed,
   and stale commit rejection;
 - consecutive committed generations and real `MetadataUpdater.ApplyUpdate`
-  execution gates for methods, property accessors, and event accessors under
-  the runtime's explicit editable-assembly capability;
+  execution gates for methods, property accessors, event accessors,
+  constructors, and operators under the runtime's explicit editable-assembly
+  capability;
 - exact block/expression-bodied getter, setter, indexer, event `add`, and event
-  `remove` method-symbol updates while auto-property initializer and
-  declaration changes fail closed.
+  `remove`, constructor, destructor, operator, and conversion-operator
+  method-symbol updates while auto-property initializer, constructor
+  initializer, and declaration changes fail closed.
 
 Remaining implementation:
 

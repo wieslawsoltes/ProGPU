@@ -38,7 +38,13 @@ public sealed class XamlMetadataDeltaSessionTests
             RoslynXamlMetadataEditCapabilities
                 .UpdatePropertyAccessor |
             RoslynXamlMetadataEditCapabilities
-                .UpdateEventAccessor,
+                .UpdateEventAccessor |
+            RoslynXamlMetadataEditCapabilities
+                .UpdateConstructorBody |
+            RoslynXamlMetadataEditCapabilities
+                .UpdateDestructorBody |
+            RoslynXamlMetadataEditCapabilities
+                .UpdateOperatorBody,
             session.Capabilities);
 
         RoslynXamlMetadataDeltaUpdate first =
@@ -204,6 +210,72 @@ public sealed class XamlMetadataDeltaSessionTests
                 "public sealed class Target { " +
                 "public event System.Action<int> Value { " +
                 "add { } remove { } } }"));
+
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+            update.Status);
+        Assert.Contains(
+            update.Diagnostics,
+            static diagnostic => diagnostic.Id == "PGXAML8010");
+        Assert.Equal(0, session.Generation);
+    }
+
+    [Fact]
+    public void SpecialMethodBodiesProduceExactMethodDeltas()
+    {
+        using var session = new RoslynXamlMetadataEditSession(
+            CreateCompilation(
+                "public sealed class Target { " +
+                "public static int State; " +
+                "static Target() { State = 0; } " +
+                "public Target() { State = 1; } " +
+                "~Target() { State = -1; } " +
+                "public static Target operator +(Target left, " +
+                "Target right) { State = 2; return left; } " +
+                "public static explicit operator int(Target value) " +
+                "=> 3; }"));
+
+        RoslynXamlMetadataDeltaUpdate update = session.Prepare(
+            CreateCompilation(
+                "public sealed class Target { " +
+                "public static int State; " +
+                "static Target() => State = 5; " +
+                "public Target() => State = 10; " +
+                "~Target() { State = -10; } " +
+                "public static Target operator +(Target left, " +
+                "Target right) { State = 20; return right; } " +
+                "public static explicit operator int(Target value) " +
+                "=> 30; }"));
+
+        Assert.True(
+            update.Status == RoslynXamlMetadataDeltaStatus.Ready,
+            string.Join(
+                Environment.NewLine,
+                update.Diagnostics.Select(
+                    static diagnostic => diagnostic.ToString())));
+        Assert.Equal(5, update.UpdatedMethodTokens.Length);
+        Assert.Equal(
+            update.UpdatedMethodTokens.Length,
+            update.UpdatedMethodTokens.Distinct().Count());
+        Assert.Equal(
+            RoslynXamlMetadataDeltaCommitResult.Accepted,
+            session.TryCommit(update));
+    }
+
+    [Fact]
+    public void ConstructorInitializerChangeRemainsRestartRequired()
+    {
+        using var session = new RoslynXamlMetadataEditSession(
+            CreateCompilation(
+                "public class Base { public Base(int value) { } } " +
+                "public sealed class Target : Base { " +
+                "public Target() : base(1) { } }"));
+
+        RoslynXamlMetadataDeltaUpdate update = session.Prepare(
+            CreateCompilation(
+                "public class Base { public Base(int value) { } } " +
+                "public sealed class Target : Base { " +
+                "public Target() : base(2) { } }"));
 
         Assert.Equal(
             RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
@@ -546,6 +618,90 @@ public sealed class XamlMetadataDeltaSessionTests
             Assert.Equal(10, (int)count.GetValue(null)!);
             value.RemoveEventHandler(target, handler);
             Assert.Equal(6, (int)count.GetValue(null)!);
+            Assert.Equal(
+                RoslynXamlMetadataDeltaCommitResult.Accepted,
+                session.TryCommit(update));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    [Fact]
+    public void ConstructorAndOperatorDeltasApplyThroughRuntimeWhenEnabled()
+    {
+        if (!MetadataUpdater.IsSupported)
+            return;
+
+        CSharpCompilation initial = CreateCompilation(
+            "public sealed class Target { " +
+            "public int Value { get; } " +
+            "public Target(int value) { Value = value + 1; } " +
+            "public static Target operator +(Target left, Target right) " +
+            "=> new Target(left.Value + right.Value); " +
+            "public static explicit operator int(Target value) " +
+            "=> value.Value + 1; } ");
+        using var session =
+            new RoslynXamlMetadataEditSession(initial);
+        RoslynXamlMetadataDeltaUpdate update =
+            session.Prepare(CreateCompilation(
+                "public sealed class Target { " +
+                "public int Value { get; } " +
+                "public Target(int value) { Value = value + 10; } " +
+                "public static Target operator +(Target left, " +
+                "Target right) => new Target(" +
+                "left.Value + right.Value + 20); " +
+                "public static explicit operator int(Target value) " +
+                "=> value.Value + 30; } "));
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.Ready,
+            update.Status);
+        Assert.Equal(3, update.UpdatedMethodTokens.Length);
+
+        var loadContext = new AssemblyLoadContext(
+            "ProGPU.Xaml.SpecialMethodMetadataDelta.Test",
+            isCollectible: true);
+        try
+        {
+            using var pe = new MemoryStream(
+                session.InitialPeImage.ToArray(),
+                writable: false);
+            using var pdb = new MemoryStream(
+                session.InitialPdbImage.ToArray(),
+                writable: false);
+            Assembly assembly = loadContext.LoadFromStream(pe, pdb);
+            Type targetType = assembly.GetType("Target")!;
+            ConstructorInfo constructor = targetType.GetConstructor(
+                new[] { typeof(int) })!;
+            PropertyInfo value = targetType.GetProperty("Value")!;
+            MethodInfo addition = targetType.GetMethod("op_Addition")!;
+            MethodInfo conversion = targetType.GetMethod("op_Explicit")!;
+            object initialTarget = constructor.Invoke(new object[] { 2 });
+            Assert.Equal(3, (int)value.GetValue(initialTarget)!);
+            object initialSum = addition.Invoke(
+                null,
+                new[] { initialTarget, initialTarget })!;
+            Assert.Equal(7, (int)value.GetValue(initialSum)!);
+            Assert.Equal(
+                4,
+                (int)conversion.Invoke(null, new[] { initialTarget })!);
+
+            MetadataUpdater.ApplyUpdate(
+                assembly,
+                update.MetadataDelta.AsSpan(),
+                update.IlDelta.AsSpan(),
+                update.PdbDelta.AsSpan());
+
+            object updatedTarget = constructor.Invoke(new object[] { 2 });
+            Assert.Equal(12, (int)value.GetValue(updatedTarget)!);
+            object updatedSum = addition.Invoke(
+                null,
+                new[] { updatedTarget, updatedTarget })!;
+            Assert.Equal(54, (int)value.GetValue(updatedSum)!);
+            Assert.Equal(
+                42,
+                (int)conversion.Invoke(null, new[] { updatedTarget })!);
             Assert.Equal(
                 RoslynXamlMetadataDeltaCommitResult.Accepted,
                 session.TryCommit(update));
