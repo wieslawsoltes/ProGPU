@@ -81,6 +81,19 @@ public enum ScrollAmount
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public enum SynchronizedInputType
+{
+    KeyUp = 1,
+    KeyDown = 2,
+    LeftMouseUp = 4,
+    LeftMouseDown = 8,
+    RightMouseUp = 16,
+    RightMouseDown = 32
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum ToggleState
 {
     Off = 0,

@@ -263,6 +263,17 @@ public interface IStylesProvider
 [ContractVersion(
     "Microsoft.UI.Xaml.WinUIContract",
     0x00010000)]
+public interface ISynchronizedInputProvider
+{
+    void Cancel();
+
+    void StartListening(
+        SynchronizedInputType inputType);
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface ITableItemProvider
 {
     IRawElementProviderSimple[] GetColumnHeaderItems();

@@ -136,7 +136,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
     public IRawElementProviderSimple GetEnclosingElement() =>
         new(_owner.GetOrCreateAutomationPeer()!);
 
-    public string GetText(int maxLength = -1)
+    public string GetText(int maxLength)
     {
         string value = _owner.Text.Substring(Start, End - Start);
         return maxLength >= 0 && value.Length > maxLength ? value[..maxLength] : value;

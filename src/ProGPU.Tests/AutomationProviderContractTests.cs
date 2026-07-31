@@ -649,6 +649,113 @@ public sealed class AutomationProviderContractTests
             typeof(AnnotationType));
     }
 
+    [Fact]
+    public void TextAndSynchronizedInputProvidersMatchOfficialShape()
+    {
+        AssertDeclaredMethods(
+            typeof(ISynchronizedInputProvider),
+            new ExpectedMethod(
+                nameof(ISynchronizedInputProvider.Cancel),
+                typeof(void)),
+            new ExpectedMethod(
+                nameof(
+                    ISynchronizedInputProvider
+                        .StartListening),
+                typeof(void),
+                typeof(SynchronizedInputType)));
+
+        Assert.Equal(
+            new[] { typeof(ITextProvider) },
+            typeof(ITextEditProvider)
+                .GetInterfaces());
+        AssertDeclaredMethods(
+            typeof(ITextEditProvider),
+            new ExpectedMethod(
+                nameof(
+                    ITextEditProvider
+                        .GetActiveComposition),
+                typeof(ITextRangeProvider)),
+            new ExpectedMethod(
+                nameof(
+                    ITextEditProvider
+                        .GetConversionTarget),
+                typeof(ITextRangeProvider)));
+
+        Assert.Equal(
+            new[] { typeof(ITextProvider) },
+            typeof(ITextProvider2)
+                .GetInterfaces());
+        AssertDeclaredMethods(
+            typeof(ITextProvider2),
+            new ExpectedMethod(
+                nameof(ITextProvider2.GetCaretRange),
+                typeof(ITextRangeProvider),
+                typeof(bool).MakeByRefType()),
+            new ExpectedMethod(
+                nameof(
+                    ITextProvider2
+                        .RangeFromAnnotation),
+                typeof(ITextRangeProvider),
+                typeof(IRawElementProviderSimple)));
+
+        Assert.Equal(
+            new[] { typeof(ITextRangeProvider) },
+            typeof(ITextRangeProvider2)
+                .GetInterfaces());
+        AssertDeclaredMethods(
+            typeof(ITextRangeProvider2),
+            new ExpectedMethod(
+                nameof(
+                    ITextRangeProvider2
+                        .ShowContextMenu),
+                typeof(void)));
+
+        Assert.Empty(
+            typeof(ITextRangeProvider)
+                .GetProperties());
+        var getText = Assert.Single(
+            typeof(ITextRangeProvider)
+                .GetMethods(),
+            static method =>
+                method.Name ==
+                nameof(ITextRangeProvider.GetText));
+        var maxLength = Assert.Single(
+            getText.GetParameters());
+        Assert.Equal(typeof(int),
+            maxLength.ParameterType);
+        Assert.False(maxLength.IsOptional);
+
+        Type[] selectedContracts =
+        [
+            typeof(ISynchronizedInputProvider),
+            typeof(ITextEditProvider),
+            typeof(ITextProvider),
+            typeof(ITextProvider2),
+            typeof(ITextRangeProvider),
+            typeof(ITextRangeProvider2),
+        ];
+        foreach (var contract in selectedContracts)
+        {
+            AssertWinUiContractVersion(contract);
+        }
+    }
+
+    [Fact]
+    public void SynchronizedInputTypeMatchesOfficialValues()
+    {
+        AssertEnumValues(
+            typeof(SynchronizedInputType),
+            (nameof(SynchronizedInputType.KeyUp), 1),
+            (nameof(SynchronizedInputType.KeyDown), 2),
+            (nameof(SynchronizedInputType.LeftMouseUp), 4),
+            (nameof(SynchronizedInputType.LeftMouseDown), 8),
+            (nameof(SynchronizedInputType.RightMouseUp), 16),
+            (nameof(SynchronizedInputType.RightMouseDown), 32));
+
+        AssertWinUiContractVersion(
+            typeof(SynchronizedInputType));
+    }
+
     private static void AssertDeclaredMethods(
         Type interfaceType,
         params ExpectedMethod[] expected)

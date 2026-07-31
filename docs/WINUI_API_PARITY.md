@@ -1097,6 +1097,13 @@ Primary contracts consulted:
 - [ISpreadsheetItemProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.ispreadsheetitemprovider)
 - [IStylesProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.istylesprovider)
 - [AnnotationType](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.annotationtype)
+- [ISynchronizedInputProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.isynchronizedinputprovider)
+- [ITextEditProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itexteditprovider)
+- [ITextProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextprovider)
+- [ITextProvider2](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextprovider2)
+- [ITextRangeProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextrangeprovider)
+- [ITextRangeProvider2](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextrangeprovider2)
+- [SynchronizedInputType](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.synchronizedinputtype)
 - [DockPosition](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.dockposition)
 - [AutomationNavigationDirection](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.peers.automationnavigationdirection)
 - [ExpandCollapseState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.expandcollapsestate)
@@ -1246,6 +1253,27 @@ selected declarations now match. The official comparison advances to 8,002
 candidate declarations, 4,150 exact matches, 12,471 missing declarations,
 and 3,852 extras. No Microsoft implementation source or method body was
 inspected.
+
+The text/synchronized-input slice adds the exact version-1 provider boundaries
+for synchronized keyboard/mouse listening, text composition and conversion
+targets, caret/annotation ranges, and contextual text menus. It also aligns the
+existing base text and text-range interfaces with the official contract
+metadata: `GetText` requires its explicit maximum length and the former
+ProGPU-only `Start`/`End` interface properties are removed. The retained
+provider implementation keeps its private concrete endpoints and tests observe
+them through the official `CompareEndpoints` contract.
+
+These declarations add no input injection, IME transport, context-menu host,
+reflection, text copying, allocation policy, or rendering work. Concrete
+automation peers retain ownership of range instances and native accessibility
+transport. Focused reflection tests reject incorrect inheritance, extra
+members, optional-parameter drift, parameter/result drift, enum-value drift,
+and contract-version drift. This slice converts 30 selected declarations to
+exact matches while removing three ProGPU-only declarations. Across the ten
+automation-provider slices, all 275 selected declarations now match. The
+official comparison advances to 8,029 candidate declarations, 4,180 exact
+matches, 12,441 missing declarations, and 3,849 extras. No Microsoft
+implementation source or method body was inspected.
 
 ### Microsoft.UI.Windowing
 

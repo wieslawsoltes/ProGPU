@@ -458,8 +458,8 @@ public class BidiAndFlowDirectionTests
             if (inline is Span span)
             {
                 foreach (Inline child in span.Inlines)
-                foreach (Microsoft.UI.Xaml.Documents.Run nested in EnumerateRuns(child))
-                    yield return nested;
+                    foreach (Microsoft.UI.Xaml.Documents.Run nested in EnumerateRuns(child))
+                        yield return nested;
             }
         }
     }
@@ -2736,15 +2736,15 @@ public class BidiAndFlowDirectionTests
         var text = Assert.IsAssignableFrom<Microsoft.UI.Xaml.Automation.Provider.ITextProvider>(peer);
 
         Assert.Equal(editor.Text, value.Value);
-        Assert.Equal("ne 0", text.GetSelection()[0].GetText());
-        Assert.True(text.GetVisibleRanges()[0].GetText().Length < editor.Text.Length);
+        Assert.Equal("ne 0", text.GetSelection()[0].GetText(-1));
+        Assert.True(text.GetVisibleRanges()[0].GetText(-1).Length < editor.Text.Length);
         Assert.Equal(Microsoft.UI.Xaml.Automation.Peers.AutomationControlType.Document, peer.GetAutomationControlType());
 
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider documentRange = text.DocumentRange;
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider word = documentRange.FindText("line 12", backward: false, ignoreCase: false)!;
-        Assert.Equal("line 12", word.GetText());
+        Assert.Equal("line 12", word.GetText(-1));
         word.ExpandToEnclosingUnit(Microsoft.UI.Xaml.Automation.Text.TextUnit.Line);
-        Assert.StartsWith("line 12", word.GetText(), StringComparison.Ordinal);
+        Assert.StartsWith("line 12", word.GetText(-1), StringComparison.Ordinal);
         word.GetBoundingRectangles(out double[] bounds);
         Assert.Equal(0, bounds.Length % 4);
         Assert.True(word.Compare(word.Clone()));
@@ -3774,9 +3774,23 @@ public class BidiAndFlowDirectionTests
             Assert.Single(automation.DocumentRange.GetChildren());
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider embeddedRange =
             automation.RangeFromChild(embeddedChild);
-        Assert.Equal(7, embeddedRange.Start);
-        Assert.Equal(8, embeddedRange.End);
-        Assert.Equal("\uFFFC", embeddedRange.GetText());
+        Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider
+            prefix = automation.DocumentRange.Clone();
+        prefix.MoveEndpointByRange(
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End,
+            embeddedRange,
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.Start);
+        Assert.Equal(7, prefix.GetText(-1).Length);
+        prefix.MoveEndpointByRange(
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End,
+            embeddedRange,
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End);
+        Assert.Equal(8, prefix.GetText(-1).Length);
+        Assert.Equal("\uFFFC", embeddedRange.GetText(-1));
     }
 
     [Fact]
