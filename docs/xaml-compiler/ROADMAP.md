@@ -19,7 +19,7 @@ The current position is:
 | M0 Compiler architecture | Complete | The framework-neutral Roslyn pipeline, profile boundary, typed construction IR, structured C# emission, source-generator host, Workspaces host, and clean-room rules exist |
 | M1 WinUI vertical slice | Complete for MVP breadth; runtime depth remains partial | Representative pages and the unchanged Fluent theme compile, generate Roslyn trees, construct dictionaries/templates, and execute selected binding/state behavior |
 | M2 Project preview and watch | Active/advanced | Immutable project preview, semantic delta planning, transactional coordination, CLI preview, and CLI watch exist; full evaluated project-graph input watching and IDE transport remain |
-| M3 Coordinated C# metadata updates | Not started as an executable producer | Metadata changes are detected and classified, but Roslyn metadata/IL/PDB deltas are not yet produced and applied through a framework-neutral transport |
+| M3 Coordinated C# metadata updates | Active/first producer slice | A bounded transactional Roslyn edit session emits and runtime-validates method-body metadata/IL/PDB deltas; property/type-shape coverage and combined XAML publication remain |
 | M4 XAML live-patch semantics | Partial | Transactional root replacement and last-good retention exist; namescope/resource/template-aware patching and guaranteed fallback coverage are incomplete |
 | M5 Quality and conformance closure | Partial | Strong focused tests and Fluent corpus gates exist; sustained performance, subtree reuse, broader fuzzing, determinism matrices, and visual/runtime conformance remain |
 | M6 Productization | Partial | Packages, MSBuild integration, CLI tool packaging, samples, and playground exist; project selection, published-feed install validation, compatibility docs, and release qualification remain |
@@ -104,14 +104,28 @@ Remaining exit work:
 
 ### M3 — Roslyn metadata-delta production and transport
 
-State: pending and MVP-blocking.
+State: active/first producer slice and MVP-blocking.
+
+Already implemented:
+
+- a disposable framework-neutral C# edit session owning one accepted
+  `Compilation`, initial PE/portable PDB, module metadata, `EmitBaseline`,
+  explicit method-body capability, and monotonic generation;
+- candidate-first compiler diagnostics and declaration-shape validation;
+- real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
+  detached immutable ownership and updated-method tokens;
+- transactional no-op/ready/rejected states plus foreign, invalid, disposed,
+  and stale commit rejection;
+- consecutive committed generations and a real `MetadataUpdater.ApplyUpdate`
+  execution gate under the runtime's explicit editable-assembly capability.
+
+Remaining implementation:
 
 Required implementation:
 
-- a framework-neutral edit-session contract that owns the last accepted Roslyn `Compilation`, baseline module metadata, active capabilities, and generation;
-- Roslyn `EmitDifference` production of metadata, IL, and PDB deltas from accepted C# changes;
 - rude-edit and unsupported-runtime diagnostics with original C# or XAML locations where available;
-- explicit capability negotiation for metadata-update support, dynamic-code support, and restart-required changes;
+- complete capability negotiation for runtime metadata update, dynamic code,
+  additions and other runtime-specific edit support;
 - candidate-first ordering: validate the XAML artifact, produce and validate metadata deltas, apply metadata, publish the XAML replacement, then commit both baselines;
 - an explicit recovery state when metadata publication succeeds but framework replacement fails; no silent divergence;
 - typed adapters for .NET metadata update handlers and framework-specific tree replacement;
