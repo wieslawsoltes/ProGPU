@@ -760,6 +760,46 @@ The official comparison advances to 7,540 candidate declarations, 3,687 exact
 matches, 12,934 missing declarations, and 3,853 extras. No Microsoft
 implementation source or method body was inspected.
 
+### Microsoft.UI.Input current pointer snapshot
+
+Primary contracts consulted:
+
+- [PointerPoint.GetCurrentPoint](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpoint.getcurrentpoint)
+- [PointerPoint](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.input.pointerpoint)
+- [Windows pointer app-context semantics](https://learn.microsoft.com/uwp/api/windows.ui.input.pointerpoint.getcurrentpoint)
+
+Adopted: `PointerPoint.GetCurrentPoint(uint)` is a static query for the latest
+position and state of a pointer in the current application input context.
+The returned immutable snapshot preserves pointer and frame IDs, microsecond
+timestamp, app-context position, device type, contact state, contact bounds,
+button state, primary state, pressure, cancellation state, and wheel delta.
+An unknown or terminal touch ID fails closed with no point.
+
+Adapted for ProGPU's multi-window portable hosts: every thread-selected
+`WindowInputState` owns its current-pointer table, so equal pointer IDs in
+different application contexts cannot leak state across windows or islands.
+Input injection records the value-type `PointerInputEvent` before either the
+island pointer source or XAML route runs. A handler can therefore query the
+same current snapshot even when it handles the source event. Terminal touch
+reports are removed after dispatch; the table retains only the latest mouse
+ID, latest pen ID, and currently active touch IDs, keeping storage bounded by
+`O(T + 2)` for `T` simultaneous touches.
+
+Tracking and lookup are expected `O(1)`. Tracking updates existing dictionary
+storage without materializing a projected point; the two immutable managed
+objects required by the public snapshot are created only when the caller
+queries it. A warmed Release test performs 100,000 tracking updates with
+exactly zero managed allocations. This CPU-only input path does not initialize
+WebGPU.
+
+Focused tests cover full snapshot fidelity, 64-bit timestamp and 32-bit frame
+identity, app-context isolation, terminal touch removal, bounded mouse/pen ID
+replacement, invalid lookup, and allocation behavior. The slice adds the last
+non-DragDrop `Microsoft.UI.Input` declaration exactly. The official comparison
+advances to 7,541 candidate declarations, 3,688 exact matches, 12,933 missing
+declarations, and 3,853 extras. No Microsoft implementation source or method
+body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:

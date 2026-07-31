@@ -50,6 +50,9 @@ public class WindowInputState
     internal RelativePointerCaptureState RelativePointerCapture { get; } = new();
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
     internal Dictionary<uint, FrameworkElement> CapturedElements { get; } = new();
+    internal Dictionary<uint, PointerInputEvent> CurrentPointerInputs { get; } = new();
+    internal uint CurrentMousePointerId;
+    internal uint CurrentPenPointerId;
     internal Dictionary<FrameworkElement, ManipulationSession> Manipulations { get; } = new();
     internal uint CurrentDispatchPointerId;
     internal FrameworkElement? LastTappedElement;
@@ -580,6 +583,7 @@ public static class InputSystem
         Current.IsMiddleButtonPressed = input.IsMiddleButtonPressed;
         Current.IsRightButtonPressed = input.IsRightButtonPressed;
         Current.CurrentDispatchPointerId = input.PointerId;
+        TrackCurrentPointer(input);
 
         try
         {
@@ -610,8 +614,74 @@ public static class InputSystem
         }
         finally
         {
+            if (input.DeviceType ==
+                    PointerDeviceType.Touch &&
+                input.Kind is
+                    PointerInputKind.Released or
+                    PointerInputKind.Canceled)
+            {
+                Current.CurrentPointerInputs.Remove(
+                    input.PointerId);
+            }
             Current.CurrentDispatchPointerId = 0;
         }
+    }
+
+    internal static bool TryGetCurrentPointerInput(
+        uint pointerId,
+        out PointerInputEvent input)
+    {
+        if (pointerId == 0)
+        {
+            input = default;
+            return false;
+        }
+
+        return Current.CurrentPointerInputs.TryGetValue(
+            pointerId,
+            out input);
+    }
+
+    internal static void TrackCurrentPointer(
+        in PointerInputEvent input)
+    {
+        if (input.PointerId == 0)
+            return;
+
+        WindowInputState state = Current;
+        if (input.DeviceType ==
+            PointerDeviceType.Mouse)
+        {
+            uint previousPointerId =
+                state.CurrentMousePointerId;
+            if (previousPointerId != 0 &&
+                previousPointerId !=
+                    input.PointerId)
+            {
+                state.CurrentPointerInputs.Remove(
+                    previousPointerId);
+            }
+            state.CurrentMousePointerId =
+                input.PointerId;
+        }
+        else if (input.DeviceType ==
+                 PointerDeviceType.Pen)
+        {
+            uint previousPointerId =
+                state.CurrentPenPointerId;
+            if (previousPointerId != 0 &&
+                previousPointerId !=
+                    input.PointerId)
+            {
+                state.CurrentPointerInputs.Remove(
+                    previousPointerId);
+            }
+            state.CurrentPenPointerId =
+                input.PointerId;
+        }
+
+        state.CurrentPointerInputs[input.PointerId] =
+            input;
     }
 
     private static void OnPointerPressedCore(PointerInputEvent input)

@@ -265,30 +265,8 @@ public sealed class InputPointerSource :
     private static PointerEventArgs CreateArgs(
         PointerInputEvent input)
     {
-        var point = new PointerPoint(
-            input.PointerId,
-            input.Timestamp,
-            input.Position,
-            input.Position,
-            input.DeviceType,
-            input.IsInContact,
-            new PointerPointProperties(
-                contactRect:
-                    new Windows.Foundation.Rect(
-                        input.ContactRect.X,
-                        input.ContactRect.Y,
-                        input.ContactRect.Width,
-                        input.ContactRect.Height),
-                isLeftButtonPressed:
-                    input.IsLeftButtonPressed,
-                isMiddleButtonPressed:
-                    input.IsMiddleButtonPressed,
-                isRightButtonPressed:
-                    input.IsRightButtonPressed,
-                isPrimary: input.IsPrimary,
-                pressure: input.Pressure,
-                mouseWheelDelta:
-                    (int)input.WheelDeltaY));
+        PointerPoint point =
+            PointerPoint.FromInput(input);
         return new PointerEventArgs(
             point,
             (Windows.System.VirtualKeyModifiers)

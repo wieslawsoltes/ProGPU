@@ -26,6 +26,7 @@ namespace Windows.Devices.Input
 
 namespace Microsoft.UI.Input
 {
+using Microsoft.UI.Xaml.Input;
 using Windows.Devices.Input;
 
 [ContractVersion(
@@ -243,6 +244,19 @@ public sealed class PointerPoint
     public bool IsInContact { get; }
     public PointerPointProperties Properties { get; }
 
+    public static PointerPoint GetCurrentPoint(
+        uint pointerId)
+    {
+        if (!InputSystem.TryGetCurrentPointerInput(
+                pointerId,
+                out PointerInputEvent input))
+        {
+            return null!;
+        }
+
+        return FromInput(input);
+    }
+
     public PointerPoint? GetTransformedPoint(IPointerPointTransform transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
@@ -270,6 +284,36 @@ public sealed class PointerPoint
             PointerDeviceType,
             IsInContact,
             properties);
+
+    internal static PointerPoint FromInput(
+        in PointerInputEvent input) =>
+        new(
+            input.PointerId,
+            input.Timestamp,
+            input.Position,
+            input.Position,
+            input.DeviceType,
+            input.IsInContact,
+            new PointerPointProperties(
+                contactRect:
+                    new Windows.Foundation.Rect(
+                        input.ContactRect.X,
+                        input.ContactRect.Y,
+                        input.ContactRect.Width,
+                        input.ContactRect.Height),
+                isLeftButtonPressed:
+                    input.IsLeftButtonPressed,
+                isMiddleButtonPressed:
+                    input.IsMiddleButtonPressed,
+                isRightButtonPressed:
+                    input.IsRightButtonPressed,
+                isPrimary: input.IsPrimary,
+                isCanceled:
+                    input.Kind ==
+                    PointerInputKind.Canceled,
+                pressure: input.Pressure,
+                mouseWheelDelta:
+                    (int)input.WheelDeltaY));
 }
 
 [ContractVersion(
