@@ -1,4 +1,5 @@
 using Microsoft.Build.Evaluation;
+using Microsoft.Build.Construction;
 using Microsoft.CodeAnalysis;
 using ProGPU.Xaml.Workspaces;
 using RoslynProject = Microsoft.CodeAnalysis.Project;
@@ -80,6 +81,77 @@ internal static class CliMsBuildProjectInputs
                             path));
         return imports
             .Concat(allProjects)
+            .Concat(
+                ResolveImportCandidates(
+                    evaluated))
             .ToArray();
     }
+
+    private static IEnumerable<string>
+        ResolveImportCandidates(
+            Microsoft.Build.Evaluation.Project evaluated)
+    {
+        var roots = evaluated.Imports
+            .Select(
+                static import =>
+                    import.ImportedProject)
+            .Prepend(evaluated.Xml)
+            .Where(
+                static root =>
+                    !string.IsNullOrWhiteSpace(
+                        root.FullPath))
+            .GroupBy(
+                static root => root.FullPath,
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal)
+            .Select(static group => group.First());
+
+        foreach (ProjectRootElement root in roots)
+        {
+            string declaringDirectory =
+                Path.GetDirectoryName(root.FullPath) ??
+                string.Empty;
+            foreach (ProjectImportElement import in
+                     root.Imports)
+            {
+                string expanded = evaluated
+                    .ExpandString(import.Project)
+                    .Trim();
+                if (string.IsNullOrEmpty(expanded) ||
+                    ContainsUnresolvedExpression(expanded))
+                {
+                    continue;
+                }
+
+                foreach (string candidate in
+                         expanded.Split(
+                             new[] { ';' },
+                             StringSplitOptions
+                                 .RemoveEmptyEntries))
+                {
+                    string trimmed = candidate.Trim();
+                    if (string.IsNullOrEmpty(trimmed) ||
+                        trimmed.IndexOfAny(
+                            new[] { '*', '?' }) >= 0)
+                    {
+                        continue;
+                    }
+
+                    yield return Path.GetFullPath(
+                        Path.IsPathRooted(trimmed)
+                            ? trimmed
+                            : Path.Combine(
+                                declaringDirectory,
+                                trimmed));
+                }
+            }
+        }
+    }
+
+    private static bool ContainsUnresolvedExpression(
+        string value) =>
+        value.IndexOf("$(", StringComparison.Ordinal) >= 0 ||
+        value.IndexOf("@(", StringComparison.Ordinal) >= 0 ||
+        value.IndexOf("%(", StringComparison.Ordinal) >= 0;
 }

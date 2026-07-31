@@ -242,9 +242,10 @@ public sealed class XamlProjectWatchInputTests
                         SingleWriter = false
                     });
             using var subscription =
-                new Program
-                    .WatchFileSystemSubscription(
-                        signals.Writer);
+                new RoslynXamlProjectWatchFileSystemSubscription(
+                    changedPath =>
+                        signals.Writer.TryWrite(
+                            changedPath));
             Assert.True(
                 subscription.Update(inputSet));
             Assert.False(
@@ -276,6 +277,172 @@ public sealed class XamlProjectWatchInputTests
             Directory.Delete(
                 root,
                 recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TopologyEquivalentUpdateRefreshesBuildClassification()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-watch-reclassify-" +
+            Guid.NewGuid().ToString("N"));
+        var projectDirectory =
+            Path.Combine(root, "Project");
+        var projectPath = Path.Combine(
+            projectDirectory,
+            "App.csproj");
+        var sharedPath = Path.Combine(
+            projectDirectory,
+            "Shared.input");
+        Directory.CreateDirectory(projectDirectory);
+        File.WriteAllText(projectPath, "<Project />");
+        File.WriteAllText(sharedPath, "initial");
+
+        try
+        {
+            using var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = workspace.CurrentSolution
+                .AddProject(
+                    CreateProjectInfo(
+                        projectId,
+                        "App",
+                        projectPath))
+                .GetProject(projectId)!;
+            var ordinary =
+                RoslynXamlProjectWatchInputSet.Create(
+                    project,
+                    explicitInputs:
+                        new[] { sharedPath });
+            var buildClassified =
+                RoslynXamlProjectWatchInputSet.Create(
+                    project,
+                    evaluatedBuildInputs:
+                        new[] { sharedPath },
+                    explicitInputs:
+                        new[] { sharedPath });
+            var signals = Channel.CreateUnbounded<string>();
+            using var subscription =
+                new RoslynXamlProjectWatchFileSystemSubscription(
+                    changedPath =>
+                        signals.Writer.TryWrite(
+                            changedPath));
+
+            Assert.True(subscription.Update(ordinary));
+            Assert.False(
+                subscription.Update(buildClassified));
+            File.WriteAllText(sharedPath, "build");
+            using var timeout =
+                new CancellationTokenSource(
+                    TimeSpan.FromSeconds(10));
+            await WaitForPathAsync(
+                signals.Reader,
+                sharedPath,
+                timeout.Token);
+            Assert.True(
+                subscription.TakeRefreshRequested());
+
+            while (signals.Reader.TryRead(out _))
+            {
+            }
+            Assert.False(subscription.Update(ordinary));
+            File.WriteAllText(sharedPath, "ordinary");
+            await WaitForPathAsync(
+                signals.Reader,
+                sharedPath,
+                timeout.Token);
+            Assert.False(
+                subscription.TakeRefreshRequested());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ConditionalImportCandidateIsWatchedBeforeItExists()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-watch-conditional-import-" +
+            Guid.NewGuid().ToString("N"));
+        var projectDirectory =
+            Path.Combine(root, "Project");
+        var generatedDirectory =
+            Path.Combine(root, "Generated");
+        var projectPath = Path.Combine(
+            projectDirectory,
+            "App.csproj");
+        var optionalPropsPath = Path.Combine(
+            generatedDirectory,
+            "Optional.props");
+        Directory.CreateDirectory(projectDirectory);
+        File.WriteAllText(
+            projectPath,
+            "<Project><Import Project=\"../Generated/Optional.props\" " +
+            "Condition=\"Exists('../Generated/Optional.props')\" />" +
+            "</Project>");
+
+        try
+        {
+            if (!MSBuildLocator.IsRegistered)
+                MSBuildLocator.RegisterDefaults();
+            using var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = workspace.CurrentSolution
+                .AddProject(
+                    CreateProjectInfo(
+                        projectId,
+                        "App",
+                        projectPath))
+                .GetProject(projectId)!;
+            var evaluated =
+                CliMsBuildProjectInputs.Resolve(project);
+            Assert.Contains(
+                Path.GetFullPath(optionalPropsPath),
+                evaluated.Paths);
+
+            var inputSet =
+                RoslynXamlProjectWatchInputSet.Create(
+                    project,
+                    evaluated.Paths);
+            var signals = Channel.CreateUnbounded<string>();
+            using var subscription =
+                new RoslynXamlProjectWatchFileSystemSubscription(
+                    changedPath =>
+                        signals.Writer.TryWrite(
+                            changedPath));
+            Assert.True(subscription.Update(inputSet));
+
+            Directory.CreateDirectory(generatedDirectory);
+            File.WriteAllText(
+                optionalPropsPath,
+                "<Project><PropertyGroup />" +
+                "</Project>");
+            using var timeout =
+                new CancellationTokenSource(
+                    TimeSpan.FromSeconds(10));
+            await WaitForPathAsync(
+                signals.Reader,
+                optionalPropsPath,
+                timeout.Token);
+            Assert.True(
+                subscription.TakeRefreshRequested());
+
+            var refreshed =
+                CliMsBuildProjectInputs.Resolve(project);
+            Assert.Single(
+                refreshed.Paths,
+                path =>
+                    PathsEqual(
+                        path,
+                        optionalPropsPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 
@@ -475,4 +642,28 @@ public sealed class XamlProjectWatchInputTests
                 new CSharpCompilationOptions(
                     OutputKind
                         .DynamicallyLinkedLibrary));
+
+    private static async Task WaitForPathAsync(
+        ChannelReader<string> reader,
+        string expectedPath,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            string path = await reader.ReadAsync(
+                cancellationToken);
+            if (PathsEqual(path, expectedPath))
+                return;
+        }
+    }
+
+    private static bool PathsEqual(
+        string left,
+        string right) =>
+        string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            Path.DirectorySeparatorChar == '\\'
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 }

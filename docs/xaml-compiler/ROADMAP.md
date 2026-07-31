@@ -87,7 +87,8 @@ Already implemented:
 - no-op acceptance without unnecessary runtime publication;
 - standalone `watch` with human and JSON Lines output plus transactional artifact writes;
 - immutable deterministic watch-input discovery over the target and reachable loaded Roslyn project graph, including project roots/files, source, additional, analyzer-config, linked external, and explicit/evaluated host inputs;
-- installed-MSBuild evaluation of resolved external imports, exact-file watcher grouping, and transactional subscription refresh after build/project graph signals;
+- installed-MSBuild evaluation of resolved external imports plus conservative exact conditional-import candidates, including candidates whose conditions are currently false or whose parent directory does not yet exist;
+- a reusable Workspaces-owned file-system subscription with exact-file grouping, nearest-existing-ancestor recovery, transactional topology replacement, topology-equivalent build-input reclassification, and graph refresh after directory rename or watcher errors;
 - immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, including fixed-histogram median/P95/P99 upper bounds and CLI JSON Lines publication;
 - an immutable allocation-free P95 performance-budget evaluator plus CLI duration/allocation thresholds, minimum-sample gating, structured results, and failing bounded-run exit status;
 - a versioned immutable IDE/playground/CLI watch transport that forwards Roslyn project/document/text snapshots into a caller-owned session and returns bounded detached results without retaining compiler graphs;
@@ -97,7 +98,7 @@ Already implemented:
 
 Remaining exit work:
 
-- add automated rapid add/remove/rename project-graph and conditional-import recovery coverage on Windows, macOS, and Linux;
+- complete automated rapid reachable-project add/remove/rename plus nested, wildcard, and property-changing conditional-import recovery coverage on Windows, macOS, and Linux;
 - calibrate and commit representative platform/workload percentile and allocation budgets using the published distributions and existing enforcement contract;
 - prove rapid edit storms, delete/rename, project reload, and host shutdown behavior on Windows, macOS, and Linux.
 
