@@ -1,6 +1,9 @@
+using System.Threading.Channels;
+using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using ProGPU.Xaml.Cli;
 using ProGPU.Xaml.Workspaces;
 using Xunit;
 
@@ -182,6 +185,259 @@ public sealed class XamlProjectWatchInputTests
                                 input.Path + "|" +
                                 (int)input.Kind + "|" +
                                 input.ProjectIdentity)));
+    }
+
+    [Fact]
+    public async Task FileSystemSubscriptionSignalsExternalEvaluatedBuildInput()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-watch-subscription-" +
+            Guid.NewGuid().ToString("N"));
+        var projectDirectory =
+            Path.Combine(root, "Project");
+        var buildDirectory =
+            Path.Combine(root, "Build");
+        var projectPath =
+            Path.Combine(
+                projectDirectory,
+                "App.csproj");
+        var importedPropsPath =
+            Path.Combine(
+                buildDirectory,
+                "Shared.props");
+        Directory.CreateDirectory(projectDirectory);
+        Directory.CreateDirectory(buildDirectory);
+        File.WriteAllText(
+            projectPath,
+            "<Project />");
+        File.WriteAllText(
+            importedPropsPath,
+            "<Project />");
+
+        try
+        {
+            using var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = workspace.CurrentSolution
+                .AddProject(
+                    CreateProjectInfo(
+                        projectId,
+                        "App",
+                        projectPath))
+                .GetProject(projectId)!;
+            var inputSet =
+                RoslynXamlProjectWatchInputSet.Create(
+                    project,
+                    evaluatedBuildInputs:
+                        new[] { importedPropsPath });
+            var signals =
+                Channel.CreateBounded<string>(
+                    new BoundedChannelOptions(1)
+                    {
+                        FullMode =
+                            BoundedChannelFullMode
+                                .DropOldest,
+                        SingleReader = true,
+                        SingleWriter = false
+                    });
+            using var subscription =
+                new Program
+                    .WatchFileSystemSubscription(
+                        signals.Writer);
+            Assert.True(
+                subscription.Update(inputSet));
+            Assert.False(
+                subscription.Update(inputSet));
+
+            File.WriteAllText(
+                importedPropsPath,
+                "<Project><PropertyGroup />" +
+                "</Project>");
+            using var timeout =
+                new CancellationTokenSource(
+                    TimeSpan.FromSeconds(10));
+            var changedPath =
+                await signals.Reader.ReadAsync(
+                    timeout.Token);
+
+            Assert.Equal(
+                Path.GetFullPath(importedPropsPath),
+                Path.GetFullPath(changedPath));
+            Assert.True(
+                subscription
+                    .TakeRefreshRequested());
+            Assert.False(
+                subscription
+                    .TakeRefreshRequested());
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CliMsBuildEvaluationSuppliesResolvedImports()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-msbuild-inputs-" +
+            Guid.NewGuid().ToString("N"));
+        var projectDirectory =
+            Path.Combine(root, "Project");
+        var importDirectory =
+            Path.Combine(root, "Build");
+        var projectPath =
+            Path.Combine(
+                projectDirectory,
+                "App.csproj");
+        var importedPropsPath =
+            Path.Combine(
+                importDirectory,
+                "Shared.props");
+        Directory.CreateDirectory(projectDirectory);
+        Directory.CreateDirectory(importDirectory);
+        File.WriteAllText(
+            importedPropsPath,
+            "<Project><PropertyGroup>" +
+            "<ImportedValue>yes</ImportedValue>" +
+            "</PropertyGroup></Project>");
+        File.WriteAllText(
+            projectPath,
+            "<Project><Import Project=\"" +
+            importedPropsPath +
+            "\" /></Project>");
+
+        try
+        {
+            if (!MSBuildLocator.IsRegistered)
+                MSBuildLocator.RegisterDefaults();
+            using var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = workspace.CurrentSolution
+                .AddProject(
+                    CreateProjectInfo(
+                        projectId,
+                        "App",
+                        projectPath))
+                .GetProject(projectId)!;
+
+            var inputs =
+                CliMsBuildProjectInputs.Resolve(project);
+
+            Assert.Contains(
+                Path.GetFullPath(importedPropsPath),
+                inputs.Paths);
+        }
+        finally
+        {
+            Directory.Delete(
+                root,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public void EvaluatedBuildInputsFollowReachableProjectGraph()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-evaluated-inputs-" +
+            Guid.NewGuid().ToString("N"));
+        var appProjectPath =
+            Path.Combine(root, "App", "App.csproj");
+        var dependencyProjectPath =
+            Path.Combine(
+                root,
+                "Dependency",
+                "Dependency.csproj");
+        var unrelatedProjectPath =
+            Path.Combine(
+                root,
+                "Unrelated",
+                "Unrelated.csproj");
+        var sharedPropsPath =
+            Path.Combine(root, "Shared.props");
+        var appTargetsPath =
+            Path.Combine(root, "App", "App.targets");
+
+        using var workspace = new AdhocWorkspace();
+        var appId = ProjectId.CreateNewId();
+        var dependencyId = ProjectId.CreateNewId();
+        var unrelatedId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution
+            .AddProject(CreateProjectInfo(
+                dependencyId,
+                "Dependency",
+                dependencyProjectPath))
+            .AddProject(CreateProjectInfo(
+                unrelatedId,
+                "Unrelated",
+                unrelatedProjectPath))
+            .AddProject(CreateProjectInfo(
+                appId,
+                "App",
+                appProjectPath))
+            .AddProjectReference(
+                appId,
+                new ProjectReference(dependencyId));
+        var visited = new List<ProjectId>();
+
+        var inputs =
+            RoslynXamlEvaluatedBuildInputSet.Create(
+                solution.GetProject(appId)!,
+                project =>
+                {
+                    visited.Add(project.Id);
+                    if (project.Id == appId)
+                    {
+                        return new[]
+                        {
+                            appTargetsPath,
+                            sharedPropsPath
+                        };
+                    }
+
+                    return new[]
+                    {
+                        sharedPropsPath,
+                        sharedPropsPath
+                    };
+                });
+
+        Assert.Equal(
+            new[] { appId, dependencyId },
+            visited);
+        Assert.Equal(
+            new[]
+            {
+                appTargetsPath,
+                sharedPropsPath
+            }.OrderBy(
+                static path => path,
+                StringComparer.Ordinal),
+            inputs.Paths);
+        Assert.DoesNotContain(
+            unrelatedId,
+            visited);
+        Assert.Throws<ArgumentNullException>(
+            () => RoslynXamlEvaluatedBuildInputSet
+                .Create(
+                    null!,
+                    static _ => Array.Empty<string>()));
+        Assert.Throws<ArgumentNullException>(
+            () => RoslynXamlEvaluatedBuildInputSet
+                .Create(
+                    solution.GetProject(appId)!,
+                    null!));
+        Assert.Throws<InvalidOperationException>(
+            () => RoslynXamlEvaluatedBuildInputSet
+                .Create(
+                    solution.GetProject(appId)!,
+                    static _ => new[] { " " }));
     }
 
     [Fact]

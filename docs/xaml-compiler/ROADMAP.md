@@ -87,12 +87,13 @@ Already implemented:
 - no-op acceptance without unnecessary runtime publication;
 - standalone `watch` with human and JSON Lines output plus transactional artifact writes;
 - immutable deterministic watch-input discovery over the target and reachable loaded Roslyn project graph, including project roots/files, source, additional, analyzer-config, linked external, and explicit/evaluated host inputs;
+- installed-MSBuild evaluation of resolved external imports, exact-file watcher grouping, and transactional subscription refresh after build/project graph signals;
 - process coverage against a real MSBuild-loaded sample.
 
 Remaining exit work:
 
-- populate evaluated imported props/targets and other MSBuild-only resources into the watch-input set, then refresh subscriptions after project/reference-graph mutations;
 - add a versioned IDE/playground transport that sends immutable snapshots and structured results without owning compiler state;
+- add automated rapid add/remove/rename project-graph and conditional-import recovery coverage on Windows, macOS, and Linux;
 - publish duration, allocation, canceled-work, cache-hit, and queue-depth telemetry;
 - prove rapid edit storms, delete/rename, project reload, and host shutdown behavior on Windows, macOS, and Linux.
 

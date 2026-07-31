@@ -267,54 +267,38 @@ internal static partial class Program
             projectPath,
             file,
             cancellationToken);
-        var watchers = new List<FileSystemWatcher>(
-            inputSet.RecursiveDirectories.Length +
-            inputSet.ExplicitFiles.Length);
-        var exactFiles = new HashSet<string>(
-            inputSet.Files,
-            Path.DirectorySeparatorChar == '\\'
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal);
-        try
+        using var subscription =
+            new WatchFileSystemSubscription(
+                signals.Writer);
+        subscription.Update(inputSet);
+        while (!cancellationToken
+                   .IsCancellationRequested)
         {
-            foreach (var directory in
-                     inputSet.RecursiveDirectories)
+            _ = await signals.Reader.ReadAsync(
+                cancellationToken);
+            while (signals.Reader.TryRead(out _))
             {
-                watchers.Add(
-                    CreateProjectWatcher(
-                        directory,
-                        changedPath =>
-                            IsWatchInput(changedPath) ||
-                            (!IsBuildOutput(changedPath) &&
-                             exactFiles.Contains(
-                                 Path.GetFullPath(
-                                     changedPath))),
-                        changedPath =>
-                            signals.Writer.TryWrite(
-                                changedPath)));
             }
-            foreach (var inputFile in
-                     inputSet.ExplicitFiles)
-            {
-                watchers.Add(
-                    CreateSingleFileWatcher(
-                        inputFile,
-                        changedPath =>
-                            signals.Writer.TryWrite(
-                                changedPath)));
-            }
+            var refreshSubscription =
+                subscription
+                    .TakeRefreshRequested();
 
-            while (!cancellationToken
-                       .IsCancellationRequested)
+            RoslynXamlProjectWatchResult result;
+            try
             {
-                _ = await signals.Reader.ReadAsync(
-                    cancellationToken);
-                while (signals.Reader.TryRead(out _))
+                if (refreshSubscription)
                 {
+                    var submission =
+                        await SubmitWatchSnapshotAndLoadInputSetAsync(
+                            session,
+                            projectPath,
+                            file,
+                            cancellationToken);
+                    subscription.Update(
+                        submission.InputSet);
+                    result = submission.Result;
                 }
-
-                RoslynXamlProjectWatchResult result;
-                try
+                else
                 {
                     result =
                         await SubmitWatchSnapshotAsync(
@@ -324,51 +308,251 @@ internal static partial class Program
                             immediate: false,
                             cancellationToken);
                 }
-                catch (Exception exception)
-                    when (exception is not
-                          OperationCanceledException)
-                {
-                    sequence++;
-                    WriteWatchHostFailure(
-                        sequence,
-                        framework,
-                        file,
-                        output,
-                        exception.GetBaseException()
-                            .Message,
-                        json);
-                    lastAccepted = false;
-                    if (maximumUpdates == sequence)
-                        return 1;
-                    continue;
-                }
-
+            }
+            catch (Exception exception)
+                when (exception is not
+                      OperationCanceledException)
+            {
                 sequence++;
-                var wroteArtifact =
-                    result.Accepted &&
-                    result.Update?
-                        .RequiresRuntimePublication ==
-                    true;
-                WriteWatchResult(
-                    result,
+                WriteWatchHostFailure(
                     sequence,
                     framework,
                     file,
                     output,
-                    wroteArtifact,
+                    exception.GetBaseException()
+                        .Message,
                     json);
-                lastAccepted = result.Accepted;
+                lastAccepted = false;
                 if (maximumUpdates == sequence)
-                    return lastAccepted ? 0 : 1;
+                    return 1;
+                continue;
+            }
+
+            sequence++;
+            var wroteArtifact =
+                result.Accepted &&
+                result.Update?
+                    .RequiresRuntimePublication ==
+                true;
+            WriteWatchResult(
+                result,
+                sequence,
+                framework,
+                file,
+                output,
+                wroteArtifact,
+                json);
+            lastAccepted = result.Accepted;
+            if (maximumUpdates == sequence)
+                return lastAccepted ? 0 : 1;
+        }
+
+        return 0;
+    }
+
+    internal sealed class
+        WatchFileSystemSubscription : IDisposable
+    {
+        private readonly ChannelWriter<string>
+            _signals;
+        private readonly StringComparer
+            _pathComparer;
+        private List<FileSystemWatcher>
+            _watchers = new();
+        private RoslynXamlProjectWatchInputSet?
+            _inputSet;
+        private volatile HashSet<string>
+            _refreshFiles;
+        private int _refreshRequested;
+
+        public WatchFileSystemSubscription(
+            ChannelWriter<string> signals)
+        {
+            _signals = signals;
+            _pathComparer =
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal;
+            _refreshFiles =
+                new HashSet<string>(_pathComparer);
+        }
+
+        public bool Update(
+            RoslynXamlProjectWatchInputSet inputSet)
+        {
+            if (inputSet == null)
+            {
+                throw new ArgumentNullException(
+                    nameof(inputSet));
+            }
+
+            if (_inputSet != null &&
+                HasSameSubscription(
+                    _inputSet,
+                    inputSet,
+                    _pathComparer))
+            {
+                return false;
+            }
+
+            var next = CreateWatchers(inputSet);
+            var refreshFiles = new HashSet<string>(
+                inputSet.Inputs
+                    .Where(
+                        static input =>
+                            input.Kind ==
+                                RoslynXamlProjectWatchInputKind
+                                    .ProjectFile ||
+                            input.Kind ==
+                                RoslynXamlProjectWatchInputKind
+                                    .EvaluatedBuildInput)
+                    .Select(
+                        static input => input.Path),
+                _pathComparer);
+            var previous = _watchers;
+            _watchers = next;
+            _inputSet = inputSet;
+            _refreshFiles = refreshFiles;
+            DisposeWatchers(previous);
+            return true;
+        }
+
+        public bool TakeRefreshRequested() =>
+            Interlocked.Exchange(
+                ref _refreshRequested,
+                0) != 0;
+
+        public void Dispose()
+        {
+            var previous = _watchers;
+            _watchers = new List<FileSystemWatcher>();
+            _inputSet = null;
+            _refreshFiles =
+                new HashSet<string>(_pathComparer);
+            DisposeWatchers(previous);
+        }
+
+        private List<FileSystemWatcher>
+            CreateWatchers(
+                RoslynXamlProjectWatchInputSet inputSet)
+        {
+            var exactFiles = new HashSet<string>(
+                inputSet.Files,
+                _pathComparer);
+            var exactGroups = inputSet
+                .ExplicitFiles
+                .GroupBy(
+                    static path =>
+                        Path.GetDirectoryName(path) ??
+                        string.Empty,
+                    _pathComparer)
+                .OrderBy(
+                    static group => group.Key,
+                    StringComparer.Ordinal)
+                .ToArray();
+            var watchers = new List<FileSystemWatcher>(
+                inputSet.RecursiveDirectories.Length +
+                exactGroups.Length);
+            try
+            {
+                foreach (var directory in
+                         inputSet.RecursiveDirectories)
+                {
+                    watchers.Add(
+                        CreateProjectWatcher(
+                            directory,
+                            changedPath =>
+                                IsWatchInput(
+                                    changedPath) ||
+                                (!IsBuildOutput(
+                                     changedPath) &&
+                                 exactFiles.Contains(
+                                     Path.GetFullPath(
+                                         changedPath))),
+                            Signal));
+                }
+
+                foreach (var group in exactGroups)
+                {
+                    var groupFiles =
+                        new HashSet<string>(
+                            group,
+                            _pathComparer);
+                    watchers.Add(
+                        CreateExactFilesWatcher(
+                            group.Key,
+                            changedPath =>
+                                groupFiles.Contains(
+                                    Path.GetFullPath(
+                                        changedPath)),
+                            Signal));
+                }
+
+                return watchers;
+            }
+            catch
+            {
+                DisposeWatchers(watchers);
+                throw;
             }
         }
-        finally
+
+        private void Signal(string changedPath)
+        {
+            var fullPath =
+                Path.GetFullPath(changedPath);
+            if (_refreshFiles.Contains(fullPath) ||
+                IsBuildGraphInput(fullPath))
+            {
+                Interlocked.Exchange(
+                    ref _refreshRequested,
+                    1);
+            }
+
+            _signals.TryWrite(fullPath);
+        }
+
+        private static bool IsBuildGraphInput(
+            string path)
+        {
+            var extension = Path.GetExtension(path);
+            return extension.Equals(
+                       ".csproj",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(
+                       ".vbproj",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(
+                       ".fsproj",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(
+                       ".props",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(
+                       ".targets",
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasSameSubscription(
+            RoslynXamlProjectWatchInputSet left,
+            RoslynXamlProjectWatchInputSet right,
+            StringComparer pathComparer) =>
+            left.RecursiveDirectories.SequenceEqual(
+                right.RecursiveDirectories,
+                pathComparer) &&
+            left.Files.SequenceEqual(
+                right.Files,
+                pathComparer) &&
+            left.ExplicitFiles.SequenceEqual(
+                right.ExplicitFiles,
+                pathComparer);
+
+        private static void DisposeWatchers(
+            IEnumerable<FileSystemWatcher> watchers)
         {
             foreach (var watcher in watchers)
                 watcher.Dispose();
         }
-
-        return 0;
     }
 
     private static async Task<
@@ -386,8 +570,12 @@ internal static partial class Program
             loaded.Project,
             file,
             out _);
+        var evaluatedBuildInputs =
+            CliMsBuildProjectInputs
+                .Resolve(project);
         return RoslynXamlProjectWatchInputSet.Create(
             project,
+            evaluatedBuildInputs.Paths,
             explicitInputs: new[] { file });
     }
 
@@ -412,9 +600,48 @@ internal static partial class Program
             project,
             documentId,
             immediate: immediate,
+                cancellationToken:
+                    cancellationToken);
+    }
+
+    private static async Task<WatchSnapshotSubmission>
+        SubmitWatchSnapshotAndLoadInputSetAsync(
+            RoslynXamlProjectWatchSession session,
+            string projectPath,
+            string file,
+            CancellationToken cancellationToken)
+    {
+        using var loaded =
+            await OpenWatchProjectAsync(
+                projectPath,
+                cancellationToken);
+        var project = EnsureAdditionalDocument(
+            loaded.Project,
+            file,
+            out var documentId);
+        var evaluatedBuildInputs =
+            CliMsBuildProjectInputs
+                .Resolve(project);
+        var inputSet =
+            RoslynXamlProjectWatchInputSet.Create(
+                project,
+                evaluatedBuildInputs.Paths,
+                explicitInputs: new[] { file });
+        var result = await session.SubmitAsync(
+            project,
+            documentId,
+            immediate: false,
             cancellationToken:
                 cancellationToken);
+        return new WatchSnapshotSubmission(
+            result,
+            inputSet);
     }
+
+    private readonly record struct
+        WatchSnapshotSubmission(
+            RoslynXamlProjectWatchResult Result,
+            RoslynXamlProjectWatchInputSet InputSet);
 
     private static async Task<LoadedWatchProject>
         OpenWatchProjectAsync(
@@ -476,11 +703,10 @@ internal static partial class Program
         RenamedEventHandler onRename =
             (_, eventArgs) =>
             {
-                if (isInput(eventArgs.FullPath) ||
-                    isInput(eventArgs.OldFullPath))
-                {
+                if (isInput(eventArgs.OldFullPath))
+                    changed(eventArgs.OldFullPath);
+                if (isInput(eventArgs.FullPath))
                     changed(eventArgs.FullPath);
-                }
             };
         watcher.Changed += onChange;
         watcher.Created += onChange;
@@ -491,18 +717,15 @@ internal static partial class Program
     }
 
     private static FileSystemWatcher
-        CreateSingleFileWatcher(
-            string file,
+        CreateExactFilesWatcher(
+            string directory,
+            Func<string, bool> isInput,
             Action<string> changed)
     {
-        var directory =
-            Path.GetDirectoryName(file) ??
-            throw new InvalidOperationException(
-                "The watched XAML file must have a parent directory.");
         var watcher =
             new FileSystemWatcher(
                 directory,
-                Path.GetFileName(file))
+                "*")
             {
                 IncludeSubdirectories = false,
                 NotifyFilter =
@@ -512,10 +735,18 @@ internal static partial class Program
             };
         FileSystemEventHandler onChange =
             (_, eventArgs) =>
-                changed(eventArgs.FullPath);
+            {
+                if (isInput(eventArgs.FullPath))
+                    changed(eventArgs.FullPath);
+            };
         RenamedEventHandler onRename =
             (_, eventArgs) =>
-                changed(eventArgs.FullPath);
+            {
+                if (isInput(eventArgs.OldFullPath))
+                    changed(eventArgs.OldFullPath);
+                if (isInput(eventArgs.FullPath))
+                    changed(eventArgs.FullPath);
+            };
         watcher.Changed += onChange;
         watcher.Created += onChange;
         watcher.Deleted += onChange;

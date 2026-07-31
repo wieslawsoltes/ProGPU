@@ -17,7 +17,6 @@
     <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.Workspaces\ProGPU.Xaml.Workspaces.csproj" />
-    <ProjectReference Include="..\..\tools\ProGPU.Xaml.Cli\ProGPU.Xaml.Cli.csproj"
-                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\tools\ProGPU.Xaml.Cli\ProGPU.Xaml.Cli.csproj" />
   </ItemGroup>
 </Project>
