@@ -7,6 +7,94 @@ namespace ProGPU.Tests;
 public sealed class ContentStateContractTests
 {
     [Fact]
+    public void SiteCapabilityInterfacesMatchOfficialShape()
+    {
+        var inputProperties =
+            typeof(IContentSiteInput)
+                .GetProperties();
+
+        Assert.Equal(
+            new[]
+            {
+                nameof(IContentSiteInput
+                    .ProcessesKeyboardInput),
+                nameof(IContentSiteInput
+                    .ProcessesPointerInput)
+            },
+            inputProperties
+                .Select(property => property.Name)
+                .Order());
+        Assert.All(
+            inputProperties,
+            property =>
+            {
+                Assert.Equal(
+                    typeof(bool),
+                    property.PropertyType);
+                Assert.True(property.CanRead);
+                Assert.True(property.CanWrite);
+            });
+
+        var automationProperties =
+            typeof(IContentSiteAutomation)
+                .GetProperties();
+        Assert.Equal(
+            new[]
+            {
+                nameof(IContentSiteAutomation
+                    .AutomationOption),
+                nameof(IContentSiteAutomation
+                    .AutomationProvider)
+            },
+            automationProperties
+                .Select(property => property.Name)
+                .Order());
+        Assert.True(
+            Assert.Single(
+                automationProperties,
+                property =>
+                    property.Name ==
+                    nameof(IContentSiteAutomation
+                        .AutomationOption))
+                .CanWrite);
+        Assert.False(
+            Assert.Single(
+                automationProperties,
+                property =>
+                    property.Name ==
+                    nameof(IContentSiteAutomation
+                        .AutomationProvider))
+                .CanWrite);
+
+        Type handlerType = typeof(
+            Windows.Foundation.TypedEventHandler<
+                IContentSiteAutomation,
+                ContentSiteAutomationProviderRequestedEventArgs>);
+        var events =
+            typeof(IContentSiteAutomation).GetEvents();
+        Assert.Equal(
+            new[]
+            {
+                nameof(IContentSiteAutomation
+                    .FragmentRootAutomationProviderRequested),
+                nameof(IContentSiteAutomation
+                    .NextSiblingAutomationProviderRequested),
+                nameof(IContentSiteAutomation
+                    .ParentAutomationProviderRequested),
+                nameof(IContentSiteAutomation
+                    .PreviousSiblingAutomationProviderRequested)
+            },
+            events
+                .Select(@event => @event.Name)
+                .Order());
+        Assert.All(
+            events,
+            @event => Assert.Equal(
+                handlerType,
+                @event.EventHandlerType));
+    }
+
+    [Fact]
     public void EnumValuesMatchOfficialContract()
     {
         Assert.Equal(

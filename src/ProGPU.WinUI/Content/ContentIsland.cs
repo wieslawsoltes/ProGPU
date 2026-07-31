@@ -1,6 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
 using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Content;
@@ -32,6 +33,50 @@ public interface IContentSiteBridge : IDisposable
 public interface IContentSiteLink
 {
     ContentIsland Parent { get; }
+}
+
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010007)]
+public interface IContentSiteInput
+{
+    bool ProcessesKeyboardInput { get; set; }
+
+    bool ProcessesPointerInput { get; set; }
+}
+
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010007)]
+public interface IContentSiteAutomation
+{
+    ContentAutomationOptions AutomationOption
+    {
+        get;
+        set;
+    }
+
+    object? AutomationProvider { get; }
+
+    event TypedEventHandler<
+        IContentSiteAutomation,
+        ContentSiteAutomationProviderRequestedEventArgs>?
+        FragmentRootAutomationProviderRequested;
+
+    event TypedEventHandler<
+        IContentSiteAutomation,
+        ContentSiteAutomationProviderRequestedEventArgs>?
+        NextSiblingAutomationProviderRequested;
+
+    event TypedEventHandler<
+        IContentSiteAutomation,
+        ContentSiteAutomationProviderRequestedEventArgs>?
+        ParentAutomationProviderRequested;
+
+    event TypedEventHandler<
+        IContentSiteAutomation,
+        ContentSiteAutomationProviderRequestedEventArgs>?
+        PreviousSiblingAutomationProviderRequested;
 }
 
 [ContractVersion(

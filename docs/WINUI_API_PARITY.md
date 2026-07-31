@@ -1033,6 +1033,37 @@ exactly. The official comparison advances to 7,745 candidate declarations,
 3,893 exact matches, 12,728 missing declarations, and 3,852 extras. No
 Microsoft implementation source or method body was inspected.
 
+### Microsoft.UI.Content site capability interfaces
+
+Primary contracts consulted:
+
+- [IContentSiteInput](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.icontentsiteinput)
+- [IContentSiteAutomation](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.icontentsiteautomation)
+- [IContentSiteAutomation.AutomationProvider](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.content.icontentsiteautomation.automationprovider)
+- The pinned official projection metadata and `Microsoft.UI.xml`
+  documentation extracted by the deterministic API gate.
+
+Adopted: the exact version-7 public capability boundaries. Input capability
+exposes independently mutable keyboard and pointer processing policy.
+Automation capability exposes a mutable automation mode, a read-only resolved
+provider, and four strongly typed provider-request events for fragment root
+and sibling/parent navigation.
+
+The interfaces reuse the existing typed content automation enum and event data
+without reflection, boxed adapters, or a parallel provider abstraction. They
+add no runtime work or allocation by themselves; the later child-link and
+desktop-bridge implementations will own provider resolution and event
+lifecycle while sharing these exact contracts. The current slice intentionally
+does not claim those still-missing concrete bridge types.
+
+Focused shape tests cover the complete declared property set, mutability,
+event set, and exact `TypedEventHandler<IContentSiteAutomation,
+ContentSiteAutomationProviderRequestedEventArgs>` identity. The slice adds all
+12 selected official declarations exactly. The official comparison advances
+to 7,757 candidate declarations, 3,905 exact matches, 12,716 missing
+declarations, and 3,852 extras. No Microsoft implementation source or method
+body was inspected.
+
 ### Microsoft.UI.Windowing
 
 Primary contracts consulted:
