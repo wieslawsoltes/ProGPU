@@ -138,6 +138,59 @@ public partial class SKPaint : SKObject
         return clone;
     }
 
+    public bool GetFastBounds(SKRect bounds, out SKRect fastBounds)
+    {
+        if (!IsFinite(bounds))
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        var outset = 0f;
+        if (Style != SKPaintStyle.Fill)
+        {
+            var strokeRadius = StrokeWidth == 0f ? 0.5f : StrokeWidth * 0.5f;
+            if (!float.IsFinite(strokeRadius))
+            {
+                fastBounds = bounds;
+                return false;
+            }
+
+            outset = StrokeJoin == SKStrokeJoin.Miter
+                ? strokeRadius * Math.Max(1f, StrokeMiter)
+                : strokeRadius;
+        }
+
+        if (MaskFilter is { Kind: SKMaskFilter.MaskFilterKind.Blur } maskFilter)
+        {
+            outset += 3f * maskFilter.Sigma;
+        }
+        else if (MaskFilter is { Kind: SKMaskFilter.MaskFilterKind.Shader })
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        if (ImageFilter != null)
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        fastBounds = new SKRect(
+            bounds.Left - outset,
+            bounds.Top - outset,
+            bounds.Right + outset,
+            bounds.Bottom + outset);
+        return true;
+    }
+
+    private static bool IsFinite(SKRect rect) =>
+        float.IsFinite(rect.Left) &&
+        float.IsFinite(rect.Top) &&
+        float.IsFinite(rect.Right) &&
+        float.IsFinite(rect.Bottom);
+
     public Brush? ToBrush()
     {
         if (Style == SKPaintStyle.Stroke) return null;
@@ -2151,7 +2204,8 @@ public partial class SKColorFilter : SKObject
         if (_kind is ColorFilterKind.Compose or
             ColorFilterKind.Lerp or
             ColorFilterKind.HslaColorMatrix or
-            ColorFilterKind.HighContrast)
+            ColorFilterKind.HighContrast or
+            ColorFilterKind.Overdraw)
         {
             return ApplyRetainedFilter(destination);
         }
@@ -2767,23 +2821,6 @@ public partial class SKImageFilter : SKObject
     internal sealed record PointLightData(SKPoint3 Location, SKColor Color, float SurfaceScale, float Constant, float Shininess);
     internal sealed record SpotLightData(SKPoint3 Location, SKPoint3 Target, float SpecularExponent, float CutoffAngle, SKColor Color, float SurfaceScale, float Constant, float Shininess);
     internal sealed record TileData(SKRect Source, SKRect Destination);
-}
-
-public class SKMaskFilter : IDisposable
-{
-    public float Sigma { get; }
-
-    private SKMaskFilter(float sigma)
-    {
-        Sigma = sigma;
-    }
-
-    public static SKMaskFilter CreateBlur(SKBlurStyle style, float sigma)
-    {
-        return new SKMaskFilter(sigma);
-    }
-
-    public void Dispose() { }
 }
 
 public enum SKBlurStyle

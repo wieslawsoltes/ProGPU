@@ -19,6 +19,7 @@ public partial class SKColorFilter
         Lerp,
         HslaColorMatrix,
         HighContrast,
+        Overdraw,
         RuntimeEffect,
     }
 
@@ -32,6 +33,7 @@ public partial class SKColorFilter
     private readonly SKColorFilter? _inner;
     private readonly float _weight;
     private readonly SKHighContrastConfig _highContrast;
+    private readonly SKColor[]? _overdrawColors;
 
     private SKColorFilter(float[] colorMatrix, ColorFilterKind kind)
         : base(SKObjectHandle.Create(), owns: true)
@@ -62,6 +64,13 @@ public partial class SKColorFilter
     {
         _kind = ColorFilterKind.HighContrast;
         _highContrast = config;
+    }
+
+    private SKColorFilter(SKColor[] overdrawColors)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _kind = ColorFilterKind.Overdraw;
+        _overdrawColors = overdrawColors;
     }
 
     internal bool TryGetCompose(out SKColorFilter outer, out SKColorFilter inner)
@@ -186,6 +195,25 @@ public partial class SKColorFilter
         return new SKColorFilter(snapshot, snapshot, snapshot, snapshot);
     }
 
+    public static SKColorFilter CreateOverdraw(SKColor[] colors)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        return CreateOverdraw(colors.AsSpan());
+    }
+
+    public static SKColorFilter CreateOverdraw(ReadOnlySpan<SKColor> colors)
+    {
+        const int overdrawColorCount = 6;
+        if (colors.Length != overdrawColorCount)
+        {
+            throw new ArgumentException(
+                $"Overdraw filters require exactly {overdrawColorCount} colors.",
+                nameof(colors));
+        }
+
+        return new SKColorFilter(colors.ToArray());
+    }
+
     public static SKColorFilter CreateTable(
         ReadOnlySpan<byte> tableA,
         ReadOnlySpan<byte> tableR,
@@ -228,6 +256,10 @@ public partial class SKColorFilter
                 return ApplyHslaColorMatrix(destination, _colorMatrix!);
             case ColorFilterKind.HighContrast:
                 return ApplyHighContrast(destination, _highContrast);
+            case ColorFilterKind.Overdraw:
+                return destination.A == 0
+                    ? SKColors.Empty
+                    : _overdrawColors![Math.Min(destination.A - 1, _overdrawColors.Length - 1)];
             default:
                 return destination;
         }

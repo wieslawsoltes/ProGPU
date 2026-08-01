@@ -269,6 +269,10 @@ public class SKCanvas : SKObject
 
     internal DrawingContext DrawingContext => _context;
 
+    internal float CanvasWidth => _width;
+
+    internal float CanvasHeight => _height;
+
     internal void AttachSurface(SKSurface surface)
     {
         ArgumentNullException.ThrowIfNull(surface);
@@ -5806,7 +5810,7 @@ public class SKCanvas : SKObject
     public void DrawText(string text, float x, float y, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), paint.GetLegacyFont(), paint);
 
-    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
+    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", false)]
     public void DrawText(string text, SKPoint p, SKFont font, SKPaint paint) =>
         DrawText(text, p, paint.GetLegacyTextAlign(), font, paint);
 
@@ -5818,7 +5822,7 @@ public class SKCanvas : SKObject
         SKPaint paint) =>
         DrawText(text, p.X, p.Y, textAlign, font, paint);
 
-    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
+    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", false)]
     public void DrawText(string text, float x, float y, SKFont font, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), font, paint);
 
