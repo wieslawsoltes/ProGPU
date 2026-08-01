@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,402 ProGPU
-entries, 3,167 exact matches, 1,055 missing entries, and 1,235 ProGPU-only
-entries. The missing surface comprises 71 type identities, 20 fields, 22
-interfaces, 626 methods, 131 properties, and 185 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,408 ProGPU
+entries, 3,173 exact matches, 1,049 missing entries, and 1,235 ProGPU-only
+entries. The missing surface comprises 70 type identities, 20 fields, 22
+interfaces, 621 methods, 131 properties, and 185 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -133,3 +133,32 @@ slice, not a cross-platform claim. The clean-room design follows the
 [OpenType Tag data type](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
 and the public
 [SkiaSharp parsing contract](https://learn.microsoft.com/dotnet/api/skiasharp.skfourbytetag.parse).
+
+### Red/blue pixel channel swizzle
+
+`SKSwizzle` now matches all six entries in the 4.151.0 public metadata
+contract. The reusable `PixelChannelSwizzler` core operates on tightly packed
+four-byte pixels in `O(N)` time and `O(1)` auxiliary storage, supports bounded
+overlapping copies, and never initializes WebGPU. On ARM64, copy and in-place
+paths use fixed 32-bit and 16-bit byte reversals followed by a mask select,
+avoiding both an intermediate buffer and table-lookup stalls. Other targets use the
+portable hardware-accelerated `Vector128` shuffle and scalar tails.
+
+Independent tests cover in-place and copy overloads, pointer entry points,
+count clamping, overlap direction, stable replay allocations, and incomplete
+trailing pixels. Valid complete-pixel inputs match the official behavior. The
+span-only overload deliberately preserves an incomplete trailing pixel rather
+than allowing the official wrapper's observable out-of-bounds native access;
+this is a memory-safety improvement outside the documented complete-pixel
+contract. Three alternating Apple M3 Pro Release process pairs retained equal
+managed allocations and exact semantic checksums. Copy measured `0.962`
+ProGPU/native and in-place measured `1.213`; the latter remains an explicit CPU
+optimization target. Matched Time Profiler and Allocations traces from the same
+Release binaries retained stable checksums and `0.824`/`0.412` managed bytes per
+operation for both implementations. The raw distributions, trace bundles, and
+exported sample tables remain diagnostic evidence rather than a cross-platform
+claim.
+The design follows the public
+[SkiaSharp swizzle contract](https://learn.microsoft.com/dotnet/api/skiasharp.skswizzle)
+and Skia's documented
+[RGBA/BGRA transform](https://api.skia.org/SkSwizzle_8h.html).

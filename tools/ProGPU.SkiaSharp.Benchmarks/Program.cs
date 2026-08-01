@@ -72,6 +72,8 @@ internal static class ProgramEntry
             new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
             new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
+            new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
+            new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
         };
         var results = new List<BenchmarkCaseResult>(cases.Length);
@@ -403,6 +405,52 @@ internal static class ProgramEntry
         }
 
         return checksum;
+    }
+
+    private static ulong RunSwizzleInPlace(int operations)
+    {
+        var pixels = CreateSwizzlePixels();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            SKSwizzle.SwapRedBlue(
+                (ReadOnlySpan<byte>)pixels,
+                pixels.Length >> 2);
+            checksum = Mix(
+                checksum,
+                (uint)pixels[index & (pixels.Length - 1)] |
+                ((uint)pixels[(index + 2) & (pixels.Length - 1)] << 8));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunSwizzleCopy(int operations)
+    {
+        var source = CreateSwizzlePixels();
+        var destination = new byte[source.Length];
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            SKSwizzle.SwapRedBlue(
+                (ReadOnlySpan<byte>)destination,
+                (ReadOnlySpan<byte>)source,
+                source.Length >> 2);
+            checksum = Mix(
+                checksum,
+                (uint)destination[index & (destination.Length - 1)] |
+                ((uint)destination[(index + 2) & (destination.Length - 1)] << 8));
+        }
+
+        return checksum;
+    }
+
+    private static byte[] CreateSwizzlePixels()
+    {
+        var pixels = new byte[4096];
+        for (var index = 0; index < pixels.Length; index++)
+            pixels[index] = (byte)(index * 37 + 11);
+        return pixels;
     }
 
     private static ulong Combine(float first, float second) =>
