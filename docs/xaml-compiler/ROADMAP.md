@@ -48,19 +48,17 @@ cannot recursively trigger another watch compilation.
 This is an explicit handoff, not an MVP-complete claim. Work remaining after
 preview.32 is:
 
-1. Automatically map changed stable XAML identities to diagnostic origins at
-   the project coordinator boundary.
-2. Add host adapters for runtime metadata-update and dynamic-code capability
+1. Add host adapters for runtime metadata-update and dynamic-code capability
    discovery, then enforce candidate validation → metadata emission/apply →
    XAML publication → joint baseline commit ordering.
-3. Model and test recovery when metadata application succeeds but framework
+2. Model and test recovery when metadata application succeeds but framework
    tree replacement fails, including multi-project ownership and cancellation.
-4. Complete namescope/resource/template-aware live patch operations plus a
+3. Complete namescope/resource/template-aware live patch operations plus a
    transactional owning-subtree or whole-root fallback for every safe edit.
-5. Close cross-platform watch topology, edit-storm, shutdown, percentile,
+4. Close cross-platform watch topology, edit-storm, shutdown, percentile,
    allocation, deterministic-output, fuzz, visual, accessibility, and
    collectible-context lifetime gates.
-6. Validate installation from the published feed and finish end-user host,
+5. Validate installation from the published feed and finish end-user host,
    compatibility, extension, and release documentation.
 
 The detailed authoritative state remains in M2 through M6 below and in
@@ -69,10 +67,11 @@ new task can resume without treating partial runtime depth as complete.
 
 ## Preview.33 compiler closure and next implementation pipeline
 
-Preview.33 carries the preview.32 compiler implementation unchanged while the
-release closes the shared GPU-backend/API work. No compiler feature is promoted
-from Partial to Done at this boundary. The compiler remains pre-MVP and the six
-blocking items above remain authoritative.
+Preview.33 carried the preview.32 compiler implementation unchanged while that
+release closed the shared GPU-backend/API work. The current continuation now
+projects changed stable XAML identities into detached metadata diagnostic
+origins automatically. The compiler remains pre-MVP and the five blocking
+items above remain authoritative.
 
 The next branch must preserve the existing framework-neutral Roslyn model and
 advance it through an explicit incremental pipeline:
@@ -211,6 +210,9 @@ Already implemented:
 - an explicit immutable XAML diagnostic origin that routes coordinated rude-
   edit and unavailable-runtime-capability failures to an exact XAML path,
   span, and line span without retaining the caller's source text;
+- automatic deterministic projection of the target-first changed stable XAML
+  identity into that detached diagnostic origin on every prepared project
+  update, plus a typed metadata-session overload that consumes it directly;
 - real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
   detached immutable ownership and updated-method tokens;
 - transactional no-op/ready/rejected states plus foreign, invalid, disposed,
@@ -234,8 +236,6 @@ Remaining implementation:
 
 Required implementation:
 
-- automatic projection of changed stable XAML identities into the diagnostic-
-  origin contract at the project coordinator boundary;
 - host adapters that discover runtime metadata-update and dynamic-code support
   and project it into the typed capability snapshot, plus broader
   runtime-specific additions;

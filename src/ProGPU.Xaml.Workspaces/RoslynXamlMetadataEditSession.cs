@@ -303,6 +303,21 @@ public sealed class RoslynXamlMetadataEditSession : IDisposable
             cancellationToken);
     }
 
+    public RoslynXamlMetadataDeltaUpdate Prepare(
+        Compilation candidate,
+        RoslynXamlProjectPreviewUpdate projectUpdate,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectUpdate == null)
+        {
+            throw new ArgumentNullException(nameof(projectUpdate));
+        }
+
+        return projectUpdate.MetadataDiagnosticOrigin is { } origin
+            ? PrepareCore(candidate, origin, cancellationToken)
+            : PrepareCore(candidate, null, cancellationToken);
+    }
+
     private RoslynXamlMetadataDeltaUpdate PrepareCore(
         Compilation candidate,
         RoslynXamlMetadataEditDiagnosticOrigin? diagnosticOrigin,

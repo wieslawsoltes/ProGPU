@@ -13009,6 +13009,99 @@ namespace Demo {
     }
 
     [Fact]
+    public async Task ProjectCoordinatorProjectsChangedXamlIdentityIntoMetadataDiagnostics()
+    {
+        const string baselineXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="before" />
+</Page>
+""";
+        const string changedXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="after" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            baselineXaml,
+            siblingXaml);
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        RoslynXamlProjectPreviewUpdate initial =
+            await coordinator.PrepareAsync(
+                fixture.Project,
+                fixture.TargetXamlDocumentId);
+        Assert.Null(initial.MetadataDiagnosticOrigin);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            coordinator.TryCommit(initial));
+
+        RoslynXamlProjectPreviewUpdate changed =
+            await coordinator.PrepareAsync(
+                WithAdditionalDocumentText(
+                    fixture.Project,
+                    fixture.TargetXamlDocumentId,
+                    changedXaml),
+                fixture.TargetXamlDocumentId);
+        RoslynXamlMetadataEditDiagnosticOrigin origin =
+            Assert.IsType<RoslynXamlMetadataEditDiagnosticOrigin>(
+                changed.MetadataDiagnosticOrigin);
+        Assert.Equal("MainPage.xaml", origin.Path);
+        Assert.Contains(
+            "after",
+            changedXaml.Substring(
+                origin.SourceSpan.Start,
+                origin.SourceSpan.Length),
+            StringComparison.Ordinal);
+
+        CSharpCompilation CreateMetadataCompilation(string body) =>
+            CSharpCompilation.Create(
+                "CoordinatedMetadata",
+                new[]
+                {
+                    CSharpSyntaxTree.ParseText(
+                        SourceText.From(
+                            "public static class Target { " +
+                            "public static int Value() => " +
+                            body + "; }",
+                            Encoding.UTF8))
+                },
+                PlatformReferences(),
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary));
+
+        using var metadataSession =
+            new RoslynXamlMetadataEditSession(
+                CreateMetadataCompilation("1"),
+                RoslynXamlMetadataEditCapabilities.None);
+        RoslynXamlMetadataDeltaUpdate rejected =
+            metadataSession.Prepare(
+                CreateMetadataCompilation("2"),
+                changed);
+        Diagnostic diagnostic =
+            Assert.Single(rejected.Diagnostics);
+        Assert.Equal(
+            RoslynXamlMetadataDeltaStatus.RejectedUnsupportedEdit,
+            rejected.Status);
+        Assert.Equal(origin.SourceSpan, diagnostic.Location.SourceSpan);
+        Assert.Equal(
+            origin.Path,
+            diagnostic.Location.GetLineSpan().Path);
+        Assert.Equal(
+            origin.LineSpan,
+            diagnostic.Location.GetLineSpan().Span);
+    }
+
+    [Fact]
     public async Task ProjectWatchTransportVersionsBoundsAndDetachesHostResults()
     {
         const string pageXaml = """

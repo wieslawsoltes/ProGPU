@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
+using ProGPU.Xaml.Infoset;
 using ProGPU.Xaml.Roslyn;
 using ProGPU.Xaml.Schema;
 
@@ -35,12 +38,16 @@ public sealed class RoslynXamlProjectPreviewUpdate
         BaselineGeneration = baselineGeneration;
         Current = current;
         Delta = delta;
+        MetadataDiagnosticOrigin =
+            CreateMetadataDiagnosticOrigin(delta);
     }
 
     internal RoslynXamlProjectPreviewCoordinator Owner { get; }
     public long BaselineGeneration { get; }
     public RoslynXamlProjectPreview Current { get; }
     public RoslynXamlProjectDeltaPlan? Delta { get; }
+    public RoslynXamlMetadataEditDiagnosticOrigin?
+        MetadataDiagnosticOrigin { get; }
     public bool IsInitial => Delta == null;
     public bool CanCommit =>
         Current.CanMaterialize &&
@@ -75,6 +82,131 @@ public sealed class RoslynXamlProjectPreviewUpdate
         peImage = Array.Empty<byte>();
         qualifiedTypeName = string.Empty;
         return false;
+    }
+
+    private static RoslynXamlMetadataEditDiagnosticOrigin?
+        CreateMetadataDiagnosticOrigin(
+            RoslynXamlProjectDeltaPlan? delta)
+    {
+        if (delta == null || !delta.HasSemanticXamlChanges)
+        {
+            return null;
+        }
+
+        foreach (RoslynXamlProjectDocumentDelta document in
+                 delta.Documents)
+        {
+            if (document.HasSemanticChange &&
+                string.Equals(
+                    document.ResourceUri,
+                    delta.Current.ResourceUri,
+                    StringComparison.OrdinalIgnoreCase) &&
+                TryCreateMetadataDiagnosticOrigin(
+                    document,
+                    out var origin))
+            {
+                return origin;
+            }
+        }
+
+        foreach (RoslynXamlProjectDocumentDelta document in
+                 delta.Documents)
+        {
+            if (document.HasSemanticChange &&
+                !string.Equals(
+                    document.ResourceUri,
+                    delta.Current.ResourceUri,
+                    StringComparison.OrdinalIgnoreCase) &&
+                TryCreateMetadataDiagnosticOrigin(
+                    document,
+                    out var origin))
+            {
+                return origin;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryCreateMetadataDiagnosticOrigin(
+        RoslynXamlProjectDocumentDelta document,
+        out RoslynXamlMetadataEditDiagnosticOrigin? origin)
+    {
+        return TryCreateMetadataDiagnosticOrigin(
+                   document.Current,
+                   document.StableIdentities.Modified,
+                   out origin) ||
+               TryCreateMetadataDiagnosticOrigin(
+                   document.Current,
+                   document.StableIdentities.Added,
+                   out origin) ||
+               TryCreateMetadataDiagnosticOrigin(
+                   document.Previous,
+                   document.StableIdentities.Removed,
+                   out origin);
+    }
+
+    private static bool TryCreateMetadataDiagnosticOrigin(
+        RoslynXamlProjectDocumentCompilation? document,
+        ImmutableArray<ulong> stableIdentities,
+        out RoslynXamlMetadataEditDiagnosticOrigin? origin)
+    {
+        origin = null;
+        XamlInfosetObject? root =
+            document?.SourceInspection.Infoset.Root;
+        if (root == null || stableIdentities.IsDefaultOrEmpty)
+        {
+            return false;
+        }
+
+        var identities = new HashSet<ulong>(stableIdentities);
+        var stack = new Stack<XamlInfosetValue>();
+        stack.Push(root);
+        TextSpan? bestSpan = null;
+        while (stack.Count != 0)
+        {
+            XamlInfosetValue value = stack.Pop();
+            if (identities.Contains(value.StableId) &&
+                (!bestSpan.HasValue ||
+                 value.SourceSpan.Start < bestSpan.Value.Start ||
+                 (value.SourceSpan.Start == bestSpan.Value.Start &&
+                  value.SourceSpan.Length < bestSpan.Value.Length)))
+            {
+                bestSpan = value.SourceSpan;
+            }
+
+            if (value is XamlInfosetObject objectValue)
+            {
+                for (var index = objectValue.Members.Length - 1;
+                     index >= 0;
+                     index--)
+                {
+                    stack.Push(objectValue.Members[index]);
+                }
+            }
+            else if (value is XamlInfosetMember member)
+            {
+                for (var index = member.Values.Length - 1;
+                     index >= 0;
+                     index--)
+                {
+                    stack.Push(member.Values[index]);
+                }
+            }
+        }
+
+        if (!bestSpan.HasValue)
+        {
+            return false;
+        }
+
+        XamlInfosetDocument infoset =
+            document!.SourceInspection.Infoset;
+        origin = new RoslynXamlMetadataEditDiagnosticOrigin(
+            infoset.Path,
+            infoset.SourceText,
+            bestSpan.Value);
+        return true;
     }
 }
 
