@@ -4,7 +4,7 @@ public class SKBlender : SKObject
 {
     private readonly SKBlendMode? _blendMode;
     private readonly ArithmeticBlend? _arithmetic;
-    private readonly SKRuntimeEffectInstance? _runtimeEffect;
+    private readonly SKRuntimeEffectInstance _runtimeEffect = null!;
 
     private SKBlender(SKBlendMode blendMode)
         : base(SKObjectHandle.Create(), owns: true)
@@ -28,7 +28,7 @@ public class SKBlender : SKObject
 
     internal ArithmeticBlend? Arithmetic => _arithmetic;
 
-    internal SKRuntimeEffectInstance? RuntimeEffect => _runtimeEffect;
+    internal SKRuntimeEffectInstance RuntimeEffect => _runtimeEffect;
 
     internal static SKBlender CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 

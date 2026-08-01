@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using SkiaSharp;
@@ -202,5 +203,26 @@ public sealed class SkiaSharpPrimitiveContractTests
         Assert.True(metrics.UnderlinePosition >= 0f);
         Assert.True(metrics.StrikeoutThickness > 0f);
         Assert.True(metrics.StrikeoutPosition <= 0f);
+    }
+
+    [Fact]
+    public void FontMetricsUseTheOfficialCompactFlagsAndFloatLayout()
+    {
+        var fieldTypes = typeof(SKFontMetrics)
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .OrderBy(static field => field.MetadataToken)
+            .Select(static field => field.FieldType)
+            .ToArray();
+
+        Assert.Equal(16, fieldTypes.Length);
+        Assert.Equal(typeof(uint), fieldTypes[0]);
+        Assert.All(fieldTypes[1..], static type => Assert.Equal(typeof(float), type));
+        Assert.Equal(64, Unsafe.SizeOf<SKFontMetrics>());
+
+        var empty = default(SKFontMetrics);
+        Assert.Null(empty.UnderlineThickness);
+        Assert.Null(empty.UnderlinePosition);
+        Assert.Null(empty.StrikeoutThickness);
+        Assert.Null(empty.StrikeoutPosition);
     }
 }

@@ -2,12 +2,16 @@ using System;
 using System.Numerics;
 using ProGPU.Vector;
 
+#nullable disable
+#pragma warning disable CS8632
+
 namespace SkiaSharp;
 
 public partial class SKTextBlob
 {
     private const double InterceptRootEpsilon = 1e-12;
 
+#nullable enable
     public float[] GetIntercepts(
         float upperBounds,
         float lowerBounds,
@@ -27,6 +31,7 @@ public partial class SKTextBlob
 
         return intervals;
     }
+#nullable disable
 
     public void GetIntercepts(
         float upperBounds,

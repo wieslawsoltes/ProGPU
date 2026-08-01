@@ -96,6 +96,7 @@ internal static class ProgramEntry
             new BenchmarkCase("font-variation-query", 100_000, RunFontVariationQuery),
             new BenchmarkCase("font-variation-clone", 1_000, RunFontVariationClone),
             new BenchmarkCase("font-arguments-clone", 1_000, RunFontArgumentsClone),
+            new BenchmarkCase("text-raw-run-buffer", 100_000, RunTextRawRunBuffer),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
@@ -287,6 +288,28 @@ internal static class ProgramEntry
             _ = SKGraphics.SetFontCacheLimit(bytes);
             checksum = Mix(checksum, (uint)SKGraphics.GetFontCacheCountLimit());
             checksum = Mix(checksum, (ulong)SKGraphics.GetFontCacheLimit());
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunTextRawRunBuffer(int operations)
+    {
+        using var font = new SKFont(SKTypeface.Default, 16f);
+        using var builder = new SKTextBlobBuilder();
+        var run = builder.AllocateRawPositionedTextRun(font, 1, textByteCount: 1);
+        run.Glyphs[0] = 7;
+        run.Positions[0] = new SKPoint(3f, 5f);
+        run.Text[0] = 11;
+        run.Clusters[0] = 13;
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            checksum = Mix(checksum, run.Glyphs[0]);
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(run.Positions[0].X));
+            checksum = Mix(checksum, run.Text[0]);
+            checksum = Mix(checksum, run.Clusters[0]);
         }
 
         return checksum;

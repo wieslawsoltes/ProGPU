@@ -949,11 +949,32 @@ public class GpuPictureRecorder
     }
 }
 
+public sealed class RenderCommandList : List<RenderCommand>
+{
+    internal Func<int, bool>? CommandInterceptor;
+    internal event Action<int>? CommandAdded;
+
+    public new void Add(RenderCommand command)
+    {
+        base.Add(command);
+        var interceptor = CommandInterceptor;
+        if (interceptor is not null &&
+            (command.Brush is IRetainedCommandInterceptBrush ||
+             command.Pen?.Brush is IRetainedCommandInterceptBrush) &&
+            interceptor(Count - 1))
+        {
+            return;
+        }
+
+        CommandAdded?.Invoke(Count - 1);
+    }
+}
+
 public class DrawingContext :
     IRenderDataProvider,
     IProGpuDrawingContextSource
 {
-    public List<RenderCommand> Commands { get; } = new();
+    public RenderCommandList Commands { get; } = new();
     private List<RetainedResourceLease>? _retainedResources;
     private List<Vector2>? _pointBuffer;
     private List<double>? _doubleBuffer;
@@ -2521,6 +2542,113 @@ public class DrawingContext :
 
         var retainedResources = other.CloneRetainedResources();
         AppendRetainedResources(retainedResources);
+    }
+
+    internal void AppendCommand(DrawingContext other, int commandIndex)
+    {
+        AppendCommand(other, commandIndex, other.Commands[commandIndex]);
+    }
+
+    internal void AppendCommand(
+        DrawingContext other,
+        int commandIndex,
+        RenderCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        ArgumentOutOfRangeException.ThrowIfNegative(commandIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            commandIndex,
+            other.Commands.Count);
+
+        if (command.PointBufferCount > 0)
+        {
+            command.PointBufferOffset = CopySlice(
+                PointBuffer,
+                other.PointBuffer,
+                command.PointBufferOffset,
+                command.PointBufferCount);
+        }
+
+        if (command.DoubleBufferCount > 0)
+        {
+            command.DoubleBufferOffset = CopySlice(
+                DoubleBuffer,
+                other.DoubleBuffer,
+                command.DoubleBufferOffset,
+                command.DoubleBufferCount);
+        }
+
+        if (command.Line3DBufferCount > 0)
+        {
+            command.Line3DBufferOffset = CopySlice(
+                Line3DBuffer,
+                other.Line3DBuffer,
+                command.Line3DBufferOffset,
+                command.Line3DBufferCount);
+        }
+
+        if (command.FloatBufferCount > 0)
+        {
+            command.FloatBufferOffset = CopySlice(
+                FloatBuffer,
+                other.FloatBuffer,
+                command.FloatBufferOffset,
+                command.FloatBufferCount);
+        }
+
+        if (command.WeightBufferCount > 0)
+        {
+            command.WeightBufferOffset = CopySlice(
+                DoubleBuffer,
+                other.DoubleBuffer,
+                command.WeightBufferOffset,
+                command.WeightBufferCount);
+        }
+
+        AppendRetainedResources(other.CloneRetainedResources());
+        Commands.Add(command);
+    }
+
+    internal void SubscribeCommandAdded(Action<int> handler) =>
+        Commands.CommandAdded += handler;
+
+    internal void UnsubscribeCommandAdded(Action<int> handler) =>
+        Commands.CommandAdded -= handler;
+
+    internal void SetCommandInterceptor(Func<int, bool> interceptor)
+    {
+        ArgumentNullException.ThrowIfNull(interceptor);
+        if (Commands.CommandInterceptor != null &&
+            !ReferenceEquals(Commands.CommandInterceptor, interceptor))
+        {
+            throw new InvalidOperationException(
+                "A drawing context can have only one command interceptor.");
+        }
+
+        Commands.CommandInterceptor = interceptor;
+    }
+
+    internal void ClearCommandInterceptor(Func<int, bool> interceptor)
+    {
+        if (Commands.CommandInterceptor == interceptor)
+        {
+            Commands.CommandInterceptor = null;
+        }
+    }
+
+    private static int CopySlice<T>(
+        List<T> destination,
+        List<T> source,
+        int offset,
+        int count)
+    {
+        var destinationOffset = destination.Count;
+        for (var index = 0; index < count; index++)
+        {
+            destination.Add(source[offset + index]);
+        }
+
+        return destinationOffset;
     }
 
     private static void AppendList<T>(List<T> destination, List<T> source)

@@ -286,6 +286,16 @@ public abstract class SKAbstractManagedWStream : SKWStream
     protected internal abstract bool OnWrite(IntPtr buffer, IntPtr size);
     protected internal abstract void OnFlush();
     protected internal abstract IntPtr OnBytesWritten();
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }
 
 public class SKManagedWStream : SKAbstractManagedWStream
@@ -329,6 +339,11 @@ public class SKManagedWStream : SKAbstractManagedWStream
         }
 
         base.Dispose(disposing);
+    }
+
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
     }
 }
 
@@ -380,6 +395,11 @@ public class SKFileWStream : SKWStream
         }
 
         base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
     }
 }
 
@@ -456,10 +476,19 @@ public class SKDynamicMemoryWStream : SKWStream
 
         base.Dispose(disposing);
     }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
 }
 
-public static class SKSvgCanvas
+public class SKSvgCanvas
 {
+    private SKSvgCanvas()
+    {
+    }
+
     public static SKCanvas Create(SKRect bounds, SKWStream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);

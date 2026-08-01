@@ -346,4 +346,9 @@ public class SKColorSpace : SKObject
         MathF.Abs(value.G - 2.2f) < TransferTolerance &&
         value.D <= 0f;
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
 }

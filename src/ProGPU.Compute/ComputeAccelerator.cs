@@ -23,6 +23,7 @@ public unsafe class ComputeAccelerator : IDisposable
     private ComputePipeline* _imageBlendPipeline;
     private ComputePipeline* _colorTablePipeline;
     private ComputePipeline* _nonlinearColorFilterPipeline;
+    private ComputePipeline* _overdrawColorFilterPipeline;
     private ComputePipeline* _arithmeticCompositePipeline;
     private ComputePipeline* _displacementMapPipeline;
     private ComputePipeline* _magnifierPipeline;
@@ -278,6 +279,34 @@ public unsafe class ComputeAccelerator : IDisposable
                 grayscale ? 1f : 0f,
                 Math.Min(invertStyle, 2u),
                 contrastScale);
+        }
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 96)]
+    public struct OverdrawColorFilterParams
+    {
+        [FieldOffset(0)] public Vector4 Color0;
+        [FieldOffset(16)] public Vector4 Color1;
+        [FieldOffset(32)] public Vector4 Color2;
+        [FieldOffset(48)] public Vector4 Color3;
+        [FieldOffset(64)] public Vector4 Color4;
+        [FieldOffset(80)] public Vector4 Color5;
+
+        public OverdrawColorFilterParams(ReadOnlySpan<Vector4> colors)
+        {
+            if (colors.Length != 6)
+            {
+                throw new ArgumentException(
+                    "Overdraw filters require exactly six colors.",
+                    nameof(colors));
+            }
+
+            Color0 = colors[0];
+            Color1 = colors[1];
+            Color2 = colors[2];
+            Color3 = colors[3];
+            Color4 = colors[4];
+            Color5 = colors[5];
         }
     }
 
@@ -1517,6 +1546,76 @@ public unsafe class ComputeAccelerator : IDisposable
         _context.Api.BindGroupLayoutRelease(layout);
     }
 
+    public void ApplyOverdrawColorFilter(
+        GpuTexture source,
+        GpuTexture destination,
+        ReadOnlySpan<Vector4> colors)
+    {
+        if (_isDisposed) throw new ObjectDisposedException(nameof(ComputeAccelerator));
+
+        var width = source.Width;
+        var height = source.Height;
+        destination.Resize(width, height);
+        var pipeline = GetOrCreateOverdrawColorFilterPipeline();
+        using var paramsBuffer = new GpuBuffer(
+            _context,
+            (uint)Marshal.SizeOf<OverdrawColorFilterParams>(),
+            BufferUsage.Uniform | BufferUsage.CopyDst,
+            "Overdraw Color Filter Params");
+        paramsBuffer.WriteSingle(new OverdrawColorFilterParams(colors));
+
+        var encoderDescriptor = new CommandEncoderDescriptor
+        {
+            Label = (byte*)SilkMarshal.StringToPtr("Compute Overdraw Color Filter Encoder")
+        };
+        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDescriptor);
+        SilkMarshal.Free((nint)encoderDescriptor.Label);
+        var layout = _context.Api.ComputePipelineGetBindGroupLayout(pipeline, 0);
+
+        var entries = stackalloc BindGroupEntry[3];
+        entries[0] = new BindGroupEntry { Binding = 0, TextureView = source.ViewPtr };
+        entries[1] = new BindGroupEntry { Binding = 1, TextureView = destination.ViewPtr };
+        entries[2] = new BindGroupEntry
+        {
+            Binding = 2,
+            Buffer = paramsBuffer.BufferPtr,
+            Offset = 0,
+            Size = paramsBuffer.Size
+        };
+        var bindGroupDescriptor = new BindGroupDescriptor
+        {
+            Layout = layout,
+            EntryCount = 3,
+            Entries = entries
+        };
+        var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &bindGroupDescriptor);
+
+        var passDescriptor = new ComputePassDescriptor();
+        var pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
+        _context.Api.ComputePassEncoderSetPipeline(pass, pipeline);
+        _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
+        _context.Api.ComputePassEncoderDispatchWorkgroups(
+            pass,
+            (width + 15) / 16,
+            (height + 15) / 16,
+            1);
+        _context.Api.ComputePassEncoderEnd(pass);
+        _context.Api.ComputePassEncoderRelease(pass);
+
+        var commandDescriptor = new CommandBufferDescriptor
+        {
+            Label = (byte*)SilkMarshal.StringToPtr("Compute Overdraw Color Filter Buffer")
+        };
+        var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
+        SilkMarshal.Free((nint)commandDescriptor.Label);
+        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+
+        _context.Api.CommandBufferRelease(commandBuffer);
+        _context.Api.CommandEncoderRelease(encoder);
+        _context.Api.BindGroupRelease(bindGroup);
+        _context.Api.BindGroupLayoutRelease(layout);
+    }
+
     private ComputePipeline* GetOrCreateNonlinearColorFilterPipeline()
     {
         if (_nonlinearColorFilterPipeline != null)
@@ -1532,6 +1631,23 @@ public unsafe class ComputeAccelerator : IDisposable
             "NonlinearColorFilter",
             shader);
         return _nonlinearColorFilterPipeline;
+    }
+
+    private ComputePipeline* GetOrCreateOverdrawColorFilterPipeline()
+    {
+        if (_overdrawColorFilterPipeline != null)
+        {
+            return _overdrawColorFilterPipeline;
+        }
+
+        var shader = _cache.GetOrCreateShader(
+            "OverdrawColorFilter",
+            ComputeShaders.OverdrawColorFilter,
+            "OverdrawColorFilterShader");
+        _overdrawColorFilterPipeline = _cache.GetOrCreateComputePipeline(
+            "OverdrawColorFilter",
+            shader);
+        return _overdrawColorFilterPipeline;
     }
 
     private BindGroup* GetOrCreatePassBinding(

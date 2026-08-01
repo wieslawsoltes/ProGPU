@@ -138,6 +138,59 @@ public partial class SKPaint : SKObject
         return clone;
     }
 
+    public bool GetFastBounds(SKRect bounds, out SKRect fastBounds)
+    {
+        if (!IsFinite(bounds))
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        var outset = 0f;
+        if (Style != SKPaintStyle.Fill)
+        {
+            var strokeRadius = StrokeWidth == 0f ? 0.5f : StrokeWidth * 0.5f;
+            if (!float.IsFinite(strokeRadius))
+            {
+                fastBounds = bounds;
+                return false;
+            }
+
+            outset = StrokeJoin == SKStrokeJoin.Miter
+                ? strokeRadius * Math.Max(1f, StrokeMiter)
+                : strokeRadius;
+        }
+
+        if (MaskFilter is { Kind: SKMaskFilter.MaskFilterKind.Blur } maskFilter)
+        {
+            outset += 3f * maskFilter.Sigma;
+        }
+        else if (MaskFilter is { Kind: SKMaskFilter.MaskFilterKind.Shader })
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        if (ImageFilter != null)
+        {
+            fastBounds = bounds;
+            return false;
+        }
+
+        fastBounds = new SKRect(
+            bounds.Left - outset,
+            bounds.Top - outset,
+            bounds.Right + outset,
+            bounds.Bottom + outset);
+        return true;
+    }
+
+    private static bool IsFinite(SKRect rect) =>
+        float.IsFinite(rect.Left) &&
+        float.IsFinite(rect.Top) &&
+        float.IsFinite(rect.Right) &&
+        float.IsFinite(rect.Bottom);
+
     public Brush? ToBrush()
     {
         if (Style == SKPaintStyle.Stroke) return null;
@@ -149,14 +202,14 @@ public partial class SKPaint : SKObject
     {
         if (Shader != null)
         {
-            return ApplyPaintAlphaToShaderBrush(
+            return ApplyMaskFilter(ApplyPaintAlphaToShaderBrush(
                 SKShader.ApplyColorFilter(Shader.ToBrush(), ColorFilter),
-                Color);
+                Color));
         }
 
         var color = GetFilteredColor();
         var c = new Vector4(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f, color.A / 255.0f);
-        return new SolidColorBrush(c);
+        return ApplyMaskFilter(new SolidColorBrush(c));
     }
 
     public Pen? ToPen()
@@ -183,6 +236,8 @@ public partial class SKPaint : SKObject
             penBrush = new SolidColorBrush(c);
         }
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, scaledStrokeWidth);
+
+        penBrush = ApplyMaskFilter(penBrush);
 
         return new Pen(
             penBrush,
@@ -226,6 +281,7 @@ public partial class SKPaint : SKObject
         }
 
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, localStrokeWidth);
+        penBrush = ApplyMaskFilter(penBrush);
         return new Pen(
             penBrush,
             localStrokeWidth,
@@ -243,7 +299,7 @@ public partial class SKPaint : SKObject
         var scaledStrokeWidth = ScaleStrokeWidth(StrokeWidth, strokeScale);
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, scaledStrokeWidth);
         return new Pen(
-            brush,
+            ApplyMaskFilter(brush),
             scaledStrokeWidth,
             MapStrokeJoin(StrokeJoin),
             StrokeMiter,
@@ -253,6 +309,11 @@ public partial class SKPaint : SKObject
             dashArray,
             dashOffset);
     }
+
+    private Brush ApplyMaskFilter(Brush brush) =>
+        MaskFilter == null
+            ? brush
+            : new SKMaskFilterBrush(brush, MaskFilter);
 
     public void Reset()
     {
@@ -278,6 +339,11 @@ public partial class SKPaint : SKObject
         Blender = null;
         _legacyFont.Dispose();
         base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
     }
 
     public SKPath? GetFillPath(SKPath src) => GetFillPath(src, 1f);
@@ -2039,6 +2105,11 @@ public partial class SKColorFilter : SKObject
 
     internal static SKColorFilter CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
     internal float[]? ColorMatrix => _kind == ColorFilterKind.ColorMatrix ? _colorMatrix : null;
     internal bool IsLumaColor => _kind == ColorFilterKind.Luma && _lumaColor;
 
@@ -2141,7 +2212,8 @@ public partial class SKColorFilter : SKObject
         if (_kind is ColorFilterKind.Compose or
             ColorFilterKind.Lerp or
             ColorFilterKind.HslaColorMatrix or
-            ColorFilterKind.HighContrast)
+            ColorFilterKind.HighContrast or
+            ColorFilterKind.Overdraw)
         {
             return ApplyRetainedFilter(destination);
         }
@@ -2443,6 +2515,11 @@ public partial class SKImageFilter : SKObject
     }
 
     internal FilterKind Kind { get; }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
     internal object? Parameters { get; }
     internal SKImageFilter? Input { get; }
     internal SKRect? CropRect { get; }
@@ -2752,23 +2829,6 @@ public partial class SKImageFilter : SKObject
     internal sealed record PointLightData(SKPoint3 Location, SKColor Color, float SurfaceScale, float Constant, float Shininess);
     internal sealed record SpotLightData(SKPoint3 Location, SKPoint3 Target, float SpecularExponent, float CutoffAngle, SKColor Color, float SurfaceScale, float Constant, float Shininess);
     internal sealed record TileData(SKRect Source, SKRect Destination);
-}
-
-public class SKMaskFilter : IDisposable
-{
-    public float Sigma { get; }
-
-    private SKMaskFilter(float sigma)
-    {
-        Sigma = sigma;
-    }
-
-    public static SKMaskFilter CreateBlur(SKBlurStyle style, float sigma)
-    {
-        return new SKMaskFilter(sigma);
-    }
-
-    public void Dispose() { }
 }
 
 public enum SKBlurStyle

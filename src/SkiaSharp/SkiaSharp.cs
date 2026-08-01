@@ -2172,6 +2172,11 @@ public class SKCodec : SKObject
             FormatException or
             IndexOutOfRangeException or
             NotSupportedException;
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
 }
 
 public class SKSurfaceProperties : SKObject
@@ -2200,6 +2205,16 @@ public class SKSurfaceProperties : SKObject
     public SKSurfaceProperties(SKSurfacePropsFlags flags, SKPixelGeometry pixelGeometry)
         : this((uint)flags, pixelGeometry)
     {
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
 }

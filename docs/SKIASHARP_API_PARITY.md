@@ -53,23 +53,65 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,144 ProGPU
-entries, 4,125 exact matches, 97 missing entries, and 1,019 ProGPU-only
-entries. This is
-a starting point, not a compatibility claim, and the matching/missing budget
-is ratcheted after every reviewed slice. ProGPU-only entries are audited and
-removed when accidental; explicitly documented extension seams remain outside
-the official parity claim.
+The current pinned comparison records 4,222 official entries, 5,219 ProGPU
+entries, all 4,222 exact matches, zero missing entries, and 997 ProGPU-only
+entries. The matching/missing budget is now locked at full official coverage.
+ProGPU-only entries are audited and removed when accidental; explicitly
+documented extension seams remain outside the official parity claim.
 
-The remaining 97 entries are 22 attributes, one field, 62 methods, three
-properties, and nine types. They are concentrated in nullable/obsolete
-metadata and managed-disposal declarations; `SKMaskFilter`; N-way, no-draw,
-and overdraw canvases; WebP animation and frame contracts; raw text-run
-buffers; SVG canvas; and a small set of related value and helper contracts.
-They remain explicit work for the next branch. GPU-visible families require
-original retained WebGPU implementations and quality/performance tests;
-unsupported platform codecs must fail explicitly rather than expose metadata
-stubs that silently change behavior.
+The continuation branch regenerated the original 97-entry gap from the pinned
+official package at `v0.1.0-preview.34` (`39b53dbb`) before implementation.
+Public metadata closure does not by itself complete rendering compatibility:
+GPU-visible families still require original retained WebGPU implementations
+and quality/performance tests, while unsupported platform codecs must fail
+explicitly rather than silently emit another format.
+
+## Rendering continuation research record
+
+The remaining mask-filter and forwarding-canvas slice is a clean-room design
+based on public contracts and independently observable behavior. No
+implementation source from SkiaSharp or another renderer is used.
+
+Primary sources consulted:
+
+- [Skia `SkMaskFilter`](https://api.skia.org/classSkMaskFilter.html): mask
+  filters transform coverage before compositing; Gaussian sigma must be
+  positive and may be transformed by the current matrix.
+- [Skia `SkCanvas`](https://api.skia.org/classSkCanvas.html) and
+  [`SkOverdrawCanvas`](https://api.skia.org/classSkOverdrawCanvas.html): canvas
+  state is a matrix/clip stack, while overdraw records every touched pixel
+  rather than final source color.
+- [Direct2D Gaussian blur](https://learn.microsoft.com/windows/win32/direct2d/gaussian-blur):
+  a separable GPU blur uses transparent soft borders and a conservative
+  three-sigma radius.
+- [Direct2D effects overview](https://learn.microsoft.com/windows/win32/direct2d/effects-overview)
+  and [custom effects](https://learn.microsoft.com/windows/win32/direct2d/custom-effects):
+  retained effect graphs compose GPU transforms and explicitly expand input
+  rectangles for non-local sampling.
+- [Win2D GaussianBlurEffect](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Effects_GaussianBlurEffect.htm):
+  retained effect nodes expose bounds/invalidation and may cache their output.
+- [WebRender](https://github.com/servo/webrender): retained display-list
+  rendering keeps scene preparation separate from GPU raster/composition.
+- [Vello](https://github.com/linebender/vello) and its
+  [image-filter status](https://github.com/linebender/vello/tree/main/image_filters):
+  GPU compute is the intended parallel execution boundary, while filter
+  semantics remain an explicit renderer concern.
+- [Parley](https://docs.rs/parley/latest/parley/) and
+  [HarfBuzz shaping](https://harfbuzz.github.io/harfbuzz-hb-shape.html): shaped
+  glyph IDs, positions, and layout are reusable CPU results and are not
+  recomputed by a coverage effect.
+- [DirectWrite glyph runs](https://learn.microsoft.com/windows/win32/directwrite/glyphs-and-glyph-runs)
+  and [Direct2D/DirectWrite integration](https://learn.microsoft.com/windows/win32/direct2d/direct2d-and-directwrite):
+  text layout remains independent from the renderer that consumes the retained
+  glyph run.
+
+Adopted: immutable filter snapshots, conservative three-sigma bounds, retained
+command replay, transparent out-of-bounds sampling, and GPU effect composition.
+Adapted: mask filters route through ProGPU's existing WebGPU save-layer/effect
+graph so paths, glyphs, images, and custom visuals share one backend. Rejected:
+CPU pixel fallbacks, moving Unicode or OpenType shaping to the GPU, unbounded
+per-frame filter allocation, and source-shaped ports of another engine's
+implementation.
 
 ## Planned implementation order
 
@@ -93,6 +135,98 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Complete official metadata and retained mask/canvas contracts
+
+All 4,222 public entries in the pinned SkiaSharp 4.151 reference metadata now
+match exactly, including declaring type, inheritance, fields, signatures,
+parameter names, layout, ownership hooks, obsolete payloads, and nullable
+metadata. The regression gate is ratcheted to zero missing entries.
+
+`SKMaskFilter` now retains immutable blur, table, gamma, clip, and shader
+coverage descriptions; conversions and fast paint bounds are fixed `O(1)`,
+while table construction is bounded `O(256)`. Overdraw color filters retain
+their six-color palette and clamp positive coverage counts to the last color.
+No factory initializes WebGPU or reads pixels.
+
+At draw time, a typed retained-brush marker intercepts only commands that carry
+a mask filter. Ordinary commands perform two marker checks and never invoke the
+mask delegate. Filtered commands render their retained geometry or glyph run to
+an offscreen texture and reuse the existing WebGPU image-effect graph for
+separable blur, alpha tables, shader masks, and solid/inner/outer composition.
+Overdraw palette mapping uses a dedicated 16x16 WebGPU compute pass with one
+texture read and write per texel and a fixed 96-byte six-color uniform. Pixel
+tests cover Gaussian falloff and exact zero/one/saturated overdraw counts; the
+shader resource audit enforces embedding and complexity documentation.
+
+`SKNoDrawCanvas`, `SKNWayCanvas`, and `SKOverdrawCanvas` share a typed retained
+command-forwarding seam in `DrawingContext`. Every newly recorded command is
+forwarded immediately, including its packed buffer slices and retained resource
+leases. Fan-out costs `O(T * (B + R))` for `T` targets, referenced packed data
+`B`, and retained resources `R`; ordinary canvases pay one direct delegate-null
+check per recorded command. Overdraw forwards additive 1/255 coverage rather
+than source paint color. Focused tests cover immutable tables, conversion and
+bounds behavior, immediate target removal/fan-out, and additive coverage
+commands.
+
+### Compact font metrics and pinned raw text-run buffers
+
+`SKFontMetrics` now uses the official sequential flags-plus-fifteen-floats ABI.
+The four nullable decoration metrics are represented by validity bits and
+inline values, preserving null semantics in a fixed 64-byte value with no heap
+storage. `SKRawRunBuffer<T>` now uses the official readonly pointer/length
+layout. Builder arrays are allocated directly in pinned managed storage and
+remain owned by the builder, so glyph, position, text, and cluster spans stay
+valid across compacting collections without `GCHandle`, copying, or per-access
+allocation.
+
+Focused tests verify the exact field types and size, nullable metric behavior,
+raw span lengths and snapshots, compacting-GC stability, and exactly zero
+managed bytes across 10,000 warmed position reads. The matched benchmark suite
+includes the same public raw-buffer access workload for official SkiaSharp and
+ProGPU. Three alternating clean Release pairs at `c78266ec` retained matching
+checksums and measured 4.614 ns/op for official SkiaSharp versus 4.701 ns/op for
+ProGPU (1.019 ratio). One-time sample setup amortized to 0.002 versus 0.004
+B/op; the warmed access loop itself remains allocation-free. This is neutral
+timer-floor evidence, not a performance-win claim. The exact metadata gate
+advances from 4,183 to 4,186 matches, reduces
+missing entries from 39 to 36, and removes six accidental ProGPU-only metadata
+entries.
+
+### Platform codec and managed stream contracts
+
+The WebP frame value, static encoder surface, SVG canvas type shape, managed
+stream fork/duplicate declarations, and memory-stream native-disposal hook now
+match the pinned public metadata. WebP frames borrow pixmaps directly; the
+bitmap constructor reuses `PeekPixels`, while the image constructor performs
+the explicit image-to-raster readback requested by that API and retains its
+pixel owner through the pixmap. Static and animated WebP encoding currently
+return `null` or `false` without writing because the reviewed dependency-free
+platform layer does not yet expose a WebP encoder on every supported target.
+This is an explicit capability failure and never emits PNG/JPEG bytes under a
+WebP contract.
+
+Focused tests cover frame layout and mutation, borrowed pixels, zero-byte
+failure behavior, and the non-static/non-constructible SVG helper shape. The
+exact metadata gate advances from 4,157 to 4,183 matches, reduces missing
+entries from 65 to 39, and removes one accidental ProGPU-only metadata entry.
+
+### Explicit managed ownership and disposal declarations
+
+Thirty-two official protected ownership hooks now appear on their declaring
+SkiaSharp types while retaining ProGPU's single `SKNativeObject` lifetime
+engine. The declarations cover managed/read/write streams, bitmap and codec
+wrappers, color and image filters, color spaces, drawables, font styles, paint,
+paths, pictures, surfaces, and text blobs. They delegate to the existing
+idempotent base implementation; no native handle model, allocation, rendering
+path, or GPU initialization was added. The protected `SKDrawable(bool owns)`
+constructor now preserves borrowed ownership without adding a public adapter.
+
+Independent reflection and lifetime tests verify every declaring type,
+virtual override shape, borrowed drawable ownership, and post-disposal handle
+state. The exact metadata gate advances from 4,125 to 4,157 matches and
+ratchets missing entries from 97 to 65 without increasing the 1,019 documented
+ProGPU-only entries.
 
 ### Exact signatures and managed ownership hierarchy
 
@@ -1049,3 +1183,57 @@ metadata and the official
 No implementation source was consulted. The required cross-engine rendering
 review remains unchanged because this checkpoint neither changes scene/path
 compilation nor text shaping, caching, or GPU submission.
+
+## Preview.35 full metadata closure and WebGPU mask execution
+
+The pinned official SkiaSharp 4.151.0 comparison now reports 4,222 exact
+matches of 4,222 reference entries and zero missing entries. The final slice
+closes nullable/obsolete metadata, managed disposal, WebP frame/encoder, pinned
+raw text-run buffers, `SKMaskFilter`, `SKNoDrawCanvas`, `SKNWayCanvas`, and
+`SKOverdrawCanvas` contracts. Metadata equality is the contract-ledger result;
+behavior and performance remain independently gated.
+
+Mask filters retain immutable blur, alpha-table/gamma/clip, and shader
+descriptions. Ordinary draw commands remain on the existing direct retained
+path. A typed marker activates interception only for filtered brushes; the
+source command renders once into a bounded offscreen target and the existing
+WebGPU image-filter graph performs separable blur, alpha lookup, or `DstIn`
+shader masking. Overdraw uses a dedicated 16-by-16 WebGPU compute shader and a
+96-byte six-color uniform, mapping transparent input to transparent output,
+counts one through five to their palette entries, and saturated counts to the
+last entry. No CPU readback, external codec, reflection, or per-pixel managed
+loop is introduced.
+
+The clean-room design used the public
+[`SkMaskFilter`](https://api.skia.org/classSkMaskFilter.html) and
+[`SkCanvas`](https://api.skia.org/classSkCanvas.html) contracts,
+[Direct2D Gaussian blur](https://learn.microsoft.com/windows/win32/direct2d/gaussian-blur),
+[Win2D Gaussian blur](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Effects_GaussianBlurEffect.htm),
+[WebRender's retained frame architecture](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello's wgpu renderer](https://github.com/linebender/vello),
+[Parley's reusable layout model](https://github.com/linebender/parley), and
+[HarfBuzz shaping](https://harfbuzz.github.io/harfbuzz-hb-shape.html). ProGPU
+adopts retained filter descriptions, bounded GPU intermediates, and explicit
+compute/composite stages; it rejects copied engine structure, CPU bitmap
+fallback, per-frame reflection, and changes to reusable shaping/layout output.
+
+Focused mask/forwarding/shader-resource tests pass, including GPU blur-tail and
+overdraw pixel checks. The complete macOS core suite passes 3,167/3,167 and the
+headless suite passes 225/225. Three alternating matched Release process pairs
+preserve every semantic checksum. The final Apple M3 Pro run records retained
+canvas routing at `738.425` versus native `207.625` ns/op (`3.557`), path build
+and bounds at `3,793.146` versus `711.500` ns/op (`5.331`), and bounded surface
+snapshot at `66,053.955` versus `482.085` ns/op (`137.017`). These gaps remain
+explicit optimization work; full metadata closure does not claim an overall
+performance win.
+
+The filtered-command marker is now gated behind the presence of an interceptor,
+so ordinary framework-neutral command lists do not pay two type tests. Matched
+macOS Instruments runs against exact pre-change commit `65cc9641` retained the
+same checksum and `0.788` managed B/op: Time Profiler measured `169.313` before
+and `165.688` ns/op after, Allocations measured `171.219` and `166.627` ns/op,
+and Metal System Trace measured `173.121` and `166.933` ns/op. Target Metal
+command-buffer submissions, current device allocation, and resource-allocation
+exports are empty in both runs, as expected for state-only recording. Raw
+traces, TOCs, table exports, and exact-run JSON are retained under
+`artifacts/performance/skiasharp-interceptor-instruments`.

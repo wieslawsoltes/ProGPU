@@ -127,6 +127,24 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
         rotation.Glyphs[0] = glyphs[2];
         rotation.Positions[0] = SKRotationScaleMatrix.CreateTranslation(10f, 12f);
 
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        Assert.Equal(glyphs[0], implicitRun.Glyphs[0]);
+        Assert.Equal(new SKPoint(6f, 8f), positioned.Positions[0]);
+        Assert.Equal(
+            SKRotationScaleMatrix.CreateTranslation(10f, 12f),
+            rotation.Positions[0]);
+
+        _ = positioned.Positions[0].X;
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var checksum = 0f;
+        for (var iteration = 0; iteration < 10_000; iteration++)
+        {
+            checksum += positioned.Positions[0].X;
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        Assert.Equal(60_000f, checksum);
+        Assert.Equal(0, allocated);
+
         using var blob = builder.Build();
         implicitRun.Glyphs[0] = 0;
         positioned.Positions[0] = SKPoint.Empty;

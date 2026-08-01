@@ -116,6 +116,8 @@ public class SKCanvas : SKObject
     private readonly Action? _flush;
     private readonly SKBitmap? _bitmap;
     private readonly bool _isPictureRecording;
+    private readonly bool _deferMaskFilters;
+    private readonly Func<int, bool> _commandInterceptor;
     private SKSurface? _surface;
     private GRRecordingContext? _recordingContext;
     private SKMatrix _currentMatrix = SKMatrix.Identity;
@@ -215,7 +217,14 @@ public class SKCanvas : SKObject
         float height,
         WgpuContext? gpuContext = null,
         Action? flush = null)
-        : this(context, width, height, gpuContext, flush, isPictureRecording: false)
+        : this(
+            context,
+            width,
+            height,
+            gpuContext,
+            flush,
+            isPictureRecording: false,
+            deferMaskFilters: false)
     {
     }
 
@@ -230,7 +239,25 @@ public class SKCanvas : SKObject
             height,
             gpuContext: null,
             flush: null,
-            isPictureRecording: isPictureRecording)
+            isPictureRecording: isPictureRecording,
+            deferMaskFilters: isPictureRecording)
+    {
+    }
+
+    internal SKCanvas(
+        DrawingContext context,
+        float width,
+        float height,
+        bool isPictureRecording,
+        bool deferMaskFilters)
+        : this(
+            context,
+            width,
+            height,
+            gpuContext: null,
+            flush: null,
+            isPictureRecording,
+            deferMaskFilters)
     {
     }
 
@@ -240,7 +267,8 @@ public class SKCanvas : SKObject
         float height,
         WgpuContext? gpuContext,
         Action? flush,
-        bool isPictureRecording)
+        bool isPictureRecording,
+        bool deferMaskFilters)
         : base(SKObjectHandle.Create(), owns: true)
     {
         _context = context;
@@ -249,6 +277,9 @@ public class SKCanvas : SKObject
         _gpuContext = gpuContext;
         _flush = flush;
         _isPictureRecording = isPictureRecording;
+        _deferMaskFilters = deferMaskFilters;
+        _commandInterceptor = InterceptCommand;
+        _context.SetCommandInterceptor(_commandInterceptor);
         _recordingContext = gpuContext == null ? null : new GRContext(gpuContext);
         _clipState = new ClipState(
             new SKRectI(0, 0, ToCanvasExtent(width), ToCanvasExtent(height)),
@@ -267,7 +298,69 @@ public class SKCanvas : SKObject
         bitmap.AttachCanvas(this);
     }
 
+    private bool InterceptCommand(int commandIndex)
+    {
+        if (_deferMaskFilters ||
+            (uint)commandIndex >= (uint)_context.Commands.Count)
+        {
+            return false;
+        }
+
+        var command = _context.Commands[commandIndex];
+        SKMaskFilter? filter = null;
+        if (command.Brush is SKMaskFilterBrush fill)
+        {
+            filter = fill.Filter;
+            command.Brush = fill.Source;
+        }
+
+        if (command.Pen?.Brush is SKMaskFilterBrush stroke)
+        {
+            filter ??= stroke.Filter;
+            command.Pen.Brush = stroke.Source;
+        }
+
+        if (filter == null)
+        {
+            return false;
+        }
+
+        var parentContext = _context;
+        parentContext.Commands.RemoveAt(commandIndex);
+        var layerContext = new DrawingContext();
+        layerContext.Commands.Add(command);
+        var imageFilter = filter.CreateImageFilter(_currentMatrix);
+        var layerPaint = new SKPaint { ImageFilter = imageFilter };
+        var layer = new LayerFrame(
+            parentContext,
+            layerContext,
+            layerPaint,
+            backdrop: null,
+            SKCanvasSaveLayerRecFlags.None,
+            previousContext: null,
+            _stateStack.Count,
+            new SKRect(0f, 0f, _width, _height),
+            SKMatrix.Identity,
+            SnapshotActiveClipPushes());
+
+        try
+        {
+            RestoreLayer(layer);
+        }
+        finally
+        {
+            imageFilter.Dispose();
+            _context = parentContext;
+        }
+
+        return true;
+    }
+
     internal DrawingContext DrawingContext => _context;
+
+    internal float CanvasWidth => _width;
+
+    internal float CanvasHeight => _height;
 
     internal void AttachSurface(SKSurface surface)
     {
@@ -395,6 +488,7 @@ public class SKCanvas : SKObject
 
         var parentContext = _context;
         var layerContext = new DrawingContext();
+        layerContext.SetCommandInterceptor(_commandInterceptor);
         DrawingContext? previousContext = null;
         if (IsValidLayerBounds(bounds) &&
             (backdrop != null ||
@@ -490,6 +584,7 @@ public class SKCanvas : SKObject
         }
         finally
         {
+            layerFrame.LayerContext.ClearCommandInterceptor(_commandInterceptor);
             layerFrame.LayerContext.Clear();
             layerFrame.PreviousContext?.Clear();
             layerFrame.Paint?.Dispose();
@@ -1257,6 +1352,28 @@ public class SKCanvas : SKObject
                 highContrast.Grayscale,
                 (uint)highContrast.InvertStyle,
                 highContrast.Contrast);
+        }
+
+        if (colorFilter.TryGetOverdrawColors(out var overdrawColors))
+        {
+            Span<Vector4> colors = stackalloc Vector4[6];
+            for (var index = 0; index < colors.Length; index++)
+            {
+                colors[index] = ToVector4(overdrawColors.Span[index]);
+            }
+
+            var context = GetGpuContext();
+            var destination = CreateOwnedFilterTexture(
+                context,
+                "SKColorFilter Overdraw",
+                storage: true,
+                width: input.Width,
+                height: input.Height);
+            GetCompositorForContext(context).ApplyOverdrawColorFilter(
+                input,
+                destination,
+                colors);
+            return destination;
         }
 
         if (colorFilter.TryGetBlendColor(out var blendColor, out var blendMode))
@@ -5806,7 +5923,7 @@ public class SKCanvas : SKObject
     public void DrawText(string text, float x, float y, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), paint.GetLegacyFont(), paint);
 
-    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
+    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", false)]
     public void DrawText(string text, SKPoint p, SKFont font, SKPaint paint) =>
         DrawText(text, p, paint.GetLegacyTextAlign(), font, paint);
 
@@ -5818,7 +5935,7 @@ public class SKCanvas : SKObject
         SKPaint paint) =>
         DrawText(text, p.X, p.Y, textAlign, font, paint);
 
-    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
+    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", false)]
     public void DrawText(string text, float x, float y, SKFont font, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), font, paint);
 
@@ -5980,6 +6097,7 @@ public class SKCanvas : SKObject
         }
         finally
         {
+            _context.ClearCommandInterceptor(_commandInterceptor);
             _bitmap?.DetachCanvas(this);
             ReleaseUnrestoredLayers();
             ReleaseLayerTexturesAfterFlush();

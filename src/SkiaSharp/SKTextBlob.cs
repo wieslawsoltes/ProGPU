@@ -1,6 +1,9 @@
 using System;
 using System.Threading;
 
+#nullable disable
+#pragma warning disable CS8632
+
 namespace SkiaSharp;
 
 internal sealed class SKTextBlobRun
@@ -75,12 +78,12 @@ public partial class SKTextBlob : SKObject
         }
     }
 
+#nullable enable
     public static SKTextBlob? Create(
         string text,
         SKFont font,
         SKPoint origin = default) =>
         Create(text.AsSpan(), font, origin);
-
     public static SKTextBlob? Create(
         ReadOnlySpan<char> text,
         SKFont font,
@@ -89,7 +92,6 @@ public partial class SKTextBlob : SKObject
         ArgumentNullException.ThrowIfNull(font);
         return CreatePositionedCore(font.GetGlyphs(text), font, font.GetGlyphPositions(text, origin));
     }
-
     public static SKTextBlob? Create(
         IntPtr text,
         int length,
@@ -103,7 +105,6 @@ public partial class SKTextBlob : SKObject
             font,
             font.GetGlyphPositions(text, length, encoding, origin));
     }
-
     public static SKTextBlob? Create(
         ReadOnlySpan<byte> text,
         SKTextEncoding encoding,
@@ -123,7 +124,6 @@ public partial class SKTextBlob : SKObject
         ReadOnlySpan<float> positions,
         float y) =>
         CreateHorizontal(text.AsSpan(), font, positions, y);
-
     public static SKTextBlob? CreateHorizontal(
         ReadOnlySpan<char> text,
         SKFont font,
@@ -162,7 +162,6 @@ public partial class SKTextBlob : SKObject
         SKFont font,
         ReadOnlySpan<SKPoint> positions) =>
         CreatePositioned(text.AsSpan(), font, positions);
-
     public static SKTextBlob? CreatePositioned(
         ReadOnlySpan<char> text,
         SKFont font,
@@ -209,7 +208,6 @@ public partial class SKTextBlob : SKObject
     {
         return CreateRotationScale(text.AsSpan(), font, positions);
     }
-
     public static SKTextBlob? CreateRotationScale(
         IntPtr text,
         int length,
@@ -278,6 +276,7 @@ public partial class SKTextBlob : SKObject
         ArgumentNullException.ThrowIfNull(font);
         return CreatePathPositioned(font.GetGlyphs(text, length, encoding), font, path, textAlign, origin);
     }
+#nullable disable
 
     private static SKTextBlob? CreatePathPositioned(
         ReadOnlySpan<ushort> glyphs,
@@ -446,6 +445,11 @@ public partial class SKTextBlob : SKObject
         }
 
         return hasBounds ? bounds : SKRect.Empty;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
 }

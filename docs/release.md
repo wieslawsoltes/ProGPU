@@ -5,19 +5,22 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.34 closes the current media, SkiaSharp compatibility, and XAML
-diagnostic-projection slices. It retains the native zero-copy media player and
-standalone editing packages from preview.33, adds shared immutable zero-copy
-`SKImage` subsets, runtime-effect contracts, exact legacy path ownership and
-signature contracts, and deterministic stable-identity-to-XAML diagnostic
-origin projection. The SkiaSharp metadata baseline advances to 4,125 exact of
-4,222 official entries with 97 remaining. WinUI remains at 4,952 exact of
+Preview.35 closes the current media and SkiaSharp compatibility continuation.
+It retains the native zero-copy media player, standalone editing packages, and
+XAML diagnostic-origin projection from preview.34, then closes the official
+SkiaSharp 4.151.0 metadata ledger with managed disposal, WebP animation and
+encoding, pinned raw text-run buffers, mask filters, and forwarding canvas
+contracts. Mask blur, alpha-table/gamma/clip, shader masking, and overdraw color
+mapping execute through retained WebGPU render/compute work. The SkiaSharp
+metadata baseline is now 4,222 exact of 4,222 official entries with none
+missing. WinUI remains at 4,952 exact of
 16,579 official declarations with 11,627 remaining. These numbers are explicit
-continuation ledgers, not full compatibility claims. Detailed work remaining is
+continuation ledgers; metadata equality alone is not a behavioral compatibility
+claim. Detailed work remaining is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.34 closure and continuation
+## Preview.35 closure and continuation
 
 The release boundary includes the reusable, framework-neutral media engine,
 native platform media/audio providers, WebGPU presentation and effects, the
@@ -26,7 +29,7 @@ The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
 LibreWinForms without making the editor API part of the official WinUI parity
 claim.
 
-The next WinUI parity branch starts from the immutable preview.34 tag. It must
+The next WinUI parity branch starts from the immutable preview.35 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -34,7 +37,8 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.34 automatically projects changed
+The XAML compiler remains pre-MVP. Preview.35 retains preview.34's automatic
+projection of changed
 stable XAML identities to detached Roslyn metadata diagnostic origins. The five
 remaining product blockers are runtime capability adapters; atomic metadata
 apply, XAML publication, joint commit, and recovery; namescope/resource/template
@@ -42,12 +46,13 @@ fine patching with safe fallback; cross-platform stress, performance, visual,
 accessibility, and collectible-context gates; and published-feed host and
 productization evidence.
 
-The 97 remaining SkiaSharp metadata entries are also outside this release
-claim. They are concentrated in nullable/obsolete metadata, remaining managed
-disposal shapes, mask filters, N-way/no-draw/overdraw canvases, WebP animation,
-raw text-run buffers, SVG canvas, and related value contracts. Those features
-must be implemented clean-room with focused behavior and performance evidence,
-not satisfied by metadata-only stubs.
+SkiaSharp's official metadata ledger is closed at this boundary. Remaining
+work is behavioral and performance depth: bounded surface snapshots, retained
+path building, and retained canvas routing remain slower than the matched
+native workloads and are recorded as optimization lanes rather than hidden by
+the metadata result. The final matched macOS run preserved every checksum and
+measured ProGPU/native latency ratios of `137.017`, `5.331`, and `3.557` for
+those three cases respectively. No overall performance advantage is claimed.
 
 ## NuGet Packages
 
@@ -95,19 +100,19 @@ not satisfied by metadata-only stubs.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.34`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.34`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.34`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.34`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.35`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.35`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.35`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.35`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.34` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.35` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.34 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.35 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -125,7 +130,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.34 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.35 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -143,7 +148,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.34`.
+for example `v0.1.0-preview.35`.
 
 ## NuGet Publishing
 

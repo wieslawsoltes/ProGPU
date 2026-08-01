@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace SkiaSharp;
 
@@ -23,12 +25,12 @@ internal sealed class SKTextBlobBuilderRun
         int textByteCount)
     {
         Font = font;
-        Glyphs = new ushort[count];
+        Glyphs = AllocatePinned<ushort>(count);
         Placement = placement;
         X = x;
         Y = y;
-        Text = new byte[textByteCount];
-        Clusters = new uint[count];
+        Text = AllocatePinned<byte>(textByteCount);
+        Clusters = AllocatePinned<uint>(count);
     }
 
     public SKTextBlobBuilderRun(SKTextBlobRun completed)
@@ -52,6 +54,9 @@ internal sealed class SKTextBlobBuilderRun
     public SKPoint[]? PositionedPositions { get; set; }
     public SKRotationScaleMatrix[]? RotationScalePositions { get; set; }
     public SKTextBlobRun? Completed { get; }
+
+    internal static T[] AllocatePinned<T>(int length) =>
+        length == 0 ? Array.Empty<T>() : GC.AllocateArray<T>(length, pinned: true);
 
     public SKTextBlobRun Snapshot()
     {
@@ -99,22 +104,58 @@ internal sealed class SKTextBlobBuilderRun
     }
 }
 
-public readonly struct SKRawRunBuffer<T>
+internal unsafe struct SKRunBufferInternal
 {
-    private readonly SKTextBlobBuilderRun _run;
-    private readonly T[] _positions;
+    private void* _glyphs;
+    private void* _positions;
+    private void* _text;
+    private void* _clusters;
+
+    public SKRunBufferInternal(void* glyphs, void* positions, void* text, void* clusters)
+    {
+        _glyphs = glyphs;
+        _positions = positions;
+        _text = text;
+        _clusters = clusters;
+    }
+
+    public readonly void* Glyphs => _glyphs;
+    public readonly void* Positions => _positions;
+    public readonly void* Text => _text;
+    public readonly void* Clusters => _clusters;
+}
+
+#nullable disable
+public readonly unsafe struct SKRawRunBuffer<T>
+{
+    private readonly SKRunBufferInternal _buffer;
+    private readonly int _size;
+    private readonly int _textSize;
+    private readonly int _positionsSize;
 
     internal SKRawRunBuffer(SKTextBlobBuilderRun run, T[] positions)
     {
-        _run = run;
-        _positions = positions;
+        _buffer = new SKRunBufferInternal(
+            GetPointer(run.Glyphs),
+            GetPointer(positions),
+            GetPointer(run.Text),
+            GetPointer(run.Clusters));
+        _size = run.Glyphs.Length;
+        _textSize = run.Text.Length;
+        _positionsSize = positions.Length;
     }
 
-    public Span<ushort> Glyphs => _run.Glyphs;
-    public Span<T> Positions => _positions;
-    public Span<byte> Text => _run.Text;
-    public Span<uint> Clusters => _run.Clusters;
+    public Span<ushort> Glyphs => new(_buffer.Glyphs, _size);
+    public Span<T> Positions => new(_buffer.Positions, _positionsSize);
+    public Span<byte> Text => new(_buffer.Text, _textSize);
+    public Span<uint> Clusters => new(_buffer.Clusters, _size);
+
+    private static void* GetPointer<TElement>(TElement[] values) =>
+        values.Length == 0
+            ? null
+            : Unsafe.AsPointer(ref MemoryMarshal.GetArrayDataReference(values));
 }
+#nullable enable
 
 public class SKRunBuffer
 {
@@ -514,6 +555,11 @@ public class SKTextBlobBuilder : SKObject
         base.Dispose(disposing);
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     private SKTextBlobBuilderRun AllocateDefaultRun(
         SKFont font,
         int count,
@@ -534,7 +580,7 @@ public class SKTextBlobBuilder : SKObject
         SKRect? bounds)
     {
         var run = CreateRun(font, count, SKTextBlobRunPlacement.Horizontal, 0f, y, textByteCount, bounds);
-        run.HorizontalPositions = new float[count];
+        run.HorizontalPositions = SKTextBlobBuilderRun.AllocatePinned<float>(count);
         return run;
     }
 
@@ -545,7 +591,7 @@ public class SKTextBlobBuilder : SKObject
         SKRect? bounds)
     {
         var run = CreateRun(font, count, SKTextBlobRunPlacement.Positioned, 0f, 0f, textByteCount, bounds);
-        run.PositionedPositions = new SKPoint[count];
+        run.PositionedPositions = SKTextBlobBuilderRun.AllocatePinned<SKPoint>(count);
         return run;
     }
 
@@ -556,7 +602,7 @@ public class SKTextBlobBuilder : SKObject
         SKRect? bounds)
     {
         var run = CreateRun(font, count, SKTextBlobRunPlacement.RotationScale, 0f, 0f, textByteCount, bounds);
-        run.RotationScalePositions = new SKRotationScaleMatrix[count];
+        run.RotationScalePositions = SKTextBlobBuilderRun.AllocatePinned<SKRotationScaleMatrix>(count);
         return run;
     }
 

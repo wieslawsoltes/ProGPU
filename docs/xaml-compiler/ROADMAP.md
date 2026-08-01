@@ -124,6 +124,28 @@ The compiler remains pre-MVP. The next branch must finish these five blockers:
 These are product gates rather than metadata-only tasks; Preview.34 does not
 claim XAML compiler MVP completion.
 
+## Preview.35 compiler handoff
+
+Preview.35 does not claim a new compiler feature slice. It preserves the
+preview.34 deterministic XAML-identity-to-Roslyn-diagnostic projection and
+keeps the compiler pre-MVP. The continuation branch must complete these five
+product blockers without weakening the framework-neutral Roslyn model:
+
+1. typed runtime metadata-update and dynamic-code capability adapters;
+2. atomic candidate validation, metadata application, XAML publication, joint
+   baseline commit, and recovery for failures on either side;
+3. namescope-, resource-, and template-aware fine patching with guaranteed
+   owning-subtree or whole-root replacement fallback;
+4. Windows/macOS/Linux edit-storm, watch-topology, shutdown, percentile,
+   allocation, determinism, fuzz, visual, accessibility, and collectible-load-
+   context gates;
+5. published-feed installation, end-user host integration, compatibility and
+   extension documentation, and repeatable productization evidence.
+
+`FEATURE_MATRIX.md` remains the per-feature authority. M2 through M6 below are
+still active or blocking; source-generator/package smoke alone does not make
+the compiler an MVP.
+
 ## MVP definition
 
 The MVP is a usable WinUI-first product proving that the same compiler core can host other XAML dialects without redesign. It is not defined as complete parity with every framework or every XAML 2009 feature.

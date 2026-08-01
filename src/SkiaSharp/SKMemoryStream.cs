@@ -42,6 +42,11 @@ public class SKMemoryStream : SKStreamMemory
         base.Dispose(disposing);
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     private static byte[] GetDataCopy(SKData data)
     {
         ArgumentNullException.ThrowIfNull(data);

@@ -310,6 +310,12 @@ public partial class SKFont : SKObject
 
 public struct SKFontMetrics : IEquatable<SKFontMetrics>
 {
+    private const uint UnderlineThicknessValid = 1u << 0;
+    private const uint UnderlinePositionValid = 1u << 1;
+    private const uint StrikeoutThicknessValid = 1u << 2;
+    private const uint StrikeoutPositionValid = 1u << 3;
+
+    private readonly uint _flags;
     private readonly float _top;
     private readonly float _ascent;
     private readonly float _descent;
@@ -321,10 +327,10 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
     private readonly float _xMax;
     private readonly float _xHeight;
     private readonly float _capHeight;
-    private readonly float? _underlineThickness;
-    private readonly float? _underlinePosition;
-    private readonly float? _strikeoutThickness;
-    private readonly float? _strikeoutPosition;
+    private readonly float _underlineThickness;
+    private readonly float _underlinePosition;
+    private readonly float _strikeoutThickness;
+    private readonly float _strikeoutPosition;
 
     internal SKFontMetrics(
         float top,
@@ -343,6 +349,11 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
         float? strikeoutThickness,
         float? strikeoutPosition)
     {
+        _flags =
+            (underlineThickness.HasValue ? UnderlineThicknessValid : 0u) |
+            (underlinePosition.HasValue ? UnderlinePositionValid : 0u) |
+            (strikeoutThickness.HasValue ? StrikeoutThicknessValid : 0u) |
+            (strikeoutPosition.HasValue ? StrikeoutPositionValid : 0u);
         _top = top;
         _ascent = ascent;
         _descent = descent;
@@ -354,10 +365,10 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
         _xMax = xMax;
         _xHeight = xHeight;
         _capHeight = capHeight;
-        _underlineThickness = underlineThickness;
-        _underlinePosition = underlinePosition;
-        _strikeoutThickness = strikeoutThickness;
-        _strikeoutPosition = strikeoutPosition;
+        _underlineThickness = underlineThickness.GetValueOrDefault();
+        _underlinePosition = underlinePosition.GetValueOrDefault();
+        _strikeoutThickness = strikeoutThickness.GetValueOrDefault();
+        _strikeoutPosition = strikeoutPosition.GetValueOrDefault();
     }
 
     public readonly float Top => _top;
@@ -371,12 +382,17 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
     public readonly float XMax => _xMax;
     public readonly float XHeight => _xHeight;
     public readonly float CapHeight => _capHeight;
-    public readonly float? UnderlineThickness => _underlineThickness;
-    public readonly float? UnderlinePosition => _underlinePosition;
-    public readonly float? StrikeoutThickness => _strikeoutThickness;
-    public readonly float? StrikeoutPosition => _strikeoutPosition;
+    public readonly float? UnderlineThickness =>
+        (_flags & UnderlineThicknessValid) != 0 ? _underlineThickness : null;
+    public readonly float? UnderlinePosition =>
+        (_flags & UnderlinePositionValid) != 0 ? _underlinePosition : null;
+    public readonly float? StrikeoutThickness =>
+        (_flags & StrikeoutThicknessValid) != 0 ? _strikeoutThickness : null;
+    public readonly float? StrikeoutPosition =>
+        (_flags & StrikeoutPositionValid) != 0 ? _strikeoutPosition : null;
 
     public readonly bool Equals(SKFontMetrics obj) =>
+        _flags == obj._flags &&
         _top == obj._top &&
         _ascent == obj._ascent &&
         _descent == obj._descent &&
@@ -397,7 +413,8 @@ public struct SKFontMetrics : IEquatable<SKFontMetrics>
     public static bool operator ==(SKFontMetrics left, SKFontMetrics right) => left.Equals(right);
     public static bool operator !=(SKFontMetrics left, SKFontMetrics right) => !left.Equals(right);
     public override readonly int GetHashCode() => HashCode.Combine(
-        HashCode.Combine(_top, _ascent, _descent, _bottom, _leading, _averageCharacterWidth, _maxCharacterWidth, _xMin),
+        HashCode.Combine(_flags, _top, _ascent, _descent, _bottom, _leading, _averageCharacterWidth, _maxCharacterWidth),
+        _xMin,
         _xMax,
         _xHeight,
         _capHeight,
