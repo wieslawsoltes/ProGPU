@@ -480,18 +480,23 @@ public sealed class InputNonClientPointerSourceTests
             WindowId id = window.Id;
             var point = new Point(100, 20);
 
-            _ = InputNonClientPointerSourceRegistration
-                .NotifyPointerMoved(
-                    id,
-                    NonClientRegionKind.Caption,
-                    PointerDeviceType.Mouse,
-                    true,
-                    point);
-            _ = InputNonClientPointerSourceRegistration
-                .IsPointInRegion(
-                    id,
-                    NonClientRegionKind.Caption,
-                    point);
+            for (int index = 0;
+                 index < 100;
+                 index++)
+            {
+                _ = InputNonClientPointerSourceRegistration
+                    .NotifyPointerMoved(
+                        id,
+                        NonClientRegionKind.Caption,
+                        PointerDeviceType.Mouse,
+                        true,
+                        point);
+                _ = InputNonClientPointerSourceRegistration
+                    .IsPointInRegion(
+                        id,
+                        NonClientRegionKind.Caption,
+                        point);
+            }
             _ = GC.GetAllocatedBytesForCurrentThread();
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
