@@ -106,6 +106,18 @@ public partial class SKColorFilter
         return _kind == ColorFilterKind.HighContrast;
     }
 
+    internal bool TryGetOverdrawColors(out ReadOnlyMemory<SKColor> colors)
+    {
+        if (_kind == ColorFilterKind.Overdraw && _overdrawColors != null)
+        {
+            colors = _overdrawColors;
+            return true;
+        }
+
+        colors = default;
+        return false;
+    }
+
     public static SKColorFilter CreateSrgbToLinearGamma() => s_srgbToLinear.Value;
 
     public static SKColorFilter CreateLinearToSrgbGamma() => s_linearToSrgb.Value;

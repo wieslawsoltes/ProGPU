@@ -14,7 +14,9 @@ public class SKNoDrawCanvas : SKCanvas
         : base(
             new DrawingContext(),
             ValidateExtent(width, nameof(width)),
-            ValidateExtent(height, nameof(height)))
+            ValidateExtent(height, nameof(height)),
+            isPictureRecording: false,
+            deferMaskFilters: true)
     {
     }
 
@@ -89,21 +91,22 @@ public class SKNWayCanvas : SKNoDrawCanvas
 
     private void AppendOverdrawCommand(DrawingContext destination, int commandIndex)
     {
-        var destinationIndex = destination.Commands.Count;
-        destination.AppendCommand(DrawingContext, commandIndex);
-        if (destination.Commands.Count <= destinationIndex)
-        {
-            return;
-        }
-
-        var command = destination.Commands[destinationIndex];
+        var command = DrawingContext.Commands[commandIndex];
         var coverageBrush = new SolidColorBrush(
             new Vector4(1f, 1f, 1f, 1f / 255f));
-        command.Brush = command.Brush == null ? null : coverageBrush;
+        command.Brush = command.Brush switch
+        {
+            SKMaskFilterBrush mask => new SKMaskFilterBrush(coverageBrush, mask.Filter),
+            null => null,
+            _ => coverageBrush,
+        };
         if (command.Pen != null)
         {
+            Brush penBrush = command.Pen.Brush is SKMaskFilterBrush mask
+                ? new SKMaskFilterBrush(coverageBrush, mask.Filter)
+                : coverageBrush;
             command.Pen = new Pen(
-                coverageBrush,
+                penBrush,
                 command.Pen.Thickness,
                 command.Pen.LineJoin,
                 command.Pen.MiterLimit,
@@ -114,7 +117,7 @@ public class SKNWayCanvas : SKNoDrawCanvas
                 command.Pen.DashOffset);
         }
 
-        destination.Commands[destinationIndex] = command;
+        destination.AppendCommand(DrawingContext, commandIndex, command);
     }
 
     protected override void Dispose(bool disposing)

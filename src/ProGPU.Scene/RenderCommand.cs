@@ -951,11 +951,19 @@ public class GpuPictureRecorder
 
 public sealed class RenderCommandList : List<RenderCommand>
 {
+    internal Func<int, bool>? CommandInterceptor;
     internal event Action<int>? CommandAdded;
 
     public new void Add(RenderCommand command)
     {
         base.Add(command);
+        if ((command.Brush is IRetainedCommandInterceptBrush ||
+             command.Pen?.Brush is IRetainedCommandInterceptBrush) &&
+            CommandInterceptor?.Invoke(Count - 1) == true)
+        {
+            return;
+        }
+
         CommandAdded?.Invoke(Count - 1);
     }
 }
@@ -2536,13 +2544,20 @@ public class DrawingContext :
 
     internal void AppendCommand(DrawingContext other, int commandIndex)
     {
+        AppendCommand(other, commandIndex, other.Commands[commandIndex]);
+    }
+
+    internal void AppendCommand(
+        DrawingContext other,
+        int commandIndex,
+        RenderCommand command)
+    {
         ArgumentNullException.ThrowIfNull(other);
         ArgumentOutOfRangeException.ThrowIfNegative(commandIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
             commandIndex,
             other.Commands.Count);
 
-        var command = other.Commands[commandIndex];
         if (command.PointBufferCount > 0)
         {
             command.PointBufferOffset = CopySlice(
@@ -2597,6 +2612,27 @@ public class DrawingContext :
 
     internal void UnsubscribeCommandAdded(Action<int> handler) =>
         Commands.CommandAdded -= handler;
+
+    internal void SetCommandInterceptor(Func<int, bool> interceptor)
+    {
+        ArgumentNullException.ThrowIfNull(interceptor);
+        if (Commands.CommandInterceptor != null &&
+            !ReferenceEquals(Commands.CommandInterceptor, interceptor))
+        {
+            throw new InvalidOperationException(
+                "A drawing context can have only one command interceptor.");
+        }
+
+        Commands.CommandInterceptor = interceptor;
+    }
+
+    internal void ClearCommandInterceptor(Func<int, bool> interceptor)
+    {
+        if (Commands.CommandInterceptor == interceptor)
+        {
+            Commands.CommandInterceptor = null;
+        }
+    }
 
     private static int CopySlice<T>(
         List<T> destination,

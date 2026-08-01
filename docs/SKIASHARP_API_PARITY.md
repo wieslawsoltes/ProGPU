@@ -149,6 +149,16 @@ while table construction is bounded `O(256)`. Overdraw color filters retain
 their six-color palette and clamp positive coverage counts to the last color.
 No factory initializes WebGPU or reads pixels.
 
+At draw time, a typed retained-brush marker intercepts only commands that carry
+a mask filter. Ordinary commands perform two marker checks and never invoke the
+mask delegate. Filtered commands render their retained geometry or glyph run to
+an offscreen texture and reuse the existing WebGPU image-effect graph for
+separable blur, alpha tables, shader masks, and solid/inner/outer composition.
+Overdraw palette mapping uses a dedicated 16x16 WebGPU compute pass with one
+texture read and write per texel and a fixed 96-byte six-color uniform. Pixel
+tests cover Gaussian falloff and exact zero/one/saturated overdraw counts; the
+shader resource audit enforces embedding and complexity documentation.
+
 `SKNoDrawCanvas`, `SKNWayCanvas`, and `SKOverdrawCanvas` share a typed retained
 command-forwarding seam in `DrawingContext`. Every newly recorded command is
 forwarded immediately, including its packed buffer slices and retained resource

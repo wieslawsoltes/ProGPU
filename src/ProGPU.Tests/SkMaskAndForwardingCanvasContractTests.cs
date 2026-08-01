@@ -126,4 +126,76 @@ public sealed class SkMaskAndForwardingCanvasContractTests
         Assert.Equal(1f / 255f, brush.Color.W);
         Assert.Equal(RenderCommandType.PopBlendMode, targetContext.Commands[2].Type);
     }
+
+    [Fact]
+    public void MaskBlurExecutesThroughTheGpuLayerGraph()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var mask = SKMaskFilter.CreateBlur(
+            SKBlurStyle.Normal,
+            2f,
+            respectCTM: false);
+        using var paint = new SKPaint
+        {
+            Color = SKColors.White,
+            IsAntialias = false,
+            MaskFilter = mask,
+        };
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawRect(new SKRect(12f, 12f, 20f, 20f), paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        var centerAlpha = pixels[(16 * 32 + 16) * 4 + 3];
+        var tailAlpha = pixels[(16 * 32 + 9) * 4 + 3];
+        var distantAlpha = pixels[(16 * 32 + 2) * 4 + 3];
+
+        Assert.True(centerAlpha > tailAlpha);
+        Assert.InRange(tailAlpha, (byte)1, (byte)254);
+        Assert.Equal((byte)0, distantAlpha);
+    }
+
+    [Fact]
+    public void OverdrawPaletteExecutesAsAWebGpuComputePass()
+    {
+        using var bitmap = new SKBitmap(
+            new SKImageInfo(6, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        byte[] counts = [0, 1, 2, 5, 6, 255];
+        for (var index = 0; index < counts.Length; index++)
+        {
+            bitmap.SetPixel(
+                index,
+                0,
+                new SKColor(255, 255, 255, counts[index]));
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        SKColor[] colors =
+        [
+            SKColors.Red,
+            SKColors.Green,
+            SKColors.Blue,
+            SKColors.Yellow,
+            SKColors.Cyan,
+            SKColors.Magenta,
+        ];
+        using var filter = SKColorFilter.CreateOverdraw(colors);
+        using var paint = new SKPaint { ColorFilter = filter };
+        using var surface = SKSurface.Create(
+            new SKImageInfo(6, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawImage(image, 0f, 0f, paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        Assert.Equal(new byte[] { 0, 0, 0, 0 }, pixels[..4]);
+        Assert.Equal(new byte[] { 255, 0, 0, 255 }, pixels[4..8]);
+        Assert.Equal(new byte[] { 0, 128, 0, 255 }, pixels[8..12]);
+        Assert.Equal(new byte[] { 255, 0, 255, 255 }, pixels[20..24]);
+    }
 }

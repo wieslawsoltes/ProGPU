@@ -202,14 +202,14 @@ public partial class SKPaint : SKObject
     {
         if (Shader != null)
         {
-            return ApplyPaintAlphaToShaderBrush(
+            return ApplyMaskFilter(ApplyPaintAlphaToShaderBrush(
                 SKShader.ApplyColorFilter(Shader.ToBrush(), ColorFilter),
-                Color);
+                Color));
         }
 
         var color = GetFilteredColor();
         var c = new Vector4(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f, color.A / 255.0f);
-        return new SolidColorBrush(c);
+        return ApplyMaskFilter(new SolidColorBrush(c));
     }
 
     public Pen? ToPen()
@@ -236,6 +236,8 @@ public partial class SKPaint : SKObject
             penBrush = new SolidColorBrush(c);
         }
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, scaledStrokeWidth);
+
+        penBrush = ApplyMaskFilter(penBrush);
 
         return new Pen(
             penBrush,
@@ -279,6 +281,7 @@ public partial class SKPaint : SKObject
         }
 
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, localStrokeWidth);
+        penBrush = ApplyMaskFilter(penBrush);
         return new Pen(
             penBrush,
             localStrokeWidth,
@@ -296,7 +299,7 @@ public partial class SKPaint : SKObject
         var scaledStrokeWidth = ScaleStrokeWidth(StrokeWidth, strokeScale);
         var (dashArray, dashOffset) = MapDashEffect(PathEffect, scaledStrokeWidth);
         return new Pen(
-            brush,
+            ApplyMaskFilter(brush),
             scaledStrokeWidth,
             MapStrokeJoin(StrokeJoin),
             StrokeMiter,
@@ -306,6 +309,11 @@ public partial class SKPaint : SKObject
             dashArray,
             dashOffset);
     }
+
+    private Brush ApplyMaskFilter(Brush brush) =>
+        MaskFilter == null
+            ? brush
+            : new SKMaskFilterBrush(brush, MaskFilter);
 
     public void Reset()
     {

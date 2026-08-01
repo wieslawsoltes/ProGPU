@@ -19,6 +19,14 @@ public abstract class Brush
     public float Opacity { get; set; } = 1.0f;
 }
 
+/// <summary>
+/// Marks a retained brush whose owning framework must transform the command
+/// before compositor compilation. Ordinary brushes do not pay a delegate call.
+/// </summary>
+public interface IRetainedCommandInterceptBrush
+{
+}
+
 public enum GradientSpreadMethod
 {
     Pad = 0,

@@ -5,6 +5,7 @@ namespace ProGPU.Compute;
 public static class ComputeShaders
 {
     public static readonly string NonlinearColorFilter = ShaderResource.Load(typeof(ComputeShaders), "NonlinearColorFilter.wgsl");
+    public static readonly string OverdrawColorFilter = ShaderResource.Load(typeof(ComputeShaders), "OverdrawColorFilter.wgsl");
 
     public static readonly string ImageLighting = ShaderResource.Load(typeof(ComputeShaders), "ImageLighting.wgsl");
 

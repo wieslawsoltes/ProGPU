@@ -1991,6 +1991,20 @@ public unsafe partial class Compositor : IDisposable
         }
     }
 
+    public void ApplyOverdrawColorFilter(
+        GpuTexture source,
+        GpuTexture destination,
+        ReadOnlySpan<Vector4> colors)
+    {
+        lock (_context.RenderLock)
+        {
+            _compute.ApplyOverdrawColorFilter(
+                source,
+                destination,
+                colors);
+        }
+    }
+
     private void InitializePipelinesAndBindGroups()
     {
         // 4. Create WebGPU Sampler for font glyph textures (sharp linear bilinear interpolation)
