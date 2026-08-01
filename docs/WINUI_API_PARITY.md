@@ -1774,6 +1774,70 @@ generation invalidation, and the allocation-free warmed check. No Microsoft
 or foreign implementation source or method body was inspected, copied, or
 adapted.
 
+### TimePicker contract and value synchronization
+
+The release-boundary slice aligns every declaration owned directly by
+`TimePicker`, `TimePickerValueChangedEventArgs`, and
+`TimePickerSelectedValueChangedEventArgs`. It adds 15 exact matches and
+reconciles 12 former ProGPU-only declarations, advancing the pinned report to
+8,950 candidate entries, 5,215 exact matches, 11,364 missing entries, and
+3,735 extras. The independently owned `TimePickerFlyout`, flyout presenter,
+and automation-peer contracts remain in the explicit parity backlog.
+
+Dependency-property identifiers are official static get-only properties, the
+nullable selection event uses the official typed WinRT delegate, event data
+has the official direct `object` base and activation boundary, and composed
+projection constructors use the typed `WinRT` ownership tokens. The value
+model preserves the documented unset state, synchronizes `Time` and
+`SelectedTime`, resets `Time` to zero when selection is cleared, truncates
+seconds and fractional seconds, floors to the selected minute increment, and
+rejects negative or 24-hour-and-later values instead of wrapping them. The
+documented `MinuteIncrement` range is 0 through 59; zero uses one-minute value
+coercion so the model remains defined without division or allocation.
+
+Primary clean-room contracts consulted:
+
+- [TimePicker](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker)
+- [TimePicker.Time](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker.time)
+- [TimePicker.SelectedTime](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker.selectedtime)
+- [TimePicker.MinuteIncrement](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker.minuteincrement)
+- [TimePicker.ClockIdentifier](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker.clockidentifier)
+- the pinned official NuGet ECMA-335 projection metadata and XML documentation.
+
+Focused tests cover defaults, sub-minute truncation, minute-step coercion,
+nullable synchronization and reset, transactional CLR validation, the two
+official clock identifiers, the dependency-property assignment path, exact
+public metadata shape, and zero managed allocations across 100,000 warmed
+identifier reads. No Microsoft or foreign implementation source or method
+body was inspected, copied, or adapted.
+
+## Preview.32 parity handoff
+
+This release closes the current implementation lane; it does not claim full
+WinUI parity. The deterministic report proves 5,215 of 16,579 official
+declarations exact. Remaining work is measured, not inferred:
+
+| Area | Exact | Missing | ProGPU-only |
+|---|---:|---:|---:|
+| `Microsoft.UI` | 193 | 0 | 0 |
+| `Microsoft.UI.Composition` | 441 | 1,091 | 0 |
+| `Microsoft.UI.Content` | 185 | 155 | 0 |
+| `Microsoft.UI.Dispatching` | 58 | 0 | 0 |
+| `Microsoft.UI.Input` | 585 | 0 | 2 |
+| `Microsoft.UI.System` | 6 | 0 | 0 |
+| `Microsoft.UI.Text` | 535 | 0 | 0 |
+| `Microsoft.UI.Windowing` | 192 | 0 | 0 |
+| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,733 |
+
+The next parity task should therefore continue in two evidence-backed lanes:
+complete retained WebGPU Composition families with typed bounded ownership,
+and reconcile XAML declarations in behavior-complete control/property-system
+clusters. Every slice must rerun the pinned metadata comparator, remove
+superseded ProGPU-only shapes, add focused behavior/rendering/performance
+evidence, and ratchet the monotonic baseline. Rendering slices retain the
+mandatory cross-engine research, GPU quality, device-loss, and allocation
+contracts; declaration counts alone are never completion evidence.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

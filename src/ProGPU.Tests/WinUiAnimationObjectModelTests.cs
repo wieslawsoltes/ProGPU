@@ -1407,7 +1407,8 @@ public sealed class WinUiAnimationObjectModelTests
         Assert.Equal(TimeSpan.FromMinutes(30), timePicker.Time);
         Assert.Equal(timePicker.Time, timePicker.SelectedTime);
         Assert.Equal(TimeSpan.FromMinutes(30), timeChanged!.NewTime);
-        Assert.Throws<ArgumentOutOfRangeException>(() => timePicker.MinuteIncrement = 0);
+        timePicker.MinuteIncrement = 0;
+        Assert.Equal(0, timePicker.MinuteIncrement);
 
         var minimum = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var maximum = new DateTimeOffset(2025, 12, 31, 0, 0, 0, TimeSpan.Zero);
