@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using ProGPU.Backend;
 
@@ -8,7 +9,17 @@ namespace SkiaSharp;
 
 public class GRContextOptions
 {
+    public bool AllowPathMaskCaching { get; set; }
+
     public bool AvoidStencilBuffers { get; set; }
+
+    public int BufferMapThreshold { get; set; }
+
+    public bool DoManualMipmapping { get; set; }
+
+    public int GlyphCacheTextureMaximumBytes { get; set; }
+
+    public int RuntimeProgramCacheSize { get; set; }
 }
 
 public enum GRSurfaceOrigin
@@ -675,30 +686,184 @@ public class GRD3DTextureResourceInfo : IDisposable
     }
 }
 
-public delegate IntPtr GRVkGetProcDelegate(string name, IntPtr instance, IntPtr device);
+#nullable disable
 
-public class GRVkBackendContext
+public delegate IntPtr GRVkGetProcedureAddressDelegate(string name, IntPtr instance, IntPtr device);
+
+public class GRVkExtensions : SKObject
+{
+    private readonly HashSet<string> _extensions = new(StringComparer.Ordinal);
+
+    private GRVkExtensions()
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+    }
+
+    public static GRVkExtensions Create(
+        GRVkGetProcedureAddressDelegate getProc,
+        IntPtr vkInstance,
+        IntPtr vkPhysicalDevice,
+        string[] instanceExtensions,
+        string[] deviceExtensions)
+    {
+        var extensions = new GRVkExtensions();
+        extensions.Initialize(
+            getProc,
+            vkInstance,
+            vkPhysicalDevice,
+            instanceExtensions,
+            deviceExtensions);
+        return extensions;
+    }
+
+    public void Initialize(
+        GRVkGetProcedureAddressDelegate getProc,
+        IntPtr vkInstance,
+        IntPtr vkPhysicalDevice)
+    {
+        Initialize(getProc, vkInstance, vkPhysicalDevice, [], []);
+    }
+
+    public void Initialize(
+        GRVkGetProcedureAddressDelegate getProc,
+        IntPtr vkInstance,
+        IntPtr vkPhysicalDevice,
+        string[] instanceExtensions,
+        string[] deviceExtensions)
+    {
+        ArgumentNullException.ThrowIfNull(getProc);
+        ArgumentNullException.ThrowIfNull(instanceExtensions);
+        ArgumentNullException.ThrowIfNull(deviceExtensions);
+        _extensions.Clear();
+        AddExtensions(instanceExtensions);
+        AddExtensions(deviceExtensions);
+    }
+
+    public void HasExtension(string extension, int minVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+        ArgumentOutOfRangeException.ThrowIfNegative(minVersion);
+        _ = _extensions.Contains(extension);
+    }
+
+    protected override void DisposeNative() => _extensions.Clear();
+
+    private void AddExtensions(IEnumerable<string> extensions)
+    {
+        foreach (var extension in extensions)
+        {
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                _extensions.Add(extension);
+            }
+        }
+    }
+}
+
+public class GRD3DBackendContext : IDisposable
+{
+    public IntPtr Adapter { get; set; }
+
+    public IntPtr Device { get; set; }
+
+    public bool ProtectedContext { get; set; }
+
+    public IntPtr Queue { get; set; }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+    }
+}
+
+public class GRVkBackendContext : IDisposable
 {
     public IntPtr VkInstance { get; set; }
     public IntPtr VkPhysicalDevice { get; set; }
     public IntPtr VkDevice { get; set; }
     public IntPtr VkQueue { get; set; }
     public uint GraphicsQueueIndex { get; set; }
-    public GRVkGetProcDelegate? GetProcedureAddress { get; set; }
+    public GRVkGetProcedureAddressDelegate GetProcedureAddress { get; set; }
+    public GRVkExtensions Extensions { get; set; }
+    public uint MaxAPIVersion { get; set; }
+    public bool ProtectedContext { get; set; }
+    public IntPtr VkPhysicalDeviceFeatures { get; set; }
+    public IntPtr VkPhysicalDeviceFeatures2 { get; set; }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+    }
 }
 
-public class GRMtlBackendContext
+public class GRMtlBackendContext : IDisposable
 {
     public IntPtr DeviceHandle { get; set; }
     public IntPtr QueueHandle { get; set; }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+    }
 }
 
-public class GRGlInterface : IDisposable
+public delegate IntPtr GRGlGetProcedureAddressDelegate(string name);
+
+public class GRGlInterface : SKObject
 {
-    public static GRGlInterface Create() => new();
-    public static GRGlInterface CreateOpenGl(Func<string, IntPtr> getProcAddress) => new();
-    public static GRGlInterface CreateGles(Func<string, IntPtr> getProcAddress) => new();
-    public void Dispose() { }
+    private readonly GRGlGetProcedureAddressDelegate _getProcedureAddress;
+
+    private GRGlInterface(GRGlGetProcedureAddressDelegate getProcedureAddress)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _getProcedureAddress = getProcedureAddress;
+    }
+
+    public static GRGlInterface Create() => new(null);
+
+    public static GRGlInterface Create(GRGlGetProcedureAddressDelegate get)
+    {
+        ArgumentNullException.ThrowIfNull(get);
+        return new GRGlInterface(get);
+    }
+
+    public static GRGlInterface CreateAngle() => new(null);
+
+    public static GRGlInterface CreateAngle(GRGlGetProcedureAddressDelegate get) => Create(get);
+
+    public static GRGlInterface CreateEvas(IntPtr evas) => new(null);
+
+    public static GRGlInterface CreateOpenGl(GRGlGetProcedureAddressDelegate get) => Create(get);
+
+    public static GRGlInterface CreateGles(GRGlGetProcedureAddressDelegate get) => Create(get);
+
+    public static GRGlInterface CreateWebGl(GRGlGetProcedureAddressDelegate get) => Create(get);
+
+    public bool HasExtension(string extension)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+        return false;
+    }
+
+    public bool Validate() => !IsDisposed && (_getProcedureAddress is not null || Handle != IntPtr.Zero);
+
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+
 }
 
 #nullable disable
@@ -977,8 +1142,14 @@ public class GRRecordingContext : SKObject
     }
 }
 
+#nullable disable
+
 public class GRContext : GRRecordingContext
 {
+    private const long DefaultResourceCacheLimit = 256L * 1024 * 1024;
+    private bool _abandoned;
+    private long _resourceCacheLimit = DefaultResourceCacheLimit;
+
     public GRContext(WgpuContext context)
         : base(context)
     {
@@ -988,50 +1159,206 @@ public class GRContext : GRRecordingContext
 
     public override GRBackend Backend => base.Backend;
 
-    public override bool IsAbandoned => base.IsAbandoned;
+    public override bool IsAbandoned => _abandoned || base.IsAbandoned;
 
-    public static GRContext CreateGl(object? interfaceObj = null, GRContextOptions? options = null)
+    public static GRContext CreateGl() => CreateContext();
+
+    public static GRContext CreateGl(GRContextOptions options)
     {
-        return new GRContext(SKContextHelper.GetContext());
+        ArgumentNullException.ThrowIfNull(options);
+        return CreateContext();
     }
 
-    public static GRContext CreateMetal(object? backendContext, GRContextOptions? options = null)
+    public static GRContext CreateGl(GRGlInterface backendContext)
     {
-        return new GRContext(SKContextHelper.GetContext());
+        ArgumentNullException.ThrowIfNull(backendContext);
+        return CreateContext();
     }
 
-    public static GRContext CreateVulkan(object? backendContext, GRContextOptions? options = null)
+    public static GRContext CreateGl(GRGlInterface backendContext, GRContextOptions options)
     {
-        return new GRContext(SKContextHelper.GetContext());
+        ArgumentNullException.ThrowIfNull(backendContext);
+        ArgumentNullException.ThrowIfNull(options);
+        return CreateContext();
     }
 
-    public void Flush(bool submit = true, bool finish = false)
+    public static GRContext CreateMetal(GRMtlBackendContext backendContext) =>
+        CreateMetal(backendContext, new GRContextOptions());
+
+    public static GRContext CreateMetal(
+        GRMtlBackendContext backendContext,
+        GRContextOptions options)
     {
-        Context.WaitIdle();
+        ArgumentNullException.ThrowIfNull(backendContext);
+        ArgumentNullException.ThrowIfNull(options);
+        return CreateContext();
     }
 
-    public void ResetContext(uint flags = 0)
+    public static GRContext CreateVulkan(GRVkBackendContext backendContext) =>
+        CreateVulkan(backendContext, new GRContextOptions());
+
+    public static GRContext CreateVulkan(
+        GRVkBackendContext backendContext,
+        GRContextOptions options)
     {
-        // No-op
+        ArgumentNullException.ThrowIfNull(backendContext);
+        ArgumentNullException.ThrowIfNull(options);
+        return CreateContext();
     }
 
-    public void AbandonContext()
+    public static GRContext CreateDirect3D(GRD3DBackendContext backendContext) =>
+        CreateDirect3D(backendContext, new GRContextOptions());
+
+    public static GRContext CreateDirect3D(
+        GRD3DBackendContext backendContext,
+        GRContextOptions options)
     {
-        // No-op
+        ArgumentNullException.ThrowIfNull(backendContext);
+        ArgumentNullException.ThrowIfNull(options);
+        return CreateContext();
     }
 
-    public void AbandonContext(bool releaseResources)
+    public void Flush()
     {
-        AbandonContext();
+        Flush(submit: true, synchronous: false);
     }
+
+    public void Flush(SKImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        Flush();
+    }
+
+    public void Flush(SKSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        Flush();
+    }
+
+    public void Flush(bool submit, bool synchronous = false)
+    {
+        ThrowIfUnavailable();
+        if (submit)
+        {
+            Submit(synchronous);
+        }
+    }
+
+    public void Submit(bool synchronous = false)
+    {
+        ThrowIfUnavailable();
+        Context.PollDevice(wait: synchronous);
+    }
+
+    public void ResetContext(GRBackendState state = GRBackendState.All)
+    {
+        ThrowIfUnavailable();
+    }
+
+    public void ResetContext(GRGlBackendState state) =>
+        ResetContext((GRBackendState)(uint)state);
+
+    public void ResetContext(uint state) =>
+        ResetContext((GRBackendState)state);
+
+    public void AbandonContext(bool releaseResources = false)
+    {
+        if (_abandoned)
+        {
+            return;
+        }
+
+        if (releaseResources && !Context.IsDisposed)
+        {
+            Context.CleanupPendingResources();
+        }
+
+        _abandoned = true;
+    }
+
+    public long GetResourceCacheLimit() =>
+        Interlocked.Read(ref _resourceCacheLimit);
 
     public void SetResourceCacheLimit(long maxResourceBytes)
     {
-        // No-op
+        ArgumentOutOfRangeException.ThrowIfNegative(maxResourceBytes);
+        Interlocked.Exchange(ref _resourceCacheLimit, maxResourceBytes);
+    }
+
+    public void GetResourceCacheUsage(out int maxResources, out long maxResourceBytes)
+    {
+        if (Context.IsDisposed)
+        {
+            maxResources = 0;
+            maxResourceBytes = 0;
+            return;
+        }
+
+        maxResources = Context.CachedDeviceShaderModuleCount +
+            Context.CachedDeviceBindGroupLayoutCount +
+            Context.CachedDevicePipelineLayoutCount +
+            Context.CachedDeviceRenderPipelineCount +
+            Context.CachedDeviceComputePipelineCount;
+        maxResourceBytes = 0;
+    }
+
+    public void PurgeResources()
+    {
+        if (!Context.IsDisposed)
+        {
+            Context.CleanupPendingResources();
+        }
+    }
+
+    public void PurgeUnlockedResources(bool scratchResourcesOnly) =>
+        PurgeResources();
+
+    public void PurgeUnlockedResources(long bytesToPurge, bool preferScratchResources)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(bytesToPurge);
+        PurgeResources();
+    }
+
+    public void PurgeUnusedResources(long milliseconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
+        PurgeResources();
+    }
+
+    public void DumpMemoryStatistics(SKTraceMemoryDump dump)
+    {
+        ArgumentNullException.ThrowIfNull(dump);
+        GetResourceCacheUsage(out var resourceCount, out var resourceBytes);
+        dump.OnDumpNumericValue("skia/gr_context", "resource_count", "objects", (ulong)resourceCount);
+        dump.OnDumpNumericValue("skia/gr_context", "resource_bytes", "bytes", (ulong)resourceBytes);
+        dump.OnDumpNumericValue("skia/gr_context", "resource_limit", "bytes", (ulong)GetResourceCacheLimit());
+        dump.OnDumpStringValue("skia/gr_context", "backend", "ProGPU WebGPU");
     }
 
     public new int GetMaxSurfaceSampleCount(SKColorType colorType)
     {
         return base.GetMaxSurfaceSampleCount(colorType);
     }
+
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+
+    protected override void DisposeNative()
+    {
+        _abandoned = true;
+        base.DisposeNative();
+    }
+
+    private static GRContext CreateContext() =>
+        new(SKContextHelper.GetContext());
+
+    private void ThrowIfUnavailable()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        if (_abandoned)
+        {
+            throw new InvalidOperationException("The GPU context has been abandoned.");
+        }
+    }
 }
+
+#nullable restore

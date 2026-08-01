@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,933 ProGPU
-entries, 3,836 exact matches, 386 missing entries, and 1,097 ProGPU-only
+The current pinned comparison records 4,222 official entries, 4,979 ProGPU
+entries, 3,911 exact matches, 311 missing entries, and 1,068 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -876,3 +876,60 @@ traces export zero target command-buffer, current-allocation-size, and resource
 allocation rows, confirming factory construction remains CPU-only. Raw traces,
 TOCs, exported Metal tables, and exact-run JSON are retained under
 `artifacts/performance/skiasharp-shader-api-instruments`.
+
+### WebGPU recording-context and backend descriptor checkpoint
+
+The `GRContext` cluster now closes 75 official 4.151.0 metadata entries across
+the direct recording context, its options, GL interface, Vulkan extensions,
+typed GL/Vulkan/Metal/Direct3D descriptors, procedure-address delegates, and
+their disposal contracts. Backend descriptors are CPU-only borrowed-handle
+DTOs. Their disposal never releases caller-owned API objects, while
+`GRGlInterface` and `GRVkExtensions` own only their managed compatibility
+handles and immutable extension metadata.
+
+Every public factory maps to ProGPU's process-wide typed `WgpuContext`; the
+foreign GL, Vulkan, Metal, or Direct3D descriptor selects a compatibility entry
+point but is never exposed as ProGPU's device ownership. A `GRContext` wrapper
+does not own that shared WebGPU device. Abandonment is local and idempotent, so
+abandoning or disposing one wrapper cannot invalidate another wrapper or an
+Avalonia/WinUI/WPF/WinForms host sharing the device. `Flush` and asynchronous
+`Submit` poll the queue without an idle wait because ProGPU submits recorded
+render/compute work at the owning surface/compositor boundary; synchronous
+submission uses the existing device wait. Reset is an `O(1)` state-coherency
+acknowledgement because WebGPU tracks explicit immutable pipeline and bind-group
+state rather than a mutable GL state vector.
+
+The compatibility cache budget is an atomic `O(1)` wrapper value. Usage reports
+the exact process-device shader-module, bind-group-layout, pipeline-layout,
+render-pipeline, and compute-pipeline counts and reports zero bytes when the
+backend cannot attribute shared GPU residency to one wrapper. Purging processes
+the context's deferred resource-release queue but never destroys leased shared
+pipelines or another presentation context's atlases. The memory dump therefore
+reports bounded counts, the configured limit, and the WebGPU backend without
+inventing per-wrapper native allocation totals.
+
+The clean-room design follows Skia's public
+[direct-context submission, abandonment, and cache contract](https://api.skia.org/classGrDirectContext.html),
+WebGPU's
+[device/queue timeline and completion semantics](https://gpuweb.github.io/gpuweb/),
+and Direct3D 12's
+[explicit command-list, queue, and fence ownership](https://learn.microsoft.com/windows/win32/direct3d12/executing-and-synchronizing-command-lists).
+It adopts explicit submission, shared-device lifetime, device-loss observation,
+and bounded deferred cleanup; it rejects fake native-backend ownership,
+unconditional idle waits, and eviction of live cross-host resources. The
+required Skia/SkParagraph, DirectWrite/Direct2D, Win2D, WebRender,
+Vello/Parley, and HarfBuzz review recorded above remains unchanged because this
+slice does not alter scene compilation, shaping, layout, or glyph residency.
+
+The exact-checksum Apple M3 Pro Release workload constructs and reads every
+official `GRContextOptions` property 100,000 times per sample. Native measured
+`8.389` ns/op and `32` B/op; ProGPU measured `8.252` ns/op and `32` B/op
+(`0.984` latency ratio). Matched Time Profiler captures measured `7.906` versus
+`8.135` ns/op, Allocations captures `7.906` versus `7.820` ns/op, and both
+retain exactly `32` managed B/op. Metal System Trace captures measured `8.115`
+versus `8.357` ns/op. The ProGPU trace exports zero target command-buffer,
+current-allocation-size, and resource-allocation rows. The native Metal trace
+and TOC were retained, but exporting its individual Metal tables reports an
+Instruments run error, so no unsupported native row-count claim is made. Raw
+traces, TOCs, available exported tables, and exact-run JSON are retained under
+`artifacts/performance/skiasharp-gr-context-api-instruments`.

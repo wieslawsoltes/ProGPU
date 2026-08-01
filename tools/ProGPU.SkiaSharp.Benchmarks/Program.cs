@@ -99,6 +99,7 @@ internal static class ProgramEntry
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
+            new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
             new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
@@ -351,6 +352,31 @@ internal static class ProgramEntry
 
         using var picture = recorder.EndRecording();
         checksum = Mix(checksum, picture is null ? 0u : 1u);
+        return checksum;
+    }
+
+    private static ulong RunGrContextOptions(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var options = new GRContextOptions
+            {
+                AllowPathMaskCaching = (index & 1) == 0,
+                AvoidStencilBuffers = (index & 2) == 0,
+                BufferMapThreshold = index & 4095,
+                DoManualMipmapping = (index & 4) == 0,
+                GlyphCacheTextureMaximumBytes = 1_048_576 + index,
+                RuntimeProgramCacheSize = 64 + (index & 31),
+            };
+            checksum = Mix(checksum, options.AllowPathMaskCaching ? 1u : 0u);
+            checksum = Mix(checksum, options.AvoidStencilBuffers ? 1u : 0u);
+            checksum = Mix(checksum, unchecked((uint)options.BufferMapThreshold));
+            checksum = Mix(checksum, options.DoManualMipmapping ? 1u : 0u);
+            checksum = Mix(checksum, unchecked((uint)options.GlyphCacheTextureMaximumBytes));
+            checksum = Mix(checksum, unchecked((uint)options.RuntimeProgramCacheSize));
+        }
+
         return checksum;
     }
 
