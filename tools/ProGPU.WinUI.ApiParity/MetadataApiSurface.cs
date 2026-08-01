@@ -99,12 +99,19 @@ internal sealed record MetadataApiSurface(
         var genericArity = type.GetGenericParameters().Count;
         var layout = type.GetLayout();
         var layoutKind = GetLayoutKind(type.Attributes);
+        var layoutFields = FormatLayoutFields(
+            reader,
+            provider,
+            type,
+            kind,
+            layoutKind);
         entries.Add(
             $"type|{typeName}|access={GetTypeAccess(type.Attributes)};" +
             $"kind={kind};abstract={type.Attributes.HasFlag(TypeAttributes.Abstract)};" +
             $"sealed={type.Attributes.HasFlag(TypeAttributes.Sealed)};" +
             $"base={baseType};arity={genericArity};" +
-            $"layout={layoutKind};pack={layout.PackingSize};size={layout.Size}");
+            $"layout={layoutKind};pack={layout.PackingSize};size={layout.Size};" +
+            $"layoutfields={layoutFields}");
 
         AddAttributes(reader, formatter, typeName, type.GetCustomAttributes(), entries);
         AddGenericParameters(
@@ -165,6 +172,10 @@ internal sealed record MetadataApiSurface(
         foreach (var fieldHandle in type.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
+            bool isLayoutField = kind == "struct" &&
+                layoutKind is "sequential" or "explicit" &&
+                !field.Attributes.HasFlag(FieldAttributes.Static);
+            int currentFieldOrder = isLayoutField ? fieldOrder++ : -1;
             if (!IsExternallyVisible(field.Attributes))
                 continue;
 
@@ -173,12 +184,6 @@ internal sealed record MetadataApiSurface(
                 GenericContext.Empty);
             var fieldName = reader.GetString(field.Name);
             var constant = FormatConstant(reader, field.GetDefaultValue());
-            bool isLayoutField = kind == "struct" &&
-                layoutKind is "sequential" or "explicit" &&
-                !field.Attributes.HasFlag(FieldAttributes.Static);
-            int currentFieldOrder = fieldOrder;
-            if (isLayoutField)
-                fieldOrder++;
             string layoutMetadata = isLayoutField
                 ? $"order={currentFieldOrder};offset={field.GetOffset()}"
                 : "order=-;offset=-";
@@ -572,6 +577,31 @@ internal sealed record MetadataApiSurface(
             TypeAttributes.ExplicitLayout => "explicit",
             _ => "auto"
         };
+
+    private static string FormatLayoutFields(
+        MetadataReader reader,
+        CanonicalSignatureProvider provider,
+        TypeDefinition type,
+        string kind,
+        string layoutKind)
+    {
+        if (kind != "struct" || layoutKind is not ("sequential" or "explicit"))
+            return "-";
+
+        var fields = new List<string>();
+        foreach (FieldDefinitionHandle handle in type.GetFields())
+        {
+            FieldDefinition field = reader.GetFieldDefinition(handle);
+            if (field.Attributes.HasFlag(FieldAttributes.Static))
+                continue;
+
+            string fieldType = field.DecodeSignature(
+                provider,
+                GenericContext.Empty);
+            fields.Add($"{fields.Count}:{field.GetOffset()}:{fieldType}");
+        }
+        return $"({string.Join(",", fields)})";
+    }
 
     private static void AddAttributes(
         MetadataReader reader,

@@ -155,7 +155,15 @@ internal static class MetadataApiSurfaceSelfTests
                         "field|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
                         StringComparison.Ordinal) &&
                     entry.Contains("name=First;", StringComparison.Ordinal) &&
-                    entry.Contains("order=1;offset=0", StringComparison.Ordinal));
+                    entry.Contains("order=2;offset=0", StringComparison.Ordinal));
+        bool privateFieldLayout = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "type|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "layoutfields=(0:4:System.Int16,1:2:System.Byte,2:0:System.Int32)",
+                    StringComparison.Ordinal));
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -193,6 +201,7 @@ internal static class MetadataApiSurfaceSelfTests
             !indexerParameterMetadata ||
             !explicitTypeLayout ||
             !explicitFieldLayout ||
+            !privateFieldLayout ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -213,6 +222,7 @@ internal static class MetadataApiSurfaceSelfTests
                 $"indexerParameterMetadata={indexerParameterMetadata}, " +
                 $"explicitTypeLayout={explicitTypeLayout}, " +
                 $"explicitFieldLayout={explicitFieldLayout}, " +
+                $"privateFieldLayout={privateFieldLayout}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -318,6 +328,9 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
     {
         [FieldOffset(4)]
         public short Second;
+
+        [FieldOffset(2)]
+        private byte _hidden;
 
         [FieldOffset(0)]
         public int First;

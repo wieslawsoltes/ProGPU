@@ -68,7 +68,9 @@ property identity. Event add/remove method attributes and their return/handler
 parameter flags, types, names, defaults, and semantic attributes are likewise
 keyed beneath a canonical event owner. Sequential and explicit public value
 types retain layout kind, packing, size, visible instance-field declaration
-order, and explicit offsets, so ABI-relevant layout changes cannot sort away.
+order, and explicit offsets. Separate name-neutral layout entries retain every
+instance field's type, order, and offset, including non-public storage, so a
+private sequential-layout change cannot silently alter the public ABI.
 The command-line gate runs an isolated metadata self-test before comparison
 and proves that method/parameter/property/event accessor attributes, accessor
 parameter metadata, value-type layout, method/property/event dispatch flags,

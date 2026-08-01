@@ -22,8 +22,8 @@ public readonly struct Duration : IEquatable<Duration>
 
     public static Duration Automatic { get; } = new(DurationType.Automatic, default);
     public static Duration Forever { get; } = new(DurationType.Forever, default);
-    public DurationType Type { get; }
     public TimeSpan TimeSpan { get; }
+    public DurationType Type { get; }
     public bool HasTimeSpan => Type == DurationType.TimeSpan;
 
     public static implicit operator Duration(TimeSpan value) => new(value);
