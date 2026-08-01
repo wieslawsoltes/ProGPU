@@ -78,6 +78,7 @@ internal static class ProgramEntry
             new BenchmarkCase("font-variation-value", 100_000, RunFontVariationValue),
             new BenchmarkCase("font-variation-query", 100_000, RunFontVariationQuery),
             new BenchmarkCase("font-variation-clone", 1_000, RunFontVariationClone),
+            new BenchmarkCase("font-arguments-clone", 1_000, RunFontArgumentsClone),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
@@ -558,6 +559,30 @@ internal static class ProgramEntry
             checksum = Mix(
                 checksum,
                 unchecked((uint)BitConverter.SingleToInt32Bits(actual[index & 1].Value)));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontArgumentsClone(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2]
+            {
+                new() { Axis = SKFourByteTag.Parse("opsz"), Value = 23 },
+                new() { Axis = SKFourByteTag.Parse("wght"), Value = 537 }
+            };
+        var arguments = new SKFontArguments
+        {
+            CollectionIndex = 0,
+            VariationDesignPosition = position
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using SKTypeface clone = typeface.Clone(arguments);
+            checksum = Mix(checksum, (uint)(clone.FontWeight + clone.GlyphCount));
         }
 
         return checksum;

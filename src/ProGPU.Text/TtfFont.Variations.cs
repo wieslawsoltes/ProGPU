@@ -15,6 +15,9 @@ public readonly record struct FontVariationAxis(
 /// <summary>Selects a user-space coordinate on an OpenType variation axis.</summary>
 public readonly record struct FontVariationSetting(string Tag, float Value);
 
+/// <summary>Overrides one zero-based entry in an OpenType CPAL palette.</summary>
+public readonly record struct FontPaletteOverride(ushort Index, uint Color);
+
 public partial class TtfFont : IEquatable<TtfFont>
 {
     private const int VariationInstanceCacheLimit = 32;
@@ -38,6 +41,75 @@ public partial class TtfFont : IEquatable<TtfFont>
         _variationInstance?.Settings ?? Array.Empty<FontVariationSetting>();
 
     public bool IsVariableFont => VariationAxes.Count != 0;
+
+    /// <summary>
+    /// Creates an immutable font instance using one OpenType CPAL palette and optional
+    /// packed-ARGB entry overrides. Fonts without CPAL data reuse the current instance.
+    /// </summary>
+    public TtfFont WithColorPalette(
+        int paletteIndex,
+        ReadOnlySpan<FontPaletteOverride> overrides = default)
+    {
+        if (_numPalettes == 0 || _numPaletteEntries == 0)
+        {
+            return this;
+        }
+
+        var selectedPalette = (uint)paletteIndex < _numPalettes ? paletteIndex : 0;
+        if (selectedPalette == 0 && overrides.IsEmpty)
+        {
+            return this;
+        }
+
+        var clone = new TtfFont(_data.ToArray(), FaceIndex);
+        if (VariationSettings.Count != 0)
+        {
+            clone = clone.WithVariations(VariationSettings);
+        }
+
+        var firstRecordIndex = clone.ReadUShort(
+            clone._cpalOffset + 12u + (uint)(selectedPalette * sizeof(ushort)));
+        var palette = new Vector4[clone._numPaletteEntries];
+        ReadOnlySpan<byte> data = clone._data.Span;
+        for (var index = 0; index < palette.Length; index++)
+        {
+            var recordIndex = firstRecordIndex + index;
+            if ((uint)recordIndex >= clone._numColorRecords)
+            {
+                break;
+            }
+
+            var recordOffset = clone._colorRecordsOffset + (uint)(recordIndex * 4);
+            var blue = data[(int)recordOffset];
+            var green = data[(int)recordOffset + 1];
+            var red = data[(int)recordOffset + 2];
+            var alpha = data[(int)recordOffset + 3];
+            palette[index] = new Vector4(
+                red / 255f,
+                green / 255f,
+                blue / 255f,
+                alpha / 255f);
+        }
+
+        for (var index = 0; index < overrides.Length; index++)
+        {
+            FontPaletteOverride entry = overrides[index];
+            if (entry.Index >= palette.Length)
+            {
+                continue;
+            }
+
+            var color = entry.Color;
+            palette[entry.Index] = new Vector4(
+                ((color >> 16) & 0xff) / 255f,
+                ((color >> 8) & 0xff) / 255f,
+                (color & 0xff) / 255f,
+                ((color >> 24) & 0xff) / 255f);
+        }
+
+        clone._colorPalette = palette;
+        return clone;
+    }
 
     private bool HasActiveVariations => _variationInstance is { IsDefault: false };
     internal bool HasActiveFontVariations => HasActiveVariations;

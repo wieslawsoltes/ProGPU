@@ -63,6 +63,35 @@ public sealed class SkGeometryValueApiCompatibilityTests
         AssertParameterNames(typeof(SKRect).GetMethod(nameof(SKRect.Offset), [typeof(SKPoint)]), "pos");
         AssertParameterNames(typeof(SKRectI).GetMethod(nameof(SKRectI.Contains), [typeof(SKPointI)]), "pt");
         AssertParameterNames(typeof(SKRectI).GetMethod(nameof(SKRectI.Offset), [typeof(SKPointI)]), "pos");
+        AssertParameterNames(
+            typeof(SKPathBuilder).GetMethod(
+                nameof(SKPathBuilder.AddPath),
+                [typeof(SKPath), typeof(float), typeof(float), typeof(SKPathAddMode)]),
+            "other",
+            "dx",
+            "dy",
+            "mode");
+        AssertParameterNames(
+            typeof(SKPathBuilder).GetMethod(
+                nameof(SKPathBuilder.AddCircle),
+                [typeof(float), typeof(float), typeof(float), typeof(SKPathDirection)]),
+            "x",
+            "y",
+            "radius",
+            "dir");
+        AssertParameterNames(
+            typeof(SKTypeface).GetMethod(
+                nameof(SKTypeface.CountGlyphs),
+                [typeof(IntPtr), typeof(int), typeof(SKTextEncoding)]),
+            "str",
+            "strLen",
+            "encoding");
+        AssertParameterNames(
+            typeof(SKTypeface).GetMethod(
+                nameof(SKTypeface.TryGetTableData),
+                [typeof(uint), typeof(byte[]).MakeByRefType()]),
+            "tag",
+            "tableData");
     }
 
     private static void AssertParameterNames(MethodBase? method, params string[] expected)

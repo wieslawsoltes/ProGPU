@@ -519,3 +519,41 @@ reviewed known differences, and 3 skipped; the resvg lane reported 927 passed
 and 37 intentional skips; and the remaining suite passed 1,147 of 1,147 tests.
 The repository's parity verifier accepted the complete reviewed-difference
 inventory.
+
+### Typeface arguments and path-builder metadata checkpoint
+
+`SKTypeface` and `SKPathBuilder` now match 16 additional entries in the
+official 4.151.0 contract. Typeface cloning combines a collection face,
+variation coordinates, a CPAL palette, and caller overrides into one immutable
+font instance. ProGPU.Text owns the package-neutral `FontPaletteOverride` and
+`TtfFont.WithColorPalette` primitive so WinUI, WPF, WinForms, and the SkiaSharp
+shim share the same color-glyph path. The first selected non-default palette is
+`O(B + A + P)` time and `O(B + P)` storage for font bytes `B`, variation axes
+`A`, and palette entries `P`; non-color fonts and the default palette reuse the
+font in `O(1)`. Repeated variation instances continue to use the bounded
+32-entry normalized-coordinate cache. `SKPathBuilder` changes in this slice are
+metadata-only delegates and preserve its retained analytic geometry behavior.
+
+The clean-room design follows the public
+[SKFontArguments contract](https://learn.microsoft.com/dotnet/api/skiasharp.skfontarguments),
+[SKTypeface clone contract](https://learn.microsoft.com/dotnet/api/skiasharp.sktypeface.clone),
+and the authoritative
+[OpenType CPAL table](https://learn.microsoft.com/typography/opentype/spec/cpal)
+and [COLR table](https://learn.microsoft.com/typography/opentype/spec/colr)
+formats. It adopts CPAL's base-zero palette and entry indices, contiguous BGRA
+records, unpremultiplied sRGB values, and palette-zero fallback; it adapts them
+to immutable linear-float render colors and rejects out-of-range override
+entries without mutating the source typeface. Independent tests cover combined
+collection/variation/palette arguments, non-color reuse, official legacy
+parameter names, and path-builder ownership metadata. The matched
+`font-arguments-clone` workload uses the same Inter variable-font bytes and
+semantic checksum in both binaries.
+Three alternating Apple M3 Pro Release process pairs measured the combined
+arguments clone at `0.005` ProGPU/native (`156.791` versus `30,604.417` ns/op)
+and `88` versus `112` managed bytes per operation. This workload exercises the
+bounded repeated-instance path; a first non-default CPAL materialization is
+reported separately because it necessarily copies font storage and palette
+records. Matched Time Profiler captures measured `168.188` versus `30,561.271`
+ns/op; Allocations retained `88` versus `112` bytes. Metal System Trace exported
+zero target command-buffer, device-allocation, and resource-allocation rows for
+both CPU-only binaries.

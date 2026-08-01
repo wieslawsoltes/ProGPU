@@ -254,10 +254,15 @@ public partial class SKTypeface : SKObject
                 _isEmpty);
         }
 
+        return CreateVariationClone(GetVariationFont(position));
+    }
+
+    private TtfFont GetVariationFont(ReadOnlySpan<SKFontVariationPositionCoordinate> position)
+    {
         VariationCloneCacheEntry? cached = Volatile.Read(ref _lastVariationClone);
         if (cached is not null && position.SequenceEqual(cached.Position))
         {
-            return CreateVariationClone(cached.Font);
+            return cached.Font;
         }
 
         IReadOnlyList<FontVariationAxis> axes = Font.VariationAxes;
@@ -310,7 +315,80 @@ public partial class SKTypeface : SKObject
                     Font = varied
                 });
         }
-        return CreateVariationClone(varied);
+        return varied;
+    }
+
+    public SKTypeface Clone(int paletteIndex)
+    {
+        var arguments = new SKFontArguments { PaletteIndex = paletteIndex };
+        return Clone(arguments);
+    }
+
+    public SKTypeface Clone(SKFontArguments args)
+    {
+        TtfFont selected = args.CollectionIndex == Font.FaceIndex
+            ? Font
+            : new TtfFont(Font.FontData.ToArray(), args.CollectionIndex);
+
+        if (!args.VariationDesignPosition.IsEmpty)
+        {
+            if (ReferenceEquals(selected, Font))
+            {
+                selected = GetVariationFont(args.VariationDesignPosition);
+            }
+            else
+            {
+                selected = ApplyVariations(selected, args.VariationDesignPosition);
+            }
+        }
+
+        ReadOnlySpan<SKFontPaletteOverride> requestedOverrides = args.PaletteOverrides;
+        if (args.PaletteIndex != 0 || !requestedOverrides.IsEmpty)
+        {
+            var overrides = new FontPaletteOverride[requestedOverrides.Length];
+            for (var index = 0; index < overrides.Length; index++)
+            {
+                overrides[index] = new FontPaletteOverride(
+                    requestedOverrides[index].Index,
+                    requestedOverrides[index].Color);
+            }
+
+            selected = selected.WithColorPalette(args.PaletteIndex, overrides);
+        }
+
+        return new SKTypeface(
+            selected,
+            selected.FamilyName,
+            selected.WeightClass >= (int)SKFontStyleWeight.SemiBold,
+            selected.IsItalic);
+    }
+
+    private static TtfFont ApplyVariations(
+        TtfFont font,
+        ReadOnlySpan<SKFontVariationPositionCoordinate> position)
+    {
+        IReadOnlyList<FontVariationAxis> axes = font.VariationAxes;
+        var settings = new FontVariationSetting[Math.Min(position.Length, axes.Count)];
+        var settingCount = 0;
+        for (var positionIndex = 0; positionIndex < position.Length; positionIndex++)
+        {
+            SKFontVariationPositionCoordinate coordinate = position[positionIndex];
+            for (var axisIndex = 0; axisIndex < axes.Count; axisIndex++)
+            {
+                FontVariationAxis axis = axes[axisIndex];
+                if (!TagEquals(coordinate.Axis, axis.Tag))
+                {
+                    continue;
+                }
+
+                settings[settingCount++] = new FontVariationSetting(axis.Tag, coordinate.Value);
+                break;
+            }
+        }
+
+        return settingCount == settings.Length
+            ? font.WithVariations(settings)
+            : font.WithVariations(settings.AsSpan(0, settingCount).ToArray());
     }
 
     private SKTypeface CreateVariationClone(TtfFont varied) =>
@@ -670,11 +748,11 @@ public partial class SKTypeface : SKObject
         return new SKFont(this, size);
     }
 
-    public bool TryGetTableData(uint tag, out byte[] data)
+    public bool TryGetTableData(uint tag, out byte[] tableData)
     {
         if (_isEmpty)
         {
-            data = Array.Empty<byte>();
+            tableData = Array.Empty<byte>();
             return false;
         }
 
@@ -688,11 +766,11 @@ public partial class SKTypeface : SKObject
 
         if (Font.TryGetTable(new string(characters), out var table))
         {
-            data = table.ToArray();
+            tableData = table.ToArray();
             return true;
         }
 
-        data = Array.Empty<byte>();
+        tableData = Array.Empty<byte>();
         return false;
     }
 

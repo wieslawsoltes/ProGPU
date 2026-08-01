@@ -145,6 +145,37 @@ public sealed class SkiaSharpFontVariationTests
     }
 
     [Fact]
+    public void FontArgumentsCombineCollectionVariationAndPaletteContracts()
+    {
+        using var typeface = new SKTypeface(InterFontFamily.Variable, "Inter");
+        Span<SKFontVariationPositionCoordinate> requested =
+            stackalloc SKFontVariationPositionCoordinate[2]
+            {
+                new() { Axis = SKFourByteTag.Parse("opsz"), Value = 20 },
+                new() { Axis = SKFourByteTag.Parse("wght"), Value = 625 }
+            };
+        Span<SKFontPaletteOverride> palette = stackalloc SKFontPaletteOverride[1]
+        {
+            new() { Index = 0, Color = 0xff123456 }
+        };
+        var arguments = new SKFontArguments
+        {
+            CollectionIndex = 0,
+            VariationDesignPosition = requested,
+            PaletteIndex = 3,
+            PaletteOverrides = palette
+        };
+
+        using SKTypeface clone = typeface.Clone(arguments);
+        Assert.Equal(625, clone.FontWeight);
+        Assert.Equal(20f, clone.VariationDesignPosition[0].Value);
+        Assert.Same(clone.Font, clone.Font.WithColorPalette(3));
+
+        using SKTypeface paletteClone = typeface.Clone(2);
+        Assert.Same(typeface.Font, paletteClone.Font);
+    }
+
+    [Fact]
     public void EmptyTypefaceHasNoVariationSurfaceAndRemainsSharedAfterDispose()
     {
         SKTypeface empty = SKTypeface.Empty;

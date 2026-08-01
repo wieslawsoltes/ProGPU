@@ -10,40 +10,40 @@ public partial class SKTypeface
         FromFamilyName(familyName, SKFontStyle.Normal);
 
     [Obsolete("Use SKFont directly instead.")]
-    public int CountGlyphs(string text)
+    public int CountGlyphs(string str)
     {
-        ArgumentNullException.ThrowIfNull(text);
-        return CountGlyphs(text.AsSpan());
+        ArgumentNullException.ThrowIfNull(str);
+        return CountGlyphs(str.AsSpan());
     }
 
     [Obsolete("Use SKFont directly instead.")]
-    public int CountGlyphs(ReadOnlySpan<char> text)
-    {
-        using var font = ToFont();
-        return font.CountGlyphs(text);
-    }
-
-    [Obsolete("Use SKFont directly instead.")]
-    public int CountGlyphs(byte[] text, SKTextEncoding encoding)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        return CountGlyphs(text.AsSpan(), encoding);
-    }
-
-    [Obsolete("Use SKFont directly instead.")]
-    public int CountGlyphs(ReadOnlySpan<byte> text, SKTextEncoding encoding)
+    public int CountGlyphs(ReadOnlySpan<char> str)
     {
         using var font = ToFont();
-        return font.CountGlyphs(text, encoding);
+        return font.CountGlyphs(str);
     }
 
     [Obsolete("Use SKFont directly instead.")]
-    public int CountGlyphs(IntPtr text, int length, SKTextEncoding encoding)
+    public int CountGlyphs(byte[] str, SKTextEncoding encoding)
+    {
+        ArgumentNullException.ThrowIfNull(str);
+        return CountGlyphs(str.AsSpan(), encoding);
+    }
+
+    [Obsolete("Use SKFont directly instead.")]
+    public int CountGlyphs(ReadOnlySpan<byte> str, SKTextEncoding encoding)
+    {
+        using var font = ToFont();
+        return font.CountGlyphs(str, encoding);
+    }
+
+    [Obsolete("Use SKFont directly instead.")]
+    public int CountGlyphs(IntPtr str, int strLen, SKTextEncoding encoding)
     {
         using var font = ToFont();
         return font.CountGlyphs(
-            text,
-            checked(length * GetCharacterByteSize(encoding)),
+            str,
+            checked(strLen * GetCharacterByteSize(encoding)),
             encoding);
     }
 
