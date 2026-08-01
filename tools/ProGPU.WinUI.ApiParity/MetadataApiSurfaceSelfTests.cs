@@ -270,6 +270,13 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.Contains(
                     "ConstructorIdentityAttribute;ctor=(System.UInt32)->System.Void;",
                     StringComparison.Ordinal));
+        bool repeatedAttributeMultiplicity = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.RepeatedAttribute`0()->System.Void|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("RepeatedContractAttribute;", StringComparison.Ordinal) &&
+                entry.EndsWith(";count=2", StringComparison.Ordinal));
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -318,6 +325,7 @@ internal static class MetadataApiSurfaceSelfTests
             !genericParameterAttribute ||
             !signedAttributeConstructor ||
             !unsignedAttributeConstructor ||
+            !repeatedAttributeMultiplicity ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -349,6 +357,7 @@ internal static class MetadataApiSurfaceSelfTests
                 $"genericParameterAttribute={genericParameterAttribute}, " +
                 $"signedAttributeConstructor={signedAttributeConstructor}, " +
                 $"unsignedAttributeConstructor={unsignedAttributeConstructor}, " +
+                $"repeatedAttributeMultiplicity={repeatedAttributeMultiplicity}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -389,6 +398,12 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public ConstructorIdentityAttribute(int value) => _ = value;
 
         public ConstructorIdentityAttribute(uint value) => _ = value;
+    }
+
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+    public sealed class RepeatedContractAttribute(int value) : Attribute
+    {
+        public int Value { get; } = value;
     }
 
     public class OverloadFixture
@@ -474,6 +489,12 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
 
         [ConstructorIdentity(1u)]
         public void UnsignedConstructorAttribute()
+        {
+        }
+
+        [RepeatedContract(7)]
+        [RepeatedContract(7)]
+        public void RepeatedAttribute()
         {
         }
     }

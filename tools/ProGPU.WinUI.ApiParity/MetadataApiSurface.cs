@@ -718,6 +718,7 @@ internal sealed record MetadataApiSurface(
         CustomAttributeHandleCollection handles,
         ISet<string> entries)
     {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var handle in handles)
         {
             var attribute = reader.GetCustomAttribute(handle);
@@ -725,12 +726,17 @@ internal sealed record MetadataApiSurface(
             if (attributeType is not null &&
                 ShouldIncludeApiAttribute(attributeType))
             {
-                entries.Add(
+                string identity =
                     $"attribute|{owner}|{attributeType};" +
                     $"ctor={FormatAttributeConstructor(reader, formatter, attribute.Constructor)};" +
-                    $"value={Convert.ToHexString(reader.GetBlobBytes(attribute.Value))}");
+                    $"value={Convert.ToHexString(reader.GetBlobBytes(attribute.Value))}";
+                counts.TryGetValue(identity, out int count);
+                counts[identity] = count + 1;
             }
         }
+
+        foreach ((string identity, int count) in counts)
+            entries.Add($"{identity};count={count}");
     }
 
     private static string FormatAttributeConstructor(

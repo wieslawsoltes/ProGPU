@@ -83,7 +83,8 @@ nullable, tuple-name, required-member, and interpolated-string-handler
 contracts remain visible; only explicit state-machine/toolchain implementation
 markers are filtered. Generic-parameter attributes use an index-qualified
 owner, and every custom attribute records its complete constructor signature
-alongside the raw value blob, so overloaded constructors cannot collapse.
+alongside the raw value blob and identical-row occurrence count, so overloaded
+constructors and repeated `AllowMultiple` applications cannot collapse.
 The command-line gate runs an isolated metadata self-test before comparison
 and proves that method/parameter/property/event accessor attributes, accessor
 parameter metadata, value-type layout, method/property/event dispatch flags,
