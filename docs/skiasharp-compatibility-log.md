@@ -6,6 +6,34 @@ Update this record when compatibility behavior, supported formats, algorithms, o
 
 ## Implementation Record
 
+### Runtime-effect contract checkpoint
+
+The runtime-effect family now has an original, typed public-contract
+implementation: shader, color-filter, and blender factories/builders; ordered
+uniform and child metadata; exact byte-packed uniform values; immutable instance
+snapshots; and explicit validation. Parsing is linear in source length, instance
+creation copies exactly the declared uniform bytes and child slots, and no
+operation initializes WebGPU until a runtime effect is drawn. The current
+checkpoint deliberately does not advertise complete rendering: SkSL-to-WGSL
+lowering, child sampling, runtime color filters, and destination-aware runtime
+blenders remain active work.
+
+The clean-room design consulted primary public material for
+[Skia SkSL/runtime effects](https://docs.skia.org/docs/user/sksl/),
+[WGSL](https://www.w3.org/TR/WGSL/), [WebGPU](https://www.w3.org/TR/webgpu/),
+[Direct2D custom effects](https://learn.microsoft.com/windows/win32/direct2d/custom-effects),
+[Win2D PixelShaderEffect](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_PixelShaderEffect.htm),
+[WebRender's retained rendering model](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello](https://github.com/linebender/vello),
+[Parley](https://docs.rs/parley/latest/parley/), and
+[HarfBuzz buffers and shaping](https://harfbuzz.github.io/harfbuzz-hb-buffer.html).
+ProGPU adopts immutable program state, explicitly packed uniforms, reusable GPU
+pipelines, and retained child resources. It adapts those concepts to the shared
+typed WebGPU scene architecture. It rejects reflection, foreign implementation
+text, per-frame source parsing, CPU pixel fallbacks, and moving shaping/layout
+onto the GPU; the latter stays reusable CPU state while effect execution and
+composition are GPU work.
+
 Encoded images are decoded on the CPU before their pixels enter the GPU texture path. PNG-backed ICO/CUR frames use the common image decoder; bitmap-backed frames support legacy core and modern information headers, indexed 1/4/8-bit color, RLE4/RLE8 streams, RGB555, RGB565 and other validated 16/32-bit channel masks, 24-bit BGR, 32-bit BGRA, and Windows AND-mask transparency. Keeping decode and upload separate preserves deterministic pixel semantics and avoids initializing a WebGPU device for metadata or bitmap-only workflows.
 
 CPU bitmap resizing follows Skia's pixel-center mapping and alpha representation. Nearest and linear modes use fixed one- and four-sample footprints; cubic mode evaluates the requested Mitchell-Netravali B/C kernel over a fixed 4x4 footprint, preserving the distinction between Mitchell and Catmull-Rom. Source rows are read with their actual stride and color order, and output is converted to RGBA8888, BGRA8888, RGB888x, or RGB565 without forcing a WebGPU upload. Nearest sampling is a direct `O(destination pixels)` pass with no source-sized temporary allocation, and same-format texels stay as raw copies. Linear and cubic sampling normalize source pixels once, then run in `O(source pixels + destination pixels)` and `O(source pixels + 16 * destination pixels)` time with `O(source pixels)` temporary storage.

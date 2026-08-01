@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,022 ProGPU
-entries, 3,954 exact matches, 268 missing entries, and 1,068 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,131 ProGPU
+entries, 4,063 exact matches, 159 missing entries, and 1,068 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -83,6 +83,33 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Runtime-effect contracts and typed uniform transport
+
+`SKRuntimeEffect`, its shader/color-filter/blender builders, uniform and child
+collections, stack-only uniform values, and typed child values now match the
+official SkiaSharp 4.151.0 public metadata. The clean-room parser validates a
+top-level `main` function, records scalar/vector/matrix uniform layout in source
+order, separates shader, color-filter, and blender children, and snapshots both
+uniform bytes and child references into immutable effect instances. Construction
+and lookup are CPU-only; parsing is `O(S)` for `S` source characters, uniform
+snapshots are `O(U)` time/storage for `U` bytes, and child snapshots are `O(C)`
+for `C` children. Invalid names, sizes, kinds, and sources fail explicitly.
+
+The matched Release benchmark preserves an exact native/ProGPU packing checksum
+for float, float2, and float4 uniforms. A preliminary nine-sample Apple M3 Pro
+run measured `641.042` ns/op and `584.928` managed bytes for ProGPU versus
+`2,770.375` ns/op and `968.744` bytes for native (`0.231` time ratio). This is a
+contract checkpoint rather than the final renderer claim: SkSL-to-WGSL lowering,
+child sampling, runtime color-filter execution, and destination-aware blender
+execution remain in the active GPU slice and will receive matched three-pair
+and Instruments evidence before release.
+
+The design follows the public [Skia runtime-effect contract](https://docs.skia.org/docs/user/sksl/),
+[WGSL](https://www.w3.org/TR/WGSL/), and [WebGPU](https://www.w3.org/TR/webgpu/)
+execution and resource models. ProGPU adopts immutable compiled programs and
+typed byte-packed uniforms, adapts execution to retained WebGPU pipelines, and
+rejects native source-code reuse, runtime reflection, and CPU pixel fallback.
 
 ### Variable-font descriptors and immutable typeface instances
 

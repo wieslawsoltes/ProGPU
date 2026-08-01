@@ -1081,6 +1081,7 @@ public partial class SKShader : SKObject
     private readonly PerlinNoiseShaderData? _perlinNoise;
     private readonly LocalMatrixShaderData? _localMatrix;
     private readonly ColorFilterShaderData? _colorFilter;
+    private readonly SKRuntimeEffectInstance? _runtimeEffect;
     private int _referenceCount = 1;
 
     private SKShader(Func<Brush> brushCreator)
@@ -1123,6 +1124,12 @@ public partial class SKShader : SKObject
         : base(SKObjectHandle.Create(), owns: true)
     {
         _colorFilter = colorFilter;
+    }
+
+    private SKShader(SKRuntimeEffectInstance runtimeEffect)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _runtimeEffect = runtimeEffect;
     }
 
     public Brush ToBrush()
@@ -1169,6 +1176,9 @@ public partial class SKShader : SKObject
     internal PerlinNoiseShaderData? PerlinNoise => _perlinNoise;
     internal LocalMatrixShaderData? LocalMatrix => _localMatrix;
     internal ColorFilterShaderData? ColorFilter => _colorFilter;
+    internal SKRuntimeEffectInstance? RuntimeEffect => _runtimeEffect;
+
+    internal static SKShader CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
     internal static SKShader CreatePicture(
         GpuPicture picture,
@@ -1983,6 +1993,7 @@ public partial class SKColorFilter : SKObject
     private readonly float[]? _colorMatrix;
     private readonly bool _lumaColor;
     private readonly bool _isBlendColor;
+    private readonly SKRuntimeEffectInstance? _runtimeEffect;
 
     private SKColorFilter(SKColor color, SKBlendMode mode)
         : base(SKObjectHandle.Create(), owns: true)
@@ -2016,6 +2027,17 @@ public partial class SKColorFilter : SKObject
         _kind = ColorFilterKind.Luma;
         _lumaColor = lumaColor;
     }
+
+    private SKColorFilter(SKRuntimeEffectInstance runtimeEffect)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _kind = ColorFilterKind.RuntimeEffect;
+        _runtimeEffect = runtimeEffect;
+    }
+
+    internal SKRuntimeEffectInstance? RuntimeEffect => _runtimeEffect;
+
+    internal static SKColorFilter CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
     internal float[]? ColorMatrix => _kind == ColorFilterKind.ColorMatrix ? _colorMatrix : null;
     internal bool IsLumaColor => _kind == ColorFilterKind.Luma && _lumaColor;

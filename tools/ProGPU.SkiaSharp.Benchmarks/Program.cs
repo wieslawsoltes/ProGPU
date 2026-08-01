@@ -33,6 +33,14 @@ internal static class ProgramEntry
         new(0f, 0f, 1f, 1f)
     };
     private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
+    private const string RuntimeEffectSource = """
+        uniform float gain;
+        uniform float2 offset;
+        uniform float4 tint;
+        half4 main(float2 position) {
+            return half4(position + offset, gain, tint.a);
+        }
+        """;
 
     public static int Run(string[] args)
     {
@@ -102,6 +110,7 @@ internal static class ProgramEntry
             new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
             new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
+            new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
@@ -426,6 +435,30 @@ internal static class ProgramEntry
             checksum = Mix(checksum, radial.Handle == IntPtr.Zero ? 0u : 1u);
             checksum = Mix(checksum, sweep.Handle == IntPtr.Zero ? 0u : 1u);
             checksum = Mix(checksum, conical.Handle == IntPtr.Zero ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunRuntimeEffectUniformSnapshot(int operations)
+    {
+        using var effect = SKRuntimeEffect.CreateShader(RuntimeEffectSource, out var errors);
+        if (effect is null)
+            throw new InvalidOperationException(errors);
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var uniforms = new SKRuntimeEffectUniforms(effect);
+            uniforms["gain"] = index * 0.001f;
+            uniforms["offset"] = new SKPoint(index & 7, -(index & 15));
+            uniforms["tint"] = new SKColorF(1f, 0.25f, 0.5f, 0.75f);
+            using var data = uniforms.ToData();
+            using var shader = effect.ToShader(uniforms);
+            checksum = Mix(checksum, unchecked((uint)data.Size));
+            checksum = Mix(checksum, unchecked((uint)BitConverter.SingleToInt32Bits(
+                MemoryMarshal.Cast<byte, float>(data.Span)[index % 7])));
+            checksum = Mix(checksum, shader.Handle == IntPtr.Zero ? 0u : 1u);
         }
 
         return checksum;
