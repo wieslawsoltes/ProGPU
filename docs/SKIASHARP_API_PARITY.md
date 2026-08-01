@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,426 ProGPU
-entries, 3,195 exact matches, 1,027 missing entries, and 1,231 ProGPU-only
-entries. The missing surface comprises 68 type identities, 20 fields, 22
-interfaces, 612 methods, 129 properties, and 176 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,436 ProGPU
+entries, 3,205 exact matches, 1,017 missing entries, and 1,231 ProGPU-only
+entries. The missing surface comprises 67 type identities, 20 fields, 22
+interfaces, 604 methods, 129 properties, and 175 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -203,3 +203,31 @@ the public
 [SkiaExtensions API](https://learn.microsoft.com/dotnet/api/skiasharp.skiaextensions),
 [Skia color-type documentation](https://api.skia.org/SkColorType_8h.html), and
 [Khronos sized internal formats](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexStorage2D.xhtml).
+
+### UTF text conversion utilities
+
+`StringUtilities` now matches all ten entries in the 4.151.0 metadata contract.
+UTF-8, little-endian UTF-16, and little-endian UTF-32 conversion use replacement
+fallbacks, return exactly one owned byte array or string, expose bounded array,
+span, slice, and pointer decode overloads, and reject glyph-ID or out-of-range
+encodings before conversion. Encoding is `O(C + B)` and decoding is `O(B + C)`
+for `C` UTF-16 code units and `B` encoded bytes, with only the caller-owned
+result allocation and no WebGPU initialization.
+
+`GetUnicodeCharacterCode` validates exactly one complete Unicode scalar and
+returns it allocation-free for every supported UTF encoding. This intentionally
+corrects the official 4.151 wrapper's observable short-buffer failure for
+ordinary UTF-8/UTF-16 characters while retaining the documented API contract;
+incomplete surrogates and multiple scalars fail before returning partial data.
+Independent tests cover exact byte forms, supplementary scalars, replacement
+fallbacks, pointer/slice boundaries, null/empty ownership, invalid encodings,
+and glyph-ID rejection. Three alternating Apple M3 Pro Release process pairs
+produced exact checksums for matched workloads: roundtrip conversion measured
+`0.960` ProGPU/native with equal `290.651` managed bytes per operation, while
+the scalar query measured `0.041` and `0` versus `256` bytes. The clean-room
+Matched Time Profiler and Allocations traces from the same Release binaries
+retained the checksum, allocation, and timing ordering. The clean-room design
+follows the public
+[StringUtilities contract](https://learn.microsoft.com/dotnet/api/skiasharp.stringutilities),
+[Unicode encoding forms](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/),
+and [.NET Encoding contract](https://learn.microsoft.com/dotnet/api/system.text.encoding).

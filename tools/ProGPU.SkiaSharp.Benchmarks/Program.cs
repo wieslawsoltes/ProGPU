@@ -74,6 +74,8 @@ internal static class ProgramEntry
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
+            new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
+            new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
             new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
@@ -446,6 +448,37 @@ internal static class ProgramEntry
                 (geometry.IsRgb() ? 1u << 17 : 0) |
                 (geometry.IsBgr() ? 1u << 16 : 0) |
                 colorType.ToGlSizedFormat());
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunStringEncodingRoundtrip(int operations)
+    {
+        const string text = "ProGPU A😀é — retained text";
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var encoding = (SKTextEncoding)(index % 3);
+            var bytes = StringUtilities.GetEncodedText(text, encoding);
+            var decoded = StringUtilities.GetString(bytes, encoding);
+            checksum = Mix(
+                checksum,
+                (uint)bytes.Length << 16 |
+                (uint)decoded[0] << 8 |
+                decoded[^1]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunUnicodeCharacterCode(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var scalar = StringUtilities.GetUnicodeCharacterCode("😀", SKTextEncoding.Utf32);
+            checksum = Mix(checksum, (uint)scalar);
         }
 
         return checksum;
