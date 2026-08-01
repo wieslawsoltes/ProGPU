@@ -70,6 +70,8 @@ internal static class ProgramEntry
             new BenchmarkCase("pmcolor-unpremultiply", 65_536, RunUnpremultiplyColor),
             new BenchmarkCase("pmcolor-array-premultiply", 1_000, RunPremultiplyColorArrays),
             new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
+            new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
+            new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
         };
         var results = new List<BenchmarkCaseResult>(cases.Length);
@@ -365,6 +367,42 @@ internal static class ProgramEntry
         }
 
         return source;
+    }
+
+    private static ulong RunFourByteTagValue(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var parsed = (index & 3) switch
+            {
+                0 => SKFourByteTag.Parse("a"),
+                1 => SKFourByteTag.Parse("kern"),
+                2 => SKFourByteTag.Parse("cmap-extra".AsSpan()),
+                _ => new SKFourByteTag('w', 'g', 'h', 't')
+            };
+            checksum = Mix(checksum, (uint)parsed);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFourByteTagFormat(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var tag = new SKFourByteTag(0x41424300u + (uint)(index & 0xff));
+            var text = tag.ToString();
+            checksum = Mix(
+                checksum,
+                (uint)text[0] << 24 |
+                (uint)text[1] << 16 |
+                (uint)text[2] << 8 |
+                text[3]);
+        }
+
+        return checksum;
     }
 
     private static ulong Combine(float first, float second) =>

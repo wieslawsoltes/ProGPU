@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,384 ProGPU
-entries, 3,149 exact matches, 1,073 missing entries, and 1,235 ProGPU-only
-entries. The missing surface comprises 72 type identities, 20 fields, 23
-interfaces, 638 methods, 131 properties, and 189 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,402 ProGPU
+entries, 3,167 exact matches, 1,055 missing entries, and 1,235 ProGPU-only
+entries. The missing surface comprises 71 type identities, 20 fields, 22
+interfaces, 626 methods, 131 properties, and 185 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -112,3 +112,24 @@ and Skia's documented
 [unpremultiply scale](https://api.skia.org/classSkUnPreMultiply.html)
 contracts. No foreign implementation code, source layout, or helper structure
 was incorporated.
+
+### OpenType four-byte tags
+
+`SKFourByteTag` now matches all 18 entries in its 4.151.0 metadata contract.
+The four-byte readonly value uses OpenType's big-endian display order, preserves
+packed `uint` identity, pads non-empty short tags with trailing spaces, truncates
+long tags, and preserves native zero identity for null or empty input. Character
+construction narrows each UTF-16 code unit to its low byte, matching the
+observable API behavior without validating font-table policy at this value
+boundary.
+
+Construction, parsing, equality, hashing, and conversions are allocation-free
+fixed-work operations. Formatting allocates only its four-character result.
+Matched Release checksums cover string/span parsing, construction, conversion,
+and formatting. Across three alternating Apple M3 Pro process pairs, value
+operations measured `1.127` ProGPU/native and formatting measured `0.127`, with
+`32` versus `280` managed bytes per formatted tag. These local figures are evidence for the
+slice, not a cross-platform claim. The clean-room design follows the
+[OpenType Tag data type](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
+and the public
+[SkiaSharp parsing contract](https://learn.microsoft.com/dotnet/api/skiasharp.skfourbytetag.parse).

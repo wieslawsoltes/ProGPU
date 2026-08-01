@@ -18,8 +18,9 @@ Ratios below `1.0` favor ProGPU. Results from ordinary shared machines are not
 used as narrow timing gates; dedicated platform runs establish reviewed budgets.
 
 The CPU suite covers value arithmetic, matrix mapping, exhaustive scalar
-premultiplied-color conversion, 64-element color-array conversion, and retained
-path construction/bounds. Each implemented API cluster adds an equivalent workload
+premultiplied-color conversion, 64-element color-array conversion, OpenType tag
+value/formatting operations, and retained path construction/bounds. Each
+implemented API cluster adds an equivalent workload
 or an explicit explanation that its behavior is already covered by a broader
 component/application benchmark. GPU/rendering clusters additionally require a
 deterministic final-frame workload, image-quality comparison, WebGPU timestamps,
