@@ -100,6 +100,7 @@ public sealed class AppWindow
         _dispatcherQueue.ShutdownStarting += OnDispatcherQueueShutdownStarting;
         _window.SizeChanged += OnWindowSizeChanged;
         _window.VisibilityChanged += OnWindowVisibilityChanged;
+        _window.PositionChanged += OnWindowPositionChanged;
         _window.ClosingRequested += OnWindowClosingRequested;
         _window.Closed += OnWindowClosed;
         lock (RegistrySync)
@@ -239,16 +240,7 @@ public sealed class AppWindow
         if (_position == position)
             return;
 
-        _position = position;
-        if (_window.SilkWindow is { } silkWindow)
-        {
-            silkWindow.Position =
-                new Silk.NET.Maths.Vector2D<int>(
-                    position.X,
-                    position.Y);
-        }
-
-        RaiseChanged(position: true);
+        _window.SetPosition(position);
     }
 
     public void MoveAndResize(RectInt32 rect)
@@ -493,6 +485,14 @@ public sealed class AppWindow
         Microsoft.UI.Xaml.WindowVisibilityChangedEventArgs args) =>
         UpdateVisibility(args.Visible);
 
+    private void OnWindowPositionChanged(PointInt32 position)
+    {
+        if (_position == position)
+            return;
+        _position = position;
+        RaiseChanged(position: true);
+    }
+
     private void OnWindowClosed(
         object sender,
         Microsoft.UI.Xaml.WindowEventArgs args) =>
@@ -522,6 +522,7 @@ public sealed class AppWindow
             OnDispatcherQueueShutdownStarting;
         _presenter.ConfigurationChanged -=
             OnPresenterConfigurationChanged;
+        _window.PositionChanged -= OnWindowPositionChanged;
         _window.ClosingRequested -= OnWindowClosingRequested;
         lock (RegistrySync)
             Registry.Remove(Id);

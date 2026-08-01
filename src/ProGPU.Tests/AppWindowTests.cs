@@ -105,6 +105,38 @@ public sealed class AppWindowTests
     }
 
     [Fact]
+    public void NativePositionChangeUpdatesAppWindowOnce()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        AppWindow? window = null;
+        try
+        {
+            window = AppWindow.Create();
+            var changes = new List<AppWindowChangedEventArgs>();
+            window.Changed += (_, args) => changes.Add(args);
+
+            window.XamlWindow.NotifyHostPositionChanged(
+                new PointInt32(640, 320));
+            window.XamlWindow.NotifyHostPositionChanged(
+                new PointInt32(640, 320));
+
+            Assert.Equal(
+                new PointInt32(640, 320),
+                window.Position);
+            Assert.Equal(640d, window.XamlWindow.Bounds.X);
+            Assert.Equal(320d, window.XamlWindow.Bounds.Y);
+            Assert.Single(changes);
+            Assert.True(changes[0].DidPositionChange);
+        }
+        finally
+        {
+            window?.Destroy();
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
     public void ModalOwnerStaysDisabledUntilItsLastModalChildIsReleased()
     {
         DispatcherQueueController controller =

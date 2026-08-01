@@ -255,18 +255,30 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
         RenamedEventHandler onRenamed =
             (_, eventArgs) =>
             {
+                var oldFullPath =
+                    Path.GetFullPath(
+                        eventArgs.OldFullPath);
+                var fullPath =
+                    Path.GetFullPath(
+                        eventArgs.FullPath);
+                if (IsBuildOutput(oldFullPath) &&
+                    IsBuildOutput(fullPath))
+                {
+                    return;
+                }
+
                 if (IsUnderDirectory(
-                        eventArgs.OldFullPath,
+                        oldFullPath,
                         projectDirectory) ||
                     IsUnderDirectory(
-                        eventArgs.FullPath,
+                        fullPath,
                         projectDirectory))
                 {
                     Signal(
-                        eventArgs.OldFullPath,
+                        oldFullPath,
                         true);
                     Signal(
-                        eventArgs.FullPath,
+                        fullPath,
                         true);
                 }
             };

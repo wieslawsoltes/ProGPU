@@ -39,6 +39,9 @@ environment diagnostics report the exact XAML path, span, and line span
 without retaining `SourceText`. The project watch pipeline, versioned
 transport, IDE-neutral selector, deterministic input topology, performance
 distributions, and enforceable bounded-run budgets are also implemented.
+Transactional compiler output published below `obj` or `bin` is filtered for
+change, create, delete, and rename notifications; output-to-output renames
+therefore cannot recursively trigger another watch compilation.
 
 This is an explicit handoff, not an MVP-complete claim. Work remaining after
 preview.32 is:

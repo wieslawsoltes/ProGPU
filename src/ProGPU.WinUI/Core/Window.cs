@@ -79,6 +79,7 @@ public class Window : DependencyObject
     private bool _isClosed;
     private bool _visible;
     private Windows.Foundation.Rect _bounds = new(0, 0, 1280, 800);
+    private Vector2D<int>? _requestedPosition;
     private UIElement? _titleBar;
     private Thickness _safeAreaInsets;
     private Windows.Foundation.Rect _inputPaneOccludedRect;
@@ -361,6 +362,7 @@ public class Window : DependencyObject
     public event Windows.Foundation.TypedEventHandler<object, WindowInsetsChangedEventArgs>? InsetsChanged;
     public event EventHandler<double>? Rendering;
     internal event Func<bool>? ClosingRequested;
+    internal event Action<Windows.Graphics.PointInt32>? PositionChanged;
 
     public Window()
     {
@@ -451,6 +453,8 @@ public class Window : DependencyObject
         options.VSync = false;
         options.TransparentFramebuffer = true;
         options.TopMost = _topMost;
+        if (_requestedPosition is { } requestedPosition)
+            options.Position = requestedPosition;
         options.WindowBorder = _decorations switch
         {
             NativeWindowDecorations.None => WindowBorder.Hidden,
@@ -464,10 +468,15 @@ public class Window : DependencyObject
         _silkWindow.Render += OnRender;
         _silkWindow.Resize += OnResize;
         _silkWindow.FramebufferResize += OnFramebufferResize;
+        _silkWindow.Move += OnMove;
         _silkWindow.FocusChanged += OnFocusChanged;
         _silkWindow.Closing += OnClosing;
 
         _silkWindow.Initialize();
+        NotifyHostPositionChanged(
+            new Windows.Graphics.PointInt32(
+                _silkWindow.Position.X,
+                _silkWindow.Position.Y));
         _silkWindow.WindowState = _nativeWindowState;
         WindowManager.Register(this);
         UpdateBounds(_silkWindow.Size.X, _silkWindow.Size.Y);
@@ -1239,6 +1248,45 @@ public class Window : DependencyObject
         }
         NotifyHostActivationChanged(
             focused ? WindowActivationState.CodeActivated : WindowActivationState.Deactivated);
+    }
+
+    private void OnMove(Vector2D<int> position) =>
+        NotifyHostPositionChanged(
+            new Windows.Graphics.PointInt32(
+                position.X,
+                position.Y));
+
+    internal void SetPosition(
+        Windows.Graphics.PointInt32 position)
+    {
+        _requestedPosition =
+            new Vector2D<int>(
+                position.X,
+                position.Y);
+        NotifyHostPositionChanged(position);
+        if (_silkWindow is { } silkWindow)
+            silkWindow.Position = _requestedPosition.Value;
+    }
+
+    internal void NotifyHostPositionChanged(
+        Windows.Graphics.PointInt32 position)
+    {
+        _requestedPosition =
+            new Vector2D<int>(
+                position.X,
+                position.Y);
+        if (_bounds.X.Equals((double)position.X) &&
+            _bounds.Y.Equals((double)position.Y))
+        {
+            return;
+        }
+
+        _bounds = new Windows.Foundation.Rect(
+            position.X,
+            position.Y,
+            _bounds.Width,
+            _bounds.Height);
+        PositionChanged?.Invoke(position);
     }
 
     private void UpdateBounds(double width, double height)

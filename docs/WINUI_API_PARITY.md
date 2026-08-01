@@ -1468,6 +1468,10 @@ Native, external-host, and application close requests pass through the same
 typed pre-close callback before the platform accepts destruction.
 `AppWindow.Closing` can cancel an ordinary native or application close, while
 dispatcher run-down remains deliberately non-cancellable.
+Silk native move notifications update the retained window bounds and
+`AppWindow.Position`, coalesce an unchanged coordinate, and raise one
+`Changed` event with `DidPositionChange`; a requested pre-show position is
+also retained into native window creation.
 Presenter state is retained before native activation and then applied to the
 created Silk window, so a fullscreen startup request is not lost. Moving from
 fullscreen to compact overlay explicitly restores normal native state before
@@ -1490,7 +1494,8 @@ unsupported behavior, display containment/intersection/nearest fallback,
 watcher add/update/remove/status ordering, contract versions, and zero managed
 allocations across 100,000 warmed `AppWindow` property-read iterations. The
 windowing regression set also covers fullscreen-to-compact transitions and
-two modal siblings sharing one owner.
+two modal siblings sharing one owner, native position synchronization, and
+unchanged-position coalescing.
 
 Deferred behavioral gate: platform adapters still need to apply retained
 title-bar colors and drag rectangles where the OS supports them. The
