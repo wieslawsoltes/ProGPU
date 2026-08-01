@@ -61,6 +61,16 @@ is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
 the official parity claim.
 
+The remaining 97 entries are 22 attributes, one field, 62 methods, three
+properties, and nine types. They are concentrated in nullable/obsolete
+metadata and managed-disposal declarations; `SKMaskFilter`; N-way, no-draw,
+and overdraw canvases; WebP animation and frame contracts; raw text-run
+buffers; SVG canvas; and a small set of related value and helper contracts.
+They remain explicit work for the next branch. GPU-visible families require
+original retained WebGPU implementations and quality/performance tests;
+unsupported platform codecs must fail explicitly rather than expose metadata
+stubs that silently change behavior.
+
 ## Planned implementation order
 
 1. Close metadata-only value, enum, descriptor, and ownership contracts that do

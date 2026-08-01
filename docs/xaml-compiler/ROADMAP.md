@@ -99,6 +99,31 @@ feature/specification documentation checks, and the package dependency-closure
 gate. The continuation must turn the remaining quality bullets into dedicated
 repeatable CI scripts rather than relying on sample builds or manual IDE use.
 
+## Preview.34 compiler handoff
+
+Preview.34 closes the detached diagnostic-origin projection slice. Changed
+stable XAML identities are mapped deterministically and target-first into
+Roslyn metadata diagnostics without retaining `SourceText`; the typed metadata
+edit-session overload carries that origin through validation and emission.
+Focused tests and the complete compiler suite cover ordering, fallback, span
+fidelity, and allocation-bounded ownership.
+
+The compiler remains pre-MVP. The next branch must finish these five blockers:
+
+1. runtime metadata-update and dynamic-code capability adapters;
+2. atomic candidate validation, metadata apply, XAML publication, joint commit,
+   and recovery when either side fails;
+3. namescope-, resource-, and template-aware fine patching with a guaranteed
+   owning-subtree or whole-root fallback;
+4. cross-platform watch topology, edit-storm, shutdown, percentile,
+   allocation, deterministic-output, fuzz, visual, accessibility, and
+   collectible-context lifetime gates;
+5. published-feed installation, end-user host integration, compatibility,
+   extension, and release documentation.
+
+These are product gates rather than metadata-only tasks; Preview.34 does not
+claim XAML compiler MVP completion.
+
 ## MVP definition
 
 The MVP is a usable WinUI-first product proving that the same compiler core can host other XAML dialects without redesign. It is not defined as complete parity with every framework or every XAML 2009 feature.
