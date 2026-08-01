@@ -1474,7 +1474,7 @@ public sealed class SkCanvasStateTests
         };
 
         surface.Canvas.Clear(SKColors.Transparent);
-        surface.Canvas.DrawText("A", 8f, 40f, font, paint);
+        surface.Canvas.DrawText("A", 8f, 40f, SKTextAlign.Left, font, paint);
         surface.Flush();
 
         using var snapshot = surface.Snapshot();
@@ -1500,7 +1500,7 @@ public sealed class SkCanvasStateTests
         using var font = new SKFont(SKTypeface.Default, 24f);
         using var paint = new SKPaint { Color = SKColors.Black };
 
-        canvas.DrawText("A", 4f, 32f, font, paint);
+        canvas.DrawText("A", 4f, 32f, SKTextAlign.Left, font, paint);
 
         var command = Assert.Single(context.Commands, static command => command.Type == RenderCommandType.DrawGlyphRun);
         Assert.True(command.UseVectorGlyphRendering);

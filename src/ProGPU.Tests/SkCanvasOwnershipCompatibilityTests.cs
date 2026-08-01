@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using ProGPU.Scene;
 using SkiaSharp;
@@ -7,6 +8,33 @@ namespace ProGPU.Tests;
 
 public sealed class SkCanvasOwnershipCompatibilityTests
 {
+    [Fact]
+    public void CanvasUsesSkObjectLifetimeAndClearsItsHandleIdempotently()
+    {
+        var canvas = new SKCanvas(new DrawingContext(), 16f, 16f);
+
+        Assert.IsAssignableFrom<SKObject>(canvas);
+        Assert.NotEqual(IntPtr.Zero, canvas.Handle);
+
+        canvas.Dispose();
+        canvas.Dispose();
+
+        Assert.Equal(IntPtr.Zero, canvas.Handle);
+    }
+
+    [Fact]
+    public void ClipOverloadsExposeTheOfficialNonAntialiasedDefault()
+    {
+        var methods = typeof(SKCanvas).GetMethods(BindingFlags.Public | BindingFlags.Instance);
+        var clipRect = Assert.Single(methods, static method =>
+            method.Name == nameof(SKCanvas.ClipRect) && method.GetParameters().Length == 3);
+        var clipPath = Assert.Single(methods, static method =>
+            method.Name == nameof(SKCanvas.ClipPath) && method.GetParameters().Length == 3);
+
+        Assert.Equal(false, clipRect.GetParameters()[2].DefaultValue);
+        Assert.Equal(false, clipPath.GetParameters()[2].DefaultValue);
+    }
+
     [Fact]
     public void RecordingContextHierarchyAndBackendValuesMatchNative()
     {

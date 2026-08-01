@@ -139,7 +139,7 @@ public sealed class SkFontTransformTests
         using var font = new SKFont(SKTypeface.Default, 40f, scaleX: 1.5f, skewX: 0.25f);
         using var paint = new SKPaint { Color = SKColors.Black };
 
-        canvas.DrawText("AA", 4f, 48f, font, paint);
+        canvas.DrawText("AA", 4f, 48f, SKTextAlign.Left, font, paint);
 
         var command = Assert.Single(
             context.Commands,
@@ -169,7 +169,7 @@ public sealed class SkFontTransformTests
         };
         using var paint = new SKPaint { Color = SKColors.Black };
 
-        canvas.DrawText("A", 5f, 48f, font, paint);
+        canvas.DrawText("A", 5f, 48f, SKTextAlign.Left, font, paint);
 
         var command = Assert.Single(context.Commands);
         Assert.Equal(RenderCommandType.DrawPath, command.Type);
@@ -195,7 +195,7 @@ public sealed class SkFontTransformTests
             StrokeWidth = 2f
         };
 
-        canvas.DrawText("A", 5f, 48f, font, paint);
+        canvas.DrawText("A", 5f, 48f, SKTextAlign.Left, font, paint);
 
         var command = Assert.Single(
             context.Commands,

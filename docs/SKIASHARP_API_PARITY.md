@@ -54,7 +54,7 @@ path work requires matched profiling plus equivalent before/after runs.
 ## Current baseline
 
 The current pinned comparison records 4,222 official entries, 4,933 ProGPU
-entries, 3,756 exact matches, 466 missing entries, and 1,177 ProGPU-only
+entries, 3,803 exact matches, 419 missing entries, and 1,130 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -709,8 +709,9 @@ Independent tests cover stride-aware immutable copies, stable raster views,
 encoded ownership, exact-once raster/texture callbacks, borrowed versus adopted
 textures, contained GPU rectangle copies, invalid subsets, mip generation, and
 filtered output bounds. The focused image/surface suite passes 35 tests. The
-metadata verifier reports 4,222 official entries, 4,933 candidate entries,
-3,756 exact matches, 466 missing entries, and 1,177 documented extensions.
+metadata verifier at this image checkpoint reported 4,222 official entries,
+4,933 candidate entries, 3,756 exact matches, 466 missing entries, and 1,177
+documented extensions.
 The isolated package gate also produced the runtime and Avalonia 11/12
 integration packages in a fresh feed, then restored and built the package-only
 Avalonia consumer with zero warnings or errors.
@@ -754,3 +755,67 @@ The benchmark workflow now installs the same Linux Vulkan prerequisites as the
 main build and resolves the packaged RID-native WebGPU directory on Linux,
 macOS, and Windows. This fixes the prior Ubuntu `libwgpu_native` loader failure
 without skipping the GPU workload or relaxing comparison evidence.
+
+### Retained canvas contract and empty-clip checkpoint
+
+`SKCanvas` now closes all 45 missing entries in its official 4.151.0 owner
+contract plus the two missing readonly matrix-parameter attributes. It derives
+from `SKObject`, owns one stable compatibility handle, and clears that handle
+through the shared idempotent lifetime. Official parameter names, optional
+values, and compile-time-obsolete text overloads now match the reference
+metadata. Rectangle and path clips use the official non-antialiased default;
+explicit antialias choices continue through the same typed retained API.
+
+Bitmap, image, surface, lattice, nine-patch, picture, primitive, and text
+overloads remain thin routes into the existing retained WebGPU command graph.
+An empty saved clip scope is now removed transactionally on restore instead of
+retaining a large general push/pop command pair. This peephole is fixed `O(1)`
+time and storage and is valid only when no command was recorded after the push;
+a scope containing drawing retains its balanced push, content, and pop. After
+one capacity warmup, 100,000 empty save/clip/restore cycles allocate exactly
+zero managed bytes and leave no commands. Drawn clips remain `O(C)` retained
+storage for commands `C`; lattice construction remains `O((X + 1)(Y + 1))`
+patch work for `X` and `Y` divider counts and submits those patches through one
+retained image source rather than uploading once per patch.
+
+The clean-room design follows Skia's public
+[canvas and lattice contract](https://api.skia.org/classSkCanvas.html),
+Direct2D's
+[device-context bitmap contract](https://learn.microsoft.com/windows/win32/direct2d/id2d1devicecontext-drawbitmap-overload),
+Win2D's
+[retained offscreen drawing model](https://learn.microsoft.com/windows/apps/develop/win2d/offscreen-drawing),
+WebRender's
+[display-list, spatial-tree, clip-tree, and frame split](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and Vello's
+[wgpu scene-to-texture architecture](https://github.com/linebender/vello).
+ProGPU adopts retained draw routing, separate transform/clip state, one image
+source per lattice, and GPU submission after scene recording; it rejects
+immediate CPU rasterization and API-specific native-handle branches. The
+required text review used Skia's
+[text architecture](https://docs.skia.org/docs/dev/design/text_overview/),
+DirectWrite's
+[layout/render separation](https://learn.microsoft.com/windows/win32/direct2d/direct2d-and-directwrite),
+and HarfBuzz's
+[buffer shaping contract](https://harfbuzz.github.io/harfbuzz-hb-shape.html).
+Canvas overload alignment therefore leaves reusable shaping and glyph
+placement on the existing CPU-result boundary and changes only retained draw
+routing.
+
+The isolated package gate produced all runtime and Avalonia 11/12 integration
+packages in a fresh feed, then restored and built the package-only Avalonia
+consumer with zero warnings or errors.
+
+The exact-checksum Apple M3 Pro Release workload performs 10,000
+save/scale/concat/clip/restore cycles per sample. Before empty-scope elision,
+ProGPU measured `3,839.419` ns/op and `6,979.893` B/op. Afterward it measured
+`679.500` ns/op and `0.7792` amortized B/op, versus native `213.525` ns/op and
+`0.1752` B/op: an 82.3% ProGPU latency reduction and more than 99.98% allocation
+reduction, while the remaining direct-run latency is still a documented
+optimization target. Matched Time Profiler captures measured `190.623` versus
+`195.177` ns/op; Allocations captures `184.444` versus `198.840` ns/op with
+the same managed allocation counts; Metal System Trace captures `194.098`
+versus `203.783` ns/op. Both Metal traces export zero target command-buffer,
+device-allocation, and resource-allocation rows, confirming this state-only
+path does not initialize WebGPU. Raw traces, TOCs, exported Metal tables, and
+exact-run JSON are retained under
+`artifacts/performance/skiasharp-canvas-api-instruments`.

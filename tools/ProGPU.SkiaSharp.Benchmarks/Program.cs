@@ -92,6 +92,7 @@ internal static class ProgramEntry
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
+            new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
@@ -320,6 +321,28 @@ internal static class ProgramEntry
             checksum = Mix(checksum, (uint)subset.Height);
         }
 
+        return checksum;
+    }
+
+    private static ulong RunCanvasRetainedStateRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            int restoreCount = canvas.Save();
+            canvas.Scale(1.0001f);
+            var translation = SKMatrix.CreateTranslation(index & 3, index & 7);
+            canvas.Concat(in translation);
+            canvas.ClipRect(new SKRect(1f, 2f, 63f, 62f));
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        checksum = Mix(checksum, picture is null ? 0u : 1u);
         return checksum;
     }
 
