@@ -1246,9 +1246,9 @@ public partial class SKShader : SKObject
         return new SKShader(() => new SolidColorBrush(value));
     }
 
-    public static SKShader CreateColor(SKColorF color, SKColorSpace colorSpace)
+    public static SKShader CreateColor(SKColorF color, SKColorSpace colorspace)
     {
-        ArgumentNullException.ThrowIfNull(colorSpace);
+        ArgumentNullException.ThrowIfNull(colorspace);
         var value = new Vector4(
             Math.Clamp(color.R, 0f, 1f),
             Math.Clamp(color.G, 0f, 1f),
@@ -1264,14 +1264,14 @@ public partial class SKShader : SKObject
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKMatrix localMatrix,
-        SKRect tileRect)
+        SKRect tile)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, localMatrix, tileRect);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, localMatrix, tile);
     }
 
     public static SKShader CreateLinearGradient(
@@ -1299,25 +1299,25 @@ public partial class SKShader : SKObject
         SKPoint start,
         SKPoint end,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode)
     {
-        return CreateLinearGradient(start, end, colors, colorSpace, colorPos, mode, SKMatrix.Identity);
+        return CreateLinearGradient(start, end, colors, colorspace, colorPos, mode, SKMatrix.Identity);
     }
 
     public static SKShader CreateLinearGradient(
         SKPoint start,
         SKPoint end,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode,
         SKMatrix localMatrix)
     {
         var spreadMethod = MapTileMode(mode);
         var stops = CreateGradientStops(colors, colorPos);
-        var interpolationMode = colorSpace?.IsLinear == true
+        var interpolationMode = colorspace?.IsLinear == true
             ? GradientColorInterpolationMode.ScRgbLinearInterpolation
             : GradientColorInterpolationMode.SRgbLinearInterpolation;
         if (!TryGetShaderCoordinateTransform(localMatrix, out var coordinateTransform))
@@ -1384,25 +1384,25 @@ public partial class SKShader : SKObject
         SKPoint center,
         float radius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode)
     {
-        return CreateRadialGradient(center, radius, colors, colorSpace, colorPos, mode, SKMatrix.Identity);
+        return CreateRadialGradient(center, radius, colors, colorspace, colorPos, mode, SKMatrix.Identity);
     }
 
     public static SKShader CreateRadialGradient(
         SKPoint center,
         float radius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode,
         SKMatrix localMatrix)
     {
         var spreadMethod = MapTileMode(mode);
         var stops = CreateGradientStops(colors, colorPos);
-        var interpolationMode = colorSpace?.IsLinear == true
+        var interpolationMode = colorspace?.IsLinear == true
             ? GradientColorInterpolationMode.ScRgbLinearInterpolation
             : GradientColorInterpolationMode.SRgbLinearInterpolation;
         if (!TryGetShaderCoordinateTransform(localMatrix, out var coordinateTransform))
@@ -1475,7 +1475,7 @@ public partial class SKShader : SKObject
         SKPoint end,
         float endRadius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode)
     {
@@ -1485,7 +1485,7 @@ public partial class SKShader : SKObject
             end,
             endRadius,
             colors,
-            colorSpace,
+            colorspace,
             colorPos,
             mode,
             SKMatrix.Identity);
@@ -1497,14 +1497,14 @@ public partial class SKShader : SKObject
         SKPoint end,
         float endRadius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode mode,
         SKMatrix localMatrix)
     {
         var spreadMethod = MapTileMode(mode);
         var stops = CreateGradientStops(colors, colorPos);
-        var interpolationMode = colorSpace?.IsLinear == true
+        var interpolationMode = colorspace?.IsLinear == true
             ? GradientColorInterpolationMode.ScRgbLinearInterpolation
             : GradientColorInterpolationMode.SRgbLinearInterpolation;
         if (!TryGetShaderCoordinateTransform(localMatrix, out var coordinateTransform))
@@ -1597,23 +1597,23 @@ public partial class SKShader : SKObject
     }
 
     public static SKShader CreateBitmap(
-        SKBitmap bitmap,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY)
+        SKBitmap src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy)
     {
-        ArgumentNullException.ThrowIfNull(bitmap);
-        return CreateRetainedImage(SKImage.FromBitmap(bitmap), tileModeX, tileModeY, SKMatrix.Identity);
+        ArgumentNullException.ThrowIfNull(src);
+        return CreateRetainedImage(SKImage.FromBitmap(src), tmx, tmy, SKMatrix.Identity);
     }
 
-    public static SKShader CreateCompose(SKShader destination, SKShader source)
+    public static SKShader CreateCompose(SKShader shaderA, SKShader shaderB)
     {
-        return CreateCompose(destination, source, SKBlendMode.SrcOver);
+        return CreateCompose(shaderA, shaderB, SKBlendMode.SrcOver);
     }
 
-    public SKShader WithColorFilter(SKColorFilter colorFilter)
+    public SKShader WithColorFilter(SKColorFilter filter)
     {
-        ArgumentNullException.ThrowIfNull(colorFilter);
-        return new SKShader(new ColorFilterShaderData(this, colorFilter));
+        ArgumentNullException.ThrowIfNull(filter);
+        return new SKShader(new ColorFilterShaderData(this, filter));
     }
 
     public SKShader WithLocalMatrix(SKMatrix localMatrix)

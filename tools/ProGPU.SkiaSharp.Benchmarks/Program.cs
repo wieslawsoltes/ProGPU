@@ -26,6 +26,13 @@ internal static class ProgramEntry
     private static long s_sink;
     private static SKTypeface? s_variableTypeface;
     private static readonly byte[] ImagePixels = CreateImagePixels();
+    private static readonly SKColorF[] ShaderColors =
+    {
+        new(1f, 0f, 0f, 1f),
+        new(0f, 1f, 0f, 1f),
+        new(0f, 0f, 1f, 1f)
+    };
+    private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
 
     public static int Run(string[] args)
     {
@@ -93,6 +100,7 @@ internal static class ProgramEntry
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
+            new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
@@ -343,6 +351,57 @@ internal static class ProgramEntry
 
         using var picture = recorder.EndRecording();
         checksum = Mix(checksum, picture is null ? 0u : 1u);
+        return checksum;
+    }
+
+    private static ulong RunShaderGradientFactories(int operations)
+    {
+        using var colorSpace = SKColorSpace.CreateSrgb();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var localMatrix = SKMatrix.CreateTranslation(index & 3, index & 7);
+            using var linear = SKShader.CreateLinearGradient(
+                new SKPoint(0f, 0f),
+                new SKPoint(64f, 32f),
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Mirror,
+                localMatrix);
+            using var radial = SKShader.CreateRadialGradient(
+                new SKPoint(32f, 32f),
+                24f,
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Repeat,
+                localMatrix);
+            using var sweep = SKShader.CreateSweepGradient(
+                new SKPoint(32f, 32f),
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Clamp,
+                -45f,
+                315f,
+                localMatrix);
+            using var conical = SKShader.CreateTwoPointConicalGradient(
+                new SKPoint(8f, 8f),
+                4f,
+                new SKPoint(48f, 40f),
+                28f,
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Decal,
+                localMatrix);
+            checksum = Mix(checksum, linear.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, radial.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, sweep.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, conical.Handle == IntPtr.Zero ? 0u : 1u);
+        }
+
         return checksum;
     }
 

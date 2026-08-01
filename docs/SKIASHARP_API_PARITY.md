@@ -54,7 +54,7 @@ path work requires matched profiling plus equivalent before/after runs.
 ## Current baseline
 
 The current pinned comparison records 4,222 official entries, 4,933 ProGPU
-entries, 3,803 exact matches, 419 missing entries, and 1,130 ProGPU-only
+entries, 3,836 exact matches, 386 missing entries, and 1,097 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -819,3 +819,60 @@ device-allocation, and resource-allocation rows, confirming this state-only
 path does not initialize WebGPU. Raw traces, TOCs, exported Metal tables, and
 exact-run JSON are retained under
 `artifacts/performance/skiasharp-canvas-api-instruments`.
+
+### Retained shader factory contract checkpoint
+
+`SKShader` now closes all 33 entries that remained missing from its official
+4.151.0 owner contract. The public bitmap, image, and picture factories use the
+official `src`, `tmx`, `tmy`, and `tile` parameter names; float-color gradient
+factories consistently expose `colorspace`; and compose/filter wrappers expose
+the official `shaderA`, `shaderB`, and `filter` names. This is metadata parity
+over the existing original retained implementation, not a native Skia call or
+source port.
+
+Color, gradient, picture, image, local-matrix, color-filter, noise, and composed
+shader nodes keep immutable ownership. Gradient colors and offsets are
+converted and clamped once in `O(S)` time and `O(S)` retained storage for `S`
+stops. Every `ToBrush` call returns an independent compact stop array so caller
+mutation cannot alter the shader. Linear-color spaces select scRGB-linear
+interpolation; tile modes and the inverse local matrix survive through linear,
+radial, two-point conical, and sweep gradients. Image shaders continue to own
+one retained texture snapshot with explicit nearest/linear/mipmap/cubic
+sampling rather than uploading once per tile. Actual gradient evaluation,
+tiled texture sampling, composition, and post-filter work remain in ProGPU's
+retained WebGPU render/compute paths; factory construction is intentionally
+CPU-only and does not initialize WebGPU.
+
+The clean-room design follows Skia's public
+[shader contract](https://api.skia.org/classSkShader.html) and
+[gradient degeneracy rules](https://api.skia.org/classSkGradientShader.html),
+Direct2D's
+[solid, gradient, image, and bitmap brush model](https://learn.microsoft.com/windows/win32/direct2d/direct2d-brushes-overview),
+Win2D's
+[color-space-aware linear gradient contract](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Brushes_CanvasLinearGradientBrush.htm),
+and WebGPU's
+[immutable samplers, addressing, filtering, and external-texture model](https://gpuweb.github.io/gpuweb/).
+ProGPU adopts immutable factory state, explicit interpolation and addressing,
+and deferred GPU evaluation; it rejects render-target-bound public resources,
+per-tile uploads, CPU raster fallbacks, and backend-specific public handles.
+The required Skia/SkParagraph, DirectWrite/Direct2D, Win2D, WebRender,
+Vello/Parley, and HarfBuzz review recorded by the canvas checkpoint remains the
+shaping/layout boundary: this shader-only slice does not change text shaping,
+glyph caching, or CPU layout reuse.
+
+The exact-checksum Apple M3 Pro Release workload creates and disposes linear,
+radial, sweep, and two-point conical float-color gradients with three stops,
+different tile modes, one sRGB color space, and one local matrix.
+ProGPU measured `850.979` ns/op and `1,448` managed B/op versus native
+`2,353.083` ns/op and `416` managed B/op (`0.362` latency ratio). The extra
+managed bytes are ProGPU's visible immutable stop/closure ownership, whereas
+the native harness does not count Skia's native allocations; reducing the
+managed representation remains an optimization target and no total-memory
+advantage is claimed from this counter alone. Matched Time Profiler captures
+measured `853.521` versus `2,389.021` ns/op, Allocations captures `838.396`
+versus `5,591.000` ns/op with the same `1,448` versus `416` managed B/op, and
+Metal System Trace captures `846.980` versus `2,414.667` ns/op. Both Metal
+traces export zero target command-buffer, current-allocation-size, and resource
+allocation rows, confirming factory construction remains CPU-only. Raw traces,
+TOCs, exported Metal tables, and exact-run JSON are retained under
+`artifacts/performance/skiasharp-shader-api-instruments`.
