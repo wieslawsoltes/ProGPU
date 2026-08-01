@@ -29,4 +29,14 @@ public abstract class SKAbstractManagedStream : SKStreamAsset
 
     protected internal virtual IntPtr OnFork() => OnCreateNew();
     protected internal virtual IntPtr OnDuplicate() => OnCreateNew();
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }

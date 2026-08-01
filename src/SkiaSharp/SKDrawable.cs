@@ -7,7 +7,12 @@ public class SKDrawable : SKObject
     private int _generationId = 1;
 
     protected SKDrawable()
-        : base(SKObjectHandle.Create(), owns: true)
+        : this(owns: true)
+    {
+    }
+
+    protected SKDrawable(bool owns)
+        : base(SKObjectHandle.Create(), owns)
     {
     }
 
@@ -55,5 +60,15 @@ public class SKDrawable : SKObject
         var canvas = recorder.BeginRecording(Bounds);
         Draw(canvas, 0f, 0f);
         return recorder.EndRecording();
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 }

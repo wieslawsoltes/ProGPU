@@ -331,6 +331,16 @@ public class SKPathMeasure : SKObject
         base.DisposeManaged();
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
     private static SKPoint ToPoint(Vector2 value) => new(value.X, value.Y);
 
     private static Vector2 ToVector(SKPoint value) => new(value.X, value.Y);

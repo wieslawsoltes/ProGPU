@@ -120,6 +120,11 @@ public class SKColorSpaceIccProfile : SKObject
         base.DisposeManaged();
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     private static bool TryParse(
         ReadOnlySpan<byte> source,
         out SKColorSpaceTransferFn transferFunction,

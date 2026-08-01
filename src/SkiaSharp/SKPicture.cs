@@ -180,6 +180,11 @@ public partial class SKPicture : SKObject
         _picture = null;
         base.DisposeManaged();
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }
 
 public class SKPictureRecorder : SKObject
@@ -231,6 +236,16 @@ public class SKPictureRecorder : SKObject
         _canvas = null;
         _recorder = null;
         base.DisposeManaged();
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
     private sealed class PictureDrawable : SKDrawable

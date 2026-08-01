@@ -45,4 +45,14 @@ public class SKFileStream : SKStreamAsset
             return (Array.Empty<byte>(), false);
         }
     }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }

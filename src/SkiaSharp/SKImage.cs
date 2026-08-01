@@ -2955,6 +2955,11 @@ public class SKBitmap : SKObject
         }
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     private void ReleasePixels()
     {
         var pixels = _pixels;
@@ -3172,6 +3177,11 @@ public class SKManagedStream : SKAbstractManagedStream
         }
 
         base.DisposeManaged();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
     private static int SkipNonSeekable(Stream source, int requested)

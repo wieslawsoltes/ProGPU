@@ -448,6 +448,11 @@ public partial class SKTextBlob : SKObject
         return hasBounds ? bounds : SKRect.Empty;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
 }
 
 internal sealed class SKTextBlobBuilderCache

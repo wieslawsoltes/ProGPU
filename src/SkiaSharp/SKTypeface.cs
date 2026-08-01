@@ -83,6 +83,16 @@ public class SKFontStyle : SKObject, ISKSkipObjectRegistration
         style.PreventPublicDisposal();
         return style;
     }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }
 
 public partial class SKTypeface : SKObject

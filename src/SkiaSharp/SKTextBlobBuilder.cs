@@ -514,6 +514,11 @@ public class SKTextBlobBuilder : SKObject
         base.Dispose(disposing);
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     private SKTextBlobBuilderRun AllocateDefaultRun(
         SKFont font,
         int count,

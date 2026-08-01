@@ -53,26 +53,24 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,144 ProGPU
-entries, 4,125 exact matches, 97 missing entries, and 1,019 ProGPU-only
-entries. This is
-a starting point, not a compatibility claim, and the matching/missing budget
+The current pinned comparison records 4,222 official entries, 5,176 ProGPU
+entries, 4,157 exact matches, 65 missing entries, and 1,019 ProGPU-only
+entries. This is a progress checkpoint, not a compatibility claim, and the
+matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
 the official parity claim.
 
-The remaining 97 entries are 22 attributes, one field, 62 methods, three
-properties, and nine types. They are concentrated in nullable/obsolete
-metadata and managed-disposal declarations; `SKMaskFilter`; N-way, no-draw,
-and overdraw canvases; WebP animation and frame contracts; raw text-run
-buffers; SVG canvas; and a small set of related value and helper contracts.
-The continuation branch regenerated this exact baseline from the pinned
-official package at `v0.1.0-preview.34` (`39b53dbb`) before implementation;
-all 97 entries remain explicit, reviewable work for its draft PR. GPU-visible
+The remaining 65 entries are concentrated in nullable/obsolete metadata;
+`SKMaskFilter`; N-way, no-draw, and overdraw canvases; WebP animation and frame
+contracts; raw text-run buffers; SVG canvas; and a small set of related value
+and helper contracts. The continuation branch regenerated the original
+97-entry baseline from the pinned official package at `v0.1.0-preview.34`
+(`39b53dbb`) before implementation; the unresolved 65 entries remain explicit,
+reviewable work for its draft PR. GPU-visible
 families require original retained WebGPU implementations and
-quality/performance tests;
-unsupported platform codecs must fail explicitly rather than expose metadata
-stubs that silently change behavior.
+quality/performance tests; unsupported platform codecs must fail explicitly
+rather than expose metadata stubs that silently change behavior.
 
 ## Planned implementation order
 
@@ -96,6 +94,23 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Explicit managed ownership and disposal declarations
+
+Thirty-two official protected ownership hooks now appear on their declaring
+SkiaSharp types while retaining ProGPU's single `SKNativeObject` lifetime
+engine. The declarations cover managed/read/write streams, bitmap and codec
+wrappers, color and image filters, color spaces, drawables, font styles, paint,
+paths, pictures, surfaces, and text blobs. They delegate to the existing
+idempotent base implementation; no native handle model, allocation, rendering
+path, or GPU initialization was added. The protected `SKDrawable(bool owns)`
+constructor now preserves borrowed ownership without adding a public adapter.
+
+Independent reflection and lifetime tests verify every declaring type,
+virtual override shape, borrowed drawable ownership, and post-disposal handle
+state. The exact metadata gate advances from 4,125 to 4,157 matches and
+ratchets missing entries from 97 to 65 without increasing the 1,019 documented
+ProGPU-only entries.
 
 ### Exact signatures and managed ownership hierarchy
 

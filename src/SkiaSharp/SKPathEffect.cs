@@ -267,4 +267,9 @@ public partial class SKPathEffect : SKObject
         ReleaseReference();
         base.DisposeManaged();
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
 }

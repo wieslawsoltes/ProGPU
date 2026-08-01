@@ -280,6 +280,11 @@ public partial class SKPaint : SKObject
         base.Dispose(disposing);
     }
 
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
     public SKPath? GetFillPath(SKPath src) => GetFillPath(src, 1f);
 
     public SKPath? GetFillPath(SKPath src, float resScale)
@@ -2039,6 +2044,11 @@ public partial class SKColorFilter : SKObject
 
     internal static SKColorFilter CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
     internal float[]? ColorMatrix => _kind == ColorFilterKind.ColorMatrix ? _colorMatrix : null;
     internal bool IsLumaColor => _kind == ColorFilterKind.Luma && _lumaColor;
 
@@ -2443,6 +2453,11 @@ public partial class SKImageFilter : SKObject
     }
 
     internal FilterKind Kind { get; }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
     internal object? Parameters { get; }
     internal SKImageFilter? Input { get; }
     internal SKRect? CropRect { get; }
