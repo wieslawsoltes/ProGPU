@@ -66,8 +66,11 @@ properties, and nine types. They are concentrated in nullable/obsolete
 metadata and managed-disposal declarations; `SKMaskFilter`; N-way, no-draw,
 and overdraw canvases; WebP animation and frame contracts; raw text-run
 buffers; SVG canvas; and a small set of related value and helper contracts.
-They remain explicit work for the next branch. GPU-visible families require
-original retained WebGPU implementations and quality/performance tests;
+The continuation branch regenerated this exact baseline from the pinned
+official package at `v0.1.0-preview.34` (`39b53dbb`) before implementation;
+all 97 entries remain explicit, reviewable work for its draft PR. GPU-visible
+families require original retained WebGPU implementations and
+quality/performance tests;
 unsupported platform codecs must fail explicitly rather than expose metadata
 stubs that silently change behavior.
 
