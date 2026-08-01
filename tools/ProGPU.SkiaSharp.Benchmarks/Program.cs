@@ -88,6 +88,7 @@ internal static class ProgramEntry
             new BenchmarkCase("vulkan-descriptor-value", 100_000, RunVulkanDescriptorValue),
             new BenchmarkCase("d3d-resource-info-value", 100_000, RunD3DResourceInfoValue),
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
+            new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -236,6 +237,26 @@ internal static class ProgramEntry
         }
 
         return 0;
+    }
+
+    private static ulong RunGraphicsCacheControls(int operations)
+    {
+        _ = SKGraphics.SetFontCacheCountLimit(2_048);
+        _ = SKGraphics.SetFontCacheLimit(2 * 1024 * 1024);
+        _ = SKGraphics.SetResourceCacheSingleAllocationByteLimit(0);
+        _ = SKGraphics.SetResourceCacheTotalByteLimit(256 * 1024 * 1024);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var count = 1_024 + (index & 1);
+            var bytes = 4_194_304L + (index & 1);
+            _ = SKGraphics.SetFontCacheCountLimit(count);
+            _ = SKGraphics.SetFontCacheLimit(bytes);
+            checksum = Mix(checksum, (uint)SKGraphics.GetFontCacheCountLimit());
+            checksum = Mix(checksum, (ulong)SKGraphics.GetFontCacheLimit());
+        }
+
+        return checksum;
     }
 
     private static ulong RunPointArithmetic(int operations)

@@ -557,3 +557,29 @@ records. Matched Time Profiler captures measured `168.188` versus `30,561.271`
 ns/op; Allocations retained `88` versus `112` bytes. Metal System Trace exported
 zero target command-buffer, device-allocation, and resource-allocation rows for
 both CPU-only binaries.
+
+### Global graphics controls and OpenGL state checkpoint
+
+The official `SKGraphics`, `SKTraceMemoryDump`, `GRGlBackendState`, and
+`SKBlender.CreateArithmetic` contracts close 41 additional 4.151.0 metadata
+entries. Cache budgets use atomic process-wide values; setters return the prior
+budget, reads are fixed `O(1)`, and the compatibility counters and dump callbacks
+do not initialize WebGPU. Purge entry points are safe idempotent boundaries for
+the shim's process caches. `GRGlBackendState` preserves the official 16-bit
+OpenGL invalidation mask exactly, while ProGPU's WebGPU backend continues to use
+its typed resource ownership instead of interpreting GL state bits.
+
+Independent tests cover every state-mask group, atomic budget round trips,
+negative-budget rejection, cache accounting, and protected memory-dump
+callbacks. The repeatable `graphics-cache-controls` workload performs two
+atomic setter/getter pairs per operation with identical native and ProGPU
+checksums and zero managed allocation. The design follows the public
+[SKGraphics API](https://learn.microsoft.com/dotnet/api/skiasharp.skgraphics),
+[SKTraceMemoryDump API](https://learn.microsoft.com/dotnet/api/skiasharp.sktracememorydump),
+and the pinned package's ECMA-335 enum and method metadata.
+Three alternating Apple M3 Pro Release process pairs measured `0.131`
+ProGPU/native (`2.373` versus `18.165` ns/op), with zero allocation. Matched
+Time Profiler captures measured `2.408` versus `17.892` ns/op; Allocations
+retained zero bytes per operation. Metal System Trace exported zero target
+command-buffer, device-allocation, and resource-allocation rows for both
+CPU-only binaries.

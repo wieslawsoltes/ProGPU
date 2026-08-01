@@ -34,6 +34,25 @@ public enum GRBackendState : uint
     All = uint.MaxValue,
 }
 
+[Flags]
+public enum GRGlBackendState : uint
+{
+    None = 0,
+    RenderTarget = 1u << 0,
+    TextureBinding = 1u << 1,
+    View = 1u << 2,
+    Blend = 1u << 3,
+    MSAAEnable = 1u << 4,
+    Vertex = 1u << 5,
+    Stencil = 1u << 6,
+    PixelStore = 1u << 7,
+    Program = 1u << 8,
+    FixedFunction = 1u << 9,
+    Misc = 1u << 10,
+    PathRendering = 1u << 11,
+    All = 0xffffu,
+}
+
 public struct GRGlFramebufferInfo : IEquatable<GRGlFramebufferInfo>
 {
     private uint _framebufferObjectId;

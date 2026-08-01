@@ -25,7 +25,7 @@ public sealed class SkBlenderCompatibilityTests
     [Fact]
     public void ArithmeticFactoryRejectsNonFiniteCoefficients()
     {
-        using var blender = SKBlender.CreateArithmetic(.1f, .2f, .3f, .4f, enforcePremul: true);
+        using var blender = SKBlender.CreateArithmetic(.1f, .2f, .3f, .4f, enforcePMColor: true);
         Assert.NotNull(blender);
         Assert.NotEqual(IntPtr.Zero, blender.Handle);
         Assert.Null(SKBlender.CreateArithmetic(float.NaN, 0f, 0f, 0f, false));

@@ -42,7 +42,7 @@ public class SKBlender : SKObject
         float k2,
         float k3,
         float k4,
-        bool enforcePremul)
+        bool enforcePMColor)
     {
         if (!float.IsFinite(k1) ||
             !float.IsFinite(k2) ||
@@ -52,7 +52,12 @@ public class SKBlender : SKObject
             return null;
         }
 
-        return new SKBlender(new ArithmeticBlend(k1, k2, k3, k4, enforcePremul));
+        return new SKBlender(new ArithmeticBlend(k1, k2, k3, k4, enforcePMColor));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
     internal readonly record struct ArithmeticBlend(

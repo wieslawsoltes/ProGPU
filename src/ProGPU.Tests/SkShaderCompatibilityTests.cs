@@ -147,7 +147,7 @@ public sealed class SkShaderCompatibilityTests
         var destination = SKShader.CreateColor(SKColors.Blue);
         var source = SKShader.CreateColor(SKColors.Red);
         using var multiply = SKShader.CreateBlend(SKBlendMode.Multiply, destination, source);
-        using var arithmeticBlender = SKBlender.CreateArithmetic(0.1f, 0.2f, 0.3f, 0.4f, enforcePremul: true);
+        using var arithmeticBlender = SKBlender.CreateArithmetic(0.1f, 0.2f, 0.3f, 0.4f, enforcePMColor: true);
         Assert.NotNull(arithmeticBlender);
         using var arithmetic = SKShader.CreateBlend(arithmeticBlender!, destination, source);
 
