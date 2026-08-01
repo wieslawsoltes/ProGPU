@@ -3904,6 +3904,10 @@ public sealed class LinuxMediaProviderContractTests
                 sink.Accept;
             try
             {
+            for (int index = 0;
+                 index < 100;
+                 index++)
+            {
                 LinuxPcm16TimelineMixer.MixCore(
                     plans,
                     sources,
@@ -3913,9 +3917,13 @@ public sealed class LinuxMediaProviderContractTests
                     handler,
                     processorChains:
                         processorChains);
-                Assert.Equal(
-                    64L * 2 * 10_192,
-                    sink.Checksum);
+            }
+            Assert.Equal(
+                100L *
+                64 *
+                2 *
+                10_192,
+                sink.Checksum);
                 sink.Reset();
 
                 long before =
