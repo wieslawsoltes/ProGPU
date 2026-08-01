@@ -75,6 +75,7 @@ internal static class ProgramEntry
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
+            new BenchmarkCase("codec-frame-info-value", 100_000, RunCodecFrameInfoValue),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -468,6 +469,34 @@ internal static class ProgramEntry
                 (uint)bytes.Length << 16 |
                 (uint)decoded[0] << 8 |
                 decoded[^1]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunCodecFrameInfoValue(int operations)
+    {
+        var frame = new SKCodecFrameInfo
+        {
+            RequiredFrame = -1,
+            Duration = 125,
+            FullyRecieved = true,
+            AlphaType = SKAlphaType.Premul,
+            HasAlphaWithinBounds = true,
+            DisposalMethod = SKCodecAnimationDisposalMethod.RestoreBackgroundColor,
+            Blend = SKCodecAnimationBlend.SrcOver,
+            FrameRect = new SKRectI(1, 2, 31, 42),
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            frame.FullyRecieved = (index & 1) == 0;
+            frame.HasAlphaWithinBounds = (index & 2) == 0;
+            checksum = Mix(
+                checksum,
+                (uint)frame.Duration << 16 |
+                (frame.FullyRecieved ? 1u << 1 : 0) |
+                (frame.HasAlphaWithinBounds ? 1u : 0));
         }
 
         return checksum;

@@ -54,8 +54,8 @@ path work requires matched profiling plus equivalent before/after runs.
 ## Current baseline
 
 The current pinned comparison records 4,222 official entries, 4,471 ProGPU
-entries, 3,240 exact matches, 982 missing entries, and 1,231 ProGPU-only
-entries. The missing surface comprises 66 type identities, 19 fields, 21
+entries, 3,241 exact matches, 981 missing entries, and 1,230 ProGPU-only
+entries. The missing surface comprises 65 type identities, 19 fields, 21
 interfaces, 595 methods, 120 properties, and 161 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -258,3 +258,23 @@ operation. The clean-room design follows the public
 [Skia public color-space contract](https://skia.googlesource.com/skia/+/fc75b5a/include/core/SkColorSpace.h),
 and the
 [ICC.1:2022 D50/Bradford model](https://www.color.org/specifications/ICC.1-2022-05.pdf).
+
+### Animated-codec frame ABI
+
+`SKCodecFrameInfo` now matches the official sequential layout as well as its
+existing public value behavior. Its two Boolean properties use normalized
+one-byte storage in the declared native field order, preserving the compact
+codec interop contract without exposing the storage fields. All eight public
+properties, equality, hashing, and operators remain allocation-free fixed
+`O(1)` CPU operations and do not initialize a decoder or WebGPU.
+
+Independent tests inspect the compiled private layout, verify byte rather than
+managed-Boolean storage, and exercise property normalization and full-value
+equality. Three alternating Apple M3 Pro Release process pairs retained exact
+checksums and zero allocations at `1.001` ProGPU/native (`1.255` versus `1.254`
+ns/op), which is performance-neutral at timer resolution. Matched Time Profiler
+and Allocations captures retained exact checksums and zero bytes per operation;
+their medians ranged from `1.220`–`1.291` ns/op for ProGPU and `1.196`–`1.226`
+ns/op for native. The clean-room contract follows the public
+[SKCodecFrameInfo API](https://learn.microsoft.com/dotnet/api/skiasharp.skcodecframeinfo)
+and the official package's ECMA-335 sequential field metadata.
