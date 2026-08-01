@@ -1077,6 +1077,36 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void DisposingShapeOwnersDetachesTheirShapeCollections()
+    {
+        using var compositor = new Compositor();
+        ShapeVisual visual = compositor.CreateShapeVisual();
+        CompositionContainerShape container =
+            compositor.CreateContainerShape();
+        CompositionSpriteShape visualShape =
+            compositor.CreateSpriteShape();
+        CompositionSpriteShape nestedShape =
+            compositor.CreateSpriteShape();
+        visual.Shapes.Add(visualShape);
+        container.Shapes.Add(nestedShape);
+
+        visual.Dispose();
+        container.Dispose();
+
+        Assert.Empty(visual.Shapes);
+        Assert.Empty(container.Shapes);
+        Assert.Throws<ObjectDisposedException>(
+            () => visual.Shapes.Add(visualShape));
+        Assert.Throws<ObjectDisposedException>(
+            () => container.Shapes.Add(nestedShape));
+
+        ShapeVisual replacement = compositor.CreateShapeVisual();
+        replacement.Shapes.Add(visualShape);
+        replacement.Shapes.Add(nestedShape);
+        Assert.Equal([visualShape, nestedShape], replacement.Shapes);
+    }
+
+    [Fact]
     public void RejectedElementChildReplacementIsTransactional()
     {
         var host = new FrameworkElement();

@@ -726,6 +726,13 @@ public sealed class CompositionContainerShape : CompositionShape
         }
         return false;
     }
+
+    internal override void OnDisposed()
+    {
+        Shapes.Clear();
+        Shapes.Dispose();
+        base.OnDisposed();
+    }
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]
@@ -1383,6 +1390,8 @@ public sealed class ShapeVisual : ContainerVisual, ICompositionViewBoxOwner
 
     internal override void OnDisposed()
     {
+        Shapes.Clear();
+        Shapes.Dispose();
         _viewBox?.RemoveOwner(this);
         _viewBox = null;
         base.OnDisposed();

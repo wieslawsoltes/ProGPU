@@ -338,7 +338,9 @@ internal sealed record MetadataApiSurface(
         AddAttributes(
             reader,
             formatter,
-            $"{typeName}.{propertyName}",
+            $"{typeName}.{propertyName}" +
+            $"({string.Join(",", signature.ParameterTypes)})->" +
+            signature.ReturnType,
             property.GetCustomAttributes(),
             entries);
     }

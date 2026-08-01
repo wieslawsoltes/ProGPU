@@ -59,9 +59,11 @@ Method-, return-, and parameter-owned attributes plus generic constraints use
 a canonical owner identity containing the declaring type, method name, generic
 arity, complete parameter types, return type, and parameter sequence/type/name,
 so overloads and `params` contracts cannot collapse into one declaration. The
+same identity rule includes a property's return and complete index-parameter
+types, so overloaded indexer attributes cannot collapse or move silently. The
 command-line gate runs an isolated metadata self-test before comparison and
-proves that method/parameter attributes, `params`, and constrained generic
-overloads remain distinct.
+proves that method/parameter/property attributes, `params`, overloaded
+indexers, and constrained generic overloads remain distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -1480,6 +1482,9 @@ fullscreen to compact overlay explicitly restores normal native state before
 applying compact chrome and topmost policy. Modal children use a per-owner
 count, keeping a shared owner disabled until its last modal child is released;
 configuration updates that retain the same owner do not churn that count.
+Supplying a valid owner ID also binds the corresponding retained XAML window
+as the native owner before activation, preserving host Z-order/minimize
+grouping instead of retaining only a managed identifier.
 
 Display snapshots are supplied by `IWindowingDisplayAreaProvider`.
 `FindAll` and point/rectangle fallback selection are `O(D)` time for `D`
@@ -1487,6 +1492,9 @@ displays; returned ownership is `O(D)`. A watcher retains `O(D)` identity/state
 and diffs a platform transition in expected `O(D)` time. Icon and Z-order
 operations use `IAppWindowPlatformProvider`; an unavailable or rejected native
 operation fails explicitly rather than mutating only managed state.
+If an `Added`, `Updated`, or `Removed` callback stops the watcher, snapshot
+publication returns immediately and cannot overwrite `Stopped` with a later
+`EnumerationCompleted` transition.
 
 Focused tests cover presenter presets and state, dispatcher affinity and
 shutdown destruction, application and native-path cancellable close, identity
@@ -1497,7 +1505,8 @@ watcher add/update/remove/status ordering, contract versions, and zero managed
 allocations across 100,000 warmed `AppWindow` property-read iterations. The
 windowing regression set also covers fullscreen-to-compact transitions and
 two modal siblings sharing one owner, native position synchronization, and
-unchanged-position coalescing.
+unchanged-position coalescing, native owner binding, and stop-during-initial-
+enumeration ordering.
 
 Deferred behavioral gate: platform adapters still need to apply retained
 title-bar colors and drag rectangles where the OS supports them. The
@@ -1576,7 +1585,9 @@ A warmed Release invariant reports exactly zero managed allocations across
 Focused tests verify collection order and ownership, same-compositor
 reparenting, transactional cycle rejection, transform/color invalidation,
 compiled-scene reuse, analytic ellipse/rectangle WebGPU pixels, view-box
-stretch/alignment, trimmed-line pixels, and the allocation invariant. The
+stretch/alignment, trimmed-line pixels, and the allocation invariant. Disposing
+a shape visual or nested container clears and closes its owned collection,
+detaches every reusable shape, and leaves no stale public hierarchy. The
 pinned comparison adds 124 exact declarations without adding a ProGPU-only
 declaration, advancing the report to 8,702 candidate entries, 4,916 exact
 matches, 11,663 missing entries, and 3,786 extras.

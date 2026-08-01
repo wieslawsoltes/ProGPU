@@ -177,6 +177,31 @@ public sealed class AppWindowTests
     }
 
     [Fact]
+    public void SuppliedOwnerIsAppliedToTheUnderlyingWindow()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        AppWindow? owner = null;
+        AppWindow? child = null;
+        try
+        {
+            owner = AppWindow.Create();
+            child = AppWindow.Create(
+                OverlappedPresenter.Create(),
+                owner.Id);
+
+            Assert.Equal(owner.Id, child.OwnerWindowId);
+            Assert.Same(owner.XamlWindow, child.XamlWindow.Owner);
+        }
+        finally
+        {
+            child?.Destroy();
+            owner?.Destroy();
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
     public void CompactOverlayLeavesFullscreenBeforeApplyingItsState()
     {
         DispatcherQueueController controller =
@@ -425,6 +450,42 @@ public sealed class AppWindowTests
             Assert.Equal(
                 DisplayAreaWatcherStatus.Stopped,
                 watcher.Status);
+        }
+        finally
+        {
+            WindowingPlatformServices.DisplayAreas = previous;
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
+    public void DisplayAreaWatcherPreservesStopDuringInitialEnumeration()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        IWindowingDisplayAreaProvider? previous =
+            WindowingPlatformServices.DisplayAreas;
+        try
+        {
+            WindowingPlatformServices.DisplayAreas =
+                new TestDisplayAreaProvider();
+            DisplayAreaWatcher watcher = DisplayArea.CreateWatcher();
+            var events = new List<string>();
+            watcher.Added += (_, area) =>
+            {
+                events.Add($"added:{area.DisplayId.Value}");
+                watcher.Stop();
+            };
+            watcher.EnumerationCompleted += (_, _) =>
+                events.Add("enumerated");
+            watcher.Stopped += (_, _) => events.Add("stopped");
+
+            watcher.Start();
+
+            Assert.Equal(
+                DisplayAreaWatcherStatus.Stopped,
+                watcher.Status);
+            Assert.Equal(["added:1", "stopped"], events);
         }
         finally
         {

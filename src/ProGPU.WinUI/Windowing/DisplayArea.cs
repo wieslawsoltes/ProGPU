@@ -233,6 +233,8 @@ public sealed class DisplayAreaWatcher
         _provider.DisplayAreasChanged += OnDisplayAreasChanged;
         _status = DisplayAreaWatcherStatus.Started;
         PublishSnapshot(isInitial: true);
+        if (_status != DisplayAreaWatcherStatus.Started)
+            return;
         _status = DisplayAreaWatcherStatus.EnumerationCompleted;
         EnumerationCompleted?.Invoke(this, EventArgs.Empty);
     }
@@ -288,12 +290,16 @@ public sealed class DisplayAreaWatcher
                 area = new DisplayArea(info);
                 _areas.Add(info.DisplayId, area);
                 Added?.Invoke(this, area);
+                if (!CanPublish())
+                    return;
             }
             else if (!area.Snapshot.Equals(info))
             {
                 area = new DisplayArea(info);
                 _areas[info.DisplayId] = area;
                 Updated?.Invoke(this, area);
+                if (!CanPublish())
+                    return;
             }
         }
 
@@ -307,8 +313,15 @@ public sealed class DisplayAreaWatcher
             DisplayArea removed = _areas[id];
             _areas.Remove(id);
             Removed?.Invoke(this, removed);
+            if (!CanPublish())
+                return;
         }
     }
+
+    private bool CanPublish() =>
+        _provider is not null &&
+        _status is DisplayAreaWatcherStatus.Started or
+            DisplayAreaWatcherStatus.EnumerationCompleted;
 
     private void VerifyAccess()
     {

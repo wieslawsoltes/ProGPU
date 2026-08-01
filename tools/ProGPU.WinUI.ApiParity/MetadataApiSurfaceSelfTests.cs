@@ -45,20 +45,30 @@ internal static class MetadataApiSurfaceSelfTests
             .Select(GetOwner)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        string[] propertyAttributeOwners = surface.Entries
+            .Where(static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Item(",
+                    StringComparison.Ordinal))
+            .Select(GetOwner)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
         if (attributeOwners.Length != 2 ||
             genericOwners.Length != 2 ||
             parameterAttributeOwners.Length != 2 ||
-            paramArrayOwners.Length != 1)
+            paramArrayOwners.Length != 1 ||
+            propertyAttributeOwners.Length != 2)
         {
             throw new InvalidOperationException(
-                "Method, parameter, and params attributes plus generic constraints must retain their complete overload owner signature. " +
+                "Method, parameter, params, and property attributes plus generic constraints must retain their complete overload owner signature. " +
                 $"Observed method={attributeOwners.Length}, generic={genericOwners.Length}, " +
-                $"parameter={parameterAttributeOwners.Length}, params={paramArrayOwners.Length}.");
+                $"parameter={parameterAttributeOwners.Length}, params={paramArrayOwners.Length}, " +
+                $"property={propertyAttributeOwners.Length}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for method/parameter attributes, params, and generic constraints.");
+            "WinUI API metadata owner self-test passed for method/parameter/property attributes, params, and generic constraints.");
         return 0;
     }
 
@@ -72,7 +82,7 @@ internal static class MetadataApiSurfaceSelfTests
 
 namespace ProGPU.WinUI.ApiParity.SelfTest
 {
-    [AttributeUsage(AttributeTargets.Method)]
+    [AttributeUsage(AttributeTargets.Method | AttributeTargets.Property)]
     public sealed class ContractMarkerAttribute(string identity) : Attribute
     {
         public string Identity { get; } = identity;
@@ -93,6 +103,12 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public void Apply([ParameterContractMarker("text")] string value) => _ = value;
 
         public void Collect(params int[] values) => _ = values;
+
+        [ContractMarker("integer-index")]
+        public int this[int index] => index;
+
+        [ContractMarker("text-index")]
+        public int this[string index] => index.Length;
 
         public void Transform<T>(T value)
             where T : class => _ = value;

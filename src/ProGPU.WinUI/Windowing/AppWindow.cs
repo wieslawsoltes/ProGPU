@@ -95,6 +95,18 @@ public sealed class AppWindow
             unchecked((ulong)Interlocked.Increment(
                 ref s_nextWindowId)));
         _window = new Microsoft.UI.Xaml.Window();
+        if (ownerWindowId.Value != 0)
+        {
+            lock (RegistrySync)
+            {
+                if (Registry.TryGetValue(
+                        ownerWindowId,
+                        out AppWindow? owner))
+                {
+                    _window.Owner = owner._window;
+                }
+            }
+        }
         TitleBar = new AppWindowTitleBar(this);
         _presenter.ConfigurationChanged += OnPresenterConfigurationChanged;
         _dispatcherQueue.ShutdownStarting += OnDispatcherQueueShutdownStarting;
