@@ -204,6 +204,7 @@ public sealed class SkRoundRectCompatibilityTests
     {
         using var value = CreateComplex();
         using var scaled = value.Transform(new SKMatrix(2f, 0f, 0f, 0f, 3f, 0f, 0f, 0f, 1f));
+        Assert.NotNull(scaled);
         Assert.Equal(new SKRect(0f, 0f, 40f, 30f), scaled.Rect);
         Assert.Equal(
             new[]
@@ -218,6 +219,7 @@ public sealed class SkRoundRectCompatibilityTests
         Assert.True(value.TryTransform(
             new SKMatrix(0f, -2f, 20f, 3f, 0f, 0f, 0f, 0f, 1f),
             out var rotated));
+        Assert.NotNull(rotated);
         using (rotated)
         {
             Assert.Equal(new SKRect(0f, 0f, 20f, 60f), rotated.Rect);

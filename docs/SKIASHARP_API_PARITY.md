@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,979 ProGPU
-entries, 3,911 exact matches, 311 missing entries, and 1,068 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,022 ProGPU
+entries, 3,954 exact matches, 268 missing entries, and 1,068 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -933,3 +933,30 @@ and TOC were retained, but exporting its individual Metal tables reports an
 Instruments run error, so no unsupported native row-count claim is made. Raw
 traces, TOCs, available exported tables, and exact-run JSON are retained under
 `artifacts/performance/skiasharp-gr-context-api-instruments`.
+
+### Legacy path-builder migration contract checkpoint
+
+The 43 legacy `SKPath` mutation overloads now carry the official
+`Obsolete("Use SKPathBuilder instead.")` contract without changing their
+existing clean-room behavior. The attribute is advisory rather than an error,
+so source compatibility remains intact while new callers receive the same
+migration signal as the official 4.151.0 surface. An independent metadata test
+enumerates every declared public obsolete method, fixes the count at 43, and
+verifies the exact message and non-error policy.
+
+This is a metadata-only closure over ProGPU's already validated CPU path view.
+Path mutation remains retained, CPU-only `O(1)` work per line/curve operation
+and `O(N)` storage for `N` segments; it does not initialize WebGPU, flatten
+analytic arcs, or change renderer cache keys. The original clean-room path and
+builder checkpoints above continue to define topology, ownership, conic,
+iterator, transform, serialization, and performance behavior. Because no
+algorithm, allocation path, shader, or rendered output changed, the matched
+performance and Instruments evidence for those checkpoints remains applicable;
+this slice introduces no executable hot-path work to benchmark.
+
+The public migration policy was derived solely from the pinned NuGet reference
+metadata and the official
+[`SKPathBuilder` API contract](https://learn.microsoft.com/dotnet/api/skiasharp.skpathbuilder).
+No implementation source was consulted. The required cross-engine rendering
+review remains unchanged because this checkpoint neither changes scene/path
+compilation nor text shaping, caching, or GPU submission.

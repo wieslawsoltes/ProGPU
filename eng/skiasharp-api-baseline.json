@@ -15,7 +15,7 @@
     "SkiaSharp"
   ],
   "regressionBudget": {
-    "maximumMissingEntries": 311,
-    "minimumMatchingEntries": 3911
+    "maximumMissingEntries": 268,
+    "minimumMatchingEntries": 3954
   }
 }

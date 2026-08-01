@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The shim internally composes its official legacy SKPath contract.
+
 using System;
 using System.Buffers;
 using System.Buffers.Binary;

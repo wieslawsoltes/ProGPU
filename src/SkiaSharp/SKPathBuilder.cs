@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The builder delegates to the shim's official legacy SKPath contract.
+
 namespace SkiaSharp;
 
 public class SKPathBuilder : SKObject

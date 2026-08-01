@@ -55,16 +55,17 @@ public class SkiaSharpShimVisual : FrameworkElement
         float x1 = cellWidth;
         context.DrawText("Skia Custom Paths", AppState.GetFont()!, 12f, ThemeManager.GetBrush("TextSecondary"), new Vector2(x1 + 15f, 15f));
 
-        using (var path = new SKPath())
+        using (var builder = new SKPathBuilder())
         {
-            path.MoveTo(x1 + 20f, centerY - 60f);
-            path.LineTo(x1 + cellWidth / 2f, centerY - 90f);
-            path.LineTo(x1 + cellWidth - 20f, centerY - 60f);
-            path.QuadTo(x1 + cellWidth / 2f, centerY, x1 + 20f, centerY - 60f);
-            path.Close();
+            builder.MoveTo(x1 + 20f, centerY - 60f);
+            builder.LineTo(x1 + cellWidth / 2f, centerY - 90f);
+            builder.LineTo(x1 + cellWidth - 20f, centerY - 60f);
+            builder.QuadTo(x1 + cellWidth / 2f, centerY, x1 + 20f, centerY - 60f);
+            builder.Close();
 
             // Add circle path
-            path.AddCircle(x1 + cellWidth / 2f, centerY + 35f, 30f);
+            builder.AddCircle(x1 + cellWidth / 2f, centerY + 35f, 30f);
+            using var path = builder.Detach();
 
             using (var paint = new SKPaint
             {
