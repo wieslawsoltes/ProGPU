@@ -110,7 +110,12 @@ Focused tests verify the exact field types and size, nullable metric behavior,
 raw span lengths and snapshots, compacting-GC stability, and exactly zero
 managed bytes across 10,000 warmed position reads. The matched benchmark suite
 includes the same public raw-buffer access workload for official SkiaSharp and
-ProGPU. The exact metadata gate advances from 4,183 to 4,186 matches, reduces
+ProGPU. Three alternating clean Release pairs at `c78266ec` retained matching
+checksums and measured 4.614 ns/op for official SkiaSharp versus 4.701 ns/op for
+ProGPU (1.019 ratio). One-time sample setup amortized to 0.002 versus 0.004
+B/op; the warmed access loop itself remains allocation-free. This is neutral
+timer-floor evidence, not a performance-win claim. The exact metadata gate
+advances from 4,183 to 4,186 matches, reduces
 missing entries from 39 to 36, and removes six accidental ProGPU-only metadata
 entries.
 
