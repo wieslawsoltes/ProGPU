@@ -67,6 +67,39 @@ The detailed authoritative state remains in M2 through M6 below and in
 `FEATURE_MATRIX.md`; this section records the immutable release boundary so a
 new task can resume without treating partial runtime depth as complete.
 
+## Preview.33 compiler closure and next implementation pipeline
+
+Preview.33 carries the preview.32 compiler implementation unchanged while the
+release closes the shared GPU-backend/API work. No compiler feature is promoted
+from Partial to Done at this boundary. The compiler remains pre-MVP and the six
+blocking items above remain authoritative.
+
+The next branch must preserve the existing framework-neutral Roslyn model and
+advance it through an explicit incremental pipeline:
+
+1. document the complete MSBuild/`AdditionalFiles` input schema, stable output
+   names, profile selection, and diagnostic IDs;
+2. filter candidate XAML and build metadata before parsing, then normalize each
+   file into immutable location-preserving models;
+3. resolve required and optional symbols once, construct deterministic
+   cross-file resource/name/registration graphs, and emit only from accepted
+   models;
+4. keep per-document and shared emission separate, with stable ordering and no
+   generated-C# parse-back;
+5. map parse, binding, lowering, emission, and host failures to precise XAML
+   locations while preserving cancellation and last-good state;
+6. prove minimal incremental invalidation, deterministic output, bounded cache
+   ownership, and no mutable global generator state;
+7. gate parser/model tests, generated-source snapshots, diagnostics,
+   one-file-change invalidation, large-project throughput/allocation, packaged
+   analyzer loading, CLI/workspace equivalence, and published-feed consumption.
+
+Current automated coverage includes the normal build/test matrix, the isolated
+package consumer in `eng/progpu-verify-xaml-package-consumer.sh`, compiler
+feature/specification documentation checks, and the package dependency-closure
+gate. The continuation must turn the remaining quality bullets into dedicated
+repeatable CI scripts rather than relying on sample builds or manual IDE use.
+
 ## MVP definition
 
 The MVP is a usable WinUI-first product proving that the same compiler core can host other XAML dialects without redesign. It is not defined as complete parity with every framework or every XAML 2009 feature.

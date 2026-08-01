@@ -1978,6 +1978,36 @@ metadata-update adapters, joint metadata/XAML commit and recovery ordering,
 namescope/resource/template-aware live patching with safe replacement fallback,
 cross-platform quality closure, and published-feed productization evidence.
 
+## Preview.33 release closure and next parity lane
+
+Preview.33 does not claim additional WinUI declarations. The official NuGet
+metadata gate remains pinned at 4,952 exact of 16,579 declarations, 11,627
+missing, and 6,652 ProGPU-only entries. The release instead closes the shared
+GPU ownership boundary beneath WinUI media and composition: Skia-compatible
+GL/Vulkan/Metal/D3D wrappers now share one typed Dawn extension, so framework
+hosts can retain a zero-copy WebGPU texture without reflection or CPU pixel
+transport. The existing media player/editor slice remains included and its
+standalone editing package remains outside the official WinUI API claim.
+
+The next WinUI parity branch must start from the immutable preview.33 tag and
+retain `eng/progpu-winui-api-check.sh` as a monotonic CI gate. Its ordered work
+is unchanged and explicit:
+
+1. add the official API-contract marker types and change every applicable
+   `ContractVersionAttribute` to the official `System.Type` constructor;
+2. close retained WebGPU Composition families, including animation,
+   interactions, brushes/effects, device loss, and bounded resource lifetime;
+3. reconcile `Microsoft.UI.Xaml` in behavior-complete control,
+   dependency-property, layout, input, automation, and accessibility clusters;
+4. remove accidental ProGPU-only signatures while retaining documented typed
+   extension seams in separate namespaces or clearly identified overloads;
+5. require focused behavior and rendering tests, official metadata comparison,
+   matched performance evidence, and cross-platform/package validation for
+   every merged slice.
+
+This release boundary therefore makes the remaining parity deficit measurable
+without presenting metadata equality as behavioral or rendering completion.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be
