@@ -215,34 +215,73 @@ internal sealed record MetadataApiSurface(
         var signature = method.DecodeSignature(
             provider,
             GenericContext.Empty);
-        var parameters = method.GetParameters()
-            .Select(reader.GetParameter)
-            .Where(parameter => parameter.SequenceNumber != 0)
-            .OrderBy(parameter => parameter.SequenceNumber)
-            .ToArray();
-        var parameterText = new string[signature.ParameterTypes.Length];
-        for (var index = 0; index < parameterText.Length; index++)
-        {
-            var parameter = index < parameters.Length ? parameters[index] : default;
-            var attributes = index < parameters.Length
-                ? FormatParameterAttributes(parameter.Attributes)
-                : "-";
-            var name = index < parameters.Length
-                ? reader.GetString(parameter.Name)
-                : $"arg{index}";
-            var defaultValue = index < parameters.Length
-                ? FormatConstant(reader, parameter.GetDefaultValue())
-                : "-";
-            parameterText[index] =
-                $"{attributes}:{signature.ParameterTypes[index]}:{name}:{defaultValue}";
-        }
-
         var methodName = reader.GetString(method.Name);
         var owner = FormatMethodOwner(
             typeName,
             methodName,
             method.GetGenericParameters().Count,
             signature);
+        var parameterDefinitions = method.GetParameters()
+            .Select(reader.GetParameter)
+            .OrderBy(parameter => parameter.SequenceNumber)
+            .ToArray();
+        var parameterText = new string[signature.ParameterTypes.Length];
+        int parameterCursor = 0;
+        while (parameterCursor < parameterDefinitions.Length &&
+               parameterDefinitions[parameterCursor].SequenceNumber == 0)
+        {
+            parameterCursor++;
+        }
+        for (var index = 0; index < parameterText.Length; index++)
+        {
+            while (parameterCursor < parameterDefinitions.Length &&
+                   parameterDefinitions[parameterCursor].SequenceNumber < index + 1)
+            {
+                parameterCursor++;
+            }
+            var hasDefinition = parameterCursor < parameterDefinitions.Length &&
+                parameterDefinitions[parameterCursor].SequenceNumber == index + 1;
+            var parameter = hasDefinition
+                ? parameterDefinitions[parameterCursor++]
+                : default;
+            var attributes = hasDefinition
+                ? FormatParameterAttributes(parameter.Attributes)
+                : "-";
+            var name = hasDefinition
+                ? reader.GetString(parameter.Name)
+                : $"arg{index}";
+            var defaultValue = hasDefinition
+                ? FormatConstant(reader, parameter.GetDefaultValue())
+                : "-";
+            parameterText[index] =
+                $"{attributes}:{signature.ParameterTypes[index]}:{name}:{defaultValue}";
+        }
+
+        foreach (var parameter in parameterDefinitions)
+        {
+            int sequence = parameter.SequenceNumber;
+            string parameterOwner;
+            if (sequence == 0)
+            {
+                parameterOwner = $"{owner}.return({signature.ReturnType})";
+            }
+            else
+            {
+                int index = sequence - 1;
+                string parameterType = index < signature.ParameterTypes.Length
+                    ? signature.ParameterTypes[index]
+                    : "-";
+                parameterOwner =
+                    $"{owner}.parameter[{index}]({parameterType}:{reader.GetString(parameter.Name)})";
+            }
+            AddAttributes(
+                reader,
+                formatter,
+                parameterOwner,
+                parameter.GetCustomAttributes(),
+                entries);
+        }
+
         entries.Add(
             $"method|{typeName}|access={GetMemberAccess(method.Attributes)};" +
             $"static={method.Attributes.HasFlag(MethodAttributes.Static)};" +

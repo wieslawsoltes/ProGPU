@@ -120,6 +120,27 @@ public sealed class TimePickerContractTests
     }
 
     [Fact]
+    public void RejectedClockIdentifierDependencyValuesAreTransactional()
+    {
+        var picker = new TimePicker
+        {
+            ClockIdentifier = "24HourClock"
+        };
+
+        Assert.Throws<ArgumentException>(() => picker.SetValue(
+            TimePicker.ClockIdentifierProperty,
+            "GregorianCalendar"));
+        Assert.Throws<ArgumentException>(() => picker.SetValue(
+            TimePicker.ClockIdentifierProperty,
+            null));
+
+        Assert.Equal("24HourClock", picker.ClockIdentifier);
+        Assert.Equal(
+            "24HourClock",
+            picker.GetValue(TimePicker.ClockIdentifierProperty));
+    }
+
+    [Fact]
     public void DependencyPropertyAssignmentUsesTheSameCoercionPath()
     {
         var picker = new TimePicker { MinuteIncrement = 15 };

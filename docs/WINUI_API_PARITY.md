@@ -55,11 +55,13 @@ interfaces, generic constraints, public/protected fields and constants,
 constructors, methods, properties, events, accessor visibility, parameter
 direction/default metadata, and public custom-attribute type identities. Every
 semantic custom attribute is compared by type and raw ECMA-335 value blob.
-Method-owned attributes and generic constraints use a canonical owner identity
-containing the declaring type, method name, generic arity, complete parameter
-types, and return type, so overloads cannot collapse into one declaration. The
+Method-, return-, and parameter-owned attributes plus generic constraints use
+a canonical owner identity containing the declaring type, method name, generic
+arity, complete parameter types, return type, and parameter sequence/type/name,
+so overloads and `params` contracts cannot collapse into one declaration. The
 command-line gate runs an isolated metadata self-test before comparison and
-proves that attributed and constrained generic overloads remain distinct.
+proves that method/parameter attributes, `params`, and constrained generic
+overloads remain distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -1528,7 +1530,10 @@ existing-key inserts and alternating visual-offset updates. Focused WebGPU
 pixel tests verify color output, shared-brush invalidation, persistent
 top-child order, compiled-scene reuse, visual removal, and relative-size
 propagation after a XAML host resize. Collection tests verify bottom-to-top
-enumeration, reparenting, cycle rejection, and compositor ownership.
+enumeration, reparenting, cycle rejection, compositor ownership, and
+transactional container disposal. A disposed container removes every child
+through the typed public collection, clears each composition and retained-scene
+parent, and closes the collection against later mutation.
 
 The pinned metadata comparison adds 138 exact declarations without adding a
 ProGPU-only declaration. It advances the report to 8,578 candidate entries,
@@ -1811,8 +1816,8 @@ The release-boundary slice aligns every declaration owned directly by
 `TimePicker`, `TimePickerValueChangedEventArgs`, and
 `TimePickerSelectedValueChangedEventArgs`. It adds 15 exact matches and
 reconciles 12 former ProGPU-only declarations, advancing the pinned report to
-8,954 candidate entries, 5,215 exact matches, 11,364 missing entries, and
-3,739 extras after overload-qualified metadata ownership. The independently owned `TimePickerFlyout`, flyout presenter,
+8,968 candidate entries, 5,215 exact matches, 11,364 missing entries, and
+3,753 extras after overload- and parameter-qualified metadata ownership. The independently owned `TimePickerFlyout`, flyout presenter,
 and automation-peer contracts remain in the explicit parity backlog.
 
 Dependency-property identifiers are official static get-only properties, the
@@ -1836,9 +1841,10 @@ Primary clean-room contracts consulted:
 - the pinned official NuGet ECMA-335 projection metadata and XML documentation.
 
 Focused tests cover defaults, sub-minute truncation, minute-step coercion,
-nullable synchronization and reset, transactional CLR validation, the two
-official clock identifiers, the dependency-property assignment path, exact
-public metadata shape, and zero managed allocations across 100,000 warmed
+nullable synchronization and reset, transactional CLR and direct
+dependency-property validation, preservation of the prior local/effective
+clock value after rejected assignments, the two official clock identifiers,
+exact public metadata shape, and zero managed allocations across 100,000 warmed
 identifier reads. No Microsoft or foreign implementation source or method
 body was inspected, copied, or adapted.
 
@@ -1858,7 +1864,7 @@ declarations exact. Remaining work is measured, not inferred:
 | `Microsoft.UI.System` | 6 | 0 | 0 |
 | `Microsoft.UI.Text` | 535 | 0 | 0 |
 | `Microsoft.UI.Windowing` | 192 | 0 | 0 |
-| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,737 |
+| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,751 |
 
 The next parity task should therefore continue in two evidence-backed lanes:
 complete retained WebGPU Composition families with typed bounded ownership,

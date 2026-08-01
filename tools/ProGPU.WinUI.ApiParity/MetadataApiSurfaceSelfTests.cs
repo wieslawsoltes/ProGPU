@@ -12,7 +12,8 @@ internal static class MetadataApiSurfaceSelfTests
             .Where(static entry =>
                 entry.StartsWith(
                     "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Apply`",
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) &&
+                !entry.Contains(".parameter[", StringComparison.Ordinal))
             .Select(GetOwner)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -24,15 +25,40 @@ internal static class MetadataApiSurfaceSelfTests
             .Select(GetOwner)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        string[] parameterAttributeOwners = surface.Entries
+            .Where(static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Apply`",
+                    StringComparison.Ordinal) &&
+                entry.Contains(".parameter[0]", StringComparison.Ordinal))
+            .Select(GetOwner)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        string[] paramArrayOwners = surface.Entries
+            .Where(static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Collect`",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "System.ParamArrayAttribute",
+                    StringComparison.Ordinal))
+            .Select(GetOwner)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
-        if (attributeOwners.Length != 2 || genericOwners.Length != 2)
+        if (attributeOwners.Length != 2 ||
+            genericOwners.Length != 2 ||
+            parameterAttributeOwners.Length != 2 ||
+            paramArrayOwners.Length != 1)
         {
             throw new InvalidOperationException(
-                "Method attributes and generic constraints must retain their complete overload owner signature.");
+                "Method, parameter, and params attributes plus generic constraints must retain their complete overload owner signature. " +
+                $"Observed method={attributeOwners.Length}, generic={genericOwners.Length}, " +
+                $"parameter={parameterAttributeOwners.Length}, params={paramArrayOwners.Length}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for attributes and generic constraints.");
+            "WinUI API metadata owner self-test passed for method/parameter attributes, params, and generic constraints.");
         return 0;
     }
 
@@ -52,13 +78,21 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public string Identity { get; } = identity;
     }
 
+    [AttributeUsage(AttributeTargets.Parameter)]
+    public sealed class ParameterContractMarkerAttribute(string identity) : Attribute
+    {
+        public string Identity { get; } = identity;
+    }
+
     public sealed class OverloadFixture
     {
         [ContractMarker("scalar")]
-        public void Apply(int value) => _ = value;
+        public void Apply([ParameterContractMarker("scalar")] int value) => _ = value;
 
         [ContractMarker("text")]
-        public void Apply(string value) => _ = value;
+        public void Apply([ParameterContractMarker("text")] string value) => _ = value;
+
+        public void Collect(params int[] values) => _ = values;
 
         public void Transform<T>(T value)
             where T : class => _ = value;

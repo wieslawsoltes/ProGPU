@@ -708,6 +708,13 @@ public class ContainerVisual : Visual
     }
 
     public VisualCollection Children { get; }
+
+    internal override void OnDisposed()
+    {
+        Children.RemoveAll();
+        Children.Dispose();
+        base.OnDisposed();
+    }
 }
 
 [ContractVersion(CompositionContract.Name, CompositionContract.Version1)]

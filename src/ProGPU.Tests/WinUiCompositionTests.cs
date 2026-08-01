@@ -1056,6 +1056,27 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void DisposingContainerDetachesItsPublicAndSceneChildren()
+    {
+        using var compositor = new Compositor();
+        ContainerVisual root = compositor.CreateContainerVisual();
+        SpriteVisual first = compositor.CreateSpriteVisual();
+        SpriteVisual second = compositor.CreateSpriteVisual();
+        root.Children.InsertAtTop(first);
+        root.Children.InsertAtTop(second);
+
+        root.Dispose();
+
+        Assert.Empty(root.Children);
+        Assert.Null(first.Parent);
+        Assert.Null(second.Parent);
+        Assert.Null(first.SceneNode.Parent);
+        Assert.Null(second.SceneNode.Parent);
+        Assert.Throws<ObjectDisposedException>(
+            () => root.Children.InsertAtTop(first));
+    }
+
+    [Fact]
     public void RejectedElementChildReplacementIsTransactional()
     {
         var host = new FrameworkElement();

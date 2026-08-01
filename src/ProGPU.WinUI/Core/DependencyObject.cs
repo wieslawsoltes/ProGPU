@@ -54,6 +54,7 @@ public class DependencyProperty
     private static readonly ConcurrentDictionary<(Type OwnerType, string Name), DependencyProperty> Registry = new();
     private static readonly List<DependencyProperty> RegisteredProperties = new();
     private static DependencyProperty[]? RegisteredInheritablePropertiesCache;
+    private readonly Action<object?>? _validateValueCallback;
 
     public string Name { get; }
     public Type PropertyType { get; }
@@ -62,7 +63,14 @@ public class DependencyProperty
     public int Index { get; }
     public bool IsAttached { get; }
 
-    private DependencyProperty(string name, Type propertyType, Type ownerType, PropertyMetadata? metadata, int index, bool isAttached)
+    private DependencyProperty(
+        string name,
+        Type propertyType,
+        Type ownerType,
+        PropertyMetadata? metadata,
+        int index,
+        bool isAttached,
+        Action<object?>? validateValueCallback = null)
     {
         Name = name;
         PropertyType = propertyType;
@@ -70,6 +78,7 @@ public class DependencyProperty
         Metadata = metadata;
         Index = index;
         IsAttached = isAttached;
+        _validateValueCallback = validateValueCallback;
     }
 
     public static DependencyProperty Register(string name, Type propertyType, Type ownerType, PropertyMetadata? typeMetadata)
@@ -89,6 +98,40 @@ public class DependencyProperty
             return dp;
         }
     }
+
+    internal static DependencyProperty RegisterValidated(
+        string name,
+        Type propertyType,
+        Type ownerType,
+        PropertyMetadata? typeMetadata,
+        Action<object?> validateValueCallback)
+    {
+        ArgumentNullException.ThrowIfNull(validateValueCallback);
+        var key = (ownerType, name);
+        if (Registry.TryGetValue(key, out var existing)) return existing;
+
+        lock (RegisteredProperties)
+        {
+            if (Registry.TryGetValue(key, out existing)) return existing;
+
+            int index = RegisteredProperties.Count;
+            var dp = new DependencyProperty(
+                name,
+                propertyType,
+                ownerType,
+                typeMetadata,
+                index,
+                false,
+                validateValueCallback);
+            RegisteredProperties.Add(dp);
+            RegisteredInheritablePropertiesCache = null;
+            Registry.TryAdd(key, dp);
+            return dp;
+        }
+    }
+
+    internal void ValidateValue(object? value) =>
+        _validateValueCallback?.Invoke(value);
 
     public static DependencyProperty RegisterAttached(string name, Type propertyType, Type ownerType, PropertyMetadata? defaultMetadata)
     {
@@ -590,30 +633,53 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
 
     public void SetValue(DependencyProperty dp, object? value)
     {
+        ThemeResource? localThemeResource;
+        object? localValue;
+        if (value is ThemeResource themeResource)
+        {
+            localThemeResource = themeResource;
+            var resolved = XamlResourceResolver.ResolveTheme(
+                themeResource.LookupRoot,
+                this,
+                themeResource.ResourceKey,
+                this is FrameworkElement element
+                    ? element.ActualTheme
+                    : ThemeManager.CurrentTheme,
+                this is FrameworkElement familyElement
+                    ? familyElement.ActualThemeFamily
+                    : ThemeManager.CurrentThemeFamily);
+            localValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+        }
+        else if (value is ProGPU.Vector.ThemeResourceBrush themeBrush)
+        {
+            localThemeResource = new ThemeResource(
+                themeBrush.LookupRoot,
+                themeBrush.ResourceKey);
+            var resolved = XamlResourceResolver.ResolveTheme(
+                localThemeResource.LookupRoot,
+                this,
+                localThemeResource.ResourceKey,
+                this is FrameworkElement element
+                    ? element.ActualTheme
+                    : ThemeManager.CurrentTheme,
+                this is FrameworkElement familyElement
+                    ? familyElement.ActualThemeFamily
+                    : ThemeManager.CurrentThemeFamily);
+            localValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+        }
+        else
+        {
+            localThemeResource = null;
+            localValue = value;
+        }
+
+        dp.ValidateValue(localValue);
         int idx = dp.Index;
         EnsureSize(idx);
 
         object? oldValue = GetValue(dp);
-        
-        if (value is ThemeResource themeResource)
-        {
-            _localThemeResources[idx] = themeResource;
-            var resolved = XamlResourceResolver.ResolveTheme(themeResource.LookupRoot, this, themeResource.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _localValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
-        }
-        else if (value is ProGPU.Vector.ThemeResourceBrush trBrush)
-        {
-            var tr = new ThemeResource(trBrush.LookupRoot, trBrush.ResourceKey);
-            _localThemeResources[idx] = tr;
-            var resolved = XamlResourceResolver.ResolveTheme(tr.LookupRoot, this, tr.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _localValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
-        }
-        else
-        {
-            _localThemeResources[idx] = null;
-            _localValues[idx] = value;
-        }
-        
+        _localThemeResources[idx] = localThemeResource;
+        _localValues[idx] = localValue;
         UpdateEffectiveValue(dp, idx, oldValue);
     }
 

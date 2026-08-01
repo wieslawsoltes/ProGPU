@@ -50,7 +50,17 @@ public class TimePicker : Control
 
     public static DependencyProperty HeaderProperty { get; } = Register<object?>(nameof(Header), null);
     public static DependencyProperty HeaderTemplateProperty { get; } = Register<DataTemplate?>(nameof(HeaderTemplate), null);
-    public static DependencyProperty ClockIdentifierProperty { get; } = Register(nameof(ClockIdentifier), TwelveHourClock, OnClockIdentifierChanged);
+    public static DependencyProperty ClockIdentifierProperty { get; } =
+        DependencyProperty.RegisterValidated(
+            nameof(ClockIdentifier),
+            typeof(string),
+            typeof(TimePicker),
+            new PropertyMetadata(TwelveHourClock, OnClockIdentifierChanged)
+            {
+                AffectsMeasure = true,
+                AffectsRender = true
+            },
+            static value => ValidateClockIdentifier(value as string));
     public static DependencyProperty MinuteIncrementProperty { get; } = Register(nameof(MinuteIncrement), 1, OnMinuteIncrementChanged);
     public static DependencyProperty TimeProperty { get; } = Register(nameof(Time), TimeSpan.Zero, OnTimeChanged);
     public static DependencyProperty SelectedTimeProperty { get; } = Register<TimeSpan?>(nameof(SelectedTime), null, OnSelectedTimeChanged);
