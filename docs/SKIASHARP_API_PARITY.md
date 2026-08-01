@@ -54,8 +54,8 @@ path work requires matched profiling plus equivalent before/after runs.
 ## Current baseline
 
 The current pinned comparison records 4,222 official entries, 4,471 ProGPU
-entries, 3,241 exact matches, 981 missing entries, and 1,230 ProGPU-only
-entries. The missing surface comprises 65 type identities, 19 fields, 21
+entries, 3,244 exact matches, 978 missing entries, and 1,227 ProGPU-only
+entries. The missing surface comprises 62 type identities, 19 fields, 21
 interfaces, 595 methods, 120 properties, and 161 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -278,3 +278,27 @@ their medians ranged from `1.220`–`1.291` ns/op for ProGPU and `1.196`–`1.22
 ns/op for native. The clean-room contract follows the public
 [SKCodecFrameInfo API](https://learn.microsoft.com/dotnet/api/skiasharp.skcodecframeinfo)
 and the official package's ECMA-335 sequential field metadata.
+
+### Encoder and XPS descriptor ABI
+
+`SKJpegEncoderOptions`, `SKPngEncoderOptions`, and `SKDocumentXpsOptions` now
+match their official sequential layouts in addition to retaining their existing
+public value contracts. JPEG keeps its three value fields followed by zeroed
+metadata pointer/length/origin transport slots; PNG keeps its filter and level
+followed by three zeroed native pointer slots; XPS uses one float and a
+normalized byte-backed Boolean. The private transport fields are never exposed,
+dereferenced, or used to add an external encoder dependency.
+
+Construction, property access, equality, and hashing remain fixed `O(1)` CPU
+work with zero allocation and no codec or WebGPU initialization. Independent
+tests inspect the compiled private field order/types and verify all public
+values. Three alternating Apple M3 Pro Release process pairs retained exact
+checksums and zero allocations at `1.024` ProGPU/native (`1.261` versus `1.232`
+ns/op), within timer noise for the combined value workload. Matched Time
+Profiler and Allocations captures retained the exact checksum and zero bytes;
+ProGPU measured `1.169`–`1.217` versus native `1.190`–`1.221` ns/op. The
+clean-room contract follows the public
+[JPEG options API](https://learn.microsoft.com/dotnet/api/skiasharp.skjpegencoderoptions),
+[PNG options API](https://learn.microsoft.com/dotnet/api/skiasharp.skpngencoderoptions),
+[XPS options API](https://learn.microsoft.com/dotnet/api/skiasharp.skdocumentxpsoptions),
+and the pinned package's ECMA-335 sequential field metadata.

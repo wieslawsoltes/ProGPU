@@ -76,6 +76,7 @@ internal static class ProgramEntry
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
             new BenchmarkCase("codec-frame-info-value", 100_000, RunCodecFrameInfoValue),
+            new BenchmarkCase("encoder-descriptor-value", 100_000, RunEncoderDescriptorValue),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -524,6 +525,30 @@ internal static class ProgramEntry
                 checksum,
                 (ulong)(uint)MathF.Round(matrix[0, 0] * 100_000f) << 32 |
                 (uint)MathF.Round(matrix[1, 1] * 100_000f));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunEncoderDescriptorValue(int operations)
+    {
+        var jpeg = new SKJpegEncoderOptions(
+            87,
+            SKJpegEncoderDownsample.Downsample444,
+            SKJpegEncoderAlphaOption.BlendOnBlack);
+        var png = new SKPngEncoderOptions(SKPngEncoderFilterFlags.Paeth, 9);
+        var xps = new SKDocumentXpsOptions { Dpi = 144f, AllowNoPngs = true };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            xps.AllowNoPngs = (index & 1) == 0;
+            checksum = Mix(
+                checksum,
+                (uint)jpeg.Quality << 24 |
+                (uint)jpeg.Downsample << 20 |
+                (uint)png.FilterFlags << 8 |
+                (uint)png.ZLibLevel << 1 |
+                (xps.AllowNoPngs ? 1u : 0));
         }
 
         return checksum;

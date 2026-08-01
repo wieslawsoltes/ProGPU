@@ -8,6 +8,8 @@ using ProGPU.Scene;
 
 namespace SkiaSharp;
 
+#pragma warning disable CS8765
+
 public abstract class SKWStream : SKObject
 {
     private sealed class WStreamAdapter : Stream
@@ -589,13 +591,25 @@ public struct SKDocumentPdfMetadata : IEquatable<SKDocumentPdfMetadata>
 
 public struct SKDocumentXpsOptions : IEquatable<SKDocumentXpsOptions>
 {
-    public float Dpi { readonly get; set; }
-    public bool AllowNoPngs { readonly get; set; }
+    private float _dpi;
+    private byte _allowNoPngs;
+
+    public float Dpi
+    {
+        readonly get => _dpi;
+        set => _dpi = value;
+    }
+
+    public bool AllowNoPngs
+    {
+        readonly get => _allowNoPngs != 0;
+        set => _allowNoPngs = value ? (byte)1 : (byte)0;
+    }
 
     public readonly bool Equals(SKDocumentXpsOptions obj) =>
         Dpi == obj.Dpi && AllowNoPngs == obj.AllowNoPngs;
 
-    public override readonly bool Equals(object? obj) =>
+    public override readonly bool Equals(object obj) =>
         obj is SKDocumentXpsOptions other && Equals(other);
 
     public override readonly int GetHashCode() => HashCode.Combine(Dpi, AllowNoPngs);

@@ -1,5 +1,8 @@
 namespace SkiaSharp;
 
+#pragma warning disable CS8765
+#pragma warning disable CS0414
+
 public enum SKJpegEncoderDownsample
 {
     Downsample420 = 0,
@@ -23,6 +26,9 @@ public readonly struct SKJpegEncoderOptions : IEquatable<SKJpegEncoderOptions>
     public int Quality { get; }
     public SKJpegEncoderDownsample Downsample { get; }
     public SKJpegEncoderAlphaOption AlphaOption { get; }
+    private readonly IntPtr _xmpMetadata;
+    private readonly int _xmpMetadataSize;
+    private readonly byte _origin;
 
     public SKJpegEncoderOptions(int quality)
         : this(
@@ -40,6 +46,9 @@ public readonly struct SKJpegEncoderOptions : IEquatable<SKJpegEncoderOptions>
         Quality = quality;
         Downsample = downsample;
         AlphaOption = alphaOption;
+        _xmpMetadata = IntPtr.Zero;
+        _xmpMetadataSize = 0;
+        _origin = 0;
     }
 
     public bool Equals(SKJpegEncoderOptions obj) =>
@@ -47,7 +56,7 @@ public readonly struct SKJpegEncoderOptions : IEquatable<SKJpegEncoderOptions>
         Downsample == obj.Downsample &&
         AlphaOption == obj.AlphaOption;
 
-    public override bool Equals(object? obj) => obj is SKJpegEncoderOptions other && Equals(other);
+    public override bool Equals(object obj) => obj is SKJpegEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Quality, Downsample, AlphaOption);
     public static bool operator ==(SKJpegEncoderOptions left, SKJpegEncoderOptions right) => left.Equals(right);
     public static bool operator !=(SKJpegEncoderOptions left, SKJpegEncoderOptions right) => !left.Equals(right);
@@ -65,23 +74,29 @@ public enum SKPngEncoderFilterFlags
     AllFilters = 0xf8,
 }
 
-public readonly struct SKPngEncoderOptions : IEquatable<SKPngEncoderOptions>
+public readonly unsafe struct SKPngEncoderOptions : IEquatable<SKPngEncoderOptions>
 {
     public static readonly SKPngEncoderOptions Default = new(SKPngEncoderFilterFlags.AllFilters, 6);
 
     public SKPngEncoderFilterFlags FilterFlags { get; }
     public int ZLibLevel { get; }
+    private readonly unsafe void* _comments;
+    private readonly unsafe void* _iccProfile;
+    private readonly unsafe void* _iccProfileDescription;
 
     public SKPngEncoderOptions(SKPngEncoderFilterFlags filterFlags, int zLibLevel)
     {
         FilterFlags = filterFlags;
         ZLibLevel = zLibLevel;
+        _comments = null;
+        _iccProfile = null;
+        _iccProfileDescription = null;
     }
 
     public bool Equals(SKPngEncoderOptions obj) =>
         FilterFlags == obj.FilterFlags && ZLibLevel == obj.ZLibLevel;
 
-    public override bool Equals(object? obj) => obj is SKPngEncoderOptions other && Equals(other);
+    public override bool Equals(object obj) => obj is SKPngEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(FilterFlags, ZLibLevel);
     public static bool operator ==(SKPngEncoderOptions left, SKPngEncoderOptions right) => left.Equals(right);
     public static bool operator !=(SKPngEncoderOptions left, SKPngEncoderOptions right) => !left.Equals(right);
@@ -109,7 +124,7 @@ public readonly struct SKWebpEncoderOptions : IEquatable<SKWebpEncoderOptions>
     public bool Equals(SKWebpEncoderOptions obj) =>
         Compression == obj.Compression && Quality == obj.Quality;
 
-    public override bool Equals(object? obj) => obj is SKWebpEncoderOptions other && Equals(other);
+    public override bool Equals(object obj) => obj is SKWebpEncoderOptions other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Compression, Quality);
     public static bool operator ==(SKWebpEncoderOptions left, SKWebpEncoderOptions right) => left.Equals(right);
     public static bool operator !=(SKWebpEncoderOptions left, SKWebpEncoderOptions right) => !left.Equals(right);
