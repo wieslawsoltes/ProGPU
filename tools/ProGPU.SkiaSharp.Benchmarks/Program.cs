@@ -77,6 +77,7 @@ internal static class ProgramEntry
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
             new BenchmarkCase("codec-frame-info-value", 100_000, RunCodecFrameInfoValue),
             new BenchmarkCase("encoder-descriptor-value", 100_000, RunEncoderDescriptorValue),
+            new BenchmarkCase("backend-handle-info-value", 100_000, RunBackendHandleInfoValue),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -549,6 +550,28 @@ internal static class ProgramEntry
                 (uint)png.FilterFlags << 8 |
                 (uint)png.ZLibLevel << 1 |
                 (xps.AllowNoPngs ? 1u : 0));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunBackendHandleInfoValue(int operations)
+    {
+        var framebuffer = new GRGlFramebufferInfo(17, 0x8058);
+        var texture = new GRGlTextureInfo(0x0de1, 29, 0x8058);
+        var metal = new GRMtlTextureInfo((IntPtr)0x1234);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            framebuffer.Protected = (index & 1) == 0;
+            texture.Protected = (index & 2) == 0;
+            checksum = Mix(
+                checksum,
+                (ulong)framebuffer.FramebufferObjectId << 32 |
+                (ulong)texture.Id << 16 |
+                (framebuffer.Protected ? 1u << 1 : 0) |
+                (texture.Protected ? 1u : 0));
+            checksum = Mix(checksum, (ulong)metal.TextureHandle.ToInt64());
         }
 
         return checksum;

@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,471 ProGPU
-entries, 3,244 exact matches, 978 missing entries, and 1,227 ProGPU-only
-entries. The missing surface comprises 62 type identities, 19 fields, 21
-interfaces, 595 methods, 120 properties, and 161 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,503 ProGPU
+entries, 3,285 exact matches, 937 missing entries, and 1,218 ProGPU-only
+entries. The missing surface comprises 60 type identities, 19 fields, 19
+interfaces, 575 methods, 116 properties, and 148 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -84,6 +84,35 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### OpenGL and Metal backend handle descriptors
+
+`GRGlFramebufferInfo`, `GRGlTextureInfo`, and `GRMtlTextureInfo` now match the
+official 4.151.0 value surfaces and sequential ABI layouts. OpenGL framebuffer
+and texture descriptors retain their unsigned object identifiers and formats
+inline, with protection state normalized into the final byte field. The Metal
+descriptor retains one native texture handle. Official constructor and property
+names, overloads, typed equality, object equality, hashing, operators, readonly
+accessors, and the two declared `IEquatable<T>` interfaces are preserved; the
+former accidental aliases and optional-parameter signature have been removed.
+
+These structs are CPU-only borrowed-handle metadata. Construction, mutation,
+comparison, and hashing are fixed `O(1)` work, allocate nothing, do not claim
+ownership of the referenced native resource, and cannot initialize GL, Metal,
+or WebGPU. ProGPU rendering continues through its typed WebGPU resource model;
+these compatibility values do not introduce a second renderer. Independent
+tests verify private field order/types, byte protection normalization, official
+parameter names, pointer identity, and complete value behavior. Three
+alternating Apple M3 Pro Release process pairs retained exact checksums and zero
+managed allocations at `0.996` ProGPU/native (`2.401` versus `2.410` ns/op).
+Matched Time Profiler captures measured `2.373` versus `2.385` ns/op and matched
+Allocations captures measured zero bytes per operation. The clean-room contract
+uses the public
+[framebuffer API](https://learn.microsoft.com/dotnet/api/skiasharp.grglframebufferinfo),
+[OpenGL texture API](https://learn.microsoft.com/dotnet/api/skiasharp.grgltextureinfo),
+[Metal texture API](https://learn.microsoft.com/dotnet/api/skiasharp.grmtltextureinfo),
+[OpenGL framebuffer model](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBindFramebuffer.xhtml),
+and [Metal resource ownership model](https://developer.apple.com/documentation/metal/resource-fundamentals).
 
 ### Premultiplied color values
 

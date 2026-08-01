@@ -3,6 +3,8 @@ using ProGPU.Backend;
 
 namespace SkiaSharp;
 
+#nullable disable
+
 public class GRContextOptions
 {
     public bool AvoidStencilBuffers { get; set; }
@@ -24,41 +26,154 @@ public enum GRBackend
     Unsupported,
 }
 
-public struct GRGlFramebufferInfo
+public struct GRGlFramebufferInfo : IEquatable<GRGlFramebufferInfo>
 {
-    public uint FramebufferId { get; set; }
-    public uint Format { get; set; }
+    private uint _framebufferObjectId;
+    private uint _format;
+    private byte _protected;
 
-    public GRGlFramebufferInfo(uint framebufferId, uint format)
+    public GRGlFramebufferInfo(uint fboId)
+        : this(fboId, 0)
     {
-        FramebufferId = framebufferId;
-        Format = format;
     }
+
+    public GRGlFramebufferInfo(uint fboId, uint format)
+    {
+        _framebufferObjectId = fboId;
+        _format = format;
+        _protected = 0;
+    }
+
+    public uint FramebufferObjectId
+    {
+        readonly get => _framebufferObjectId;
+        set => _framebufferObjectId = value;
+    }
+
+    public uint Format
+    {
+        readonly get => _format;
+        set => _format = value;
+    }
+
+    public bool Protected
+    {
+        readonly get => _protected != 0;
+        set => _protected = value ? (byte)1 : (byte)0;
+    }
+
+    public readonly bool Equals(GRGlFramebufferInfo obj) =>
+        _framebufferObjectId == obj._framebufferObjectId &&
+        _format == obj._format &&
+        _protected == obj._protected;
+
+    public override readonly bool Equals(object obj) =>
+        obj is GRGlFramebufferInfo info && Equals(info);
+
+    public override readonly int GetHashCode() =>
+        HashCode.Combine(_framebufferObjectId, _format, _protected);
+
+    public static bool operator ==(GRGlFramebufferInfo left, GRGlFramebufferInfo right) =>
+        left.Equals(right);
+
+    public static bool operator !=(GRGlFramebufferInfo left, GRGlFramebufferInfo right) =>
+        !left.Equals(right);
 }
 
-public struct GRGlTextureInfo
+public struct GRGlTextureInfo : IEquatable<GRGlTextureInfo>
 {
-    public uint Target { get; set; }
-    public uint Id { get; set; }
-    public uint Format { get; set; }
+    private uint _target;
+    private uint _id;
+    private uint _format;
+    private byte _protected;
 
-    public GRGlTextureInfo(uint target, uint id, uint format = 0)
+    public GRGlTextureInfo(uint target, uint id)
+        : this(target, id, 0)
     {
-        Target = target;
-        Id = id;
-        Format = format;
     }
+
+    public GRGlTextureInfo(uint target, uint id, uint format)
+    {
+        _target = target;
+        _id = id;
+        _format = format;
+        _protected = 0;
+    }
+
+    public uint Target
+    {
+        readonly get => _target;
+        set => _target = value;
+    }
+
+    public uint Id
+    {
+        readonly get => _id;
+        set => _id = value;
+    }
+
+    public uint Format
+    {
+        readonly get => _format;
+        set => _format = value;
+    }
+
+    public bool Protected
+    {
+        readonly get => _protected != 0;
+        set => _protected = value ? (byte)1 : (byte)0;
+    }
+
+    public readonly bool Equals(GRGlTextureInfo obj) =>
+        _target == obj._target &&
+        _id == obj._id &&
+        _format == obj._format &&
+        _protected == obj._protected;
+
+    public override readonly bool Equals(object obj) =>
+        obj is GRGlTextureInfo info && Equals(info);
+
+    public override readonly int GetHashCode() =>
+        HashCode.Combine(_target, _id, _format, _protected);
+
+    public static bool operator ==(GRGlTextureInfo left, GRGlTextureInfo right) =>
+        left.Equals(right);
+
+    public static bool operator !=(GRGlTextureInfo left, GRGlTextureInfo right) =>
+        !left.Equals(right);
 }
 
 public struct GRMtlTextureInfo
 {
-    public IntPtr Texture { get; set; }
+    private IntPtr _textureHandle;
 
-    public GRMtlTextureInfo(IntPtr texture)
+    public GRMtlTextureInfo(IntPtr textureHandle)
     {
-        Texture = texture;
+        _textureHandle = textureHandle;
     }
+
+    public IntPtr TextureHandle
+    {
+        readonly get => _textureHandle;
+        set => _textureHandle = value;
+    }
+
+    public readonly bool Equals(GRMtlTextureInfo obj) =>
+        _textureHandle == obj._textureHandle;
+
+    public override readonly bool Equals(object obj) =>
+        obj is GRMtlTextureInfo info && Equals(info);
+
+    public override readonly int GetHashCode() => _textureHandle.GetHashCode();
+
+    public static bool operator ==(GRMtlTextureInfo left, GRMtlTextureInfo right) =>
+        left.Equals(right);
+
+    public static bool operator !=(GRMtlTextureInfo left, GRMtlTextureInfo right) =>
+        !left.Equals(right);
 }
+
+#nullable restore
 
 public struct GRVkAlloc
 {
