@@ -238,7 +238,11 @@ internal sealed record MetadataApiSurface(
         }
 
         var methodName = reader.GetString(method.Name);
-        var owner = $"{typeName}.{methodName}";
+        var owner = FormatMethodOwner(
+            typeName,
+            methodName,
+            method.GetGenericParameters().Count,
+            signature);
         entries.Add(
             $"method|{typeName}|access={GetMemberAccess(method.Attributes)};" +
             $"static={method.Attributes.HasFlag(MethodAttributes.Static)};" +
@@ -261,6 +265,15 @@ internal sealed record MetadataApiSurface(
             method.GetGenericParameters(),
             entries);
     }
+
+    private static string FormatMethodOwner(
+        string typeName,
+        string methodName,
+        int genericArity,
+        MethodSignature<string> signature) =>
+        $"{typeName}.{methodName}`{genericArity}" +
+        $"({string.Join(",", signature.ParameterTypes)})->" +
+        signature.ReturnType;
 
     private static void AddProperty(
         MetadataReader reader,

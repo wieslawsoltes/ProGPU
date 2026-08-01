@@ -73,6 +73,7 @@ public class Window : DependencyObject
     private Window? _owner;
     private bool _isRendering;
     private bool _isExternalHostActive;
+    private bool _closeAccepted;
     private WindowActivationState _activationState =
         WindowActivationState.Deactivated;
     private bool _isClosed;
@@ -359,6 +360,7 @@ public class Window : DependencyObject
     public event Windows.Foundation.TypedEventHandler<object, WindowVisibilityChangedEventArgs>? VisibilityChanged;
     public event Windows.Foundation.TypedEventHandler<object, WindowInsetsChangedEventArgs>? InsetsChanged;
     public event EventHandler<double>? Rendering;
+    internal event Func<bool>? ClosingRequested;
 
     public Window()
     {
@@ -483,15 +485,30 @@ public class Window : DependencyObject
         return Task.CompletedTask;
     }
 
-    public void Close()
+    public void Close() => TryClose();
+
+    internal bool TryClose()
     {
+        if (!AcceptCloseRequest())
+            return false;
+
+        _closeAccepted = true;
         if (_isExternalHostActive && WindowHostServices.Current is { } externalHost)
         {
             externalHost.Close(this);
-            return;
+            return true;
         }
-        if (_silkWindow == null) return;
+
+        if (_silkWindow == null)
+        {
+            _closeAccepted = false;
+            RaiseClosed();
+            DetachWindowServices();
+            return true;
+        }
+
         _silkWindow.Close();
+        return true;
     }
 
     public void Hide()
@@ -640,6 +657,10 @@ public class Window : DependencyObject
 
     public void ShutdownExternalRenderer()
     {
+        if (!_closeAccepted && !AcceptCloseRequest())
+            return;
+
+        _closeAccepted = false;
         SuspendExternalRenderer();
         _isExternalHostActive = false;
         NotifyHostVisibilityChanged(false);
@@ -1171,6 +1192,14 @@ public class Window : DependencyObject
 
     private void OnClosing()
     {
+        if (!_closeAccepted && !AcceptCloseRequest())
+        {
+            if (_silkWindow is not null)
+                _silkWindow.IsClosing = false;
+            return;
+        }
+
+        _closeAccepted = false;
         if (_inputState != null)
         {
             InputSystem.Current = _inputState;
@@ -1188,6 +1217,9 @@ public class Window : DependencyObject
         DetachWindowServices();
         _silkWindow = null;
     }
+
+    private bool AcceptCloseRequest() =>
+        ClosingRequested?.Invoke() ?? true;
 
     private void OnFocusChanged(bool focused)
     {

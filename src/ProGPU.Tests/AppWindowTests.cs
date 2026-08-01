@@ -74,6 +74,37 @@ public sealed class AppWindowTests
     }
 
     [Fact]
+    public void WindowCloseRequestRaisesCancellableAppWindowClosingFirst()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        AppWindow? window = null;
+        try
+        {
+            window = AppWindow.Create();
+            int closing = 0;
+            window.Closing += (_, args) =>
+            {
+                closing++;
+                args.Cancel = closing == 1;
+            };
+
+            Assert.False(window.XamlWindow.TryClose());
+            Assert.Same(window, AppWindow.GetFromWindowId(window.Id));
+
+            Assert.True(window.XamlWindow.TryClose());
+            Assert.Equal(2, closing);
+            Assert.Null(AppWindow.GetFromWindowId(window.Id));
+            window = null;
+        }
+        finally
+        {
+            window?.Destroy();
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
     public void ModalOwnerStaysDisabledUntilItsLastModalChildIsReleased()
     {
         DispatcherQueueController controller =

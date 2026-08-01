@@ -306,6 +306,48 @@ public sealed class DispatcherQueueTests
     }
 
     [Fact]
+    public async Task TimerReconfigurationDoesNotDuplicateQueuedTicks()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnDedicatedThread();
+        DispatcherQueue queue = controller.DispatcherQueue;
+        try
+        {
+            DispatcherQueueTimer timer = queue.CreateTimer();
+            timer.Interval = TimeSpan.FromMilliseconds(1);
+            timer.IsRepeating = true;
+            var firstTick = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int count = 0;
+            timer.Tick += (_, _) =>
+            {
+                if (Interlocked.Increment(ref count) == 1)
+                    firstTick.TrySetResult();
+            };
+
+            using var releaseQueue = new ManualResetEventSlim();
+            Assert.True(queue.TryEnqueue(() => releaseQueue.Wait()));
+            timer.Start();
+            await Task.Delay(20);
+            timer.Interval = TimeSpan.FromMilliseconds(250);
+            await Task.Delay(500);
+            releaseQueue.Set();
+
+            await firstTick.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(75);
+            Assert.Equal(1, Volatile.Read(ref count));
+            timer.Stop();
+        }
+        finally
+        {
+            await controller
+                .ShutdownQueueAsync()
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
     public async Task SynchronizationContextMarshalsPostAndSend()
     {
         DispatcherQueueController controller =

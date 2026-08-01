@@ -55,6 +55,11 @@ interfaces, generic constraints, public/protected fields and constants,
 constructors, methods, properties, events, accessor visibility, parameter
 direction/default metadata, and public custom-attribute type identities. Every
 semantic custom attribute is compared by type and raw ECMA-335 value blob.
+Method-owned attributes and generic constraints use a canonical owner identity
+containing the declaring type, method name, generic arity, complete parameter
+types, and return type, so overloads cannot collapse into one declaration. The
+command-line gate runs an isolated metadata self-test before comparison and
+proves that attributed and constrained generic overloads remain distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -268,7 +273,11 @@ innermost loop. The typed native-quit seam evaluates the innermost frame's
 options: `ContinueOnQuit` keeps it running, `QuitOnlyLocalLoop` exits only that
 frame, and the default exits every active frame while preserving each exit
 deferral. Focused nested-loop coverage proves all three outcomes without a
-platform message pump.
+platform message pump. Timer reconfiguration keeps one queued callback while
+atomically advancing its generation; a due tick after a stop/start or
+interval/mode change is represented by that callback and stale generations
+cannot enqueue or deliver a duplicate tick. Focused blocked-queue coverage
+distinguishes queued duplication from the next legitimate repeating tick.
 Dispatcher synchronization-context marshaling reuses callback work items from
 a lock-protected pool capped at 256 retained entries, avoiding one closure per
 steady-state `Post` or `Send` while keeping burst retention bounded. A second
@@ -1455,6 +1464,10 @@ change flags. Showing a window continues through the same native lifetime that
 creates the WebGPU presentation surface; creating or configuring an `AppWindow`
 alone does not initialize WebGPU. Showing without activation is represented
 explicitly through the native Silk path or `IWindowActivationHost`.
+Native, external-host, and application close requests pass through the same
+typed pre-close callback before the platform accepts destruction.
+`AppWindow.Closing` can cancel an ordinary native or application close, while
+dispatcher run-down remains deliberately non-cancellable.
 Presenter state is retained before native activation and then applied to the
 created Silk window, so a fullscreen startup request is not lost. Moving from
 fullscreen to compact overlay explicitly restores normal native state before
@@ -1470,7 +1483,8 @@ operations use `IAppWindowPlatformProvider`; an unavailable or rejected native
 operation fails explicitly rather than mutating only managed state.
 
 Focused tests cover presenter presets and state, dispatcher affinity and
-shutdown destruction, cancellable close, identity lookup, geometry/change
+shutdown destruction, application and native-path cancellable close, identity
+lookup, geometry/change
 flags, title-bar reset/options, typed icon and Z-order dispatch, explicit
 unsupported behavior, display containment/intersection/nearest fallback,
 watcher add/update/remove/status ordering, contract versions, and zero managed
@@ -1478,9 +1492,8 @@ allocations across 100,000 warmed `AppWindow` property-read iterations. The
 windowing regression set also covers fullscreen-to-compact transitions and
 two modal siblings sharing one owner.
 
-Deferred behavioral gates: platform adapters still need to apply retained
-title-bar colors and drag rectangles where the OS supports them, and native
-close requests need a pre-close cancellation callback on every host. The
+Deferred behavioral gate: platform adapters still need to apply retained
+title-bar colors and drag rectangles where the OS supports them. The
 declaration report records 192/192 exact `Microsoft.UI.Windowing` entries with
 no missing or extra entries; this does not overstate those remaining host
 integration tasks.
@@ -1793,8 +1806,8 @@ The release-boundary slice aligns every declaration owned directly by
 `TimePicker`, `TimePickerValueChangedEventArgs`, and
 `TimePickerSelectedValueChangedEventArgs`. It adds 15 exact matches and
 reconciles 12 former ProGPU-only declarations, advancing the pinned report to
-8,950 candidate entries, 5,215 exact matches, 11,364 missing entries, and
-3,735 extras. The independently owned `TimePickerFlyout`, flyout presenter,
+8,954 candidate entries, 5,215 exact matches, 11,364 missing entries, and
+3,739 extras after overload-qualified metadata ownership. The independently owned `TimePickerFlyout`, flyout presenter,
 and automation-peer contracts remain in the explicit parity backlog.
 
 Dependency-property identifiers are official static get-only properties, the
@@ -1840,7 +1853,7 @@ declarations exact. Remaining work is measured, not inferred:
 | `Microsoft.UI.System` | 6 | 0 | 0 |
 | `Microsoft.UI.Text` | 535 | 0 | 0 |
 | `Microsoft.UI.Windowing` | 192 | 0 | 0 |
-| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,733 |
+| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,737 |
 
 The next parity task should therefore continue in two evidence-backed lanes:
 complete retained WebGPU Composition families with typed bounded ownership,
@@ -1850,6 +1863,15 @@ superseded ProGPU-only shapes, add focused behavior/rendering/performance
 evidence, and ratchet the monotonic baseline. Rendering slices retain the
 mandatory cross-engine research, GPU quality, device-loss, and allocation
 contracts; declaration counts alone are never completion evidence.
+
+The XAML compiler continuation is separately pinned in
+`docs/xaml-compiler/ROADMAP.md`: preview.32 includes the transactional Roslyn
+metadata-delta producer, project watch transport, deterministic topology, and
+bounded performance-budget infrastructure, but the compiler remains pre-MVP.
+The next blocking work is automatic XAML-origin mapping, host capability and
+metadata-update adapters, joint metadata/XAML commit and recovery ordering,
+namescope/resource/template-aware live patching with safe replacement fallback,
+cross-platform quality closure, and published-feed productization evidence.
 
 ## Implementation policy
 

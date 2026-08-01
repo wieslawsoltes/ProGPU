@@ -23,7 +23,7 @@ public sealed class DispatcherQueueTimer
     private bool _isDisposed;
     private int _generation;
     private int _pendingGeneration;
-    private int _tickPending;
+    private bool _tickPending;
 
     internal DispatcherQueueTimer(
         DispatcherQueue dispatcherQueue)
@@ -123,7 +123,6 @@ public sealed class DispatcherQueueTimer
     private void ScheduleNoLock()
     {
         _generation++;
-        Interlocked.Exchange(ref _tickPending, 0);
         TimeSpan dueTime = _interval;
         TimeSpan period = _isRepeating
             ? Max(_interval, MinimumRepeatingInterval)
@@ -138,7 +137,6 @@ public sealed class DispatcherQueueTimer
 
         _isRunning = false;
         _generation++;
-        Interlocked.Exchange(ref _tickPending, 0);
         _timer.Change(
             Timeout.InfiniteTimeSpan,
             Timeout.InfiniteTimeSpan);
@@ -146,25 +144,21 @@ public sealed class DispatcherQueueTimer
 
     private void OnTimerElapsed(object? state)
     {
-        if (Interlocked.Exchange(ref _tickPending, 1) != 0)
-            return;
-
-        int generation;
+        bool enqueue;
         lock (_sync)
         {
             if (!_isRunning)
-            {
-                Interlocked.Exchange(ref _tickPending, 0);
                 return;
-            }
 
-            generation = _generation;
-            _pendingGeneration = generation;
+            _pendingGeneration = _generation;
+            enqueue = !_tickPending;
+            _tickPending = true;
         }
 
-        if (!_dispatcherQueue.TryEnqueue(_dispatchTickHandler))
+        if (enqueue && !_dispatcherQueue.TryEnqueue(_dispatchTickHandler))
         {
-            Interlocked.Exchange(ref _tickPending, 0);
+            lock (_sync)
+                _tickPending = false;
             StopForQueueShutdown();
         }
     }
@@ -173,7 +167,7 @@ public sealed class DispatcherQueueTimer
     {
         lock (_sync)
         {
-            Interlocked.Exchange(ref _tickPending, 0);
+            _tickPending = false;
             int generation = _pendingGeneration;
             if (!_isRunning || generation != _generation)
                 return;

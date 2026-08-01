@@ -23,6 +23,7 @@ internal static class ProgramEntry
             {
                 "acquire" => await AcquireAsync(options),
                 "compare" => Compare(options),
+                "self-test" => MetadataApiSurfaceSelfTests.Run(),
                 _ => Usage()
             };
         }
@@ -122,6 +123,7 @@ internal static class ProgramEntry
             Usage:
               ProGPU.WinUI.ApiParity acquire --lock <json> --output <directory>
               ProGPU.WinUI.ApiParity compare --lock <json> --reference <dll> --candidate <dll> --json <path> --markdown <path>
+              ProGPU.WinUI.ApiParity self-test
             """);
         return 2;
     }

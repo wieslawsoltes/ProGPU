@@ -77,6 +77,7 @@ public sealed class AppWindow
     private AppWindow? _disabledModalOwner;
     private int _modalChildCount;
     private bool _destroyed;
+    private bool _canCancelClose = true;
     private bool _isVisible;
     private bool _showOnce;
 
@@ -99,6 +100,7 @@ public sealed class AppWindow
         _dispatcherQueue.ShutdownStarting += OnDispatcherQueueShutdownStarting;
         _window.SizeChanged += OnWindowSizeChanged;
         _window.VisibilityChanged += OnWindowVisibilityChanged;
+        _window.ClosingRequested += OnWindowClosingRequested;
         _window.Closed += OnWindowClosed;
         lock (RegistrySync)
             Registry.Add(Id, this);
@@ -520,6 +522,7 @@ public sealed class AppWindow
             OnDispatcherQueueShutdownStarting;
         _presenter.ConfigurationChanged -=
             OnPresenterConfigurationChanged;
+        _window.ClosingRequested -= OnWindowClosingRequested;
         lock (RegistrySync)
             Registry.Remove(Id);
         Destroying?.Invoke(this, EventArgs.Empty);
@@ -565,13 +568,23 @@ public sealed class AppWindow
         if (_destroyed)
             return;
 
+        _canCancelClose = canCancel;
+        try
+        {
+            if (_window.TryClose())
+                CompleteDestroy();
+        }
+        finally
+        {
+            _canCancelClose = true;
+        }
+    }
+
+    private bool OnWindowClosingRequested()
+    {
         var args = new AppWindowClosingEventArgs();
         Closing?.Invoke(this, args);
-        if (canCancel && args.Cancel)
-            return;
-
-        _window.Close();
-        CompleteDestroy();
+        return !_canCancelClose || !args.Cancel;
     }
 
     private void MoveInZOrder(

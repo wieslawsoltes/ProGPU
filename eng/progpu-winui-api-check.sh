@@ -21,6 +21,13 @@ dotnet run \
   --configuration "${configuration}" \
   --no-build \
   -- \
+  self-test
+
+dotnet run \
+  --project "${tool_project}" \
+  --configuration "${configuration}" \
+  --no-build \
+  -- \
   acquire \
   --lock "${baseline_lock}" \
   --output "${reference_root}"
