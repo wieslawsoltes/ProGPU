@@ -616,3 +616,66 @@ versus `7.757` ns/op, while Allocations captures measured `9.171` versus
 `7.907` ns/op with the same checksum and allocation result. Metal System Trace
 exported zero target command-buffer, device-allocation, and resource-allocation
 rows for both CPU-only binaries.
+
+### WebGPU surface ownership and snapshot checkpoint
+
+`SKSurface` and `SKSurfaceReleaseDelegate` now close all 65 missing entries in
+their official 4.151.0 contracts. Surfaces participate in the shared
+`SKObject` lifetime, snapshot immutable surface properties, retain the typed
+`GRRecordingContext`, and expose the complete raster, recording-context,
+backend-texture, backend-render-target, sample-count, origin, color-space, and
+mipmap overload families. Caller WebGPU textures and external pixel pointers
+remain borrowed and zero-copy. External release callbacks run exactly once.
+Ordinary WebGPU surfaces allocate no CPU mirror until `PeekPixels` is requested;
+the first peek performs one explicit readback and retains a stable pointer,
+while later GPU flushes update that view. A bounded snapshot performs a direct
+texture-to-texture region copy and stays GPU-backed until an explicit readback.
+
+Wrapped-surface creation is `O(1)` CPU work and storage. Rendering remains
+`O(C + P)` for retained commands `C` and affected pixels `P`. A snapshot uses
+`O(1)` command-encoding work, `O(P)` GPU bandwidth, and one destination texture;
+readback and first peek use `O(P)` transfer/conversion work. Null surfaces own no
+texture or GPU context, do not initialize WebGPU, and discard retained commands
+at flush. Independent tests cover the
+official ownership hierarchy, surface-property isolation, typed contexts,
+every overload family through the metadata verifier, stable lazy CPU views,
+one-shot release callbacks, null surfaces, bounded GPU snapshots, and existing
+backend target/origin/readback behavior.
+
+The clean-room architecture review used Skia's public
+[surface contract](https://api.skia.org/classSkSurface.html) and
+[canvas/surface model](https://skia.org/docs/user/api/), Direct2D's
+[device-dependent render-target model](https://learn.microsoft.com/windows/win32/direct2d/render-targets-overview),
+Win2D's
+[incremental offscreen target contract](https://learn.microsoft.com/windows/apps/develop/win2d/offscreen-drawing),
+WebRender's
+[display-list, scene, frame, and GPU submission split](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and Vello's
+[explicit wgpu scene-to-texture pipeline](https://github.com/linebender/vello).
+ProGPU adopts explicit device ownership, retained commands, incremental target
+contents, immutable snapshots, and GPU-native copies; it rejects API-specific
+GL/Vulkan/Metal handle interpretation in favor of typed WebGPU resources. The
+required text-stack review also covered Skia's
+[text architecture](https://skia.org/docs/dev/design/text_overview/),
+DirectWrite's
+[layout/render separation](https://learn.microsoft.com/windows/win32/direct2d/direct2d-and-directwrite),
+and HarfBuzz's
+[buffer shaping contract](https://harfbuzz.github.io/harfbuzz-hb-shape.html).
+Those CPU-reusable shaping/layout boundaries remain unchanged by this surface
+slice.
+
+Three alternating Apple M3 Pro Release process pairs retained the exact native
+checksum for 32-by-32 bounded snapshots from a stable 64-by-64 surface. Native
+raster copy-on-write measured `453.540` ns/op and `120.8` B/op; ProGPU's current
+explicit WebGPU copy-and-submit path measured `65,455.835` ns/op and `442`
+B/op. Removing per-snapshot native label marshalling reduced the ProGPU managed
+cost from `666.4` to `442` B/op. Matched Time Profiler captures measured
+`437.705` versus `67,390.415` ns/op, and Allocations captures measured
+`2,217.085` versus `95,860.205` ns/op with the same byte counts. Metal System
+Trace correctly reported no native raster work and recorded 3,275 ProGPU
+command-buffer rows, 4,204 current-allocation rows, and 175 resource-allocation
+rows. This is a documented
+performance blocker for the final parity release: repeated immutable snapshots
+still need deferred/batched submission and shared copy-on-write texture
+ownership before ProGPU can meet the goal's matched native latency and
+allocation criterion.

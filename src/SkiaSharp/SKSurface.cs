@@ -1,33 +1,43 @@
 using System;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Scene;
-using Silk.NET.Core.Native;
 using Silk.NET.WebGPU;
 
 namespace SkiaSharp;
 
-public class SKSurface : IDisposable, IGpuFramebufferPresenter
+public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 {
     private static readonly object s_compositorCacheScope = new();
-    private readonly WgpuContext _context;
+    private readonly WgpuContext? _context;
     private readonly DrawingContext _drawingContext;
     private readonly GpuTexture? _gpuTexture;
-    private readonly IntPtr _pixels;
-    private readonly int _rowBytes;
+    private IntPtr _pixels;
+    private int _rowBytes;
     private readonly int _width;
     private readonly int _height;
     private readonly bool _ownsTexture;
     private readonly SKColorType _colorType;
     private readonly SKAlphaType _alphaType;
-    private readonly SKColorSpace? _colorSpace;
+    private SKColorSpace? _colorSpace;
     private readonly GRSurfaceOrigin _origin;
+    private readonly GRRecordingContext? _recordingContext;
+    private SKSurfaceProperties _surfaceProperties;
+    private SKSurfaceReleaseDelegate? _releaseProc;
+    private object? _releaseContext;
+    private readonly bool _isNullSurface;
     private GpuTextureReadbackBuffer? _readbackBuffer;
     private byte[]? _readbackPixels;
     private bool _hasTextureContents;
-    private bool _disposed;
+    private bool _ownsCpuPixels;
+    private int _releaseInvoked;
 
     public SKCanvas Canvas { get; }
+
+    public GRRecordingContext Context => _recordingContext!;
+
+    public SKSurfaceProperties SurfaceProperties => _surfaceProperties;
 
     private static Compositor GetCompositorForContext(WgpuContext context, TextureFormat renderFormat)
     {
@@ -40,7 +50,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
     }
 
     private SKSurface(
-        WgpuContext context,
+        WgpuContext? context,
         int width,
         int height,
         GpuTexture? texture,
@@ -51,7 +61,12 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         SKAlphaType alphaType,
         SKColorSpace? colorSpace = null,
         GRSurfaceOrigin origin = GRSurfaceOrigin.TopLeft,
-        GRRecordingContext? recordingContext = null)
+        GRRecordingContext? recordingContext = null,
+        SKSurfaceProperties? props = null,
+        SKSurfaceReleaseDelegate? releaseProc = null,
+        object? releaseContext = null,
+        bool isNullSurface = false)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _context = context;
         _width = width;
@@ -66,6 +81,13 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         _alphaType = alphaType;
         _colorSpace = colorSpace;
         _origin = origin;
+        _recordingContext = recordingContext;
+        _surfaceProperties = new SKSurfaceProperties(
+            props?.Flags ?? SKSurfacePropsFlags.None,
+            props?.PixelGeometry ?? SKPixelGeometry.RgbHorizontal);
+        _releaseProc = releaseProc;
+        _releaseContext = releaseContext;
+        _isNullSurface = isNullSurface;
 
         _drawingContext = new DrawingContext();
         Canvas = new SKCanvas(_drawingContext, width, height, context, Flush);
@@ -101,12 +123,13 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
 
     public static SKSurface Create(SKImageInfo info)
     {
-        return Create(info, new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        return Create(info, CreateDefaultProperties());
     }
 
-    public static SKSurface Create(SKImageInfo info, SKSurfaceProperties properties)
+    public static SKSurface Create(SKImageInfo info, SKSurfaceProperties props)
     {
         ValidateImageInfoDimensions(info, nameof(info));
+        ArgumentNullException.ThrowIfNull(props);
 
         var ctx = SKContextHelper.GetContext();
         var texture = new GpuTexture(
@@ -118,17 +141,18 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
             "SKSurface Backing Texture",
             alphaMode: GpuTextureAlphaMode.Premultiplied
         );
-        return new SKSurface(ctx, info.Width, info.Height, texture, true, IntPtr.Zero, 0, info.ColorType, info.AlphaType, info.ColorSpace);
+        return new SKSurface(ctx, info.Width, info.Height, texture, true, IntPtr.Zero, 0, info.ColorType, info.AlphaType, info.ColorSpace, props: props);
     }
 
     public static SKSurface Create(SKImageInfo info, IntPtr pixels, int rowBytes)
     {
-        return Create(info, pixels, rowBytes, new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        return Create(info, pixels, rowBytes, CreateDefaultProperties());
     }
 
-    public static SKSurface Create(SKImageInfo info, IntPtr pixels, int rowBytes, SKSurfaceProperties properties)
+    public static SKSurface Create(SKImageInfo info, IntPtr pixels, int rowBytes, SKSurfaceProperties props)
     {
         ValidateImageInfoDimensions(info, nameof(info));
+        ArgumentNullException.ThrowIfNull(props);
 
         int actualRowBytes = pixels != IntPtr.Zero
             ? ResolveCpuSurfaceRowBytes(info.Width, info.Height, rowBytes, info.ColorType, nameof(rowBytes))
@@ -143,21 +167,21 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
             "SKSurface CPU-backed Backing Texture",
             alphaMode: GpuTextureAlphaMode.Premultiplied
         );
-        return new SKSurface(ctx, info.Width, info.Height, texture, true, pixels, actualRowBytes, info.ColorType, info.AlphaType, info.ColorSpace);
+        return new SKSurface(ctx, info.Width, info.Height, texture, true, pixels, actualRowBytes, info.ColorType, info.AlphaType, info.ColorSpace, props: props);
     }
 
-    public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType)
+    public static SKSurface Create(GRContext context, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType)
     {
-        return Create(grContext, renderTarget, origin, colorType, new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        return Create(context, renderTarget, origin, colorType, CreateDefaultProperties());
     }
 
     public static SKSurface? Create(
-        GRContext grContext,
+        GRContext context,
         GRBackendTexture texture,
         GRSurfaceOrigin origin,
         SKColorType colorType)
     {
-        ArgumentNullException.ThrowIfNull(grContext);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(texture);
         var gpuTexture = texture.BackendTexture;
         if (gpuTexture == null)
@@ -165,7 +189,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
             return null;
         }
 
-        if (!ReferenceEquals(gpuTexture.Context, grContext.Context))
+        if (!ReferenceEquals(gpuTexture.Context, context.Context))
         {
             throw new InvalidOperationException("The backend texture belongs to a different ProGPU context.");
         }
@@ -186,7 +210,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         }
 
         return new SKSurface(
-            grContext.Context,
+            context.Context,
             texture.Width,
             texture.Height,
             gpuTexture,
@@ -197,32 +221,44 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
             SKAlphaType.Premul,
             null,
             origin,
-            grContext);
+            context);
     }
 
     public static SKSurface? Create(
-        GRContext grContext,
+        GRContext context,
         GRBackendTexture texture,
         SKColorType colorType) =>
-        Create(grContext, texture, GRSurfaceOrigin.TopLeft, colorType);
+        Create(context, texture, GRSurfaceOrigin.TopLeft, colorType);
 
     public static SKSurface? Create(
-        GRContext grContext,
+        GRContext context,
         GRBackendTexture texture,
         GRSurfaceOrigin origin,
         SKColorType colorType,
-        SKSurfaceProperties properties) =>
-        Create(grContext, texture, origin, colorType);
-
-    public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKSurfaceProperties properties)
+        SKSurfaceProperties props)
     {
-        ArgumentNullException.ThrowIfNull(grContext);
+        ArgumentNullException.ThrowIfNull(props);
+        var surface = Create(context, texture, origin, colorType);
+        if (surface == null)
+        {
+            return null;
+        }
+
+        surface._surfaceProperties.Dispose();
+        surface._surfaceProperties = new SKSurfaceProperties(props.Flags, props.PixelGeometry);
+        return surface;
+    }
+
+    public static SKSurface Create(GRContext context, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKSurfaceProperties props)
+    {
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(renderTarget);
+        ArgumentNullException.ThrowIfNull(props);
 
         var texture = renderTarget.BackendTexture
             ?? throw new NotSupportedException("This WebGPU-backed Skia shim can only wrap ProGPU GpuTexture render targets. GL, Vulkan, and Metal backend handles cannot be rendered through this context.");
 
-        if (!ReferenceEquals(texture.Context, grContext.Context))
+        if (!ReferenceEquals(texture.Context, context.Context))
         {
             throw new InvalidOperationException("The backend render target texture belongs to a different ProGPU context.");
         }
@@ -243,7 +279,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         }
 
         return new SKSurface(
-            grContext.Context,
+            context.Context,
             renderTarget.Width,
             renderTarget.Height,
             texture,
@@ -254,45 +290,52 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
             SKAlphaType.Premul,
             null,
             origin,
-            grContext);
+            context,
+            props: props);
     }
 
-    public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKColorSpace colorSpace)
+    public static SKSurface Create(GRContext context, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKColorSpace colorspace)
     {
-        return Create(grContext, renderTarget, origin, colorType, new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        ArgumentNullException.ThrowIfNull(colorspace);
+        return Create(context, renderTarget, origin, colorType, colorspace, CreateDefaultProperties());
     }
 
-    public static SKSurface Create(GRContext grContext, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKColorSpace colorSpace, SKSurfaceProperties properties)
+    public static SKSurface Create(GRContext context, GRBackendRenderTarget renderTarget, GRSurfaceOrigin origin, SKColorType colorType, SKColorSpace colorspace, SKSurfaceProperties props)
     {
-        return Create(grContext, renderTarget, origin, colorType, properties);
+        ArgumentNullException.ThrowIfNull(colorspace);
+        var surface = Create(context, renderTarget, origin, colorType, props);
+        surface._colorSpace = colorspace;
+        return surface;
     }
 
-    public static SKSurface Create(GRContext grContext, bool useMips, SKImageInfo imageInfo, SKSurfaceProperties properties)
+    public static SKSurface Create(GRContext context, bool budgeted, SKImageInfo info, SKSurfaceProperties props)
     {
-        ArgumentNullException.ThrowIfNull(grContext);
-        ValidateImageInfoDimensions(imageInfo, nameof(imageInfo));
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(props);
+        ValidateImageInfoDimensions(info, nameof(info));
 
         var texture = new GpuTexture(
-            grContext.Context,
-            (uint)imageInfo.Width,
-            (uint)imageInfo.Height,
+            context.Context,
+            (uint)info.Width,
+            (uint)info.Height,
             TextureFormat.Rgba8Unorm,
             TextureUsage.RenderAttachment | TextureUsage.CopySrc | TextureUsage.CopyDst | TextureUsage.TextureBinding,
             "SKSurface Offscreen Texture",
             alphaMode: GpuTextureAlphaMode.Premultiplied
         );
         return new SKSurface(
-            grContext.Context,
-            imageInfo.Width,
-            imageInfo.Height,
+            context.Context,
+            info.Width,
+            info.Height,
             texture,
             true,
             IntPtr.Zero,
             0,
-            imageInfo.ColorType,
-            imageInfo.AlphaType,
-            imageInfo.ColorSpace,
-            recordingContext: grContext);
+            info.ColorType,
+            info.AlphaType,
+            info.ColorSpace,
+            recordingContext: context,
+            props: props);
     }
 
     public void Flush()
@@ -302,7 +345,12 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
 
     private void FlushCore(bool copyToCpu)
     {
-        if (_gpuTexture == null) return;
+        if (_gpuTexture == null)
+        {
+            _drawingContext.Clear();
+            Canvas.ReleaseLayerTexturesAfterFlush();
+            return;
+        }
 
         // Skip compiling if no commands have been recorded
         if (_drawingContext.Commands.Count == 0) return;
@@ -318,7 +366,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
 
         visual.Context.Append(_drawingContext);
 
-        var compositor = GetCompositorForContext(_context, _gpuTexture.Format);
+        var compositor = GetCompositorForContext(_context!, _gpuTexture.Format);
         try
         {
             try
@@ -340,14 +388,14 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
                 {
                     _readbackPixels = GC.AllocateUninitializedArray<byte>(readbackByteCount);
                 }
-                _readbackBuffer ??= new GpuTextureReadbackBuffer(_context);
+                _readbackBuffer ??= new GpuTextureReadbackBuffer(_context!);
                 try
                 {
                     _gpuTexture.ReadPixels(_readbackPixels, _readbackBuffer);
                 }
                 finally
                 {
-                    _context.CleanupPendingResources();
+                    _context!.CleanupPendingResources();
                 }
                 CopyReadbackToCpu(_readbackPixels, cpuReadbackRegions);
             }
@@ -362,7 +410,7 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
 
     void IGpuFramebufferPresenter.Present(WgpuContext context, IntPtr surfaceHandle)
     {
-        if (_disposed || _gpuTexture is null || _gpuTexture.IsDisposed)
+        if (IsDisposed || _gpuTexture is null || _gpuTexture.IsDisposed)
         {
             return;
         }
@@ -476,36 +524,43 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         }
     }
 
-    public unsafe SKImage Snapshot()
+    public SKImage Snapshot() => Snapshot(new SKRectI(0, 0, _width, _height));
+
+    public unsafe SKImage Snapshot(SKRectI bounds)
     {
         if (_gpuTexture == null)
         {
             throw new InvalidOperationException("No backing texture for snapshot.");
         }
 
+        if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > _width || bounds.Bottom > _height ||
+            bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds), "Snapshot bounds must be non-empty and contained by the surface.");
+        }
+
         // Flush first to make sure current commands are rendered
         Flush();
 
         var snapshotTexture = new GpuTexture(
-            _context,
-            (uint)_width,
-            (uint)_height,
+            _context!,
+            (uint)bounds.Width,
+            (uint)bounds.Height,
             _gpuTexture.Format,
             TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
             "SKSurface Snapshot Texture",
             alphaMode: _gpuTexture.AlphaMode
         );
 
-        var wgpu = _context.Api;
-        var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Surface Snapshot Encoder") };
-        var encoder = wgpu.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
-        SilkMarshal.Free((nint)encoderDesc.Label);
+        var wgpu = _context!.Api;
+        var encoderDesc = new CommandEncoderDescriptor();
+        var encoder = wgpu.DeviceCreateCommandEncoder(_context!.Device, &encoderDesc);
 
         var srcCopy = new ImageCopyTexture
         {
             Texture = _gpuTexture.TexturePtr,
             MipLevel = 0,
-            Origin = new Origin3D { X = 0, Y = 0, Z = 0 },
+            Origin = new Origin3D { X = (uint)bounds.Left, Y = (uint)bounds.Top, Z = 0 },
             Aspect = TextureAspect.All
         };
 
@@ -519,29 +574,33 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
 
         var copySize = new Extent3D
         {
-            Width = (uint)_width,
-            Height = (uint)_height,
+            Width = (uint)bounds.Width,
+            Height = (uint)bounds.Height,
             DepthOrArrayLayers = 1
         };
 
         wgpu.CommandEncoderCopyTextureToTexture(encoder, &srcCopy, &dstCopy, &copySize);
 
-        var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Surface Snapshot Command Buffer") };
+        var cmdDesc = new CommandBufferDescriptor();
         var cmdBuffer = wgpu.CommandEncoderFinish(encoder, &cmdDesc);
-        SilkMarshal.Free((nint)cmdDesc.Label);
 
-        wgpu.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        wgpu.QueueSubmit(_context!.Queue, 1, &cmdBuffer);
         wgpu.CommandBufferRelease(cmdBuffer);
         wgpu.CommandEncoderRelease(encoder);
 
         return SKImage.FromOwnedTexture(
             snapshotTexture,
-            new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace));
+            new SKImageInfo(bounds.Width, bounds.Height, _colorType, _alphaType, _colorSpace));
     }
 
     public void Draw(SKCanvas canvas, float x, float y, SKPaint? paint)
     {
         ArgumentNullException.ThrowIfNull(canvas);
+        if (_isNullSurface)
+        {
+            return;
+        }
+
         using var image = Snapshot();
         var sampling = paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default;
         canvas.DrawImage(image, x, y, sampling, paint);
@@ -555,16 +614,21 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(canvas);
+        if (_isNullSurface)
+        {
+            return;
+        }
+
         using var image = Snapshot();
         canvas.DrawImage(image, x, y, sampling, paint);
     }
 
     public void Draw(
         SKCanvas canvas,
-        SKPoint point,
+        SKPoint p,
         SKSamplingOptions sampling,
         SKPaint? paint = null) =>
-        Draw(canvas, point.X, point.Y, sampling, paint);
+        Draw(canvas, p.X, p.Y, sampling, paint);
 
     private static unsafe void CopyPixelToRgbaPremultiplied(byte* sourceRow, byte* destinationRow, int x, SKColorType colorType, SKAlphaType alphaType)
     {
@@ -687,14 +751,10 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
         return (byte)Math.Min(255, (value * 255 + alpha / 2) / alpha);
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
 
-        _disposed = true;
+    protected override void DisposeManaged()
+    {
         if (_pixels != IntPtr.Zero)
         {
             GpuFramebufferPresentationRegistry.Unregister(_pixels, this);
@@ -725,9 +785,22 @@ public class SKSurface : IDisposable, IGpuFramebufferPresenter
                     _readbackBuffer?.Dispose();
                     _readbackBuffer = null;
                     _readbackPixels = null;
-                    if (!_context.IsDisposed)
+                    if (_context is { IsDisposed: false })
                     {
                         _context.CleanupPendingResources();
+                    }
+
+                    _surfaceProperties.Dispose();
+                    if (_releaseProc != null && Interlocked.Exchange(ref _releaseInvoked, 1) == 0)
+                    {
+                        _releaseProc(_pixels, _releaseContext!);
+                    }
+
+                    if (_ownsCpuPixels && _pixels != IntPtr.Zero)
+                    {
+                        Marshal.FreeHGlobal(_pixels);
+                        _pixels = IntPtr.Zero;
+                        _ownsCpuPixels = false;
                     }
                 }
             }

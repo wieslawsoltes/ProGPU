@@ -91,6 +91,7 @@ internal static class ProgramEntry
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
+            new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -270,6 +271,24 @@ internal static class ProgramEntry
             platformLock.EnterReadLock();
             checksum = Mix(checksum, (uint)(index & 7));
             platformLock.ExitReadLock();
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunSurfaceBoundedSnapshot(int operations)
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(64, 64, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(new SKColor(25, 75, 125, 255));
+        surface.Flush();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = index & 15;
+            using var snapshot = surface.Snapshot(new SKRectI(offset, offset, offset + 32, offset + 32));
+            checksum = Mix(checksum, (uint)snapshot.Width);
+            checksum = Mix(checksum, (uint)snapshot.Height);
         }
 
         return checksum;
