@@ -41,6 +41,26 @@ public sealed class SkImageFilterFactoryCompatibilityTests
     }
 
     [Fact]
+    public void EmptyAndCropFactoriesRetainTransparentAndInputGraphState()
+    {
+        var crop = new SKRect(3f, 4f, 20f, 30f);
+        using var input = SKImageFilter.CreateBlur(1f, 2f);
+        using var empty = SKImageFilter.CreateEmpty();
+        using var cropped = SKImageFilter.CreateCrop(
+            crop,
+            SKShaderTileMode.Decal,
+            input);
+
+        Assert.Equal(SKImageFilter.FilterKind.Shader, empty.Kind);
+        Assert.Null(
+            Assert.IsType<SKImageFilter.ShaderData>(empty.Parameters)
+                .Shader);
+        Assert.Equal(SKImageFilter.FilterKind.Offset, cropped.Kind);
+        Assert.Same(input, cropped.Input);
+        Assert.Equal(crop, cropped.CropRect);
+    }
+
+    [Fact]
     public void ArithmeticAndBlenderFactoriesRetainNullableSourceFallbacks()
     {
         var crop = new SKRect(1f, 2f, 30f, 40f);

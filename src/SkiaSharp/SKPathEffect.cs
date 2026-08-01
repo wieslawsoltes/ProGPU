@@ -218,7 +218,7 @@ public partial class SKPathEffect : SKObject
         return new SKPathEffect(new DashData((float[])intervals.Clone(), phase));
     }
 
-    public static SKPathEffect CreateDiscrete(float segLength, float deviation, uint seedAssist) =>
+    public static SKPathEffect CreateDiscrete(float segLength, float deviation, uint seedAssist = 0) =>
         new(new DiscreteData(segLength, deviation, seedAssist));
 
     public static SKPathEffect CreateSum(SKPathEffect first, SKPathEffect second)

@@ -1431,7 +1431,7 @@ public class SKRoundRect : SKObject
         float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
 }
 
-public class SKRegion : IDisposable
+public class SKRegion : SKObject
 {
     private readonly List<SKRectI> _rects = new();
     private SKRectI _bounds;
@@ -1444,20 +1444,26 @@ public class SKRegion : IDisposable
 
     public SKRectI Bounds => _bounds;
 
-    public SKRegion() { }
+    public SKRegion()
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+    }
 
     public SKRegion(SKRectI rect)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetRect(rect);
     }
 
     public SKRegion(SKRegion region)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(region);
         SetRegion(region);
     }
 
     public SKRegion(SKPath path)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(path);
         var bounds = path.Bounds;
@@ -1484,7 +1490,7 @@ public class SKRegion : IDisposable
         return false;
     }
 
-    public bool Contains(SKPointI point) => Contains(point.X, point.Y);
+    public bool Contains(SKPointI xy) => Contains(xy.X, xy.Y);
 
     public bool Contains(SKRectI rect)
     {
@@ -1498,15 +1504,15 @@ public class SKRegion : IDisposable
         return remainder.IsEmpty;
     }
 
-    public bool Contains(SKRegion region)
+    public bool Contains(SKRegion src)
     {
-        ArgumentNullException.ThrowIfNull(region);
-        if (region.IsEmpty)
+        ArgumentNullException.ThrowIfNull(src);
+        if (src.IsEmpty)
         {
             return false;
         }
 
-        using var remainder = new SKRegion(region);
+        using var remainder = new SKRegion(src);
         remainder.Op(this, SKRegionOperation.Difference);
         return remainder.IsEmpty;
     }
@@ -2375,7 +2381,7 @@ public class SKRegion : IDisposable
         return MathF.Abs(left - right) <= 0.0001f;
     }
 
-    public sealed class RectIterator : SKObject
+    public class RectIterator : SKObject
     {
         private SKRectI[] _rects;
         private int _index;
@@ -2398,13 +2404,14 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _rects = Array.Empty<SKRectI>();
+            base.DisposeNative();
         }
     }
 
-    public sealed class ClipIterator : SKObject
+    public class ClipIterator : SKObject
     {
         private SKRectI[] _rects;
         private int _index;
@@ -2435,13 +2442,14 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _rects = Array.Empty<SKRectI>();
+            base.DisposeNative();
         }
     }
 
-    public sealed class SpanIterator : SKObject
+    public class SpanIterator : SKObject
     {
         private (int Left, int Right)[] _spans;
         private int _index;
@@ -2509,9 +2517,10 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _spans = Array.Empty<(int Left, int Right)>();
+            base.DisposeNative();
         }
     }
 
@@ -2526,7 +2535,17 @@ public class SKRegion : IDisposable
         return copy;
     }
 
-    public void Dispose() { }
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        _rects.Clear();
+        _bounds = default;
+        base.DisposeNative();
+    }
 }
 
 public enum SKPathVerb

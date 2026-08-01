@@ -19,6 +19,10 @@ public sealed class SkValueSignatureCompatibilityTests
         AssertParameterNames(GetEquals<SKFontMetrics>(), "obj");
         AssertParameterNames(GetEquals<SKColorSpaceTransferFn>(), "obj");
         AssertParameterNames(GetEquals<SKColorSpaceXyz>(), "obj");
+        AssertParameterNames(GetEquals<SKColorF>(), "obj");
+        AssertParameterNames(GetEquals<SKCubicResampler>(), "obj");
+        AssertParameterNames(GetEquals<SKRotationScaleMatrix>(), "obj");
+        AssertParameterNames(GetEquals<SKSamplingOptions>(), "obj");
         AssertParameterNames(
             typeof(SKColorSpaceTransferFn).GetMethod(
                 nameof(SKColorSpaceTransferFn.Transform),

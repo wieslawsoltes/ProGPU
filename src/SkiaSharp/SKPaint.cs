@@ -2465,7 +2465,7 @@ public partial class SKImageFilter : SKObject
     public float Dy => Parameters is DropShadowData shadow ? shadow.Dy : 0f;
     public SKColor ShadowColor => Parameters is DropShadowData shadow ? shadow.Color : SKColor.Empty;
 
-    public static SKImageFilter CreateBlur(float sigmaX, float sigmaY, SKImageFilter? input = null) =>
+    public static SKImageFilter CreateBlur(float sigmaX, float sigmaY, SKImageFilter? input) =>
         new(FilterKind.Blur, new BlurData(sigmaX, sigmaY, SKShaderTileMode.Decal), input, null);
 
     public static SKImageFilter CreateBlur(
@@ -2606,14 +2606,14 @@ public partial class SKImageFilter : SKObject
 
     public static SKImageFilter CreateImage(
         SKImage image,
-        SKRect source,
-        SKRect destination,
+        SKRect src,
+        SKRect dst,
         SKSamplingOptions sampling)
     {
         ArgumentNullException.ThrowIfNull(image);
         return new SKImageFilter(
             FilterKind.Image,
-            new ImageData(image, source, destination, sampling),
+            new ImageData(image, src, dst, sampling),
             null,
             null);
     }
@@ -2628,8 +2628,8 @@ public partial class SKImageFilter : SKObject
     public static SKImageFilter CreateShader(SKShader? shader, bool dither, SKRect? cropRect = null) =>
         new(FilterKind.Shader, new ShaderData(shader, dither), null, cropRect);
 
-    public static SKImageFilter CreatePicture(SKPicture picture, SKRect targetRect) =>
-        new(FilterKind.Picture, new PictureData(picture ?? throw new ArgumentNullException(nameof(picture)), targetRect), null, null);
+    public static SKImageFilter CreatePicture(SKPicture picture, SKRect cropRect) =>
+        new(FilterKind.Picture, new PictureData(picture ?? throw new ArgumentNullException(nameof(picture)), cropRect), null, null);
 
     public static SKImageFilter CreatePointLitDiffuse(
         SKPoint3 location,
@@ -2675,10 +2675,10 @@ public partial class SKImageFilter : SKObject
         SKRect? cropRect = null) =>
         new(FilterKind.SpotLitSpecular, new SpotLightData(location, target, specularExponent, cutoffAngle, lightColor, surfaceScale, ks, shininess), input, cropRect);
 
-    public static SKImageFilter CreateTile(SKRect source, SKRect destination, SKImageFilter? input = null) =>
+    public static SKImageFilter CreateTile(SKRect src, SKRect dst, SKImageFilter? input) =>
         new(
             FilterKind.Tile,
-            new TileData(source, destination),
+            new TileData(src, dst),
             input ?? throw new ArgumentNullException(nameof(input)),
             null);
 

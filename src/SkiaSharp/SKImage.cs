@@ -864,15 +864,15 @@ public class SKPixmap : SKObject
     {
     }
 
-    public SKPixmap(SKImageInfo info, IntPtr pixels)
-        : this(info, pixels, info.RowBytes)
+    public SKPixmap(SKImageInfo info, IntPtr addr)
+        : this(info, addr, info.RowBytes)
     {
     }
 
-    public SKPixmap(SKImageInfo info, IntPtr pixels, int rowBytes)
+    public SKPixmap(SKImageInfo info, IntPtr addr, int rowBytes)
         : base(SKObjectHandle.Create(), owns: true)
     {
-        Reset(info, pixels, rowBytes);
+        Reset(info, addr, rowBytes);
     }
 
     public void Reset()
@@ -883,12 +883,23 @@ public class SKPixmap : SKObject
         _pixelSource = null;
     }
 
-    public void Reset(SKImageInfo info, IntPtr pixels, int rowBytes)
+    public void Reset(SKImageInfo info, IntPtr addr, int rowBytes)
     {
         _info = info;
-        _pixels = pixels;
+        _pixels = addr;
         _rowBytes = rowBytes;
         _pixelSource = null;
+    }
+
+    protected override void DisposeManaged()
+    {
+        Reset();
+        base.DisposeManaged();
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
     }
 
     internal void SetPixelSource(object source) => _pixelSource = source;

@@ -7,7 +7,7 @@ using ProGPU.Vector;
 
 namespace SkiaSharp;
 
-public partial class SKFont : IDisposable
+public partial class SKFont : SKObject
 {
     private const float FakeBoldScale = 1f / 32f;
     private SKTypeface _typeface = null!;
@@ -35,6 +35,7 @@ public partial class SKFont : IDisposable
     }
 
     public SKFont(SKTypeface? typeface, float size = 12f, float scaleX = 1f, float skewX = 0f)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _typeface = typeface ?? SKTypeface.Default;
         Size = size;
@@ -301,7 +302,10 @@ public partial class SKFont : IDisposable
         }
     }
 
-    public void Dispose() { }
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
 }
 
 public struct SKFontMetrics : IEquatable<SKFontMetrics>

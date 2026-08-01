@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,131 ProGPU
-entries, 4,063 exact matches, 159 missing entries, and 1,068 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,135 ProGPU
+entries, 4,106 exact matches, 116 missing entries, and 1,029 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -83,6 +83,35 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Exact signatures and managed ownership hierarchy
+
+The current checkpoint closes 43 official metadata gaps without importing a
+native ownership model. `SKData`, `SKFont`, `SKRegion`, its three iterators, and
+`SKPixmap` now participate in the shared `SKObject` lifetime contract. Data
+subsets still share one pinned reference-counted store, release callbacks still
+run once after the final view, and the protected empty singleton remains usable
+after public disposal. Region iterators retain their bounded snapshots and
+pixmap disposal resets only its borrowed CPU view; none of these operations
+initializes WebGPU or takes ownership of caller memory.
+
+Public parameter names, optional metadata, and overloads now match the pinned
+4.151 reference for color values, sampling values, color spaces, pixmaps,
+regions, discrete path effects, and the remaining image-filter factories.
+`CreateEmpty` maps to the existing transparent GPU shader-filter path, while
+the legacy crop factories map to the existing input graph plus retained crop
+rectangle. Object creation and signature adapters are fixed `O(1)` work;
+`SKData` final release is fixed work plus its caller-owned callback, and region
+iterator snapshots remain `O(R)` time/storage for `R` normalized rectangles.
+
+The public contract was derived only from the pinned official NuGet reference
+metadata. Independent focused tests cover exact parameter names, transparent
+and crop graph state, shared data ownership, disposed pixmap views, region
+operations/iterators, and font behavior. The exact metadata gate advances from
+4,063 to 4,106 matches and ratchets missing entries from 159 to 116. No shader,
+rendering algorithm, text-shaping boundary, cache policy, or GPU submission path
+changed, so the prior cross-engine rendering research and matched performance
+evidence remain applicable.
 
 ### Runtime-effect contracts and typed uniform transport
 

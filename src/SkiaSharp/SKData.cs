@@ -5,7 +5,7 @@ namespace SkiaSharp;
 
 public delegate void SKDataReleaseDelegate(IntPtr address, object context);
 
-public class SKData : IDisposable
+public class SKData : SKObject
 {
     private sealed class Storage
     {
@@ -106,12 +106,18 @@ public class SKData : IDisposable
     private readonly bool _disposeProtected;
     private int _disposed;
 
+    static SKData()
+    {
+        s_empty.PreventPublicDisposal();
+    }
+
     internal SKData(byte[] bytes)
         : this(bytes, disposeProtected: false)
     {
     }
 
     private SKData(byte[] bytes, bool disposeProtected)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         _storage = new Storage(bytes);
@@ -120,6 +126,7 @@ public class SKData : IDisposable
     }
 
     private SKData(Storage storage, int offset, int length)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _storage = storage;
         _offset = offset;
@@ -132,21 +139,10 @@ public class SKData : IDisposable
         int length,
         SKDataReleaseDelegate? release,
         object? context)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _storage = new Storage(address, release, context);
         _length = length;
-    }
-
-    ~SKData()
-    {
-        try
-        {
-            ReleaseStorage();
-        }
-        catch
-        {
-            // Release callbacks must not terminate the process from the finalizer thread.
-        }
     }
 
     public static SKData Empty => s_empty;
@@ -390,15 +386,32 @@ public class SKData : IDisposable
         target.Write(AsSpan());
     }
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
+        if (disposing)
+        {
+            try
+            {
+                ReleaseStorage();
+            }
+            finally
+            {
+                base.Dispose(disposing);
+            }
+            return;
+        }
+
         try
         {
             ReleaseStorage();
         }
+        catch
+        {
+            // Release callbacks must not terminate the process from the finalizer thread.
+        }
         finally
         {
-            GC.SuppressFinalize(this);
+            base.Dispose(disposing);
         }
     }
 
