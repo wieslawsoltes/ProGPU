@@ -531,73 +531,107 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         int len = _effectiveValues.Length;
         for (int i = 0; i < len; i++)
         {
-            bool hasThemeResource = false;
             var property = DependencyProperty.GetPropertyByIndex(i);
-            
-            if (i < _localThemeResources.Length && _localThemeResources[i] is ThemeResource localTr)
+
+            bool hasLocalThemeResource =
+                i < _localThemeResources.Length &&
+                _localThemeResources[i] is ThemeResource;
+            bool hasStyleThemeResource =
+                i < _styleThemeResources.Length &&
+                _styleThemeResources[i] is ThemeResource;
+            bool hasDefaultStyleThemeResource =
+                i < _defaultStyleThemeResources.Length &&
+                _defaultStyleThemeResources[i] is ThemeResource;
+            bool hasAnimatedThemeResource =
+                i < _animatedThemeResources.Length &&
+                _animatedThemeResources[i] is ThemeResource;
+            bool hasThemeResource =
+                hasLocalThemeResource ||
+                hasStyleThemeResource ||
+                hasDefaultStyleThemeResource ||
+                hasAnimatedThemeResource;
+            if (!hasThemeResource)
             {
+                continue;
+            }
+
+            object? localCandidate = null;
+            object? styleCandidate = null;
+            object? defaultStyleCandidate = null;
+            object? animatedCandidate = null;
+
+            if (hasLocalThemeResource)
+            {
+                var localTr = (ThemeResource)_localThemeResources[i]!;
                 var resolved = XamlResourceResolver.ResolveTheme(
                     localTr.LookupRoot,
                     this,
                     localTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                object? candidate = property == null
+                localCandidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
-                property?.ValidateValue(candidate);
-                _localValues[i] = candidate;
-                hasThemeResource = true;
+                property?.ValidateValue(localCandidate);
             }
-            if (i < _styleThemeResources.Length && _styleThemeResources[i] is ThemeResource styleTr)
+            if (hasStyleThemeResource)
             {
+                var styleTr = (ThemeResource)_styleThemeResources[i]!;
                 var resolved = XamlResourceResolver.ResolveTheme(
                     styleTr.LookupRoot,
                     this,
                     styleTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                object? candidate = property == null
+                styleCandidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
-                property?.ValidateValue(candidate);
-                _styleValues[i] = candidate;
-                hasThemeResource = true;
+                property?.ValidateValue(styleCandidate);
             }
-            if (i < _defaultStyleThemeResources.Length && _defaultStyleThemeResources[i] is ThemeResource defaultStyleTr)
+            if (hasDefaultStyleThemeResource)
             {
+                var defaultStyleTr =
+                    (ThemeResource)_defaultStyleThemeResources[i]!;
                 var resolved = XamlResourceResolver.ResolveTheme(
                     defaultStyleTr.LookupRoot,
                     this,
                     defaultStyleTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                object? candidate = property == null
+                defaultStyleCandidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
-                property?.ValidateValue(candidate);
-                _defaultStyleValues[i] = candidate;
-                hasThemeResource = true;
+                property?.ValidateValue(defaultStyleCandidate);
             }
-            if (i < _animatedThemeResources.Length && _animatedThemeResources[i] is ThemeResource animatedTr)
+            if (hasAnimatedThemeResource)
             {
+                var animatedTr = (ThemeResource)_animatedThemeResources[i]!;
                 var resolved = XamlResourceResolver.ResolveTheme(
                     animatedTr.LookupRoot,
                     this,
                     animatedTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                object? candidate =
-                    ConvertAnimatedThemeResourceValue(
-                        property,
-                        resolved,
-                        animatedTr);
-                property?.ValidateValue(candidate);
-                _animatedValues[i] = candidate;
-                hasThemeResource = true;
+                animatedCandidate = ConvertAnimatedThemeResourceValue(
+                    property,
+                    resolved,
+                    animatedTr);
+                property?.ValidateValue(animatedCandidate);
             }
-            
-            if (hasThemeResource && property != null)
+
+            // Resolve and validate every precedence layer before mutating any
+            // retained layer so a rejected candidate cannot leave the backing
+            // values partially advanced while the effective value is stale.
+            if (hasLocalThemeResource)
+                _localValues[i] = localCandidate;
+            if (hasStyleThemeResource)
+                _styleValues[i] = styleCandidate;
+            if (hasDefaultStyleThemeResource)
+                _defaultStyleValues[i] = defaultStyleCandidate;
+            if (hasAnimatedThemeResource)
+                _animatedValues[i] = animatedCandidate;
+
+            if (property != null)
             {
                 object? oldValue = _effectiveValues[i] ?? property.Metadata?.DefaultValue;
                 UpdateEffectiveValue(property, i, oldValue);

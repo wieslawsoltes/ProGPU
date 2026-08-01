@@ -188,6 +188,40 @@ public sealed class TimePickerContractTests
     }
 
     [Fact]
+    public void RejectedMultiLayerThemeReevaluationRollsBackEveryLayer()
+    {
+        var localResources = new ResourceDictionary
+        {
+            ["LocalClock"] = "12HourClock"
+        };
+        var styleResources = new ResourceDictionary
+        {
+            ["StyleClock"] = "24HourClock"
+        };
+        var picker = new TimePicker();
+        picker.SetStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            new ThemeResource(styleResources, "StyleClock"));
+        picker.SetValue(
+            TimePicker.ClockIdentifierProperty,
+            new ThemeResource(localResources, "LocalClock"));
+        Assert.Equal("12HourClock", picker.ClockIdentifier);
+
+        localResources["LocalClock"] = "24HourClock";
+        styleResources["StyleClock"] = "GregorianCalendar";
+
+        Assert.Throws<ArgumentException>(picker.ReevaluateThemeResources);
+        Assert.Equal("12HourClock", picker.ClockIdentifier);
+
+        // Replacing the lower-precedence style layer recomputes the effective
+        // value from the retained local layer and exposes any partial commit.
+        picker.SetStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            "24HourClock");
+        Assert.Equal("12HourClock", picker.ClockIdentifier);
+    }
+
+    [Fact]
     public void DependencyPropertyAssignmentUsesTheSameCoercionPath()
     {
         var picker = new TimePicker { MinuteIncrement = 15 };

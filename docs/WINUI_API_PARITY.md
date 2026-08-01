@@ -52,8 +52,8 @@ Markdown reports under `artifacts/winui-api/report/`.
 
 The canonical surface includes externally visible types, inheritance,
 interfaces, generic constraints, public/protected fields and constants,
-constructors, methods, properties, events, accessor visibility and static,
-abstract, virtual, final, and new-slot flags, parameter
+constructors, methods, properties, events, member/accessor visibility and
+static, abstract, virtual, final, and new-slot flags, parameter
 direction/default metadata, and public custom-attribute type identities. Every
 semantic custom attribute is compared by type and raw ECMA-335 value blob.
 Method-, return-, and parameter-owned attributes plus generic constraints use
@@ -63,9 +63,9 @@ so overloads and `params` contracts cannot collapse into one declaration. The
 same identity rule includes a property's return and complete index-parameter
 types, so overloaded indexer attributes cannot collapse or move silently. The
 command-line gate runs an isolated metadata self-test before comparison and
-proves that method/parameter/property attributes, property accessor flags,
-`params`, overloaded indexers, and constrained generic overloads remain
-distinct.
+proves that method/parameter/property attributes, method/property/event
+dispatch flags, `params`, overloaded indexers, and constrained generic
+overloads remain distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -1859,18 +1859,20 @@ Primary clean-room contracts consulted:
 Focused tests cover defaults, sub-minute truncation, minute-step coercion,
 nullable synchronization and reset, transactional validation for local,
 style, default-style, animation, and theme-resource dependency-property
-sources, preservation of the prior local/effective clock value after rejected
-assignments, the two official clock identifiers,
+sources, atomic rollback when multiple theme-resource precedence layers are
+reevaluated together, preservation of the prior local/effective clock value
+after rejected assignments, the two official clock identifiers,
 exact public metadata shape, and zero managed allocations across 100,000 warmed
 identifier reads. No Microsoft or foreign implementation source or method
 body was inspected, copied, or adapted.
 
 ### Final preview.32 metadata and lifecycle hardening
 
-The final review extends property comparison beyond visibility to the exact
-static, abstract, virtual, final, and new-slot flags of each getter and setter.
-The independent self-test covers static and virtual/new-slot properties. The
-new evidence corrected `OverlappedPresenter.RequestedStartupState` and
+The final review extends method, property, and event comparison beyond
+visibility to exact static, abstract, virtual, final, and new-slot dispatch
+flags. The independent self-test covers virtual/new-slot methods, static and
+virtual/new-slot properties, and static and virtual/new-slot events. The new
+evidence corrected `OverlappedPresenter.RequestedStartupState` and
 `Timeline.AllowDependentAnimations` to their official static contracts,
 removed unintended virtual accessors from the exact `FrameworkElement`
 alignment properties, and adds the official `IScrollSnapPointsInfo` contract
@@ -1889,10 +1891,12 @@ Primary clean-room contracts consulted for this hardening pass:
 
 Dependency-property validation now runs on converted values before mutation
 for local, style, default-style, animation, and theme-resource reevaluation
-sources. Automation event helpers route through `EventsSource`. These changes
-advance the final pinned report to 8,980 candidate entries, 5,229 exact
-matches, 11,350 missing entries, and 3,751 extras without relaxing the
-monotonic budget.
+sources. Every theme-resource precedence-layer candidate for one property is
+staged and validated before any retained layer is committed. Automation event
+helpers route through `EventsSource`. These changes advance the final pinned
+report to 8,980 candidate entries, 5,229 exact matches, 11,350 missing entries,
+and 3,751 extras. The monotonic budget is ratcheted to those exact matching and
+missing counts.
 
 ## Preview.32 parity handoff
 

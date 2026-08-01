@@ -288,6 +288,7 @@ internal sealed record MetadataApiSurface(
             $"abstract={method.Attributes.HasFlag(MethodAttributes.Abstract)};" +
             $"virtual={method.Attributes.HasFlag(MethodAttributes.Virtual)};" +
             $"final={method.Attributes.HasFlag(MethodAttributes.Final)};" +
+            $"newslot={method.Attributes.HasFlag(MethodAttributes.NewSlot)};" +
             $"return={signature.ReturnType};name={methodName};" +
             $"arity={method.GetGenericParameters().Count};" +
             $"params=({string.Join(",", parameterText)})");
@@ -383,7 +384,9 @@ internal sealed record MetadataApiSurface(
             $"event|{typeName}|access={access};" +
             $"type={formatter.GetTypeName(@event.Type)};name={eventName};" +
             $"add={GetAccessorAccess(reader, accessors.Adder)};" +
-            $"remove={GetAccessorAccess(reader, accessors.Remover)}");
+            $"remove={GetAccessorAccess(reader, accessors.Remover)};" +
+            FormatAccessorFlags(reader, "add", accessors.Adder) + ";" +
+            FormatAccessorFlags(reader, "remove", accessors.Remover));
         AddAttributes(
             reader,
             formatter,

@@ -71,6 +71,32 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.Contains("getnewslot=True", StringComparison.Ordinal) &&
                 entry.Contains("setvirtual=True", StringComparison.Ordinal) &&
                 entry.Contains("setnewslot=True", StringComparison.Ordinal));
+        bool virtualMethodFlags = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "method|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=VirtualDispatch;", StringComparison.Ordinal) &&
+                entry.Contains("virtual=True", StringComparison.Ordinal) &&
+                entry.Contains("newslot=True", StringComparison.Ordinal));
+        bool staticEventFlags = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "event|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=StaticRaised;", StringComparison.Ordinal) &&
+                entry.Contains("addstatic=True", StringComparison.Ordinal) &&
+                entry.Contains("removestatic=True", StringComparison.Ordinal));
+        bool virtualEventFlags = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "event|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=VirtualRaised;", StringComparison.Ordinal) &&
+                entry.Contains("addvirtual=True", StringComparison.Ordinal) &&
+                entry.Contains("addnewslot=True", StringComparison.Ordinal) &&
+                entry.Contains("removevirtual=True", StringComparison.Ordinal) &&
+                entry.Contains("removenewslot=True", StringComparison.Ordinal));
 
         if (attributeOwners.Length != 2 ||
             genericOwners.Length != 2 ||
@@ -78,18 +104,25 @@ internal static class MetadataApiSurfaceSelfTests
             paramArrayOwners.Length != 1 ||
             propertyAttributeOwners.Length != 2 ||
             !staticPropertyFlags ||
-            !virtualPropertyFlags)
+            !virtualPropertyFlags ||
+            !virtualMethodFlags ||
+            !staticEventFlags ||
+            !virtualEventFlags)
         {
             throw new InvalidOperationException(
                 "Method, parameter, params, and property attributes plus generic constraints must retain their complete overload owner signature. " +
                 $"Observed method={attributeOwners.Length}, generic={genericOwners.Length}, " +
                 $"parameter={parameterAttributeOwners.Length}, params={paramArrayOwners.Length}, " +
                 $"property={propertyAttributeOwners.Length}, " +
-                $"staticFlags={staticPropertyFlags}, virtualFlags={virtualPropertyFlags}.");
+                $"staticPropertyFlags={staticPropertyFlags}, " +
+                $"virtualPropertyFlags={virtualPropertyFlags}, " +
+                $"virtualMethodFlags={virtualMethodFlags}, " +
+                $"staticEventFlags={staticEventFlags}, " +
+                $"virtualEventFlags={virtualEventFlags}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for method/parameter/property attributes, property accessor flags, params, and generic constraints.");
+            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, params, generic constraints, and method/property/event dispatch flags.");
         return 0;
     }
 
@@ -134,6 +167,25 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public static int StaticValue { get; set; }
 
         public virtual int VirtualValue { get; set; }
+
+        public virtual void VirtualDispatch()
+        {
+        }
+
+        private static EventHandler? s_staticRaised;
+        private EventHandler? _virtualRaised;
+
+        public static event EventHandler? StaticRaised
+        {
+            add => s_staticRaised += value;
+            remove => s_staticRaised -= value;
+        }
+
+        public virtual event EventHandler? VirtualRaised
+        {
+            add => _virtualRaised += value;
+            remove => _virtualRaised -= value;
+        }
 
         public void Transform<T>(T value)
             where T : class => _ = value;
