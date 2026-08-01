@@ -74,7 +74,7 @@ public sealed class SkImageApiParityTests
     }
 
     [Fact]
-    public void SubsetCopiesOnlyTheRequestedRectangleOnGpu()
+    public void SubsetSharesStorageAndReadsOnlyTheRequestedRectangle()
     {
         var info = new SKImageInfo(2, 2, SKColorType.Rgba8888, SKAlphaType.Premul);
         using var image = SKImage.FromPixelCopy(info, new byte[]
@@ -88,12 +88,63 @@ public sealed class SkImageApiParityTests
         Assert.False(subset.IsTextureBacked);
         Assert.Equal(1, subset.Width);
         Assert.Equal(2, subset.Height);
-        Assert.Equal(new byte[]
-        {
-            0, 255, 0, 255,
-            255, 255, 255, 255
-        }, subset.Texture.ReadPixels());
+        Assert.Same(image.Texture, subset.Texture);
+        using var pixels = subset.PeekPixels();
+        Assert.Equal(SKColors.Lime, pixels.GetPixelColor(0, 0));
+        Assert.Equal(SKColors.White, pixels.GetPixelColor(0, 1));
         Assert.Null(image.Subset(new SKRectI(-1, 0, 1, 1)));
+    }
+
+    [Fact]
+    public void NestedSubsetRetainsSharedStorageAfterParentDisposal()
+    {
+        var image = SKImage.FromPixelCopy(
+            new SKImageInfo(3, 2, SKColorType.Rgba8888, SKAlphaType.Premul),
+            new byte[]
+            {
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255,
+                255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255
+            });
+        using var first = image.Subset(new SKRectI(1, 0, 3, 2));
+        using var nested = first.Subset(new SKRectI(1, 1, 2, 2));
+
+        Assert.Same(image.Texture, first.Texture);
+        Assert.Same(image.Texture, nested.Texture);
+        image.Dispose();
+        first.Dispose();
+
+        Assert.False(nested.Texture.IsDisposed);
+        using var pixels = nested.PeekPixels();
+        Assert.Equal(SKColors.Magenta, pixels.GetPixelColor(0, 0));
+        using var context = new GRContext(nested.Texture.Context);
+        using var textureCopy = nested.ToTextureImage(context);
+        Assert.Equal(new byte[] { 255, 0, 255, 255 }, textureCopy.Texture.ReadPixels());
+    }
+
+    [Fact]
+    public void DrawingSubsetMaterializesOnlyItsComposedTextureRegion()
+    {
+        using var image = SKImage.FromPixelCopy(
+            new SKImageInfo(3, 2, SKColorType.Rgba8888, SKAlphaType.Premul),
+            new byte[]
+            {
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255,
+                255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255
+            });
+        using var first = image.Subset(new SKRectI(1, 0, 3, 2));
+        using var nested = first.Subset(new SKRectI(0, 1, 2, 2));
+        using var surface = SKSurface.Create(
+            new SKImageInfo(2, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawImage(nested, 0, 0);
+        surface.Canvas.Flush();
+        using var snapshot = surface.Snapshot();
+        using var result = snapshot.ToRasterImage();
+        using var pixels = result.PeekPixels();
+
+        Assert.Equal(SKColors.Cyan, pixels.GetPixelColor(0, 0));
+        Assert.Equal(SKColors.Magenta, pixels.GetPixelColor(1, 0));
     }
 
     [Fact]
@@ -113,7 +164,10 @@ public sealed class SkImageApiParityTests
         Assert.NotNull(subset);
         Assert.True(subset.IsTextureBacked);
         Assert.Same(image.Texture.Context, subset.Texture.Context);
-        Assert.Equal(new byte[] { 0, 0, 255, 255 }, subset.Texture.ReadPixels());
+        Assert.Same(image.Texture, subset.Texture);
+        using var raster = subset.ToRasterImage();
+        using var pixels = raster.PeekPixels();
+        Assert.Equal(SKColors.Blue, pixels.GetPixelColor(0, 0));
     }
 
     [Fact]
@@ -149,8 +203,13 @@ public sealed class SkImageApiParityTests
             releaseContext);
 
         Assert.NotNull(image);
+        using var subset = image.Subset(recordingContext, new SKRectI(0, 0, 1, 1));
+        Assert.NotNull(subset);
         image.Dispose();
         image.Dispose();
+        Assert.Equal(0, releaseCount);
+        Assert.False(texture.IsDisposed);
+        subset.Dispose();
         Assert.Equal(1, releaseCount);
         Assert.False(texture.IsDisposed);
     }

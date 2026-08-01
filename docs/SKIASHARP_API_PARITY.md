@@ -720,23 +720,36 @@ run exactly once with their original pointer/context. Encoded images retain an
 independent encoded snapshot. Raster `PeekPixels` materializes one stable
 pinned CPU view; a GPU-backed image does not silently claim a CPU pointer.
 
-Contained subsets use one typed WebGPU base-level rectangle copy with explicit
-source and destination origins. Raster provenance remains observable as raster
-and texture provenance remains observable as texture; texture-backed subsets
-require the matching recording context. Same-context texture conversion stays
-GPU-only and optionally generates mip levels. Cross-context conversion uses one
-explicit readback/upload boundary because WebGPU resources cannot be copied
-between devices. Filter application runs through ProGPU's retained WebGPU
-filter graph and clips its output to the caller's expected device bounds.
-Creation and wrapping validation are `O(1)` apart from required pixel ownership;
-pixel copies and cross-device transfers are `O(P)` time/storage; a subset is
-`O(1)` CPU encoding, `O(P)` GPU bandwidth, and one bounded destination texture.
+Contained subsets are immutable `O(1)` texture-region views. One atomic
+reference retains the source texture storage and the view composes bounded
+CPU-pixel and GPU-texture origins; creating, nesting, or disposing a subset
+performs no pixel copy, command encoding, queue submission, or GPU allocation.
+The final owner releases an adopted texture and invokes its borrowed-texture
+release callback exactly once, so a subset remains valid after its parent is
+disposed. Raster provenance remains observable as
+raster and texture provenance remains observable as texture; texture-backed
+subsets require the matching recording context.
+
+Region materialization is deferred to the operation that requires an independent
+resource. Same-context texture conversion and retained image drawing issue one
+typed base-level WebGPU rectangle copy, and texture conversion can generate
+mip levels afterward. A CPU read requests only the view rectangle; immutable
+raster-backed views copy directly from their retained row-stride storage, while
+GPU-only views use one bounded readback texture. Cross-context conversion uses
+one explicit tight upload because WebGPU resources cannot be copied between
+devices. Filter application runs through ProGPU's retained WebGPU filter graph
+and clips its output to the caller's expected device bounds. Creation and
+wrapping validation are `O(1)` apart from required pixel ownership; view
+creation is `O(1)` time/storage and one managed wrapper; materialization and
+cross-device transfers are `O(P)` bandwidth and storage for `P` view pixels.
 
 Independent tests cover stride-aware immutable copies, stable raster views,
 encoded ownership, exact-once raster/texture callbacks, borrowed versus adopted
-textures, contained GPU rectangle copies, invalid subsets, mip generation, and
-filtered output bounds. The focused image/surface suite passes 35 tests. The
-metadata verifier at this image checkpoint reported 4,222 official entries,
+textures, shared and nested region views, parent-before-child disposal,
+contained GPU rectangle materialization, invalid subsets, mip generation, and
+filtered output bounds. The focused image/surface contract selection passes 87
+tests. The metadata verifier at this image checkpoint reported 4,222 official
+entries,
 4,933 candidate entries, 3,756 exact matches, 466 missing entries, and 1,177
 documented extensions.
 The isolated package gate also produced the runtime and Avalonia 11/12
@@ -749,7 +762,7 @@ The clean-room architecture uses Skia's public
 [filter-bounds model](https://api.skia.org/classSkImageFilter.html), WebGPU's
 [texture-copy validation and ordering model](https://www.w3.org/TR/webgpu/#dom-gpucommandencoder-copytexturetotexture),
 Direct2D's
-[device-dependent bitmap model](https://learn.microsoft.com/windows/win32/direct2d/direct2d-bitmaps-overview),
+[source-rectangle bitmap model](https://learn.microsoft.com/windows/win32/api/d2d1_1/nf-d2d1_1-id2d1devicecontext-drawbitmap%28id2d1bitmap_constd2d1_rect_f_float_d2d1_interpolation_mode_constd2d1_rect_f_constd2d1_matrix_4x4_f%29),
 Win2D's
 [CanvasBitmap contract](https://learn.microsoft.com/uwp/api/microsoft.graphics.canvas.canvasbitmap),
 WebRender's
@@ -761,22 +774,27 @@ and HarfBuzz shaping/layout review recorded by the surface checkpoint remains
 unchanged: image ownership does not move Unicode/OpenType shaping onto the GPU.
 
 Three alternating Apple M3 Pro Release process pairs retained the exact native
-checksum for 32-by-32 subsets of a stable 64-by-64 image. Native raster
-copy-on-write measured `443.120` ns/op and `106.08` B/op; ProGPU's current
-immediate WebGPU rectangle-copy submission measured `38,778.335` ns/op and
-`722.08` B/op (`87.512` ratio). Matched Time Profiler captures measured
-`719.795` versus `45,462.915` ns/op, while matched Allocations captures measured
-`2,567.710` versus `75,184.580` ns/op with the same `106.08` versus `722.08`
-B/op. The installed Allocations template completed but exposed no exportable
-native allocation table, so the allocation statement uses the harness's
-per-thread counters and makes no unsupported native-heap claim. Metal System
-Trace measured `660.830` versus `46,685.000` ns/op and exported zero native
-Metal rows versus 6,429 ProGPU command-buffer submissions, 4,509
-`currentAllocatedSize` rows, and 268 resource-allocation rows. The raw traces,
-TOCs, exported Metal tables, and exact-run JSON are retained under
-`artifacts/performance/skiasharp-image-api-instruments`. Deferred/batched copy
-submission and shared immutable texture ownership remain mandatory before the
-final release can satisfy the goal's matched native latency/allocation gate.
+checksum for 32-by-32 subsets of a stable 64-by-64 image. The final shared-view
+implementation measured `399.790` ns/op and `402.64` managed B/op versus native
+raster copy-on-write at `675.210` ns/op and `106.08` B/op (`0.592` latency
+ratio). Relative to the previous ProGPU immediate-copy result, this reduces
+median latency from `38,778.335` ns/op by 99.0% and managed allocation from
+`722.08` B/op by 44.2%. ProGPU's remaining managed-byte difference is its
+visible managed image/view ownership while the native counter excludes Skia's
+native object allocation, so no total-memory advantage is inferred.
+
+Matched final-binary Time Profiler, Allocations plus VM Tracker, and Metal
+System Trace captures all completed. For the same workload, Xcode's persistent
+native heap plus anonymous VM fell from `165,785,280` to `110,526,736` bytes,
+and total native heap bytes fell from `728,675,488` to `196,383,680` bytes.
+The former Metal trace exported 6,429 command-buffer submission rows, 4,509
+`currentAllocatedSize` rows, and 268 resource-allocation rows; the final trace
+contains no modeled target Metal track because subset creation no longer
+records or submits GPU work. These whole-process Instruments numbers include
+runtime/device startup and are correlated evidence rather than per-operation
+allocation claims. Before/final raw traces, TOCs, exported tables, and exact-run
+JSON are retained under `artifacts/performance/skiasharp-image-api-instruments`
+and `artifacts/performance/skiasharp-image-subset-zero-copy-instruments`.
 
 The benchmark workflow now installs the same Linux Vulkan prerequisites as the
 main build and resolves the packaged RID-native WebGPU directory on Linux,

@@ -5523,11 +5523,20 @@ public class SKCanvas : SKObject
             : currentContext != null && !currentContext.IsDisposed
                 ? currentContext
                 : image.Texture.Context;
-        var source = image.GetTextureForContext(targetContext);
+        var source = image.GetTextureRegionForContext(
+            targetContext,
+            out var sourceX,
+            out var sourceY);
 
+        var isWholeSource = sourceX == 0 &&
+            sourceY == 0 &&
+            source.Width == (uint)image.Width &&
+            source.Height == (uint)image.Height;
         var mipLevelCount = generateMipmaps
-            ? CalculateMipLevelCount(source.Width, source.Height)
-            : source.MipLevelCount;
+            ? CalculateMipLevelCount((uint)image.Width, (uint)image.Height)
+            : isWholeSource
+                ? source.MipLevelCount
+                : 1u;
         var usage = TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc;
         if (generateMipmaps)
         {
@@ -5536,8 +5545,8 @@ public class SKCanvas : SKObject
 
         var retainedTexture = new GpuTexture(
             targetContext,
-            source.Width,
-            source.Height,
+            checked((uint)image.Width),
+            checked((uint)image.Height),
             source.Format,
             usage,
             "SKCanvas DrawImage Retained Source Texture",
@@ -5547,14 +5556,24 @@ public class SKCanvas : SKObject
         {
             s_textureColorSpaces.Add(retainedTexture, new TextureColorSpace(imageColorSpace));
         }
-        if (retainedTexture.MipLevelCount == source.MipLevelCount)
+        if (isWholeSource && retainedTexture.MipLevelCount == source.MipLevelCount)
         {
-        retainedTexture.CopyFrom(source);
+            retainedTexture.CopyFrom(source);
         }
         else
         {
-            retainedTexture.CopyBaseLevelFrom(source);
-            retainedTexture.GenerateMipmaps2DLinear();
+            retainedTexture.CopyBaseLevelRegionFrom(
+                source,
+                sourceX,
+                sourceY,
+                0,
+                0,
+                checked((uint)image.Width),
+                checked((uint)image.Height));
+            if (generateMipmaps)
+            {
+                retainedTexture.GenerateMipmaps2DLinear();
+            }
         }
         _context.RetainResource(retainedTexture);
         return retainedTexture;

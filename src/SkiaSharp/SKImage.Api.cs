@@ -198,36 +198,16 @@ public partial class SKImage
             return null!;
         }
 
-        var destination = new GpuTexture(
-            Texture.Context,
-            checked((uint)subset.Width),
-            checked((uint)subset.Height),
-            Texture.Format,
-            TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
-            "SKImage GPU Subset",
-            alphaMode: Texture.AlphaMode);
-        try
-        {
-            destination.CopyBaseLevelRegionFrom(
-                Texture,
-                checked((uint)subset.Left),
-                checked((uint)subset.Top),
-                0,
-                0,
-                checked((uint)subset.Width),
-                checked((uint)subset.Height));
-            return new SKImage(
-                destination,
-                ownsTexture: true,
-                new SKImageInfo(subset.Width, subset.Height, ColorType, AlphaType, ColorSpace),
-                portableRgbaPixels: null,
-                isTextureBacked: _isTextureBacked);
-        }
-        catch
-        {
-            destination.Dispose();
-            throw;
-        }
+        return new SKImage(
+            _textureStorage,
+            new SKImageInfo(subset.Width, subset.Height, ColorType, AlphaType, ColorSpace),
+            _portableRgbaPixels,
+            checked(_portableOriginX + subset.Left),
+            checked(_portableOriginY + subset.Top),
+            _portableRowWidth,
+            checked(_textureOriginX + (uint)subset.Left),
+            checked(_textureOriginY + (uint)subset.Top),
+            _isTextureBacked);
     }
 
     public SKImage ToTextureImage(GRContext context) =>
@@ -249,25 +229,39 @@ public partial class SKImage
         {
             var texture = new GpuTexture(
                 targetContext,
-                Texture.Width,
-                Texture.Height,
+                checked((uint)Width),
+                checked((uint)Height),
                 Texture.Format,
                 TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc |
                     (mipmapped ? TextureUsage.RenderAttachment : 0),
                 "SKImage Texture Copy",
                 alphaMode: Texture.AlphaMode,
                 mipLevelCount: mipmapped
-                    ? CalculateMipLevelCount(Texture.Width, Texture.Height)
+                    ? CalculateMipLevelCount(checked((uint)Width), checked((uint)Height))
                     : 1);
             try
             {
-                texture.CopyBaseLevelRegionFrom(Texture, Texture.Width, Texture.Height);
+                texture.CopyBaseLevelRegionFrom(
+                    Texture,
+                    _textureOriginX,
+                    _textureOriginY,
+                    0,
+                    0,
+                    checked((uint)Width),
+                    checked((uint)Height));
                 if (mipmapped)
                 {
                     texture.GenerateMipmaps2DLinear();
                 }
 
-                return new SKImage(texture, true, _info, null, true);
+                return new SKImage(
+                    texture,
+                    true,
+                    _info,
+                    _portableRgbaPixels is null
+                        ? null
+                        : CopyPortablePixels(),
+                    true);
             }
             catch
             {
@@ -559,15 +553,14 @@ public partial class SKImage
             return null;
         }
 
-        var image = new SKImage(
+        return new SKImage(
             gpuTexture,
             ownsTexture,
             new SKImageInfo(texture.Width, texture.Height, colorType, alpha, colorspace),
             null,
-            true);
-        image._textureReleaseProc = releaseProc;
-        image._releaseContext = releaseContext;
-        return image;
+            true,
+            releaseProc,
+            releaseContext);
     }
 
     private static SKImage CreateFromPixelCopy(

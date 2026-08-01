@@ -12,10 +12,72 @@ namespace SkiaSharp;
 
 public partial class SKImage : SKObject
 {
-    internal GpuTexture Texture { get; }
-    private readonly bool _ownsTexture;
+    private sealed class TextureStorage
+    {
+        private int _referenceCount = 1;
+        private readonly bool _ownsTexture;
+        private readonly SKImageTextureReleaseDelegate? _releaseProc;
+        private readonly object? _releaseContext;
+
+        public TextureStorage(
+            GpuTexture texture,
+            bool ownsTexture,
+            SKImageTextureReleaseDelegate? releaseProc = null,
+            object? releaseContext = null)
+        {
+            Texture = texture;
+            _ownsTexture = ownsTexture;
+            _releaseProc = releaseProc;
+            _releaseContext = releaseContext;
+        }
+
+        public GpuTexture Texture { get; }
+
+        public void AddReference()
+        {
+            while (true)
+            {
+                var count = Volatile.Read(ref _referenceCount);
+                if (count <= 0)
+                {
+                    throw new ObjectDisposedException(nameof(SKImage));
+                }
+
+                if (Interlocked.CompareExchange(
+                        ref _referenceCount,
+                        count + 1,
+                        count) == count)
+                {
+                    return;
+                }
+            }
+        }
+
+        public void ReleaseReference()
+        {
+            if (Interlocked.Decrement(ref _referenceCount) != 0)
+            {
+                return;
+            }
+
+            if (_ownsTexture)
+            {
+                Texture.Dispose();
+            }
+
+            _releaseProc?.Invoke(_releaseContext!);
+        }
+    }
+
+    private readonly TextureStorage _textureStorage;
+    internal GpuTexture Texture => _textureStorage.Texture;
     private readonly SKImageInfo _info;
     private readonly byte[]? _portableRgbaPixels;
+    private readonly int _portableOriginX;
+    private readonly int _portableOriginY;
+    private readonly int _portableRowWidth;
+    private readonly uint _textureOriginX;
+    private readonly uint _textureOriginY;
     private readonly bool _isTextureBacked;
     private readonly object _portableTextureLock = new();
     private readonly object _rasterPixelLock = new();
@@ -26,7 +88,6 @@ public partial class SKImage : SKObject
     private GCHandle _rasterPixelsHandle;
     private byte[]? _encodedBytes;
     private SKImageRasterReleaseDelegate? _rasterReleaseProc;
-    private SKImageTextureReleaseDelegate? _textureReleaseProc;
     private IntPtr _rasterReleasePixels;
     private object? _releaseContext;
     private int _releaseInvoked;
@@ -52,19 +113,49 @@ public partial class SKImage : SKObject
         bool ownsTexture,
         SKImageInfo info,
         byte[]? portableRgbaPixels,
-        bool isTextureBacked = true)
+        bool isTextureBacked = true,
+        SKImageTextureReleaseDelegate? textureReleaseProc = null,
+        object? textureReleaseContext = null)
         : base(SKObjectHandle.Create(), owns: true)
     {
-        Texture = texture;
-        _ownsTexture = ownsTexture;
+        _textureStorage = new TextureStorage(
+            texture,
+            ownsTexture,
+            textureReleaseProc,
+            textureReleaseContext);
         _portableRgbaPixels = portableRgbaPixels;
+        _portableRowWidth = info.Width;
         _isTextureBacked = isTextureBacked;
         _info = new SKImageInfo(
-            (int)texture.Width,
-            (int)texture.Height,
+            info.Width,
+            info.Height,
             info.ColorType,
             info.AlphaType,
             info.ColorSpace);
+    }
+
+    private SKImage(
+        TextureStorage textureStorage,
+        SKImageInfo info,
+        byte[]? portableRgbaPixels,
+        int portableOriginX,
+        int portableOriginY,
+        int portableRowWidth,
+        uint textureOriginX,
+        uint textureOriginY,
+        bool isTextureBacked)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        textureStorage.AddReference();
+        _textureStorage = textureStorage;
+        _portableRgbaPixels = portableRgbaPixels;
+        _portableOriginX = portableOriginX;
+        _portableOriginY = portableOriginY;
+        _portableRowWidth = portableRowWidth;
+        _textureOriginX = textureOriginX;
+        _textureOriginY = textureOriginY;
+        _isTextureBacked = isTextureBacked;
+        _info = info;
     }
 
     public static SKImage FromBitmap(SKBitmap bitmap)
@@ -331,18 +422,27 @@ public partial class SKImage : SKObject
     {
         var texture = new GpuTexture(
             Texture.Context,
-            Texture.Width,
-            Texture.Height,
+            checked((uint)Width),
+            checked((uint)Height),
             Texture.Format,
             TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
             "SKImage Shader Retained Texture",
             alphaMode: Texture.AlphaMode);
-        texture.CopyFrom(Texture);
+        texture.CopyBaseLevelRegionFrom(
+            Texture,
+            _textureOriginX,
+            _textureOriginY,
+            0,
+            0,
+            checked((uint)Width),
+            checked((uint)Height));
         return new SKImage(
             texture,
             ownsTexture: true,
             _info,
-            _portableRgbaPixels);
+            _portableRgbaPixels is null
+                ? null
+                : CopyPortablePixels());
     }
 
     internal GpuTexture GetTextureForContext(WgpuContext requiredContext)
@@ -397,7 +497,7 @@ public partial class SKImage : SKObject
 
             var texture = CreateTextureFromRgbaPixels(
                 _info,
-                _portableRgbaPixels,
+                GetPortablePixelsForUpload(),
                 requiredContext,
                 generateMipmaps: false,
                 "SKImage Context-local Texture");
@@ -406,6 +506,76 @@ public partial class SKImage : SKObject
             Volatile.Write(ref _lastPortableContext, requiredContext);
             return texture;
         }
+    }
+
+    internal GpuTexture GetTextureRegionForContext(
+        WgpuContext requiredContext,
+        out uint sourceX,
+        out uint sourceY)
+    {
+        var texture = GetTextureForContext(requiredContext);
+        if (ReferenceEquals(texture, Texture))
+        {
+            sourceX = _textureOriginX;
+            sourceY = _textureOriginY;
+        }
+        else
+        {
+            sourceX = 0;
+            sourceY = 0;
+        }
+
+        return texture;
+    }
+
+    private ReadOnlySpan<byte> GetPortablePixelsForUpload()
+    {
+        if (_portableRgbaPixels is null)
+        {
+            return default;
+        }
+
+        if (_portableOriginX == 0 &&
+            _portableOriginY == 0 &&
+            _portableRowWidth == Width &&
+            _portableRgbaPixels.Length == checked(Width * Height * 4))
+        {
+            return _portableRgbaPixels;
+        }
+
+        return CopyPortablePixelRegion();
+    }
+
+    private byte[] CopyPortablePixels()
+    {
+        if (_portableRgbaPixels is null)
+        {
+            return [];
+        }
+
+        if (_portableOriginX == 0 &&
+            _portableOriginY == 0 &&
+            _portableRowWidth == Width &&
+            _portableRgbaPixels.Length == checked(Width * Height * 4))
+        {
+            return _portableRgbaPixels.ToArray();
+        }
+
+        return CopyPortablePixelRegion();
+    }
+
+    private byte[] CopyPortablePixelRegion()
+    {
+        var pixels = GC.AllocateUninitializedArray<byte>(checked(Width * Height * 4));
+        for (var row = 0; row < Height; row++)
+        {
+            _portableRgbaPixels!.AsSpan(
+                    checked(((_portableOriginY + row) * _portableRowWidth + _portableOriginX) * 4),
+                    checked(Width * 4))
+                .CopyTo(pixels.AsSpan(checked(row * Width * 4)));
+        }
+
+        return pixels;
     }
 
     public SKShader ToShader(
@@ -480,7 +650,7 @@ public partial class SKImage : SKObject
             texture,
             ownsTexture: true,
             _info,
-            _portableRgbaPixels,
+            rgbaPixels,
             isTextureBacked: false);
         image.SetMaterializedRasterPixels(_rasterPixels!.ToArray());
         return image;
@@ -516,7 +686,40 @@ public partial class SKImage : SKObject
 
     private byte[] ReadTexturePixelsAsRgba8888()
     {
-        byte[] pixels = Texture.ReadPixels();
+        if (_portableRgbaPixels is not null)
+        {
+            return CopyPortablePixels();
+        }
+
+        byte[] pixels;
+        if (_textureOriginX == 0 &&
+            _textureOriginY == 0 &&
+            Texture.Width == checked((uint)Width) &&
+            Texture.Height == checked((uint)Height))
+        {
+            pixels = Texture.ReadPixels();
+        }
+        else
+        {
+            using var texture = new GpuTexture(
+                Texture.Context,
+                checked((uint)Width),
+                checked((uint)Height),
+                Texture.Format,
+                TextureUsage.CopyDst | TextureUsage.CopySrc,
+                "SKImage Subset Readback Texture",
+                alphaMode: Texture.AlphaMode);
+            texture.CopyBaseLevelRegionFrom(
+                Texture,
+                _textureOriginX,
+                _textureOriginY,
+                0,
+                0,
+                checked((uint)Width),
+                checked((uint)Height));
+            pixels = texture.ReadPixels();
+        }
+
         if (Texture.Format is TextureFormat.Bgra8Unorm or TextureFormat.Bgra8UnormSrgb)
         {
             SwizzleBgraToRgba(pixels);
@@ -585,11 +788,6 @@ public partial class SKImage : SKObject
             }
         }
 
-        if (_ownsTexture)
-        {
-            Texture.Dispose();
-        }
-
         lock (_rasterPixelLock)
         {
             if (_rasterPixelsHandle.IsAllocated)
@@ -603,13 +801,16 @@ public partial class SKImage : SKObject
         if (Interlocked.Exchange(ref _releaseInvoked, 1) == 0)
         {
             _rasterReleaseProc?.Invoke(_rasterReleasePixels, _releaseContext!);
-            _textureReleaseProc?.Invoke(_releaseContext!);
         }
 
         base.DisposeManaged();
     }
 
-    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+    protected override void Dispose(bool disposing)
+    {
+        _textureStorage.ReleaseReference();
+        base.Dispose(disposing);
+    }
 
     private SKImageInfo CreateReadbackInfo() => new(
         Width,
