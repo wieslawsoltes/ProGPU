@@ -64,9 +64,14 @@ same identity rule includes a property's return and complete index-parameter
 types, so overloaded indexer attributes cannot collapse or move silently.
 Getter/setter method attributes and their return/index/value parameter flags,
 types, names, defaults, and semantic attributes are keyed beneath that full
-property identity. The command-line gate runs an isolated metadata self-test
-before comparison and proves that method/parameter/property/accessor
-attributes, accessor parameter metadata, method/property/event dispatch flags,
+property identity. Event add/remove method attributes and their return/handler
+parameter flags, types, names, defaults, and semantic attributes are likewise
+keyed beneath a canonical event owner. Sequential and explicit public value
+types retain layout kind, packing, size, visible instance-field declaration
+order, and explicit offsets, so ABI-relevant layout changes cannot sort away.
+The command-line gate runs an isolated metadata self-test before comparison
+and proves that method/parameter/property/event accessor attributes, accessor
+parameter metadata, value-type layout, method/property/event dispatch flags,
 `params`, overloaded indexers, and constrained generic overloads remain
 distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
@@ -1905,9 +1910,12 @@ helpers route through `EventsSource`. A rejected theme-resource reevaluation
 keeps the object dirty so correcting an external lookup root is retried by the
 next value read. Pointer snapshots now preserve horizontal wheel deltas,
 changed mouse-button metadata, and predicted frame identifiers across
-transforms. These changes advance the final pinned report to 8,981 candidate
-entries, 5,229 exact matches, 11,350 missing entries, and 3,752 extras. The
-monotonic budget is ratcheted to those exact matching and missing counts.
+transforms. The final metadata-review pass also makes public value-type ABI
+layout and event-accessor contracts first-class comparator inputs, with
+independent self-tests. These changes preserve the final pinned report at
+8,981 candidate entries, 5,229 exact matches, 11,350 missing entries, and
+3,752 extras. The monotonic budget is ratcheted to those exact matching and
+missing counts.
 
 ## Preview.32 parity handoff
 

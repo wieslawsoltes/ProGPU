@@ -97,11 +97,14 @@ internal sealed record MetadataApiSurface(
             : formatter.GetTypeName(type.BaseType);
         var kind = GetTypeKind(type, baseType);
         var genericArity = type.GetGenericParameters().Count;
+        var layout = type.GetLayout();
+        var layoutKind = GetLayoutKind(type.Attributes);
         entries.Add(
             $"type|{typeName}|access={GetTypeAccess(type.Attributes)};" +
             $"kind={kind};abstract={type.Attributes.HasFlag(TypeAttributes.Abstract)};" +
             $"sealed={type.Attributes.HasFlag(TypeAttributes.Sealed)};" +
-            $"base={baseType};arity={genericArity}");
+            $"base={baseType};arity={genericArity};" +
+            $"layout={layoutKind};pack={layout.PackingSize};size={layout.Size}");
 
         AddAttributes(reader, formatter, typeName, type.GetCustomAttributes(), entries);
         AddGenericParameters(
@@ -151,12 +154,14 @@ internal sealed record MetadataApiSurface(
             AddEvent(
                 reader,
                 formatter,
+                provider,
                 typeName,
                 @event,
                 accessors,
                 entries);
         }
 
+        int fieldOrder = 0;
         foreach (var fieldHandle in type.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
@@ -168,12 +173,22 @@ internal sealed record MetadataApiSurface(
                 GenericContext.Empty);
             var fieldName = reader.GetString(field.Name);
             var constant = FormatConstant(reader, field.GetDefaultValue());
+            bool isLayoutField = kind == "struct" &&
+                layoutKind is "sequential" or "explicit" &&
+                !field.Attributes.HasFlag(FieldAttributes.Static);
+            int currentFieldOrder = fieldOrder;
+            if (isLayoutField)
+                fieldOrder++;
+            string layoutMetadata = isLayoutField
+                ? $"order={currentFieldOrder};offset={field.GetOffset()}"
+                : "order=-;offset=-";
             entries.Add(
                 $"field|{typeName}|access={GetMemberAccess(field.Attributes)};" +
                 $"static={field.Attributes.HasFlag(FieldAttributes.Static)};" +
                 $"readonly={field.Attributes.HasFlag(FieldAttributes.InitOnly)};" +
                 $"literal={field.Attributes.HasFlag(FieldAttributes.Literal)};" +
-                $"type={fieldType};name={fieldName};constant={constant}");
+                $"type={fieldType};name={fieldName};constant={constant};" +
+                layoutMetadata);
             AddAttributes(
                 reader,
                 formatter,
@@ -342,15 +357,15 @@ internal sealed record MetadataApiSurface(
             $"set={GetAccessorAccess(reader, accessors.Setter)};" +
             FormatAccessorFlags(reader, "get", accessors.Getter) + ";" +
             FormatAccessorFlags(reader, "set", accessors.Setter) + ";" +
-            $"getmetadata={FormatPropertyAccessorMetadata(reader, provider, accessors.Getter)};" +
-            $"setmetadata={FormatPropertyAccessorMetadata(reader, provider, accessors.Setter)}");
+            $"getmetadata={FormatAccessorMetadata(reader, provider, accessors.Getter)};" +
+            $"setmetadata={FormatAccessorMetadata(reader, provider, accessors.Setter)}");
         AddAttributes(
             reader,
             formatter,
             propertyOwner,
             property.GetCustomAttributes(),
             entries);
-        AddPropertyAccessorAttributes(
+        AddAccessorAttributes(
             reader,
             formatter,
             provider,
@@ -358,7 +373,7 @@ internal sealed record MetadataApiSurface(
             "get",
             accessors.Getter,
             entries);
-        AddPropertyAccessorAttributes(
+        AddAccessorAttributes(
             reader,
             formatter,
             provider,
@@ -368,7 +383,7 @@ internal sealed record MetadataApiSurface(
             entries);
     }
 
-    private static string FormatPropertyAccessorMetadata(
+    private static string FormatAccessorMetadata(
         MetadataReader reader,
         CanonicalSignatureProvider provider,
         MethodDefinitionHandle handle)
@@ -427,7 +442,7 @@ internal sealed record MetadataApiSurface(
             $"{type}:{name}:{FormatConstant(reader, parameter.GetDefaultValue())}";
     }
 
-    private static void AddPropertyAccessorAttributes(
+    private static void AddAccessorAttributes(
         MetadataReader reader,
         MetadataNameFormatter formatter,
         CanonicalSignatureProvider provider,
@@ -505,6 +520,7 @@ internal sealed record MetadataApiSurface(
     private static void AddEvent(
         MetadataReader reader,
         MetadataNameFormatter formatter,
+        CanonicalSignatureProvider provider,
         string typeName,
         EventDefinition @event,
         EventAccessors accessors,
@@ -514,20 +530,48 @@ internal sealed record MetadataApiSurface(
             return;
 
         var eventName = reader.GetString(@event.Name);
+        var eventType = formatter.GetTypeName(@event.Type);
+        var eventOwner = $"{typeName}.{eventName}()->{eventType}";
         entries.Add(
             $"event|{typeName}|access={access};" +
-            $"type={formatter.GetTypeName(@event.Type)};name={eventName};" +
+            $"type={eventType};name={eventName};" +
             $"add={GetAccessorAccess(reader, accessors.Adder)};" +
             $"remove={GetAccessorAccess(reader, accessors.Remover)};" +
             FormatAccessorFlags(reader, "add", accessors.Adder) + ";" +
-            FormatAccessorFlags(reader, "remove", accessors.Remover));
+            FormatAccessorFlags(reader, "remove", accessors.Remover) + ";" +
+            $"addmetadata={FormatAccessorMetadata(reader, provider, accessors.Adder)};" +
+            $"removemetadata={FormatAccessorMetadata(reader, provider, accessors.Remover)}");
         AddAttributes(
             reader,
             formatter,
-            $"{typeName}.{eventName}",
+            eventOwner,
             @event.GetCustomAttributes(),
             entries);
+        AddAccessorAttributes(
+            reader,
+            formatter,
+            provider,
+            eventOwner,
+            "add",
+            accessors.Adder,
+            entries);
+        AddAccessorAttributes(
+            reader,
+            formatter,
+            provider,
+            eventOwner,
+            "remove",
+            accessors.Remover,
+            entries);
     }
+
+    private static string GetLayoutKind(TypeAttributes attributes) =>
+        (attributes & TypeAttributes.LayoutMask) switch
+        {
+            TypeAttributes.SequentialLayout => "sequential",
+            TypeAttributes.ExplicitLayout => "explicit",
+            _ => "auto"
+        };
 
     private static void AddAttributes(
         MetadataReader reader,

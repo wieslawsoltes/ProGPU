@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 internal static class MetadataApiSurfaceSelfTests
 {
@@ -135,6 +136,46 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.Contains(
                     ":System.Int32:index:-",
                     StringComparison.Ordinal));
+        bool explicitTypeLayout = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "type|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("layout=explicit;pack=2;size=16", StringComparison.Ordinal));
+        bool explicitFieldLayout = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "field|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=Second;", StringComparison.Ordinal) &&
+                entry.Contains("order=0;offset=4", StringComparison.Ordinal)) &&
+            surface.Entries.Any(
+                static entry =>
+                    entry.StartsWith(
+                        "field|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
+                        StringComparison.Ordinal) &&
+                    entry.Contains("name=First;", StringComparison.Ordinal) &&
+                    entry.Contains("order=1;offset=0", StringComparison.Ordinal));
+        bool eventAccessorMethodAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.AccessorRaised()->System.EventHandler.add|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("ContractMarkerAttribute", StringComparison.Ordinal));
+        bool eventAccessorReturnAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.AccessorRaised()->System.EventHandler.add.return(",
+                    StringComparison.Ordinal) &&
+                entry.Contains("ParameterContractMarkerAttribute", StringComparison.Ordinal));
+        bool eventAccessorParameterMetadata = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "event|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=AccessorRaised;", StringComparison.Ordinal) &&
+                entry.Contains("addmetadata=return=(", StringComparison.Ordinal) &&
+                entry.Contains(":System.EventHandler:value:-", StringComparison.Ordinal));
 
         if (attributeOwners.Length != 2 ||
             genericOwners.Length != 2 ||
@@ -149,7 +190,12 @@ internal static class MetadataApiSurfaceSelfTests
             !accessorMethodAttribute ||
             !accessorReturnAttribute ||
             !indexerParameterAttribute ||
-            !indexerParameterMetadata)
+            !indexerParameterMetadata ||
+            !explicitTypeLayout ||
+            !explicitFieldLayout ||
+            !eventAccessorMethodAttribute ||
+            !eventAccessorReturnAttribute ||
+            !eventAccessorParameterMetadata)
         {
             throw new InvalidOperationException(
                 "Method, parameter, params, and property attributes plus generic constraints must retain their complete overload owner signature. " +
@@ -164,11 +210,16 @@ internal static class MetadataApiSurfaceSelfTests
                 $"accessorMethodAttribute={accessorMethodAttribute}, " +
                 $"accessorReturnAttribute={accessorReturnAttribute}, " +
                 $"indexerParameterAttribute={indexerParameterAttribute}, " +
-                $"indexerParameterMetadata={indexerParameterMetadata}.");
+                $"indexerParameterMetadata={indexerParameterMetadata}, " +
+                $"explicitTypeLayout={explicitTypeLayout}, " +
+                $"explicitFieldLayout={explicitFieldLayout}, " +
+                $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
+                $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
+                $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, accessor metadata, params, generic constraints, and method/property/event dispatch flags.");
+            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, accessor metadata, layout, params, generic constraints, and method/property/event dispatch flags.");
         return 0;
     }
 
@@ -246,10 +297,29 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
             remove => _virtualRaised -= value;
         }
 
+        public event EventHandler? AccessorRaised
+        {
+            [ContractMarker("event-add")]
+            [return: ParameterContractMarker("event-add-return")]
+            add => _virtualRaised += value;
+            [ContractMarker("event-remove")]
+            remove => _virtualRaised -= value;
+        }
+
         public void Transform<T>(T value)
             where T : class => _ = value;
 
         public void Transform<T>(int value)
             where T : struct => _ = value;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]
+    public struct LayoutFixture
+    {
+        [FieldOffset(4)]
+        public short Second;
+
+        [FieldOffset(0)]
+        public int First;
     }
 }
