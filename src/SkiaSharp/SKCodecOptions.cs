@@ -1,5 +1,7 @@
 namespace SkiaSharp;
 
+#pragma warning disable CS8765
+
 public enum SKCodecResult
 {
     Success = 0,
@@ -105,7 +107,7 @@ public struct SKCodecOptions : IEquatable<SKCodecOptions>
         FrameIndex == obj.FrameIndex &&
         PriorFrame == obj.PriorFrame;
 
-    public override readonly bool Equals(object? obj) => obj is SKCodecOptions other && Equals(other);
+    public override readonly bool Equals(object obj) => obj is SKCodecOptions other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(ZeroInitialized, Subset, FrameIndex, PriorFrame);
     public static bool operator ==(SKCodecOptions left, SKCodecOptions right) => left.Equals(right);
     public static bool operator !=(SKCodecOptions left, SKCodecOptions right) => !left.Equals(right);
@@ -113,14 +115,60 @@ public struct SKCodecOptions : IEquatable<SKCodecOptions>
 
 public struct SKCodecFrameInfo : IEquatable<SKCodecFrameInfo>
 {
-    public int RequiredFrame { readonly get; set; }
-    public int Duration { readonly get; set; }
-    public bool FullyRecieved { readonly get; set; }
-    public SKAlphaType AlphaType { readonly get; set; }
-    public bool HasAlphaWithinBounds { readonly get; set; }
-    public SKCodecAnimationDisposalMethod DisposalMethod { readonly get; set; }
-    public SKCodecAnimationBlend Blend { readonly get; set; }
-    public SKRectI FrameRect { readonly get; set; }
+    private int _requiredFrame;
+    private int _duration;
+    private byte _fullyRecieved;
+    private SKAlphaType _alphaType;
+    private byte _hasAlphaWithinBounds;
+    private SKCodecAnimationDisposalMethod _disposalMethod;
+    private SKCodecAnimationBlend _blend;
+    private SKRectI _frameRect;
+
+    public int RequiredFrame
+    {
+        readonly get => _requiredFrame;
+        set => _requiredFrame = value;
+    }
+
+    public int Duration
+    {
+        readonly get => _duration;
+        set => _duration = value;
+    }
+
+    public bool FullyRecieved
+    {
+        readonly get => _fullyRecieved != 0;
+        set => _fullyRecieved = value ? (byte)1 : (byte)0;
+    }
+    public SKAlphaType AlphaType
+    {
+        readonly get => _alphaType;
+        set => _alphaType = value;
+    }
+
+    public bool HasAlphaWithinBounds
+    {
+        readonly get => _hasAlphaWithinBounds != 0;
+        set => _hasAlphaWithinBounds = value ? (byte)1 : (byte)0;
+    }
+    public SKCodecAnimationDisposalMethod DisposalMethod
+    {
+        readonly get => _disposalMethod;
+        set => _disposalMethod = value;
+    }
+
+    public SKCodecAnimationBlend Blend
+    {
+        readonly get => _blend;
+        set => _blend = value;
+    }
+
+    public SKRectI FrameRect
+    {
+        readonly get => _frameRect;
+        set => _frameRect = value;
+    }
 
     public readonly bool Equals(SKCodecFrameInfo obj) =>
         RequiredFrame == obj.RequiredFrame &&
@@ -132,7 +180,7 @@ public struct SKCodecFrameInfo : IEquatable<SKCodecFrameInfo>
         Blend == obj.Blend &&
         FrameRect.Equals(obj.FrameRect);
 
-    public override readonly bool Equals(object? obj) => obj is SKCodecFrameInfo other && Equals(other);
+    public override readonly bool Equals(object obj) => obj is SKCodecFrameInfo other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(
         RequiredFrame,
         Duration,

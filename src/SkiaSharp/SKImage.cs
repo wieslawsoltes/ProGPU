@@ -491,12 +491,7 @@ public partial class SKImage : SKObject
     }
 
     private static void SwizzleBgraToRgba(byte[] pixels)
-    {
-        for (int i = 0; i + 3 < pixels.Length; i += 4)
-        {
-            (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
-        }
-    }
+        => PixelChannelSwizzler.SwapRedBlue32(pixels);
 
     private static void UnpremultiplyRgba8888(byte[] pixels)
     {

@@ -5,6 +5,16 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
+Preview.33 closes the current media/backend API lane. It retains the native
+zero-copy media player and standalone editing packages, adds the typed borrowed
+GL/Vulkan/Metal/D3D/Dawn backend-wrapper contract, makes `SKPMColor` match the
+official Apple and Windows/Linux native layouts, and fixes cross-platform
+matched-benchmark artifact handling. The SkiaSharp metadata baseline advances
+to 3,434 exact entries with 788 remaining; WinUI stays at 4,952 exact with
+11,627 remaining. Detailed continuation work is pinned in
+`docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
+`docs/xaml-compiler/ROADMAP.md`.
+
 ## NuGet Packages
 
 - `ProGPU.Backend`
@@ -51,19 +61,19 @@ from `scripts/progpu-package-list.sh`.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.32`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.32`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.32`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.32`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.33`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.33`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.33`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.33`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.32` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.33` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.32 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.33 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -81,7 +91,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.32 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.33 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -99,7 +109,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.32`.
+for example `v0.1.0-preview.33`.
 
 ## NuGet Publishing
 
