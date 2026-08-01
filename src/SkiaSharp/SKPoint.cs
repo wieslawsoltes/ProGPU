@@ -9,10 +9,10 @@ public partial struct SKPoint
     public readonly float Length => (float)Math.Sqrt(_x * _x + _y * _y);
     public readonly float LengthSquared => _x * _x + _y * _y;
 
-    public void Offset(SKPoint point)
+    public void Offset(SKPoint p)
     {
-        _x += point._x;
-        _y += point._y;
+        _x += p._x;
+        _y += p._y;
     }
 
     public void Offset(float dx, float dy)
@@ -54,51 +54,51 @@ public partial struct SKPoint
             point._y - 2f * lengthSquared * normal._y);
     }
 
-    public static SKPoint Add(SKPoint point, SKSizeI size) => point + size;
+    public static SKPoint Add(SKPoint pt, SKSizeI sz) => pt + sz;
 
     public static SKPoint Add(SKPoint pt, SKSize sz) => pt + sz;
 
-    public static SKPoint Add(SKPoint point, SKPointI size) => point + size;
+    public static SKPoint Add(SKPoint pt, SKPointI sz) => pt + sz;
 
-    public static SKPoint Add(SKPoint point, SKPoint size) => point + size;
+    public static SKPoint Add(SKPoint pt, SKPoint sz) => pt + sz;
 
-    public static SKPoint Subtract(SKPoint point, SKSizeI size) => point - size;
+    public static SKPoint Subtract(SKPoint pt, SKSizeI sz) => pt - sz;
 
-    public static SKPoint Subtract(SKPoint point, SKSize size) => point - size;
+    public static SKPoint Subtract(SKPoint pt, SKSize sz) => pt - sz;
 
-    public static SKPoint Subtract(SKPoint point, SKPointI size) => point - size;
+    public static SKPoint Subtract(SKPoint pt, SKPointI sz) => pt - sz;
 
-    public static SKPoint Subtract(SKPoint point, SKPoint size) => point - size;
+    public static SKPoint Subtract(SKPoint pt, SKPoint sz) => pt - sz;
 
-    public static SKPoint operator +(SKPoint point, SKSizeI size) =>
-        new(point._x + size.Width, point._y + size.Height);
+    public static SKPoint operator +(SKPoint pt, SKSizeI sz) =>
+        new(pt._x + sz.Width, pt._y + sz.Height);
 
-    public static SKPoint operator +(SKPoint point, SKSize size) =>
-        new(point._x + size.Width, point._y + size.Height);
+    public static SKPoint operator +(SKPoint pt, SKSize sz) =>
+        new(pt._x + sz.Width, pt._y + sz.Height);
 
-    public static SKPoint operator +(SKPoint point, SKPointI size) =>
-        new(point._x + size.X, point._y + size.Y);
+    public static SKPoint operator +(SKPoint pt, SKPointI sz) =>
+        new(pt._x + sz.X, pt._y + sz.Y);
 
-    public static SKPoint operator +(SKPoint point, SKPoint size) =>
-        new(point._x + size._x, point._y + size._y);
+    public static SKPoint operator +(SKPoint pt, SKPoint sz) =>
+        new(pt._x + sz._x, pt._y + sz._y);
 
-    public static SKPoint operator -(SKPoint point, SKSizeI size) =>
-        new(point._x - size.Width, point._y - size.Height);
+    public static SKPoint operator -(SKPoint pt, SKSizeI sz) =>
+        new(pt._x - sz.Width, pt._y - sz.Height);
 
-    public static SKPoint operator -(SKPoint point, SKSize size) =>
-        new(point._x - size.Width, point._y - size.Height);
+    public static SKPoint operator -(SKPoint pt, SKSize sz) =>
+        new(pt._x - sz.Width, pt._y - sz.Height);
 
-    public static SKPoint operator -(SKPoint point, SKPointI size) =>
-        new(point._x - size.X, point._y - size.Y);
+    public static SKPoint operator -(SKPoint pt, SKPointI sz) =>
+        new(pt._x - sz.X, pt._y - sz.Y);
 
-    public static SKPoint operator -(SKPoint point, SKPoint size) =>
-        new(point._x - size._x, point._y - size._y);
+    public static SKPoint operator -(SKPoint pt, SKPoint sz) =>
+        new(pt._x - sz._x, pt._y - sz._y);
 
     public static implicit operator Vector2(SKPoint point) => new(point._x, point._y);
 
     public static implicit operator SKPoint(Vector2 vector) => new(vector.X, vector.Y);
 
-    public readonly bool Equals(SKPoint other) => _x == other._x && _y == other._y;
+    public readonly bool Equals(SKPoint obj) => _x == obj._x && _y == obj._y;
 
     public override readonly bool Equals(object? obj) => obj is SKPoint other && Equals(other);
 

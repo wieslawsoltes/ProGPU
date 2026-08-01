@@ -1344,6 +1344,20 @@ public unsafe class GpuTexture : IDisposable
     /// by demand-grown atlases to preserve resident texels without a CPU readback.
     /// </summary>
     public void CopyBaseLevelRegionFrom(GpuTexture source, uint width, uint height)
+        => CopyBaseLevelRegionFrom(source, 0, 0, 0, 0, width, height);
+
+    /// <summary>
+    /// Copies one base-level rectangle between compatible 2D textures without a
+    /// CPU readback. Source and destination rectangles must be fully contained.
+    /// </summary>
+    public void CopyBaseLevelRegionFrom(
+        GpuTexture source,
+        uint sourceX,
+        uint sourceY,
+        uint destinationX,
+        uint destinationY,
+        uint width,
+        uint height)
     {
         if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
         ArgumentNullException.ThrowIfNull(source);
@@ -1363,11 +1377,13 @@ public unsafe class GpuTexture : IDisposable
                 "Source and destination must be compatible single-layer 2D textures.",
                 nameof(source));
         }
-        if (width == 0 || width > source.Width || width > Width)
+        if (width == 0 || width > source.Width || width > Width ||
+            sourceX > source.Width - width || destinationX > Width - width)
         {
             throw new ArgumentOutOfRangeException(nameof(width));
         }
-        if (height == 0 || height > source.Height || height > Height)
+        if (height == 0 || height > source.Height || height > Height ||
+            sourceY > source.Height - height || destinationY > Height - height)
         {
             throw new ArgumentOutOfRangeException(nameof(height));
         }
@@ -1392,14 +1408,14 @@ public unsafe class GpuTexture : IDisposable
         {
             Texture = source.TexturePtr,
             MipLevel = 0,
-            Origin = new Origin3D(),
+            Origin = new Origin3D { X = sourceX, Y = sourceY },
             Aspect = GetTextureCopyAspect(source.Format)
         };
         var copyDestination = new ImageCopyTexture
         {
             Texture = TexturePtr,
             MipLevel = 0,
-            Origin = new Origin3D(),
+            Origin = new Origin3D { X = destinationX, Y = destinationY },
             Aspect = GetTextureCopyAspect(Format)
         };
         var copySize = new Extent3D

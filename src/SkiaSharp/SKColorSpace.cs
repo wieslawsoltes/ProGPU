@@ -75,18 +75,18 @@ public class SKColorSpace : SKObject
     public SKColorSpaceTransferFn GetNumericalTransferFunction() =>
         GetNumericalTransferFunction(out var transferFunction) ? transferFunction : SKColorSpaceTransferFn.Empty;
 
-    public bool GetNumericalTransferFunction(out SKColorSpaceTransferFn transferFunction)
+    public bool GetNumericalTransferFunction(out SKColorSpaceTransferFn fn)
     {
-        transferFunction = _transferFunction;
+        fn = _transferFunction;
         return IsNumericalTransferFunction;
     }
 
     public SKColorSpaceXyz ToColorSpaceXyz() =>
         ToColorSpaceXyz(out var xyz) ? xyz : SKColorSpaceXyz.Empty;
 
-    public bool ToColorSpaceXyz(out SKColorSpaceXyz xyz)
+    public bool ToColorSpaceXyz(out SKColorSpaceXyz toXyzD50)
     {
-        xyz = _xyz;
+        toXyzD50 = _xyz;
         return true;
     }
 
@@ -117,53 +117,53 @@ public class SKColorSpace : SKObject
             : null;
     }
 
-    public static SKColorSpace? CreateIcc(SKData data)
+    public static SKColorSpace? CreateIcc(SKData input)
     {
-        ArgumentNullException.ThrowIfNull(data);
-        using var profile = SKColorSpaceIccProfile.Create(data);
+        ArgumentNullException.ThrowIfNull(input);
+        using var profile = SKColorSpaceIccProfile.Create(input);
         return CreateIcc(profile!);
     }
 
-    public static SKColorSpace? CreateIcc(byte[] data)
+    public static SKColorSpace? CreateIcc(byte[] input)
     {
-        ArgumentNullException.ThrowIfNull(data);
-        return CreateIcc(data.AsSpan());
+        ArgumentNullException.ThrowIfNull(input);
+        return CreateIcc(input.AsSpan());
     }
 
-    public static SKColorSpace? CreateIcc(byte[] data, long length)
+    public static SKColorSpace? CreateIcc(byte[] input, long length)
     {
-        ArgumentNullException.ThrowIfNull(data);
-        if (length < 0 || length > data.LongLength)
+        ArgumentNullException.ThrowIfNull(input);
+        if (length < 0 || length > input.LongLength)
         {
             throw new ArgumentOutOfRangeException(nameof(length));
         }
 
-        return CreateIcc(data.AsSpan(0, checked((int)length)));
+        return CreateIcc(input.AsSpan(0, checked((int)length)));
     }
 
-    public static SKColorSpace? CreateIcc(IntPtr data, long length)
+    public static SKColorSpace? CreateIcc(IntPtr input, long length)
     {
-        using var profile = SKColorSpaceIccProfile.Create(data, length);
+        using var profile = SKColorSpaceIccProfile.Create(input, length);
         return CreateIcc(profile!);
     }
 
-    public static SKColorSpace? CreateIcc(ReadOnlySpan<byte> data)
+    public static SKColorSpace? CreateIcc(ReadOnlySpan<byte> input)
     {
-        using var profile = SKColorSpaceIccProfile.Create(data);
+        using var profile = SKColorSpaceIccProfile.Create(input);
         return CreateIcc(profile!);
     }
 
     public static SKColorSpace? CreateRgb(
-        SKColorSpaceTransferFn transferFunction,
+        SKColorSpaceTransferFn transferFn,
         SKColorSpaceXyz toXyzD50)
     {
-        if (!transferFunction.IsValid || !MatrixIsFinite(toXyzD50))
+        if (!transferFn.IsValid || !MatrixIsFinite(toXyzD50))
         {
             return null;
         }
 
         SKColorSpaceTransferFn canonicalTransfer;
-        if (TransferIsClose(transferFunction, SKColorSpaceTransferFn.Srgb))
+        if (TransferIsClose(transferFn, SKColorSpaceTransferFn.Srgb))
         {
             if (MatrixIsClose(toXyzD50, SKColorSpaceXyz.Srgb))
             {
@@ -172,11 +172,11 @@ public class SKColorSpace : SKObject
 
             canonicalTransfer = SKColorSpaceTransferFn.Srgb;
         }
-        else if (TransferIsTwoDotTwo(transferFunction))
+        else if (TransferIsTwoDotTwo(transferFn))
         {
             canonicalTransfer = SKColorSpaceTransferFn.TwoDotTwo;
         }
-        else if (TransferIsLinear(transferFunction))
+        else if (TransferIsLinear(transferFn))
         {
             if (MatrixIsClose(toXyzD50, SKColorSpaceXyz.Srgb))
             {
@@ -187,7 +187,7 @@ public class SKColorSpace : SKObject
         }
         else
         {
-            canonicalTransfer = transferFunction;
+            canonicalTransfer = transferFn;
         }
 
         return new SKColorSpace(canonicalTransfer, toXyzD50);

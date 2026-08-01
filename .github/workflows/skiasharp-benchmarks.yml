@@ -37,6 +37,23 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
+
       - name: Run matched benchmark distributions
         shell: bash
         run: ./eng/progpu-run-skiasharp-benchmarks.sh

@@ -422,16 +422,16 @@ public partial struct SKMatrix
         matrix.M24,
         matrix.M44);
 
-    public readonly bool Equals(SKMatrix other) =>
-        _scaleX == other._scaleX &&
-        _skewX == other._skewX &&
-        _transX == other._transX &&
-        _skewY == other._skewY &&
-        _scaleY == other._scaleY &&
-        _transY == other._transY &&
-        _persp0 == other._persp0 &&
-        _persp1 == other._persp1 &&
-        _persp2 == other._persp2;
+    public readonly bool Equals(SKMatrix obj) =>
+        _scaleX == obj._scaleX &&
+        _skewX == obj._skewX &&
+        _transX == obj._transX &&
+        _skewY == obj._skewY &&
+        _scaleY == obj._scaleY &&
+        _transY == obj._transY &&
+        _persp0 == obj._persp0 &&
+        _persp1 == obj._persp1 &&
+        _persp2 == obj._persp2;
 
     public override readonly bool Equals(object? obj) => obj is SKMatrix other && Equals(other);
 

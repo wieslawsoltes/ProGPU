@@ -8,27 +8,27 @@ public partial class SKShader
     public static SKShader CreateEmpty() =>
         new(() => new SolidColorBrush(Vector4.Zero));
 
-    public static SKShader CreateBitmap(SKBitmap source)
+    public static SKShader CreateBitmap(SKBitmap src)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
     }
 
     public static SKShader CreateBitmap(
-        SKBitmap source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKBitmap src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKMatrix localMatrix)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, localMatrix);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, localMatrix);
     }
 
-    public static SKShader CreateImage(SKImage source)
+    public static SKShader CreateImage(SKImage src)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(src);
         return CreateRetainedImage(
-            source.CreateOwnedCopy(),
+            src.CreateOwnedCopy(),
             SKShaderTileMode.Clamp,
             SKShaderTileMode.Clamp,
             SKMatrix.Identity,
@@ -36,17 +36,17 @@ public partial class SKShader
     }
 
     public static SKShader CreateImage(
-        SKImage source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY) =>
-        CreateImage(source, tileModeX, tileModeY, SKSamplingOptions.Default);
+        SKImage src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy) =>
+        CreateImage(src, tmx, tmy, SKSamplingOptions.Default);
 
     public static SKShader CreateImage(
-        SKImage source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKImage src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKSamplingOptions sampling) =>
-        CreateImage(source, tileModeX, tileModeY, sampling, SKMatrix.Identity);
+        CreateImage(src, tmx, tmy, sampling, SKMatrix.Identity);
 
 #pragma warning disable CS0619
     [Obsolete("Use CreateImage(SKImage src, SKShaderTileMode tmx, SKShaderTileMode tmy, SKSamplingOptions sampling) instead.", true)]
@@ -59,21 +59,21 @@ public partial class SKShader
 #pragma warning restore CS0619
 
     public static SKShader CreateImage(
-        SKImage source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKImage src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKMatrix localMatrix) =>
-        CreateImage(source, tileModeX, tileModeY, SKSamplingOptions.Default, localMatrix);
+        CreateImage(src, tmx, tmy, SKSamplingOptions.Default, localMatrix);
 
     public static SKShader CreateImage(
-        SKImage source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKImage src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKSamplingOptions sampling,
         SKMatrix localMatrix)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return CreateRetainedImage(source.CreateOwnedCopy(), tileModeX, tileModeY, localMatrix, sampling);
+        ArgumentNullException.ThrowIfNull(src);
+        return CreateRetainedImage(src.CreateOwnedCopy(), tmx, tmy, localMatrix, sampling);
     }
 
 #pragma warning disable CS0619
@@ -87,62 +87,62 @@ public partial class SKShader
         CreateImage(source, tileModeX, tileModeY, SamplingFromQuality((int)quality), localMatrix);
 #pragma warning restore CS0619
 
-    public static SKShader CreatePicture(SKPicture source)
+    public static SKShader CreatePicture(SKPicture src)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader();
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader();
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY)
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy);
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKFilterMode filterMode)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, filterMode);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, filterMode);
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
-        SKRect tileRect)
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
+        SKRect tile)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, tileRect);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, tile);
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKFilterMode filterMode,
-        SKRect tileRect)
+        SKRect tile)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, filterMode, tileRect);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, filterMode, tile);
     }
 
     public static SKShader CreatePicture(
-        SKPicture source,
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKPicture src,
+        SKShaderTileMode tmx,
+        SKShaderTileMode tmy,
         SKFilterMode filterMode,
         SKMatrix localMatrix,
-        SKRect tileRect)
+        SKRect tile)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        return source.ToShader(tileModeX, tileModeY, filterMode, localMatrix, tileRect);
+        ArgumentNullException.ThrowIfNull(src);
+        return src.ToShader(tmx, tmy, filterMode, localMatrix, tile);
     }
 
     public static SKShader CreateLinearGradient(
@@ -156,9 +156,9 @@ public partial class SKShader
         SKPoint start,
         SKPoint end,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         SKShaderTileMode mode) =>
-        CreateLinearGradient(start, end, colors, colorSpace, null, mode);
+        CreateLinearGradient(start, end, colors, colorspace, null, mode);
 
     public static SKShader CreateRadialGradient(
         SKPoint center,
@@ -171,9 +171,9 @@ public partial class SKShader
         SKPoint center,
         float radius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         SKShaderTileMode mode) =>
-        CreateRadialGradient(center, radius, colors, colorSpace, null, mode);
+        CreateRadialGradient(center, radius, colors, colorspace, null, mode);
 
     public static SKShader CreateTwoPointConicalGradient(
         SKPoint start,
@@ -190,7 +190,7 @@ public partial class SKShader
         SKPoint end,
         float endRadius,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         SKShaderTileMode mode) =>
         CreateTwoPointConicalGradient(
             start,
@@ -198,7 +198,7 @@ public partial class SKShader
             end,
             endRadius,
             colors,
-            colorSpace,
+            colorspace,
             null,
             mode);
 
@@ -255,26 +255,26 @@ public partial class SKShader
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace) =>
-        CreateSweepGradient(center, colors, colorSpace, null, SKShaderTileMode.Clamp, 0f, 360f);
+        SKColorSpace colorspace) =>
+        CreateSweepGradient(center, colors, colorspace, null, SKShaderTileMode.Clamp, 0f, 360f);
 
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos) =>
-        CreateSweepGradient(center, colors, colorSpace, colorPos, SKShaderTileMode.Clamp, 0f, 360f);
+        CreateSweepGradient(center, colors, colorspace, colorPos, SKShaderTileMode.Clamp, 0f, 360f);
 
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKMatrix localMatrix) =>
         CreateSweepGradient(
             center,
             colors,
-            colorSpace,
+            colorspace,
             colorPos,
             SKShaderTileMode.Clamp,
             0f,
@@ -284,16 +284,16 @@ public partial class SKShader
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         SKShaderTileMode tileMode,
         float startAngle,
         float endAngle) =>
-        CreateSweepGradient(center, colors, colorSpace, null, tileMode, startAngle, endAngle);
+        CreateSweepGradient(center, colors, colorspace, null, tileMode, startAngle, endAngle);
 
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode tileMode,
         float startAngle,
@@ -301,7 +301,7 @@ public partial class SKShader
         CreateSweepGradient(
             center,
             colors,
-            colorSpace,
+            colorspace,
             colorPos,
             tileMode,
             startAngle,
@@ -311,7 +311,7 @@ public partial class SKShader
     public static SKShader CreateSweepGradient(
         SKPoint center,
         SKColorF[] colors,
-        SKColorSpace colorSpace,
+        SKColorSpace colorspace,
         float[]? colorPos,
         SKShaderTileMode tileMode,
         float startAngle,
@@ -324,7 +324,7 @@ public partial class SKShader
             startAngle,
             endAngle,
             localMatrix,
-            colorSpace?.IsLinear == true
+            colorspace?.IsLinear == true
                 ? GradientColorInterpolationMode.ScRgbLinearInterpolation
                 : GradientColorInterpolationMode.SRgbLinearInterpolation);
 

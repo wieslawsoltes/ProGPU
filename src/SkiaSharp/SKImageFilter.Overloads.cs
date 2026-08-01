@@ -4,6 +4,30 @@ namespace SkiaSharp;
 
 public partial class SKImageFilter
 {
+    public static SKImageFilter CreateEmpty() =>
+        CreateShader(null, dither: false);
+
+    public static SKImageFilter CreateCrop(SKRect rect) =>
+        CreateCrop(rect, SKShaderTileMode.Decal, null);
+
+    public static SKImageFilter CreateCrop(
+        SKRect rect,
+        SKShaderTileMode tileMode) =>
+        CreateCrop(rect, tileMode, null);
+
+    public static SKImageFilter CreateCrop(
+        SKRect rect,
+        SKShaderTileMode tileMode,
+        SKImageFilter? input)
+    {
+        _ = tileMode;
+        return new SKImageFilter(
+            FilterKind.Offset,
+            new OffsetData(0f, 0f),
+            input,
+            rect);
+    }
+
     public static SKImageFilter CreateArithmetic(
         float k1,
         float k2,

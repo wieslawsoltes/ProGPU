@@ -46,6 +46,18 @@ public sealed class SkRoundRectCompatibilityTests
     }
 
     [Fact]
+    public void RoundRectUsesOfficialSkObjectOwnership()
+    {
+        var value = new SKRoundRect(new SKRect(0f, 0f, 20f, 10f), 2f, 3f);
+        Assert.IsAssignableFrom<SKObject>(value);
+        Assert.NotEqual(IntPtr.Zero, value.Handle);
+
+        value.Dispose();
+        Assert.Equal(IntPtr.Zero, value.Handle);
+        value.Dispose();
+    }
+
+    [Fact]
     public void UniformAndOvalConstructionMatchesNative()
     {
         using var uniform = new SKRoundRect(new SKRect(0f, 0f, 20f, 10f), 100f, 30f);
@@ -192,6 +204,7 @@ public sealed class SkRoundRectCompatibilityTests
     {
         using var value = CreateComplex();
         using var scaled = value.Transform(new SKMatrix(2f, 0f, 0f, 0f, 3f, 0f, 0f, 0f, 1f));
+        Assert.NotNull(scaled);
         Assert.Equal(new SKRect(0f, 0f, 40f, 30f), scaled.Rect);
         Assert.Equal(
             new[]
@@ -206,6 +219,7 @@ public sealed class SkRoundRectCompatibilityTests
         Assert.True(value.TryTransform(
             new SKMatrix(0f, -2f, 20f, 3f, 0f, 0f, 0f, 0f, 1f),
             out var rotated));
+        Assert.NotNull(rotated);
         using (rotated)
         {
             Assert.Equal(new SKRect(0f, 0f, 20f, 60f), rotated.Rect);

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using SkiaSharp;
+using SkiaSharp.Internals;
 
 return ProgramEntry.Run(args);
 
@@ -23,6 +24,23 @@ internal static class ProgramEntry
     };
 
     private static long s_sink;
+    private static SKTypeface? s_variableTypeface;
+    private static readonly byte[] ImagePixels = CreateImagePixels();
+    private static readonly SKColorF[] ShaderColors =
+    {
+        new(1f, 0f, 0f, 1f),
+        new(0f, 1f, 0f, 1f),
+        new(0f, 0f, 1f, 1f)
+    };
+    private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
+    private const string RuntimeEffectSource = """
+        uniform float gain;
+        uniform float2 offset;
+        uniform float4 tint;
+        half4 main(float2 position) {
+            return half4(position + offset, gain, tint.a);
+        }
+        """;
 
     public static int Run(string[] args)
     {
@@ -65,6 +83,8 @@ internal static class ProgramEntry
         var cases = new[]
         {
             new BenchmarkCase("point-arithmetic", 200_000, RunPointArithmetic),
+            new BenchmarkCase("color-span-parse", 100_000, RunColorSpanParse),
+            new BenchmarkCase("roundrect-lifetime", 10_000, RunRoundRectLifetime),
             new BenchmarkCase("matrix-map-point", 100_000, RunMatrixMapPoint),
             new BenchmarkCase("pmcolor-premultiply", 65_536, RunPremultiplyColor),
             new BenchmarkCase("pmcolor-unpremultiply", 65_536, RunUnpremultiplyColor),
@@ -72,6 +92,10 @@ internal static class ProgramEntry
             new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
             new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
+            new BenchmarkCase("font-variation-value", 100_000, RunFontVariationValue),
+            new BenchmarkCase("font-variation-query", 100_000, RunFontVariationQuery),
+            new BenchmarkCase("font-variation-clone", 1_000, RunFontVariationClone),
+            new BenchmarkCase("font-arguments-clone", 1_000, RunFontArgumentsClone),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
@@ -81,14 +105,31 @@ internal static class ProgramEntry
             new BenchmarkCase("vulkan-descriptor-value", 100_000, RunVulkanDescriptorValue),
             new BenchmarkCase("d3d-resource-info-value", 100_000, RunD3DResourceInfoValue),
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
+            new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
+            new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
+            new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
+            new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
+            new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
+            new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
+            new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
+            new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
             new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
         };
-        var results = new List<BenchmarkCaseResult>(cases.Length);
-        foreach (var benchmark in cases)
+        var selectedCase = options.Optional("case");
+        var selectedCases = selectedCase is null
+            ? cases
+            : cases.Where(value => value.Name == selectedCase).ToArray();
+        if (selectedCases.Length == 0)
+        {
+            throw new ArgumentException($"Unknown benchmark case: {selectedCase}.");
+        }
+
+        var results = new List<BenchmarkCaseResult>(selectedCases.Length);
+        foreach (var benchmark in selectedCases)
         {
             for (var index = 0; index < warmupCount; index++)
                 Volatile.Write(ref s_sink, unchecked((long)benchmark.Body(benchmark.Operations)));
@@ -231,6 +272,212 @@ internal static class ProgramEntry
         return 0;
     }
 
+    private static ulong RunGraphicsCacheControls(int operations)
+    {
+        _ = SKGraphics.SetFontCacheCountLimit(2_048);
+        _ = SKGraphics.SetFontCacheLimit(2 * 1024 * 1024);
+        _ = SKGraphics.SetResourceCacheSingleAllocationByteLimit(0);
+        _ = SKGraphics.SetResourceCacheTotalByteLimit(256 * 1024 * 1024);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var count = 1_024 + (index & 1);
+            var bytes = 4_194_304L + (index & 1);
+            _ = SKGraphics.SetFontCacheCountLimit(count);
+            _ = SKGraphics.SetFontCacheLimit(bytes);
+            checksum = Mix(checksum, (uint)SKGraphics.GetFontCacheCountLimit());
+            checksum = Mix(checksum, (ulong)SKGraphics.GetFontCacheLimit());
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunPlatformLockRead(int operations)
+    {
+        IPlatformLock platformLock = PlatformLock.Create();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            platformLock.EnterReadLock();
+            checksum = Mix(checksum, (uint)(index & 7));
+            platformLock.ExitReadLock();
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunSurfaceBoundedSnapshot(int operations)
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(64, 64, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(new SKColor(25, 75, 125, 255));
+        surface.Flush();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = index & 15;
+            using var snapshot = surface.Snapshot(new SKRectI(offset, offset, offset + 32, offset + 32));
+            checksum = Mix(checksum, (uint)snapshot.Width);
+            checksum = Mix(checksum, (uint)snapshot.Height);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunImageBoundedSubset(int operations)
+    {
+        using var image = SKImage.FromPixelCopy(
+            new SKImageInfo(64, 64, SKColorType.Rgba8888, SKAlphaType.Premul),
+            ImagePixels);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = index & 15;
+            using var subset = image.Subset(
+                new SKRectI(offset, offset, offset + 32, offset + 32));
+            checksum = Mix(checksum, (uint)subset.Width);
+            checksum = Mix(checksum, (uint)subset.Height);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunCanvasRetainedStateRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            int restoreCount = canvas.Save();
+            canvas.Scale(1.0001f);
+            var translation = SKMatrix.CreateTranslation(index & 3, index & 7);
+            canvas.Concat(in translation);
+            canvas.ClipRect(new SKRect(1f, 2f, 63f, 62f));
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        checksum = Mix(checksum, picture is null ? 0u : 1u);
+        return checksum;
+    }
+
+    private static ulong RunGrContextOptions(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var options = new GRContextOptions
+            {
+                AllowPathMaskCaching = (index & 1) == 0,
+                AvoidStencilBuffers = (index & 2) == 0,
+                BufferMapThreshold = index & 4095,
+                DoManualMipmapping = (index & 4) == 0,
+                GlyphCacheTextureMaximumBytes = 1_048_576 + index,
+                RuntimeProgramCacheSize = 64 + (index & 31),
+            };
+            checksum = Mix(checksum, options.AllowPathMaskCaching ? 1u : 0u);
+            checksum = Mix(checksum, options.AvoidStencilBuffers ? 1u : 0u);
+            checksum = Mix(checksum, unchecked((uint)options.BufferMapThreshold));
+            checksum = Mix(checksum, options.DoManualMipmapping ? 1u : 0u);
+            checksum = Mix(checksum, unchecked((uint)options.GlyphCacheTextureMaximumBytes));
+            checksum = Mix(checksum, unchecked((uint)options.RuntimeProgramCacheSize));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunShaderGradientFactories(int operations)
+    {
+        using var colorSpace = SKColorSpace.CreateSrgb();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var localMatrix = SKMatrix.CreateTranslation(index & 3, index & 7);
+            using var linear = SKShader.CreateLinearGradient(
+                new SKPoint(0f, 0f),
+                new SKPoint(64f, 32f),
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Mirror,
+                localMatrix);
+            using var radial = SKShader.CreateRadialGradient(
+                new SKPoint(32f, 32f),
+                24f,
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Repeat,
+                localMatrix);
+            using var sweep = SKShader.CreateSweepGradient(
+                new SKPoint(32f, 32f),
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Clamp,
+                -45f,
+                315f,
+                localMatrix);
+            using var conical = SKShader.CreateTwoPointConicalGradient(
+                new SKPoint(8f, 8f),
+                4f,
+                new SKPoint(48f, 40f),
+                28f,
+                ShaderColors,
+                colorSpace,
+                ShaderColorPositions,
+                SKShaderTileMode.Decal,
+                localMatrix);
+            checksum = Mix(checksum, linear.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, radial.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, sweep.Handle == IntPtr.Zero ? 0u : 1u);
+            checksum = Mix(checksum, conical.Handle == IntPtr.Zero ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunRuntimeEffectUniformSnapshot(int operations)
+    {
+        using var effect = SKRuntimeEffect.CreateShader(RuntimeEffectSource, out var errors);
+        if (effect is null)
+            throw new InvalidOperationException(errors);
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var uniforms = new SKRuntimeEffectUniforms(effect);
+            uniforms["gain"] = index * 0.001f;
+            uniforms["offset"] = new SKPoint(index & 7, -(index & 15));
+            uniforms["tint"] = new SKColorF(1f, 0.25f, 0.5f, 0.75f);
+            using var data = uniforms.ToData();
+            using var shader = effect.ToShader(uniforms);
+            checksum = Mix(checksum, unchecked((uint)data.Size));
+            checksum = Mix(checksum, unchecked((uint)BitConverter.SingleToInt32Bits(
+                MemoryMarshal.Cast<byte, float>(data.Span)[index % 7])));
+            checksum = Mix(checksum, shader.Handle == IntPtr.Zero ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+    private static byte[] CreateImagePixels()
+    {
+        var pixels = new byte[64 * 64 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index] = 25;
+            pixels[index + 1] = 75;
+            pixels[index + 2] = 125;
+            pixels[index + 3] = 255;
+        }
+
+        return pixels;
+    }
+
     private static ulong RunPointArithmetic(int operations)
     {
         var point = new SKPoint(1.25f, -3.5f);
@@ -244,6 +491,34 @@ internal static class ProgramEntry
         }
 
         return Combine(point.X, point.Y);
+    }
+
+    private static ulong RunColorSpanParse(int operations)
+    {
+        ReadOnlySpan<char> value = "#7f123456";
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            if (!SKColor.TryParse(value, out var color))
+                throw new InvalidOperationException("The fixed benchmark color must parse.");
+            checksum = Mix(checksum, (uint)color);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunRoundRectLifetime(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var radius = (index & 15) + 1f;
+            using var value = new SKRoundRect(new SKRect(0f, 0f, 64f, 48f), radius, radius * 0.5f);
+            var corner = value.GetRadii(SKRoundRectCorner.UpperLeft);
+            checksum = Mix(checksum, Combine(value.Width + corner.X, value.Height + corner.Y));
+        }
+
+        return checksum;
     }
 
     private static ulong RunMatrixMapPoint(int operations)
@@ -451,6 +726,117 @@ internal static class ProgramEntry
 
         return checksum;
     }
+
+    private static ulong RunFontVariationValue(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var axis = new SKFontVariationAxis
+            {
+                Tag = SKFourByteTag.Parse("wght"),
+                Min = 100,
+                Default = 400,
+                Max = 900,
+                IsHidden = (index & 1) != 0
+            };
+            var coordinate = new SKFontVariationPositionCoordinate
+            {
+                Axis = axis.Tag,
+                Value = 100 + (index & 799)
+            };
+            var palette = new SKFontPaletteOverride
+            {
+                Index = (ushort)(index & 63),
+                Color = 0xff000000u | (uint)index
+            };
+            checksum = Mix(checksum, (uint)axis.Tag);
+            checksum = Mix(checksum, unchecked((uint)BitConverter.SingleToInt32Bits(coordinate.Value)));
+            checksum = Mix(checksum, palette.Color ^ palette.Index ^ (axis.IsHidden ? 1u : 0u));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontVariationQuery(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationAxis> axes = stackalloc SKFontVariationAxis[2];
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2];
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            int axisCount = typeface.GetVariationDesignParameters(axes);
+            int positionCount = typeface.GetVariationDesignPosition(position);
+            checksum = Mix(checksum, (uint)(axisCount + positionCount));
+            checksum = Mix(checksum, (uint)axes[index & 1].Tag);
+            checksum = Mix(
+                checksum,
+                unchecked((uint)BitConverter.SingleToInt32Bits(position[index & 1].Value)));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontVariationClone(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2]
+            {
+                new() { Axis = SKFourByteTag.Parse("opsz"), Value = 23 },
+                new() { Axis = SKFourByteTag.Parse("wght"), Value = 537 }
+            };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using SKTypeface clone = typeface.Clone(position);
+            Span<SKFontVariationPositionCoordinate> actual =
+                stackalloc SKFontVariationPositionCoordinate[2];
+            int count = clone.GetVariationDesignPosition(actual);
+            checksum = Mix(checksum, (uint)(clone.FontWeight + count));
+            checksum = Mix(
+                checksum,
+                unchecked((uint)BitConverter.SingleToInt32Bits(actual[index & 1].Value)));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontArgumentsClone(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2]
+            {
+                new() { Axis = SKFourByteTag.Parse("opsz"), Value = 23 },
+                new() { Axis = SKFourByteTag.Parse("wght"), Value = 537 }
+            };
+        var arguments = new SKFontArguments
+        {
+            CollectionIndex = 0,
+            VariationDesignPosition = position
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using SKTypeface clone = typeface.Clone(arguments);
+            checksum = Mix(checksum, (uint)(clone.FontWeight + clone.GlyphCount));
+        }
+
+        return checksum;
+    }
+
+    private static SKTypeface LoadVariableTypeface()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "InterVariable.ttf");
+        return SKTypeface.FromFile(path) ??
+            throw new InvalidOperationException($"Unable to load benchmark variable font: {path}.");
+    }
+
+    private static SKTypeface GetVariableTypeface() =>
+        s_variableTypeface ??= LoadVariableTypeface();
 
     private static ulong RunVersionCompatibility(int operations)
     {

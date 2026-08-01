@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The shim internally composes its official legacy SKPath contract.
+
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -99,6 +101,7 @@ public partial class SKPath
 
     public int VerbCount => BuildRawOperations().Count;
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddArc(SKRect oval, float startAngle, float sweepAngle)
     {
         if (!IsValidOvalArc(oval, startAngle, sweepAngle))
@@ -113,6 +116,7 @@ public partial class SKPath
         }
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPathReverse(SKPath other)
     {
         ArgumentNullException.ThrowIfNull(other);
@@ -125,6 +129,7 @@ public partial class SKPath
         }
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddRect(SKRect rect, SKPathDirection direction, uint startIndex)
     {
         if (startIndex > 3)
@@ -153,6 +158,7 @@ public partial class SKPath
         Close();
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddRoundRect(SKRoundRect rect, SKPathDirection direction, uint startIndex)
     {
         ArgumentNullException.ThrowIfNull(rect);
@@ -166,9 +172,11 @@ public partial class SKPath
         AppendRoundRect(rect.Rect, rect.CornerRadii, direction, startIndex);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ArcTo(SKPoint point1, SKPoint point2, float radius) =>
         ArcTo(point1.X, point1.Y, point2.X, point2.Y, radius);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ArcTo(
         SKPoint r,
         float xAxisRotate,
@@ -177,6 +185,7 @@ public partial class SKPath
         SKPoint xy) =>
         ArcTo(r.X, r.Y, xAxisRotate, largeArc, sweep, xy.X, xy.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ArcTo(SKRect oval, float startAngle, float sweepAngle, bool forceMoveTo)
     {
         if (!TryGetOvalArc(
@@ -201,6 +210,7 @@ public partial class SKPath
         AppendOvalArcSegments(center, radiusX, radiusY, startAngle, sweep);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ArcTo(float x1, float y1, float x2, float y2, float radius)
     {
         EnsureFigure();
@@ -254,6 +264,7 @@ public partial class SKPath
 
     public SKRect ComputeTightBounds() => TightBounds;
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ConicTo(float x0, float y0, float x1, float y1, float w)
     {
         EnsureFigure();
@@ -345,6 +356,7 @@ public partial class SKPath
         Transform(offset);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RArcTo(
         SKPoint r,
         float xAxisRotate,
@@ -353,6 +365,7 @@ public partial class SKPath
         SKPoint xy) =>
         RArcTo(r.X, r.Y, xAxisRotate, largeArc, sweep, xy.X, xy.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RArcTo(
         float rx,
         float ry,
@@ -366,18 +379,22 @@ public partial class SKPath
         ArcTo(rx, ry, xAxisRotate, largeArc, sweep, start.X + x, start.Y + y);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RConicTo(SKPoint point0, SKPoint point1, float w) =>
         RConicTo(point0.X, point0.Y, point1.X, point1.Y, w);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RConicTo(float dx0, float dy0, float dx1, float dy1, float w)
     {
         var start = _currentPoint;
         ConicTo(start.X + dx0, start.Y + dy0, start.X + dx1, start.Y + dy1, w);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RCubicTo(SKPoint point0, SKPoint point1, SKPoint point2) =>
         RCubicTo(point0.X, point0.Y, point1.X, point1.Y, point2.X, point2.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RCubicTo(float dx0, float dy0, float dx1, float dy1, float dx2, float dy2)
     {
         var start = _currentPoint;
@@ -390,23 +407,30 @@ public partial class SKPath
             start.Y + dy2);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RLineTo(SKPoint point) => RLineTo(point.X, point.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RLineTo(float dx, float dy) => LineTo(_currentPoint.X + dx, _currentPoint.Y + dy);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RMoveTo(SKPoint point) => RMoveTo(point.X, point.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RMoveTo(float dx, float dy) => MoveTo(_currentPoint.X + dx, _currentPoint.Y + dy);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RQuadTo(SKPoint point0, SKPoint point1) =>
         RQuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void RQuadTo(float dx0, float dy0, float dx1, float dy1)
     {
         var start = _currentPoint;
         QuadTo(start.X + dx0, start.Y + dy0, start.X + dx1, start.Y + dy1);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void Rewind()
     {
         Geometry.Figures.Clear();
@@ -1659,7 +1683,7 @@ public partial class SKPath
         }
     }
 
-    public sealed class RawIterator : SKObject
+    public class RawIterator : SKObject
     {
         private readonly List<IteratorOperation> _operations;
         private int _index;
@@ -1700,10 +1724,19 @@ public partial class SKPath
         public SKPathVerb Peek() =>
             _index < _operations.Count ? _operations[_index].Verb : SKPathVerb.Done;
 
-        protected override void DisposeManaged() => _operations.Clear();
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
+        {
+            _operations.Clear();
+            base.DisposeNative();
+        }
     }
 
-    public sealed class Iterator : SKObject
+    public class Iterator : SKObject
     {
         private readonly List<IteratorOperation> _operations;
         private int _index;
@@ -1751,7 +1784,16 @@ public partial class SKPath
             return operation.Verb;
         }
 
-        protected override void DisposeManaged() => _operations.Clear();
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
+        {
+            _operations.Clear();
+            base.DisposeNative();
+        }
 
         private static List<IteratorOperation> BuildIteratorOperations(SKPath path, bool forceClose)
         {
@@ -1821,7 +1863,7 @@ public partial class SKPath
         }
     }
 
-    public sealed class OpBuilder : SKObject
+    public class OpBuilder : SKObject
     {
         private SKPath? _result;
 
@@ -1830,7 +1872,7 @@ public partial class SKPath
         {
         }
 
-        public void Add(SKPath path, SKPathOp operation)
+        public void Add(SKPath path, SKPathOp op)
         {
             ArgumentNullException.ThrowIfNull(path);
             if (_result is null)
@@ -1839,7 +1881,7 @@ public partial class SKPath
                 return;
             }
 
-            var combined = _result.Op(path, operation);
+            var combined = _result.Op(path, op);
             _result.Dispose();
             _result = combined;
         }
@@ -1857,10 +1899,16 @@ public partial class SKPath
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
         {
             _result?.Dispose();
             _result = null;
+            base.DisposeNative();
         }
     }
 

@@ -1,10 +1,30 @@
 using SkiaSharp;
+using System.Reflection;
 using Xunit;
 
 namespace ProGPU.Tests;
 
 public sealed class SkPathMetadataCompatibilityTests
 {
+    [Fact]
+    public void LegacyMutationMethodsCarryExactBuilderMigrationContract()
+    {
+        var obsoleteMethods = typeof(SKPath)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+            .Select(method => (Method: method, Attribute: method.GetCustomAttribute<ObsoleteAttribute>()))
+            .Where(entry => entry.Attribute is not null)
+            .ToArray();
+
+        Assert.Equal(43, obsoleteMethods.Length);
+        Assert.All(
+            obsoleteMethods,
+            entry =>
+            {
+                Assert.Equal("Use SKPathBuilder instead.", entry.Attribute!.Message);
+                Assert.False(entry.Attribute.IsError);
+            });
+    }
+
     [Fact]
     public void LineMetadataMatchesNativePointAndVerbContract()
     {

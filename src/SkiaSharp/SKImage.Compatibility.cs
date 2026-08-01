@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace SkiaSharp;
 
 public partial class SKImage
@@ -19,17 +21,17 @@ public partial class SKImage
         SKMatrix.Identity);
 
     public SKShader ToShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKShaderTileMode tileX,
+        SKShaderTileMode tileY,
         SKSamplingOptions sampling) =>
-        ToShader(tileModeX, tileModeY, sampling, SKMatrix.Identity);
+        ToShader(tileX, tileY, sampling, SKMatrix.Identity);
 
     public SKShader ToShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKShaderTileMode tileX,
+        SKShaderTileMode tileY,
         SKSamplingOptions sampling,
         SKMatrix localMatrix) =>
-        SKShader.CreateRetainedImage(CreateOwnedCopy(), tileModeX, tileModeY, localMatrix, sampling);
+        SKShader.CreateRetainedImage(CreateOwnedCopy(), tileX, tileY, localMatrix, sampling);
 
 #pragma warning disable CS0619
     [Obsolete("Use ToShader(SKShaderTileMode, SKShaderTileMode, SKSamplingOptions) instead.", true)]
@@ -54,30 +56,30 @@ public partial class SKImage
         SKSamplingOptions.Default,
         SKMatrix.Identity);
 
-    public SKShader ToRawShader(SKShaderTileMode tileModeX, SKShaderTileMode tileModeY) =>
-        ToRawShader(tileModeX, tileModeY, SKSamplingOptions.Default, SKMatrix.Identity);
+    public SKShader ToRawShader(SKShaderTileMode tileX, SKShaderTileMode tileY) =>
+        ToRawShader(tileX, tileY, SKSamplingOptions.Default, SKMatrix.Identity);
 
     public SKShader ToRawShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKShaderTileMode tileX,
+        SKShaderTileMode tileY,
         SKMatrix localMatrix) =>
-        ToRawShader(tileModeX, tileModeY, SKSamplingOptions.Default, localMatrix);
+        ToRawShader(tileX, tileY, SKSamplingOptions.Default, localMatrix);
 
     public SKShader ToRawShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKShaderTileMode tileX,
+        SKShaderTileMode tileY,
         SKSamplingOptions sampling) =>
-        ToRawShader(tileModeX, tileModeY, sampling, SKMatrix.Identity);
+        ToRawShader(tileX, tileY, sampling, SKMatrix.Identity);
 
     public SKShader ToRawShader(
-        SKShaderTileMode tileModeX,
-        SKShaderTileMode tileModeY,
+        SKShaderTileMode tileX,
+        SKShaderTileMode tileY,
         SKSamplingOptions sampling,
         SKMatrix localMatrix) =>
         SKShader.CreateRetainedImage(
             CreateOwnedCopy(),
-            tileModeX,
-            tileModeY,
+            tileX,
+            tileY,
             localMatrix,
             sampling,
             isRaw: true);
@@ -139,13 +141,31 @@ public partial class SKImage
     public bool PeekPixels(SKPixmap pixmap)
     {
         ArgumentNullException.ThrowIfNull(pixmap);
-        pixmap.Reset();
-        return false;
+        if (_isTextureBacked && _rasterPixels is null)
+        {
+            pixmap.Reset();
+            return false;
+        }
+
+        EnsureRasterPixels();
+        pixmap.Reset(_info, _rasterPixelsHandle.AddrOfPinnedObject(), _info.RowBytes);
+        pixmap.SetPixelSource(this);
+        return true;
     }
 
-    public SKPixmap? PeekPixels() => null;
+    public SKPixmap PeekPixels()
+    {
+        var pixmap = new SKPixmap();
+        if (PeekPixels(pixmap))
+        {
+            return pixmap;
+        }
 
-    public SKImage ToRasterImage() => ToRasterImage(share: false);
+        pixmap.Dispose();
+        return null!;
+    }
+
+    public SKImage ToRasterImage() => ToRasterImage(ensurePixelData: false);
 
     private static SKSamplingOptions SamplingFromQuality(int quality) =>
         quality switch
@@ -156,4 +176,50 @@ public partial class SKImage
             3 => new SKSamplingOptions(SKCubicResampler.Mitchell),
             _ => SKSamplingOptions.Default,
         };
+
+    private void EnsureRasterPixels()
+    {
+        lock (_rasterPixelLock)
+        {
+            if (_rasterPixels is null)
+            {
+                _rasterPixels = GC.AllocateUninitializedArray<byte>(
+                    checked((int)_info.BytesSize64));
+            }
+
+            if (!_rasterPixelsHandle.IsAllocated && _rasterPixels.Length > 0)
+            {
+                _rasterPixelsHandle = GCHandle.Alloc(_rasterPixels, GCHandleType.Pinned);
+                if (!ReadPixels(
+                        _info,
+                        _rasterPixelsHandle.AddrOfPinnedObject(),
+                        _info.RowBytes,
+                        0,
+                        0,
+                        SKImageCachingHint.Allow))
+                {
+                    _rasterPixelsHandle.Free();
+                    _rasterPixels = null;
+                    throw new InvalidOperationException("The immutable image could not be materialized as raster pixels.");
+                }
+            }
+        }
+    }
+
+    private void SetMaterializedRasterPixels(byte[] pixels)
+    {
+        lock (_rasterPixelLock)
+        {
+            if (_rasterPixelsHandle.IsAllocated)
+            {
+                _rasterPixelsHandle.Free();
+            }
+
+            _rasterPixels = pixels;
+            if (pixels.Length > 0)
+            {
+                _rasterPixelsHandle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+            }
+        }
+    }
 }

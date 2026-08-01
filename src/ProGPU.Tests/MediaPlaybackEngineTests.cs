@@ -1701,13 +1701,16 @@ public sealed class MediaPlaybackEngineTests
                 Duration = TimeSpan.FromSeconds(1)
             });
         timeline.Synchronize(TimeSpan.Zero, enabled: true);
-        timeline.Synchronize(
-            TimeSpan.FromMilliseconds(1),
-            enabled: true);
+        for (int index = 1; index < 257; index++)
+        {
+            timeline.Synchronize(
+                TimeSpan.FromTicks(index),
+                enabled: true);
+        }
 
         long before =
             GC.GetAllocatedBytesForCurrentThread();
-        for (int index = 2; index < 10_002; index++)
+        for (int index = 257; index < 10_257; index++)
         {
             timeline.Synchronize(
                 TimeSpan.FromTicks(index),

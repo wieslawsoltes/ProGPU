@@ -130,6 +130,75 @@ public sealed class SkShaderCompatibilityTests
     }
 
     [Fact]
+    public void FloatGradientFactoriesRetainColorSpaceTileModeAndLocalMatrix()
+    {
+        var colors = new[]
+        {
+            new SKColorF(1.25f, -0.25f, 0.5f, 1f),
+            new SKColorF(0f, 0.75f, 1f, 0.5f),
+        };
+        var positions = new[] { 0.15f, 0.85f };
+        var localMatrix = SKMatrix.CreateTranslation(7f, 11f);
+        using var colorspace = SKColorSpace.CreateSrgbLinear();
+        using var linear = SKShader.CreateLinearGradient(
+            SKPoint.Empty,
+            new SKPoint(40f, 0f),
+            colors,
+            colorspace,
+            positions,
+            SKShaderTileMode.Repeat,
+            localMatrix);
+        using var radial = SKShader.CreateRadialGradient(
+            new SKPoint(20f, 20f),
+            20f,
+            colors,
+            colorspace,
+            positions,
+            SKShaderTileMode.Mirror,
+            localMatrix);
+        using var conical = SKShader.CreateTwoPointConicalGradient(
+            new SKPoint(4f, 5f),
+            2f,
+            new SKPoint(30f, 35f),
+            18f,
+            colors,
+            colorspace,
+            positions,
+            SKShaderTileMode.Decal,
+            localMatrix);
+        using var sweep = SKShader.CreateSweepGradient(
+            new SKPoint(20f, 20f),
+            colors,
+            colorspace,
+            positions,
+            SKShaderTileMode.Clamp,
+            -45f,
+            405f,
+            localMatrix);
+
+        colors[0] = new SKColorF(0f, 1f, 0f, 1f);
+        positions[0] = 0.65f;
+        Assert.True(Matrix4x4.Invert(localMatrix.ToMatrix4x4(), out var inverse));
+
+        AssertFloatGradient(
+            Assert.IsType<LinearGradientBrush>(linear.ToBrush()),
+            GradientSpreadMethod.Repeat,
+            inverse);
+        AssertFloatGradient(
+            Assert.IsType<RadialGradientBrush>(radial.ToBrush()),
+            GradientSpreadMethod.Reflect,
+            inverse);
+        AssertFloatGradient(
+            Assert.IsType<TwoPointConicalGradientBrush>(conical.ToBrush()),
+            GradientSpreadMethod.Decal,
+            inverse);
+        AssertFloatGradient(
+            Assert.IsType<SweepGradientBrush>(sweep.ToBrush()),
+            GradientSpreadMethod.Pad,
+            inverse);
+    }
+
+    [Fact]
     public void ShaderWrappersRetainDisposedSources()
     {
         var source = SKShader.CreateColor(SKColors.Cyan);
@@ -147,7 +216,7 @@ public sealed class SkShaderCompatibilityTests
         var destination = SKShader.CreateColor(SKColors.Blue);
         var source = SKShader.CreateColor(SKColors.Red);
         using var multiply = SKShader.CreateBlend(SKBlendMode.Multiply, destination, source);
-        using var arithmeticBlender = SKBlender.CreateArithmetic(0.1f, 0.2f, 0.3f, 0.4f, enforcePremul: true);
+        using var arithmeticBlender = SKBlender.CreateArithmetic(0.1f, 0.2f, 0.3f, 0.4f, enforcePMColor: true);
         Assert.NotNull(arithmeticBlender);
         using var arithmetic = SKShader.CreateBlend(arithmeticBlender!, destination, source);
 
@@ -285,5 +354,32 @@ public sealed class SkShaderCompatibilityTests
         Assert.Equal(expected.M22, actual.M22, 5);
         Assert.Equal(expected.M41, actual.M41, 5);
         Assert.Equal(expected.M42, actual.M42, 5);
+    }
+
+    private static void AssertFloatGradient(
+        Brush brush,
+        GradientSpreadMethod expectedSpread,
+        Matrix4x4 expectedTransform)
+    {
+        var (interpolation, spread, transform, stops) = brush switch
+        {
+            LinearGradientBrush value =>
+                (value.ColorInterpolationMode, value.SpreadMethod, value.CoordinateTransform, value.Stops),
+            RadialGradientBrush value =>
+                (value.ColorInterpolationMode, value.SpreadMethod, value.CoordinateTransform, value.Stops),
+            TwoPointConicalGradientBrush value =>
+                (value.ColorInterpolationMode, value.SpreadMethod, value.CoordinateTransform, value.Stops),
+            SweepGradientBrush value =>
+                (value.ColorInterpolationMode, value.SpreadMethod, value.CoordinateTransform, value.Stops),
+            _ => throw new Xunit.Sdk.XunitException($"Unexpected gradient brush type {brush.GetType()}.")
+        };
+
+        Assert.Equal(GradientColorInterpolationMode.ScRgbLinearInterpolation, interpolation);
+        Assert.Equal(expectedSpread, spread);
+        AssertMatrixEqual(expectedTransform, transform);
+        Assert.Equal(new Vector4(1f, 0f, 0.5f, 1f), stops[0].Color);
+        Assert.Equal(0.15f, stops[0].Offset);
+        Assert.Equal(new Vector4(0f, 0.75f, 1f, 0.5f), stops[1].Color);
+        Assert.Equal(0.85f, stops[1].Offset);
     }
 }

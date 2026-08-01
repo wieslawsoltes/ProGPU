@@ -53,9 +53,9 @@ public class SKColorSpaceIccProfile : SKObject
     public SKColorSpaceXyz ToColorSpaceXyz() =>
         ToColorSpaceXyz(out var xyz) ? xyz : SKColorSpaceXyz.Empty;
 
-    public bool ToColorSpaceXyz(out SKColorSpaceXyz xyz)
+    public bool ToColorSpaceXyz(out SKColorSpaceXyz toXyzD50)
     {
-        xyz = _hasXyz ? _xyz : SKColorSpaceXyz.Empty;
+        toXyzD50 = _hasXyz ? _xyz : SKColorSpaceXyz.Empty;
         return _hasXyz;
     }
 

@@ -104,4 +104,63 @@ public sealed class SkCanvasCoreOperationCompatibilityTests
         using var picture = recorder.EndRecording();
         Assert.Empty(picture.Picture.Commands);
     }
+
+    [Fact]
+    public void EmptyClipScopeIsElidedFromTheRetainedPicture()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 20f, 20f));
+
+        int restoreCount = canvas.Save();
+        canvas.ClipRect(new SKRect(2f, 3f, 18f, 17f));
+        canvas.RestoreToCount(restoreCount);
+
+        using var picture = recorder.EndRecording();
+        Assert.Empty(picture.Picture.Commands);
+    }
+
+    [Fact]
+    public void ClipScopeWithDrawingRetainsBalancedCommands()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 20f, 20f));
+        using var paint = new SKPaint { Color = SKColors.Red };
+
+        int restoreCount = canvas.Save();
+        canvas.ClipRect(new SKRect(2f, 3f, 18f, 17f));
+        canvas.DrawRect(new SKRect(0f, 0f, 20f, 20f), paint);
+        canvas.RestoreToCount(restoreCount);
+
+        using var picture = recorder.EndRecording();
+        Assert.Collection(
+            picture.Picture.Commands,
+            command => Assert.Equal(RenderCommandType.PushClip, command.Type),
+            command => Assert.Equal(RenderCommandType.DrawRect, command.Type),
+            command => Assert.Equal(RenderCommandType.PopClip, command.Type));
+    }
+
+    [Fact]
+    public void EmptyClipStateCyclesAllocateNothingAfterWarmup()
+    {
+        using var canvas = new SKCanvas(new DrawingContext(), 20f, 20f);
+        var clip = new SKRect(2f, 3f, 18f, 17f);
+
+        CycleEmptyClip(canvas, clip);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 100_000; index++)
+        {
+            CycleEmptyClip(canvas, clip);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+        Assert.Empty(canvas.DrawingContext.Commands);
+    }
+
+    private static void CycleEmptyClip(SKCanvas canvas, SKRect clip)
+    {
+        int restoreCount = canvas.Save();
+        canvas.ClipRect(clip);
+        canvas.RestoreToCount(restoreCount);
+    }
 }

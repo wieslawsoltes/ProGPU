@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The shim internally composes its official legacy SKPath contract.
+
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -7,6 +9,7 @@ namespace SkiaSharp;
 
 public partial class SKPath : SKObject
 {
+    private const string UsePathBuilderMessage = "Use SKPathBuilder instead.";
     public override IntPtr Handle
     {
         get => base.Handle;
@@ -283,6 +286,7 @@ public partial class SKPath : SKObject
         }
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void MoveTo(float x, float y)
     {
         var point = new Vector2(x, y);
@@ -300,8 +304,10 @@ public partial class SKPath : SKObject
         _contourStart = point;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void MoveTo(SKPoint point) => MoveTo(point.X, point.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void LineTo(float x, float y)
     {
         EnsureFigure();
@@ -310,8 +316,10 @@ public partial class SKPath : SKObject
         _currentPoint = point;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void LineTo(SKPoint point) => LineTo(point.X, point.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void QuadTo(float x0, float y0, float x1, float y1)
     {
         EnsureFigure();
@@ -320,9 +328,11 @@ public partial class SKPath : SKObject
         _currentPoint = point;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void QuadTo(SKPoint point0, SKPoint point1) =>
         QuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2)
     {
         EnsureFigure();
@@ -331,9 +341,11 @@ public partial class SKPath : SKObject
         _currentPoint = point;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void CubicTo(SKPoint point0, SKPoint point1, SKPoint point2) =>
         CubicTo(point0.X, point0.Y, point1.X, point1.Y, point2.X, point2.Y);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ArcTo(float rx, float ry, float xAxisRotate, SKPathArcSize largeArc, SKPathDirection sweep, float x, float y)
     {
         EnsureFigure();
@@ -349,6 +361,7 @@ public partial class SKPath : SKObject
         _currentPoint = point;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void Close()
     {
         if (_currentFigure != null)
@@ -366,17 +379,20 @@ public partial class SKPath : SKObject
         FillType = SKPathFillType.Winding;
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddCircle(float x, float y, float radius, SKPathDirection dir = SKPathDirection.Clockwise)
     {
         AddOval(new SKRect(x - radius, y - radius, x + radius, y + radius), dir);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddOval(SKRect rect, SKPathDirection direction = SKPathDirection.Clockwise)
     {
         AppendOvalArc(rect, 0f, direction == SKPathDirection.Clockwise ? 360f : -360f, forceMoveTo: true);
         Close();
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void ConicTo(SKPoint point0, SKPoint point1, float w)
     {
         ConicTo(point0.X, point0.Y, point1.X, point1.Y, w);
@@ -405,20 +421,24 @@ public partial class SKPath : SKObject
 
     public Iterator CreateIterator(bool forceClose) => new(this, forceClose);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddRect(SKRect rect, SKPathDirection direction = SKPathDirection.Clockwise)
         => AddRect(rect, direction, 0);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddRoundRect(SKRoundRect rect, SKPathDirection direction = SKPathDirection.Clockwise)
         => AddRoundRect(
             rect,
             direction,
             direction == SKPathDirection.Clockwise ? 6u : 7u);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddRoundRect(SKRect rect, float rx, float ry, SKPathDirection dir = SKPathDirection.Clockwise)
     {
         AddRoundRect(new SKRoundRect(rect, rx, ry), dir);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPath(
         SKPath other,
         float dx,
@@ -429,9 +449,11 @@ public partial class SKPath : SKObject
         AddPathCore(other, new Vector2(dx, dy), mode);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPath(SKPath other, SKPathAddMode mode = SKPathAddMode.Append) =>
         AddPath(other, 0f, 0f, mode);
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPath(SKPath other, in SKMatrix matrix, SKPathAddMode mode = SKPathAddMode.Append)
     {
         using var copy = new SKPath(other);
@@ -439,6 +461,7 @@ public partial class SKPath : SKObject
         AddPath(copy, mode);
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPoly(ReadOnlySpan<SKPoint> points, bool close = true)
     {
         if (points.IsEmpty)
@@ -458,6 +481,7 @@ public partial class SKPath : SKObject
         }
     }
 
+    [Obsolete(UsePathBuilderMessage)]
     public void AddPoly(SKPoint[] points, bool close = true)
     {
         ArgumentNullException.ThrowIfNull(points);
@@ -624,6 +648,16 @@ public partial class SKPath : SKObject
             ? SKPathFillType.EvenOdd
             : SKPathFillType.Winding;
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
 }
 
 public enum SKRoundRectCorner
@@ -644,7 +678,7 @@ public enum SKRoundRectType
     Complex = 5,
 }
 
-public class SKRoundRect : IDisposable
+public class SKRoundRect : SKObject
 {
     private const float NearlyZero = 1f / (1 << 12);
     private readonly SKPoint[] _radii = new SKPoint[4];
@@ -668,11 +702,13 @@ public class SKRoundRect : IDisposable
     internal SKPoint[] CornerRadii => _radii;
 
     public SKRoundRect()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetEmpty();
     }
 
     public SKRoundRect(SKRect rect)
+        : this()
     {
         SetRect(rect);
     }
@@ -683,11 +719,13 @@ public class SKRoundRect : IDisposable
     }
 
     public SKRoundRect(SKRect rect, float xRadius, float yRadius)
+        : this()
     {
         SetRect(rect, xRadius, yRadius);
     }
 
     public SKRoundRect(SKRoundRect rrect)
+        : this()
     {
         _rect = rrect._rect;
         _type = rrect._type;
@@ -1019,7 +1057,12 @@ public class SKRoundRect : IDisposable
     public SKRoundRect? Transform(SKMatrix matrix) =>
         TryTransform(matrix, out var transformed) ? transformed : null;
 
-    void IDisposable.Dispose()
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
     {
     }
 
@@ -1398,7 +1441,7 @@ public class SKRoundRect : IDisposable
         float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
 }
 
-public class SKRegion : IDisposable
+public class SKRegion : SKObject
 {
     private readonly List<SKRectI> _rects = new();
     private SKRectI _bounds;
@@ -1411,20 +1454,26 @@ public class SKRegion : IDisposable
 
     public SKRectI Bounds => _bounds;
 
-    public SKRegion() { }
+    public SKRegion()
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+    }
 
     public SKRegion(SKRectI rect)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetRect(rect);
     }
 
     public SKRegion(SKRegion region)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(region);
         SetRegion(region);
     }
 
     public SKRegion(SKPath path)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(path);
         var bounds = path.Bounds;
@@ -1451,7 +1500,7 @@ public class SKRegion : IDisposable
         return false;
     }
 
-    public bool Contains(SKPointI point) => Contains(point.X, point.Y);
+    public bool Contains(SKPointI xy) => Contains(xy.X, xy.Y);
 
     public bool Contains(SKRectI rect)
     {
@@ -1465,15 +1514,15 @@ public class SKRegion : IDisposable
         return remainder.IsEmpty;
     }
 
-    public bool Contains(SKRegion region)
+    public bool Contains(SKRegion src)
     {
-        ArgumentNullException.ThrowIfNull(region);
-        if (region.IsEmpty)
+        ArgumentNullException.ThrowIfNull(src);
+        if (src.IsEmpty)
         {
             return false;
         }
 
-        using var remainder = new SKRegion(region);
+        using var remainder = new SKRegion(src);
         remainder.Op(this, SKRegionOperation.Difference);
         return remainder.IsEmpty;
     }
@@ -2342,7 +2391,7 @@ public class SKRegion : IDisposable
         return MathF.Abs(left - right) <= 0.0001f;
     }
 
-    public sealed class RectIterator : SKObject
+    public class RectIterator : SKObject
     {
         private SKRectI[] _rects;
         private int _index;
@@ -2365,13 +2414,14 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _rects = Array.Empty<SKRectI>();
+            base.DisposeNative();
         }
     }
 
-    public sealed class ClipIterator : SKObject
+    public class ClipIterator : SKObject
     {
         private SKRectI[] _rects;
         private int _index;
@@ -2402,13 +2452,14 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _rects = Array.Empty<SKRectI>();
+            base.DisposeNative();
         }
     }
 
-    public sealed class SpanIterator : SKObject
+    public class SpanIterator : SKObject
     {
         private (int Left, int Right)[] _spans;
         private int _index;
@@ -2476,9 +2527,10 @@ public class SKRegion : IDisposable
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void DisposeNative()
         {
             _spans = Array.Empty<(int Left, int Right)>();
+            base.DisposeNative();
         }
     }
 
@@ -2493,7 +2545,17 @@ public class SKRegion : IDisposable
         return copy;
     }
 
-    public void Dispose() { }
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        _rects.Clear();
+        _bounds = default;
+        base.DisposeNative();
+    }
 }
 
 public enum SKPathVerb

@@ -2008,6 +2008,34 @@ is unchanged and explicit:
 This release boundary therefore makes the remaining parity deficit measurable
 without presenting metadata equality as behavioral or rendering completion.
 
+## Preview.34 release closure and next parity lane
+
+Preview.34 retains the exact WinUI metadata baseline at 4,952 of 16,579
+official declarations, with 11,627 missing and 6,652 ProGPU-only entries. It
+does not claim new WinUI declarations. The release closes adjacent reusable
+infrastructure: the media player/editor packages remain available through the
+typed zero-copy WebGPU surface, and the compiler can now project changed stable
+XAML identities into detached metadata diagnostic origins automatically.
+
+The next WinUI parity branch must start from the immutable preview.34 tag and
+keep `eng/progpu-winui-api-check.sh` monotonic. Its ordered implementation plan
+remains:
+
+1. introduce the official API-contract marker types and move applicable
+   `ContractVersionAttribute` uses to the official `System.Type` constructor;
+2. complete retained WebGPU Composition families with typed ownership,
+   allocation-bounded steady state, device-loss recovery, and effect quality;
+3. reconcile `Microsoft.UI.Xaml` in behavior-complete property-system, control,
+   layout, input, automation, and accessibility clusters;
+4. remove accidental ProGPU-only shapes while keeping intentional extension
+   APIs outside the official namespaces or clearly identified as extensions;
+5. require official metadata comparison plus focused behavior, rendering,
+   cross-platform, package, and matched performance evidence for every slice.
+
+API counts alone remain insufficient: the corresponding WebGPU rendering,
+platform behavior, accessibility, input, layout, threading, and resource
+lifetime contracts must pass independently before parity can be claimed.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be

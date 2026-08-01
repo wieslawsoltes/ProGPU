@@ -612,6 +612,37 @@ namespace Microsoft.UI.Xaml {
     }
 
     [Fact]
+    public void GlobalDisableSkipsAdditionalFileTextAndParseStages()
+    {
+        var compilation = CSharpCompilation.Create(
+            "DisabledHarness",
+            new[] { CSharpSyntaxTree.ParseText("namespace Demo { public sealed class Placeholder { } }") },
+            PlatformReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var unreadable = new ThrowingAdditionalText("Unreadable.xaml");
+        var options = new GlobalAnalyzerConfigOptionsProvider(
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["build_property.ProGpuXamlEnabled"] = "false"
+            });
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            ImmutableArray.Create(new ProGpuXamlSourceGenerator().AsSourceGenerator()),
+            ImmutableArray.Create<AdditionalText>(unreadable),
+            CSharpParseOptions.Default,
+            options,
+            new GeneratorDriverOptions(
+                IncrementalGeneratorOutputKind.None,
+                trackIncrementalGeneratorSteps: true));
+
+        driver = driver.RunGenerators(compilation);
+        var result = Assert.Single(driver.GetRunResult().Results);
+
+        Assert.Empty(result.GeneratedSources);
+        Assert.Empty(result.Diagnostics);
+        Assert.False(result.TrackedSteps.ContainsKey("XamlParseAndInfoset"));
+    }
+
+    [Fact]
     public void LogicalPathMetadataControlsCompiledResourceIdentity()
     {
         const string program = """
@@ -3993,6 +4024,14 @@ namespace Demo {
         }
         public override string Path { get; }
         public override SourceText GetText(CancellationToken cancellationToken = default) => _text;
+    }
+
+    private sealed class ThrowingAdditionalText : AdditionalText
+    {
+        public ThrowingAdditionalText(string path) => Path = path;
+        public override string Path { get; }
+        public override SourceText GetText(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Disabled XAML input text must not be requested.");
     }
 
     private sealed class GlobalAnalyzerConfigOptionsProvider :

@@ -4,6 +4,7 @@ public class SKBlender : SKObject
 {
     private readonly SKBlendMode? _blendMode;
     private readonly ArithmeticBlend? _arithmetic;
+    private readonly SKRuntimeEffectInstance? _runtimeEffect;
 
     private SKBlender(SKBlendMode blendMode)
         : base(SKObjectHandle.Create(), owns: true)
@@ -17,9 +18,19 @@ public class SKBlender : SKObject
         _arithmetic = arithmetic;
     }
 
+    private SKBlender(SKRuntimeEffectInstance runtimeEffect)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _runtimeEffect = runtimeEffect;
+    }
+
     internal bool IsArithmetic => _arithmetic.HasValue;
 
     internal ArithmeticBlend? Arithmetic => _arithmetic;
+
+    internal SKRuntimeEffectInstance? RuntimeEffect => _runtimeEffect;
+
+    internal static SKBlender CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
     internal bool TryGetBlendMode(out SKBlendMode blendMode)
     {
@@ -42,7 +53,7 @@ public class SKBlender : SKObject
         float k2,
         float k3,
         float k4,
-        bool enforcePremul)
+        bool enforcePMColor)
     {
         if (!float.IsFinite(k1) ||
             !float.IsFinite(k2) ||
@@ -52,7 +63,12 @@ public class SKBlender : SKObject
             return null;
         }
 
-        return new SKBlender(new ArithmeticBlend(k1, k2, k3, k4, enforcePremul));
+        return new SKBlender(new ArithmeticBlend(k1, k2, k3, k4, enforcePMColor));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 
     internal readonly record struct ArithmeticBlend(

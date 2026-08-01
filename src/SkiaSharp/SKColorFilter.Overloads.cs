@@ -19,6 +19,7 @@ public partial class SKColorFilter
         Lerp,
         HslaColorMatrix,
         HighContrast,
+        RuntimeEffect,
     }
 
     private static readonly Lazy<SKColorFilter> s_srgbToLinear = new(

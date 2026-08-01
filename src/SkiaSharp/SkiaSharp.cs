@@ -1028,8 +1028,8 @@ public struct SKRotationScaleMatrix : IEquatable<SKRotationScaleMatrix>
     public static SKRotationScaleMatrix CreateRotationDegrees(float degrees, float anchorX, float anchorY) =>
         CreateDegrees(1f, degrees, 0f, 0f, anchorX, anchorY);
 
-    public readonly bool Equals(SKRotationScaleMatrix other) =>
-        SCos == other.SCos && SSin == other.SSin && TX == other.TX && TY == other.TY;
+    public readonly bool Equals(SKRotationScaleMatrix obj) =>
+        SCos == obj.SCos && SSin == obj.SSin && TX == obj.TX && TY == obj.TY;
     public override readonly bool Equals(object? obj) => obj is SKRotationScaleMatrix other && Equals(other);
     public static bool operator ==(SKRotationScaleMatrix left, SKRotationScaleMatrix right) => left.Equals(right);
     public static bool operator !=(SKRotationScaleMatrix left, SKRotationScaleMatrix right) => !left.Equals(right);
@@ -1062,7 +1062,7 @@ public readonly struct SKCubicResampler : IEquatable<SKCubicResampler>
 
     public float C => _c;
 
-    public bool Equals(SKCubicResampler other) => _b == other._b && _c == other._c;
+    public bool Equals(SKCubicResampler obj) => _b == obj._b && _c == obj._c;
 
     public override bool Equals(object? obj) => obj is SKCubicResampler other && Equals(other);
 
@@ -1137,12 +1137,12 @@ public readonly struct SKSamplingOptions : IEquatable<SKSamplingOptions>
         _mipmap = SKMipmapMode.None;
     }
 
-    public bool Equals(SKSamplingOptions other) =>
-        _maxAniso == other._maxAniso &&
-        _useCubic == other._useCubic &&
-        _cubic == other._cubic &&
-        _filter == other._filter &&
-        _mipmap == other._mipmap;
+    public bool Equals(SKSamplingOptions obj) =>
+        _maxAniso == obj._maxAniso &&
+        _useCubic == obj._useCubic &&
+        _cubic == obj._cubic &&
+        _filter == obj._filter &&
+        _mipmap == obj._mipmap;
 
     public override bool Equals(object? obj) => obj is SKSamplingOptions other && Equals(other);
 

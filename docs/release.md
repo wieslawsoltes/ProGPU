@@ -5,15 +5,49 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.33 closes the current media/backend API lane. It retains the native
-zero-copy media player and standalone editing packages, adds the typed borrowed
-GL/Vulkan/Metal/D3D/Dawn backend-wrapper contract, makes `SKPMColor` match the
-official Apple and Windows/Linux native layouts, and fixes cross-platform
-matched-benchmark artifact handling. The SkiaSharp metadata baseline advances
-to 3,434 exact entries with 788 remaining; WinUI stays at 4,952 exact with
-11,627 remaining. Detailed continuation work is pinned in
-`docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
+Preview.34 closes the current media, SkiaSharp compatibility, and XAML
+diagnostic-projection slices. It retains the native zero-copy media player and
+standalone editing packages from preview.33, adds shared immutable zero-copy
+`SKImage` subsets, runtime-effect contracts, exact legacy path ownership and
+signature contracts, and deterministic stable-identity-to-XAML diagnostic
+origin projection. The SkiaSharp metadata baseline advances to 4,125 exact of
+4,222 official entries with 97 remaining. WinUI remains at 4,952 exact of
+16,579 official declarations with 11,627 remaining. These numbers are explicit
+continuation ledgers, not full compatibility claims. Detailed work remaining is
+pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
+
+## Preview.34 closure and continuation
+
+The release boundary includes the reusable, framework-neutral media engine,
+native platform media/audio providers, WebGPU presentation and effects, the
+standalone `ProGPU.Media.Editing` project, and the media-player/editor samples.
+The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
+LibreWinForms without making the editor API part of the official WinUI parity
+claim.
+
+The next WinUI parity branch starts from the immutable preview.34 tag. It must
+retain the official NuGet metadata comparator and proceed through API-contract
+markers, retained WebGPU Composition families, behavior-complete XAML control
+and property-system clusters, removal of accidental ProGPU-only declarations,
+and matched rendering/performance validation. The exact baseline remains 4,952
+of 16,579 declarations; behavior, accessibility, device-loss, and rendering
+quality remain independently gated.
+
+The XAML compiler remains pre-MVP. Preview.34 automatically projects changed
+stable XAML identities to detached Roslyn metadata diagnostic origins. The five
+remaining product blockers are runtime capability adapters; atomic metadata
+apply, XAML publication, joint commit, and recovery; namescope/resource/template
+fine patching with safe fallback; cross-platform stress, performance, visual,
+accessibility, and collectible-context gates; and published-feed host and
+productization evidence.
+
+The 97 remaining SkiaSharp metadata entries are also outside this release
+claim. They are concentrated in nullable/obsolete metadata, remaining managed
+disposal shapes, mask filters, N-way/no-draw/overdraw canvases, WebP animation,
+raw text-run buffers, SVG canvas, and related value contracts. Those features
+must be implemented clean-room with focused behavior and performance evidence,
+not satisfied by metadata-only stubs.
 
 ## NuGet Packages
 
@@ -61,19 +95,19 @@ to 3,434 exact entries with 788 remaining; WinUI stays at 4,952 exact with
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.33`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.33`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.33`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.33`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.34`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.34`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.34`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.34`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.33` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.34` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.33 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.34 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -91,7 +125,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.33 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.34 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -109,7 +143,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.33`.
+for example `v0.1.0-preview.34`.
 
 ## NuGet Publishing
 

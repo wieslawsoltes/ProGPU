@@ -6,10 +6,10 @@ public partial struct SKSizeI
 {
     public readonly bool IsEmpty => Equals(Empty);
 
-    public SKSizeI(SKPointI point)
+    public SKSizeI(SKPointI pt)
     {
-        _width = point.X;
-        _height = point.Y;
+        _width = pt.X;
+        _height = pt.Y;
     }
 
     public readonly SKPointI ToPointI() => new(_width, _height);
@@ -18,19 +18,19 @@ public partial struct SKSizeI
 
     public static SKSizeI Add(SKSizeI sz1, SKSizeI sz2) => sz1 + sz2;
 
-    public static SKSizeI Subtract(SKSizeI first, SKSizeI second) => first - second;
+    public static SKSizeI Subtract(SKSizeI sz1, SKSizeI sz2) => sz1 - sz2;
 
-    public static SKSizeI operator +(SKSizeI first, SKSizeI second) =>
-        new(first._width + second._width, first._height + second._height);
+    public static SKSizeI operator +(SKSizeI sz1, SKSizeI sz2) =>
+        new(sz1._width + sz2._width, sz1._height + sz2._height);
 
-    public static SKSizeI operator -(SKSizeI first, SKSizeI second) =>
-        new(first._width - second._width, first._height - second._height);
+    public static SKSizeI operator -(SKSizeI sz1, SKSizeI sz2) =>
+        new(sz1._width - sz2._width, sz1._height - sz2._height);
 
     public static explicit operator SKPointI(SKSizeI size) =>
         new(size._width, size._height);
 
-    public readonly bool Equals(SKSizeI other) =>
-        _width == other._width && _height == other._height;
+    public readonly bool Equals(SKSizeI obj) =>
+        _width == obj._width && _height == obj._height;
 
     public override readonly bool Equals(object? obj) => obj is SKSizeI other && Equals(other);
 

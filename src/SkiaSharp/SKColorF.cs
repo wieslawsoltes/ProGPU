@@ -165,11 +165,11 @@ public readonly partial struct SKColorF
         ToByte(color._blue),
         ToByte(color._alpha));
 
-    public bool Equals(SKColorF other) =>
-        _red == other._red &&
-        _green == other._green &&
-        _blue == other._blue &&
-        _alpha == other._alpha;
+    public bool Equals(SKColorF obj) =>
+        _red == obj._red &&
+        _green == obj._green &&
+        _blue == obj._blue &&
+        _alpha == obj._alpha;
 
     public override bool Equals(object? obj) => obj is SKColorF other && Equals(other);
 

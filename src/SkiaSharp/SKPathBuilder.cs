@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The builder delegates to the shim's official legacy SKPath contract.
+
 namespace SkiaSharp;
 
 public class SKPathBuilder : SKObject
@@ -144,8 +146,8 @@ public class SKPathBuilder : SKObject
         SKRect rect,
         float rx,
         float ry,
-        SKPathDirection direction = SKPathDirection.Clockwise) =>
-        _path.AddRoundRect(rect, rx, ry, direction);
+        SKPathDirection dir = SKPathDirection.Clockwise) =>
+        _path.AddRoundRect(rect, rx, ry, dir);
 
     public void AddOval(SKRect rect, SKPathDirection direction = SKPathDirection.Clockwise) =>
         _path.AddOval(rect, direction);
@@ -154,8 +156,8 @@ public class SKPathBuilder : SKObject
         float x,
         float y,
         float radius,
-        SKPathDirection direction = SKPathDirection.Clockwise) =>
-        _path.AddCircle(x, y, radius, direction);
+        SKPathDirection dir = SKPathDirection.Clockwise) =>
+        _path.AddCircle(x, y, radius, dir);
 
     public void AddArc(SKRect oval, float startAngle, float sweepAngle) =>
         _path.AddArc(oval, startAngle, sweepAngle);
@@ -164,15 +166,24 @@ public class SKPathBuilder : SKObject
 
     public void AddPoly(SKPoint[] points, bool close = true) => _path.AddPoly(points, close);
 
-    public void AddPath(SKPath path, SKPathAddMode mode = SKPathAddMode.Append) => _path.AddPath(path, mode);
+    public void AddPath(SKPath other, SKPathAddMode mode = SKPathAddMode.Append) => _path.AddPath(other, mode);
 
-    public void AddPath(SKPath path, float x, float y, SKPathAddMode mode = SKPathAddMode.Append) =>
-        _path.AddPath(path, x, y, mode);
+    public void AddPath(SKPath other, float dx, float dy, SKPathAddMode mode = SKPathAddMode.Append) =>
+        _path.AddPath(other, dx, dy, mode);
 
-    public void AddPath(SKPath path, in SKMatrix matrix, SKPathAddMode mode = SKPathAddMode.Append) =>
-        _path.AddPath(path, matrix, mode);
+    public void AddPath(SKPath other, in SKMatrix matrix, SKPathAddMode mode = SKPathAddMode.Append) =>
+        _path.AddPath(other, matrix, mode);
 
-    public void ReverseAddPath(SKPath path) => _path.AddPathReverse(path);
+    public void ReverseAddPath(SKPath other) => _path.AddPathReverse(other);
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+    }
 
     protected override void DisposeManaged()
     {

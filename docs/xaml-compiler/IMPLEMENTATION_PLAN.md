@@ -43,11 +43,12 @@ property, type, and static-constructor insertion, deletion, and broader
 runtime capabilities are supplied as an immutable typed session snapshot;
 edits that require a missing method-body, accessor, special-method, or
 insertion capability fail before `EmitDifference` with an exact source
-location. Coordinated edits may supply one validated immutable XAML diagnostic
-origin; every unsupported shape/capability/environment rejection then uses its
-exact path/span/line span without retaining the source text. Dynamic-code/
-runtime support discovery, automatic stable-ID-to-origin projection at the
-project coordinator, combined XAML/metadata
+location. The project coordinator now deterministically converts its existing
+target-first modified/added/removed stable-identity deltas into one validated
+immutable XAML diagnostic origin, and the metadata session accepts that
+prepared update directly. Every unsupported shape/capability/environment
+rejection then uses the exact path/span/line span without retaining another
+source snapshot. Dynamic-code/runtime support discovery, combined XAML/metadata
 publication ordering, partial-publication
 recovery, and multi-project delta ownership remain.
 This checkpoint supersedes the earlier metadata-delta-producer milestone;

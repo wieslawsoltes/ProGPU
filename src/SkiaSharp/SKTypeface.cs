@@ -85,15 +85,21 @@ public class SKFontStyle : SKObject, ISKSkipObjectRegistration
     }
 }
 
-public partial class SKTypeface : IDisposable
+public partial class SKTypeface : SKObject
 {
+    private sealed class VariationCloneCacheEntry
+    {
+        public required SKFontVariationPositionCoordinate[] Position { get; init; }
+        public required TtfFont Font { get; init; }
+    }
+
     private static readonly ConcurrentDictionary<(string Path, int FaceIndex), Lazy<TtfFont>> s_systemFonts = new();
     private readonly int? _requestedWeight;
     private readonly int? _requestedWidth;
     private readonly SKFontStyleSlant? _requestedSlant;
     private readonly bool _isEmpty;
+    private VariationCloneCacheEntry? _lastVariationClone;
 
-    public IntPtr Handle { get; } = SKObjectHandle.Create();
     public TtfFont Font { get; }
     public string FamilyName { get; }
     public bool IsBold { get; }
@@ -124,6 +130,7 @@ public partial class SKTypeface : IDisposable
         int? requestedWidth = null,
         SKFontStyleSlant? requestedSlant = null,
         bool isEmpty = false)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Font = font;
         FamilyName = familyName;
@@ -136,10 +143,7 @@ public partial class SKTypeface : IDisposable
     }
 
     private static SKTypeface? _empty;
-    public static SKTypeface Empty => _empty ??= new SKTypeface(
-        Default.Font,
-        string.Empty,
-        isEmpty: true);
+    public static SKTypeface Empty => _empty ??= CreateDisposeProtectedEmpty();
 
     private static SKTypeface? _default;
     public static SKTypeface Default
@@ -149,10 +153,264 @@ public partial class SKTypeface : IDisposable
             if (_default == null)
             {
                 _default = ResolveDefaultTypeface(FontApi.GetSystemFonts(), FontApi.PlatformFallbackFont);
+                _default.PreventPublicDisposal();
             }
             return _default;
         }
     }
+
+    private static SKTypeface CreateDisposeProtectedEmpty()
+    {
+        var typeface = new SKTypeface(Default.Font, string.Empty, isEmpty: true);
+        typeface.PreventPublicDisposal();
+        return typeface;
+    }
+
+    public int VariationDesignParameterCount => _isEmpty ? 0 : Font.VariationAxes.Count;
+
+    public SKFontVariationAxis[] VariationDesignParameters
+    {
+        get
+        {
+            var result = new SKFontVariationAxis[VariationDesignParameterCount];
+            _ = GetVariationDesignParameters(result);
+            return result;
+        }
+    }
+
+    public int VariationDesignPositionCount => VariationDesignParameterCount;
+
+    public SKFontVariationPositionCoordinate[] VariationDesignPosition
+    {
+        get
+        {
+            var result = new SKFontVariationPositionCoordinate[VariationDesignPositionCount];
+            _ = GetVariationDesignPosition(result);
+            return result;
+        }
+    }
+
+    public int GetVariationDesignParameters(Span<SKFontVariationAxis> axes)
+    {
+        if (_isEmpty || axes.IsEmpty)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<FontVariationAxis> source = Font.VariationAxes;
+        int count = Math.Min(source.Count, axes.Length);
+        for (var index = 0; index < count; index++)
+        {
+            FontVariationAxis axis = source[index];
+            axes[index] = new SKFontVariationAxis
+            {
+                Tag = ToFourByteTag(axis.Tag),
+                Min = axis.Minimum,
+                Default = axis.Default,
+                Max = axis.Maximum,
+                IsHidden = axis.IsHidden
+            };
+        }
+
+        return count;
+    }
+
+    public int GetVariationDesignPosition(Span<SKFontVariationPositionCoordinate> coordinates)
+    {
+        if (_isEmpty || coordinates.IsEmpty)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<FontVariationAxis> axes = Font.VariationAxes;
+        IReadOnlyList<FontVariationSetting> settings = Font.VariationSettings;
+        int count = Math.Min(axes.Count, coordinates.Length);
+        for (var index = 0; index < count; index++)
+        {
+            FontVariationAxis axis = axes[index];
+            float value = settings.Count == axes.Count ? settings[index].Value : axis.Default;
+            coordinates[index] = new SKFontVariationPositionCoordinate
+            {
+                Axis = ToFourByteTag(axis.Tag),
+                Value = value
+            };
+        }
+
+        return count;
+    }
+
+    public SKTypeface Clone(ReadOnlySpan<SKFontVariationPositionCoordinate> position)
+    {
+        if (_isEmpty || Font.VariationAxes.Count == 0)
+        {
+            return new SKTypeface(
+                Font,
+                FamilyName,
+                IsBold,
+                IsItalic,
+                _requestedWeight,
+                _requestedWidth,
+                _requestedSlant,
+                _isEmpty);
+        }
+
+        return CreateVariationClone(GetVariationFont(position));
+    }
+
+    private TtfFont GetVariationFont(ReadOnlySpan<SKFontVariationPositionCoordinate> position)
+    {
+        VariationCloneCacheEntry? cached = Volatile.Read(ref _lastVariationClone);
+        if (cached is not null && position.SequenceEqual(cached.Position))
+        {
+            return cached.Font;
+        }
+
+        IReadOnlyList<FontVariationAxis> axes = Font.VariationAxes;
+        var settings = new FontVariationSetting[Math.Min(position.Length, axes.Count)];
+        int settingCount = 0;
+        for (var positionIndex = 0; positionIndex < position.Length; positionIndex++)
+        {
+            SKFontVariationPositionCoordinate coordinate = position[positionIndex];
+            for (var axisIndex = 0; axisIndex < axes.Count; axisIndex++)
+            {
+                FontVariationAxis axis = axes[axisIndex];
+                if (!TagEquals(coordinate.Axis, axis.Tag))
+                {
+                    continue;
+                }
+
+                int existingIndex = -1;
+                for (var settingIndex = 0; settingIndex < settingCount; settingIndex++)
+                {
+                    if (settings[settingIndex].Tag.Equals(axis.Tag, StringComparison.Ordinal))
+                    {
+                        existingIndex = settingIndex;
+                        break;
+                    }
+                }
+
+                var setting = new FontVariationSetting(axis.Tag, coordinate.Value);
+                if (existingIndex >= 0)
+                {
+                    settings[existingIndex] = setting;
+                }
+                else
+                {
+                    settings[settingCount++] = setting;
+                }
+                break;
+            }
+        }
+
+        TtfFont varied = settingCount == settings.Length
+            ? Font.WithVariations(settings)
+            : Font.WithVariations(settings.AsSpan(0, settingCount).ToArray());
+        if (position.Length <= axes.Count)
+        {
+            Volatile.Write(
+                ref _lastVariationClone,
+                new VariationCloneCacheEntry
+                {
+                    Position = position.ToArray(),
+                    Font = varied
+                });
+        }
+        return varied;
+    }
+
+    public SKTypeface Clone(int paletteIndex)
+    {
+        var arguments = new SKFontArguments { PaletteIndex = paletteIndex };
+        return Clone(arguments);
+    }
+
+    public SKTypeface Clone(SKFontArguments args)
+    {
+        TtfFont selected = args.CollectionIndex == Font.FaceIndex
+            ? Font
+            : new TtfFont(Font.FontData.ToArray(), args.CollectionIndex);
+
+        if (!args.VariationDesignPosition.IsEmpty)
+        {
+            if (ReferenceEquals(selected, Font))
+            {
+                selected = GetVariationFont(args.VariationDesignPosition);
+            }
+            else
+            {
+                selected = ApplyVariations(selected, args.VariationDesignPosition);
+            }
+        }
+
+        ReadOnlySpan<SKFontPaletteOverride> requestedOverrides = args.PaletteOverrides;
+        if (args.PaletteIndex != 0 || !requestedOverrides.IsEmpty)
+        {
+            var overrides = new FontPaletteOverride[requestedOverrides.Length];
+            for (var index = 0; index < overrides.Length; index++)
+            {
+                overrides[index] = new FontPaletteOverride(
+                    requestedOverrides[index].Index,
+                    requestedOverrides[index].Color);
+            }
+
+            selected = selected.WithColorPalette(args.PaletteIndex, overrides);
+        }
+
+        return new SKTypeface(
+            selected,
+            selected.FamilyName,
+            selected.WeightClass >= (int)SKFontStyleWeight.SemiBold,
+            selected.IsItalic);
+    }
+
+    private static TtfFont ApplyVariations(
+        TtfFont font,
+        ReadOnlySpan<SKFontVariationPositionCoordinate> position)
+    {
+        IReadOnlyList<FontVariationAxis> axes = font.VariationAxes;
+        var settings = new FontVariationSetting[Math.Min(position.Length, axes.Count)];
+        var settingCount = 0;
+        for (var positionIndex = 0; positionIndex < position.Length; positionIndex++)
+        {
+            SKFontVariationPositionCoordinate coordinate = position[positionIndex];
+            for (var axisIndex = 0; axisIndex < axes.Count; axisIndex++)
+            {
+                FontVariationAxis axis = axes[axisIndex];
+                if (!TagEquals(coordinate.Axis, axis.Tag))
+                {
+                    continue;
+                }
+
+                settings[settingCount++] = new FontVariationSetting(axis.Tag, coordinate.Value);
+                break;
+            }
+        }
+
+        return settingCount == settings.Length
+            ? font.WithVariations(settings)
+            : font.WithVariations(settings.AsSpan(0, settingCount).ToArray());
+    }
+
+    private SKTypeface CreateVariationClone(TtfFont varied) =>
+        new(
+            varied,
+            FamilyName,
+            varied.WeightClass >= (int)SKFontStyleWeight.SemiBold,
+            varied.IsItalic);
+
+    private static SKFourByteTag ToFourByteTag(string tag) =>
+        new(
+            tag.Length > 0 ? tag[0] : ' ',
+            tag.Length > 1 ? tag[1] : ' ',
+            tag.Length > 2 ? tag[2] : ' ',
+            tag.Length > 3 ? tag[3] : ' ');
+
+    private static bool TagEquals(SKFourByteTag tag, string value) =>
+        value.Length == 4 && (uint)tag ==
+        (((uint)(byte)value[0] << 24) |
+         ((uint)(byte)value[1] << 16) |
+         ((uint)(byte)value[2] << 8) |
+         (byte)value[3]);
 
     internal static SKTypeface ResolveDefaultTypeface(
         IReadOnlyList<FontInfo> systemFonts,
@@ -490,11 +748,11 @@ public partial class SKTypeface : IDisposable
         return new SKFont(this, size);
     }
 
-    public bool TryGetTableData(uint tag, out byte[] data)
+    public bool TryGetTableData(uint tag, out byte[] tableData)
     {
         if (_isEmpty)
         {
-            data = Array.Empty<byte>();
+            tableData = Array.Empty<byte>();
             return false;
         }
 
@@ -508,11 +766,11 @@ public partial class SKTypeface : IDisposable
 
         if (Font.TryGetTable(new string(characters), out var table))
         {
-            data = table.ToArray();
+            tableData = table.ToArray();
             return true;
         }
 
-        data = Array.Empty<byte>();
+        tableData = Array.Empty<byte>();
         return false;
     }
 
@@ -527,7 +785,7 @@ public partial class SKTypeface : IDisposable
         return OpenStream();
     }
 
-    public void Dispose() { }
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
 
     internal static TtfFont CreateFont(FontInfo font)
     {

@@ -381,7 +381,7 @@ public sealed class SkColorSpaceCompatibilityTests
 
         Assert.All(new[] { fromData, fromArray, fromLength, fromSpan }, value => Assert.True(value.IsSrgb));
 
-        Assert.Equal("data", Assert.Throws<ArgumentNullException>(() => SKColorSpace.CreateIcc((byte[])null!)).ParamName);
+        Assert.Equal("input", Assert.Throws<ArgumentNullException>(() => SKColorSpace.CreateIcc((byte[])null!)).ParamName);
         Assert.Equal("length", Assert.Throws<ArgumentOutOfRangeException>(() => SKColorSpace.CreateIcc(bytes, -1)).ParamName);
         Assert.Equal("length", Assert.Throws<ArgumentOutOfRangeException>(() => SKColorSpace.CreateIcc(bytes, bytes.Length + 1L)).ParamName);
     }

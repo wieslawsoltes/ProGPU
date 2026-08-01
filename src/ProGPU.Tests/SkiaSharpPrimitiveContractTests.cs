@@ -72,6 +72,31 @@ public sealed class SkiaSharpPrimitiveContractTests
     }
 
     [Fact]
+    public void ColorSpanParsingIsAllocationFreeAfterWarmup()
+    {
+        ReadOnlySpan<char> text = "  #7f123456  ";
+        Assert.True(SKColor.TryParse(text, out var expected));
+        Assert.Equal(0x7f123456u, (uint)expected);
+        Assert.Equal(expected, SKColor.Parse(text));
+
+        _ = SKColor.TryParse(text, out _);
+        uint checksum = 0;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 10_000; index++)
+        {
+            if (!SKColor.TryParse(text, out var color))
+            {
+                throw new InvalidOperationException("The fixed test color must parse.");
+            }
+
+            checksum ^= (uint)color;
+        }
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0u, checksum);
+    }
+
+    [Fact]
     public void CyanMatchesAqua()
     {
         Assert.Equal((uint)SKColors.Aqua, (uint)SKColors.Cyan);

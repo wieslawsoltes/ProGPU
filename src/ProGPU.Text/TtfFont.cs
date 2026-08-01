@@ -2537,7 +2537,7 @@ public partial class TtfFont
         _colrOffset = colr.offset;
 
         ushort version = ReadUShort(_colrOffset);
-        if (version == 0)
+        if (version <= 1)
         {
             _numBaseGlyphRecords = ReadUShort(_colrOffset + 2);
             _baseGlyphRecordsOffset = _colrOffset + ReadUInt(_colrOffset + 4);
@@ -2552,7 +2552,7 @@ public partial class TtfFont
         _cpalOffset = cpal.offset;
 
         ushort version = ReadUShort(_cpalOffset);
-        if (version == 0)
+        if (version <= 1)
         {
             _numPaletteEntries = ReadUShort(_cpalOffset + 2);
             _numPalettes = ReadUShort(_cpalOffset + 4);

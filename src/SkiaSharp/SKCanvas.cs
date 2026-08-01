@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // The shim internally composes its official legacy SKPath contract.
+
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -9,7 +11,7 @@ using Silk.NET.WebGPU;
 
 namespace SkiaSharp;
 
-public class SKCanvas : IDisposable
+public class SKCanvas : SKObject
 {
     private readonly record struct TextPathRasterizationInfo(
         float FontSize,
@@ -142,7 +144,12 @@ public class SKCanvas : IDisposable
         float Opacity,
         int PushedScopesCount,
         ClipState ClipState)> _stateStack = new();
-    private readonly Stack<PushKind> _pushedScopes = new();
+    private readonly record struct PushedScope(
+        PushKind Kind,
+        DrawingContext Context,
+        int CommandIndex);
+
+    private readonly Stack<PushedScope> _pushedScopes = new();
     private readonly Stack<RenderCommand> _activeClipPushes = new();
     private readonly Stack<LayerFrame> _layerStack = new();
 
@@ -234,6 +241,7 @@ public class SKCanvas : IDisposable
         WgpuContext? gpuContext,
         Action? flush,
         bool isPictureRecording)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _context = context;
         _width = width;
@@ -358,10 +366,10 @@ public class SKCanvas : IDisposable
         return restoreCount;
     }
 
-    public int SaveLayer(SKRect bounds, SKPaint? paint)
+    public int SaveLayer(SKRect limit, SKPaint? paint)
     {
         return SaveLayerCore(
-            bounds,
+            limit,
             paint,
             backdrop: null,
             SKCanvasSaveLayerRecFlags.None);
@@ -435,19 +443,25 @@ public class SKCanvas : IDisposable
             // Pop any clips or layers pushed in this save frame
             while (_pushedScopes.Count > state.PushedScopesCount)
             {
-                var kind = _pushedScopes.Pop();
-                switch (kind)
+                var scope = _pushedScopes.Pop();
+                if (TryRemoveEmptyClipScope(scope))
+                {
+                    PopActiveClipScope();
+                    continue;
+                }
+
+                switch (scope.Kind)
                 {
                     case PushKind.RectClip:
-                        _context.PopClip();
+                        scope.Context.PopClip();
                         PopActiveClipScope();
                         break;
                     case PushKind.GeometryClip:
-                        _context.PopGeometryClip();
+                        scope.Context.PopGeometryClip();
                         PopActiveClipScope();
                         break;
                     case PushKind.Opacity:
-                        _context.PopOpacity();
+                        scope.Context.PopOpacity();
                         break;
                 }
             }
@@ -2504,6 +2518,7 @@ public class SKCanvas : IDisposable
 
     private void PushRectClipScope(SKRect rect, Matrix4x4 transform)
     {
+        int commandIndex = _context.Commands.Count;
         var command = new RenderCommand
         {
             Type = RenderCommandType.PushClip,
@@ -2511,12 +2526,13 @@ public class SKCanvas : IDisposable
             Transform = transform
         };
         _context.Commands.Add(command);
-        _pushedScopes.Push(PushKind.RectClip);
+        _pushedScopes.Push(new PushedScope(PushKind.RectClip, _context, commandIndex));
         _activeClipPushes.Push(command);
     }
 
     private void PushGeometryClipScope(PathGeometry geometry, Matrix4x4 transform)
     {
+        int commandIndex = _context.Commands.Count;
         var command = new RenderCommand
         {
             Type = RenderCommandType.PushGeometryClip,
@@ -2524,8 +2540,21 @@ public class SKCanvas : IDisposable
             Transform = transform
         };
         _context.Commands.Add(command);
-        _pushedScopes.Push(PushKind.GeometryClip);
+        _pushedScopes.Push(new PushedScope(PushKind.GeometryClip, _context, commandIndex));
         _activeClipPushes.Push(command);
+    }
+
+    private static bool TryRemoveEmptyClipScope(PushedScope scope)
+    {
+        if (scope.Kind is not (PushKind.RectClip or PushKind.GeometryClip) ||
+            scope.CommandIndex < 0 ||
+            scope.Context.Commands.Count != scope.CommandIndex + 1)
+        {
+            return false;
+        }
+
+        scope.Context.Commands.RemoveAt(scope.CommandIndex);
+        return true;
     }
 
     private void PopActiveClipScope()
@@ -2818,11 +2847,11 @@ public class SKCanvas : IDisposable
         }
     }
 
-    public void Scale(float scale)
+    public void Scale(float s)
     {
-        if (scale != 1f)
+        if (s != 1f)
         {
-            Scale(scale, scale);
+            Scale(s, s);
         }
     }
 
@@ -2930,14 +2959,14 @@ public class SKCanvas : IDisposable
         _currentMatrix = SKMatrix.Identity;
     }
 
-    public void Concat(in SKMatrix matrix)
+    public void Concat(in SKMatrix m)
     {
-        _currentMatrix = SKMatrix.Concat(_currentMatrix, matrix);
+        _currentMatrix = SKMatrix.Concat(_currentMatrix, m);
     }
 
-    public void Concat(in SKMatrix44 matrix)
+    public void Concat(in SKMatrix44 m)
     {
-        var matrix2D = SKMatrix.FromMatrix4x4(matrix.ToMatrix4x4());
+        var matrix2D = SKMatrix.FromMatrix4x4(m.ToMatrix4x4());
         _currentMatrix = SKMatrix.Concat(_currentMatrix, matrix2D);
     }
 
@@ -2998,7 +3027,7 @@ public class SKCanvas : IDisposable
         return QuickReject(path.Bounds);
     }
 
-    public void ClipRect(SKRect rect, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = true)
+    public void ClipRect(SKRect rect, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = false)
     {
         var transform = _currentMatrix.ToMatrix4x4();
         var isDeviceRect = IsAxisAligned2DTransform(transform);
@@ -3015,7 +3044,7 @@ public class SKCanvas : IDisposable
         PushRectClipScope(rect, transform);
     }
 
-    public void ClipPath(SKPath? path, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = true)
+    public void ClipPath(SKPath? path, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = false)
     {
         ArgumentNullException.ThrowIfNull(path);
         GetPathDeviceBounds(path, out var deviceBounds, out var isDeviceRect);
@@ -3268,8 +3297,8 @@ public class SKCanvas : IDisposable
         DrawPicture(picture, in matrix, paint);
     }
 
-    public void DrawPicture(SKPicture picture, SKPoint point, SKPaint? paint = null) =>
-        DrawPicture(picture, point.X, point.Y, paint);
+    public void DrawPicture(SKPicture picture, SKPoint p, SKPaint? paint = null) =>
+        DrawPicture(picture, p.X, p.Y, paint);
 
     public void DrawPicture(SKPicture picture, in SKMatrix matrix, SKPaint? paint = null)
     {
@@ -3289,8 +3318,8 @@ public class SKCanvas : IDisposable
     public void DrawDrawable(SKDrawable drawable, in SKMatrix matrix) =>
         drawable.Draw(this, in matrix);
 
-    public void DrawDrawable(SKDrawable drawable, SKPoint point) =>
-        drawable.Draw(this, point.X, point.Y);
+    public void DrawDrawable(SKDrawable drawable, SKPoint p) =>
+        drawable.Draw(this, p.X, p.Y);
 
     public void DrawDrawable(SKDrawable drawable, float x, float y) =>
         drawable.Draw(this, x, y);
@@ -3303,8 +3332,8 @@ public class SKCanvas : IDisposable
         DrawPath(path, paint);
     }
 
-    public void DrawLine(SKPoint point0, SKPoint point1, SKPaint paint) =>
-        DrawLine(point0.X, point0.Y, point1.X, point1.Y, paint);
+    public void DrawLine(SKPoint p0, SKPoint p1, SKPaint paint) =>
+        DrawLine(p0.X, p0.Y, p1.X, p1.Y, paint);
 
     public void DrawArc(
         SKRect oval,
@@ -3446,7 +3475,7 @@ public class SKCanvas : IDisposable
         DrawPath(path, strokePaint);
     }
 
-    public void DrawPoint(SKPoint point, SKPaint paint) => DrawPoint(point.X, point.Y, paint);
+    public void DrawPoint(SKPoint p, SKPaint paint) => DrawPoint(p.X, p.Y, paint);
 
     public void DrawPoint(float x, float y, SKPaint paint)
     {
@@ -3456,7 +3485,7 @@ public class SKCanvas : IDisposable
         DrawPointsCore(SKPointMode.Points, point, paint);
     }
 
-    public void DrawPoint(SKPoint point, SKColor color) => DrawPoint(point.X, point.Y, color);
+    public void DrawPoint(SKPoint p, SKColor color) => DrawPoint(p.X, p.Y, color);
 
     public void DrawPoint(float x, float y, SKColor color)
     {
@@ -3550,11 +3579,11 @@ public class SKCanvas : IDisposable
         DrawRoundRect(new SKRoundRect(rect, rx, ry), paint);
     }
 
-    public void DrawRoundRect(float x, float y, float width, float height, float rx, float ry, SKPaint paint) =>
-        DrawRoundRect(new SKRect(x, y, x + width, y + height), rx, ry, paint);
+    public void DrawRoundRect(float x, float y, float w, float h, float rx, float ry, SKPaint paint) =>
+        DrawRoundRect(new SKRect(x, y, x + w, y + h), rx, ry, paint);
 
-    public void DrawRoundRect(SKRect rect, SKSize radius, SKPaint paint) =>
-        DrawRoundRect(rect, radius.Width, radius.Height, paint);
+    public void DrawRoundRect(SKRect rect, SKSize r, SKPaint paint) =>
+        DrawRoundRect(rect, r.Width, r.Height, paint);
 
     private static bool TryGetUniformRadii(SKRoundRect rect, out float radiusX, out float radiusY)
     {
@@ -3611,8 +3640,8 @@ public class SKCanvas : IDisposable
     public void DrawOval(float cx, float cy, float rx, float ry, SKPaint paint) =>
         DrawOval(new SKRect(cx - rx, cy - ry, cx + rx, cy + ry), paint);
 
-    public void DrawOval(SKPoint center, SKSize radius, SKPaint paint) =>
-        DrawOval(center.X, center.Y, radius.Width, radius.Height, paint);
+    public void DrawOval(SKPoint c, SKSize r, SKPaint paint) =>
+        DrawOval(c.X, c.Y, r.Width, r.Height, paint);
 
     public void DrawCircle(float cx, float cy, float radius, SKPaint paint)
     {
@@ -3650,8 +3679,8 @@ public class SKCanvas : IDisposable
         }
     }
 
-    public void DrawCircle(SKPoint center, float radius, SKPaint paint) =>
-        DrawCircle(center.X, center.Y, radius, paint);
+    public void DrawCircle(SKPoint c, float radius, SKPaint paint) =>
+        DrawCircle(c.X, c.Y, radius, paint);
 
     public void DrawRoundRectDifference(SKRoundRect outer, SKRoundRect inner, SKPaint paint)
     {
@@ -5032,7 +5061,7 @@ public class SKCanvas : IDisposable
 
     public void DrawImage(
         SKImage image,
-        SKRect destination,
+        SKRect dest,
         SKSamplingOptions sampling,
         SKPaint? paint = null)
     {
@@ -5040,7 +5069,7 @@ public class SKCanvas : IDisposable
         DrawImage(
             image,
             new SKRect(0f, 0f, image.Width, image.Height),
-            destination,
+            dest,
             sampling,
             paint);
     }
@@ -5068,20 +5097,20 @@ public class SKCanvas : IDisposable
     }
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
-    public void DrawImage(SKImage image, SKPoint point, SKPaint? paint = null) =>
-        DrawImage(image, point.X, point.Y, paint);
+    public void DrawImage(SKImage image, SKPoint p, SKPaint? paint = null) =>
+        DrawImage(image, p.X, p.Y, paint);
 
-    public void DrawImage(SKImage image, SKPoint point, SKSamplingOptions sampling, SKPaint? paint = null) =>
-        DrawImage(image, point.X, point.Y, sampling, paint);
+    public void DrawImage(SKImage image, SKPoint p, SKSamplingOptions sampling, SKPaint? paint = null) =>
+        DrawImage(image, p.X, p.Y, sampling, paint);
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
-    public void DrawImage(SKImage image, SKRect destination, SKPaint? paint = null)
+    public void DrawImage(SKImage image, SKRect dest, SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         DrawImage(
             image,
             new SKRect(0f, 0f, image.Width, image.Height),
-            destination,
+            dest,
             paint);
     }
 
@@ -5221,33 +5250,33 @@ public class SKCanvas : IDisposable
     public void DrawBitmapNinePatch(
         SKBitmap bitmap,
         SKRectI center,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawBitmapNinePatch(bitmap, center, destination, SKFilterMode.Nearest, paint);
+        DrawBitmapNinePatch(bitmap, center, dst, SKFilterMode.Nearest, paint);
 
     public void DrawBitmapNinePatch(
         SKBitmap bitmap,
         SKRectI center,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode,
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
-        DrawImageNinePatch(image, center, destination, filterMode, paint);
+        DrawImageNinePatch(image, center, dst, filterMode, paint);
     }
 
     public void DrawImageNinePatch(
         SKImage image,
         SKRectI center,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawImageNinePatch(image, center, destination, SKFilterMode.Nearest, paint);
+        DrawImageNinePatch(image, center, dst, SKFilterMode.Nearest, paint);
 
     public void DrawImageNinePatch(
         SKImage image,
         SKRectI center,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode = SKFilterMode.Nearest,
         SKPaint? paint = null)
     {
@@ -5266,88 +5295,88 @@ public class SKCanvas : IDisposable
                 image.Width,
                 image.Height,
                 center,
-                destination,
+                dst,
                 out var patches))
         {
             return;
         }
 
-        DrawImagePatchesCore(image, patches, destination, MapFilterMode(filterMode), paint);
+        DrawImagePatchesCore(image, patches, dst, MapFilterMode(filterMode), paint);
     }
 
     public void DrawBitmapLattice(
         SKBitmap bitmap,
         int[] xDivs,
         int[] yDivs,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawBitmapLattice(bitmap, xDivs, yDivs, destination, SKFilterMode.Nearest, paint);
+        DrawBitmapLattice(bitmap, xDivs, yDivs, dst, SKFilterMode.Nearest, paint);
 
     public void DrawBitmapLattice(
         SKBitmap bitmap,
         int[] xDivs,
         int[] yDivs,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode,
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
-        DrawImageLattice(image, xDivs, yDivs, destination, filterMode, paint);
+        DrawImageLattice(image, xDivs, yDivs, dst, filterMode, paint);
     }
 
     public void DrawImageLattice(
         SKImage image,
         int[] xDivs,
         int[] yDivs,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawImageLattice(image, xDivs, yDivs, destination, SKFilterMode.Nearest, paint);
+        DrawImageLattice(image, xDivs, yDivs, dst, SKFilterMode.Nearest, paint);
 
     public void DrawImageLattice(
         SKImage image,
         int[] xDivs,
         int[] yDivs,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode,
         SKPaint? paint = null) =>
         DrawImageLattice(
             image,
             new SKLattice { XDivs = xDivs, YDivs = yDivs },
-            destination,
+            dst,
             filterMode,
             paint);
 
     public void DrawBitmapLattice(
         SKBitmap bitmap,
         SKLattice lattice,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawBitmapLattice(bitmap, lattice, destination, SKFilterMode.Nearest, paint);
+        DrawBitmapLattice(bitmap, lattice, dst, SKFilterMode.Nearest, paint);
 
     public void DrawBitmapLattice(
         SKBitmap bitmap,
         SKLattice lattice,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode,
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
-        DrawImageLattice(image, lattice, destination, filterMode, paint);
+        DrawImageLattice(image, lattice, dst, filterMode, paint);
     }
 
     public void DrawImageLattice(
         SKImage image,
         SKLattice lattice,
-        SKRect destination,
+        SKRect dst,
         SKPaint? paint = null) =>
-        DrawImageLattice(image, lattice, destination, SKFilterMode.Nearest, paint);
+        DrawImageLattice(image, lattice, dst, SKFilterMode.Nearest, paint);
 
     public void DrawImageLattice(
         SKImage image,
         SKLattice lattice,
-        SKRect destination,
+        SKRect dst,
         SKFilterMode filterMode,
         SKPaint? paint = null)
     {
@@ -5365,19 +5394,19 @@ public class SKCanvas : IDisposable
                 image.Width,
                 image.Height,
                 lattice,
-                destination,
+                dst,
                 paint?.ColorFilter,
                 out var patches))
         {
             return;
         }
 
-        DrawImagePatchesCore(image, patches, destination, MapFilterMode(filterMode), paint);
+        DrawImagePatchesCore(image, patches, dst, MapFilterMode(filterMode), paint);
     }
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
-    public void DrawBitmap(SKBitmap bitmap, SKPoint point, SKPaint? paint = null) =>
-        DrawBitmap(bitmap, point.X, point.Y, paint);
+    public void DrawBitmap(SKBitmap bitmap, SKPoint p, SKPaint? paint = null) =>
+        DrawBitmap(bitmap, p.X, p.Y, paint);
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
     public void DrawBitmap(SKBitmap bitmap, float x, float y, SKPaint? paint = null)
@@ -5393,36 +5422,36 @@ public class SKCanvas : IDisposable
     }
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
-    public void DrawBitmap(SKBitmap bitmap, SKRect destination, SKPaint? paint = null)
+    public void DrawBitmap(SKBitmap bitmap, SKRect dest, SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
         DrawImage(
             image,
-            destination,
+            dest,
             paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default,
             paint);
     }
 
     [Obsolete("Use the overload with SKSamplingOptions instead.")]
-    public void DrawBitmap(SKBitmap bitmap, SKRect source, SKRect destination, SKPaint? paint = null)
+    public void DrawBitmap(SKBitmap bitmap, SKRect source, SKRect dest, SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
         DrawImage(
             image,
             source,
-            destination,
+            dest,
             paint?.GetLegacyFilterQualitySampling() ?? SKSamplingOptions.Default,
             paint);
     }
 
     public void DrawBitmap(
         SKBitmap bitmap,
-        SKPoint point,
+        SKPoint p,
         SKSamplingOptions sampling,
         SKPaint? paint = null) =>
-        DrawBitmap(bitmap, point.X, point.Y, sampling, paint);
+        DrawBitmap(bitmap, p.X, p.Y, sampling, paint);
 
     public void DrawBitmap(
         SKBitmap bitmap,
@@ -5438,29 +5467,29 @@ public class SKCanvas : IDisposable
 
     public void DrawBitmap(
         SKBitmap bitmap,
-        SKRect destination,
+        SKRect dest,
         SKSamplingOptions sampling,
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
-        DrawImage(image, destination, sampling, paint);
+        DrawImage(image, dest, sampling, paint);
     }
 
     public void DrawBitmap(
         SKBitmap bitmap,
         SKRect source,
-        SKRect destination,
+        SKRect dest,
         SKSamplingOptions sampling,
         SKPaint? paint = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var image = SKImage.FromBitmap(bitmap);
-        DrawImage(image, source, destination, sampling, paint);
+        DrawImage(image, source, dest, sampling, paint);
     }
 
-    public void DrawSurface(SKSurface surface, SKPoint point, SKPaint? paint = null) =>
-        DrawSurface(surface, point.X, point.Y, paint);
+    public void DrawSurface(SKSurface surface, SKPoint p, SKPaint? paint = null) =>
+        DrawSurface(surface, p.X, p.Y, paint);
 
     public void DrawSurface(SKSurface surface, float x, float y, SKPaint? paint = null)
     {
@@ -5470,10 +5499,10 @@ public class SKCanvas : IDisposable
 
     public void DrawSurface(
         SKSurface surface,
-        SKPoint point,
+        SKPoint p,
         SKSamplingOptions sampling,
         SKPaint? paint = null) =>
-        DrawSurface(surface, point.X, point.Y, sampling, paint);
+        DrawSurface(surface, p.X, p.Y, sampling, paint);
 
     public void DrawSurface(
         SKSurface surface,
@@ -5494,11 +5523,20 @@ public class SKCanvas : IDisposable
             : currentContext != null && !currentContext.IsDisposed
                 ? currentContext
                 : image.Texture.Context;
-        var source = image.GetTextureForContext(targetContext);
+        var source = image.GetTextureRegionForContext(
+            targetContext,
+            out var sourceX,
+            out var sourceY);
 
+        var isWholeSource = sourceX == 0 &&
+            sourceY == 0 &&
+            source.Width == (uint)image.Width &&
+            source.Height == (uint)image.Height;
         var mipLevelCount = generateMipmaps
-            ? CalculateMipLevelCount(source.Width, source.Height)
-            : source.MipLevelCount;
+            ? CalculateMipLevelCount((uint)image.Width, (uint)image.Height)
+            : isWholeSource
+                ? source.MipLevelCount
+                : 1u;
         var usage = TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc;
         if (generateMipmaps)
         {
@@ -5507,8 +5545,8 @@ public class SKCanvas : IDisposable
 
         var retainedTexture = new GpuTexture(
             targetContext,
-            source.Width,
-            source.Height,
+            checked((uint)image.Width),
+            checked((uint)image.Height),
             source.Format,
             usage,
             "SKCanvas DrawImage Retained Source Texture",
@@ -5518,14 +5556,24 @@ public class SKCanvas : IDisposable
         {
             s_textureColorSpaces.Add(retainedTexture, new TextureColorSpace(imageColorSpace));
         }
-        if (retainedTexture.MipLevelCount == source.MipLevelCount)
+        if (isWholeSource && retainedTexture.MipLevelCount == source.MipLevelCount)
         {
-        retainedTexture.CopyFrom(source);
+            retainedTexture.CopyFrom(source);
         }
         else
         {
-            retainedTexture.CopyBaseLevelFrom(source);
-            retainedTexture.GenerateMipmaps2DLinear();
+            retainedTexture.CopyBaseLevelRegionFrom(
+                source,
+                sourceX,
+                sourceY,
+                0,
+                0,
+                checked((uint)image.Width),
+                checked((uint)image.Height));
+            if (generateMipmaps)
+            {
+                retainedTexture.GenerateMipmaps2DLinear();
+            }
         }
         _context.RetainResource(retainedTexture);
         return retainedTexture;
@@ -5701,9 +5749,9 @@ public class SKCanvas : IDisposable
     private static float GetFiniteFontSkewX(SKFont font) =>
         float.IsFinite(font.SkewX) ? font.SkewX : 0f;
 
-    public void DrawText(SKTextBlob textBlob, float x, float y, SKPaint paint)
+    public void DrawText(SKTextBlob text, float x, float y, SKPaint paint)
     {
-        DrawTextBlob(textBlob, x, y, paint);
+        DrawTextBlob(text, x, y, paint);
     }
 
     public void DrawText(
@@ -5758,19 +5806,19 @@ public class SKCanvas : IDisposable
     public void DrawText(string text, float x, float y, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), paint.GetLegacyFont(), paint);
 
-    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.")]
-    public void DrawText(string text, SKPoint point, SKFont font, SKPaint paint) =>
-        DrawText(text, point, paint.GetLegacyTextAlign(), font, paint);
+    [Obsolete("Use DrawText(string text, SKPoint p, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
+    public void DrawText(string text, SKPoint p, SKFont font, SKPaint paint) =>
+        DrawText(text, p, paint.GetLegacyTextAlign(), font, paint);
 
     public void DrawText(
         string text,
-        SKPoint point,
+        SKPoint p,
         SKTextAlign textAlign,
         SKFont font,
         SKPaint paint) =>
-        DrawText(text, point.X, point.Y, textAlign, font, paint);
+        DrawText(text, p.X, p.Y, textAlign, font, paint);
 
-    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.")]
+    [Obsolete("Use DrawText(string text, float x, float y, SKTextAlign textAlign, SKFont font, SKPaint paint) instead.", true)]
     public void DrawText(string text, float x, float y, SKFont font, SKPaint paint) =>
         DrawText(text, x, y, paint.GetLegacyTextAlign(), font, paint);
 
@@ -5918,8 +5966,14 @@ public class SKCanvas : IDisposable
         }
     }
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
+        if (!disposing)
+        {
+            base.Dispose(disposing);
+            return;
+        }
+
         try
         {
             Flush();
@@ -5931,6 +5985,11 @@ public class SKCanvas : IDisposable
             ReleaseLayerTexturesAfterFlush();
             DisposeFilterScratchTexturePool();
             _surface = null;
+            base.Dispose(disposing);
         }
+    }
+
+    protected override void DisposeNative()
+    {
     }
 }

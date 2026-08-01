@@ -524,7 +524,16 @@ public sealed class AppWindowTests
         try
         {
             window = AppWindow.Create();
-            _ = window.Id;
+            ulong warmup = 0;
+            for (int index = 0; index < 1_000; index++)
+            {
+                warmup += window.Id.Value;
+                warmup += (ulong)window.Position.X;
+                warmup += (ulong)window.Size.Width;
+                warmup += (ulong)window.Presenter.Kind;
+            }
+
+            Assert.NotEqual(0UL, warmup);
             long before = GC.GetAllocatedBytesForCurrentThread();
             ulong sum = 0;
             for (int index = 0; index < 100_000; index++)
