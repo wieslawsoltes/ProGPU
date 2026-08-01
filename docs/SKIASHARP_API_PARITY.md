@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,408 ProGPU
-entries, 3,173 exact matches, 1,049 missing entries, and 1,235 ProGPU-only
-entries. The missing surface comprises 70 type identities, 20 fields, 22
-interfaces, 621 methods, 131 properties, and 185 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,412 ProGPU
+entries, 3,177 exact matches, 1,045 missing entries, and 1,235 ProGPU-only
+entries. The missing surface comprises 69 type identities, 20 fields, 22
+interfaces, 620 methods, 129 properties, and 185 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -162,3 +162,20 @@ The design follows the public
 [SkiaSharp swizzle contract](https://learn.microsoft.com/dotnet/api/skiasharp.skswizzle)
 and Skia's documented
 [RGBA/BGRA transform](https://api.skia.org/SkSwizzle_8h.html).
+
+### Native compatibility version
+
+`SkiaSharpVersion` now matches all four entries in its 4.151.0 metadata
+contract. The clean-room shim reports the observed `151.0` native and minimum
+compatibility levels and succeeds in both throwing and non-throwing check modes
+because ProGPU supplies the complete implementation without loading a separate
+native Skia binary. Both properties share one immutable process-wide `Version`,
+so repeated queries are allocation-free fixed `O(1)` operations.
+
+Independent tests cover exact version values, compatibility modes, stable
+identity, and one million allocation-free queries. Three alternating Apple M3
+Pro Release process pairs produced exact semantic checksums; ProGPU measured
+`0.066` of native time and `0` versus `32` managed bytes per operation. The
+clean-room behavior follows the public
+[SkiaSharpVersion contract](https://learn.microsoft.com/dotnet/api/skiasharp.skiasharpversion)
+and retains no native-library discovery or loader side effects.

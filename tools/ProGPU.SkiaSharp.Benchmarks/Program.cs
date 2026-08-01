@@ -72,6 +72,7 @@ internal static class ProgramEntry
             new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
             new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
+            new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
             new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
@@ -402,6 +403,25 @@ internal static class ProgramEntry
                 (uint)text[1] << 16 |
                 (uint)text[2] << 8 |
                 text[3]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunVersionCompatibility(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var native = SkiaSharpVersion.Native;
+            var minimum = SkiaSharpVersion.NativeMinimum;
+            checksum = Mix(
+                checksum,
+                (uint)native.Major << 24 |
+                (uint)native.Minor << 16 |
+                (uint)minimum.Major << 8 |
+                (uint)minimum.Minor |
+                (SkiaSharpVersion.CheckNativeLibraryCompatible((index & 1) != 0) ? 1u : 0u));
         }
 
         return checksum;
