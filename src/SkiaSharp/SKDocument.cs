@@ -483,8 +483,12 @@ public class SKDynamicMemoryWStream : SKWStream
     }
 }
 
-public static class SKSvgCanvas
+public class SKSvgCanvas
 {
+    private SKSvgCanvas()
+    {
+    }
+
     public static SKCanvas Create(SKRect bounds, SKWStream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);

@@ -53,20 +53,20 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,176 ProGPU
-entries, 4,157 exact matches, 65 missing entries, and 1,019 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,201 ProGPU
+entries, 4,183 exact matches, 39 missing entries, and 1,018 ProGPU-only
 entries. This is a progress checkpoint, not a compatibility claim, and the
 matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
 the official parity claim.
 
-The remaining 65 entries are concentrated in nullable/obsolete metadata;
-`SKMaskFilter`; N-way, no-draw, and overdraw canvases; WebP animation and frame
-contracts; raw text-run buffers; SVG canvas; and a small set of related value
-and helper contracts. The continuation branch regenerated the original
-97-entry baseline from the pinned official package at `v0.1.0-preview.34`
-(`39b53dbb`) before implementation; the unresolved 65 entries remain explicit,
+The remaining 39 entries are concentrated in nullable/obsolete metadata;
+`SKMaskFilter`; N-way, no-draw, and overdraw canvases; raw text-run buffers;
+and a small set of related value and helper contracts. The continuation branch
+regenerated the original 97-entry baseline from the pinned official package at
+`v0.1.0-preview.34`
+(`39b53dbb`) before implementation; the unresolved 39 entries remain explicit,
 reviewable work for its draft PR. GPU-visible
 families require original retained WebGPU implementations and
 quality/performance tests; unsupported platform codecs must fail explicitly
@@ -94,6 +94,24 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Platform codec and managed stream contracts
+
+The WebP frame value, static encoder surface, SVG canvas type shape, managed
+stream fork/duplicate declarations, and memory-stream native-disposal hook now
+match the pinned public metadata. WebP frames borrow pixmaps directly; the
+bitmap constructor reuses `PeekPixels`, while the image constructor performs
+the explicit image-to-raster readback requested by that API and retains its
+pixel owner through the pixmap. Static and animated WebP encoding currently
+return `null` or `false` without writing because the reviewed dependency-free
+platform layer does not yet expose a WebP encoder on every supported target.
+This is an explicit capability failure and never emits PNG/JPEG bytes under a
+WebP contract.
+
+Focused tests cover frame layout and mutation, borrowed pixels, zero-byte
+failure behavior, and the non-static/non-constructible SVG helper shape. The
+exact metadata gate advances from 4,157 to 4,183 matches, reduces missing
+entries from 65 to 39, and removes one accidental ProGPU-only metadata entry.
 
 ### Explicit managed ownership and disposal declarations
 

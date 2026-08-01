@@ -3167,6 +3167,10 @@ public class SKManagedStream : SKAbstractManagedStream
 
     protected internal override IntPtr OnCreateNew() => IntPtr.Zero;
 
+    protected internal override IntPtr OnFork() => OnCreateNew();
+
+    protected internal override IntPtr OnDuplicate() => OnCreateNew();
+
     protected override void DisposeManaged()
     {
         var stream = _stream;
