@@ -74,6 +74,72 @@ public sealed class AppWindowTests
     }
 
     [Fact]
+    public void ModalOwnerStaysDisabledUntilItsLastModalChildIsReleased()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        AppWindow? owner = null;
+        AppWindow? first = null;
+        AppWindow? second = null;
+        try
+        {
+            owner = AppWindow.Create();
+            OverlappedPresenter firstPresenter =
+                OverlappedPresenter.CreateForDialog();
+            firstPresenter.IsModal = true;
+            OverlappedPresenter secondPresenter =
+                OverlappedPresenter.CreateForDialog();
+            secondPresenter.IsModal = true;
+            first = AppWindow.Create(firstPresenter, owner.Id);
+            second = AppWindow.Create(secondPresenter, owner.Id);
+
+            Assert.False(owner.XamlWindow.IsEnabled);
+            owner.SetPresenter(CompactOverlayPresenter.Create());
+            Assert.False(owner.XamlWindow.IsEnabled);
+
+            first.SetPresenter(CompactOverlayPresenter.Create());
+            Assert.False(owner.XamlWindow.IsEnabled);
+
+            second.Destroy();
+            second = null;
+            Assert.True(owner.XamlWindow.IsEnabled);
+        }
+        finally
+        {
+            first?.Destroy();
+            second?.Destroy();
+            owner?.Destroy();
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
+    public void CompactOverlayLeavesFullscreenBeforeApplyingItsState()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        AppWindow? window = null;
+        try
+        {
+            window = AppWindow.Create(FullScreenPresenter.Create());
+            Assert.Equal(
+                Silk.NET.Windowing.WindowState.Fullscreen,
+                window.XamlWindow.NativeWindowState);
+
+            window.SetPresenter(CompactOverlayPresenter.Create());
+
+            Assert.Equal(
+                Silk.NET.Windowing.WindowState.Normal,
+                window.XamlWindow.NativeWindowState);
+        }
+        finally
+        {
+            window?.Destroy();
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
     public void AppWindowUsesTypedIconAndZOrderProvider()
     {
         DispatcherQueueController controller =

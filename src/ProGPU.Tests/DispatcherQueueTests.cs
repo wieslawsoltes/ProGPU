@@ -83,6 +83,56 @@ public sealed class DispatcherQueueTests
     }
 
     [Fact]
+    public void QuitOptionsDistinguishLocalGlobalAndContinuedNestedLoops()
+    {
+        DispatcherQueueController controller =
+            DispatcherQueueController.CreateOnCurrentThread();
+        try
+        {
+            DispatcherQueue queue = controller.DispatcherQueue;
+            var observed = new List<string>();
+
+            Assert.True(queue.TryEnqueue(() =>
+            {
+                var localDeferral = new DispatcherExitDeferral();
+                localDeferral.Complete();
+                Assert.True(queue.TryEnqueue(queue.EnqueueQuit));
+                queue.RunEventLoop(
+                    DispatcherRunOptions.QuitOnlyLocalLoop,
+                    localDeferral);
+                observed.Add("local-returned");
+
+                var continuedDeferral = new DispatcherExitDeferral();
+                continuedDeferral.Complete();
+                Assert.True(queue.TryEnqueue(queue.EnqueueQuit));
+                Assert.True(queue.TryEnqueue(queue.EnqueueEventLoopExit));
+                queue.RunEventLoop(
+                    DispatcherRunOptions.ContinueOnQuit,
+                    continuedDeferral);
+                observed.Add("continued-returned");
+
+                var globalDeferral = new DispatcherExitDeferral();
+                globalDeferral.Complete();
+                Assert.True(queue.TryEnqueue(queue.EnqueueQuit));
+                queue.RunEventLoop(
+                    DispatcherRunOptions.None,
+                    globalDeferral);
+                observed.Add("global-returned");
+            }));
+
+            queue.RunEventLoop();
+
+            Assert.Equal(
+                ["local-returned", "continued-returned", "global-returned"],
+                observed);
+        }
+        finally
+        {
+            controller.ShutdownQueue();
+        }
+    }
+
+    [Fact]
     public void ShutdownUsesDocumentedOrderAndDrainsDeferrals()
     {
         DispatcherQueueController controller =

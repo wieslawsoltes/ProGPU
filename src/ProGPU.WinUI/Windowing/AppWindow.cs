@@ -75,6 +75,7 @@ public sealed class AppWindow
     private DispatcherQueue _dispatcherQueue;
     private PointInt32 _position;
     private AppWindow? _disabledModalOwner;
+    private int _modalChildCount;
     private bool _destroyed;
     private bool _isVisible;
     private bool _showOnce;
@@ -448,16 +449,15 @@ public sealed class AppWindow
                 break;
             case CompactOverlayPresenter:
                 ApplyModalOwner(isModal: false);
+                _window.NativeWindowState =
+                    Silk.NET.Windowing.WindowState.Normal;
                 _window.Decorations = NativeWindowDecorations.BorderOnly;
                 _window.TopMost = true;
                 break;
             case FullScreenPresenter:
                 ApplyModalOwner(isModal: false);
-                if (_window.SilkWindow is { } fullScreenWindow)
-                {
-                    fullScreenWindow.WindowState =
-                        Silk.NET.Windowing.WindowState.Fullscreen;
-                }
+                _window.NativeWindowState =
+                    Silk.NET.Windowing.WindowState.Fullscreen;
                 break;
         }
     }
@@ -465,9 +465,7 @@ public sealed class AppWindow
     private void ApplyOverlappedState(
         OverlappedPresenterState state)
     {
-        if (_window.SilkWindow is not { } silkWindow)
-            return;
-        silkWindow.WindowState = state switch
+        _window.NativeWindowState = state switch
         {
             OverlappedPresenterState.Maximized =>
                 Silk.NET.Windowing.WindowState.Maximized,
@@ -529,21 +527,37 @@ public sealed class AppWindow
 
     private void ApplyModalOwner(bool isModal)
     {
-        if (_disabledModalOwner is not null)
+        _window.IsEnabled = _modalChildCount == 0;
+        AppWindow? owner = null;
+        if (isModal && OwnerWindowId.Value != 0)
         {
-            _disabledModalOwner.XamlWindow.IsEnabled = true;
-            _disabledModalOwner = null;
+            AppWindow? candidate = GetFromWindowId(OwnerWindowId);
+            if (candidate is not null && !ReferenceEquals(candidate, this))
+                owner = candidate;
         }
 
-        _window.IsEnabled = true;
-        if (!isModal || OwnerWindowId.Value == 0)
+        if (ReferenceEquals(owner, _disabledModalOwner))
             return;
 
-        AppWindow? owner = GetFromWindowId(OwnerWindowId);
-        if (owner is null || ReferenceEquals(owner, this))
-            return;
-        owner.XamlWindow.IsEnabled = false;
+        _disabledModalOwner?.ReleaseModalChild();
         _disabledModalOwner = owner;
+        owner?.AddModalChild();
+    }
+
+    private void AddModalChild()
+    {
+        _modalChildCount = checked(_modalChildCount + 1);
+        _window.IsEnabled = false;
+    }
+
+    private void ReleaseModalChild()
+    {
+        if (_modalChildCount == 0)
+            return;
+
+        _modalChildCount--;
+        if (_modalChildCount == 0)
+            _window.IsEnabled = true;
     }
 
     private void DestroyCore(bool canCancel)

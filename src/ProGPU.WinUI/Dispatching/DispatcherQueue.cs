@@ -87,6 +87,7 @@ public sealed class DispatcherQueue
     private readonly List<EventLoopFrame> _eventLoops = [];
     private readonly List<WeakReference<DispatcherQueueTimer>> _timers = [];
     private readonly DispatcherQueueHandler _exitEventLoopHandler;
+    private readonly DispatcherQueueHandler _quitEventLoopHandler;
     private readonly int _ownerThreadId;
     private readonly TaskCompletionSource _shutdownCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -100,6 +101,7 @@ public sealed class DispatcherQueue
     {
         _ownerThreadId = Environment.CurrentManagedThreadId;
         _exitEventLoopHandler = MarkInnermostEventLoopForExit;
+        _quitEventLoopHandler = MarkEventLoopsForQuit;
     }
 
     public bool HasThreadAccess =>
@@ -176,6 +178,16 @@ public sealed class DispatcherQueue
         _ = TryEnqueue(
             DispatcherQueuePriority.Normal,
             _exitEventLoopHandler);
+    }
+
+    // Native hosts use this typed seam when their platform message pump
+    // observes a quit message. EnqueueEventLoopExit remains a local-loop exit
+    // operation, matching the documented nested-loop contract.
+    internal void EnqueueQuit()
+    {
+        _ = TryEnqueue(
+            DispatcherQueuePriority.Normal,
+            _quitEventLoopHandler);
     }
 
     public void EnsureSystemDispatcherQueue()
@@ -430,6 +442,25 @@ public sealed class DispatcherQueue
     {
         if (_eventLoops.Count > 0)
             _eventLoops[^1].ExitRequested = true;
+    }
+
+    private void MarkEventLoopsForQuit()
+    {
+        if (_eventLoops.Count == 0)
+            return;
+
+        EventLoopFrame innermost = _eventLoops[^1];
+        if ((innermost.Options & DispatcherRunOptions.ContinueOnQuit) != 0)
+            return;
+
+        if ((innermost.Options & DispatcherRunOptions.QuitOnlyLocalLoop) != 0)
+        {
+            innermost.ExitRequested = true;
+            return;
+        }
+
+        foreach (EventLoopFrame frame in _eventLoops)
+            frame.ExitRequested = true;
     }
 
     private void RequestAllEventLoopsExit()

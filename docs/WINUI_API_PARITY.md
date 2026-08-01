@@ -263,7 +263,12 @@ across 2,000 enqueue operations using one retained callback. Behavioral tests
 cover priority ordering, thread affinity, current-thread singleton lifetime,
 dedicated synchronous/asynchronous shutdown, nested exit deferrals, exact
 shutdown ordering, one-shot/repeating timers, exception-preserving `Send`, and
-post-shutdown rejection.
+post-shutdown rejection. A local `EnqueueEventLoopExit` targets only the
+innermost loop. The typed native-quit seam evaluates the innermost frame's
+options: `ContinueOnQuit` keeps it running, `QuitOnlyLocalLoop` exits only that
+frame, and the default exits every active frame while preserving each exit
+deferral. Focused nested-loop coverage proves all three outcomes without a
+platform message pump.
 Dispatcher synchronization-context marshaling reuses callback work items from
 a lock-protected pool capped at 256 retained entries, avoiding one closure per
 steady-state `Post` or `Send` while keeping burst retention bounded. A second
@@ -278,12 +283,12 @@ platform-neutral engine because ProGPU composition and input already share this
 dispatch source.
 
 Deferred behavioral gate: Windows hosts do not yet create and lifetime-manage
-the separate `Windows.System.DispatcherQueue`, and the portable run options
-cannot observe native `WM_QUIT` messages. Those integrations remain explicit
-platform-host work; the implementation does not simulate a native queue or
-silently change the cross-platform dispatch contract. The declaration report
-records `Microsoft.UI.Dispatching` as 58/58 exact with no missing or extra
-entries.
+the separate `Windows.System.DispatcherQueue`, and platform pumps still need
+to forward their native quit notification through the typed core seam. Those
+integrations remain explicit platform-host work; the implementation does not
+simulate a native queue or silently change the cross-platform dispatch
+contract. The declaration report records `Microsoft.UI.Dispatching` as 58/58
+exact with no missing or extra entries.
 
 The macOS CI allocation gate also exposed a deferred
 `ManualResetEventSlim` runtime transition on a later contended synchronous
@@ -1450,6 +1455,12 @@ change flags. Showing a window continues through the same native lifetime that
 creates the WebGPU presentation surface; creating or configuring an `AppWindow`
 alone does not initialize WebGPU. Showing without activation is represented
 explicitly through the native Silk path or `IWindowActivationHost`.
+Presenter state is retained before native activation and then applied to the
+created Silk window, so a fullscreen startup request is not lost. Moving from
+fullscreen to compact overlay explicitly restores normal native state before
+applying compact chrome and topmost policy. Modal children use a per-owner
+count, keeping a shared owner disabled until its last modal child is released;
+configuration updates that retain the same owner do not churn that count.
 
 Display snapshots are supplied by `IWindowingDisplayAreaProvider`.
 `FindAll` and point/rectangle fallback selection are `O(D)` time for `D`
@@ -1463,7 +1474,9 @@ shutdown destruction, cancellable close, identity lookup, geometry/change
 flags, title-bar reset/options, typed icon and Z-order dispatch, explicit
 unsupported behavior, display containment/intersection/nearest fallback,
 watcher add/update/remove/status ordering, contract versions, and zero managed
-allocations across 100,000 warmed `AppWindow` property-read iterations.
+allocations across 100,000 warmed `AppWindow` property-read iterations. The
+windowing regression set also covers fullscreen-to-compact transitions and
+two modal siblings sharing one owner.
 
 Deferred behavioral gates: platform adapters still need to apply retained
 title-bar colors and drag rectangles where the OS supports them, and native

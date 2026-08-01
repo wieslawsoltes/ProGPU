@@ -58,6 +58,8 @@ public class Window : DependencyObject
     private bool _canMinimize = true;
     private bool _canMaximize = true;
     private bool _topMost;
+    private Silk.NET.Windowing.WindowState _nativeWindowState =
+        Silk.NET.Windowing.WindowState.Normal;
     private bool _extendsContentIntoTitleBar;
     private double _titleBarHeight = -1d;
     private NativeWindowSize _minimumSize;
@@ -207,6 +209,17 @@ public class Window : DependencyObject
         {
             _topMost = value;
             _windowController?.SetTopMost(value);
+        }
+    }
+
+    internal Silk.NET.Windowing.WindowState NativeWindowState
+    {
+        get => _nativeWindowState;
+        set
+        {
+            _nativeWindowState = value;
+            if (_silkWindow is not null)
+                _silkWindow.WindowState = value;
         }
     }
 
@@ -453,6 +466,7 @@ public class Window : DependencyObject
         _silkWindow.Closing += OnClosing;
 
         _silkWindow.Initialize();
+        _silkWindow.WindowState = _nativeWindowState;
         WindowManager.Register(this);
         UpdateBounds(_silkWindow.Size.X, _silkWindow.Size.Y);
         NotifyHostVisibilityChanged(true);
