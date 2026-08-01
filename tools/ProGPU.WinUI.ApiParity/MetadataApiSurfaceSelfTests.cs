@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -245,6 +246,30 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.Contains(
                     "System.Runtime.CompilerServices.ExtensionAttribute",
                     StringComparison.Ordinal));
+        bool genericParameterAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.TrimContract`1()->System.Void.generic[0:T]|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute",
+                    StringComparison.Ordinal));
+        bool signedAttributeConstructor = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.SignedConstructorAttribute`0()->System.Void|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "ConstructorIdentityAttribute;ctor=(System.Int32)->System.Void;",
+                    StringComparison.Ordinal));
+        bool unsignedAttributeConstructor = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.UnsignedConstructorAttribute`0()->System.Void|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "ConstructorIdentityAttribute;ctor=(System.UInt32)->System.Void;",
+                    StringComparison.Ordinal));
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -290,6 +315,9 @@ internal static class MetadataApiSurfaceSelfTests
             !publicFieldMarshallingDescriptor ||
             !callerMemberNameAttribute ||
             !extensionMethodAttribute ||
+            !genericParameterAttribute ||
+            !signedAttributeConstructor ||
+            !unsignedAttributeConstructor ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -318,6 +346,9 @@ internal static class MetadataApiSurfaceSelfTests
                 $"publicFieldMarshallingDescriptor={publicFieldMarshallingDescriptor}, " +
                 $"callerMemberNameAttribute={callerMemberNameAttribute}, " +
                 $"extensionMethodAttribute={extensionMethodAttribute}, " +
+                $"genericParameterAttribute={genericParameterAttribute}, " +
+                $"signedAttributeConstructor={signedAttributeConstructor}, " +
+                $"unsignedAttributeConstructor={unsignedAttributeConstructor}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -350,6 +381,14 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
     public sealed class ParameterContractMarkerAttribute(string identity) : Attribute
     {
         public string Identity { get; } = identity;
+    }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class ConstructorIdentityAttribute : Attribute
+    {
+        public ConstructorIdentityAttribute(int value) => _ = value;
+
+        public ConstructorIdentityAttribute(uint value) => _ = value;
     }
 
     public class OverloadFixture
@@ -421,6 +460,22 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
 
         public void Transform<T>(int value)
             where T : struct => _ = value;
+
+        public void TrimContract<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)]
+            T>()
+        {
+        }
+
+        [ConstructorIdentity(1)]
+        public void SignedConstructorAttribute()
+        {
+        }
+
+        [ConstructorIdentity(1u)]
+        public void UnsignedConstructorAttribute()
+        {
+        }
     }
 
     [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]

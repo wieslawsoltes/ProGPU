@@ -81,7 +81,9 @@ contract, together with return parameter flags/defaults. Consumer-semantic
 compiler-services attributes such as extension-method, caller-information,
 nullable, tuple-name, required-member, and interpolated-string-handler
 contracts remain visible; only explicit state-machine/toolchain implementation
-markers are filtered.
+markers are filtered. Generic-parameter attributes use an index-qualified
+owner, and every custom attribute records its complete constructor signature
+alongside the raw value blob, so overloaded constructors cannot collapse.
 The command-line gate runs an isolated metadata self-test before comparison
 and proves that method/parameter/property/event accessor attributes, accessor
 parameter metadata, value-type layout, method/property/event dispatch flags,
@@ -1925,34 +1927,42 @@ next value read. Pointer snapshots now preserve horizontal wheel deltas,
 changed mouse-button metadata, and predicted frame identifiers across
 transforms. The final metadata-review pass also makes public value-type ABI
 layout and event-accessor contracts first-class comparator inputs, with
-independent self-tests. Retaining consumer-semantic compiler attributes makes
-2,592 previously hidden ProGPU declarations explicit, so the final pinned
-report records 11,573 candidate entries, 5,229 exact matches, 11,350 missing
-entries, and 6,344 extras. The monotonic budget is ratcheted to those exact
-matching and missing counts.
+independent self-tests. Retaining consumer-semantic compiler and generic-
+parameter attributes makes 2,623 previously hidden ProGPU declarations
+explicit. Recording exact attribute constructor signatures also reclassifies
+277 former false matches whose `ContractVersionAttribute` uses the local
+string overload rather than the official `System.Type` overload. The final
+pinned report therefore records 11,604 candidate entries, 4,952 exact matches,
+11,627 missing entries, and 6,652 extras. This one reviewed comparator-semantic
+reset establishes the new monotonic matching/missing budget; subsequent slices
+must improve or preserve it.
 
 ## Preview.32 parity handoff
 
 This release closes the current implementation lane; it does not claim full
-WinUI parity. The deterministic report proves 5,229 of 16,579 official
+WinUI parity. The deterministic report proves 4,952 of 16,579 official
 declarations exact. Remaining work is measured, not inferred:
 
 | Area | Exact | Missing | ProGPU-only |
 |---|---:|---:|---:|
-| `Microsoft.UI` | 193 | 0 | 14 |
-| `Microsoft.UI.Composition` | 441 | 1,091 | 89 |
-| `Microsoft.UI.Content` | 185 | 155 | 56 |
-| `Microsoft.UI.Dispatching` | 58 | 0 | 30 |
-| `Microsoft.UI.Input` | 585 | 0 | 207 |
-| `Microsoft.UI.System` | 6 | 0 | 5 |
-| `Microsoft.UI.Text` | 535 | 0 | 10 |
-| `Microsoft.UI.Windowing` | 192 | 0 | 40 |
-| `Microsoft.UI.Xaml` | 3,034 | 10,104 | 5,893 |
+| `Microsoft.UI` | 186 | 7 | 21 |
+| `Microsoft.UI.Composition` | 387 | 1,145 | 143 |
+| `Microsoft.UI.Content` | 162 | 178 | 79 |
+| `Microsoft.UI.Dispatching` | 50 | 8 | 38 |
+| `Microsoft.UI.Input` | 513 | 72 | 279 |
+| `Microsoft.UI.System` | 5 | 1 | 6 |
+| `Microsoft.UI.Text` | 527 | 8 | 18 |
+| `Microsoft.UI.Windowing` | 174 | 18 | 58 |
+| `Microsoft.UI.Xaml` | 2,948 | 10,190 | 6,010 |
 
 The next parity task should therefore continue in two evidence-backed lanes:
 complete retained WebGPU Composition families with typed bounded ownership,
 and reconcile XAML declarations in behavior-complete control/property-system
-clusters. Every slice must rerun the pinned metadata comparator, remove
+clusters. Its first metadata cleanup should introduce the official API-contract
+marker types and move the 277 string-based `ContractVersionAttribute`
+applications to the official `System.Type` constructor, recovering those
+newly visible exact matches without hiding constructor identity. Every slice
+must rerun the pinned metadata comparator, remove
 superseded ProGPU-only shapes, add focused behavior/rendering/performance
 evidence, and ratchet the monotonic baseline. Rendering slices retain the
 mandatory cross-engine research, GPU quality, device-loss, and allocation

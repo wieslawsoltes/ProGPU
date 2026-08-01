@@ -727,9 +727,31 @@ internal sealed record MetadataApiSurface(
             {
                 entries.Add(
                     $"attribute|{owner}|{attributeType};" +
+                    $"ctor={FormatAttributeConstructor(reader, formatter, attribute.Constructor)};" +
                     $"value={Convert.ToHexString(reader.GetBlobBytes(attribute.Value))}");
             }
         }
+    }
+
+    private static string FormatAttributeConstructor(
+        MetadataReader reader,
+        MetadataNameFormatter formatter,
+        EntityHandle constructor)
+    {
+        var provider = new CanonicalSignatureProvider(formatter);
+        MethodSignature<string> signature = constructor.Kind switch
+        {
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition((MethodDefinitionHandle)constructor)
+                    .DecodeSignature(provider, GenericContext.Empty),
+            HandleKind.MemberReference =>
+                reader.GetMemberReference((MemberReferenceHandle)constructor)
+                    .DecodeMethodSignature(provider, GenericContext.Empty),
+            _ => throw new InvalidDataException(
+                $"Unsupported custom-attribute constructor kind: {constructor.Kind}.")
+        };
+        return $"({string.Join(",", signature.ParameterTypes)})->" +
+            signature.ReturnType;
     }
 
     private static bool ShouldIncludeApiAttribute(string attributeType)
@@ -825,15 +847,22 @@ internal sealed record MetadataApiSurface(
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
+            string parameterName = reader.GetString(parameter.Name);
             var constraints = parameter.GetConstraints()
                 .Select(reader.GetGenericParameterConstraint)
                 .Select(constraint => formatter.GetTypeName(constraint.Type))
                 .OrderBy(name => name, StringComparer.Ordinal);
             entries.Add(
                 $"generic|{owner}|index={parameter.Index};" +
-                $"name={reader.GetString(parameter.Name)};" +
+                $"name={parameterName};" +
                 $"attributes={(int)parameter.Attributes};" +
                 $"constraints=({string.Join(",", constraints)})");
+            AddAttributes(
+                reader,
+                formatter,
+                $"{owner}.generic[{parameter.Index}:{parameterName}]",
+                parameter.GetCustomAttributes(),
+                entries);
         }
     }
 
