@@ -248,6 +248,10 @@ internal sealed record MetadataApiSurface(
             .OrderBy(parameter => parameter.SequenceNumber)
             .ToArray();
         var parameterText = new string[signature.ParameterTypes.Length];
+        Parameter? returnDefinition = parameterDefinitions
+            .Where(parameter => parameter.SequenceNumber == 0)
+            .Select(static parameter => (Parameter?)parameter)
+            .FirstOrDefault();
         int parameterCursor = 0;
         while (parameterCursor < parameterDefinitions.Length &&
                parameterDefinitions[parameterCursor].SequenceNumber == 0)
@@ -263,20 +267,14 @@ internal sealed record MetadataApiSurface(
             }
             var hasDefinition = parameterCursor < parameterDefinitions.Length &&
                 parameterDefinitions[parameterCursor].SequenceNumber == index + 1;
-            var parameter = hasDefinition
+            Parameter? parameter = hasDefinition
                 ? parameterDefinitions[parameterCursor++]
-                : default;
-            var attributes = hasDefinition
-                ? FormatParameterAttributes(parameter.Attributes)
-                : "-";
-            var name = hasDefinition
-                ? reader.GetString(parameter.Name)
-                : $"arg{index}";
-            var defaultValue = hasDefinition
-                ? FormatConstant(reader, parameter.GetDefaultValue())
-                : "-";
-            parameterText[index] =
-                $"{attributes}:{signature.ParameterTypes[index]}:{name}:{defaultValue}";
+                : null;
+            parameterText[index] = FormatAccessorParameterMetadata(
+                reader,
+                parameter,
+                signature.ParameterTypes[index],
+                $"arg{index}");
         }
 
         foreach (var parameter in parameterDefinitions)
@@ -311,7 +309,9 @@ internal sealed record MetadataApiSurface(
             $"virtual={method.Attributes.HasFlag(MethodAttributes.Virtual)};" +
             $"final={method.Attributes.HasFlag(MethodAttributes.Final)};" +
             $"newslot={method.Attributes.HasFlag(MethodAttributes.NewSlot)};" +
-            $"return={signature.ReturnType};name={methodName};" +
+            $"return={signature.ReturnType};" +
+            $"returnmarshal={FormatMarshallingDescriptor(reader, returnDefinition)};" +
+            $"name={methodName};" +
             $"arity={method.GetGenericParameters().Count};" +
             $"params=({string.Join(",", parameterText)})");
         AddAttributes(
@@ -442,11 +442,12 @@ internal sealed record MetadataApiSurface(
         string fallbackName)
     {
         if (definition is not Parameter parameter)
-            return $"-:{type}:{fallbackName}:-";
+            return $"-:{type}:{fallbackName}:-:marshal=-";
 
         string name = reader.GetString(parameter.Name);
         return $"{FormatParameterAttributes(parameter.Attributes)}:" +
-            $"{type}:{name}:{FormatConstant(reader, parameter.GetDefaultValue())}";
+            $"{type}:{name}:{FormatConstant(reader, parameter.GetDefaultValue())}:" +
+            $"marshal={FormatMarshallingDescriptor(reader, parameter)}";
     }
 
     private static void AddAccessorAttributes(
@@ -678,6 +679,23 @@ internal sealed record MetadataApiSurface(
             ? "-"
             : Convert.ToHexString(reader.GetBlobBytes(descriptor));
     }
+
+    private static string FormatMarshallingDescriptor(
+        MetadataReader reader,
+        Parameter parameter)
+    {
+        BlobHandle descriptor = parameter.GetMarshallingDescriptor();
+        return descriptor.IsNil
+            ? "-"
+            : Convert.ToHexString(reader.GetBlobBytes(descriptor));
+    }
+
+    private static string FormatMarshallingDescriptor(
+        MetadataReader reader,
+        Parameter? parameter) =>
+        parameter is Parameter definition
+            ? FormatMarshallingDescriptor(reader, definition)
+            : "-";
 
     private static void AddAttributes(
         MetadataReader reader,

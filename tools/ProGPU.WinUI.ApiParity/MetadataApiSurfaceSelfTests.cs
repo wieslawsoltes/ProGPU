@@ -188,6 +188,32 @@ internal static class MetadataApiSurfaceSelfTests
             !marshalLayoutEntry.Contains(
                 "type=System.String;marshal=-",
                 StringComparison.Ordinal);
+        string? methodMarshallingEntry = surface.Entries.FirstOrDefault(
+            static entry =>
+                entry.StartsWith(
+                    "method|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=MarshalContract;", StringComparison.Ordinal));
+        bool methodMarshallingDescriptors =
+            methodMarshallingEntry?.Contains("returnmarshal=", StringComparison.Ordinal) == true &&
+            methodMarshallingEntry.Contains("marshal=", StringComparison.Ordinal) &&
+            !methodMarshallingEntry.Contains("returnmarshal=-", StringComparison.Ordinal) &&
+            !methodMarshallingEntry.Contains(":marshal=-", StringComparison.Ordinal);
+        string? accessorMarshallingEntry = surface.Entries.FirstOrDefault(
+            static entry =>
+                entry.StartsWith(
+                    "property|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=AccessorMetadata;", StringComparison.Ordinal));
+        int setterMetadata = accessorMarshallingEntry?.IndexOf(
+            ";setmetadata=",
+            StringComparison.Ordinal) ?? -1;
+        string getterMetadata = setterMetadata >= 0
+            ? accessorMarshallingEntry![..setterMetadata]
+            : string.Empty;
+        bool accessorMarshallingDescriptor =
+            getterMetadata.Contains("marshal=", StringComparison.Ordinal) &&
+            !getterMetadata.Contains("marshal=-", StringComparison.Ordinal);
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -228,6 +254,8 @@ internal static class MetadataApiSurfaceSelfTests
             !privateFieldLayout ||
             !nestedPrivateValueTypeLayout ||
             !fieldMarshallingDescriptor ||
+            !methodMarshallingDescriptors ||
+            !accessorMarshallingDescriptor ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -251,6 +279,8 @@ internal static class MetadataApiSurfaceSelfTests
                 $"privateFieldLayout={privateFieldLayout}, " +
                 $"nestedPrivateValueTypeLayout={nestedPrivateValueTypeLayout}, " +
                 $"fieldMarshallingDescriptor={fieldMarshallingDescriptor}, " +
+                $"methodMarshallingDescriptors={methodMarshallingDescriptors}, " +
+                $"accessorMarshallingDescriptor={accessorMarshallingDescriptor}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -311,6 +341,7 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         {
             [ContractMarker("getter")]
             [return: ParameterContractMarker("getter-return")]
+            [return: MarshalAs(UnmanagedType.I4)]
             get => 0;
             [ContractMarker("setter")]
             set => _ = value;
@@ -319,6 +350,10 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public virtual void VirtualDispatch()
         {
         }
+
+        [return: MarshalAs(UnmanagedType.I4)]
+        public int MarshalContract(
+            [MarshalAs(UnmanagedType.LPStr)] string value) => value.Length;
 
         private static EventHandler? s_staticRaised;
         private EventHandler? _virtualRaised;

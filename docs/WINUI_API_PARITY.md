@@ -74,6 +74,8 @@ private sequential-layout change cannot silently alter the public ABI.
 Assembly-local embedded value types are expanded recursively with cycle
 protection, and raw ECMA-335 field-marshalling descriptors are retained, so
 nested packing/size and fixed-buffer or fixed-string changes are visible too.
+Raw marshalling descriptors on method, property-accessor, and event-accessor
+return/parameter rows are part of the same canonical contract.
 The command-line gate runs an isolated metadata self-test before comparison
 and proves that method/parameter/property/event accessor attributes, accessor
 parameter metadata, value-type layout, method/property/event dispatch flags,
