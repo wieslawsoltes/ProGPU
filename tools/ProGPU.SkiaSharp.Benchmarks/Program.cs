@@ -79,6 +79,7 @@ internal static class ProgramEntry
             new BenchmarkCase("encoder-descriptor-value", 100_000, RunEncoderDescriptorValue),
             new BenchmarkCase("backend-handle-info-value", 100_000, RunBackendHandleInfoValue),
             new BenchmarkCase("vulkan-descriptor-value", 100_000, RunVulkanDescriptorValue),
+            new BenchmarkCase("d3d-resource-info-value", 100_000, RunD3DResourceInfoValue),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -630,6 +631,35 @@ internal static class ProgramEntry
                 (image.Protected ? 1ul << 2 : 0) |
                 (conversion.SupportsLinearFilter ? 1ul << 1 : 0) |
                 (conversion.SamplerFilterMustMatchChromaFilter ? 1ul : 0));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunD3DResourceInfoValue(int operations)
+    {
+        using var info = new GRD3DTextureResourceInfo
+        {
+            Resource = (IntPtr)0x1234,
+            ResourceState = 4,
+            Format = 28,
+            LevelCount = 5,
+            SampleCount = 8,
+            SampleQualityPattern = 9,
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            info.Protected = (index & 1) == 0;
+            checksum = Mix(
+                checksum,
+                (ulong)(nuint)info.Resource |
+                (ulong)info.ResourceState << 48 |
+                (ulong)info.Format << 32 |
+                (ulong)info.LevelCount << 16 |
+                (ulong)info.SampleCount << 8 |
+                info.SampleQualityPattern |
+                (info.Protected ? 1ul << 63 : 0));
         }
 
         return checksum;

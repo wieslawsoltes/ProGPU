@@ -27,6 +27,13 @@ public enum GRBackend
     Unsupported,
 }
 
+[Flags]
+public enum GRBackendState : uint
+{
+    None = 0,
+    All = uint.MaxValue,
+}
+
 public struct GRGlFramebufferInfo : IEquatable<GRGlFramebufferInfo>
 {
     private uint _framebufferObjectId;
@@ -621,6 +628,33 @@ public struct GRVkImageInfo : IEquatable<GRVkImageInfo>
 }
 
 #nullable restore
+
+public class GRD3DTextureResourceInfo : IDisposable
+{
+    public IntPtr Resource { get; set; }
+
+    public uint ResourceState { get; set; }
+
+    public uint Format { get; set; }
+
+    public uint LevelCount { get; set; }
+
+    public uint SampleCount { get; set; }
+
+    public uint SampleQualityPattern { get; set; }
+
+    public bool Protected { get; set; }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+    }
+}
 
 public delegate IntPtr GRVkGetProcDelegate(string name, IntPtr instance, IntPtr device);
 

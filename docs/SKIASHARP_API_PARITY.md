@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,608 ProGPU
-entries, 3,392 exact matches, 830 missing entries, and 1,216 ProGPU-only
-entries. The missing surface comprises 55 type identities, 19 fields, 15
-interfaces, 553 methods, 85 properties, and 103 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,625 ProGPU
+entries, 3,409 exact matches, 813 missing entries, and 1,216 ProGPU-only
+entries. The missing surface comprises 53 type identities, 16 fields, 14
+interfaces, 550 methods, 78 properties, and 102 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -146,6 +146,32 @@ with zero bytes per operation. The clean-room contract uses the public
 and Vulkan's
 [sampler-conversion structure](https://registry.khronos.org/vulkan/specs/latest/man/html/VkSamplerYcbcrConversionCreateInfo.html)
 and [image-view rules](https://registry.khronos.org/vulkan/specs/latest/man/html/VkImageViewCreateInfo.html).
+
+### Direct3D resource descriptors and backend state
+
+`GRD3DTextureResourceInfo` and `GRBackendState` now match their complete
+4.151.0 contracts. The extensible disposable descriptor retains the borrowed
+D3D resource pointer, resource state, DXGI format, mip count, sample count,
+quality pattern, and protection flag. Disposal follows the official observable
+contract: every call dispatches through the protected virtual hook and leaves
+the caller-owned resource metadata intact. The unsigned flags enum preserves
+exact `None` and all-bits `All` values.
+
+Construction allocates only the required descriptor object; all subsequent
+property reads/writes and disposal dispatch are fixed `O(1)` CPU work with no
+incremental allocation, COM call, resource transition, device creation, or
+WebGPU initialization. Independent tests cover defaults, all mutable values,
+post-disposal retention, repeated virtual dispatch, enum width, and flags.
+Three alternating Apple M3 Pro Release process pairs retained exact checksums
+at `0.985` ProGPU/native (`1.506` versus `1.528` ns/op) with the same amortized
+`0.00048` bytes per operation from the one required descriptor object per
+100,000-operation sample. Matched Time Profiler/Allocations captures measured
+`1.495`–`1.506` versus `1.516`–`1.524` ns/op with identical allocation. The
+clean-room contract uses the public
+[D3D resource-info API](https://learn.microsoft.com/dotnet/api/skiasharp.grd3dtextureresourceinfo),
+[backend-state API](https://learn.microsoft.com/dotnet/api/skiasharp.grbackendstate),
+and Microsoft's
+[D3D12 resource-state model](https://learn.microsoft.com/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12).
 
 ### Premultiplied color values
 
