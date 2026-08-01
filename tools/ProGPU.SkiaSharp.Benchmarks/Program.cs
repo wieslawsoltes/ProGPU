@@ -66,6 +66,8 @@ internal static class ProgramEntry
         var cases = new[]
         {
             new BenchmarkCase("point-arithmetic", 200_000, RunPointArithmetic),
+            new BenchmarkCase("color-span-parse", 100_000, RunColorSpanParse),
+            new BenchmarkCase("roundrect-lifetime", 10_000, RunRoundRectLifetime),
             new BenchmarkCase("matrix-map-point", 100_000, RunMatrixMapPoint),
             new BenchmarkCase("pmcolor-premultiply", 65_536, RunPremultiplyColor),
             new BenchmarkCase("pmcolor-unpremultiply", 65_536, RunUnpremultiplyColor),
@@ -248,6 +250,34 @@ internal static class ProgramEntry
         }
 
         return Combine(point.X, point.Y);
+    }
+
+    private static ulong RunColorSpanParse(int operations)
+    {
+        ReadOnlySpan<char> value = "#7f123456";
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            if (!SKColor.TryParse(value, out var color))
+                throw new InvalidOperationException("The fixed benchmark color must parse.");
+            checksum = Mix(checksum, (uint)color);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunRoundRectLifetime(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var radius = (index & 15) + 1f;
+            using var value = new SKRoundRect(new SKRect(0f, 0f, 64f, 48f), radius, radius * 0.5f);
+            var corner = value.GetRadii(SKRoundRectCorner.UpperLeft);
+            checksum = Mix(checksum, Combine(value.Width + corner.X, value.Height + corner.Y));
+        }
+
+        return checksum;
     }
 
     private static ulong RunMatrixMapPoint(int operations)

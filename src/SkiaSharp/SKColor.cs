@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace SkiaSharp;
 
@@ -50,9 +51,9 @@ public readonly partial struct SKColor
 
     public override string ToString() => $"#{Alpha:x2}{Red:x2}{Green:x2}{Blue:x2}";
 
-    public bool Equals(SKColor other) => _color == other._color;
+    public bool Equals(SKColor obj) => _color == obj._color;
 
-    public override bool Equals(object? obj) => obj is SKColor other && Equals(other);
+    public override bool Equals(object? other) => other is SKColor color && Equals(color);
 
     public static bool operator ==(SKColor left, SKColor right) => left.Equals(right);
 
@@ -65,6 +66,9 @@ public readonly partial struct SKColor
     public static explicit operator uint(SKColor color) => color._color;
 
     public static SKColor Parse(string hexString)
+        => Parse(hexString.AsSpan());
+
+    public static SKColor Parse(ReadOnlySpan<char> hexString)
     {
         if (!TryParse(hexString, out var result))
         {
@@ -75,46 +79,51 @@ public readonly partial struct SKColor
     }
 
     public static bool TryParse(string hexString, out SKColor color)
+        => TryParse(hexString.AsSpan(), out color);
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static bool TryParse(ReadOnlySpan<char> hexString, out SKColor color)
     {
-        if (string.IsNullOrWhiteSpace(hexString))
+        ReadOnlySpan<char> value;
+        if (hexString.Length is 4 or 5 or 7 or 9 && hexString[0] == '#')
+        {
+            value = hexString[1..];
+        }
+        else if (hexString.Length is 3 or 4 or 6 or 8 &&
+                 HexNibble(hexString[0]) >= 0 &&
+                 HexNibble(hexString[^1]) >= 0)
+        {
+            value = hexString;
+        }
+        else
+        {
+            value = hexString.Trim().TrimStart('#');
+        }
+
+        if (value.IsEmpty)
         {
             color = Empty;
             return false;
         }
-
-        var value = hexString.AsSpan().Trim().TrimStart('#');
         var length = value.Length;
         if (length is 3 or 4)
         {
-            byte alpha;
-            if (length == 4)
-            {
-                if (!byte.TryParse(value[..1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out alpha))
-                {
-                    color = Empty;
-                    return false;
-                }
-
-                alpha = (byte)((alpha << 4) | alpha);
-            }
-            else
-            {
-                alpha = byte.MaxValue;
-            }
-
-            if (!byte.TryParse(value.Slice(length - 3, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var red) ||
-                !byte.TryParse(value.Slice(length - 2, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var green) ||
-                !byte.TryParse(value.Slice(length - 1, 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var blue))
+            var offset = length - 3;
+            var alpha = length == 4 ? HexNibble(value[0]) : 15;
+            var red = HexNibble(value[offset]);
+            var green = HexNibble(value[offset + 1]);
+            var blue = HexNibble(value[offset + 2]);
+            if ((alpha | red | green | blue) < 0)
             {
                 color = Empty;
                 return false;
             }
 
             color = new SKColor(
-                (byte)((red << 4) | red),
-                (byte)((green << 4) | green),
-                (byte)((blue << 4) | blue),
-                alpha);
+                (byte)(red * 17),
+                (byte)(green * 17),
+                (byte)(blue * 17),
+                (byte)(alpha * 17));
             return true;
         }
 
@@ -132,5 +141,18 @@ public readonly partial struct SKColor
 
         color = Empty;
         return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int HexNibble(char value)
+    {
+        var digit = value - '0';
+        if ((uint)digit <= 9u)
+        {
+            return digit;
+        }
+
+        var letter = (value | (char)0x20) - 'a';
+        return (uint)letter <= 5u ? letter + 10 : -1;
     }
 }

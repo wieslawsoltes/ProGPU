@@ -94,13 +94,13 @@ public partial struct SKRect
 
     public void Union(SKRect rect) => this = Union(this, rect);
 
-    public static implicit operator SKRect(SKRectI rect) =>
-        new(rect.Left, rect.Top, rect.Right, rect.Bottom);
+    public static implicit operator SKRect(SKRectI r) =>
+        new(r.Left, r.Top, r.Right, r.Bottom);
 
     public readonly bool Contains(float x, float y) =>
         x >= _left && x < _right && y >= _top && y < _bottom;
 
-    public readonly bool Contains(SKPoint point) => Contains(point.X, point.Y);
+    public readonly bool Contains(SKPoint pt) => Contains(pt.X, pt.Y);
 
     public readonly bool Contains(SKRect rect) =>
         _left <= rect._left &&
@@ -128,7 +128,7 @@ public partial struct SKRect
         _bottom += y;
     }
 
-    public void Offset(SKPoint position) => Offset(position.X, position.Y);
+    public void Offset(SKPoint pos) => Offset(pos.X, pos.Y);
 
     public static SKRect Create(SKPoint location, SKSize size) =>
         Create(location.X, location.Y, size.Width, size.Height);
@@ -141,11 +141,11 @@ public partial struct SKRect
     public static SKRect Create(float x, float y, float width, float height) =>
         new(x, y, x + width, y + height);
 
-    public readonly bool Equals(SKRect other) =>
-        _left == other._left &&
-        _top == other._top &&
-        _right == other._right &&
-        _bottom == other._bottom;
+    public readonly bool Equals(SKRect obj) =>
+        _left == obj._left &&
+        _top == obj._top &&
+        _right == obj._right &&
+        _bottom == obj._bottom;
 
     public override readonly bool Equals(object? obj) => obj is SKRect other && Equals(other);
 

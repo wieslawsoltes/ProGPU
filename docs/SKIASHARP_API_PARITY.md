@@ -480,3 +480,42 @@ clean-room contract follows the public
 [PNG options API](https://learn.microsoft.com/dotnet/api/skiasharp.skpngencoderoptions),
 [XPS options API](https://learn.microsoft.com/dotnet/api/skiasharp.skdocumentxpsoptions),
 and the pinned package's ECMA-335 sequential field metadata.
+
+### Primitive overload and rounded-rectangle ownership checkpoint
+
+The point, size, rectangle, color, and rounded-rectangle families now match 41
+additional entries in the official 4.151.0 reference contract. This checkpoint
+preserves the existing fixed-work value algorithms while aligning official
+parameter metadata, adds allocation-free `ReadOnlySpan<char>` color parsing,
+and makes `SKRoundRect` participate in the official `SKObject` ownership and
+idempotent-disposal hierarchy. Primitive arithmetic and parsing remain `O(1)`
+CPU work with no WebGPU initialization; rounded-rectangle construction owns one
+bounded four-corner array and one managed handle, with no native resource.
+
+The clean-room contract was derived from the public
+[SkiaSharp primitive API documentation](https://learn.microsoft.com/dotnet/api/skiasharp.skpoint),
+[SKColor parsing API](https://learn.microsoft.com/dotnet/api/skiasharp.skcolor),
+[SKRoundRect API](https://learn.microsoft.com/dotnet/api/skiasharp.skroundrect),
+and the pinned package's ECMA-335 public reference metadata. Independent tests
+cover all newly aligned parameter names, span parsing output and steady-state
+allocation, and the `SKObject` handle lifetime. Repeatable matched workloads
+exercise point arithmetic, span parsing, and rounded-rectangle construction and
+disposal against the official package. Three alternating Apple M3 Pro Release
+process pairs retained exact checksums: canonical span parsing measured `0.491`
+ProGPU/native (`11.358` versus `23.147` ns/op) with zero allocation, while
+rounded-rectangle lifetime measured `0.535` (`44.656` versus `83.425` ns/op)
+with `120` versus `80` managed bytes per owned instance. The extra 40 bytes are
+the managed handle/lifetime state required by the official `SKObject` contract.
+Matched Time Profiler captures measured parsing at `11.185` versus `22.316`
+ns/op and rounded-rectangle lifetime at `44.827` versus `86.215` ns/op;
+Allocations retained the same zero/120 versus zero/80 byte ordering. Metal
+System Trace exported zero target command-buffer, device-allocation, and Metal
+resource-allocation rows for both CPU-only binaries.
+
+The pinned Svg.Skia `03f64b67badfca9fca216dc25896d0c0ee04e7b7`
+validation remained stable after the preceding variable-font slice: native W3C
+reported 530 passed and 3 skipped; the ProGPU raw lane reported 485 passed, 45
+reviewed known differences, and 3 skipped; the resvg lane reported 927 passed
+and 37 intentional skips; and the remaining suite passed 1,147 of 1,147 tests.
+The repository's parity verifier accepted the complete reviewed-difference
+inventory.

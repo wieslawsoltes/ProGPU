@@ -46,6 +46,18 @@ public sealed class SkRoundRectCompatibilityTests
     }
 
     [Fact]
+    public void RoundRectUsesOfficialSkObjectOwnership()
+    {
+        var value = new SKRoundRect(new SKRect(0f, 0f, 20f, 10f), 2f, 3f);
+        Assert.IsAssignableFrom<SKObject>(value);
+        Assert.NotEqual(IntPtr.Zero, value.Handle);
+
+        value.Dispose();
+        Assert.Equal(IntPtr.Zero, value.Handle);
+        value.Dispose();
+    }
+
+    [Fact]
     public void UniformAndOvalConstructionMatchesNative()
     {
         using var uniform = new SKRoundRect(new SKRect(0f, 0f, 20f, 10f), 100f, 30f);

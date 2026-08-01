@@ -55,6 +55,14 @@ public sealed class SkGeometryValueApiCompatibilityTests
             "rect",
             "x",
             "y");
+        AssertParameterNames(typeof(SKPoint).GetMethod(nameof(SKPoint.Offset), [typeof(SKPoint)]), "p");
+        AssertParameterNames(typeof(SKPoint).GetMethod(nameof(SKPoint.Subtract), [typeof(SKPoint), typeof(SKSizeI)]), "pt", "sz");
+        AssertParameterNames(typeof(SKSize).GetMethod(nameof(SKSize.Subtract)), "sz1", "sz2");
+        AssertParameterNames(typeof(SKSizeI).GetConstructor([typeof(SKPointI)]), "pt");
+        AssertParameterNames(typeof(SKRect).GetMethod(nameof(SKRect.Contains), [typeof(SKPoint)]), "pt");
+        AssertParameterNames(typeof(SKRect).GetMethod(nameof(SKRect.Offset), [typeof(SKPoint)]), "pos");
+        AssertParameterNames(typeof(SKRectI).GetMethod(nameof(SKRectI.Contains), [typeof(SKPointI)]), "pt");
+        AssertParameterNames(typeof(SKRectI).GetMethod(nameof(SKRectI.Offset), [typeof(SKPointI)]), "pos");
     }
 
     private static void AssertParameterNames(MethodBase? method, params string[] expected)

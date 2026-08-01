@@ -644,7 +644,7 @@ public enum SKRoundRectType
     Complex = 5,
 }
 
-public class SKRoundRect : IDisposable
+public class SKRoundRect : SKObject
 {
     private const float NearlyZero = 1f / (1 << 12);
     private readonly SKPoint[] _radii = new SKPoint[4];
@@ -668,11 +668,13 @@ public class SKRoundRect : IDisposable
     internal SKPoint[] CornerRadii => _radii;
 
     public SKRoundRect()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetEmpty();
     }
 
     public SKRoundRect(SKRect rect)
+        : this()
     {
         SetRect(rect);
     }
@@ -683,11 +685,13 @@ public class SKRoundRect : IDisposable
     }
 
     public SKRoundRect(SKRect rect, float xRadius, float yRadius)
+        : this()
     {
         SetRect(rect, xRadius, yRadius);
     }
 
     public SKRoundRect(SKRoundRect rrect)
+        : this()
     {
         _rect = rrect._rect;
         _type = rrect._type;
@@ -1019,7 +1023,12 @@ public class SKRoundRect : IDisposable
     public SKRoundRect? Transform(SKMatrix matrix) =>
         TryTransform(matrix, out var transformed) ? transformed : null;
 
-    void IDisposable.Dispose()
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
     {
     }
 

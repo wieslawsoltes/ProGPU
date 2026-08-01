@@ -157,7 +157,7 @@ public partial struct SKRectI
     public readonly bool Contains(int x, int y) =>
         x >= _left && x < _right && y >= _top && y < _bottom;
 
-    public readonly bool Contains(SKPointI point) => Contains(point.X, point.Y);
+    public readonly bool Contains(SKPointI pt) => Contains(pt.X, pt.Y);
 
     public readonly bool Contains(SKRectI rect) =>
         _left <= rect._left &&
@@ -185,18 +185,18 @@ public partial struct SKRectI
         _bottom += y;
     }
 
-    public void Offset(SKPointI position) => Offset(position.X, position.Y);
+    public void Offset(SKPointI pos) => Offset(pos.X, pos.Y);
 
     public static SKRectI Create(SKSizeI size) => Create(SKPointI.Empty, size);
 
     public static SKRectI Create(SKPointI location, SKSizeI size) =>
         Create(location.X, location.Y, size.Width, size.Height);
 
-    public readonly bool Equals(SKRectI other) =>
-        _left == other._left &&
-        _top == other._top &&
-        _right == other._right &&
-        _bottom == other._bottom;
+    public readonly bool Equals(SKRectI obj) =>
+        _left == obj._left &&
+        _top == obj._top &&
+        _right == obj._right &&
+        _bottom == obj._bottom;
 
     public override readonly bool Equals(object? obj) => obj is SKRectI other && Equals(other);
 
