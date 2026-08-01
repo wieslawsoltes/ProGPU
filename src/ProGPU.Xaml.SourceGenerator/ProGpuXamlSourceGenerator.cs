@@ -36,18 +36,20 @@ public sealed class ProGpuXamlSourceGenerator : IIncrementalGenerator
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var profiles = _profiles;
+        var options = context.AnalyzerConfigOptionsProvider.Select(static (provider, _) =>
+            GeneratorOptions.Create(provider.GlobalOptions));
         var inputs = context.AdditionalTextsProvider
             .Where(static file => IsXamlPath(file.Path))
             .Combine(context.AnalyzerConfigOptionsProvider)
-            .Where(static input => ShouldCompile(input.Left, input.Right))
+            .Combine(options)
+            .Where(static input =>
+                input.Right.Enabled &&
+                ShouldCompile(input.Left.Left, input.Left.Right))
             .Select(static (input, cancellationToken) => new XamlInput(
-                input.Left.Path,
-                GetLogicalPath(input.Left, input.Right),
-                input.Left.GetText(cancellationToken) ?? SourceText.From(string.Empty)))
+                input.Left.Left.Path,
+                GetLogicalPath(input.Left.Left, input.Left.Right),
+                input.Left.Left.GetText(cancellationToken) ?? SourceText.From(string.Empty)))
             .WithTrackingName("XamlInputs");
-
-        var options = context.AnalyzerConfigOptionsProvider.Select(static (provider, _) =>
-            GeneratorOptions.Create(provider.GlobalOptions));
 
         var parsedInputs = inputs.Combine(options).Select(static (input, cancellationToken) =>
         {
