@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,503 ProGPU
-entries, 3,285 exact matches, 937 missing entries, and 1,218 ProGPU-only
-entries. The missing surface comprises 60 type identities, 19 fields, 19
-interfaces, 575 methods, 116 properties, and 148 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,608 ProGPU
+entries, 3,392 exact matches, 830 missing entries, and 1,216 ProGPU-only
+entries. The missing surface comprises 55 type identities, 19 fields, 15
+interfaces, 553 methods, 85 properties, and 103 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -113,6 +113,39 @@ uses the public
 [Metal texture API](https://learn.microsoft.com/dotnet/api/skiasharp.grmtltextureinfo),
 [OpenGL framebuffer model](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBindFramebuffer.xhtml),
 and [Metal resource ownership model](https://developer.apple.com/documentation/metal/resource-fundamentals).
+
+### Vulkan allocation, image, and YCbCr descriptors
+
+`GRVkAlloc`, `GRVkImageInfo`, `GRVkYcbcrComponents`, and
+`GRVkYcbcrConversionInfo` now match the complete 4.151.0 metadata contract,
+including sequential nested field layouts, byte-backed Boolean transport,
+readonly accessors, value equality, hashing, and operators. The obsolete
+`GrVkYcbcrConversionInfo` spelling is retained as one inline current-value
+wrapper with exact conversion operators and an intentionally inert obsolete
+`FormatFeatures` property. Allocation metadata includes device memory, size,
+offset, flags, backend memory, and its hidden transport byte in official order;
+image metadata carries allocation, tiling/layout/format/usage, sample and mip
+counts, queue ownership, protection, YCbCr conversion, and sharing mode.
+
+These values describe caller-owned Vulkan resources without creating, mapping,
+destroying, or submitting them. All getters, setters, and comparisons are
+allocation-free fixed `O(1)` CPU work and cannot initialize Vulkan or WebGPU.
+Field-wise equality is aggressively inlined so both equal values and a
+last-field mismatch avoid boxing and reflection while preserving every public
+field's observable contribution. Independent tests inspect every private field
+type/order and cover full mutation, nested equality, byte normalization, and
+legacy/current conversion. Three alternating Apple M3 Pro Release process
+pairs retained exact checksums and zero managed allocations at `0.976`
+ProGPU/native (`2.844` versus `2.915` ns/op). Matched Time Profiler and
+Allocations captures ranged from `2.784`–`2.879` for ProGPU and
+`2.808`–`2.813` ns/op for native, straddling at sub-nanosecond timer resolution,
+with zero bytes per operation. The clean-room contract uses the public
+[allocation API](https://learn.microsoft.com/dotnet/api/skiasharp.grvkalloc),
+[image API](https://learn.microsoft.com/dotnet/api/skiasharp.grvkimageinfo),
+[YCbCr API](https://learn.microsoft.com/dotnet/api/skiasharp.grvkycbcrconversioninfo),
+and Vulkan's
+[sampler-conversion structure](https://registry.khronos.org/vulkan/specs/latest/man/html/VkSamplerYcbcrConversionCreateInfo.html)
+and [image-view rules](https://registry.khronos.org/vulkan/specs/latest/man/html/VkImageViewCreateInfo.html).
 
 ### Premultiplied color values
 

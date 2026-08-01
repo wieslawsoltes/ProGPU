@@ -78,6 +78,7 @@ internal static class ProgramEntry
             new BenchmarkCase("codec-frame-info-value", 100_000, RunCodecFrameInfoValue),
             new BenchmarkCase("encoder-descriptor-value", 100_000, RunEncoderDescriptorValue),
             new BenchmarkCase("backend-handle-info-value", 100_000, RunBackendHandleInfoValue),
+            new BenchmarkCase("vulkan-descriptor-value", 100_000, RunVulkanDescriptorValue),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -572,6 +573,63 @@ internal static class ProgramEntry
                 (framebuffer.Protected ? 1u << 1 : 0) |
                 (texture.Protected ? 1u : 0));
             checksum = Mix(checksum, (ulong)metal.TextureHandle.ToInt64());
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunVulkanDescriptorValue(int operations)
+    {
+        var conversion = new GRVkYcbcrConversionInfo
+        {
+            Format = 1000156003,
+            ExternalFormat = 17,
+            YcbcrModel = 1,
+            YcbcrRange = 2,
+            XChromaOffset = 3,
+            YChromaOffset = 4,
+            ChromaFilter = 5,
+            ForceExplicitReconstruction = 6,
+            Components = new GRVkYcbcrComponents { R = 1, G = 2, B = 3, A = 4 },
+        };
+        var image = new GRVkImageInfo
+        {
+            Image = 23,
+            Alloc = new GRVkAlloc
+            {
+                Memory = 29,
+                Size = 8192,
+                Offset = 512,
+                Flags = 3,
+                BackendMemory = (IntPtr)0x1234,
+            },
+            ImageTiling = 1,
+            ImageLayout = 2,
+            Format = 3,
+            ImageUsageFlags = 4,
+            SampleCount = 8,
+            LevelCount = 5,
+            CurrentQueueFamily = 6,
+            YcbcrConversionInfo = conversion,
+            SharingMode = 7,
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            conversion.SupportsLinearFilter = (index & 1) == 0;
+            conversion.SamplerFilterMustMatchChromaFilter = (index & 2) == 0;
+            image.Protected = (index & 4) == 0;
+            image.YcbcrConversionInfo = conversion;
+            var same = image;
+            same.SharingMode += (uint)(index & 1);
+            checksum = Mix(
+                checksum,
+                image.Image |
+                (ulong)image.CurrentQueueFamily << 32 |
+                (image.Equals(same) ? 1ul << 3 : 0) |
+                (image.Protected ? 1ul << 2 : 0) |
+                (conversion.SupportsLinearFilter ? 1ul << 1 : 0) |
+                (conversion.SamplerFilterMustMatchChromaFilter ? 1ul : 0));
         }
 
         return checksum;
