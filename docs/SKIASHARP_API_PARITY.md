@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,702 ProGPU
-entries, 3,503 exact matches, 719 missing entries, and 1,199 ProGPU-only
+The current pinned comparison records 4,222 official entries, 4,933 ProGPU
+entries, 3,756 exact matches, 466 missing entries, and 1,177 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -679,3 +679,78 @@ performance blocker for the final parity release: repeated immutable snapshots
 still need deferred/batched submission and shared copy-on-write texture
 ownership before ProGPU can meet the goal's matched native latency and
 allocation criterion.
+
+### Immutable image ownership and GPU subset checkpoint
+
+`SKImage`, `SKImageRasterReleaseDelegate`, and
+`SKImageTextureReleaseDelegate` now close all 65 missing entries in their
+official 4.151.0 contracts. The complete factory surface covers raster
+creation, immutable pixel copies, caller-owned pixmaps, encoded data and files,
+pictures, borrowed and adopted backend textures, recording contexts, color and
+alpha metadata, release callbacks, raster/texture conversion, filter
+application, shaders, and subsets. Caller pixel and texture release callbacks
+run exactly once with their original pointer/context. Encoded images retain an
+independent encoded snapshot. Raster `PeekPixels` materializes one stable
+pinned CPU view; a GPU-backed image does not silently claim a CPU pointer.
+
+Contained subsets use one typed WebGPU base-level rectangle copy with explicit
+source and destination origins. Raster provenance remains observable as raster
+and texture provenance remains observable as texture; texture-backed subsets
+require the matching recording context. Same-context texture conversion stays
+GPU-only and optionally generates mip levels. Cross-context conversion uses one
+explicit readback/upload boundary because WebGPU resources cannot be copied
+between devices. Filter application runs through ProGPU's retained WebGPU
+filter graph and clips its output to the caller's expected device bounds.
+Creation and wrapping validation are `O(1)` apart from required pixel ownership;
+pixel copies and cross-device transfers are `O(P)` time/storage; a subset is
+`O(1)` CPU encoding, `O(P)` GPU bandwidth, and one bounded destination texture.
+
+Independent tests cover stride-aware immutable copies, stable raster views,
+encoded ownership, exact-once raster/texture callbacks, borrowed versus adopted
+textures, contained GPU rectangle copies, invalid subsets, mip generation, and
+filtered output bounds. The focused image/surface suite passes 35 tests. The
+metadata verifier reports 4,222 official entries, 4,933 candidate entries,
+3,756 exact matches, 466 missing entries, and 1,177 documented extensions.
+The isolated package gate also produced the runtime and Avalonia 11/12
+integration packages in a fresh feed, then restored and built the package-only
+Avalonia consumer with zero warnings or errors.
+
+The clean-room architecture uses Skia's public
+[image contract](https://api.skia.org/classSkImage.html),
+[image factory contract](https://api.skia.org/namespaceSkImages.html), and
+[filter-bounds model](https://api.skia.org/classSkImageFilter.html), WebGPU's
+[texture-copy validation and ordering model](https://www.w3.org/TR/webgpu/#dom-gpucommandencoder-copytexturetotexture),
+Direct2D's
+[device-dependent bitmap model](https://learn.microsoft.com/windows/win32/direct2d/direct2d-bitmaps-overview),
+Win2D's
+[CanvasBitmap contract](https://learn.microsoft.com/uwp/api/microsoft.graphics.canvas.canvasbitmap),
+WebRender's
+[external-image and frame split](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and Vello's
+[explicit wgpu scene-to-texture pipeline](https://github.com/linebender/vello).
+The Skia/SkParagraph, DirectWrite/Direct2D, Win2D, WebRender, Vello/Parley,
+and HarfBuzz shaping/layout review recorded by the surface checkpoint remains
+unchanged: image ownership does not move Unicode/OpenType shaping onto the GPU.
+
+Three alternating Apple M3 Pro Release process pairs retained the exact native
+checksum for 32-by-32 subsets of a stable 64-by-64 image. Native raster
+copy-on-write measured `443.120` ns/op and `106.08` B/op; ProGPU's current
+immediate WebGPU rectangle-copy submission measured `38,778.335` ns/op and
+`722.08` B/op (`87.512` ratio). Matched Time Profiler captures measured
+`719.795` versus `45,462.915` ns/op, while matched Allocations captures measured
+`2,567.710` versus `75,184.580` ns/op with the same `106.08` versus `722.08`
+B/op. The installed Allocations template completed but exposed no exportable
+native allocation table, so the allocation statement uses the harness's
+per-thread counters and makes no unsupported native-heap claim. Metal System
+Trace measured `660.830` versus `46,685.000` ns/op and exported zero native
+Metal rows versus 6,429 ProGPU command-buffer submissions, 4,509
+`currentAllocatedSize` rows, and 268 resource-allocation rows. The raw traces,
+TOCs, exported Metal tables, and exact-run JSON are retained under
+`artifacts/performance/skiasharp-image-api-instruments`. Deferred/batched copy
+submission and shared immutable texture ownership remain mandatory before the
+final release can satisfy the goal's matched native latency/allocation gate.
+
+The benchmark workflow now installs the same Linux Vulkan prerequisites as the
+main build and resolves the packaged RID-native WebGPU directory on Linux,
+macOS, and Windows. This fixes the prior Ubuntu `libwgpu_native` loader failure
+without skipping the GPU workload or relaxing comparison evidence.

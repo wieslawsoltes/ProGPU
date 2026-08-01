@@ -25,6 +25,7 @@ internal static class ProgramEntry
 
     private static long s_sink;
     private static SKTypeface? s_variableTypeface;
+    private static readonly byte[] ImagePixels = CreateImagePixels();
 
     public static int Run(string[] args)
     {
@@ -91,6 +92,7 @@ internal static class ProgramEntry
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
+            new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
@@ -98,8 +100,17 @@ internal static class ProgramEntry
             new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
         };
-        var results = new List<BenchmarkCaseResult>(cases.Length);
-        foreach (var benchmark in cases)
+        var selectedCase = options.Optional("case");
+        var selectedCases = selectedCase is null
+            ? cases
+            : cases.Where(value => value.Name == selectedCase).ToArray();
+        if (selectedCases.Length == 0)
+        {
+            throw new ArgumentException($"Unknown benchmark case: {selectedCase}.");
+        }
+
+        var results = new List<BenchmarkCaseResult>(selectedCases.Length);
+        foreach (var benchmark in selectedCases)
         {
             for (var index = 0; index < warmupCount; index++)
                 Volatile.Write(ref s_sink, unchecked((long)benchmark.Body(benchmark.Operations)));
@@ -292,6 +303,38 @@ internal static class ProgramEntry
         }
 
         return checksum;
+    }
+
+    private static ulong RunImageBoundedSubset(int operations)
+    {
+        using var image = SKImage.FromPixelCopy(
+            new SKImageInfo(64, 64, SKColorType.Rgba8888, SKAlphaType.Premul),
+            ImagePixels);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = index & 15;
+            using var subset = image.Subset(
+                new SKRectI(offset, offset, offset + 32, offset + 32));
+            checksum = Mix(checksum, (uint)subset.Width);
+            checksum = Mix(checksum, (uint)subset.Height);
+        }
+
+        return checksum;
+    }
+
+    private static byte[] CreateImagePixels()
+    {
+        var pixels = new byte[64 * 64 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index] = 25;
+            pixels[index + 1] = 75;
+            pixels[index + 2] = 125;
+            pixels[index + 3] = 255;
+        }
+
+        return pixels;
     }
 
     private static ulong RunPointArithmetic(int operations)

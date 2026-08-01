@@ -526,7 +526,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 
     public SKImage Snapshot() => Snapshot(new SKRectI(0, 0, _width, _height));
 
-    public unsafe SKImage Snapshot(SKRectI bounds)
+    public SKImage Snapshot(SKRectI bounds)
     {
         if (_gpuTexture == null)
         {
@@ -552,41 +552,14 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
             alphaMode: _gpuTexture.AlphaMode
         );
 
-        var wgpu = _context!.Api;
-        var encoderDesc = new CommandEncoderDescriptor();
-        var encoder = wgpu.DeviceCreateCommandEncoder(_context!.Device, &encoderDesc);
-
-        var srcCopy = new ImageCopyTexture
-        {
-            Texture = _gpuTexture.TexturePtr,
-            MipLevel = 0,
-            Origin = new Origin3D { X = (uint)bounds.Left, Y = (uint)bounds.Top, Z = 0 },
-            Aspect = TextureAspect.All
-        };
-
-        var dstCopy = new ImageCopyTexture
-        {
-            Texture = snapshotTexture.TexturePtr,
-            MipLevel = 0,
-            Origin = new Origin3D { X = 0, Y = 0, Z = 0 },
-            Aspect = TextureAspect.All
-        };
-
-        var copySize = new Extent3D
-        {
-            Width = (uint)bounds.Width,
-            Height = (uint)bounds.Height,
-            DepthOrArrayLayers = 1
-        };
-
-        wgpu.CommandEncoderCopyTextureToTexture(encoder, &srcCopy, &dstCopy, &copySize);
-
-        var cmdDesc = new CommandBufferDescriptor();
-        var cmdBuffer = wgpu.CommandEncoderFinish(encoder, &cmdDesc);
-
-        wgpu.QueueSubmit(_context!.Queue, 1, &cmdBuffer);
-        wgpu.CommandBufferRelease(cmdBuffer);
-        wgpu.CommandEncoderRelease(encoder);
+        snapshotTexture.CopyBaseLevelRegionFrom(
+            _gpuTexture,
+            (uint)bounds.Left,
+            (uint)bounds.Top,
+            0,
+            0,
+            (uint)bounds.Width,
+            (uint)bounds.Height);
 
         return SKImage.FromOwnedTexture(
             snapshotTexture,

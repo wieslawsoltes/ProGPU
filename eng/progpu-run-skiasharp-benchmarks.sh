@@ -27,6 +27,41 @@ dotnet build "$progpu_project" --configuration Release
 
 native_dll="$repo_root/tools/ProGPU.SkiaSharp.Benchmarks.Native/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.Native.dll"
 progpu_dll="$repo_root/tools/ProGPU.SkiaSharp.Benchmarks/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.dll"
+progpu_output_dir="$(dirname "$progpu_dll")"
+machine_arch="$(uname -m)"
+case "$machine_arch" in
+  x86_64|amd64) runtime_arch="x64" ;;
+  arm64|aarch64) runtime_arch="arm64" ;;
+  *)
+    echo "Unsupported benchmark architecture: $machine_arch" >&2
+    exit 1
+    ;;
+esac
+
+case "$(uname -s)" in
+  Linux)
+    packaged_native_dir="$progpu_output_dir/runtimes/linux-$runtime_arch/native"
+    export LD_LIBRARY_PATH="$packaged_native_dir:${LD_LIBRARY_PATH:-}"
+    ;;
+  Darwin)
+    packaged_native_dir="$progpu_output_dir/runtimes/osx-$runtime_arch/native"
+    export DYLD_LIBRARY_PATH="$packaged_native_dir:${DYLD_LIBRARY_PATH:-}"
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    packaged_native_dir="$progpu_output_dir/runtimes/win-$runtime_arch/native"
+    export PATH="$packaged_native_dir:$PATH"
+    ;;
+  *)
+    echo "Unsupported benchmark operating system: $(uname -s)" >&2
+    exit 1
+    ;;
+esac
+
+if test ! -d "$packaged_native_dir"; then
+  echo "Packaged WebGPU runtime directory is missing: $packaged_native_dir" >&2
+  exit 1
+fi
+
 native_results=()
 progpu_results=()
 
