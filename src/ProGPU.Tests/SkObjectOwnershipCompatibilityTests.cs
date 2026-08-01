@@ -15,6 +15,12 @@ public sealed class SkObjectOwnershipCompatibilityTests
         Assert.Equal(typeof(SKObject), typeof(SKRegion.RectIterator).BaseType);
         Assert.Equal(typeof(SKObject), typeof(SKRegion.ClipIterator).BaseType);
         Assert.Equal(typeof(SKObject), typeof(SKRegion.SpanIterator).BaseType);
+        Assert.Equal(typeof(SKObject), typeof(SKPath.Iterator).BaseType);
+        Assert.Equal(typeof(SKObject), typeof(SKPath.RawIterator).BaseType);
+        Assert.Equal(typeof(SKObject), typeof(SKPath.OpBuilder).BaseType);
+        Assert.False(typeof(SKPath.Iterator).IsSealed);
+        Assert.False(typeof(SKPath.RawIterator).IsSealed);
+        Assert.False(typeof(SKPath.OpBuilder).IsSealed);
 
         var data = SKData.CreateCopy(new byte[] { 1 });
         var font = new SKFont();

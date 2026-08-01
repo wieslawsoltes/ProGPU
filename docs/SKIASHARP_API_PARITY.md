@@ -53,8 +53,8 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,135 ProGPU
-entries, 4,106 exact matches, 116 missing entries, and 1,029 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,144 ProGPU
+entries, 4,125 exact matches, 97 missing entries, and 1,019 ProGPU-only
 entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
@@ -86,7 +86,7 @@ Primary public contracts:
 
 ### Exact signatures and managed ownership hierarchy
 
-The current checkpoint closes 43 official metadata gaps without importing a
+The current checkpoint closes 62 official metadata gaps without importing a
 native ownership model. `SKData`, `SKFont`, `SKRegion`, its three iterators, and
 `SKPixmap` now participate in the shared `SKObject` lifetime contract. Data
 subsets still share one pinned reference-counted store, release callbacks still
@@ -107,8 +107,13 @@ iterator snapshots remain `O(R)` time/storage for `R` normalized rectangles.
 The public contract was derived only from the pinned official NuGet reference
 metadata. Independent focused tests cover exact parameter names, transparent
 and crop graph state, shared data ownership, disposed pixmap views, region
-operations/iterators, and font behavior. The exact metadata gate advances from
-4,063 to 4,106 matches and ratchets missing entries from 159 to 116. No shader,
+operations/iterators, and font behavior. Legacy path iterators and the path-
+operation builder are extensible `SKObject` instances with exact disposal
+overrides, while disposed temporary paths continue to preserve geometry already
+owned by retained commands. The shared `SKObject` disposal declarations,
+read-only public-disposal policy, and matrix equality parameter metadata also
+match the pinned contract. The exact metadata gate advances from 4,063 to 4,125
+matches and ratchets missing entries from 159 to 97. No shader,
 rendering algorithm, text-shaping boundary, cache policy, or GPU submission path
 changed, so the prior cross-engine rendering research and matched performance
 evidence remain applicable.

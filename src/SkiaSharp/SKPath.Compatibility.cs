@@ -1683,7 +1683,7 @@ public partial class SKPath
         }
     }
 
-    public sealed class RawIterator : SKObject
+    public class RawIterator : SKObject
     {
         private readonly List<IteratorOperation> _operations;
         private int _index;
@@ -1724,10 +1724,19 @@ public partial class SKPath
         public SKPathVerb Peek() =>
             _index < _operations.Count ? _operations[_index].Verb : SKPathVerb.Done;
 
-        protected override void DisposeManaged() => _operations.Clear();
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
+        {
+            _operations.Clear();
+            base.DisposeNative();
+        }
     }
 
-    public sealed class Iterator : SKObject
+    public class Iterator : SKObject
     {
         private readonly List<IteratorOperation> _operations;
         private int _index;
@@ -1775,7 +1784,16 @@ public partial class SKPath
             return operation.Verb;
         }
 
-        protected override void DisposeManaged() => _operations.Clear();
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
+        {
+            _operations.Clear();
+            base.DisposeNative();
+        }
 
         private static List<IteratorOperation> BuildIteratorOperations(SKPath path, bool forceClose)
         {
@@ -1845,7 +1863,7 @@ public partial class SKPath
         }
     }
 
-    public sealed class OpBuilder : SKObject
+    public class OpBuilder : SKObject
     {
         private SKPath? _result;
 
@@ -1854,7 +1872,7 @@ public partial class SKPath
         {
         }
 
-        public void Add(SKPath path, SKPathOp operation)
+        public void Add(SKPath path, SKPathOp op)
         {
             ArgumentNullException.ThrowIfNull(path);
             if (_result is null)
@@ -1863,7 +1881,7 @@ public partial class SKPath
                 return;
             }
 
-            var combined = _result.Op(path, operation);
+            var combined = _result.Op(path, op);
             _result.Dispose();
             _result = combined;
         }
@@ -1881,10 +1899,16 @@ public partial class SKPath
             return true;
         }
 
-        protected override void DisposeManaged()
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
+
+        protected override void DisposeNative()
         {
             _result?.Dispose();
             _result = null;
+            base.DisposeNative();
         }
     }
 

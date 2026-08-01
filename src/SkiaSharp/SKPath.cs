@@ -648,6 +648,16 @@ public partial class SKPath : SKObject
             ? SKPathFillType.EvenOdd
             : SKPathFillType.Winding;
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
 }
 
 public enum SKRoundRectCorner

@@ -472,23 +472,23 @@ public struct SKMatrix44 : IEquatable<SKMatrix44>
 
     public static SKMatrix44 Multiply(SKMatrix44 value1, float value2) => value1 * value2;
 
-    public readonly bool Equals(SKMatrix44 other) =>
-        _m00 == other._m00 &&
-        _m01 == other._m01 &&
-        _m02 == other._m02 &&
-        _m03 == other._m03 &&
-        _m10 == other._m10 &&
-        _m11 == other._m11 &&
-        _m12 == other._m12 &&
-        _m13 == other._m13 &&
-        _m20 == other._m20 &&
-        _m21 == other._m21 &&
-        _m22 == other._m22 &&
-        _m23 == other._m23 &&
-        _m30 == other._m30 &&
-        _m31 == other._m31 &&
-        _m32 == other._m32 &&
-        _m33 == other._m33;
+    public readonly bool Equals(SKMatrix44 obj) =>
+        _m00 == obj._m00 &&
+        _m01 == obj._m01 &&
+        _m02 == obj._m02 &&
+        _m03 == obj._m03 &&
+        _m10 == obj._m10 &&
+        _m11 == obj._m11 &&
+        _m12 == obj._m12 &&
+        _m13 == obj._m13 &&
+        _m20 == obj._m20 &&
+        _m21 == obj._m21 &&
+        _m22 == obj._m22 &&
+        _m23 == obj._m23 &&
+        _m30 == obj._m30 &&
+        _m31 == obj._m31 &&
+        _m32 == obj._m32 &&
+        _m33 == obj._m33;
 
     public override readonly bool Equals(object? obj) => obj is SKMatrix44 other && Equals(other);
 

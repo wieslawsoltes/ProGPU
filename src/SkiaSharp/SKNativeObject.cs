@@ -7,6 +7,7 @@ internal interface ISKSkipObjectRegistration
 public abstract class SKNativeObject : IDisposable
 {
     private int _disposed;
+    private bool _ignorePublicDispose;
 
     internal SKNativeObject(IntPtr handle)
         : this(handle, ownsHandle: true)
@@ -29,10 +30,10 @@ public abstract class SKNativeObject : IDisposable
 
     public virtual IntPtr Handle { get; protected set; }
     protected internal virtual bool OwnsHandle { get; protected set; }
-    protected internal bool IgnorePublicDispose { get; private set; }
+    protected internal bool IgnorePublicDispose => _ignorePublicDispose;
     protected internal bool IsDisposed => Volatile.Read(ref _disposed) == 1;
 
-    internal void PreventPublicDisposal() => IgnorePublicDispose = true;
+    internal void PreventPublicDisposal() => _ignorePublicDispose = true;
 
     protected virtual void DisposeUnownedManaged()
     {
@@ -98,5 +99,25 @@ public abstract class SKObject : SKNativeObject
     {
         get => base.Handle;
         protected set => base.Handle = value;
+    }
+
+    protected override void DisposeUnownedManaged()
+    {
+        base.DisposeUnownedManaged();
+    }
+
+    protected override void DisposeManaged()
+    {
+        base.DisposeManaged();
+    }
+
+    protected override void DisposeNative()
+    {
+        base.DisposeNative();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 }
