@@ -400,9 +400,9 @@ are in [`docs/progpu-packaging.md`](docs/progpu-packaging.md).
 
 ### [SkiaSharp Compatibility Shim](https://github.com/wieslawsoltes/ProGPU/tree/main/src/SkiaSharp)
 
-The shim provides a managed SkiaSharp 4.148-shaped API over ProGPU vector, text, imaging, path, and compositing primitives without loading native Skia binaries. Compatibility consumers such as Svg.Skia can use the ProGPU renderer while CPU-only metadata and geometry operations remain independent of WebGPU initialization.
+The shim provides a managed SkiaSharp-shaped API over ProGPU vector, text, imaging, path, and compositing primitives without loading native Skia binaries. Compatibility consumers such as Svg.Skia can use the ProGPU renderer while CPU-only metadata and geometry operations remain independent of WebGPU initialization. The automated parity gate pins the current stable SkiaSharp 4.151.0 reference metadata and ratchets exact matches as missing surface is implemented.
 
-Detailed API coverage, rendering behavior, algorithms, and complexity guarantees are maintained in the [SkiaSharp compatibility log](docs/skiasharp-compatibility-log.md).
+The [API parity report](docs/SKIASHARP_API_PARITY.md) records the exact metadata baseline and continuation order. Detailed rendering behavior, algorithms, and complexity guarantees remain in the [SkiaSharp compatibility log](docs/skiasharp-compatibility-log.md).
 
 | Package | Purpose | NuGet |
 | --- | --- | --- |

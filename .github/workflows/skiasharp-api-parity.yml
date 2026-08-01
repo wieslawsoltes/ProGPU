@@ -1,0 +1,55 @@
+name: SkiaSharp API parity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/SkiaSharp/**
+      - tools/ProGPU.SkiaSharp.ApiParity/**
+      - tools/ProGPU.WinUI.ApiParity/MetadataApiSurface.cs
+      - tools/ProGPU.WinUI.ApiParity/MetadataApiSurfaceSelfTests.cs
+      - eng/skiasharp-api-baseline.json
+      - eng/progpu-verify-skiasharp-api.sh
+      - .github/workflows/skiasharp-api-parity.yml
+  push:
+    branches:
+      - main
+    paths:
+      - src/SkiaSharp/**
+      - tools/ProGPU.SkiaSharp.ApiParity/**
+      - tools/ProGPU.WinUI.ApiParity/MetadataApiSurface.cs
+      - tools/ProGPU.WinUI.ApiParity/MetadataApiSurfaceSelfTests.cs
+      - eng/skiasharp-api-baseline.json
+      - eng/progpu-verify-skiasharp-api.sh
+      - .github/workflows/skiasharp-api-parity.yml
+
+permissions:
+  contents: read
+
+jobs:
+  api-parity:
+    name: Compare official SkiaSharp metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Compare official metadata
+        run: ./eng/progpu-verify-skiasharp-api.sh
+
+      - name: Upload API parity report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skiasharp-api-parity-${{ github.sha }}
+          path: artifacts/skiasharp-api/**
+          if-no-files-found: error

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "packageId": "SkiaSharp",
+    "packageVersion": "4.151.0",
+    "packageUri": "https://api.nuget.org/v3-flatcontainer/skiasharp/4.151.0/skiasharp.4.151.0.nupkg",
+    "packageSha512": "FpdAID9+x280smmyphTpuHUBp38xHmRPeDZIQkVepoHYXDpYGTj+G8tyfO5KcCijFlJARnwV4AhyXe728dg/jw==",
+    "asset": {
+      "packagePath": "ref/net10.0/SkiaSharp.dll",
+      "outputName": "SkiaSharp.Official.dll",
+      "role": "authoritative net10.0 public reference metadata"
+    }
+  },
+  "namespacePrefixes": [
+    "SkiaSharp"
+  ],
+  "regressionBudget": {
+    "maximumMissingEntries": 1095,
+    "minimumMatchingEntries": 3127
+  }
+}

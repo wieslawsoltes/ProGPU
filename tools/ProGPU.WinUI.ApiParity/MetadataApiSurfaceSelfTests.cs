@@ -364,7 +364,7 @@ internal static class MetadataApiSurfaceSelfTests
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, accessor metadata, layout, params, generic constraints, and method/property/event dispatch flags.");
+            "API metadata owner self-test passed for overload owners, semantic attributes, accessor metadata, layout, params, generic constraints, and method/property/event dispatch flags.");
         return 0;
     }
 
