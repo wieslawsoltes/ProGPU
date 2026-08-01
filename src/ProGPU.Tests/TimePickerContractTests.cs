@@ -184,7 +184,15 @@ public sealed class TimePickerContractTests
 
         Assert.Throws<ArgumentException>(() =>
             picker.Resources["Clock"] = "GregorianCalendar");
-        Assert.Equal("24HourClock", picker.ClockIdentifier);
+        Assert.Equal(
+            "24HourClock",
+            ReadResolvedLayer(
+                picker,
+                "_styleValues",
+                TimePicker.ClockIdentifierProperty));
+
+        picker.Resources["Clock"] = "12HourClock";
+        Assert.Equal("12HourClock", picker.ClockIdentifier);
     }
 
     [Fact]
@@ -211,13 +219,41 @@ public sealed class TimePickerContractTests
         styleResources["StyleClock"] = "GregorianCalendar";
 
         Assert.Throws<ArgumentException>(picker.ReevaluateThemeResources);
-        Assert.Equal("12HourClock", picker.ClockIdentifier);
+        Assert.Equal(
+            "12HourClock",
+            ReadResolvedLayer(
+                picker,
+                "_localValues",
+                TimePicker.ClockIdentifierProperty));
+        Assert.Equal(
+            "24HourClock",
+            ReadResolvedLayer(
+                picker,
+                "_styleValues",
+                TimePicker.ClockIdentifierProperty));
 
-        // Replacing the lower-precedence style layer recomputes the effective
-        // value from the retained local layer and exposes any partial commit.
+        styleResources["StyleClock"] = "24HourClock";
+        Assert.Equal("24HourClock", picker.ClockIdentifier);
+    }
+
+    [Fact]
+    public void RejectedThemeReevaluationRemainsDirtyUntilResourceRecovery()
+    {
+        var resources = new ResourceDictionary
+        {
+            ["Clock"] = "24HourClock"
+        };
+        var picker = new TimePicker();
         picker.SetStyleValue(
             TimePicker.ClockIdentifierProperty,
-            "24HourClock");
+            new ThemeResource(resources, "Clock"));
+        Assert.Equal("24HourClock", picker.ClockIdentifier);
+
+        resources["Clock"] = "GregorianCalendar";
+        Assert.Throws<ArgumentException>(
+            picker.ReevaluateThemeResources);
+
+        resources["Clock"] = "12HourClock";
         Assert.Equal("12HourClock", picker.ClockIdentifier);
     }
 
@@ -277,6 +313,21 @@ public sealed class TimePickerContractTests
         AssertOfficialContract(typeof(TimePicker));
         AssertOfficialContract(typeof(TimePickerValueChangedEventArgs));
         AssertOfficialContract(typeof(TimePickerSelectedValueChangedEventArgs));
+    }
+
+    private static object? ReadResolvedLayer(
+        DependencyObject target,
+        string fieldName,
+        DependencyProperty property)
+    {
+        var values = Assert.IsType<object?[]>(
+            typeof(DependencyObject)
+                .GetField(
+                    fieldName,
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic)!
+                .GetValue(target));
+        return values[property.Index];
     }
 
     [Fact]

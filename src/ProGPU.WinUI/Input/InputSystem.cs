@@ -560,9 +560,30 @@ public static class InputSystem
             IsLeftButtonPressed = left,
             IsMiddleButtonPressed = middle,
             IsRightButtonPressed = right,
-            Pressure = left ? 0.5f : 0f
+            Pressure = left ? 0.5f : 0f,
+            UpdateKind = GetMouseUpdateKind(kind, button)
         };
     }
+
+    private static Microsoft.UI.Input.PointerUpdateKind GetMouseUpdateKind(
+        PointerInputKind kind,
+        MouseButton button) =>
+        (kind, button) switch
+        {
+            (PointerInputKind.Pressed, MouseButton.Left) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed,
+            (PointerInputKind.Released, MouseButton.Left) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased,
+            (PointerInputKind.Pressed, MouseButton.Right) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed,
+            (PointerInputKind.Released, MouseButton.Right) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased,
+            (PointerInputKind.Pressed, MouseButton.Middle) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed,
+            (PointerInputKind.Released, MouseButton.Middle) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased,
+            _ => Microsoft.UI.Input.PointerUpdateKind.Other
+        };
 
     private static VirtualKeyModifiers GetCurrentModifiers()
     {

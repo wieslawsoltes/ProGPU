@@ -266,8 +266,16 @@ public sealed class PointerPoint
             Properties.WithContactRect(
                 transformedContactRect);
         var transformed = new Vector2((float)transformedPosition.X, (float)transformedPosition.Y);
-        return new PointerPoint(PointerId, Timestamp, transformed, transformed,
-            PointerDevice.PointerDeviceType, PointerDeviceType, IsInContact, transformedProperties);
+        return new PointerPoint(
+            PointerId,
+            FrameId,
+            Timestamp,
+            transformed,
+            transformed,
+            PointerDevice,
+            PointerDeviceType,
+            IsInContact,
+            transformedProperties);
     }
 
     internal PointerPoint WithPrediction(
@@ -307,13 +315,20 @@ public sealed class PointerPoint
                     input.IsMiddleButtonPressed,
                 isRightButtonPressed:
                     input.IsRightButtonPressed,
+                isHorizontalMouseWheel:
+                    input.WheelDeltaX != 0f &&
+                    input.WheelDeltaY == 0f,
                 isPrimary: input.IsPrimary,
                 isCanceled:
                     input.Kind ==
                     PointerInputKind.Canceled,
                 pressure: input.Pressure,
+                pointerUpdateKind:
+                    input.UpdateKind,
                 mouseWheelDelta:
-                    (int)input.WheelDeltaY));
+                    (int)(input.WheelDeltaY != 0f
+                        ? input.WheelDeltaY
+                        : input.WheelDeltaX)));
 }
 
 [ContractVersion(
@@ -796,5 +811,7 @@ public readonly record struct PointerInputEvent(
     float WheelDeltaX = 0f,
     float WheelDeltaY = 0f,
     bool IsPreciseWheel = false,
-    VirtualKeyModifiers Modifiers = VirtualKeyModifiers.None);
+    VirtualKeyModifiers Modifiers = VirtualKeyModifiers.None,
+    Microsoft.UI.Input.PointerUpdateKind UpdateKind =
+        Microsoft.UI.Input.PointerUpdateKind.Other);
 }

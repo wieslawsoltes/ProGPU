@@ -297,6 +297,55 @@ public sealed class GestureRecognizerTests
     }
 
     [Fact]
+    public void PointerPointTransformPreservesPredictedFrameIdentity()
+    {
+        PointerPoint current = Point(13, 4, 6, 100, true);
+        PointerPoint predicted = current.WithPrediction(
+            250,
+            new System.Numerics.Vector2(8, 9),
+            current.Properties);
+
+        PointerPoint? transformed = predicted.GetTransformedPoint(
+            new OffsetTransform(10, 20));
+
+        Assert.NotNull(transformed);
+        Assert.Equal(current.FrameId, predicted.FrameId);
+        Assert.Equal(predicted.FrameId, transformed!.FrameId);
+        Assert.Equal(250ul, transformed.Timestamp);
+    }
+
+    [Fact]
+    public void PointerInputSnapshotsPreserveWheelAxisAndButtonTransition()
+    {
+        PointerPoint horizontal = PointerPoint.FromInput(
+            new Microsoft.UI.Xaml.Input.PointerInputEvent(
+                Microsoft.UI.Xaml.Input.PointerInputKind.Wheel,
+                7,
+                NativePointerDeviceType.Mouse,
+                new System.Numerics.Vector2(10, 20),
+                100,
+                WheelDeltaX: -13));
+        Assert.True(
+            horizontal.Properties.IsHorizontalMouseWheel);
+        Assert.Equal(
+            -13,
+            horizontal.Properties.MouseWheelDelta);
+
+        PointerPoint released = PointerPoint.FromInput(
+            new Microsoft.UI.Xaml.Input.PointerInputEvent(
+                Microsoft.UI.Xaml.Input.PointerInputKind.Released,
+                7,
+                NativePointerDeviceType.Mouse,
+                new System.Numerics.Vector2(10, 20),
+                101,
+                UpdateKind:
+                    PointerUpdateKind.RightButtonReleased));
+        Assert.Equal(
+            PointerUpdateKind.RightButtonReleased,
+            released.Properties.PointerUpdateKind);
+    }
+
+    [Fact]
     public void PointerPointPropertiesAreImmutableTypedSnapshots()
     {
         var properties = new PointerPointProperties(

@@ -1930,8 +1930,38 @@ public class ProGpuHostControl : Control
             IsMiddleButtonPressed: properties.IsMiddleButtonPressed,
             IsRightButtonPressed: properties.IsRightButtonPressed,
             Pressure: deviceType == PointerDeviceType.Mouse ? (properties.IsLeftButtonPressed ? 0.5f : 0f) : 1f,
-            Modifiers: modifiers);
+            Modifiers: modifiers,
+            UpdateKind: ConvertPointerUpdateKind(
+                properties.PointerUpdateKind));
     }
+
+    private static Microsoft.UI.Input.PointerUpdateKind
+        ConvertPointerUpdateKind(
+            global::Avalonia.Input.PointerUpdateKind kind) =>
+        kind switch
+        {
+            global::Avalonia.Input.PointerUpdateKind.LeftButtonPressed =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed,
+            global::Avalonia.Input.PointerUpdateKind.LeftButtonReleased =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased,
+            global::Avalonia.Input.PointerUpdateKind.RightButtonPressed =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed,
+            global::Avalonia.Input.PointerUpdateKind.RightButtonReleased =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased,
+            global::Avalonia.Input.PointerUpdateKind.MiddleButtonPressed =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed,
+            global::Avalonia.Input.PointerUpdateKind.MiddleButtonReleased =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased,
+            global::Avalonia.Input.PointerUpdateKind.XButton1Pressed =>
+                Microsoft.UI.Input.PointerUpdateKind.XButton1Pressed,
+            global::Avalonia.Input.PointerUpdateKind.XButton1Released =>
+                Microsoft.UI.Input.PointerUpdateKind.XButton1Released,
+            global::Avalonia.Input.PointerUpdateKind.XButton2Pressed =>
+                Microsoft.UI.Input.PointerUpdateKind.XButton2Pressed,
+            global::Avalonia.Input.PointerUpdateKind.XButton2Released =>
+                Microsoft.UI.Input.PointerUpdateKind.XButton2Released,
+            _ => Microsoft.UI.Input.PointerUpdateKind.Other
+        };
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

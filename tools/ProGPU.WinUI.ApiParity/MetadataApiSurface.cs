@@ -331,21 +331,155 @@ internal sealed record MetadataApiSurface(
             provider,
             GenericContext.Empty);
         var propertyName = reader.GetString(property.Name);
+        var propertyOwner =
+            $"{typeName}.{propertyName}" +
+            $"({string.Join(",", signature.ParameterTypes)})->" +
+            signature.ReturnType;
         entries.Add(
             $"property|{typeName}|access={access};type={signature.ReturnType};" +
             $"name={propertyName};index=({string.Join(",", signature.ParameterTypes)});" +
             $"get={GetAccessorAccess(reader, accessors.Getter)};" +
             $"set={GetAccessorAccess(reader, accessors.Setter)};" +
             FormatAccessorFlags(reader, "get", accessors.Getter) + ";" +
-            FormatAccessorFlags(reader, "set", accessors.Setter));
+            FormatAccessorFlags(reader, "set", accessors.Setter) + ";" +
+            $"getmetadata={FormatPropertyAccessorMetadata(reader, provider, accessors.Getter)};" +
+            $"setmetadata={FormatPropertyAccessorMetadata(reader, provider, accessors.Setter)}");
         AddAttributes(
             reader,
             formatter,
-            $"{typeName}.{propertyName}" +
-            $"({string.Join(",", signature.ParameterTypes)})->" +
-            signature.ReturnType,
+            propertyOwner,
             property.GetCustomAttributes(),
             entries);
+        AddPropertyAccessorAttributes(
+            reader,
+            formatter,
+            provider,
+            propertyOwner,
+            "get",
+            accessors.Getter,
+            entries);
+        AddPropertyAccessorAttributes(
+            reader,
+            formatter,
+            provider,
+            propertyOwner,
+            "set",
+            accessors.Setter,
+            entries);
+    }
+
+    private static string FormatPropertyAccessorMetadata(
+        MetadataReader reader,
+        CanonicalSignatureProvider provider,
+        MethodDefinitionHandle handle)
+    {
+        if (handle.IsNil)
+            return "-";
+
+        MethodDefinition method = reader.GetMethodDefinition(handle);
+        if (!IsExternallyVisible(method.Attributes))
+            return "nonpublic";
+        MethodSignature<string> signature = method.DecodeSignature(
+            provider,
+            GenericContext.Empty);
+        Parameter[] definitions = method.GetParameters()
+            .Select(reader.GetParameter)
+            .OrderBy(parameter => parameter.SequenceNumber)
+            .ToArray();
+        Parameter? returnDefinition = definitions
+            .Where(parameter => parameter.SequenceNumber == 0)
+            .Select(static parameter => (Parameter?)parameter)
+            .FirstOrDefault();
+        string returnMetadata = FormatAccessorParameterMetadata(
+            reader,
+            returnDefinition,
+            signature.ReturnType,
+            "return");
+        var parameters = new string[signature.ParameterTypes.Length];
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            int sequence = index + 1;
+            Parameter? definition = definitions
+                .Where(parameter =>
+                    parameter.SequenceNumber == sequence)
+                .Select(static parameter => (Parameter?)parameter)
+                .FirstOrDefault();
+            parameters[index] = FormatAccessorParameterMetadata(
+                reader,
+                definition,
+                signature.ParameterTypes[index],
+                $"arg{index}");
+        }
+        return $"return=({returnMetadata}),params=({string.Join(",", parameters)})";
+    }
+
+    private static string FormatAccessorParameterMetadata(
+        MetadataReader reader,
+        Parameter? definition,
+        string type,
+        string fallbackName)
+    {
+        if (definition is not Parameter parameter)
+            return $"-:{type}:{fallbackName}:-";
+
+        string name = reader.GetString(parameter.Name);
+        return $"{FormatParameterAttributes(parameter.Attributes)}:" +
+            $"{type}:{name}:{FormatConstant(reader, parameter.GetDefaultValue())}";
+    }
+
+    private static void AddPropertyAccessorAttributes(
+        MetadataReader reader,
+        MetadataNameFormatter formatter,
+        CanonicalSignatureProvider provider,
+        string propertyOwner,
+        string accessorKind,
+        MethodDefinitionHandle handle,
+        ISet<string> entries)
+    {
+        if (handle.IsNil)
+            return;
+
+        MethodDefinition method = reader.GetMethodDefinition(handle);
+        if (!IsExternallyVisible(method.Attributes))
+            return;
+        MethodSignature<string> signature = method.DecodeSignature(
+            provider,
+            GenericContext.Empty);
+        string accessorOwner = $"{propertyOwner}.{accessorKind}";
+        AddAttributes(
+            reader,
+            formatter,
+            accessorOwner,
+            method.GetCustomAttributes(),
+            entries);
+        foreach (Parameter parameter in method.GetParameters()
+                     .Select(reader.GetParameter)
+                     .OrderBy(parameter => parameter.SequenceNumber))
+        {
+            int sequence = parameter.SequenceNumber;
+            string name = reader.GetString(parameter.Name);
+            string parameterOwner;
+            if (sequence == 0)
+            {
+                parameterOwner =
+                    $"{accessorOwner}.return({signature.ReturnType}:{name})";
+            }
+            else
+            {
+                int index = sequence - 1;
+                string parameterType = index < signature.ParameterTypes.Length
+                    ? signature.ParameterTypes[index]
+                    : "-";
+                parameterOwner =
+                    $"{accessorOwner}.parameter[{index}]({parameterType}:{name})";
+            }
+            AddAttributes(
+                reader,
+                formatter,
+                parameterOwner,
+                parameter.GetCustomAttributes(),
+                entries);
+        }
     }
 
     private static string FormatAccessorFlags(

@@ -221,8 +221,29 @@ public static partial class BrowserInputDispatcher
             right,
             pressure,
             new Rect(position.X - width * 0.5f, position.Y - height * 0.5f, Math.Max(0, width), Math.Max(0, height)),
-            Modifiers: ReadModifiers(unchecked((uint)modifiers)));
+            Modifiers: ReadModifiers(unchecked((uint)modifiers)),
+            UpdateKind: GetPointerUpdateKind(inputKind, button));
     }
+
+    private static Microsoft.UI.Input.PointerUpdateKind GetPointerUpdateKind(
+        PointerInputKind kind,
+        int button) =>
+        (kind, button) switch
+        {
+            (PointerInputKind.Pressed, 0) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed,
+            (PointerInputKind.Released, 0) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased,
+            (PointerInputKind.Pressed, 2) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed,
+            (PointerInputKind.Released, 2) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased,
+            (PointerInputKind.Pressed, 1) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed,
+            (PointerInputKind.Released, 1) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased,
+            _ => Microsoft.UI.Input.PointerUpdateKind.Other
+        };
 
     private static ulong ToMicroseconds(double timestampMilliseconds) =>
         (ulong)Math.Max(0d, timestampMilliseconds * 1000d);

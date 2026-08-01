@@ -49,7 +49,9 @@ internal static class MetadataApiSurfaceSelfTests
             .Where(static entry =>
                 entry.StartsWith(
                     "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Item(",
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) &&
+                !entry.Contains(".get.", StringComparison.Ordinal) &&
+                !entry.Contains(".set.", StringComparison.Ordinal))
             .Select(GetOwner)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -97,6 +99,42 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.Contains("addnewslot=True", StringComparison.Ordinal) &&
                 entry.Contains("removevirtual=True", StringComparison.Ordinal) &&
                 entry.Contains("removenewslot=True", StringComparison.Ordinal));
+        bool accessorMethodAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.AccessorMetadata()->System.Int32.get|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "ContractMarkerAttribute",
+                    StringComparison.Ordinal));
+        bool accessorReturnAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.AccessorMetadata()->System.Int32.get.return(",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "ParameterContractMarkerAttribute",
+                    StringComparison.Ordinal));
+        bool indexerParameterAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Item(System.Int32)->System.Int32.get.parameter[0](System.Int32:index)|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "ParameterContractMarkerAttribute",
+                    StringComparison.Ordinal));
+        bool indexerParameterMetadata = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "property|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=Item;index=(System.Int32);", StringComparison.Ordinal) &&
+                entry.Contains(
+                    "getmetadata=return=(",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    ":System.Int32:index:-",
+                    StringComparison.Ordinal));
 
         if (attributeOwners.Length != 2 ||
             genericOwners.Length != 2 ||
@@ -107,7 +145,11 @@ internal static class MetadataApiSurfaceSelfTests
             !virtualPropertyFlags ||
             !virtualMethodFlags ||
             !staticEventFlags ||
-            !virtualEventFlags)
+            !virtualEventFlags ||
+            !accessorMethodAttribute ||
+            !accessorReturnAttribute ||
+            !indexerParameterAttribute ||
+            !indexerParameterMetadata)
         {
             throw new InvalidOperationException(
                 "Method, parameter, params, and property attributes plus generic constraints must retain their complete overload owner signature. " +
@@ -118,11 +160,15 @@ internal static class MetadataApiSurfaceSelfTests
                 $"virtualPropertyFlags={virtualPropertyFlags}, " +
                 $"virtualMethodFlags={virtualMethodFlags}, " +
                 $"staticEventFlags={staticEventFlags}, " +
-                $"virtualEventFlags={virtualEventFlags}.");
+                $"virtualEventFlags={virtualEventFlags}, " +
+                $"accessorMethodAttribute={accessorMethodAttribute}, " +
+                $"accessorReturnAttribute={accessorReturnAttribute}, " +
+                $"indexerParameterAttribute={indexerParameterAttribute}, " +
+                $"indexerParameterMetadata={indexerParameterMetadata}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, params, generic constraints, and method/property/event dispatch flags.");
+            "WinUI API metadata owner self-test passed for overload owners, semantic attributes, accessor metadata, params, generic constraints, and method/property/event dispatch flags.");
         return 0;
     }
 
@@ -142,7 +188,9 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public string Identity { get; } = identity;
     }
 
-    [AttributeUsage(AttributeTargets.Parameter)]
+    [AttributeUsage(
+        AttributeTargets.Parameter |
+        AttributeTargets.ReturnValue)]
     public sealed class ParameterContractMarkerAttribute(string identity) : Attribute
     {
         public string Identity { get; } = identity;
@@ -159,7 +207,9 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public void Collect(params int[] values) => _ = values;
 
         [ContractMarker("integer-index")]
-        public int this[int index] => index;
+        public int this[
+            [ParameterContractMarker("integer-index-parameter")]
+            int index] => index;
 
         [ContractMarker("text-index")]
         public int this[string index] => index.Length;
@@ -167,6 +217,15 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public static int StaticValue { get; set; }
 
         public virtual int VirtualValue { get; set; }
+
+        public int AccessorMetadata
+        {
+            [ContractMarker("getter")]
+            [return: ParameterContractMarker("getter-return")]
+            get => 0;
+            [ContractMarker("setter")]
+            set => _ = value;
+        }
 
         public virtual void VirtualDispatch()
         {

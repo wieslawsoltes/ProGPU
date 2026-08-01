@@ -61,11 +61,14 @@ a canonical owner identity containing the declaring type, method name, generic
 arity, complete parameter types, return type, and parameter sequence/type/name,
 so overloads and `params` contracts cannot collapse into one declaration. The
 same identity rule includes a property's return and complete index-parameter
-types, so overloaded indexer attributes cannot collapse or move silently. The
-command-line gate runs an isolated metadata self-test before comparison and
-proves that method/parameter/property attributes, method/property/event
-dispatch flags, `params`, overloaded indexers, and constrained generic
-overloads remain distinct.
+types, so overloaded indexer attributes cannot collapse or move silently.
+Getter/setter method attributes and their return/index/value parameter flags,
+types, names, defaults, and semantic attributes are keyed beneath that full
+property identity. The command-line gate runs an isolated metadata self-test
+before comparison and proves that method/parameter/property/accessor
+attributes, accessor parameter metadata, method/property/event dispatch flags,
+`params`, overloaded indexers, and constrained generic overloads remain
+distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -577,7 +580,10 @@ Adopted: `PointerPointProperties` is an immutable public snapshot whose 21
 properties are getter-only, and pointer points preserve that snapshot along
 with frame, pointer, timestamp, position, device, and contact state.
 Transformed points create one new snapshot with transformed contact bounds
-while retaining every remaining input property.
+while retaining every remaining input property, original frame identifier,
+and device identity. Horizontal-only wheel input retains its horizontal flag
+and delta, and mouse press/release snapshots retain the exact changed-button
+`PointerUpdateKind` supplied by the platform bridge.
 
 Adapted for ProGPU's typed input pipeline: hosts and routed input construct the
 snapshot through one internal value-only constructor. There are no public or
@@ -590,7 +596,8 @@ performs 100,000 reads across boolean, integer, floating-point, and rectangle
 properties with exactly zero managed allocations.
 
 Focused tests cover getter-only reflection metadata, all property values,
-transformed position/contact bounds and retained identity metadata, defaults,
+horizontal wheel and changed-button snapshots, transformed predicted-point
+position/contact bounds and retained frame/device identity metadata, defaults,
 contract versions, and the allocation invariant. The slice adds five
 contract declarations and converts 21 mismatched setter-bearing candidate
 identities into exact getter-only matches. The official comparison advances
@@ -1861,7 +1868,8 @@ nullable synchronization and reset, transactional validation for local,
 style, default-style, animation, and theme-resource dependency-property
 sources, atomic rollback when multiple theme-resource precedence layers are
 reevaluated together, preservation of the prior local/effective clock value
-after rejected assignments, the two official clock identifiers,
+after rejected assignments, dirty-state retry after an external resource is
+corrected, the two official clock identifiers,
 exact public metadata shape, and zero managed allocations across 100,000 warmed
 identifier reads. No Microsoft or foreign implementation source or method
 body was inspected, copied, or adapted.
@@ -1893,10 +1901,13 @@ Dependency-property validation now runs on converted values before mutation
 for local, style, default-style, animation, and theme-resource reevaluation
 sources. Every theme-resource precedence-layer candidate for one property is
 staged and validated before any retained layer is committed. Automation event
-helpers route through `EventsSource`. These changes advance the final pinned
-report to 8,980 candidate entries, 5,229 exact matches, 11,350 missing entries,
-and 3,751 extras. The monotonic budget is ratcheted to those exact matching and
-missing counts.
+helpers route through `EventsSource`. A rejected theme-resource reevaluation
+keeps the object dirty so correcting an external lookup root is retried by the
+next value read. Pointer snapshots now preserve horizontal wheel deltas,
+changed mouse-button metadata, and predicted frame identifiers across
+transforms. These changes advance the final pinned report to 8,981 candidate
+entries, 5,229 exact matches, 11,350 missing entries, and 3,752 extras. The
+monotonic budget is ratcheted to those exact matching and missing counts.
 
 ## Preview.32 parity handoff
 

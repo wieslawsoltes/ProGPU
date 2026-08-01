@@ -500,7 +500,19 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
     public void ReevaluateThemeResources()
     {
         _isThemeDirty = false;
-        
+        try
+        {
+            ReevaluateThemeResourcesCore();
+        }
+        catch
+        {
+            _isThemeDirty = true;
+            throw;
+        }
+    }
+
+    private void ReevaluateThemeResourcesCore()
+    {
         ElementTheme activeTheme = ElementTheme.Dark;
         VisualThemeFamily activeFamily = VisualThemeFamily.WinUI;
         if (this is FrameworkElement fe)
