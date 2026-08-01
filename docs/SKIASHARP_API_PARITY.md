@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,436 ProGPU
-entries, 3,205 exact matches, 1,017 missing entries, and 1,231 ProGPU-only
-entries. The missing surface comprises 67 type identities, 20 fields, 22
-interfaces, 604 methods, 129 properties, and 175 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,471 ProGPU
+entries, 3,240 exact matches, 982 missing entries, and 1,231 ProGPU-only
+entries. The missing surface comprises 66 type identities, 19 fields, 21
+interfaces, 595 methods, 120 properties, and 161 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -231,3 +231,30 @@ follows the public
 [StringUtilities contract](https://learn.microsoft.com/dotnet/api/skiasharp.stringutilities),
 [Unicode encoding forms](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/),
 and [.NET Encoding contract](https://learn.microsoft.com/dotnet/api/system.text.encoding).
+
+### Color-space chromaticity primaries
+
+`SKColorSpacePrimaries` now matches all 35 entries in the 4.151.0 metadata
+contract. Eight mutable inline floats retain the red, green, blue, and white
+chromaticities; constructors and the public `Values` snapshot preserve caller
+ownership. Conversion solves one homogeneous 3x3 primary matrix and applies
+Bradford chromatic adaptation into the ICC D50 profile-connection space. The
+general conversion is fixed `O(1)` CPU work with no heap allocation or WebGPU
+initialization. Degenerate matrices and non-finite or out-of-unit coordinates
+fail transactionally with an empty result.
+
+The common sRGB and Display P3/D65 combinations use immutable matrices computed
+from the same public chromaticities and D50 model. This keeps the dominant path
+at fixed comparisons plus one inline struct copy without weakening arbitrary
+gamut support. Independent tests cover value ownership, every mutable scalar,
+equality, invalid and degenerate inputs, a zero-y boundary primary, and sRGB/P3
+conversion. Three alternating Apple M3 Pro Release process pairs retained exact
+semantic checksums and zero managed allocations: the common-gamut workload
+measured `0.172` ProGPU/native (`6.001` versus `34.830` ns/op). Matched Time
+Profiler and Allocations captures from the same binaries measured `5.904`–
+`6.022` versus `33.791`–`33.861` ns/op with the same checksum and zero bytes per
+operation. The clean-room design follows the public
+[SkiaSharp primaries contract](https://learn.microsoft.com/dotnet/api/skiasharp.skcolorspaceprimaries),
+[Skia public color-space contract](https://skia.googlesource.com/skia/+/fc75b5a/include/core/SkColorSpace.h),
+and the
+[ICC.1:2022 D50/Bradford model](https://www.color.org/specifications/ICC.1-2022-05.pdf).

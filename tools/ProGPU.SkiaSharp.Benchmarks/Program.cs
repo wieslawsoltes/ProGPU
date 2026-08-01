@@ -74,6 +74,7 @@ internal static class ProgramEntry
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
+            new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -467,6 +468,33 @@ internal static class ProgramEntry
                 (uint)bytes.Length << 16 |
                 (uint)decoded[0] << 8 |
                 decoded[^1]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunColorPrimariesToD50(int operations)
+    {
+        var srgb = new SKColorSpacePrimaries(
+            0.64f, 0.33f,
+            0.30f, 0.60f,
+            0.15f, 0.06f,
+            0.3127f, 0.3290f);
+        var displayP3 = new SKColorSpacePrimaries(
+            0.68f, 0.32f,
+            0.265f, 0.69f,
+            0.15f, 0.06f,
+            0.3127f, 0.3290f);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var primaries = (index & 1) == 0 ? srgb : displayP3;
+            if (!primaries.ToColorSpaceXyz(out var matrix))
+                throw new InvalidOperationException("Valid color primaries failed conversion.");
+            checksum = Mix(
+                checksum,
+                (ulong)(uint)MathF.Round(matrix[0, 0] * 100_000f) << 32 |
+                (uint)MathF.Round(matrix[1, 1] * 100_000f));
         }
 
         return checksum;
