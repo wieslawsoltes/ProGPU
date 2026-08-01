@@ -6,6 +6,13 @@ namespace ProGPU.Tests;
 
 public sealed class SkPMColorCompatibilityTests
 {
+    private static bool UsesRgbaLayout =>
+        OperatingSystem.IsMacOS() ||
+        OperatingSystem.IsIOS() ||
+        OperatingSystem.IsMacCatalyst() ||
+        OperatingSystem.IsTvOS() ||
+        OperatingSystem.IsBrowser();
+
     [Fact]
     public void PackedValueChannelsEqualityAndFormattingMatchContract()
     {
@@ -13,24 +20,24 @@ public sealed class SkPMColorCompatibilityTests
 
         Assert.Equal(4, Marshal.SizeOf<SKPMColor>());
         Assert.Equal((byte)0x80, color.Alpha);
-        Assert.Equal((byte)0x10, color.Red);
+        Assert.Equal(UsesRgbaLayout ? (byte)0x10 : (byte)0x40, color.Red);
         Assert.Equal((byte)0x20, color.Green);
-        Assert.Equal((byte)0x40, color.Blue);
+        Assert.Equal(UsesRgbaLayout ? (byte)0x40 : (byte)0x10, color.Blue);
         Assert.Equal(0x80402010u, (uint)color);
         Assert.Equal(color, new SKPMColor(0x80402010u));
         Assert.True(color == new SKPMColor(0x80402010u));
         Assert.True(color != new SKPMColor(0x80402011u));
         Assert.Equal(color.GetHashCode(), new SKPMColor(0x80402010u).GetHashCode());
-        Assert.Equal("#80102040", color.ToString());
+        Assert.Equal(UsesRgbaLayout ? "#80102040" : "#80402010", color.ToString());
     }
 
     [Fact]
     public void PremultiplyUsesRoundedEightBitProducts()
     {
         Assert.Equal(0x00000000u, (uint)SKPMColor.PreMultiply(new SKColor(255, 255, 255, 0)));
-        Assert.Equal(0xff332211u, (uint)SKPMColor.PreMultiply(new SKColor(0x11, 0x22, 0x33, 0xff)));
-        Assert.Equal(0x80000080u, (uint)SKPMColor.PreMultiply(new SKColor(255, 0, 0, 128)));
-        Assert.Equal(0x40102040u, (uint)SKPMColor.PreMultiply(new SKColor(255, 128, 64, 64)));
+        Assert.Equal(NativePacked(0xff112233u), (uint)SKPMColor.PreMultiply(new SKColor(0x11, 0x22, 0x33, 0xff)));
+        Assert.Equal(NativePacked(0x80800000u), (uint)SKPMColor.PreMultiply(new SKColor(255, 0, 0, 128)));
+        Assert.Equal(NativePacked(0x40402010u), (uint)SKPMColor.PreMultiply(new SKColor(255, 128, 64, 64)));
     }
 
     [Fact]
@@ -51,9 +58,9 @@ public sealed class SkPMColorCompatibilityTests
     public void UnpremultiplyRestoresClosestRepresentableColor()
     {
         Assert.Equal(SKColor.Empty, SKPMColor.UnPreMultiply(new SKPMColor(0x00ffffffu)));
-        Assert.Equal(0xff332211u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(0xff112233u)));
-        Assert.Equal(0x80ff0000u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(0x80000080u)));
-        Assert.Equal(0x40ff8040u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(0x40102040u)));
+        Assert.Equal(0xff112233u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(NativePacked(0xff112233u))));
+        Assert.Equal(0x80ff0000u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(NativePacked(0x80800000u))));
+        Assert.Equal(0x40ff8040u, (uint)SKPMColor.UnPreMultiply(new SKPMColor(NativePacked(0x40402010u))));
     }
 
     [Fact]
@@ -77,7 +84,12 @@ public sealed class SkPMColorCompatibilityTests
         };
 
         var premultiplied = SKPMColor.PreMultiply(colors);
-        Assert.Equal(new uint[] { 0x80000080u, 0x40004000u, 0x20200000u },
+        Assert.Equal(new uint[]
+            {
+                NativePacked(0x80800000u),
+                NativePacked(0x40004000u),
+                NativePacked(0x20000020u)
+            },
             premultiplied.Select(static color => (uint)color));
         Assert.NotSame(colors, premultiplied);
 
@@ -87,4 +99,11 @@ public sealed class SkPMColorCompatibilityTests
         Assert.Throws<ArgumentNullException>(() => SKPMColor.PreMultiply(null!));
         Assert.Throws<ArgumentNullException>(() => SKPMColor.UnPreMultiply(null!));
     }
+
+    private static uint NativePacked(uint argb) =>
+        UsesRgbaLayout
+            ? (argb & 0xff00ff00u) |
+              ((argb & 0x00ff0000u) >> 16) |
+              ((argb & 0x000000ffu) << 16)
+            : argb;
 }

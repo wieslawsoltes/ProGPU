@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,625 ProGPU
-entries, 3,409 exact matches, 813 missing entries, and 1,216 ProGPU-only
-entries. The missing surface comprises 53 type identities, 16 fields, 14
-interfaces, 550 methods, 78 properties, and 102 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,630 ProGPU
+entries, 3,434 exact matches, 788 missing entries, and 1,196 ProGPU-only
+entries. The missing surface comprises 51 type identities, 16 fields, 14
+interfaces, 536 methods, 69 properties, and 102 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -173,13 +173,51 @@ clean-room contract uses the public
 and Microsoft's
 [D3D12 resource-state model](https://learn.microsoft.com/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12).
 
+### Borrowed GPU backend wrappers
+
+`GRBackendTexture` and `GRBackendRenderTarget` now derive from the official
+`SKObject` ownership base and match the public GL, Vulkan, Metal, and Direct3D
+constructor, backend, dimensions, size, rectangle, validity, mip, sample,
+stencil, GL-query, and protected-disposal contracts. The wrappers retain only
+typed descriptor metadata and one synthetic managed wrapper identity; they
+never create, upload, transition, submit, or destroy the caller-owned native
+resource. The existing ProGPU `GpuTexture` constructors remain explicit Dawn
+extensions so Avalonia, LibreWPF, LibreWinForms, and media composition can
+share a typed zero-copy WebGPU texture without reflection or an intermediate
+pixel copy.
+
+All property and descriptor queries are fixed `O(1)` CPU work and allocate
+nothing after wrapper construction. GL `TryGet` overloads fail closed with a
+default descriptor for non-GL backends. Disposal invalidates only the wrapper
+and does not dispose the supplied D3D descriptor or WebGPU/native texture.
+Independent tests cover the exact non-sealed hierarchy, declared protected
+overrides, constructor parameter names, backend classification, immutable
+geometry, GL success/failure, mip/sample propagation, invalidation, and
+borrowed ownership across all five backend identities.
+
+Three alternating Apple M3 Pro Release process pairs retained the exact native
+checksum. The combined metadata query measured `2.340` ns/op for ProGPU versus
+`14.863` ns/op for native (`0.157` ratio), with amortized construction at
+`0.001` versus `0.002` bytes per operation. Matched Xcode Time Profiler runs
+measured `2.352` versus `14.737` ns/op; matched Allocations runs measured
+`2.329` versus `14.540` ns/op with the same bounded construction allocation.
+The clean-room contract uses the public
+[backend texture](https://learn.microsoft.com/dotnet/api/skiasharp.grbackendtexture),
+[backend render target](https://learn.microsoft.com/dotnet/api/skiasharp.grbackendrendertarget),
+[GL texture query](https://learn.microsoft.com/dotnet/api/skiasharp.grbackendtexture.getgltextureinfo),
+[GL framebuffer query](https://learn.microsoft.com/dotnet/api/skiasharp.grbackendrendertarget.getglframebufferinfo),
+[Vulkan external-memory rules](https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#memory-external),
+[D3D12 resource ownership](https://learn.microsoft.com/windows/win32/direct3d12/creating-committed-resources),
+and [WebGPU object ownership](https://www.w3.org/TR/webgpu/#object-model).
+
 ### Premultiplied color values
 
 `SKPMColor` now matches the complete 4.151.0 public metadata contract. Scalar
 premultiply and unpremultiply are allocation-free fixed-work operations; array
 overloads allocate exactly one result array and process `N` colors in `O(N)`
-time with `O(1)` auxiliary storage. The implementation retains native RGBA
-memory packing, rounded divide-by-255 premultiplication, and a generated
+time with `O(1)` auxiliary storage. The implementation retains the official
+platform-native N32 packing (RGBA on Apple targets and BGRA on the official
+Windows/Linux assets), rounded divide-by-255 premultiplication, and a generated
 read-only 8.24 reciprocal table for deterministic unpremultiplication without
 per-channel division. It is CPU-only and cannot initialize WebGPU.
 

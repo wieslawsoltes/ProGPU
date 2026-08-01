@@ -11,6 +11,16 @@ namespace SkiaSharp;
 /// </summary>
 public readonly struct SKPMColor : IEquatable<SKPMColor>
 {
+    // The official native packages use RGBA N32 storage on Apple targets and
+    // BGRA N32 storage on Windows/Linux. Keep this decision process-wide so
+    // the scalar and array hot paths pay only one predictable branch.
+    private static readonly bool UsesRgbaLayout =
+        OperatingSystem.IsMacOS() ||
+        OperatingSystem.IsIOS() ||
+        OperatingSystem.IsMacCatalyst() ||
+        OperatingSystem.IsTvOS() ||
+        OperatingSystem.IsBrowser();
+
     private readonly uint _color;
 
     public SKPMColor(uint value)
@@ -20,11 +30,11 @@ public readonly struct SKPMColor : IEquatable<SKPMColor>
 
     public byte Alpha => (byte)(_color >> 24);
 
-    public byte Red => (byte)_color;
+    public byte Red => UsesRgbaLayout ? (byte)_color : (byte)(_color >> 16);
 
     public byte Green => (byte)(_color >> 8);
 
-    public byte Blue => (byte)(_color >> 16);
+    public byte Blue => UsesRgbaLayout ? (byte)(_color >> 16) : (byte)_color;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SKPMColor PreMultiply(SKColor color) =>
@@ -114,7 +124,7 @@ public readonly struct SKPMColor : IEquatable<SKPMColor>
     {
         var alpha = color >> 24;
         if (alpha == 255)
-            return SwapRedBlue(color);
+            return UsesRgbaLayout ? SwapRedBlue(color) : color;
 
         var redBlue = (color & 0x00ff00ffu) * alpha + 0x00800080u;
         redBlue = (redBlue + ((redBlue >> 8) & 0x00ff00ffu)) >> 8;
@@ -126,7 +136,7 @@ public readonly struct SKPMColor : IEquatable<SKPMColor>
             (alpha << 24) |
             (redBlue & 0x00ff00ffu) |
             (green & 0x0000ff00u);
-        return SwapRedBlue(logical);
+        return UsesRgbaLayout ? SwapRedBlue(logical) : logical;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

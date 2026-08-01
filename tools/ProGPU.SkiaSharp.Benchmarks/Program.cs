@@ -80,6 +80,7 @@ internal static class ProgramEntry
             new BenchmarkCase("backend-handle-info-value", 100_000, RunBackendHandleInfoValue),
             new BenchmarkCase("vulkan-descriptor-value", 100_000, RunVulkanDescriptorValue),
             new BenchmarkCase("d3d-resource-info-value", 100_000, RunD3DResourceInfoValue),
+            new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -311,6 +312,40 @@ internal static class ProgramEntry
                 alpha);
             var premultiplied = SKPMColor.PreMultiply(source);
             checksum = Mix(checksum, (uint)premultiplied);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunBackendWrapperMetadata(int operations)
+    {
+        using var texture = new GRBackendTexture(
+            320,
+            180,
+            true,
+            new GRGlTextureInfo(0x0de1, 17, 0x8058));
+        using var target = new GRBackendRenderTarget(
+            320,
+            180,
+            4,
+            8,
+            new GRGlFramebufferInfo(29, 0x8058));
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            texture.GetGlTextureInfo(out var textureInfo);
+            target.GetGlFramebufferInfo(out var framebufferInfo);
+            var value =
+                ((ulong)(uint)texture.Backend << 56) |
+                ((ulong)(uint)target.Backend << 48) |
+                ((ulong)(uint)texture.Width << 32) |
+                ((ulong)(uint)target.SampleCount << 24) |
+                ((ulong)textureInfo.Id << 8) |
+                framebufferInfo.FramebufferObjectId;
+            if (texture.IsValid && target.IsValid && texture.HasMipMaps)
+                value ^= 1UL << (index & 7);
+            checksum = Mix(checksum, value);
         }
 
         return checksum;

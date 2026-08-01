@@ -57,8 +57,26 @@ done
 
 native_joined=$(IFS=';'; printf '%s' "${native_results[*]}")
 progpu_joined=$(IFS=';'; printf '%s' "${progpu_results[*]}")
-dotnet "$progpu_dll" compare \
-  --native "$native_joined" \
-  --progpu "$progpu_joined" \
-  --json "$artifact_root/comparison.json" \
-  --markdown "$artifact_root/comparison.md"
+if command -v cygpath >/dev/null 2>&1; then
+  native_windows=()
+  progpu_windows=()
+  for path in "${native_results[@]}"; do
+    native_windows+=("$(cygpath -m "$path")")
+  done
+  for path in "${progpu_results[@]}"; do
+    progpu_windows+=("$(cygpath -m "$path")")
+  done
+  native_joined=$(IFS=';'; printf '%s' "${native_windows[*]}")
+  progpu_joined=$(IFS=';'; printf '%s' "${progpu_windows[*]}")
+  MSYS2_ARG_CONV_EXCL='*' dotnet "$(cygpath -m "$progpu_dll")" compare \
+    --native "$native_joined" \
+    --progpu "$progpu_joined" \
+    --json "$(cygpath -m "$artifact_root/comparison.json")" \
+    --markdown "$(cygpath -m "$artifact_root/comparison.md")"
+else
+  dotnet "$progpu_dll" compare \
+    --native "$native_joined" \
+    --progpu "$progpu_joined" \
+    --json "$artifact_root/comparison.json" \
+    --markdown "$artifact_root/comparison.md"
+fi

@@ -682,17 +682,12 @@ public class GRGlInterface : IDisposable
     public void Dispose() { }
 }
 
-public class GRBackendRenderTarget : IDisposable
+#nullable disable
+
+public class GRBackendRenderTarget : SKObject
 {
-    public int Width { get; }
-    public int Height { get; }
-    public int SampleCount { get; }
-    public int StencilBits { get; }
-    public GpuTexture? BackendTexture { get; }
-    
-    public GRGlFramebufferInfo GlFramebufferInfo { get; }
-    public GRMtlTextureInfo MtlTextureInfo { get; }
-    public GRVkImageInfo VkImageInfo { get; }
+    private readonly GRGlFramebufferInfo _glInfo;
+    private readonly bool _valid;
 
     public GRBackendRenderTarget(int width, int height, GpuTexture texture)
         : this(width, height, (int)texture.SampleCount, texture)
@@ -700,6 +695,7 @@ public class GRBackendRenderTarget : IDisposable
     }
 
     public GRBackendRenderTarget(int width, int height, int sampleCount, GpuTexture texture)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(texture);
         if (width <= 0)
@@ -721,23 +717,30 @@ public class GRBackendRenderTarget : IDisposable
         Height = height;
         SampleCount = sampleCount;
         BackendTexture = texture;
+        Backend = GRBackend.Dawn;
+        _valid = true;
     }
 
     public GRBackendRenderTarget(int width, int height, int sampleCount, int stencilBits, GRGlFramebufferInfo glInfo)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Width = width;
         Height = height;
         SampleCount = sampleCount;
         StencilBits = stencilBits;
-        GlFramebufferInfo = glInfo;
+        Backend = GRBackend.OpenGL;
+        _glInfo = glInfo;
+        _valid = width > 0 && height > 0;
     }
 
     public GRBackendRenderTarget(int width, int height, int sampleCount, GRVkImageInfo vkImageInfo)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Width = width;
         Height = height;
         SampleCount = sampleCount;
-        VkImageInfo = vkImageInfo;
+        Backend = GRBackend.Vulkan;
+        _valid = width > 0 && height > 0 && vkImageInfo.Image != 0;
     }
 
     public GRBackendRenderTarget(int width, int height, GRVkImageInfo vkImageInfo)
@@ -745,54 +748,189 @@ public class GRBackendRenderTarget : IDisposable
     {
     }
 
-    public GRBackendRenderTarget(int width, int height, GRMtlTextureInfo mtlTextureInfo)
+    public GRBackendRenderTarget(int width, int height, GRMtlTextureInfo mtlInfo)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Width = width;
         Height = height;
         SampleCount = 1;
-        MtlTextureInfo = mtlTextureInfo;
+        Backend = GRBackend.Metal;
+        _valid = width > 0 && height > 0 && mtlInfo.TextureHandle != IntPtr.Zero;
     }
 
     public GRBackendRenderTarget(int width, int height, int sampleCount, GRMtlTextureInfo mtlTextureInfo)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Width = width;
         Height = height;
         SampleCount = sampleCount;
-        MtlTextureInfo = mtlTextureInfo;
+        Backend = GRBackend.Metal;
+        _valid = width > 0 && height > 0 && mtlTextureInfo.TextureHandle != IntPtr.Zero;
     }
 
-    public void Dispose() { }
+    public GRBackendRenderTarget(int width, int height, GRD3DTextureResourceInfo d3dTextureInfo)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        ArgumentNullException.ThrowIfNull(d3dTextureInfo);
+        Width = width;
+        Height = height;
+        SampleCount = (int)Math.Max(1u, d3dTextureInfo.SampleCount);
+        Backend = GRBackend.Direct3D;
+        _valid = width > 0 && height > 0 && d3dTextureInfo.Resource != IntPtr.Zero;
+    }
+
+    public int Width { get; }
+
+    public int Height { get; }
+
+    public int SampleCount { get; }
+
+    public int StencilBits { get; }
+
+    public GRBackend Backend { get; }
+
+    public SKSizeI Size => new(Width, Height);
+
+    public SKRectI Rect => new(0, 0, Width, Height);
+
+    public bool IsValid => !IsDisposed && _valid;
+
+    /// <summary>
+    /// Gets the ProGPU Dawn texture when this wrapper was created through the
+    /// typed WebGPU extension constructor. Native descriptor constructors
+    /// return <see langword="null"/>.
+    /// </summary>
+    public GpuTexture BackendTexture { get; }
+
+    public GRGlFramebufferInfo GetGlFramebufferInfo() =>
+        Backend == GRBackend.OpenGL ? _glInfo : default;
+
+    public bool GetGlFramebufferInfo(out GRGlFramebufferInfo glInfo)
+    {
+        if (Backend == GRBackend.OpenGL)
+        {
+            glInfo = _glInfo;
+            return true;
+        }
+
+        glInfo = default;
+        return false;
+    }
+
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+
+    protected override void DisposeNative()
+    {
+        // Backend handles are borrowed. Disposing the wrapper never destroys
+        // the caller-owned GL/Vulkan/Metal/D3D/WebGPU resource.
+    }
 }
 
-public sealed class GRBackendTexture : IDisposable
+public class GRBackendTexture : SKObject
 {
+    private readonly GRGlTextureInfo _glInfo;
+    private readonly bool _valid;
+
     public GRBackendTexture(GpuTexture texture, bool mipmapped = false)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(texture);
         Width = checked((int)texture.Width);
         Height = checked((int)texture.Height);
-        Mipmapped = mipmapped || texture.MipLevelCount > 1;
+        HasMipMaps = mipmapped || texture.MipLevelCount > 1;
         BackendTexture = texture;
+        Backend = GRBackend.Dawn;
+        _valid = Width > 0 && Height > 0;
     }
 
-    public GRBackendTexture(int width, int height, bool mipmapped, GRGlTextureInfo glTextureInfo)
+    public GRBackendTexture(int width, int height, bool mipmapped, GRGlTextureInfo glInfo)
+        : base(SKObjectHandle.Create(), owns: true)
     {
         Width = width;
         Height = height;
-        Mipmapped = mipmapped;
-        GlTextureInfo = glTextureInfo;
+        HasMipMaps = mipmapped;
+        Backend = GRBackend.OpenGL;
+        _glInfo = glInfo;
+        _valid = width > 0 && height > 0 && glInfo.Id != 0;
+    }
+
+    public GRBackendTexture(int width, int height, GRVkImageInfo vkInfo)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        Width = width;
+        Height = height;
+        HasMipMaps = vkInfo.LevelCount > 1;
+        Backend = GRBackend.Vulkan;
+        _valid = width > 0 && height > 0 && vkInfo.Image != 0;
+    }
+
+    public GRBackendTexture(int width, int height, bool mipmapped, GRMtlTextureInfo mtlInfo)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        Width = width;
+        Height = height;
+        HasMipMaps = mipmapped;
+        Backend = GRBackend.Metal;
+        _valid = width > 0 && height > 0 && mtlInfo.TextureHandle != IntPtr.Zero;
+    }
+
+    public GRBackendTexture(int width, int height, GRD3DTextureResourceInfo d3dTextureInfo)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        ArgumentNullException.ThrowIfNull(d3dTextureInfo);
+        Width = width;
+        Height = height;
+        HasMipMaps = d3dTextureInfo.LevelCount > 1;
+        Backend = GRBackend.Direct3D;
+        _valid = width > 0 && height > 0 && d3dTextureInfo.Resource != IntPtr.Zero;
     }
 
     public int Width { get; }
-    public int Height { get; }
-    public bool Mipmapped { get; }
-    public GRGlTextureInfo GlTextureInfo { get; }
-    public GpuTexture? BackendTexture { get; }
 
-    public void Dispose()
+    public int Height { get; }
+
+    public GRBackend Backend { get; }
+
+    public SKSizeI Size => new(Width, Height);
+
+    public SKRectI Rect => new(0, 0, Width, Height);
+
+    public bool HasMipMaps { get; }
+
+    public bool IsValid => !IsDisposed && _valid;
+
+    /// <summary>
+    /// Gets the ProGPU Dawn texture when this wrapper was created through the
+    /// typed WebGPU extension constructor. Native descriptor constructors
+    /// return <see langword="null"/>.
+    /// </summary>
+    public GpuTexture BackendTexture { get; }
+
+    public GRGlTextureInfo GetGlTextureInfo() =>
+        Backend == GRBackend.OpenGL ? _glInfo : default;
+
+    public bool GetGlTextureInfo(out GRGlTextureInfo glInfo)
     {
+        if (Backend == GRBackend.OpenGL)
+        {
+            glInfo = _glInfo;
+            return true;
+        }
+
+        glInfo = default;
+        return false;
+    }
+
+    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+
+    protected override void DisposeNative()
+    {
+        // Backend handles are borrowed. Disposing the wrapper never destroys
+        // the caller-owned GL/Vulkan/Metal/D3D/WebGPU resource.
     }
 }
+
+#nullable restore
 
 public class GRRecordingContext : SKObject
 {
