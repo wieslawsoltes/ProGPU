@@ -24,7 +24,43 @@ The current position is:
 | M5 Quality and conformance closure | Partial | Strong focused tests and Fluent corpus gates exist; sustained performance, subtree reuse, broader fuzzing, determinism matrices, and visual/runtime conformance remain |
 | M6 Productization | Partial | Packages, MSBuild integration, CLI tool packaging, samples, and playground exist; project selection, published-feed install validation, compatibility docs, and release qualification remain |
 
-This means the project is past the compiler-prototype stage but is not yet an MVP. Four blocking product gates remain: executable metadata updates, complete hot-reload fallback semantics, quality closure, and end-user productization. M2 is the current integration gate.
+This means the project is past the compiler-prototype stage but is not yet an MVP. Four blocking product gates remain: coordinated metadata/XAML publication, complete hot-reload fallback semantics, quality closure, and end-user productization. M2 is the current integration gate.
+
+## Preview.32 compiler handoff
+
+The current release boundary includes a real transactional Roslyn metadata
+delta producer rather than a metadata-only plan. It supports ordinary method,
+property/indexer accessor, custom-event accessor, constructor, destructor,
+operator, conversion-operator, non-virtual method insertion, and instance
+constructor insertion updates. Capability negotiation rejects unsupported
+runtime environments before emission. Coordinated callers can attach one
+immutable XAML diagnostic origin so unsupported shape, capability, and
+environment diagnostics report the exact XAML path, span, and line span
+without retaining `SourceText`. The project watch pipeline, versioned
+transport, IDE-neutral selector, deterministic input topology, performance
+distributions, and enforceable bounded-run budgets are also implemented.
+
+This is an explicit handoff, not an MVP-complete claim. Work remaining after
+preview.32 is:
+
+1. Automatically map changed stable XAML identities to diagnostic origins at
+   the project coordinator boundary.
+2. Add host adapters for runtime metadata-update and dynamic-code capability
+   discovery, then enforce candidate validation → metadata emission/apply →
+   XAML publication → joint baseline commit ordering.
+3. Model and test recovery when metadata application succeeds but framework
+   tree replacement fails, including multi-project ownership and cancellation.
+4. Complete namescope/resource/template-aware live patch operations plus a
+   transactional owning-subtree or whole-root fallback for every safe edit.
+5. Close cross-platform watch topology, edit-storm, shutdown, percentile,
+   allocation, deterministic-output, fuzz, visual, accessibility, and
+   collectible-context lifetime gates.
+6. Validate installation from the published feed and finish end-user host,
+   compatibility, extension, and release documentation.
+
+The detailed authoritative state remains in M2 through M6 below and in
+`FEATURE_MATRIX.md`; this section records the immutable release boundary so a
+new task can resume without treating partial runtime depth as complete.
 
 ## MVP definition
 

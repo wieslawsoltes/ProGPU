@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${repo_root}/eng/progpu-package-list.sh"
 
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.31}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.32}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/Release}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 
@@ -33,6 +33,17 @@ is_selected_artifact() {
   for package_id in "${selected_package_ids[@]}"; do
     if [[ "${file_name}" == "${package_id}.${package_version}.nupkg" ||
           "${file_name}" == "${package_id}.${package_version}.snupkg" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_selected_package_id() {
+  local candidate="$1"
+  local package_id
+  for package_id in "${selected_package_ids[@]}"; do
+    if [[ "${candidate}" == "${package_id}" ]]; then
       return 0
     fi
   done
@@ -97,6 +108,10 @@ for package_id in "${selected_package_ids[@]}"; do
     if is_shipping_package_id "${dependency_id}"; then
       if [[ "${dependency_version}" != "${package_version}" ]]; then
         echo "${package_id} depends on ${dependency_id} ${dependency_version}, expected ${package_version}." >&2
+        exit 1
+      fi
+      if [[ "${package_group}" == "avalonia-runtime" ]] && ! is_selected_package_id "${dependency_id}"; then
+        echo "${package_id} depends on ${dependency_id}, which is missing from the isolated avalonia-runtime package closure." >&2
         exit 1
       fi
     elif [[ "${dependency_id}" == ProGPU.* || "${dependency_id}" == LibreWPF.* ]] || is_owned_nonshipping_project_id "${dependency_id}"; then
