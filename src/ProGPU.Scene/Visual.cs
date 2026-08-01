@@ -78,6 +78,16 @@ public interface IIncrementalRenderCommandCache : IOwnedRenderCommandCache
         default;
 }
 
+/// <summary>
+/// Receives an allocation-free notification when a retained visual's parent
+/// changes size. Relative composition properties use this boundary to update
+/// their effective size and offset without polling or rebuilding the scene.
+/// </summary>
+public interface IParentSizeDependentVisual
+{
+    void OnParentSizeChanged(Vector2 parentSize);
+}
+
 public readonly struct VisualCompositeClip : IEquatable<VisualCompositeClip>
 {
     public VisualCompositeClip(Rect bounds, Matrix4x4 transform)
@@ -282,6 +292,8 @@ public class Visual
             {
                 _size = value;
                 Invalidate();
+                if (this is ContainerVisual container)
+                    container.NotifyChildParentSizeChanged(value);
             }
         }
     }
@@ -589,6 +601,36 @@ public class Visual
                 }
                 InvalidateVisualState();
             }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets one retained visual-local clip with an independent
+    /// transform. Rectangle clips use the render-pass scissor fast path when
+    /// the composed transform remains axis aligned; path clips use the
+    /// existing analytic or bounded R8 WebGPU mask path.
+    /// </summary>
+    public VisualCompositeClip? LocalCompositeClip
+    {
+        get => _coldState?.LocalCompositeClip;
+        set
+        {
+            VisualCompositeClip? current =
+                _coldState?.LocalCompositeClip;
+            if (current == value)
+                return;
+
+            if (value is null)
+            {
+                if (_coldState is { } state)
+                    state.LocalCompositeClip = null;
+            }
+            else
+            {
+                GetOrCreateColdState().LocalCompositeClip = value;
+            }
+
+            InvalidateVisualState();
         }
     }
 
@@ -953,6 +995,7 @@ public class Visual
         public VisualCompositeClip[] OuterCompositeClips =
             Array.Empty<VisualCompositeClip>();
         public PathGeometry? GeometryClip;
+        public VisualCompositeClip? LocalCompositeClip;
         public Brush? OpacityMask;
         public GpuPicture? OpacityMaskPicture;
         public Rect? OpacityMaskBounds;
@@ -975,11 +1018,24 @@ public class ContainerVisual : Visual
 {
     private List<Visual>? _children;
     private readonly object _childrenLock = new();
+    private int _topmostChildCount;
 
     public IReadOnlyList<Visual> Children =>
         _children is null
             ? Array.Empty<Visual>()
             : _children;
+
+    internal void NotifyChildParentSizeChanged(Vector2 parentSize)
+    {
+        if (_children is null)
+            return;
+
+        for (int index = 0; index < _children.Count; index++)
+        {
+            if (_children[index] is IParentSizeDependentVisual dependent)
+                dependent.OnParentSizeChanged(parentSize);
+        }
+    }
 
     public void AddChild(Visual child)
     {
@@ -993,8 +1049,13 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             child.Parent = this;
-            (_children ??= new List<Visual>()).Add(child);
+            var children = _children ??= new List<Visual>();
+            children.Insert(
+                children.Count - _topmostChildCount,
+                child);
         }
+        if (child is IParentSizeDependentVisual dependent)
+            dependent.OnParentSizeChanged(Size);
         InvalidateTreeVersion();
         Invalidate();
         if (this is ILayoutNode layoutNode)
@@ -1016,8 +1077,12 @@ public class ContainerVisual : Visual
         {
             child.Parent = this;
             var children = _children ??= new List<Visual>();
-            children.Insert(Math.Clamp(index, 0, children.Count), child);
+            int ordinaryCount = children.Count - _topmostChildCount;
+            children.Insert(Math.Clamp(index, 0, ordinaryCount), child);
         }
+
+        if (child is IParentSizeDependentVisual dependent)
+            dependent.OnParentSizeChanged(Size);
 
         InvalidateTreeVersion();
         Invalidate();
@@ -1025,6 +1090,33 @@ public class ContainerVisual : Visual
         {
             layoutNode.InvalidateMeasure();
         }
+    }
+
+    /// <summary>
+    /// Adds a retained overlay after every ordinary child. Later ordinary
+    /// insertions remain below the overlay without requiring per-frame
+    /// reordering or remove/add churn.
+    /// </summary>
+    public void AddTopmostChild(Visual child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        ThrowIfWouldCreateCycle(child);
+        if (child.Parent != null)
+            child.Parent.RemoveChild(child);
+
+        lock (_childrenLock)
+        {
+            child.Parent = this;
+            (_children ??= new List<Visual>()).Add(child);
+            _topmostChildCount++;
+        }
+
+        if (child is IParentSizeDependentVisual dependent)
+            dependent.OnParentSizeChanged(Size);
+        InvalidateTreeVersion();
+        Invalidate();
+        if (this is ILayoutNode layoutNode)
+            layoutNode.InvalidateMeasure();
     }
 
     private void ThrowIfWouldCreateCycle(Visual child)
@@ -1046,9 +1138,14 @@ public class ContainerVisual : Visual
         bool removed;
         lock (_childrenLock)
         {
-            removed = _children?.Remove(child) == true;
+            int index = _children?.IndexOf(child) ?? -1;
+            removed = index >= 0;
             if (removed)
             {
+                int topmostStart = _children!.Count - _topmostChildCount;
+                if (index >= topmostStart)
+                    _topmostChildCount--;
+                _children.RemoveAt(index);
                 child.Parent = null;
             }
         }
@@ -1075,6 +1172,7 @@ public class ContainerVisual : Visual
                 }
                 _children.Clear();
             }
+            _topmostChildCount = 0;
         }
         InvalidateTreeVersion();
         Invalidate();
@@ -1091,12 +1189,23 @@ public class ContainerVisual : Visual
         lock (_childrenLock)
         {
             if (ReferenceEquals(child.Parent, this) &&
-                _children is { Count: > 0 } children &&
-                !ReferenceEquals(children[^1], child))
+                _children is { Count: > 0 } children)
             {
-                children.Remove(child);
-                children.Add(child);
-                reordered = true;
+                int index = children.IndexOf(child);
+                int topmostStart = children.Count - _topmostChildCount;
+                bool isTopmost = index >= topmostStart;
+                int targetIndex = isTopmost
+                    ? children.Count - 1
+                    : topmostStart - 1;
+                if (index != targetIndex)
+                {
+                    children.RemoveAt(index);
+                    if (isTopmost)
+                        children.Add(child);
+                    else
+                        children.Insert(children.Count - _topmostChildCount, child);
+                    reordered = true;
+                }
             }
         }
 
@@ -1344,6 +1453,7 @@ public class DropShadowEffect : EffectBase
     private float _blurRadius;
     private Vector2 _offset;
     private Vector4 _color;
+    private Visual? _opacityMaskVisual;
 
     public float BlurRadius
     {
@@ -1384,11 +1494,40 @@ public class DropShadowEffect : EffectBase
         }
     }
 
+    /// <summary>
+    /// Gets or sets an optional retained visual whose alpha replaces the
+    /// shadow source alpha. The original effect owner remains the color
+    /// source composited above the generated shadow.
+    /// </summary>
+    public Visual? OpacityMaskVisual
+    {
+        get => _opacityMaskVisual;
+        set
+        {
+            if (!ReferenceEquals(_opacityMaskVisual, value))
+            {
+                _opacityMaskVisual = value;
+                Invalidate();
+            }
+        }
+    }
+
     public DropShadowEffect(float blurRadius = 5f, Vector2 offset = default, Vector4 color = default)
     {
         BlurRadius = blurRadius;
         Offset = offset;
         Color = color == default ? new Vector4(0f, 0f, 0f, 0.5f) : color;
+    }
+
+    internal override int GetRenderCacheKey()
+    {
+        var hash = new HashCode();
+        hash.Add(GetType());
+        hash.Add(ChangeVersion);
+        hash.Add(_opacityMaskVisual);
+        hash.Add(_opacityMaskVisual?.ChangeVersion ?? 0L);
+        hash.Add(_opacityMaskVisual?.TreeVersion ?? 0L);
+        return hash.ToHashCode();
     }
 }
 

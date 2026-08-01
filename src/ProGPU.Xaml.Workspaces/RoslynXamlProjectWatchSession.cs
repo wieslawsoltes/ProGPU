@@ -25,6 +25,7 @@ public sealed class RoslynXamlProjectWatchResult
         RoslynXamlProjectCommitResult? commitResult,
         long committedGeneration,
         TimeSpan duration,
+        RoslynXamlProjectWatchTelemetry telemetry,
         string message)
     {
         Version = version;
@@ -33,6 +34,7 @@ public sealed class RoslynXamlProjectWatchResult
         CommitResult = commitResult;
         CommittedGeneration = committedGeneration;
         Duration = duration;
+        Telemetry = telemetry;
         Message = message;
     }
 
@@ -42,6 +44,7 @@ public sealed class RoslynXamlProjectWatchResult
     public RoslynXamlProjectCommitResult? CommitResult { get; }
     public long CommittedGeneration { get; }
     public TimeSpan Duration { get; }
+    public RoslynXamlProjectWatchTelemetry Telemetry { get; }
     public string Message { get; }
     public bool Accepted =>
         CommitResult ==
@@ -67,11 +70,42 @@ public sealed class RoslynXamlProjectWatchSession :
         RoslynXamlProjectPreviewUpdate,
         CancellationToken,
         Task<bool>> _publishAsync;
+    private readonly
+        IRoslynXamlProjectWatchAllocationCounter?
+        _allocationCounter;
+    private readonly RoslynXamlProjectWatchHistogram
+        _durationHistogram = new();
+    private readonly RoslynXamlProjectWatchHistogram
+        _allocationHistogram = new();
     private readonly TimeSpan _debounce;
     private readonly CancellationTokenSource _lifetime =
         new CancellationTokenSource();
     private CancellationTokenSource? _pending;
     private long _version;
+    private long _submittedCount;
+    private long _completedCount;
+    private long _appliedCount;
+    private long _cacheHitCount;
+    private long _rejectedCount;
+    private long _supersededCount;
+    private long _stoppedCount;
+    private long _callerCanceledCount;
+    private long _faultedCount;
+    private int _currentQueueDepth;
+    private int _maximumQueueDepth;
+    private long _totalDurationTicks;
+    private long _lastDurationTicks;
+    private long _maximumDurationTicks;
+    private long _medianDurationTicksUpperBound;
+    private long _p95DurationTicksUpperBound;
+    private long _p99DurationTicksUpperBound;
+    private long _allocationMeasurementCount;
+    private long _totalAllocatedBytes;
+    private long _lastAllocatedBytes;
+    private long _maximumAllocatedBytes;
+    private long _medianAllocatedBytesUpperBound;
+    private long _p95AllocatedBytesUpperBound;
+    private long _p99AllocatedBytesUpperBound;
     private bool _disposed;
 
     public RoslynXamlProjectWatchSession(
@@ -80,7 +114,9 @@ public sealed class RoslynXamlProjectWatchSession :
             RoslynXamlProjectPreviewUpdate,
             CancellationToken,
             Task<bool>> publishAsync,
-        TimeSpan? debounce = null)
+        TimeSpan? debounce = null,
+        IRoslynXamlProjectWatchAllocationCounter?
+            allocationCounter = null)
     {
         _coordinator =
             coordinator ??
@@ -90,6 +126,7 @@ public sealed class RoslynXamlProjectWatchSession :
             publishAsync ??
             throw new ArgumentNullException(
                 nameof(publishAsync));
+        _allocationCounter = allocationCounter;
         _debounce =
             debounce ??
             TimeSpan.FromMilliseconds(250);
@@ -113,6 +150,15 @@ public sealed class RoslynXamlProjectWatchSession :
 
     public RoslynXamlProjectPreviewCoordinator
         Coordinator => _coordinator;
+
+    public RoslynXamlProjectWatchTelemetry Telemetry
+    {
+        get
+        {
+            lock (_gate)
+                return GetTelemetryLocked();
+        }
+    }
 
     public Task<RoslynXamlProjectWatchResult> SubmitAsync(
         Project project,
@@ -148,6 +194,20 @@ public sealed class RoslynXamlProjectWatchSession :
                         _lifetime.Token,
                         cancellationToken);
             _pending = operation;
+            _submittedCount =
+                IncrementSaturating(
+                    _submittedCount);
+            if (_currentQueueDepth <
+                int.MaxValue)
+            {
+                _currentQueueDepth++;
+            }
+            if (_currentQueueDepth >
+                _maximumQueueDepth)
+            {
+                _maximumQueueDepth =
+                    _currentQueueDepth;
+            }
         }
 
         return RunAsync(
@@ -184,7 +244,10 @@ public sealed class RoslynXamlProjectWatchSession :
             CancellationToken callerToken,
             CancellationTokenSource operation)
     {
-        var stopwatch = Stopwatch.StartNew();
+        var startedTimestamp =
+            Stopwatch.GetTimestamp();
+        var startedAllocatedBytes =
+            TryReadAllocatedBytes();
         try
         {
             if (!immediate &&
@@ -228,62 +291,85 @@ public sealed class RoslynXamlProjectWatchSession :
                     .ConfigureAwait(false);
             }
 
-            stopwatch.Stop();
+            var duration =
+                GetElapsed(startedTimestamp);
             if (commit !=
                     RoslynXamlProjectCommitResult.Accepted &&
                 IsSuperseded(version))
             {
-                return new RoslynXamlProjectWatchResult(
+                return CreateResult(
                     version,
                     RoslynXamlProjectWatchStatus
                         .Superseded,
                     update,
                     commit,
                     _coordinator.Generation,
-                    stopwatch.Elapsed,
+                    duration,
+                    startedAllocatedBytes,
                     "A newer project snapshot superseded this update.");
             }
 
             var status = GetStatus(update, commit);
-            return new RoslynXamlProjectWatchResult(
+            return CreateResult(
                 version,
                 status,
                 update,
                 commit,
                 _coordinator.Generation,
-                stopwatch.Elapsed,
+                duration,
+                startedAllocatedBytes,
                 GetMessage(update, commit, status));
         }
         catch (OperationCanceledException)
             when (IsSuperseded(version))
         {
-            stopwatch.Stop();
-            return new RoslynXamlProjectWatchResult(
+            return CreateResult(
                 version,
                 RoslynXamlProjectWatchStatus
                     .Superseded,
                 update: null,
                 commitResult: null,
                 _coordinator.Generation,
-                stopwatch.Elapsed,
+                GetElapsed(startedTimestamp),
+                startedAllocatedBytes,
                 "A newer project snapshot superseded this update.");
         }
         catch (OperationCanceledException)
             when (IsStopped())
         {
-            stopwatch.Stop();
-            return new RoslynXamlProjectWatchResult(
+            return CreateResult(
                 version,
                 RoslynXamlProjectWatchStatus.Stopped,
                 update: null,
                 commitResult: null,
                 _coordinator.Generation,
-                stopwatch.Elapsed,
+                GetElapsed(startedTimestamp),
+                startedAllocatedBytes,
                 "The project watch session stopped.");
         }
         catch (OperationCanceledException)
         {
+            RecordTerminalOperation(
+                status: null,
+                callerCanceled: true,
+                faulted: false,
+                duration:
+                    GetElapsed(startedTimestamp),
+                startedAllocatedBytes:
+                    startedAllocatedBytes);
             callerToken.ThrowIfCancellationRequested();
+            throw;
+        }
+        catch
+        {
+            RecordTerminalOperation(
+                status: null,
+                callerCanceled: false,
+                faulted: true,
+                duration:
+                    GetElapsed(startedTimestamp),
+                startedAllocatedBytes:
+                    startedAllocatedBytes);
             throw;
         }
         finally
@@ -301,6 +387,230 @@ public sealed class RoslynXamlProjectWatchSession :
             operation.Dispose();
         }
     }
+
+    private RoslynXamlProjectWatchResult CreateResult(
+        long version,
+        RoslynXamlProjectWatchStatus status,
+        RoslynXamlProjectPreviewUpdate? update,
+        RoslynXamlProjectCommitResult? commitResult,
+        long committedGeneration,
+        TimeSpan duration,
+        long? startedAllocatedBytes,
+        string message)
+    {
+        var telemetry = RecordTerminalOperation(
+            status,
+            callerCanceled: false,
+            faulted: false,
+            duration,
+            startedAllocatedBytes);
+        return new RoslynXamlProjectWatchResult(
+            version,
+            status,
+            update,
+            commitResult,
+            committedGeneration,
+            duration,
+            telemetry,
+            message);
+    }
+
+    private RoslynXamlProjectWatchTelemetry
+        RecordTerminalOperation(
+            RoslynXamlProjectWatchStatus? status,
+            bool callerCanceled,
+            bool faulted,
+            TimeSpan duration,
+            long? startedAllocatedBytes)
+    {
+        var completedAllocatedBytes =
+            TryReadAllocatedBytes();
+        lock (_gate)
+        {
+            if (_currentQueueDepth > 0)
+                _currentQueueDepth--;
+            _completedCount =
+                IncrementSaturating(
+                    _completedCount);
+            switch (status)
+            {
+                case RoslynXamlProjectWatchStatus.Applied:
+                    _appliedCount =
+                        IncrementSaturating(
+                            _appliedCount);
+                    break;
+                case RoslynXamlProjectWatchStatus
+                        .AcceptedWithoutRuntimeChange:
+                    _cacheHitCount =
+                        IncrementSaturating(
+                            _cacheHitCount);
+                    break;
+                case RoslynXamlProjectWatchStatus.Rejected:
+                    _rejectedCount =
+                        IncrementSaturating(
+                            _rejectedCount);
+                    break;
+                case RoslynXamlProjectWatchStatus.Superseded:
+                    _supersededCount =
+                        IncrementSaturating(
+                            _supersededCount);
+                    break;
+                case RoslynXamlProjectWatchStatus.Stopped:
+                    _stoppedCount =
+                        IncrementSaturating(
+                            _stoppedCount);
+                    break;
+            }
+
+            if (callerCanceled)
+            {
+                _callerCanceledCount =
+                    IncrementSaturating(
+                        _callerCanceledCount);
+            }
+            if (faulted)
+            {
+                _faultedCount =
+                    IncrementSaturating(
+                        _faultedCount);
+            }
+
+            _lastDurationTicks = duration.Ticks;
+            _totalDurationTicks =
+                AddSaturating(
+                    _totalDurationTicks,
+                    duration.Ticks);
+            if (duration.Ticks >
+                _maximumDurationTicks)
+            {
+                _maximumDurationTicks =
+                    duration.Ticks;
+            }
+            _durationHistogram.Record(
+                duration.Ticks);
+            _durationHistogram.GetUpperBounds(
+                out _medianDurationTicksUpperBound,
+                out _p95DurationTicksUpperBound,
+                out _p99DurationTicksUpperBound);
+
+            if (startedAllocatedBytes.HasValue &&
+                completedAllocatedBytes.HasValue)
+            {
+                var allocatedBytes =
+                    completedAllocatedBytes.Value >=
+                    startedAllocatedBytes.Value
+                        ? completedAllocatedBytes.Value -
+                          startedAllocatedBytes.Value
+                        : 0;
+                _allocationMeasurementCount =
+                    IncrementSaturating(
+                        _allocationMeasurementCount);
+                _lastAllocatedBytes =
+                    allocatedBytes;
+                _totalAllocatedBytes =
+                    AddSaturating(
+                        _totalAllocatedBytes,
+                        allocatedBytes);
+                if (allocatedBytes >
+                    _maximumAllocatedBytes)
+                {
+                    _maximumAllocatedBytes =
+                        allocatedBytes;
+                }
+                _allocationHistogram.Record(
+                    allocatedBytes);
+                _allocationHistogram.GetUpperBounds(
+                    out _medianAllocatedBytesUpperBound,
+                    out _p95AllocatedBytesUpperBound,
+                    out _p99AllocatedBytesUpperBound);
+            }
+
+            return GetTelemetryLocked();
+        }
+    }
+
+    private RoslynXamlProjectWatchTelemetry
+        GetTelemetryLocked() =>
+        new RoslynXamlProjectWatchTelemetry(
+            _submittedCount,
+            _completedCount,
+            _appliedCount,
+            _cacheHitCount,
+            _rejectedCount,
+            _supersededCount,
+            _stoppedCount,
+            _callerCanceledCount,
+            _faultedCount,
+            _currentQueueDepth,
+            _maximumQueueDepth,
+            TimeSpan.FromTicks(
+                _totalDurationTicks),
+            TimeSpan.FromTicks(
+                _lastDurationTicks),
+            TimeSpan.FromTicks(
+                _maximumDurationTicks),
+            TimeSpan.FromTicks(
+                _medianDurationTicksUpperBound),
+            TimeSpan.FromTicks(
+                _p95DurationTicksUpperBound),
+            TimeSpan.FromTicks(
+                _p99DurationTicksUpperBound),
+            _allocationMeasurementCount,
+            _totalAllocatedBytes,
+            _lastAllocatedBytes,
+            _maximumAllocatedBytes,
+            _medianAllocatedBytesUpperBound,
+            _p95AllocatedBytesUpperBound,
+            _p99AllocatedBytesUpperBound);
+
+    private long? TryReadAllocatedBytes()
+    {
+        if (_allocationCounter == null)
+            return null;
+        try
+        {
+            var value =
+                _allocationCounter
+                    .GetTotalAllocatedBytes();
+            return value >= 0
+                ? value
+                : (long?)null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static TimeSpan GetElapsed(
+        long startedTimestamp)
+    {
+        var elapsedTimestamp =
+            Stopwatch.GetTimestamp() -
+            startedTimestamp;
+        if (elapsedTimestamp <= 0)
+            return TimeSpan.Zero;
+        var ticks =
+            elapsedTimestamp *
+            (double)TimeSpan.TicksPerSecond /
+            Stopwatch.Frequency;
+        return ticks >= TimeSpan.MaxValue.Ticks
+            ? TimeSpan.MaxValue
+            : TimeSpan.FromTicks((long)ticks);
+    }
+
+    private static long IncrementSaturating(
+        long value) =>
+        value == long.MaxValue
+            ? value
+            : value + 1;
+
+    private static long AddSaturating(
+        long left,
+        long right) =>
+        left > long.MaxValue - right
+            ? long.MaxValue
+            : left + right;
 
     private Task<RoslynXamlProjectPreviewUpdate>
         PrepareAsync(

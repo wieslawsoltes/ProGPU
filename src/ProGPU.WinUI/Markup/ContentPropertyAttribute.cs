@@ -1,16 +1,16 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Markup;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Documents;
-using System;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Markup;
 
-[AttributeUsage(AttributeTargets.Class)]
+[AttributeUsage(
+    AttributeTargets.Class,
+    AllowMultiple = false)]
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public sealed class ContentPropertyAttribute : Attribute
 {
-    public string Name { get; set; } = string.Empty;
+    public string Name = string.Empty;
 
     public ContentPropertyAttribute()
     {

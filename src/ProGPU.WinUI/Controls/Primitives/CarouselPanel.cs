@@ -9,7 +9,9 @@ namespace Microsoft.UI.Xaml.Controls.Primitives;
 /// <summary>
 /// A horizontal virtualizing items panel with regular item snap points.
 /// </summary>
-public sealed class CarouselPanel : VirtualizingPanel
+public sealed class CarouselPanel :
+    VirtualizingPanel,
+    IScrollSnapPointsInfo
 {
     private float _extentWidth;
     private float _itemWidth;
@@ -39,6 +41,11 @@ public sealed class CarouselPanel : VirtualizingPanel
         };
         return orientation == Orientation.Horizontal ? _itemWidth : 0f;
     }
+
+    public IReadOnlyList<float> GetIrregularSnapPoints(
+        Orientation orientation,
+        SnapPointsAlignment alignment) =>
+        Array.Empty<float>();
 
     protected override Vector2 MeasureOverride(Vector2 availableSize)
     {

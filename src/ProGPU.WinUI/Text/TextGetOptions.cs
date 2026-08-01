@@ -13,7 +13,7 @@ using ProGPU.Vector;
 namespace Microsoft.UI.Text;
 
 [Flags]
-public enum TextGetOptions
+public enum TextGetOptions : uint
 {
     None = 0,
     AdjustCrlf = 1,

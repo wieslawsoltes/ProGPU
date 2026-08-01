@@ -47,6 +47,8 @@ internal static partial class Program
             ParsePositiveOption(
                 args,
                 "--max-updates");
+        var performanceBudget =
+            ParseWatchPerformanceBudget(args);
         var useStandardInput =
             HasOption(args, "--stdin");
         var json = HasOption(args, "--json");
@@ -92,7 +94,11 @@ internal static partial class Program
                     artifactWritten = true;
                     return Task.FromResult(true);
                 },
-                debounce);
+                debounce,
+                GcWatchAllocationCounter.Instance);
+        var transport =
+            new RoslynXamlProjectWatchTransport(
+                session);
         using var cancellation =
             new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler =
@@ -106,38 +112,46 @@ internal static partial class Program
         {
             var sequence = 0L;
             var lastAccepted = false;
+            sequence++;
             var initial = await SubmitWatchSnapshotAsync(
-                session,
+                transport,
                 projectPath,
                 file,
+                sequence,
                 immediate: true,
                 cancellation.Token);
-            sequence++;
             artifactWritten =
                 artifactWritten &&
                 initial.Accepted;
             WriteWatchResult(
                 initial,
-                sequence,
                 profile.Id,
                 file,
                 output,
                 artifactWritten,
+                performanceBudget,
                 json);
             lastAccepted = initial.Accepted;
             if (maximumUpdates == sequence)
-                return lastAccepted ? 0 : 1;
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    initial.Telemetry);
+            }
 
             if (useStandardInput)
             {
                 return await RunStandardInputWatchAsync(
                     session,
+                    transport,
                     projectPath,
                     file,
                     output,
                     profile.Id,
                     maximumUpdates,
                     sequence,
+                    performanceBudget,
                     json,
                     cancellation.Token,
                     lastAccepted);
@@ -145,13 +159,14 @@ internal static partial class Program
 
             return await RunFileSystemWatchAsync(
                 session,
+                transport,
                 projectPath,
-                projectDirectory,
                 file,
                 output,
                 profile.Id,
                 maximumUpdates,
                 sequence,
+                performanceBudget,
                 json,
                 cancellation.Token,
                 lastAccepted);
@@ -170,12 +185,15 @@ internal static partial class Program
     private static async Task<int>
         RunStandardInputWatchAsync(
             RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
             string file,
             string output,
             string framework,
             int? maximumUpdates,
             long sequence,
+            RoslynXamlProjectWatchPerformanceBudget?
+                performanceBudget,
             bool json,
             CancellationToken cancellationToken,
             bool lastAccepted)
@@ -190,7 +208,10 @@ internal static partial class Program
                     "quit",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return lastAccepted ? 0 : 1;
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
             }
 
             if (!string.Equals(
@@ -211,32 +232,37 @@ internal static partial class Program
             }
             else
             {
+                sequence++;
                 var result =
                     await SubmitWatchSnapshotAsync(
-                        session,
+                        transport,
                         projectPath,
                         file,
+                        sequence,
                         immediate: true,
                         cancellationToken);
-                sequence++;
                 var wroteArtifact =
                     result.Accepted &&
-                    result.Update?
-                        .RequiresRuntimePublication ==
+                    result.RequiresRuntimePublication ==
                     true;
                 WriteWatchResult(
                     result,
-                    sequence,
                     framework,
                     file,
                     output,
                     wroteArtifact,
+                    performanceBudget,
                     json);
                 lastAccepted = result.Accepted;
             }
 
             if (maximumUpdates == sequence)
-                return lastAccepted ? 0 : 1;
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
+            }
         }
 
         return 0;
@@ -245,13 +271,15 @@ internal static partial class Program
     private static async Task<int>
         RunFileSystemWatchAsync(
             RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
             string projectPath,
-            string projectDirectory,
             string file,
             string output,
             string framework,
             int? maximumUpdates,
             long sequence,
+            RoslynXamlProjectWatchPerformanceBudget?
+                performanceBudget,
             bool json,
             CancellationToken cancellationToken,
             bool lastAccepted)
@@ -265,83 +293,98 @@ internal static partial class Program
                     SingleReader = true,
                     SingleWriter = false
                 });
-        using var projectWatcher =
-            CreateProjectWatcher(
-                projectDirectory,
+        var inputSet = await LoadWatchInputSetAsync(
+            projectPath,
+            file,
+            cancellationToken);
+        using var subscription =
+            new RoslynXamlProjectWatchFileSystemSubscription(
                 changedPath =>
                     signals.Writer.TryWrite(
-                        changedPath));
-        FileSystemWatcher? externalFileWatcher = null;
-        if (!IsUnderDirectory(
-                file,
-                projectDirectory))
+                        changedPath),
+                new[] { output });
+        subscription.Update(inputSet);
+        while (!cancellationToken
+                   .IsCancellationRequested)
         {
-            externalFileWatcher =
-                CreateSingleFileWatcher(
-                    file,
-                    changedPath =>
-                        signals.Writer.TryWrite(
-                            changedPath));
-        }
-
-        using (externalFileWatcher)
-        {
-            while (!cancellationToken
-                       .IsCancellationRequested)
+            _ = await signals.Reader.ReadAsync(
+                cancellationToken);
+            while (signals.Reader.TryRead(out _))
             {
-                _ = await signals.Reader.ReadAsync(
-                    cancellationToken);
-                while (signals.Reader.TryRead(out _))
-                {
-                }
+            }
+            var refreshSubscription =
+                subscription
+                    .TakeRefreshRequested();
 
-                RoslynXamlProjectWatchResult result;
-                try
+            RoslynXamlProjectWatchResultSnapshot result;
+            try
+            {
+                var requestSequence =
+                    checked(sequence + 1);
+                if (refreshSubscription)
+                {
+                    var submission =
+                        await SubmitWatchSnapshotAndLoadInputSetAsync(
+                            transport,
+                            projectPath,
+                            file,
+                            requestSequence,
+                            cancellationToken);
+                    subscription.Update(
+                        submission.InputSet);
+                    result = submission.Result;
+                }
+                else
                 {
                     result =
                         await SubmitWatchSnapshotAsync(
-                            session,
+                            transport,
                             projectPath,
                             file,
+                            requestSequence,
                             immediate: false,
                             cancellationToken);
                 }
-                catch (Exception exception)
-                    when (exception is not
-                          OperationCanceledException)
-                {
-                    sequence++;
-                    WriteWatchHostFailure(
-                        sequence,
-                        framework,
-                        file,
-                        output,
-                        exception.GetBaseException()
-                            .Message,
-                        json);
-                    lastAccepted = false;
-                    if (maximumUpdates == sequence)
-                        return 1;
-                    continue;
-                }
-
+            }
+            catch (Exception exception)
+                when (exception is not
+                      OperationCanceledException)
+            {
                 sequence++;
-                var wroteArtifact =
-                    result.Accepted &&
-                    result.Update?
-                        .RequiresRuntimePublication ==
-                    true;
-                WriteWatchResult(
-                    result,
+                WriteWatchHostFailure(
                     sequence,
                     framework,
                     file,
                     output,
-                    wroteArtifact,
+                    exception.GetBaseException()
+                        .Message,
                     json);
-                lastAccepted = result.Accepted;
+                lastAccepted = false;
                 if (maximumUpdates == sequence)
-                    return lastAccepted ? 0 : 1;
+                    return 1;
+                continue;
+            }
+
+            sequence++;
+            var wroteArtifact =
+                result.Accepted &&
+                result.RequiresRuntimePublication ==
+                true;
+            WriteWatchResult(
+                result,
+                framework,
+                file,
+                output,
+                wroteArtifact,
+                performanceBudget,
+                json);
+            lastAccepted = result.Accepted;
+            if (maximumUpdates == sequence)
+            {
+                return GetWatchExitCode(
+                    lastAccepted,
+                    performanceBudget,
+                    session.Telemetry);
             }
         }
 
@@ -349,11 +392,36 @@ internal static partial class Program
     }
 
     private static async Task<
-        RoslynXamlProjectWatchResult>
-        SubmitWatchSnapshotAsync(
-            RoslynXamlProjectWatchSession session,
+        RoslynXamlProjectWatchInputSet>
+        LoadWatchInputSetAsync(
             string projectPath,
             string file,
+            CancellationToken cancellationToken)
+    {
+        using var loaded =
+            await OpenWatchProjectAsync(
+                projectPath,
+                cancellationToken);
+        var project = EnsureAdditionalDocument(
+            loaded.Project,
+            file,
+            out _);
+        var evaluatedBuildInputs =
+            CliMsBuildProjectInputs
+                .Resolve(project);
+        return RoslynXamlProjectWatchInputSet.Create(
+            project,
+            evaluatedBuildInputs.Paths,
+            explicitInputs: new[] { file });
+    }
+
+    private static async Task<
+        RoslynXamlProjectWatchResultSnapshot>
+        SubmitWatchSnapshotAsync(
+            RoslynXamlProjectWatchTransport transport,
+            string projectPath,
+            string file,
+            long sequence,
             bool immediate,
             CancellationToken cancellationToken)
     {
@@ -365,13 +433,55 @@ internal static partial class Program
             loaded.Project,
             file,
             out var documentId);
-        return await session.SubmitAsync(
-            project,
-            documentId,
-            immediate: immediate,
-            cancellationToken:
-                cancellationToken);
+        return await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                sequence,
+                project,
+                documentId,
+                immediate: immediate),
+            cancellationToken);
     }
+
+    private static async Task<WatchSnapshotSubmission>
+        SubmitWatchSnapshotAndLoadInputSetAsync(
+            RoslynXamlProjectWatchTransport transport,
+            string projectPath,
+            string file,
+            long sequence,
+            CancellationToken cancellationToken)
+    {
+        using var loaded =
+            await OpenWatchProjectAsync(
+                projectPath,
+                cancellationToken);
+        var project = EnsureAdditionalDocument(
+            loaded.Project,
+            file,
+            out var documentId);
+        var evaluatedBuildInputs =
+            CliMsBuildProjectInputs
+                .Resolve(project);
+        var inputSet =
+            RoslynXamlProjectWatchInputSet.Create(
+                project,
+                evaluatedBuildInputs.Paths,
+                explicitInputs: new[] { file });
+        var result = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                sequence,
+                project,
+                documentId,
+                immediate: false),
+            cancellationToken);
+        return new WatchSnapshotSubmission(
+            result,
+            inputSet);
+    }
+
+    private readonly record struct
+        WatchSnapshotSubmission(
+            RoslynXamlProjectWatchResultSnapshot Result,
+            RoslynXamlProjectWatchInputSet InputSet);
 
     private static async Task<LoadedWatchProject>
         OpenWatchProjectAsync(
@@ -382,7 +492,7 @@ internal static partial class Program
             MSBuildLocator.RegisterDefaults();
         var workspace = CliMsBuildWorkspace.Create();
         workspace.LoadMetadataForReferencedProjects =
-            true;
+            false;
         workspace.RegisterWorkspaceFailedHandler(
             eventArgs =>
                 Console.Error.WriteLine(
@@ -404,127 +514,6 @@ internal static partial class Program
             workspace.Dispose();
             throw;
         }
-    }
-
-    private static FileSystemWatcher
-        CreateProjectWatcher(
-            string projectDirectory,
-            Action<string> changed)
-    {
-        var watcher =
-            new FileSystemWatcher(
-                projectDirectory)
-            {
-                IncludeSubdirectories = true,
-                Filter = "*",
-                NotifyFilter =
-                    NotifyFilters.FileName |
-                    NotifyFilters.DirectoryName |
-                    NotifyFilters.LastWrite |
-                    NotifyFilters.Size
-            };
-        FileSystemEventHandler onChange =
-            (_, eventArgs) =>
-            {
-                if (IsWatchInput(eventArgs.FullPath))
-                    changed(eventArgs.FullPath);
-            };
-        RenamedEventHandler onRename =
-            (_, eventArgs) =>
-            {
-                if (IsWatchInput(eventArgs.FullPath) ||
-                    IsWatchInput(eventArgs.OldFullPath))
-                {
-                    changed(eventArgs.FullPath);
-                }
-            };
-        watcher.Changed += onChange;
-        watcher.Created += onChange;
-        watcher.Deleted += onChange;
-        watcher.Renamed += onRename;
-        watcher.EnableRaisingEvents = true;
-        return watcher;
-    }
-
-    private static FileSystemWatcher
-        CreateSingleFileWatcher(
-            string file,
-            Action<string> changed)
-    {
-        var directory =
-            Path.GetDirectoryName(file) ??
-            throw new InvalidOperationException(
-                "The watched XAML file must have a parent directory.");
-        var watcher =
-            new FileSystemWatcher(
-                directory,
-                Path.GetFileName(file))
-            {
-                IncludeSubdirectories = false,
-                NotifyFilter =
-                    NotifyFilters.FileName |
-                    NotifyFilters.LastWrite |
-                    NotifyFilters.Size
-            };
-        FileSystemEventHandler onChange =
-            (_, eventArgs) =>
-                changed(eventArgs.FullPath);
-        RenamedEventHandler onRename =
-            (_, eventArgs) =>
-                changed(eventArgs.FullPath);
-        watcher.Changed += onChange;
-        watcher.Created += onChange;
-        watcher.Deleted += onChange;
-        watcher.Renamed += onRename;
-        watcher.EnableRaisingEvents = true;
-        return watcher;
-    }
-
-    private static bool IsWatchInput(string path)
-    {
-        if (IsBuildOutput(path))
-            return false;
-        var extension = Path.GetExtension(path);
-        return extension.Equals(
-                   ".cs",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".xaml",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".axaml",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".csproj",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".props",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".targets",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".editorconfig",
-                   StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(
-                   ".resw",
-                   StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsUnderDirectory(
-        string path,
-        string directory)
-    {
-        var relative =
-            Path.GetRelativePath(directory, path);
-        return !relative.Equals(
-                   "..",
-                   StringComparison.Ordinal) &&
-               !relative.StartsWith(
-                   ".." +
-                   Path.DirectorySeparatorChar,
-                   StringComparison.Ordinal) &&
-               !Path.IsPathRooted(relative);
     }
 
     private static TimeSpan ParseWatchDebounce(
@@ -581,89 +570,333 @@ internal static partial class Program
         return parsed;
     }
 
+    private static
+        RoslynXamlProjectWatchPerformanceBudget?
+        ParseWatchPerformanceBudget(
+            string[] args)
+    {
+        var minimumSampleCount =
+            ParsePositiveOption(
+                args,
+                "--budget-min-samples");
+        TimeSpan? maximumP95Duration = null;
+        if (TryGetOption(
+                args,
+                "--max-p95-ms",
+                out var durationValue))
+        {
+            if (!double.TryParse(
+                    durationValue,
+                    NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture,
+                    out var milliseconds) ||
+                !double.IsFinite(milliseconds) ||
+                milliseconds < 0 ||
+                milliseconds >
+                TimeSpan.MaxValue.TotalMilliseconds)
+            {
+                throw new ArgumentException(
+                    "--max-p95-ms must be a finite non-negative number.");
+            }
+
+            maximumP95Duration =
+                TimeSpan.FromMilliseconds(milliseconds);
+        }
+
+        long? maximumP95AllocatedBytes = null;
+        if (TryGetOption(
+                args,
+                "--max-p95-allocated-bytes",
+                out var allocationValue))
+        {
+            if (!long.TryParse(
+                    allocationValue,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var allocatedBytes) ||
+                allocatedBytes < 0)
+            {
+                throw new ArgumentException(
+                    "--max-p95-allocated-bytes must be a non-negative integer.");
+            }
+
+            maximumP95AllocatedBytes =
+                allocatedBytes;
+        }
+
+        if (!maximumP95Duration.HasValue &&
+            !maximumP95AllocatedBytes.HasValue)
+        {
+            if (minimumSampleCount.HasValue)
+            {
+                throw new ArgumentException(
+                    "--budget-min-samples requires a P95 duration or allocation budget.");
+            }
+
+            return null;
+        }
+
+        return new
+            RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount ?? 1,
+                maximumP95Duration,
+                maximumP95AllocatedBytes);
+    }
+
+    private static int GetWatchExitCode(
+        bool lastAccepted,
+        RoslynXamlProjectWatchPerformanceBudget?
+            performanceBudget,
+        in RoslynXamlProjectWatchTelemetry telemetry)
+    {
+        if (!lastAccepted)
+            return 1;
+        if (performanceBudget == null)
+            return 0;
+        return performanceBudget
+            .Evaluate(telemetry)
+            .Passed
+            ? 0
+            : 1;
+    }
+
     private static void WriteWatchResult(
-        RoslynXamlProjectWatchResult result,
-        long sequence,
+        RoslynXamlProjectWatchResultSnapshot snapshot,
         string framework,
         string file,
         string output,
         bool artifactWritten,
+        RoslynXamlProjectWatchPerformanceBudget?
+            performanceBudget,
         bool json)
     {
-        var update = result.Update;
-        var plan = update?.Delta;
-        var diagnostics =
-            GetWatchDiagnostics(update)
-                .ToArray();
+        var telemetry = snapshot.Telemetry;
+        var budgetResult =
+            performanceBudget?.Evaluate(telemetry);
         if (json)
         {
             WriteJsonLine(new
             {
                 command = "watch",
-                sequence,
-                version = result.Version,
+                protocolVersion =
+                    snapshot.ProtocolVersion.ToString(),
+                sequence = snapshot.Sequence,
+                version = snapshot.Version,
                 framework,
                 path = file,
-                status = result.Status.ToString(),
+                status = snapshot.Status.ToString(),
                 commitResult =
-                    result.CommitResult?.ToString(),
+                    snapshot.CommitResult?.ToString(),
                 generation =
-                    result.CommittedGeneration,
-                mode = plan?.Mode.ToString(),
-                action = plan?.Action.ToString(),
+                    snapshot.CommittedGeneration,
+                mode = snapshot.Mode?.ToString(),
+                action = snapshot.Action?.ToString(),
                 metadataReasons =
-                    plan?.MetadataReasons.Select(
+                    snapshot.MetadataReasons.Select(
                         static reason =>
                             reason.ToString()),
-                isInitial = update?.IsInitial,
+                isInitial = snapshot.IsInitial,
                 requiresRuntimePublication =
-                    update?
-                        .RequiresRuntimePublication,
+                    snapshot.RequiresRuntimePublication,
                 artifactWritten,
                 output,
                 resourceUri =
-                    update?.Current.ResourceUri,
+                    snapshot.ResourceUri,
                 qualifiedTypeName =
-                    update?.Current
-                        .QualifiedTypeName,
+                    snapshot.QualifiedTypeName,
                 targetDocumentChanged =
-                    plan?.TargetDocumentChanged,
+                    snapshot.TargetDocumentChanged,
                 targetDependencyChanged =
-                    plan?.TargetDependencyChanged,
+                    snapshot.TargetDependencyChanged,
                 metadataChanged =
-                    plan?.MetadataChanged,
+                    snapshot.MetadataChanged,
                 durationMilliseconds =
-                    result.Duration
+                    snapshot.Duration
                         .TotalMilliseconds,
-                message = result.Message,
+                telemetry = new
+                {
+                    submitted =
+                        telemetry.SubmittedCount,
+                    completed =
+                        telemetry.CompletedCount,
+                    applied =
+                        telemetry.AppliedCount,
+                    cacheHits =
+                        telemetry.CacheHitCount,
+                    rejected =
+                        telemetry.RejectedCount,
+                    canceledWork =
+                        telemetry.CanceledWorkCount,
+                    superseded =
+                        telemetry.SupersededCount,
+                    stopped =
+                        telemetry.StoppedCount,
+                    callerCanceled =
+                        telemetry.CallerCanceledCount,
+                    faulted =
+                        telemetry.FaultedCount,
+                    currentQueueDepth =
+                        telemetry.CurrentQueueDepth,
+                    maximumQueueDepth =
+                        telemetry.MaximumQueueDepth,
+                    totalDurationMilliseconds =
+                        telemetry.TotalDuration
+                            .TotalMilliseconds,
+                    lastDurationMilliseconds =
+                        telemetry.LastDuration
+                            .TotalMilliseconds,
+                    maximumDurationMilliseconds =
+                        telemetry.MaximumDuration
+                            .TotalMilliseconds,
+                    averageDurationMilliseconds =
+                        telemetry.AverageDuration
+                            .TotalMilliseconds,
+                    medianDurationUpperBoundMilliseconds =
+                        telemetry
+                            .MedianDurationUpperBound
+                            .TotalMilliseconds,
+                    p95DurationUpperBoundMilliseconds =
+                        telemetry
+                            .P95DurationUpperBound
+                            .TotalMilliseconds,
+                    p99DurationUpperBoundMilliseconds =
+                        telemetry
+                            .P99DurationUpperBound
+                            .TotalMilliseconds,
+                    allocationMeasurements =
+                        telemetry
+                            .AllocationMeasurementCount,
+                    totalAllocatedBytes =
+                        telemetry.TotalAllocatedBytes,
+                    lastAllocatedBytes =
+                        telemetry.LastAllocatedBytes,
+                    maximumAllocatedBytes =
+                        telemetry.MaximumAllocatedBytes,
+                    averageAllocatedBytes =
+                        telemetry.AverageAllocatedBytes,
+                    medianAllocatedBytesUpperBound =
+                        telemetry
+                            .MedianAllocatedBytesUpperBound,
+                    p95AllocatedBytesUpperBound =
+                        telemetry
+                            .P95AllocatedBytesUpperBound,
+                    p99AllocatedBytesUpperBound =
+                        telemetry
+                            .P99AllocatedBytesUpperBound
+                },
+                performanceBudget =
+                    performanceBudget == null
+                        ? null
+                        : new
+                        {
+                            status =
+                                budgetResult!.Value
+                                    .Status.ToString(),
+                            violations =
+                                budgetResult.Value
+                                    .Violations.ToString(),
+                            minimumSamples =
+                                performanceBudget
+                                    .MinimumSampleCount,
+                            completedSamples =
+                                budgetResult.Value
+                                    .CompletedSampleCount,
+                            allocationSamples =
+                                budgetResult.Value
+                                    .AllocationSampleCount,
+                            maximumP95DurationMilliseconds =
+                                performanceBudget
+                                    .MaximumP95Duration?
+                                    .TotalMilliseconds,
+                            observedP95DurationUpperBoundMilliseconds =
+                                budgetResult.Value
+                                    .P95DurationUpperBound
+                                    .TotalMilliseconds,
+                            maximumP95AllocatedBytes =
+                                performanceBudget
+                                    .MaximumP95AllocatedBytes,
+                            observedP95AllocatedBytesUpperBound =
+                                budgetResult.Value
+                                    .P95AllocatedBytesUpperBound
+                        },
+                message = snapshot.Message,
+                diagnosticsTruncated =
+                    snapshot.DiagnosticsTruncated,
+                textTruncated =
+                    snapshot.TextTruncated,
                 diagnostics =
-                    ProjectDiagnostics(
-                        diagnostics)
+                    ProjectWatchDiagnostics(
+                        snapshot.Diagnostics)
             });
             return;
         }
 
-        PrintDiagnostics(diagnostics);
+        PrintProjectWatchDiagnostics(
+            snapshot.Diagnostics,
+            snapshot.DiagnosticsTruncated);
         Console.WriteLine(
             "[watch " +
-            sequence.ToString(
+            snapshot.Sequence.ToString(
                 CultureInfo.InvariantCulture) +
             "] " +
-            result.Status +
+            snapshot.Status +
             " generation=" +
-            result.CommittedGeneration.ToString(
+            snapshot.CommittedGeneration.ToString(
                     CultureInfo.InvariantCulture) +
             " action=" +
-            (plan?.Action.ToString() ??
-             (update?.IsInitial == true
+            (snapshot.Action?.ToString() ??
+             (snapshot.IsInitial == true
                  ? "Initial"
                  : "None")) +
             " artifact=" +
             (artifactWritten
                 ? output
                 : "unchanged") +
+            " cacheHits=" +
+            telemetry.CacheHitCount.ToString(
+                CultureInfo.InvariantCulture) +
+            " queue=" +
+            telemetry.CurrentQueueDepth.ToString(
+                CultureInfo.InvariantCulture) +
+            "/" +
+            telemetry.MaximumQueueDepth.ToString(
+                CultureInfo.InvariantCulture) +
+            " p95Ms=" +
+            telemetry.P95DurationUpperBound
+                .TotalMilliseconds.ToString(
+                    "0.###",
+                    CultureInfo.InvariantCulture) +
+            " allocP95=" +
+            (telemetry.HasAllocationMeasurements
+                ? telemetry
+                    .P95AllocatedBytesUpperBound
+                    .ToString(
+                        CultureInfo.InvariantCulture)
+                : "unavailable") +
+            " budget=" +
+            (budgetResult.HasValue
+                ? budgetResult.Value.Status.ToString()
+                : "disabled") +
             " — " +
-            result.Message);
+            snapshot.Message);
+    }
+
+    private sealed class GcWatchAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        public static GcWatchAllocationCounter
+            Instance
+        {
+            get;
+        } = new();
+
+        private GcWatchAllocationCounter()
+        {
+        }
+
+        public long GetTotalAllocatedBytes() =>
+            GC.GetTotalAllocatedBytes(
+                precise: false);
     }
 
     private static void WriteWatchHostFailure(
@@ -679,6 +912,9 @@ internal static partial class Program
             WriteJsonLine(new
             {
                 command = "watch",
+                protocolVersion =
+                    RoslynXamlProjectWatchProtocolVersion
+                        .Current.ToString(),
                 sequence,
                 framework,
                 path = file,
@@ -696,32 +932,66 @@ internal static partial class Program
         }
     }
 
-    private static IEnumerable<Diagnostic>
-        GetWatchDiagnostics(
-            RoslynXamlProjectPreviewUpdate? update)
+    private static object[] ProjectWatchDiagnostics(
+        IEnumerable<RoslynXamlProjectWatchDiagnosticSnapshot>
+            diagnostics) =>
+        diagnostics.Select(
+            static diagnostic =>
+                (object)new
+                {
+                    id = diagnostic.Id,
+                    severity =
+                        diagnostic.Severity.ToString(),
+                    message = diagnostic.Message,
+                    path = diagnostic.Path,
+                    startLine = diagnostic.StartLine,
+                    startCharacter =
+                        diagnostic.StartCharacter,
+                    endLine = diagnostic.EndLine,
+                    endCharacter =
+                        diagnostic.EndCharacter,
+                    textTruncated =
+                        diagnostic.TextTruncated
+                })
+            .ToArray();
+
+    private static void PrintProjectWatchDiagnostics(
+        IEnumerable<RoslynXamlProjectWatchDiagnosticSnapshot>
+            diagnostics,
+        bool truncated)
     {
-        if (update == null)
-            return Array.Empty<Diagnostic>();
-        IEnumerable<Diagnostic> diagnostics =
-            update.Delta == null
-                ? Array.Empty<Diagnostic>()
-                : update.Delta.Diagnostics;
-        diagnostics = diagnostics.Concat(
-            update.Current.Artifact?.Diagnostics ??
-            update.Current.CompilationInspection
-                .CompilationResult.Diagnostics);
-        return diagnostics
-            .Where(
-                static diagnostic =>
-                    diagnostic.Severity !=
-                    DiagnosticSeverity.Hidden)
-            .GroupBy(
-                static diagnostic =>
-                    diagnostic.ToString(),
-                StringComparer.Ordinal)
-            .Select(
-                static group =>
-                    group.First());
+        foreach (var diagnostic in diagnostics)
+        {
+            var writer =
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error
+                    ? Console.Error
+                    : Console.Out;
+            writer.WriteLine(
+                (string.IsNullOrEmpty(diagnostic.Path)
+                    ? string.Empty
+                    : diagnostic.Path +
+                      "(" +
+                      (diagnostic.StartLine + 1)
+                          .ToString(
+                              CultureInfo.InvariantCulture) +
+                      "," +
+                      (diagnostic.StartCharacter + 1)
+                          .ToString(
+                              CultureInfo.InvariantCulture) +
+                      "): ") +
+                diagnostic.Severity.ToString()
+                    .ToLowerInvariant() +
+                " " +
+                diagnostic.Id +
+                ": " +
+                diagnostic.Message);
+        }
+        if (truncated)
+        {
+            Console.Error.WriteLine(
+                "Additional diagnostics were omitted by the project-watch transport bound.");
+        }
     }
 
     private static void WriteJsonLine(

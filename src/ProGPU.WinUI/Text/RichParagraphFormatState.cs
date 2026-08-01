@@ -35,7 +35,7 @@ internal sealed class RichParagraphFormatState
     public float SpaceBefore;
     public ParagraphStyle Style = ParagraphStyle.Normal;
     public FormatEffect WidowControl = FormatEffect.On;
-    public readonly System.Collections.Generic.List<RichTextTab> Tabs = new();
+    public readonly global::System.Collections.Generic.List<RichTextTab> Tabs = new();
     public float DefaultTabStop = 36f;
     internal bool IsTableRow;
     internal float[]? TableCellRightEdges;

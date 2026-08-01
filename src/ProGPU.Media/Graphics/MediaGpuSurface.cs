@@ -90,6 +90,7 @@ public interface IMediaGpuPlanarFrame :
 /// </summary>
 public sealed class MediaGpuSurface :
     IProGpuContextTextureLeaseSource,
+    IProGpuInvalidatingTextureSource,
     IProGpuPlanarTextureLeaseSource,
     IDisposable
 {
@@ -98,6 +99,12 @@ public sealed class MediaGpuSurface :
     private int _disposed;
 
     public event EventHandler? FrameAvailable;
+
+    event EventHandler? IProGpuInvalidatingTextureSource.TextureChanged
+    {
+        add => FrameAvailable += value;
+        remove => FrameAvailable -= value;
+    }
 
     public long Version => Volatile.Read(ref _version);
 

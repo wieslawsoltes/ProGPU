@@ -1,12 +1,14 @@
 using Microsoft.UI.Xaml.Automation.Text;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Automation.Provider;
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public interface ITextRangeProvider
 {
-    int Start { get; }
-    int End { get; }
-    string GetText(int maxLength = -1);
+    string GetText(int maxLength);
     ITextRangeProvider Clone();
     bool Compare(ITextRangeProvider textRangeProvider);
     int CompareEndpoints(TextPatternRangeEndpoint endpoint, ITextRangeProvider textRangeProvider, TextPatternRangeEndpoint targetEndpoint);
@@ -24,4 +26,13 @@ public interface ITextRangeProvider
     void RemoveFromSelection();
     void ScrollIntoView(bool alignToTop);
     IRawElementProviderSimple[] GetChildren();
+}
+
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public interface ITextRangeProvider2 :
+    ITextRangeProvider
+{
+    void ShowContextMenu();
 }

@@ -4,6 +4,17 @@ internal static class CliMsBuildWorkspace
 {
     public static MSBuildWorkspace Create()
     {
+        var globalProperties =
+            GetGlobalProperties();
+        return globalProperties.Count == 0
+            ? MSBuildWorkspace.Create()
+            : MSBuildWorkspace.Create(
+                globalProperties);
+    }
+
+    public static Dictionary<string, string>
+        GetGlobalProperties()
+    {
         var frameworkDirectory =
             new DirectoryInfo(AppContext.BaseDirectory);
         var configuration =
@@ -17,13 +28,14 @@ internal static class CliMsBuildWorkspace
                 "Release",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return MSBuildWorkspace.Create();
+            return new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
         }
 
-        return MSBuildWorkspace.Create(
-            new Dictionary<string, string>
-            {
-                ["Configuration"] = configuration!
-            });
+        return new Dictionary<string, string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["Configuration"] = configuration!
+        };
     }
 }

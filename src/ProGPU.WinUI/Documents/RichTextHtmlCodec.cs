@@ -391,7 +391,7 @@ public sealed class HtmlDocumentCodec : IRichDocumentFormatCodec
             }
             else
             {
-                System.Span<char> buffer = stackalloc char[2];
+                global::System.Span<char> buffer = stackalloc char[2];
                 int written = rune.EncodeToUtf16(buffer);
                 builder.Append(buffer[..written]);
                 inWhitespace = false;

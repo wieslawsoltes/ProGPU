@@ -116,6 +116,86 @@ public sealed class WinUiAnimationObjectModelTests
     }
 
     [Fact]
+    public void RepeatBehaviorPreservesWinUiTimingValueSemantics()
+    {
+        var count = new RepeatBehavior(2.5d);
+        var duration = new RepeatBehavior(TimeSpan.FromSeconds(4));
+        RepeatBehavior forever = RepeatBehavior.Forever;
+
+        Assert.True(count.HasCount);
+        Assert.False(count.HasDuration);
+        Assert.Equal(
+            "2.5x",
+            count.ToString(
+                global::System.Globalization.CultureInfo.InvariantCulture));
+        Assert.True(duration.HasDuration);
+        Assert.False(duration.HasCount);
+        Assert.Equal(
+            "00:00:04",
+            duration.ToString(
+                global::System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(RepeatBehaviorType.Forever, forever.Type);
+        Assert.Equal("Forever", forever.ToString());
+        Assert.Equal(new RepeatBehavior(2.5d), count);
+        Assert.True(count == new RepeatBehavior(2.5d));
+        Assert.True(count != new RepeatBehavior(3d));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RepeatBehavior(double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RepeatBehavior(TimeSpan.FromTicks(-1)));
+    }
+
+    [Fact]
+    public void TimelineDefaultsAndDirectStoryboardTargetAreTyped()
+    {
+        var animation = new DoubleAnimation { To = 0.75d };
+        var root = new Button();
+        var target = new Button { Opacity = 0.25d };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(animation);
+        var active = new VisualState
+        {
+            Name = "Active",
+            Storyboard = storyboard
+        };
+        var group = new VisualStateGroup { Name = "CommonStates" };
+        group.States.Add(active);
+        VisualStateManager.GetVisualStateGroups(root).Add(group);
+
+        Assert.Equal(new RepeatBehavior(1d), animation.RepeatBehavior);
+        Assert.True(Timeline.AllowDependentAnimations);
+        Timeline.AllowDependentAnimations = false;
+        Assert.False(Timeline.AllowDependentAnimations);
+        Timeline.AllowDependentAnimations = true;
+        Assert.IsType<TimelineCollection>(storyboard.Children);
+        Assert.True(VisualStateManager.GoToState(root, "Active", false));
+        Assert.Equal(0.75d, target.Opacity);
+    }
+
+    [Fact]
+    public void RepeatBehaviorHotValueOperationsAllocateNothing()
+    {
+        var left = new RepeatBehavior(2.5d);
+        var right = new RepeatBehavior(2.5d);
+        _ = left == right;
+        _ = left.GetHashCode();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        double checksum = 0d;
+
+        for (var index = 0; index < 100_000; index++)
+        {
+            if (left == right && left.HasCount)
+                checksum += left.Count;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(250_000d, checksum);
+        Assert.Equal(0L, allocated);
+    }
+
+    [Fact]
     public void VisualStateOwnsItsStoryboardContent()
     {
         var storyboard = new Storyboard();
@@ -1262,6 +1342,10 @@ public sealed class WinUiAnimationObjectModelTests
 
         Assert.True(carousel.AreHorizontalSnapPointsRegular);
         Assert.False(carousel.AreVerticalSnapPointsRegular);
+        Assert.IsAssignableFrom<IScrollSnapPointsInfo>(carousel);
+        Assert.Empty(carousel.GetIrregularSnapPoints(
+            Orientation.Vertical,
+            SnapPointsAlignment.Near));
         Assert.Equal(100f, carousel.TotalVirtualWidth);
         Assert.Equal(60f, carousel.GetRegularSnapPoints(
             Orientation.Horizontal,
@@ -1277,6 +1361,10 @@ public sealed class WinUiAnimationObjectModelTests
         pivot.Arrange(new ProGPU.Scene.Rect(0f, 0f, 200f, 100f));
 
         Assert.True(pivot.AreHorizontalSnapPointsRegular);
+        Assert.IsAssignableFrom<IScrollSnapPointsInfo>(pivot);
+        Assert.Empty(pivot.GetIrregularSnapPoints(
+            Orientation.Vertical,
+            SnapPointsAlignment.Near));
         Assert.Equal(30f, page.Size.X);
         Assert.IsAssignableFrom<Canvas>(new PivotHeaderPanel());
     }
@@ -1330,7 +1418,8 @@ public sealed class WinUiAnimationObjectModelTests
         Assert.Equal(TimeSpan.FromMinutes(30), timePicker.Time);
         Assert.Equal(timePicker.Time, timePicker.SelectedTime);
         Assert.Equal(TimeSpan.FromMinutes(30), timeChanged!.NewTime);
-        Assert.Throws<ArgumentOutOfRangeException>(() => timePicker.MinuteIncrement = 0);
+        timePicker.MinuteIncrement = 0;
+        Assert.Equal(0, timePicker.MinuteIncrement);
 
         var minimum = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var maximum = new DateTimeOffset(2025, 12, 31, 0, 0, 0, TimeSpan.Zero);
@@ -1355,12 +1444,25 @@ public sealed class WinUiAnimationObjectModelTests
         var control = new AutoSuggestBox { TextMemberPath = "Name" };
         var reasons = new List<AutoSuggestionBoxTextChangeReason>();
         object? chosen = null;
+        string? textObservedWhenSuggestionWasChosen = null;
+        AutoSuggestBoxTextChangedEventArgs? firstTextChange = null;
+        AutoSuggestBoxTextChangedEventArgs? latestTextChange = null;
         AutoSuggestBoxQuerySubmittedEventArgs? submitted = null;
-        control.TextChanged += (_, args) => reasons.Add(args.Reason);
-        control.SuggestionChosen += (_, args) => chosen = args.SelectedItem;
+        control.TextChanged += (_, args) =>
+        {
+            reasons.Add(args.Reason);
+            firstTextChange ??= args;
+            latestTextChange = args;
+        };
+        control.SuggestionChosen += (sender, args) =>
+        {
+            chosen = args.SelectedItem;
+            textObservedWhenSuggestionWasChosen = sender.Text;
+        };
         control.QuerySubmitted += (_, args) => submitted = args;
 
         control.SetUserText("pro");
+        Assert.True(firstTextChange!.CheckCurrent());
         var suggestion = new Dictionary<string, object?> { ["Name"] = "ProGPU" };
         control.ChooseSuggestion(suggestion);
         control.SubmitQuery(suggestion);
@@ -1372,9 +1474,32 @@ public sealed class WinUiAnimationObjectModelTests
                 AutoSuggestionBoxTextChangeReason.SuggestionChosen
             },
             reasons);
+        Assert.Equal("pro", textObservedWhenSuggestionWasChosen);
         Assert.Equal("ProGPU", control.Text);
+        Assert.False(firstTextChange.CheckCurrent());
+        Assert.True(latestTextChange!.CheckCurrent());
         Assert.Same(suggestion, chosen);
         Assert.Same(suggestion, submitted!.ChosenSuggestion);
+        Assert.Equal("ProGPU", submitted.QueryText);
+
+        var activatedArgs = new AutoSuggestBoxTextChangedEventArgs
+        {
+            Reason = AutoSuggestionBoxTextChangeReason.ProgrammaticChange
+        };
+        Assert.Equal(
+            AutoSuggestionBoxTextChangeReason.ProgrammaticChange,
+            activatedArgs.Reason);
+        Assert.True(activatedArgs.CheckCurrent());
+
+        _ = latestTextChange.CheckCurrent();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool allCurrent = true;
+        for (int iteration = 0; iteration < 100_000; iteration++)
+            allCurrent &= latestTextChange.CheckCurrent();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allCurrent);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]

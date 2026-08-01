@@ -16,6 +16,9 @@ namespace Microsoft.UI.Text;
 /// Retained, typed Text Object Model facade over <see cref="RichTextBuffer"/>.
 /// Range instances store only endpoints and edit the same buffer used by rendering.
 /// </summary>
+[Windows.Foundation.Metadata.ContractVersion(
+    TextApiContractInfo.Name,
+    TextApiContractInfo.Version1)]
 public sealed class RichEditTextDocument
 {
     private readonly RichEditBox _owner;
@@ -36,7 +39,7 @@ public sealed class RichEditTextDocument
         owner.TextChanged += (_, _) => ContentsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public event EventHandler? ContentsChanged;
+    internal event EventHandler? ContentsChanged;
 
     public bool AlignmentIncludesTrailingWhitespace
     {
@@ -125,12 +128,6 @@ public sealed class RichEditTextDocument
 
     public ITextRange GetRange(int startPosition, int endPosition) =>
         new RichEditTextRange(this, startPosition, endPosition);
-
-    /// <summary>
-    /// Returns the concrete retained range, including ProGPU's TOM2 table extensions.
-    /// </summary>
-    public RichEditTextRange GetRange2(int startPosition, int endPosition) =>
-        new(this, startPosition, endPosition);
 
     public ITextRange GetRangeFromPoint(Windows.Foundation.Point point, PointOptions options)
     {

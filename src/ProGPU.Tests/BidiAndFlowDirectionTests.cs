@@ -12,6 +12,7 @@ using ProGPU.Text;
 using ProGPU.Text.Bidi;
 using ProGPU.Text.Shaping;
 using ProGPU.Vector;
+using ProGPU.WinUI.Text;
 using Silk.NET.Input;
 using Xunit;
 
@@ -457,8 +458,8 @@ public class BidiAndFlowDirectionTests
             if (inline is Span span)
             {
                 foreach (Inline child in span.Inlines)
-                foreach (Microsoft.UI.Xaml.Documents.Run nested in EnumerateRuns(child))
-                    yield return nested;
+                    foreach (Microsoft.UI.Xaml.Documents.Run nested in EnumerateRuns(child))
+                        yield return nested;
             }
         }
     }
@@ -1856,7 +1857,8 @@ public class BidiAndFlowDirectionTests
     {
         var editor = new RichEditBox { Text = "before selected after" };
         editor.TextDocument.ClearUndoRedoHistory();
-        RichEditTextRange range = editor.TextDocument.GetRange2(7, 15);
+        ITextRange range =
+            editor.TextDocument.GetRange(7, 15);
 
         range.InsertTable(columnCount: 2, rowCount: 2);
 
@@ -1882,7 +1884,8 @@ public class BidiAndFlowDirectionTests
     public void RichEditTom2InsertTableValidatesDimensionsAndSupportsFixedColumns()
     {
         var editor = new RichEditBox();
-        RichEditTextRange range = editor.TextDocument.GetRange2(0, 0);
+        ITextRange range =
+            editor.TextDocument.GetRange(0, 0);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => range.InsertTable(0, 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => range.InsertTable(1, 0));
@@ -2733,15 +2736,15 @@ public class BidiAndFlowDirectionTests
         var text = Assert.IsAssignableFrom<Microsoft.UI.Xaml.Automation.Provider.ITextProvider>(peer);
 
         Assert.Equal(editor.Text, value.Value);
-        Assert.Equal("ne 0", text.GetSelection()[0].GetText());
-        Assert.True(text.GetVisibleRanges()[0].GetText().Length < editor.Text.Length);
+        Assert.Equal("ne 0", text.GetSelection()[0].GetText(-1));
+        Assert.True(text.GetVisibleRanges()[0].GetText(-1).Length < editor.Text.Length);
         Assert.Equal(Microsoft.UI.Xaml.Automation.Peers.AutomationControlType.Document, peer.GetAutomationControlType());
 
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider documentRange = text.DocumentRange;
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider word = documentRange.FindText("line 12", backward: false, ignoreCase: false)!;
-        Assert.Equal("line 12", word.GetText());
+        Assert.Equal("line 12", word.GetText(-1));
         word.ExpandToEnclosingUnit(Microsoft.UI.Xaml.Automation.Text.TextUnit.Line);
-        Assert.StartsWith("line 12", word.GetText(), StringComparison.Ordinal);
+        Assert.StartsWith("line 12", word.GetText(-1), StringComparison.Ordinal);
         word.GetBoundingRectangles(out double[] bounds);
         Assert.Equal(0, bounds.Length % 4);
         Assert.True(word.Compare(word.Clone()));
@@ -3771,9 +3774,23 @@ public class BidiAndFlowDirectionTests
             Assert.Single(automation.DocumentRange.GetChildren());
         Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider embeddedRange =
             automation.RangeFromChild(embeddedChild);
-        Assert.Equal(7, embeddedRange.Start);
-        Assert.Equal(8, embeddedRange.End);
-        Assert.Equal("\uFFFC", embeddedRange.GetText());
+        Microsoft.UI.Xaml.Automation.Provider.ITextRangeProvider
+            prefix = automation.DocumentRange.Clone();
+        prefix.MoveEndpointByRange(
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End,
+            embeddedRange,
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.Start);
+        Assert.Equal(7, prefix.GetText(-1).Length);
+        prefix.MoveEndpointByRange(
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End,
+            embeddedRange,
+            Microsoft.UI.Xaml.Automation.Text
+                .TextPatternRangeEndpoint.End);
+        Assert.Equal(8, prefix.GetText(-1).Length);
+        Assert.Equal("\uFFFC", embeddedRange.GetText(-1));
     }
 
     [Fact]
@@ -4217,7 +4234,7 @@ public class BidiAndFlowDirectionTests
         Assert.Equal(0, afterStory.Move(TextRangeUnit.Character, 1));
         Assert.Equal(3, afterStory.StartPosition);
 
-        story.Collapse(start: false);
+        story.Collapse(value: false);
         Assert.Equal((3, 3), (story.StartPosition, story.EndPosition));
         story.SetRange(0, 4);
         Assert.Equal(-1, story.EndOf(TextRangeUnit.Story, extend: false));
@@ -4310,7 +4327,7 @@ public class BidiAndFlowDirectionTests
 
         editor.Text = "abcd";
         selection.SetRange(1, 3);
-        selection.Options = SelectionOptions.None;
+        selection.Options = default;
         selection.TypeText("X");
         Assert.Equal("aXbcd", editor.Text);
 

@@ -58,7 +58,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
         foreach (RichTextSpan span in spans)
         {
             object candidate = GetStyleAttributeValue(attributeId, span.Style);
-            if (!ReferenceEquals(candidate, AutomationElementIdentifiers.NotSupported) && AttributeEquals(candidate, value))
+            if (!ReferenceEquals(candidate, AutomationTextAttributeSentinels.NotSupported) && AttributeEquals(candidate, value))
             {
                 var current = new RichEditTextRangeProvider(_owner, cursor, cursor + span.Text.Length);
                 if (!backward)
@@ -89,7 +89,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
     public object GetAttributeValue(int attributeId)
     {
         object paragraph = GetParagraphAttributeValue(attributeId);
-        if (!ReferenceEquals(paragraph, AutomationElementIdentifiers.NotSupported))
+        if (!ReferenceEquals(paragraph, AutomationTextAttributeSentinels.NotSupported))
         {
             return paragraph;
         }
@@ -101,7 +101,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
         }
 
         object value = GetStyleAttributeValue(attributeId, spans[0].Style);
-        if (ReferenceEquals(value, AutomationElementIdentifiers.NotSupported))
+        if (ReferenceEquals(value, AutomationTextAttributeSentinels.NotSupported))
         {
             return value;
         }
@@ -111,7 +111,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
             object candidate = GetStyleAttributeValue(attributeId, spans[index].Style);
             if (!AttributeEquals(value, candidate))
             {
-                return AutomationElementIdentifiers.MixedAttributeValue;
+                return AutomationTextAttributeSentinels.MixedAttributeValue;
             }
         }
 
@@ -136,7 +136,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
     public IRawElementProviderSimple GetEnclosingElement() =>
         new(_owner.GetOrCreateAutomationPeer()!);
 
-    public string GetText(int maxLength = -1)
+    public string GetText(int maxLength)
     {
         string value = _owner.Text.Substring(Start, End - Start);
         return maxLength >= 0 && value.Length > maxLength ? value[..maxLength] : value;
@@ -270,7 +270,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
                     ? AutomationFlowDirections.RightToLeft
                     : AutomationFlowDirections.Default,
             AutomationTextAttributesEnum.TabsAttribute => GetTabs(state),
-            _ => AutomationElementIdentifiers.NotSupported
+            _ => AutomationTextAttributeSentinels.NotSupported
         };
     }
 
@@ -296,7 +296,7 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
             AutomationTextAttributesEnum.UnderlineStyleAttribute => (int)style.UnderlineType,
             AutomationTextAttributesEnum.LinkAttribute => !string.IsNullOrEmpty(style.Link),
             AutomationTextAttributesEnum.IsActiveAttribute => _owner.IsFocused,
-            _ => AutomationElementIdentifiers.NotSupported
+            _ => AutomationTextAttributeSentinels.NotSupported
         };
 
     private static bool AttributeEquals(object left, object right)
@@ -328,10 +328,10 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
             return 0;
         }
 
-        System.Numerics.Vector4 color = System.Numerics.Vector4.Clamp(
+        global::System.Numerics.Vector4 color = global::System.Numerics.Vector4.Clamp(
             solid.Color,
-            System.Numerics.Vector4.Zero,
-            System.Numerics.Vector4.One);
+            global::System.Numerics.Vector4.Zero,
+            global::System.Numerics.Vector4.One);
         int red = (int)MathF.Round(color.X * 255f);
         int green = (int)MathF.Round(color.Y * 255f);
         int blue = (int)MathF.Round(color.Z * 255f);
@@ -382,4 +382,11 @@ internal sealed class RichEditTextRangeProvider : ITextRangeProvider
         TextUnit.Document => Microsoft.UI.Text.TextRangeUnit.Story,
         _ => Microsoft.UI.Text.TextRangeUnit.Character
     };
+}
+
+internal static class AutomationTextAttributeSentinels
+{
+    internal static object NotSupported { get; } = new();
+
+    internal static object MixedAttributeValue { get; } = new();
 }

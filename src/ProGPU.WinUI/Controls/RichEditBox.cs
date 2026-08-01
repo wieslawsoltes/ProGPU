@@ -2891,7 +2891,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     index++;
                 }
-                var builder = new System.Text.StringBuilder(index - start);
+                var builder = new global::System.Text.StringBuilder(index - start);
                 for (int charIndex = start; charIndex < index; charIndex++)
                 {
                     builder.Append(characters[charIndex].Character);
@@ -3648,7 +3648,7 @@ namespace Microsoft.UI.Xaml.Controls
                     _buffer.GetSpans(start, end - start),
                     options);
 
-            var builder = new System.Text.StringBuilder(Math.Max(0, end - start));
+            var builder = new global::System.Text.StringBuilder(Math.Max(0, end - start));
             int firstBlock = _editorBlockStarts.Count == 0 ? 0 : FindEditorBlockIndex(start);
             for (int blockIndex = firstBlock; blockIndex < _editorLayoutDocument.Blocks.Count; blockIndex++)
             {

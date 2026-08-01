@@ -1,8 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using Windows.Foundation;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Controls;
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum AutoSuggestionBoxTextChangeReason
 {
     UserInput = 0,
@@ -10,21 +16,77 @@ public enum AutoSuggestionBoxTextChangeReason
     SuggestionChosen = 2
 }
 
-public sealed class AutoSuggestBoxTextChangedEventArgs : EventArgs
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class AutoSuggestBoxTextChangedEventArgs : DependencyObject
 {
-    public AutoSuggestBoxTextChangedEventArgs(AutoSuggestionBoxTextChangeReason reason) => Reason = reason;
-    public AutoSuggestionBoxTextChangeReason Reason { get; }
+    private readonly AutoSuggestBox? _owner;
+    private readonly long _textVersion;
+
+    public static DependencyProperty ReasonProperty { get; } =
+        DependencyProperty.Register(
+            nameof(Reason),
+            typeof(AutoSuggestionBoxTextChangeReason),
+            typeof(AutoSuggestBoxTextChangedEventArgs),
+            new PropertyMetadata(AutoSuggestionBoxTextChangeReason.UserInput));
+
+    public AutoSuggestBoxTextChangedEventArgs()
+    {
+    }
+
+    internal AutoSuggestBoxTextChangedEventArgs(
+        AutoSuggestBox owner,
+        AutoSuggestionBoxTextChangeReason reason,
+        long textVersion)
+    {
+        _owner = owner;
+        _textVersion = textVersion;
+        Reason = reason;
+    }
+
+    public AutoSuggestionBoxTextChangeReason Reason
+    {
+        get => (AutoSuggestionBoxTextChangeReason)(
+            GetValue(ReasonProperty) ??
+            AutoSuggestionBoxTextChangeReason.UserInput);
+        set => SetValue(ReasonProperty, value);
+    }
+
+    public bool CheckCurrent() =>
+        _owner is null || _owner.TextVersion == _textVersion;
 }
 
-public sealed class AutoSuggestBoxSuggestionChosenEventArgs : EventArgs
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class AutoSuggestBoxSuggestionChosenEventArgs : DependencyObject
 {
-    public AutoSuggestBoxSuggestionChosenEventArgs(object selectedItem) => SelectedItem = selectedItem;
-    public object SelectedItem { get; }
+    private object? _selectedItem;
+
+    public AutoSuggestBoxSuggestionChosenEventArgs()
+    {
+    }
+
+    internal AutoSuggestBoxSuggestionChosenEventArgs(object selectedItem) =>
+        _selectedItem = selectedItem;
+
+    public object? SelectedItem => _selectedItem;
 }
 
-public sealed class AutoSuggestBoxQuerySubmittedEventArgs : EventArgs
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class AutoSuggestBoxQuerySubmittedEventArgs : DependencyObject
 {
-    public AutoSuggestBoxQuerySubmittedEventArgs(string queryText, object? chosenSuggestion)
+    public AutoSuggestBoxQuerySubmittedEventArgs()
+    {
+        QueryText = string.Empty;
+    }
+
+    internal AutoSuggestBoxQuerySubmittedEventArgs(
+        string queryText,
+        object? chosenSuggestion)
     {
         QueryText = queryText;
         ChosenSuggestion = chosenSuggestion;
@@ -38,22 +100,28 @@ public sealed class AutoSuggestBoxQuerySubmittedEventArgs : EventArgs
 /// Text input control that exposes a live suggestion collection.
 /// </summary>
 [InputProperty(Name = nameof(Text))]
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public sealed class AutoSuggestBox : ItemsControl
 {
-    public static readonly DependencyProperty MaxSuggestionListHeightProperty = Register(nameof(MaxSuggestionListHeight), double.PositiveInfinity);
-    public static readonly DependencyProperty IsSuggestionListOpenProperty = Register(nameof(IsSuggestionListOpen), false);
-    public static readonly DependencyProperty TextMemberPathProperty = Register(nameof(TextMemberPath), string.Empty);
-    public static readonly DependencyProperty TextProperty = Register(nameof(Text), string.Empty, OnTextChanged);
-    public static readonly DependencyProperty UpdateTextOnSelectProperty = Register(nameof(UpdateTextOnSelect), true);
-    public static readonly DependencyProperty PlaceholderTextProperty = Register(nameof(PlaceholderText), string.Empty);
-    public static readonly DependencyProperty HeaderProperty = Register<object?>(nameof(Header), null);
-    public static readonly DependencyProperty AutoMaximizeSuggestionAreaProperty = Register(nameof(AutoMaximizeSuggestionArea), false);
-    public static readonly DependencyProperty TextBoxStyleProperty = Register<Style?>(nameof(TextBoxStyle), null);
-    public static readonly DependencyProperty QueryIconProperty = Register<IconElement?>(nameof(QueryIcon), null);
-    public static readonly DependencyProperty LightDismissOverlayModeProperty = Register(nameof(LightDismissOverlayMode), LightDismissOverlayMode.Auto);
-    public static readonly DependencyProperty DescriptionProperty = Register<object?>(nameof(Description), null);
+    public static DependencyProperty MaxSuggestionListHeightProperty { get; } = Register(nameof(MaxSuggestionListHeight), double.PositiveInfinity);
+    public static DependencyProperty IsSuggestionListOpenProperty { get; } = Register(nameof(IsSuggestionListOpen), false);
+    public static DependencyProperty TextMemberPathProperty { get; } = Register(nameof(TextMemberPath), string.Empty);
+    public static DependencyProperty TextProperty { get; } = Register(nameof(Text), string.Empty, OnTextChanged);
+    public static DependencyProperty UpdateTextOnSelectProperty { get; } = Register(nameof(UpdateTextOnSelect), true);
+    public static DependencyProperty PlaceholderTextProperty { get; } = Register(nameof(PlaceholderText), string.Empty);
+    public static DependencyProperty HeaderProperty { get; } = Register<object?>(nameof(Header), null);
+    public static DependencyProperty AutoMaximizeSuggestionAreaProperty { get; } = Register(nameof(AutoMaximizeSuggestionArea), false);
+    public static DependencyProperty TextBoxStyleProperty { get; } = Register<Style?>(nameof(TextBoxStyle), null);
+    public static DependencyProperty QueryIconProperty { get; } = Register<IconElement?>(nameof(QueryIcon), null);
+    public static DependencyProperty LightDismissOverlayModeProperty { get; } = Register(nameof(LightDismissOverlayMode), LightDismissOverlayMode.Auto);
+    public static DependencyProperty DescriptionProperty { get; } = Register<object?>(nameof(Description), null);
 
     private AutoSuggestionBoxTextChangeReason _pendingChangeReason = AutoSuggestionBoxTextChangeReason.ProgrammaticChange;
+    private long _textVersion;
+
+    internal long TextVersion => Volatile.Read(ref _textVersion);
 
     public double MaxSuggestionListHeight { get => (double)(GetValue(MaxSuggestionListHeightProperty) ?? double.PositiveInfinity); set => SetValue(MaxSuggestionListHeightProperty, value); }
     public bool IsSuggestionListOpen { get => (bool)(GetValue(IsSuggestionListOpenProperty) ?? false); set => SetValue(IsSuggestionListOpenProperty, value); }
@@ -68,21 +136,21 @@ public sealed class AutoSuggestBox : ItemsControl
     public LightDismissOverlayMode LightDismissOverlayMode { get => (LightDismissOverlayMode)(GetValue(LightDismissOverlayModeProperty) ?? LightDismissOverlayMode.Auto); set => SetValue(LightDismissOverlayModeProperty, value); }
     public object? Description { get => GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
 
-    public event EventHandler<AutoSuggestBoxSuggestionChosenEventArgs>? SuggestionChosen;
-    public event EventHandler<AutoSuggestBoxTextChangedEventArgs>? TextChanged;
-    public event EventHandler<AutoSuggestBoxQuerySubmittedEventArgs>? QuerySubmitted;
+    public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxSuggestionChosenEventArgs>? SuggestionChosen;
+    public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxTextChangedEventArgs>? TextChanged;
+    public event TypedEventHandler<AutoSuggestBox, AutoSuggestBoxQuerySubmittedEventArgs>? QuerySubmitted;
 
-    public void SetUserText(string? value) => SetText(value, AutoSuggestionBoxTextChangeReason.UserInput);
+    internal void SetUserText(string? value) => SetText(value, AutoSuggestionBoxTextChangeReason.UserInput);
 
-    public void ChooseSuggestion(object suggestion)
+    internal void ChooseSuggestion(object suggestion)
     {
         ArgumentNullException.ThrowIfNull(suggestion);
+        SuggestionChosen?.Invoke(this, new AutoSuggestBoxSuggestionChosenEventArgs(suggestion));
         if (UpdateTextOnSelect)
             SetText(GetSuggestionText(suggestion), AutoSuggestionBoxTextChangeReason.SuggestionChosen);
-        SuggestionChosen?.Invoke(this, new AutoSuggestBoxSuggestionChosenEventArgs(suggestion));
     }
 
-    public void SubmitQuery(object? chosenSuggestion = null) =>
+    internal void SubmitQuery(object? chosenSuggestion = null) =>
         QuerySubmitted?.Invoke(this, new AutoSuggestBoxQuerySubmittedEventArgs(Text, chosenSuggestion));
 
     private void SetText(string? value, AutoSuggestionBoxTextChangeReason reason)
@@ -110,8 +178,12 @@ public sealed class AutoSuggestBox : ItemsControl
     private static void OnTextChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
     {
         var control = (AutoSuggestBox)dependencyObject;
-        control.TextChanged?.Invoke(control, new AutoSuggestBoxTextChangedEventArgs(control._pendingChangeReason));
+        var reason = control._pendingChangeReason;
         control._pendingChangeReason = AutoSuggestionBoxTextChangeReason.ProgrammaticChange;
+        var version = Interlocked.Increment(ref control._textVersion);
+        control.TextChanged?.Invoke(
+            control,
+            new AutoSuggestBoxTextChangedEventArgs(control, reason, version));
     }
 
     private static DependencyProperty Register<T>(

@@ -12,7 +12,8 @@ using ProGPU.Vector;
 
 namespace Microsoft.UI.Text;
 
-public sealed class RichEditTextParagraphFormat : ITextParagraphFormat
+internal sealed class RichEditTextParagraphFormat :
+    ITextParagraphFormat
 {
     private readonly RichEditBox? _owner;
     private readonly RichEditTextRange? _range;

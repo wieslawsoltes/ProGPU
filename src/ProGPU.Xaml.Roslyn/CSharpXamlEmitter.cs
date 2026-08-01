@@ -1490,10 +1490,10 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                                     RegisterBindingAccessors(binding);
                                     AddStatement(
                                         ordinaryBindingStatement,
-                                        operation.SourceSpan,
-                                        operation.StableId,
+                                        binding.SourceSpan,
+                                        binding.StableId,
                                         setMember.Symbol,
-                                        XamlProjectionKind.MemberAssignment);
+                                        XamlProjectionKind.Binding);
                                 }
                                 else if (_framework is IRoslynXamlContextualMarkupExpressionProfile bindingValues &&
                                          bindingValues.TryCreateMarkupExtensionExpression(
@@ -1503,7 +1503,13 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                                              out var bindingValue))
                                 {
                                     RegisterBindingAccessors(binding);
-                                    EmitSet(ownerExpression, operation, bindingValue);
+                                    EmitSet(
+                                        ownerExpression,
+                                        operation,
+                                        bindingValue,
+                                        binding.SourceSpan,
+                                        binding.StableId,
+                                        XamlProjectionKind.Binding);
                                 }
                                 else
                                 {
@@ -1554,10 +1560,10 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                                 _hasCompiledBindings = true;
                                 AddStatement(
                                     compiledBindingAssignment,
-                                    operation.SourceSpan,
-                                    operation.StableId,
+                                    compiledBinding.SourceSpan,
+                                    compiledBinding.StableId,
                                     setMember.Symbol,
-                                    XamlProjectionKind.MemberAssignment);
+                                    XamlProjectionKind.Binding);
                                 continue;
                             }
                             if (value is XamlIrResourceReference resourceReference &&
@@ -1997,7 +2003,7 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     SyntaxFactory.AssignmentExpression(
                         SyntaxKind.SimpleAssignmentExpression,
                         MemberAccess(SyntaxFactory.ThisExpression(), text.Text),
-                        ownerExpression)), operation.SourceSpan, operation.StableId, null, XamlProjectionKind.Name));
+                        ownerExpression)), text.SourceSpan, text.StableId, null, XamlProjectionKind.Name));
             }
 
             var runtimeName = owner.Type.Symbol.RuntimeNameMemberName;
@@ -2008,8 +2014,8 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 AddStatement(Assignment(
                     MemberAccess(ownerExpression, runtimeName!),
                     WinUiXamlProfile.StringLiteral(text.Text)),
-                    operation.SourceSpan,
-                    operation.StableId,
+                    text.SourceSpan,
+                    text.StableId,
                     runtimeMember,
                     XamlProjectionKind.Name);
             }
@@ -2049,8 +2055,39 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                 _hasCompiledBindings = true;
                 return;
             }
-            var handlerName = operation.Values.OfType<XamlIrText>().FirstOrDefault()?.Text;
-            if (handlerName == null || !SyntaxFacts.IsValidIdentifier(handlerName))
+
+            var boundHandler = operation.Values
+                .OfType<XamlIrEventHandler>()
+                .SingleOrDefault();
+            if (boundHandler != null)
+            {
+                if (boundHandler.Value.Method == null)
+                    return;
+
+                var typedHandler = MemberAccess(
+                    SyntaxFactory.ThisExpression(),
+                    boundHandler.Value.Method.Name);
+                AddStatement(
+                    SyntaxFactory.ExpressionStatement(
+                        SyntaxFactory.AssignmentExpression(
+                            SyntaxKind.AddAssignmentExpression,
+                            MemberAccess(
+                                ownerExpression,
+                                member.CSharpName),
+                            typedHandler)),
+                    boundHandler.SourceSpan,
+                    boundHandler.StableId,
+                    member.Symbol,
+                    XamlProjectionKind.Event);
+                return;
+            }
+
+            var handlerText = operation.Values
+                .OfType<XamlIrText>()
+                .FirstOrDefault();
+            var handlerName = handlerText?.Text;
+            if (handlerName == null ||
+                !SyntaxFacts.IsValidIdentifier(handlerName))
             {
                 AddError("PGXAML3003", $"Event handler '{handlerName}' is not a valid C# method name.",
                     operation.SourceSpan, "6.2.1.2");
@@ -2060,7 +2097,11 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             AddStatement(SyntaxFactory.ExpressionStatement(SyntaxFactory.AssignmentExpression(
                 SyntaxKind.AddAssignmentExpression,
                 MemberAccess(ownerExpression, member.CSharpName),
-                handler)), operation.SourceSpan, operation.StableId, member.Symbol, XamlProjectionKind.Event);
+                handler)),
+                handlerText!.SourceSpan,
+                handlerText.StableId,
+                member.Symbol,
+                XamlProjectionKind.Event);
         }
 
         private ExpressionSyntax? GetCompiledBindingSource(XamlIrCompiledBinding binding)
@@ -2079,9 +2120,20 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
             return _lookupRootExpression;
         }
 
-        private void EmitSet(ExpressionSyntax ownerExpression, XamlIrOperation operation, ExpressionSyntax value)
+        private void EmitSet(
+            ExpressionSyntax ownerExpression,
+            XamlIrOperation operation,
+            ExpressionSyntax value,
+            TextSpan? sourceSpan = null,
+            ulong? stableId = null,
+            XamlProjectionKind projectionKind =
+                XamlProjectionKind.MemberAssignment)
         {
             var member = operation.Member.Symbol!;
+            var projectionSpan =
+                sourceSpan ?? operation.SourceSpan;
+            var projectionStableId =
+                stableId ?? operation.StableId;
             if (operation.Kind == XamlIrOperationKind.SetAttachableMember)
             {
                 var method = (IMethodSymbol)member.Symbol!;
@@ -2089,13 +2141,25 @@ public sealed class CSharpXamlEmitter : IXamlCodeEmitter
                     SyntaxKind.SimpleMemberAccessExpression,
                     (ExpressionSyntax)RoslynTypeSyntaxFactory.Create(method.ContainingType),
                     SyntaxFactory.IdentifierName(EscapeIdentifier(method.Name)));
-                AddStatement(Invocation(target, ownerExpression, value), operation.SourceSpan,
-                    operation.StableId, member.Symbol, XamlProjectionKind.MemberAssignment);
+                AddStatement(
+                    Invocation(target, ownerExpression, value),
+                    projectionSpan,
+                    projectionStableId,
+                    member.Symbol,
+                    projectionKind);
             }
             else
             {
-                AddStatement(Assignment(MemberAccess(ownerExpression, member.CSharpName), value),
-                    operation.SourceSpan, operation.StableId, member.Symbol, XamlProjectionKind.MemberAssignment);
+                AddStatement(
+                    Assignment(
+                        MemberAccess(
+                            ownerExpression,
+                            member.CSharpName),
+                        value),
+                    projectionSpan,
+                    projectionStableId,
+                    member.Symbol,
+                    projectionKind);
             }
         }
 

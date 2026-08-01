@@ -130,6 +130,11 @@ internal sealed class MetalRenderView : UIView
 
             CGPoint point = touch.LocationInView(this);
             var position = new Vector2((float)point.X, (float)point.Y);
+            UIEventButtonMask previousButtons =
+                isIndirectPointer &&
+                _indirectButtons.TryGetValue(handle, out var retainedButtons)
+                    ? retainedButtons
+                    : 0;
             UIEventButtonMask buttons = isIndirectPointer
                 ? ResolveIndirectButtons(handle, evt, kind)
                 : inContact ? UIEventButtonMask.Primary : 0;
@@ -165,7 +170,13 @@ internal sealed class MetalRenderView : UIView
                     (float)point.Y - radius,
                     radius * 2f,
                     radius * 2f),
-                Modifiers: ReadModifiers(evt?.ModifierFlags ?? 0)));
+                Modifiers: ReadModifiers(evt?.ModifierFlags ?? 0),
+                UpdateKind: isIndirectPointer
+                    ? GetPointerUpdateKind(
+                        kind,
+                        previousButtons,
+                        buttons)
+                    : Microsoft.UI.Input.PointerUpdateKind.Other));
 
             if (!inContact)
             {
@@ -194,6 +205,40 @@ internal sealed class MetalRenderView : UIView
         if (buttons == 0 && kind == PointerInputKind.Pressed) buttons = UIEventButtonMask.Primary;
         _indirectButtons[handle] = buttons;
         return buttons;
+    }
+
+    private static Microsoft.UI.Input.PointerUpdateKind
+        GetPointerUpdateKind(
+            PointerInputKind kind,
+            UIEventButtonMask previous,
+            UIEventButtonMask current)
+    {
+        UIEventButtonMask changed = kind switch
+        {
+            PointerInputKind.Pressed => current & ~previous,
+            PointerInputKind.Released => previous & ~current,
+            _ => 0
+        };
+        bool pressed = kind == PointerInputKind.Pressed;
+        if (changed.HasFlag(UIEventButtonMask.Primary))
+        {
+            return pressed
+                ? Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed
+                : Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased;
+        }
+        if (changed.HasFlag(UIEventButtonMask.Secondary))
+        {
+            return pressed
+                ? Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed
+                : Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased;
+        }
+        if (changed.HasFlag(UIEventButtonMaskExtensions.Convert(3)))
+        {
+            return pressed
+                ? Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed
+                : Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased;
+        }
+        return Microsoft.UI.Input.PointerUpdateKind.Other;
     }
 
     private void UpdateDrawableSize()

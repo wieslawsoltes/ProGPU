@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Numerics;
+using Windows.Graphics;
 
 #nullable enable
 #pragma warning disable IDE0057, IDE0059, IDE0078, IDE0300, IDE0301, IDE0305
@@ -207,7 +208,7 @@ internal
 #else
 public
 #endif
-class PathGeometry
+class PathGeometry : IGeometrySource2D
 {
     public List<PathFigure> Figures { get; } = new();
     public FillRule FillRule { get; set; } = FillRule.Nonzero;
@@ -533,7 +534,7 @@ class PathGeometry
                     {
                         var pt = ReadVector2(tokens, ref index);
                         if (isRelative) pt += currentPoint;
-                        
+
                         currentFigure = new PathFigure(pt);
                         geometry.Figures.Add(currentFigure);
                         currentPoint = pt;

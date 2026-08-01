@@ -131,6 +131,7 @@ progpu_avalonia_runtime_package_ids=(
   ProGPU.Backend.Dawn
   ProGPU.Text.Shaping
   ProGPU.Transpiler
+  ProGPU.WinRT
   ProGPU.Vector
   ProGPU.Text
   ProGPU.Compute
@@ -143,6 +144,7 @@ progpu_avalonia_runtime_package_projects=(
   src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
+  src/ProGPU.WinRT/ProGPU.WinRT.csproj
   src/ProGPU.Vector/ProGPU.Vector.csproj
   src/ProGPU.Text/ProGPU.Text.csproj
   src/ProGPU.Compute/ProGPU.Compute.csproj
@@ -155,6 +157,7 @@ progpu_avalonia_runtime_package_purposes=(
   "Avalonia runtime closure: typed Dawn native presentation and shared-resource interop."
   "Avalonia runtime closure: AOT-safe OpenType shaping."
   "Avalonia runtime closure: shader/source transformation."
+  "Avalonia runtime closure: platform-neutral WinRT value contracts used by vector primitives."
   "Avalonia runtime closure: retained vector primitives."
   "Avalonia runtime closure: text layout and rendering."
   "Avalonia runtime closure: compute pipelines."

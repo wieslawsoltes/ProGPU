@@ -1044,6 +1044,8 @@ public unsafe partial class Compositor : IDisposable
     private Sampler* _nearestTextureSampler;
     private Sampler* _mipmapTextureSampler;
     private readonly Dictionary<byte, nint> _anisotropicTextureSamplers = new();
+    private readonly Dictionary<TextureSamplingMode, nint>
+        _filteredTextureSamplers = new();
     private BindGroup* _atlasBindGroup;
     private BindGroupLayout* _atlasBindGroupLayout;
     private BindGroup* _atlasBindGroupOffscreen;
@@ -1393,7 +1395,8 @@ public unsafe partial class Compositor : IDisposable
         Opacity = 4,
         OpacityMask = 8,
         GeometryClip = 16,
-        OuterClipChain = 32
+        OuterClipChain = 32,
+        LocalCompositeClip = 64
     }
 
     private BatchType _currentBatchType = BatchType.None;
@@ -1422,10 +1425,13 @@ public unsafe partial class Compositor : IDisposable
 
         public GpuTexture? Destination { get; private set; }
 
+        public GpuTexture? MaskSource { get; private set; }
+
         public void EnsureSize(uint width, uint height)
         {
             Source.Resize(width, height);
             Destination?.Resize(width, height);
+            MaskSource?.Resize(width, height);
         }
 
         public GpuTexture EnsureTemporary(
@@ -1468,6 +1474,24 @@ public unsafe partial class Compositor : IDisposable
             return Destination;
         }
 
+        public GpuTexture EnsureMaskSource(
+            WgpuContext context,
+            uint width,
+            uint height)
+        {
+            MaskSource ??= new GpuTexture(
+                context,
+                width,
+                height,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.RenderAttachment |
+                TextureUsage.TextureBinding,
+                "Effect Mask Source",
+                alphaMode: GpuTextureAlphaMode.Premultiplied);
+            MaskSource.Resize(width, height);
+            return MaskSource;
+        }
+
         public void ReleaseTemporary()
         {
             Temporary?.Dispose();
@@ -1480,13 +1504,21 @@ public unsafe partial class Compositor : IDisposable
             Destination = null;
         }
 
+        public void ReleaseMaskSource()
+        {
+            MaskSource?.Dispose();
+            MaskSource = null;
+        }
+
         public void Dispose()
         {
             Source.Dispose();
             Temporary?.Dispose();
             Destination?.Dispose();
+            MaskSource?.Dispose();
             Temporary = null;
             Destination = null;
+            MaskSource = null;
         }
     }
 
@@ -5116,6 +5148,14 @@ SceneStateUploadComplete:
                             command.Rect,
                             activeTransform);
                     }
+                    else if (command.Path != null && command.Pen != null)
+                    {
+                        PushOpacityMaskValue(
+                            command.Path,
+                            command.Pen,
+                            command.Rect,
+                            activeTransform);
+                    }
                     else if (command.Brush != null)
                     {
                         PushOpacityMaskValue(
@@ -5485,6 +5525,12 @@ SceneStateUploadComplete:
                 case RenderCommandType.PushOpacityMask:
                     if (cmd.Picture != null)
                         PushOpacityMaskValue(cmd.Picture, cmd.Rect, activeTransform);
+                    else if (cmd.Path != null && cmd.Pen != null)
+                        PushOpacityMaskValue(
+                            cmd.Path,
+                            cmd.Pen,
+                            cmd.Rect,
+                            activeTransform);
                     else if (cmd.Brush != null)
                         PushOpacityMaskValue(cmd.Brush, cmd.Rect, activeTransform);
                     break;
@@ -5838,6 +5884,14 @@ SceneStateUploadComplete:
 
     private void CompileRectCommand(RenderCommand cmd, Matrix4x4 transform)
     {
+        if (cmd.Brush is GpuTextureBrush textureBrush)
+        {
+            CompileTextureBrushRectangle(textureBrush, cmd.Rect, transform);
+            if (cmd.Pen is null || cmd.Pen.Thickness <= 0f)
+                return;
+            cmd.Brush = null;
+        }
+
         bool hasFill = cmd.Brush != null;
         bool hasStroke = cmd.Pen != null && cmd.Pen.Thickness > 0f;
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
@@ -5936,6 +5990,36 @@ SceneStateUploadComplete:
                 v.Position = ClampToClip(v.Position);
                 vertices[i] = v;
             }
+        }
+    }
+
+    private void CompileTextureBrushRectangle(
+        GpuTextureBrush brush,
+        Rect clipBounds,
+        Matrix4x4 transform)
+    {
+        GpuTexture? texture = brush.Texture;
+        if (texture is null || texture.IsDisposed)
+            return;
+
+        PushClipRect(clipBounds, transform);
+        try
+        {
+            CompileTextureCommand(
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = brush.DestinationRect,
+                    SrcRect = brush.SourceRect,
+                    TextureSamplingMode = brush.SamplingMode,
+                    SnapTextureToPixels = brush.SnapToPixels
+                },
+                brush.Transform * transform);
+        }
+        finally
+        {
+            PopClipRect();
         }
     }
 
@@ -11762,7 +11846,8 @@ SceneStateUploadComplete:
                 default,
                 hasDestinationTransform: false,
                 colorBlendMode: 0f,
-                patchOpacity: 1f);
+                patchOpacity: 1f,
+                cmd.SnapTextureToPixels);
         }
         else
         {
@@ -11790,7 +11875,8 @@ SceneStateUploadComplete:
                         default,
                         hasDestinationTransform: false,
                         colorBlendMode: 0f,
-                        patchOpacity: 1f);
+                        patchOpacity: 1f,
+                        cmd.SnapTextureToPixels);
                 }
                 else if (patch.Kind == TexturePatchKind.AtlasColor)
                 {
@@ -11813,7 +11899,8 @@ SceneStateUploadComplete:
                         (float)patch.ColorBlendMode,
                         cmd.TextureSamplingMode == TextureSamplingMode.Cubic
                             ? -_activeOpacity
-                            : _activeOpacity);
+                            : _activeOpacity,
+                        cmd.SnapTextureToPixels);
                 }
                 else
                 {
@@ -11828,7 +11915,8 @@ SceneStateUploadComplete:
                         patch.DestinationTransform,
                         patch.HasDestinationTransform,
                         colorBlendMode: 0f,
-                        patchOpacity: 1f);
+                        patchOpacity: 1f,
+                        cmd.SnapTextureToPixels);
                 }
             }
         }
@@ -11866,7 +11954,8 @@ SceneStateUploadComplete:
         Matrix3x2 destinationTransform,
         bool hasDestinationTransform,
         float colorBlendMode,
-        float patchOpacity)
+        float patchOpacity,
+        bool snapToPixels)
     {
         var r = destination;
         var v0 = new Vector2(r.X, r.Y);
@@ -11885,6 +11974,16 @@ SceneStateUploadComplete:
         v1 = Vector2.Transform(v1, transform);
         v2 = Vector2.Transform(v2, transform);
         v3 = Vector2.Transform(v3, transform);
+        if (snapToPixels)
+        {
+            float dpiScale = _currentDpiScale > 0f
+                ? _currentDpiScale
+                : 1f;
+            v0 = SnapTexturePoint(v0, dpiScale);
+            v1 = SnapTexturePoint(v1, dpiScale);
+            v2 = SnapTexturePoint(v2, dpiScale);
+            v3 = SnapTexturePoint(v3, dpiScale);
+        }
 
         Vector2 uv0, uv1, uv2, uv3;
         if ((patchKind == 0f || patchKind >= 3f) && source.Width > 0f && source.Height > 0f)
@@ -11967,6 +12066,11 @@ SceneStateUploadComplete:
         indexSpan[5] = idxStart + 3;
     }
 
+    private static Vector2 SnapTexturePoint(Vector2 value, float dpiScale) =>
+        new(
+            MathF.Round(value.X * dpiScale) / dpiScale,
+            MathF.Round(value.Y * dpiScale) / dpiScale);
+
     internal Sampler* GetTextureSampler(TextureSamplingMode samplingMode, byte maxAnisotropy = 1)
     {
         if (samplingMode == TextureSamplingMode.LinearMipmap && maxAnisotropy > 1)
@@ -11980,8 +12084,56 @@ SceneStateUploadComplete:
                 _nearestTextureSampler,
             TextureSamplingMode.LinearMipmap when _mipmapTextureSampler != null =>
                 _mipmapTextureSampler,
+            TextureSamplingMode.MagLinearMinLinearMipNearest or
+            TextureSamplingMode.MagLinearMinNearestMipLinear or
+            TextureSamplingMode.MagLinearMinNearestMipNearest or
+            TextureSamplingMode.MagNearestMinLinearMipLinear or
+            TextureSamplingMode.MagNearestMinLinearMipNearest or
+            TextureSamplingMode.MagNearestMinNearestMipLinear =>
+                GetFilteredTextureSampler(samplingMode),
             _ => _atlasSampler
         };
+    }
+
+    private Sampler* GetFilteredTextureSampler(TextureSamplingMode mode)
+    {
+        lock (_filteredTextureSamplers)
+        {
+            if (_filteredTextureSamplers.TryGetValue(mode, out nint existing))
+                return (Sampler*)existing;
+
+            bool magLinear = mode is
+                TextureSamplingMode.MagLinearMinLinearMipNearest or
+                TextureSamplingMode.MagLinearMinNearestMipLinear or
+                TextureSamplingMode.MagLinearMinNearestMipNearest;
+            bool minLinear = mode is
+                TextureSamplingMode.MagLinearMinLinearMipNearest or
+                TextureSamplingMode.MagNearestMinLinearMipLinear or
+                TextureSamplingMode.MagNearestMinLinearMipNearest;
+            bool mipLinear = mode is
+                TextureSamplingMode.MagLinearMinNearestMipLinear or
+                TextureSamplingMode.MagNearestMinLinearMipLinear or
+                TextureSamplingMode.MagNearestMinNearestMipLinear;
+            var descriptor = new SamplerDescriptor
+            {
+                AddressModeU = AddressMode.ClampToEdge,
+                AddressModeV = AddressMode.ClampToEdge,
+                AddressModeW = AddressMode.ClampToEdge,
+                MagFilter = magLinear ? FilterMode.Linear : FilterMode.Nearest,
+                MinFilter = minLinear ? FilterMode.Linear : FilterMode.Nearest,
+                MipmapFilter = mipLinear
+                    ? MipmapFilterMode.Linear
+                    : MipmapFilterMode.Nearest,
+                LodMaxClamp = 32f,
+                LodMinClamp = 0f,
+                MaxAnisotropy = 1
+            };
+            Sampler* sampler = _context.Api.DeviceCreateSampler(
+                _context.Device,
+                &descriptor);
+            _filteredTextureSamplers.Add(mode, (nint)sampler);
+            return sampler;
+        }
     }
 
     private Sampler* GetAnisotropicTextureSampler(byte requestedMaxAnisotropy)
@@ -12394,6 +12546,11 @@ SceneStateUploadComplete:
                     _context.QueueSamplerDisposal(sampler);
                 }
                 _anisotropicTextureSamplers.Clear();
+                foreach (var sampler in _filteredTextureSamplers.Values)
+                {
+                    _context.QueueSamplerDisposal(sampler);
+                }
+                _filteredTextureSamplers.Clear();
 
                 if (_vectorUniformBindGroup != null) _context.QueueBindGroupDisposal((IntPtr)_vectorUniformBindGroup);
                 if (_vectorUniformBindGroupOffscreen != null &&
@@ -13427,6 +13584,17 @@ SceneStateUploadComplete:
             else if (effect is DropShadowEffect shadowResources)
             {
                 activeTextures.EnsureDestination(_context, w, h);
+                if (shadowResources.OpacityMaskVisual is not null)
+                {
+                    activeTextures.EnsureMaskSource(
+                        _context,
+                        w,
+                        h);
+                }
+                else
+                {
+                    activeTextures.ReleaseMaskSource();
+                }
                 if (shadowResources.BlurRadius > 0.01f)
                 {
                     activeTextures.EnsureTemporary(
@@ -13444,6 +13612,7 @@ SceneStateUploadComplete:
             {
                 activeTextures.ReleaseTemporary();
                 activeTextures.ReleaseDestination();
+                activeTextures.ReleaseMaskSource();
             }
 
             _elementsRenderingEffects.Add(fe);
@@ -13479,11 +13648,25 @@ SceneStateUploadComplete:
             }
             else if (fe.Effect is DropShadowEffect shadowEffect)
             {
+                GpuTexture shadowSource = activeTextures.Source;
+                if (shadowEffect.OpacityMaskVisual is { } maskVisual)
+                {
+                    RenderOffscreen(
+                        maskVisual,
+                        logicalRenderWidth,
+                        logicalRenderHeight,
+                        activeTextures.MaskSource!,
+                        -paddedRect.Position,
+                        dpiScale,
+                        includeRootTransform: false,
+                        includeRootVisualState: false);
+                    shadowSource = activeTextures.MaskSource!;
+                }
                 // We pass zero offset to the compute shader because we handle offset dynamically in DrawTextureOnMain on the CPU
                 if (shadowEffect.BlurRadius > 0.01f)
                 {
                     _compute.ApplyDropShadow(
-                        activeTextures.Source,
+                        shadowSource,
                         activeTextures.Temporary!,
                         activeTextures.Destination!,
                         Vector2.Zero,
@@ -13493,7 +13676,7 @@ SceneStateUploadComplete:
                 else
                 {
                     _compute.ApplySharpDropShadow(
-                        activeTextures.Source,
+                        shadowSource,
                         activeTextures.Destination!,
                         Vector2.Zero,
                         shadowEffect.Color);
@@ -13679,6 +13862,8 @@ SceneStateUploadComplete:
         bool hasClip = visual.ClipBounds.HasValue;
         bool hasOuterClip = visual.OuterClipBounds.HasValue;
         bool hasGeometryClip = visual.GeometryClip != null;
+        VisualCompositeClip? localCompositeClip =
+            visual.LocalCompositeClip;
         ReadOnlySpan<VisualCompositeClip> outerCompositeClips =
             visual.OuterCompositeClips;
 
@@ -13690,6 +13875,25 @@ SceneStateUploadComplete:
         if (hasOuterClip)
         {
             PushHitTestClip(visual.OuterClipBounds.GetValueOrDefault(), parentTransform);
+        }
+
+        if (localCompositeClip is { } localClip)
+        {
+            Matrix4x4 transform = localClip.Transform * globalTransform;
+            if (localClip.Bounds.HasValue)
+            {
+                PushHitTestClip(localClip.Bounds.Value, transform);
+            }
+            else if (localClip.Geometry != null)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PushGeometryClip,
+                        Path = localClip.Geometry
+                    },
+                    transform);
+            }
         }
 
         for (int index = 0; index < outerCompositeClips.Length; index++)
@@ -13738,6 +13942,16 @@ SceneStateUploadComplete:
         }
         finally
         {
+            if (hasGeometryClip)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PopGeometryClip
+                    },
+                    Matrix4x4.Identity);
+            }
+
             for (int index = outerCompositeClips.Length - 1;
                  index >= 0;
                  index--)
@@ -13757,11 +13971,21 @@ SceneStateUploadComplete:
                 }
             }
 
-            if (hasGeometryClip)
+            if (localCompositeClip is { } localClipToPop)
             {
-                AddHitTestStateCommand(
-                    new RenderCommand { Type = RenderCommandType.PopGeometryClip },
-                    Matrix4x4.Identity);
+                if (localClipToPop.Bounds.HasValue)
+                {
+                    PopHitTestClip();
+                }
+                else if (localClipToPop.Geometry != null)
+                {
+                    AddHitTestStateCommand(
+                        new RenderCommand
+                        {
+                            Type = RenderCommandType.PopGeometryClip
+                        },
+                        Matrix4x4.Identity);
+                }
             }
 
             if (hasOuterClip)
@@ -13794,6 +14018,30 @@ SceneStateUploadComplete:
             PushClipRect(node.OuterClipBounds.Value, parentTransform);
             PushHitTestClip(node.OuterClipBounds.Value, parentTransform);
             scope |= VisualCompositeScope.OuterClip;
+        }
+
+        if (node.LocalCompositeClip is { } localClip)
+        {
+            Matrix4x4 transform =
+                localClip.Transform * compositeTransform;
+            if (localClip.Bounds.HasValue)
+            {
+                PushClipRect(localClip.Bounds.Value, transform);
+                PushHitTestClip(localClip.Bounds.Value, transform);
+                scope |= VisualCompositeScope.LocalCompositeClip;
+            }
+            else if (localClip.Geometry != null)
+            {
+                PushGeometryClipValue(localClip.Geometry, transform);
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PushGeometryClip,
+                        Path = localClip.Geometry
+                    },
+                    transform);
+                scope |= VisualCompositeScope.LocalCompositeClip;
+            }
         }
 
         ReadOnlySpan<VisualCompositeClip> outerCompositeClips =
@@ -13912,6 +14160,26 @@ SceneStateUploadComplete:
                         Matrix4x4.Identity);
                     PopClipRect();
                 }
+            }
+        }
+
+        if ((scope & VisualCompositeScope.LocalCompositeClip) != 0 &&
+            node.LocalCompositeClip is { } localClip)
+        {
+            if (localClip.Bounds.HasValue)
+            {
+                PopHitTestClip();
+                PopClipRect();
+            }
+            else if (localClip.Geometry != null)
+            {
+                AddHitTestStateCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.PopGeometryClip
+                    },
+                    Matrix4x4.Identity);
+                PopClipRect();
             }
         }
 
@@ -18036,6 +18304,66 @@ SceneStateUploadComplete:
 
         _maskStack.Push(
             new MaskTextureState(maskTex, maskBounds, null));
+    }
+
+    private void PushOpacityMaskValue(
+        PathGeometry path,
+        Pen pen,
+        Rect bounds,
+        Matrix4x4 transform)
+    {
+        _currentFrameOpacityMaskDemand++;
+        _peakOpacityMaskDemand = Math.Max(
+            _peakOpacityMaskDemand,
+            _currentFrameOpacityMaskDemand);
+        CommitPendingDrawCalls();
+        int preDrawCallCount = _drawCalls.Count;
+        var savedState = ResetStateForMaskCompilation();
+
+        try
+        {
+            CompilePathCommand(
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPath,
+                    Path = path,
+                    Pen = pen
+                },
+                transform);
+            CommitPendingDrawCalls();
+        }
+        finally
+        {
+            RestoreStateAfterMaskCompilation(savedState);
+        }
+
+        int maskDrawCallCount = _drawCalls.Count - preDrawCallCount;
+        var maskDrawCalls = RentMaskDrawCallList(maskDrawCallCount);
+        for (int index = preDrawCallCount; index < _drawCalls.Count; index++)
+            maskDrawCalls.Add(_drawCalls[index]);
+        _drawCalls.RemoveRange(preDrawCallCount, maskDrawCallCount);
+
+        var maskBounds = QuantizeMaskStorageBounds(
+            IntersectWithActiveMask(
+                GetBoundedMaskPixelBounds(bounds, transform)));
+        var maskTexture = RentMaskTexture(maskBounds);
+        MaskTextureState? previousState =
+            _maskStack.Count > 0
+                ? _maskStack.Peek()
+                : null;
+        _maskRenderPasses.Add(new MaskRenderPassInfo
+        {
+            MaskTexture = maskTexture,
+            PreviousMaskTexture = previousState?.Texture,
+            PreviousMaskBindGroupOverride =
+                previousState?.AnalyticResource?.BindGroupPtr ?? 0,
+            Bounds = maskBounds,
+            TargetWidth = CurrentMaskTargetPixelWidthUInt,
+            TargetHeight = CurrentMaskTargetPixelHeightUInt,
+            DrawCalls = maskDrawCalls
+        });
+        _maskStack.Push(
+            new MaskTextureState(maskTexture, maskBounds, null));
     }
 
     private MaskPixelBounds GetBoundedMaskPixelBounds(Rect logicalBounds, Matrix4x4 transform)

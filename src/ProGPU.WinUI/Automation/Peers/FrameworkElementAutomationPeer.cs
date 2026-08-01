@@ -1,13 +1,33 @@
 using Microsoft.UI.Xaml.Controls;
+using Windows.Foundation.Metadata;
 
 namespace Microsoft.UI.Xaml.Automation.Peers;
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public class FrameworkElementAutomationPeer : AutomationPeer
 {
-    public FrameworkElementAutomationPeer(FrameworkElement owner) =>
-        Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+    private readonly FrameworkElement _owner;
 
-    public FrameworkElement Owner { get; }
+    protected internal FrameworkElementAutomationPeer(
+        WinRT.IObjectReference objRef)
+        : base(objRef)
+    {
+        _owner = null!;
+    }
+
+    protected FrameworkElementAutomationPeer(
+        WinRT.DerivedComposed _)
+        : base(_)
+    {
+        _owner = null!;
+    }
+
+    public FrameworkElementAutomationPeer(FrameworkElement owner) =>
+        _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+
+    public UIElement Owner => _owner;
 
     public static AutomationPeer? FromElement(UIElement element) =>
         element?.GetOrCreateAutomationPeer();
@@ -15,7 +35,20 @@ public class FrameworkElementAutomationPeer : AutomationPeer
     public static AutomationPeer? CreatePeerForElement(UIElement element) =>
         element?.GetOrCreateAutomationPeer();
 
-    public override bool IsKeyboardFocusable() => Owner.IsEnabled && Owner.IsVisible;
+    internal string GetClassNameValue() =>
+        _owner.GetType().Name;
 
-    public override bool HasKeyboardFocus() => Owner is Control control && control.IsFocused;
+    internal bool IsEnabledValue() =>
+        _owner.IsEnabled;
+
+    internal bool IsKeyboardFocusableValue() =>
+        _owner.IsEnabled &&
+        _owner.IsVisible;
+
+    internal bool HasKeyboardFocusValue() =>
+        _owner is Control control &&
+        control.IsFocused;
+
+    internal bool IsOffscreenValue() =>
+        !_owner.IsVisible;
 }

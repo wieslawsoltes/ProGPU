@@ -12,6 +12,7 @@ using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
+using ProGPU.WinUI.Platform;
 using ProGPU.Scene;
 
 namespace Microsoft.UI.Xaml;
@@ -57,6 +58,8 @@ public class Window : DependencyObject
     private bool _canMinimize = true;
     private bool _canMaximize = true;
     private bool _topMost;
+    private Silk.NET.Windowing.WindowState _nativeWindowState =
+        Silk.NET.Windowing.WindowState.Normal;
     private bool _extendsContentIntoTitleBar;
     private double _titleBarHeight = -1d;
     private NativeWindowSize _minimumSize;
@@ -70,9 +73,13 @@ public class Window : DependencyObject
     private Window? _owner;
     private bool _isRendering;
     private bool _isExternalHostActive;
+    private bool _closeAccepted;
+    private WindowActivationState _activationState =
+        WindowActivationState.Deactivated;
     private bool _isClosed;
     private bool _visible;
     private Windows.Foundation.Rect _bounds = new(0, 0, 1280, 800);
+    private Vector2D<int>? _requestedPosition;
     private UIElement? _titleBar;
     private Thickness _safeAreaInsets;
     private Windows.Foundation.Rect _inputPaneOccludedRect;
@@ -204,6 +211,17 @@ public class Window : DependencyObject
         {
             _topMost = value;
             _windowController?.SetTopMost(value);
+        }
+    }
+
+    internal Silk.NET.Windowing.WindowState NativeWindowState
+    {
+        get => _nativeWindowState;
+        set
+        {
+            _nativeWindowState = value;
+            if (_silkWindow is not null)
+                _silkWindow.WindowState = value;
         }
     }
 
@@ -343,6 +361,8 @@ public class Window : DependencyObject
     public event Windows.Foundation.TypedEventHandler<object, WindowVisibilityChangedEventArgs>? VisibilityChanged;
     public event Windows.Foundation.TypedEventHandler<object, WindowInsetsChangedEventArgs>? InsetsChanged;
     public event EventHandler<double>? Rendering;
+    internal event Func<bool>? ClosingRequested;
+    internal event Action<Windows.Graphics.PointInt32>? PositionChanged;
 
     public Window()
     {
@@ -387,24 +407,42 @@ public class Window : DependencyObject
         ApplySystemBackdrop();
     }
 
-    public void Activate()
+    public void Activate() => Activate(activateWindow: true);
+
+    internal void Activate(bool activateWindow)
     {
         ObjectDisposedException.ThrowIf(_isClosed, this);
         if (WindowHostServices.Current is { } externalHost)
         {
             if (_isExternalHostActive) return;
-            externalHost.Activate(this);
+            if (activateWindow)
+            {
+                externalHost.Activate(this);
+            }
+            else if (externalHost is IWindowActivationHost activationHost)
+            {
+                activationHost.Activate(this, activateWindow: false);
+            }
+            else
+            {
+                throw new PlatformNotSupportedException(
+                    "The current window host cannot show a window without activation.");
+            }
             _isExternalHostActive = true;
             WindowManager.Register(this);
             NotifyHostVisibilityChanged(true);
-            NotifyHostActivationChanged(WindowActivationState.CodeActivated);
+            NotifyHostActivationChanged(
+                activateWindow
+                    ? WindowActivationState.CodeActivated
+                    : WindowActivationState.Deactivated);
             return;
         }
 
         if (_silkWindow != null)
         {
             _silkWindow.IsVisible = true;
-            _silkWindow.Focus();
+            if (activateWindow)
+                _silkWindow.Focus();
             return;
         }
 
@@ -415,6 +453,8 @@ public class Window : DependencyObject
         options.VSync = false;
         options.TransparentFramebuffer = true;
         options.TopMost = _topMost;
+        if (_requestedPosition is { } requestedPosition)
+            options.Position = requestedPosition;
         options.WindowBorder = _decorations switch
         {
             NativeWindowDecorations.None => WindowBorder.Hidden,
@@ -428,14 +468,23 @@ public class Window : DependencyObject
         _silkWindow.Render += OnRender;
         _silkWindow.Resize += OnResize;
         _silkWindow.FramebufferResize += OnFramebufferResize;
+        _silkWindow.Move += OnMove;
         _silkWindow.FocusChanged += OnFocusChanged;
         _silkWindow.Closing += OnClosing;
 
         _silkWindow.Initialize();
+        NotifyHostPositionChanged(
+            new Windows.Graphics.PointInt32(
+                _silkWindow.Position.X,
+                _silkWindow.Position.Y));
+        _silkWindow.WindowState = _nativeWindowState;
         WindowManager.Register(this);
         UpdateBounds(_silkWindow.Size.X, _silkWindow.Size.Y);
         NotifyHostVisibilityChanged(true);
-        NotifyHostActivationChanged(WindowActivationState.CodeActivated);
+        NotifyHostActivationChanged(
+            activateWindow
+                ? WindowActivationState.CodeActivated
+                : WindowActivationState.Deactivated);
     }
 
     public Task ActivateAsync(CancellationToken cancellationToken = default)
@@ -445,15 +494,30 @@ public class Window : DependencyObject
         return Task.CompletedTask;
     }
 
-    public void Close()
+    public void Close() => TryClose();
+
+    internal bool TryClose()
     {
+        if (!AcceptCloseRequest())
+            return false;
+
+        _closeAccepted = true;
         if (_isExternalHostActive && WindowHostServices.Current is { } externalHost)
         {
             externalHost.Close(this);
-            return;
+            return true;
         }
-        if (_silkWindow == null) return;
+
+        if (_silkWindow == null)
+        {
+            _closeAccepted = false;
+            RaiseClosed();
+            DetachWindowServices();
+            return true;
+        }
+
         _silkWindow.Close();
+        return true;
     }
 
     public void Hide()
@@ -531,9 +595,9 @@ public class Window : DependencyObject
         ResetPresentationState();
 
         string fontPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
-        if (!System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
+        if (!global::System.IO.File.Exists(fontPath)) fontPath = "Arial.ttf";
 
-        if (System.IO.File.Exists(fontPath))
+        if (global::System.IO.File.Exists(fontPath))
         {
             PopupService.DefaultFont = new ProGPU.Text.TtfFont(fontPath);
         }
@@ -602,6 +666,10 @@ public class Window : DependencyObject
 
     public void ShutdownExternalRenderer()
     {
+        if (!_closeAccepted && !AcceptCloseRequest())
+            return;
+
+        _closeAccepted = false;
         SuspendExternalRenderer();
         _isExternalHostActive = false;
         NotifyHostVisibilityChanged(false);
@@ -630,8 +698,12 @@ public class Window : DependencyObject
     public void NotifyHostActivationChanged(WindowActivationState state)
     {
         if (_isClosed) return;
+        _activationState = state;
         Activated?.Invoke(this, new WindowActivatedEventArgs(state));
     }
+
+    internal WindowActivationState ActivationState =>
+        _activationState;
 
     /// <summary>
     /// Updates visibility from an external platform host.
@@ -845,14 +917,14 @@ public class Window : DependencyObject
         Vector2 logicalSize,
         bool allowUnchangedPresentationSkip = false)
     {
-        long frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long frameStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         var wgpuContext = _wgpuContext!;
         var compositor = _compositor!;
         var content = _renderRoot;
 
-        long phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         UIThread.RunPending();
-        double dispatcherTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double dispatcherTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         if (_inputState != null)
         {
@@ -860,28 +932,28 @@ public class Window : DependencyObject
         }
 
         // Raise Rendering event
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         Rendering?.Invoke(this, delta);
-        double renderingCallbackTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double renderingCallbackTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         if (!wgpuContext.TryReconfigureIfNeeded((uint)framebufferSize.X, (uint)framebufferSize.Y))
         {
             return;
         }
-        double frameSetupTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double frameSetupTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         // Core animation updates
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         InputSystem.UpdateManipulationInertia((float)delta);
         content.UpdateAnimations((float)delta);
-        double animationTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double animationTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         VisualStateManager.UpdateAdaptiveStates(content, logicalSize);
         content.Measure(logicalSize);
         content.Arrange(new Rect(0, 0, logicalSize.X, logicalSize.Y));
-        double layoutTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double layoutTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
         bool hasDynamicExternalContent =
             PopupService.ActivePopups.Count != 0 ||
@@ -912,11 +984,11 @@ public class Window : DependencyObject
                 0d,
                 0d,
                 0d,
-                System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+                global::System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
             return;
         }
 
-        phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         TextureView* targetView = null;
         var surfaceTexture = new SurfaceTexture();
         if (wgpuContext.Surface != null)
@@ -952,7 +1024,7 @@ public class Window : DependencyObject
                 throw new InvalidOperationException($"WebGPU surface acquisition failed: {surfaceTexture.Status}.");
             }
         }
-        double surfaceAcquireTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+        double surfaceAcquireTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
         double compositorTimeMs = 0d;
         double presentTimeMs = 0d;
 
@@ -960,7 +1032,7 @@ public class Window : DependencyObject
         {
             if (targetView != null)
             {
-                phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
                 compositor.RenderScene(
                     content,
                     (uint)MathF.Ceiling(logicalSize.X),
@@ -969,11 +1041,11 @@ public class Window : DependencyObject
                     (uint)framebufferSize.Y,
                     dpiScale,
                     targetView);
-                compositorTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+                compositorTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
 
-                phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                phaseStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
                 wgpuContext.Api.SurfacePresent(wgpuContext.Surface);
-                presentTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
+                presentTimeMs = global::System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart).TotalMilliseconds;
                 _hasPresentedFrame = true;
                 _presentedScheduledFrame = true;
                 _lastPresentedRootVersion = content.ChangeVersion;
@@ -1003,7 +1075,7 @@ public class Window : DependencyObject
             surfaceAcquireTimeMs,
             compositorTimeMs,
             presentTimeMs,
-            System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
+            global::System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
     }
 
     private void OnResize(Vector2D<int> newSize)
@@ -1025,7 +1097,7 @@ public class Window : DependencyObject
     private void OnFramebufferResize(Vector2D<int> _)
     {
         if (_wgpuContext == null || _silkWindow == null) return;
-        long callbackStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long callbackStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
         _framebufferResizeEvents++;
 
         // Cocoa holds the normal Silk render loop inside native event dispatch during a
@@ -1039,7 +1111,7 @@ public class Window : DependencyObject
             _liveResizeRenderedVersion = _renderRoot.ChangeVersion;
             _liveResizeFrames++;
         }
-        double elapsedMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(callbackStart).TotalMilliseconds;
+        double elapsedMilliseconds = global::System.Diagnostics.Stopwatch.GetElapsedTime(callbackStart).TotalMilliseconds;
         _resizeCallbackTimeMs += elapsedMilliseconds;
         _maximumResizeCallbackTimeMs = Math.Max(_maximumResizeCallbackTimeMs, elapsedMilliseconds);
     }
@@ -1129,6 +1201,14 @@ public class Window : DependencyObject
 
     private void OnClosing()
     {
+        if (!_closeAccepted && !AcceptCloseRequest())
+        {
+            if (_silkWindow is not null)
+                _silkWindow.IsClosing = false;
+            return;
+        }
+
+        _closeAccepted = false;
         if (_inputState != null)
         {
             InputSystem.Current = _inputState;
@@ -1147,18 +1227,66 @@ public class Window : DependencyObject
         _silkWindow = null;
     }
 
+    private bool AcceptCloseRequest() =>
+        ClosingRequested?.Invoke() ?? true;
+
     private void OnFocusChanged(bool focused)
     {
         if (_inputState != null)
         {
             InputSystem.Current = _inputState;
-            if (!focused)
+            if (focused)
+            {
+                InputSystem.SetHostFocus(
+                    _inputState,
+                    true);
+            }
+            else
             {
                 InputSystem.InjectFocusLost();
             }
         }
         NotifyHostActivationChanged(
             focused ? WindowActivationState.CodeActivated : WindowActivationState.Deactivated);
+    }
+
+    private void OnMove(Vector2D<int> position) =>
+        NotifyHostPositionChanged(
+            new Windows.Graphics.PointInt32(
+                position.X,
+                position.Y));
+
+    internal void SetPosition(
+        Windows.Graphics.PointInt32 position)
+    {
+        _requestedPosition =
+            new Vector2D<int>(
+                position.X,
+                position.Y);
+        NotifyHostPositionChanged(position);
+        if (_silkWindow is { } silkWindow)
+            silkWindow.Position = _requestedPosition.Value;
+    }
+
+    internal void NotifyHostPositionChanged(
+        Windows.Graphics.PointInt32 position)
+    {
+        _requestedPosition =
+            new Vector2D<int>(
+                position.X,
+                position.Y);
+        if (_bounds.X.Equals((double)position.X) &&
+            _bounds.Y.Equals((double)position.Y))
+        {
+            return;
+        }
+
+        _bounds = new Windows.Foundation.Rect(
+            position.X,
+            position.Y,
+            _bounds.Width,
+            _bounds.Height);
+        PositionChanged?.Invoke(position);
     }
 
     private void UpdateBounds(double width, double height)

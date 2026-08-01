@@ -241,7 +241,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                     var mtlNameSpan = Trim(line.Slice(start));
                     if (!mtlNameSpan.IsEmpty)
                     {
-                        var mtlName = System.Text.Encoding.UTF8.GetString(mtlNameSpan);
+                        var mtlName = global::System.Text.Encoding.UTF8.GetString(mtlNameSpan);
                         if (!string.IsNullOrEmpty(directory))
                         {
                             var mtlPath = Path.Combine(directory, mtlName);
@@ -260,7 +260,7 @@ namespace Microsoft.UI.Xaml.Media.Media3D
                     var mtlNameSpan = Trim(line.Slice(start));
                     if (!mtlNameSpan.IsEmpty)
                     {
-                        activeMaterial = System.Text.Encoding.UTF8.GetString(mtlNameSpan);
+                        activeMaterial = global::System.Text.Encoding.UTF8.GetString(mtlNameSpan);
                     }
                 }
                 else if (commandToken.Length == 1 && commandToken[0] == 'f')

@@ -617,7 +617,7 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     }
 
     private void AttachItems(
-        System.Collections.IList? items)
+        global::System.Collections.IList? items)
     {
         if (items is null)
         {
@@ -647,7 +647,7 @@ public sealed class MediaPlaybackList : IMediaPlaybackSource,
     }
 
     private void DetachItems(
-        System.Collections.IList? items)
+        global::System.Collections.IList? items)
     {
         if (items is null)
         {

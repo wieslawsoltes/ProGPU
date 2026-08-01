@@ -190,7 +190,7 @@ public class WrapPanel : Panel
 
         bool isHorizontal = Orientation == Orientation.Horizontal;
 
-        var lineNodes = new System.Collections.Generic.List<LayoutNode>();
+        var lineNodes = new global::System.Collections.Generic.List<LayoutNode>();
 
         foreach (var child in Children)
         {
@@ -236,7 +236,7 @@ public class WrapPanel : Panel
         }
     }
 
-    private void ArrangeLine(System.Collections.Generic.List<LayoutNode> nodes, float startX, float startY, float lineSize, bool isHorizontal, bool hasItemWidth, float itemWidth, bool hasItemHeight, float itemHeight, float spacing)
+    private void ArrangeLine(global::System.Collections.Generic.List<LayoutNode> nodes, float startX, float startY, float lineSize, bool isHorizontal, bool hasItemWidth, float itemWidth, bool hasItemHeight, float itemHeight, float spacing)
     {
         float x = startX;
         float y = startY;

@@ -9,10 +9,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.HotReload;
 using ProGPU.WinUI.Designer;
-using ProGPU.Xaml.Parsing;
 using ProGPU.Xaml.Roslyn;
 using ProGPU.Xaml.Schema;
 using ProGPU.Xaml.Tooling;
+using ProGPU.Xaml.Workspaces;
 
 namespace ProGPU.Samples;
 
@@ -94,11 +94,11 @@ public static class XamlPlaygroundPage
         views.Items.Add(new PivotItem("Hot Reload", hotReloadOutput));
         views.Items.Add(new PivotItem("Live Preview", previewPanel));
         var inspect = new Button { Margin = new Thickness(0, 12, 0, 0), Content = "Parse and inspect" };
-        CancellationTokenSource? inspectionCancellation = null;
         long requestedVersion = 0;
         HotReloadDiagnostic? latestHotReloadDiagnostic = null;
         var previewSession = new WinUiXamlLivePreviewSession();
         var previewEnabled = false;
+        PlaygroundProjectPipeline? projectPipeline = null;
 
         void PublishHotReloadStatus(string phase, HotReloadResult result)
         {
@@ -130,39 +130,22 @@ public static class XamlPlaygroundPage
         HotReloadManager.UpdateCompleted += OnHotReloadCompleted;
         HotReloadManager.Diagnostic += OnHotReloadDiagnostic;
 
-        void ApplyInspection(PlaygroundInspectionResult result)
+        void ApplyInspection(
+            RoslynXamlProjectPreview accepted,
+            RoslynXamlProjectWatchResultSnapshot result)
         {
-            var inspection = result.Source;
+            var inspection = accepted.SourceInspection;
             var statistics = inspection.Statistics;
             status.Text =
-                $"Root: {inspection.SyntaxTree.GetRoot()?.QualifiedName ?? "<none>"}; " +
+                $"Project watch protocol {result.ProtocolVersion}; " +
+                $"generation {result.CommittedGeneration}; " +
+                $"root: {inspection.SyntaxTree.GetRoot()?.QualifiedName ?? "<none>"}; " +
                 $"tokens: {statistics.Tokens}; syntax objects: {statistics.SyntaxObjects}; " +
                 $"infoset objects: {statistics.InfosetObjects}; errors: {statistics.Errors}.";
             syntaxOutput.Text = Render(inspection.Syntax);
             tokenOutput.Text = Render(inspection.Tokens);
             infosetOutput.Text = Render(inspection.InfosetProjection);
-            if (result.Compilation == null)
-            {
-                var unavailable = "Compilation-backed inspection is unavailable: " +
-                    result.CompilationError;
-                boundOutput.Text = unavailable;
-                resourcesOutput.Text = unavailable;
-                irOutput.Text = unavailable;
-                generatedOutput.Text = unavailable;
-                diagnosticsOutput.Text = inspection.Diagnostics.TotalEntryCount == 0
-                    ? unavailable
-                    : Render(inspection.Diagnostics) + Environment.NewLine + unavailable;
-                if (previewEnabled)
-                {
-                    previewStatus.Text =
-                        unavailable +
-                        Environment.NewLine +
-                        "The last good preview tree was retained.";
-                }
-                return;
-            }
-
-            var compiled = result.Compilation;
+            var compiled = accepted.CompilationInspection;
             boundOutput.Text = Render(compiled.Bound);
             resourcesOutput.Text = Render(compiled.Resources);
             irOutput.Text = Render(compiled.Ir);
@@ -170,75 +153,152 @@ public static class XamlPlaygroundPage
             diagnosticsOutput.Text = compiled.Diagnostics.TotalEntryCount == 0
                 ? "No diagnostics."
                 : Render(compiled.Diagnostics);
-            if (!previewEnabled)
-                return;
-            if (result.PreviewPreparationError != null)
+        }
+
+        Task<bool> PublishPreviewAsync(
+            RoslynXamlProjectPreviewUpdate update,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!Volatile.Read(ref previewEnabled))
+                return Task.FromResult(true);
+
+            var completion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            void Publish()
             {
-                previewStatus.Text =
-                    result.PreviewPreparationError +
-                    Environment.NewLine +
-                    "The last good preview tree was retained.";
-                return;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                WinUiXamlLivePreviewResult published;
+                if (update.Delta != null)
+                {
+                    published = previewSession.TryApplyProjectDelta(
+                        update.Delta,
+                        replacement => previewHost.Content = replacement);
+                }
+                else if (update.TryGetExecutableUpdate(
+                             out var peImage,
+                             out var typeName))
+                {
+                    published = previewSession.TryUpdate(
+                        peImage,
+                        typeName,
+                        replacement => previewHost.Content = replacement);
+                }
+                else
+                {
+                    previewStatus.Text =
+                        update.FailureMessage ??
+                        "The project preview has no accepted executable artifact; the last good tree was retained.";
+                    completion.TrySetResult(false);
+                    return;
+                }
+
+                previewStatus.Text = published.Message;
+                completion.TrySetResult(published.Success);
             }
-            if (result.PreviewArtifact == null)
+
+            var dispatcher =
+                Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue;
+            if (dispatcher == null) Publish();
+            else dispatcher(Publish);
+            return completion.Task;
+        }
+
+        void ResetProjectPipeline()
+        {
+            Interlocked.Increment(ref requestedVersion);
+            projectPipeline?.Dispose();
+            projectPipeline = null;
+            var host = CompilationHost.Value;
+            if (host.Workspace == null ||
+                host.Project == null ||
+                host.XamlDocumentId == null)
             {
-                previewStatus.Text =
-                    "Preview was not emitted; the last good tree was retained.";
-                return;
-            }
-            if (!result.PreviewArtifact.Success)
-            {
-                previewStatus.Text =
-                    "Preview compilation failed; the last good tree was retained." +
-                    Environment.NewLine +
-                    RenderPreviewDiagnostics(result.PreviewArtifact);
+                status.Text =
+                    "Compilation-backed inspection is unavailable: " +
+                    host.Error;
                 return;
             }
 
-            var update = previewSession.TryUpdate(
-                result.PreviewArtifact.PeImage.ToArray(),
-                result.PreviewTypeName!,
-                replacement => previewHost.Content = replacement);
-            previewStatus.Text = update.Message;
+            var coordinator =
+                new RoslynXamlProjectPreviewCoordinator(
+                    new WinUiXamlProfile(),
+                    new RoslynXamlProjectPreviewOptions
+                    {
+                        EmitArtifact = true,
+                        InspectionOptions =
+                            new RoslynXamlCompilationInspectionOptions
+                            {
+                                CompilerOptions =
+                                    new XamlCompilerOptions
+                                    {
+                                        Framework = "winui",
+                                        ResourceUri = "Playground.xaml",
+                                        Strict = false
+                                    }
+                            }
+                    });
+            var session = new RoslynXamlProjectWatchSession(
+                coordinator,
+                PublishPreviewAsync,
+                TimeSpan.FromMilliseconds(300));
+            var transport =
+                new RoslynXamlProjectWatchTransport(session);
+            var selector =
+                new RoslynXamlWorkspaceProjectSelectorAdapter(
+                    host.Workspace,
+                    transport);
+            selector.Select(
+                host.Project.Id,
+                host.XamlDocumentId);
+            projectPipeline = new PlaygroundProjectPipeline(
+                coordinator,
+                session,
+                transport,
+                selector);
         }
 
         void ScheduleInspection(bool immediate)
         {
+            var pipeline = projectPipeline;
+            var host = CompilationHost.Value;
+            if (pipeline == null ||
+                host.Project == null ||
+                host.XamlDocumentId == null)
+            {
+                status.Text =
+                    "Compilation-backed inspection is unavailable: " +
+                    host.Error;
+                return;
+            }
+
             var version = Interlocked.Increment(ref requestedVersion);
-            var source = editor.Text;
-            var includePreviewArtifact = previewEnabled;
-            var cancellation = new CancellationTokenSource();
-            var previous = Interlocked.Exchange(
-                ref inspectionCancellation,
-                cancellation);
-            previous?.Cancel();
-            previous?.Dispose();
             status.Text = immediate
-                ? "Compiling…"
-                : "Waiting for edits to settle…";
-            Task.Run(
-                    async () =>
-                    {
-                        if (!immediate)
-                            await Task.Delay(300, cancellation.Token)
-                                .ConfigureAwait(false);
-                        return InspectSource(
-                            source,
-                            includePreviewArtifact,
-                            cancellation.Token);
-                    },
-                    cancellation.Token)
+                ? "Compiling immutable project snapshot…"
+                : "Waiting for project edits to settle…";
+            pipeline.Selector.SetUnsavedText(
+                SourceText.From(editor.Text ?? string.Empty));
+            pipeline.Selector.SubmitAsync(
+                    version,
+                    immediate)
                 .ContinueWith(
                     task =>
                     {
                         if (task.IsCanceled ||
-                            version != Volatile.Read(ref requestedVersion))
+                            version != Volatile.Read(ref requestedVersion) ||
+                            !ReferenceEquals(pipeline, projectPipeline))
                             return;
                         var dispatcher =
                             Microsoft.UI.Xaml.Input.InputSystem.DispatcherQueue;
                         void Complete()
                         {
-                            if (version != Volatile.Read(ref requestedVersion))
+                            if (version != Volatile.Read(ref requestedVersion) ||
+                                !ReferenceEquals(pipeline, projectPipeline))
                                 return;
                             if (task.IsFaulted)
                             {
@@ -252,7 +312,30 @@ public static class XamlPlaygroundPage
                                 }
                                 return;
                             }
-                            ApplyInspection(task.Result);
+                            var result = task.Result;
+                            if (result.Status ==
+                                RoslynXamlProjectWatchStatus.Superseded)
+                            {
+                                return;
+                            }
+
+                            var accepted = pipeline.Coordinator.LastAccepted;
+                            if (result.Accepted && accepted != null)
+                            {
+                                ApplyInspection(accepted, result);
+                                return;
+                            }
+
+                            status.Text = result.Message;
+                            diagnosticsOutput.Text =
+                                RenderTransportDiagnostics(result);
+                            if (previewEnabled)
+                            {
+                                previewStatus.Text =
+                                    result.Message +
+                                    Environment.NewLine +
+                                    "The last good preview tree was retained.";
+                            }
                         }
                         if (dispatcher == null) Complete();
                         else dispatcher(Complete);
@@ -262,6 +345,7 @@ public static class XamlPlaygroundPage
                     TaskScheduler.Default);
         }
 
+        ResetProjectPipeline();
         inspect.Click += (_, _) => ScheduleInspection(immediate: true);
         editor.TextChanged += (_, _) => ScheduleInspection(immediate: false);
         previewPermission.Click += (_, _) =>
@@ -270,12 +354,7 @@ public static class XamlPlaygroundPage
             {
                 previewEnabled = false;
                 previewPermission.Content = "Enable live preview";
-                Interlocked.Increment(ref requestedVersion);
-                var cancellation = Interlocked.Exchange(
-                    ref inspectionCancellation,
-                    null);
-                cancellation?.Cancel();
-                cancellation?.Dispose();
+                ResetProjectPipeline();
                 previewHost.Content = CreatePreviewPlaceholder(
                     "Live preview permission was revoked.");
                 previewSession.Reset();
@@ -295,16 +374,14 @@ public static class XamlPlaygroundPage
             previewPermission.Content = "Disable live preview";
             previewStatus.Text =
                 "Permission granted for this page session; compiling preview…";
+            ResetProjectPipeline();
             ScheduleInspection(immediate: true);
         };
         root.Unloaded += (_, _) =>
         {
             Interlocked.Increment(ref requestedVersion);
-            var cancellation = Interlocked.Exchange(
-                ref inspectionCancellation,
-                null);
-            cancellation?.Cancel();
-            cancellation?.Dispose();
+            projectPipeline?.Dispose();
+            projectPipeline = null;
             HotReloadManager.UpdateStarted -= OnHotReloadStarted;
             HotReloadManager.UpdateCompleted -= OnHotReloadCompleted;
             HotReloadManager.Diagnostic -= OnHotReloadDiagnostic;
@@ -316,71 +393,6 @@ public static class XamlPlaygroundPage
         root.Children.Add(status);
         root.Children.Add(views);
         return root;
-    }
-
-    private static PlaygroundInspectionResult InspectSource(
-        string source,
-        bool includePreviewArtifact,
-        CancellationToken cancellationToken)
-    {
-        var inspection = new XamlDocumentInspectionService().Inspect(
-            SourceText.From(source),
-            "Playground.xaml",
-            new XamlDocumentInspectionOptions
-            {
-                ParseOptions = new XamlParseOptions
-                {
-                    Mode = XamlParseMode.Recovering
-                }
-            },
-            cancellationToken);
-        var compilationHost = CompilationHost.Value;
-        if (compilationHost.Compilation == null)
-            return new PlaygroundInspectionResult(
-                inspection,
-                null,
-                compilationHost.Error,
-                null);
-
-        var profile = new WinUiXamlProfile();
-        var previewHost = new RoslynXamlPreviewHostFactory()
-            .Create(
-                compilationHost.Compilation,
-                inspection.Infoset,
-                new RoslynXamlTypeSystem(
-                    compilationHost.Compilation,
-                    profile));
-        var compiled = new RoslynXamlCompilationInspectionService().Inspect(
-            inspection,
-            new RoslynXamlTypeSystem(
-                previewHost.Compilation,
-                profile),
-            profile,
-            new RoslynXamlCompilationInspectionOptions
-            {
-                CompilerOptions = new XamlCompilerOptions
-                {
-                    Framework = profile.Id,
-                    ResourceUri = "Playground.xaml",
-                    Strict = false
-                }
-            },
-            cancellationToken);
-        var artifact =
-            includePreviewArtifact &&
-            previewHost.CanMaterialize
-            ? new RoslynXamlPreviewArtifactCompiler().Compile(
-                previewHost.Compilation,
-                compiled.CompilationResult,
-                cancellationToken)
-            : null;
-        return new PlaygroundInspectionResult(
-            inspection,
-            compiled,
-            null,
-            artifact,
-            previewHost.QualifiedTypeName,
-            previewHost.MaterializationError);
     }
 
     private static TextBox CreateOutput(string text) => new TextBox
@@ -460,15 +472,23 @@ public static class XamlPlaygroundPage
         return builder.ToString();
     }
 
-    private static string RenderPreviewDiagnostics(
-        RoslynXamlPreviewArtifact artifact)
+    private static string RenderTransportDiagnostics(
+        RoslynXamlProjectWatchResultSnapshot result)
     {
-        if (artifact.Diagnostics.Length == 0)
-            return "No Roslyn diagnostics were produced.";
-        return string.Join(
-            Environment.NewLine,
-            artifact.Diagnostics.Select(
-                static diagnostic => diagnostic.ToString()));
+        if (result.Diagnostics.Length == 0)
+            return result.Message;
+        var builder = new StringBuilder();
+        foreach (var diagnostic in result.Diagnostics)
+        {
+            builder.Append(diagnostic.Severity)
+                .Append(' ')
+                .Append(diagnostic.Id)
+                .Append(": ")
+                .AppendLine(diagnostic.Message);
+        }
+        if (result.DiagnosticsTruncated)
+            builder.AppendLine("Additional diagnostics were omitted by the transport bound.");
+        return builder.ToString();
     }
 
     private static FrameworkElement CreatePreviewPlaceholder(
@@ -484,6 +504,7 @@ public static class XamlPlaygroundPage
 
     private static PlaygroundCompilationHost CreateCompilationHost()
     {
+        AdhocWorkspace? workspace = null;
         try
         {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -503,21 +524,61 @@ public static class XamlPlaygroundPage
             if (paths.Count == 0)
                 return new PlaygroundCompilationHost(
                     null,
+                    null,
+                    null,
                     "this runtime does not expose trusted metadata reference paths.");
 
-            var compilation = CSharpCompilation.Create(
-                "ProGPU.Xaml.Playground",
-                syntaxTrees: null,
-                paths.OrderBy(static path => path, StringComparer.Ordinal)
-                    .Select(static path => MetadataReference.CreateFromFile(path)),
-                new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary,
-                    nullableContextOptions: NullableContextOptions.Enable));
-            return new PlaygroundCompilationHost(compilation, null);
+            workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var xamlDocumentId = DocumentId.CreateNewId(projectId);
+            var solution = workspace.CurrentSolution
+                .AddProject(ProjectInfo.Create(
+                    projectId,
+                    VersionStamp.Create(),
+                    "ProGPU.Xaml.Playground",
+                    "ProGPU.Xaml.Playground",
+                    LanguageNames.CSharp,
+                    parseOptions: new CSharpParseOptions(
+                        LanguageVersion.Latest),
+                    compilationOptions: new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        nullableContextOptions:
+                            NullableContextOptions.Enable),
+                    metadataReferences:
+                        paths.OrderBy(
+                                static path => path,
+                                StringComparer.Ordinal)
+                            .Select(
+                                static path =>
+                                    MetadataReference.CreateFromFile(path))))
+                .AddAdditionalDocument(
+                    xamlDocumentId,
+                    "Playground.xaml",
+                    SourceText.From(InitialSource),
+                    filePath: "Playground.xaml");
+            if (!workspace.TryApplyChanges(solution))
+            {
+                throw new InvalidOperationException(
+                    "The immutable playground project could not be applied to its workspace.");
+            }
+            var project = workspace.CurrentSolution
+                .GetProject(projectId) ??
+                throw new InvalidOperationException(
+                    "The immutable playground project could not be created.");
+            return new PlaygroundCompilationHost(
+                workspace,
+                project,
+                xamlDocumentId,
+                null);
         }
         catch (Exception exception)
         {
-            return new PlaygroundCompilationHost(null, exception.Message);
+            workspace?.Dispose();
+            return new PlaygroundCompilationHost(
+                null,
+                null,
+                null,
+                exception.Message);
         }
     }
 
@@ -532,41 +593,46 @@ public static class XamlPlaygroundPage
     private sealed class PlaygroundCompilationHost
     {
         public PlaygroundCompilationHost(
-            CSharpCompilation? compilation,
+            AdhocWorkspace? workspace,
+            Project? project,
+            DocumentId? xamlDocumentId,
             string? error)
         {
-            Compilation = compilation;
+            Workspace = workspace;
+            Project = project;
+            XamlDocumentId = xamlDocumentId;
             Error = error;
         }
 
-        public CSharpCompilation? Compilation { get; }
+        public AdhocWorkspace? Workspace { get; }
+        public Project? Project { get; }
+        public DocumentId? XamlDocumentId { get; }
         public string? Error { get; }
     }
 
-    private sealed class PlaygroundInspectionResult
+    private sealed class PlaygroundProjectPipeline : IDisposable
     {
-        public PlaygroundInspectionResult(
-            XamlDocumentInspection source,
-            RoslynXamlCompilationInspection? compilation,
-            string? compilationError,
-            RoslynXamlPreviewArtifact? previewArtifact,
-            string? previewTypeName = null,
-            string? previewPreparationError = null)
+        public PlaygroundProjectPipeline(
+            RoslynXamlProjectPreviewCoordinator coordinator,
+            RoslynXamlProjectWatchSession session,
+            RoslynXamlProjectWatchTransport transport,
+            RoslynXamlWorkspaceProjectSelectorAdapter selector)
         {
-            Source = source;
-            Compilation = compilation;
-            CompilationError = compilationError;
-            PreviewArtifact = previewArtifact;
-            PreviewTypeName = previewTypeName;
-            PreviewPreparationError =
-                previewPreparationError;
+            Coordinator = coordinator;
+            Session = session;
+            Transport = transport;
+            Selector = selector;
         }
 
-        public XamlDocumentInspection Source { get; }
-        public RoslynXamlCompilationInspection? Compilation { get; }
-        public string? CompilationError { get; }
-        public RoslynXamlPreviewArtifact? PreviewArtifact { get; }
-        public string? PreviewTypeName { get; }
-        public string? PreviewPreparationError { get; }
+        public RoslynXamlProjectPreviewCoordinator Coordinator { get; }
+        public RoslynXamlProjectWatchSession Session { get; }
+        public RoslynXamlProjectWatchTransport Transport { get; }
+        public RoslynXamlWorkspaceProjectSelectorAdapter Selector { get; }
+
+        public void Dispose()
+        {
+            Selector.Dispose();
+            Session.Dispose();
+        }
     }
 }

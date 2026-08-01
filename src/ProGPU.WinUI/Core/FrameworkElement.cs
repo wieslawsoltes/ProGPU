@@ -87,21 +87,22 @@ public class PointerRoutedEventArgs : RoutedEventArgs
         ScreenPosition,
         Pointer.LegacyPointerDeviceType,
         Pointer.IsInContact,
-        new PointerPointProperties
-        {
-            IsLeftButtonPressed = IsLeftButtonPressed,
-            IsMiddleButtonPressed = IsMiddleButtonPressed,
-            IsRightButtonPressed = IsRightButtonPressed,
-            IsPrimary = IsPrimary,
-            IsCanceled = IsCanceled,
-            Pressure = Pressure,
-            ContactRect = new Windows.Foundation.Rect(
+        new PointerPointProperties(
+            contactRect: new Windows.Foundation.Rect(
                 ContactRect.X,
                 ContactRect.Y,
                 ContactRect.Width,
                 ContactRect.Height),
-            MouseWheelDelta = (int)WheelDelta
-        });
+            isLeftButtonPressed:
+                IsLeftButtonPressed,
+            isMiddleButtonPressed:
+                IsMiddleButtonPressed,
+            isRightButtonPressed:
+                IsRightButtonPressed,
+            isPrimary: IsPrimary,
+            isCanceled: IsCanceled,
+            pressure: Pressure,
+            mouseWheelDelta: (int)WheelDelta));
 }
 
 public partial class FrameworkElement
@@ -366,11 +367,17 @@ public partial class FrameworkElement
 
     public IList<KeyboardAccelerator> KeyboardAccelerators { get; } = new List<KeyboardAccelerator>();
 
-    private string _name = string.Empty;
+    internal static readonly DependencyProperty NameProperty =
+        DependencyProperty.Register(
+            nameof(Name),
+            typeof(string),
+            typeof(FrameworkElement),
+            new PropertyMetadata(string.Empty));
+
     public string Name
     {
-        get => _name;
-        set { if (_name != value) { _name = value; OnPropertyChanged(); } }
+        get => (string?)GetValue(NameProperty) ?? string.Empty;
+        set => SetValue(NameProperty, value ?? string.Empty);
     }
 
     private object? _tag;
@@ -520,7 +527,7 @@ public partial class FrameworkElement
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"Unsupported style setter '{setter.Property}' on {GetType().Name}: no dependency property is registered.");
+                    global::System.Diagnostics.Debug.WriteLine($"Unsupported style setter '{setter.Property}' on {GetType().Name}: no dependency property is registered.");
                 }
             }
         }
@@ -542,7 +549,7 @@ public partial class FrameworkElement
         base.Margin = t;
     }
 
-    public override Microsoft.UI.Xaml.Thickness Margin
+    public new Microsoft.UI.Xaml.Thickness Margin
     {
         get => (Microsoft.UI.Xaml.Thickness)(GetValue(MarginProperty) ?? default(Microsoft.UI.Xaml.Thickness));
         set => SetValue(MarginProperty, value);
@@ -585,7 +592,7 @@ public partial class FrameworkElement
         base.HorizontalAlignment = val;
     }
 
-    public override Microsoft.UI.Xaml.HorizontalAlignment HorizontalAlignment
+    public new Microsoft.UI.Xaml.HorizontalAlignment HorizontalAlignment
     {
         get => (Microsoft.UI.Xaml.HorizontalAlignment)(GetValue(HorizontalAlignmentProperty) ?? Microsoft.UI.Xaml.HorizontalAlignment.Stretch);
         set => SetValue(HorizontalAlignmentProperty, value);
@@ -606,7 +613,7 @@ public partial class FrameworkElement
         base.VerticalAlignment = val;
     }
 
-    public override Microsoft.UI.Xaml.VerticalAlignment VerticalAlignment
+    public new Microsoft.UI.Xaml.VerticalAlignment VerticalAlignment
     {
         get => (Microsoft.UI.Xaml.VerticalAlignment)(GetValue(VerticalAlignmentProperty) ?? Microsoft.UI.Xaml.VerticalAlignment.Stretch);
         set => SetValue(VerticalAlignmentProperty, value);

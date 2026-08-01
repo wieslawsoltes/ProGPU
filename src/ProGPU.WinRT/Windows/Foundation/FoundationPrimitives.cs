@@ -4,6 +4,13 @@ public delegate void TypedEventHandler<TSender, TResult>(
     TSender sender,
     TResult args);
 
+public interface IAsyncAction
+{
+    Task AsTask();
+
+    System.Runtime.CompilerServices.TaskAwaiter GetAwaiter();
+}
+
 public interface IAsyncOperation<TResult>
 {
     Task<TResult> AsTask();

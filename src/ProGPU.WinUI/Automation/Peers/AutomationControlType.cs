@@ -1,5 +1,8 @@
 namespace Microsoft.UI.Xaml.Automation.Peers;
 
+[Windows.Foundation.Metadata.ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum AutomationControlType
 {
     Button = 0,
@@ -32,5 +35,16 @@ public enum AutomationControlType
     Thumb = 27,
     DataGrid = 28,
     DataItem = 29,
-    Document = 30
+    Document = 30,
+    SplitButton = 31,
+    Window = 32,
+    Pane = 33,
+    Header = 34,
+    HeaderItem = 35,
+    Table = 36,
+    TitleBar = 37,
+    Separator = 38,
+    SemanticZoom = 39,
+    AppBar = 40,
+    FlipView = 41
 }

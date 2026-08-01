@@ -262,8 +262,36 @@ internal sealed class AndroidRenderView : SurfaceView, ISurfaceHolderCallback
                 position.Y - diameter * 0.5f,
                 diameter,
                 diameter),
-            Modifiers: ReadModifiers(e.MetaState)));
+            Modifiers: ReadModifiers(e.MetaState),
+            UpdateKind: isMouse
+                ? GetPointerUpdateKind(
+                    kind,
+                    e.ActionButton == 0
+                        ? MotionEventButtonState.Primary
+                        : e.ActionButton)
+                : Microsoft.UI.Input.PointerUpdateKind.Other));
     }
+
+    private static Microsoft.UI.Input.PointerUpdateKind
+        GetPointerUpdateKind(
+            PointerInputKind kind,
+            MotionEventButtonState button) =>
+        (kind, button) switch
+        {
+            (PointerInputKind.Pressed, MotionEventButtonState.Primary) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed,
+            (PointerInputKind.Released, MotionEventButtonState.Primary) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased,
+            (PointerInputKind.Pressed, MotionEventButtonState.Secondary) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed,
+            (PointerInputKind.Released, MotionEventButtonState.Secondary) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased,
+            (PointerInputKind.Pressed, MotionEventButtonState.Tertiary) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed,
+            (PointerInputKind.Released, MotionEventButtonState.Tertiary) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased,
+            _ => Microsoft.UI.Input.PointerUpdateKind.Other
+        };
 
     private void DispatchScroll(MotionEvent e)
     {

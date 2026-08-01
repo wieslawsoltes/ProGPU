@@ -711,7 +711,7 @@ public static class VisualStateManager
             {
                 current = Convert.ToDouble(
                     currentValue ?? 0d,
-                    System.Globalization.CultureInfo.InvariantCulture);
+                    global::System.Globalization.CultureInfo.InvariantCulture);
             }
             catch (Exception exception)
             {
@@ -810,9 +810,9 @@ public static class VisualStateManager
             return true;
         }
 
-        var color = (System.Numerics.Vector4)
+        var color = (global::System.Numerics.Vector4)
             XamlValueConverter.ConvertTo(
-                typeof(System.Numerics.Vector4),
+                typeof(global::System.Numerics.Vector4),
                 colorValue)!;
         brushValue = new ProGPU.Vector.SolidColorBrush(color)
         {
@@ -850,9 +850,10 @@ public static class VisualStateManager
         out DependencyProperty property)
     {
         string targetName = Storyboard.GetTargetName(timeline);
-        var resolvedTarget = string.IsNullOrEmpty(targetName)
-            ? root
-            : FindName(root, targetName) as DependencyObject;
+        var resolvedTarget = Storyboard.GetTarget(timeline) ??
+            (string.IsNullOrEmpty(targetName)
+                ? root
+                : FindName(root, targetName) as DependencyObject);
         if (resolvedTarget == null)
         {
             target = null!;

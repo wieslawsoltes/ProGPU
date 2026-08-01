@@ -1,5 +1,6 @@
 using System.Numerics;
 using ProGPU.Scene;
+using Windows.Foundation.Metadata;
 
 namespace Windows.Devices.Input
 {
@@ -25,37 +26,148 @@ namespace Windows.Devices.Input
 
 namespace Microsoft.UI.Input
 {
+using Microsoft.UI.Xaml.Input;
 using Windows.Devices.Input;
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class PointerPointProperties
 {
-    internal PointerPointProperties()
+    internal PointerPointProperties(
+        Windows.Foundation.Rect contactRect = default,
+        bool isBarrelButtonPressed = false,
+        bool isHorizontalMouseWheel = false,
+        bool isInRange = true,
+        bool isInverted = false,
+        bool isLeftButtonPressed = false,
+        bool isMiddleButtonPressed = false,
+        bool isRightButtonPressed = false,
+        bool isXButton1Pressed = false,
+        bool isXButton2Pressed = false,
+        bool isPrimary = false,
+        bool isCanceled = false,
+        bool isEraser = false,
+        float orientation = 0f,
+        PointerUpdateKind pointerUpdateKind =
+            PointerUpdateKind.Other,
+        float pressure = 0f,
+        bool touchConfidence = true,
+        float twist = 0f,
+        float xTilt = 0f,
+        float yTilt = 0f,
+        int mouseWheelDelta = 0)
     {
+        ContactRect = contactRect;
+        IsBarrelButtonPressed =
+            isBarrelButtonPressed;
+        IsHorizontalMouseWheel =
+            isHorizontalMouseWheel;
+        IsInRange = isInRange;
+        IsInverted = isInverted;
+        IsLeftButtonPressed =
+            isLeftButtonPressed;
+        IsMiddleButtonPressed =
+            isMiddleButtonPressed;
+        IsRightButtonPressed =
+            isRightButtonPressed;
+        IsXButton1Pressed =
+            isXButton1Pressed;
+        IsXButton2Pressed =
+            isXButton2Pressed;
+        IsPrimary = isPrimary;
+        IsCanceled = isCanceled;
+        IsEraser = isEraser;
+        Orientation = orientation;
+        PointerUpdateKind = pointerUpdateKind;
+        Pressure = pressure;
+        TouchConfidence = touchConfidence;
+        Twist = twist;
+        XTilt = xTilt;
+        YTilt = yTilt;
+        MouseWheelDelta = mouseWheelDelta;
     }
 
-    public Windows.Foundation.Rect ContactRect { get; internal set; }
-    public bool IsBarrelButtonPressed { get; internal set; }
-    public bool IsHorizontalMouseWheel { get; internal set; }
-    public bool IsInRange { get; internal set; } = true;
-    public bool IsInverted { get; internal set; }
-    public bool IsLeftButtonPressed { get; internal set; }
-    public bool IsMiddleButtonPressed { get; internal set; }
-    public bool IsRightButtonPressed { get; internal set; }
-    public bool IsXButton1Pressed { get; internal set; }
-    public bool IsXButton2Pressed { get; internal set; }
-    public bool IsPrimary { get; internal set; }
-    public bool IsCanceled { get; internal set; }
-    public bool IsEraser { get; internal set; }
-    public float Orientation { get; internal set; }
-    public PointerUpdateKind PointerUpdateKind { get; internal set; }
-    public float Pressure { get; internal set; }
-    public bool TouchConfidence { get; internal set; } = true;
-    public float Twist { get; internal set; }
-    public float XTilt { get; internal set; }
-    public float YTilt { get; internal set; }
-    public int MouseWheelDelta { get; internal set; }
+    public Windows.Foundation.Rect ContactRect { get; }
+    public bool IsBarrelButtonPressed { get; }
+    public bool IsHorizontalMouseWheel { get; }
+    public bool IsInRange { get; }
+    public bool IsInverted { get; }
+    public bool IsLeftButtonPressed { get; }
+    public bool IsMiddleButtonPressed { get; }
+    public bool IsRightButtonPressed { get; }
+    public bool IsXButton1Pressed { get; }
+    public bool IsXButton2Pressed { get; }
+    public bool IsPrimary { get; }
+    public bool IsCanceled { get; }
+    public bool IsEraser { get; }
+    public float Orientation { get; }
+    public PointerUpdateKind PointerUpdateKind { get; }
+    public float Pressure { get; }
+    public bool TouchConfidence { get; }
+    public float Twist { get; }
+    public float XTilt { get; }
+    public float YTilt { get; }
+    public int MouseWheelDelta { get; }
+
+    internal PointerPointProperties
+        WithContactRect(
+            Windows.Foundation.Rect contactRect) =>
+        new(
+            contactRect,
+            IsBarrelButtonPressed,
+            IsHorizontalMouseWheel,
+            IsInRange,
+            IsInverted,
+            IsLeftButtonPressed,
+            IsMiddleButtonPressed,
+            IsRightButtonPressed,
+            IsXButton1Pressed,
+            IsXButton2Pressed,
+            IsPrimary,
+            IsCanceled,
+            IsEraser,
+            Orientation,
+            PointerUpdateKind,
+            Pressure,
+            TouchConfidence,
+            Twist,
+            XTilt,
+            YTilt,
+            MouseWheelDelta);
+
+    internal PointerPointProperties
+        WithPrediction(
+            float pressure,
+            float xTilt,
+            float yTilt) =>
+        new(
+            ContactRect,
+            IsBarrelButtonPressed,
+            IsHorizontalMouseWheel,
+            IsInRange,
+            IsInverted,
+            IsLeftButtonPressed,
+            IsMiddleButtonPressed,
+            IsRightButtonPressed,
+            IsXButton1Pressed,
+            IsXButton2Pressed,
+            IsPrimary,
+            IsCanceled,
+            IsEraser,
+            Orientation,
+            PointerUpdateKind,
+            pressure,
+            TouchConfidence,
+            Twist,
+            xTilt,
+            yTilt,
+            MouseWheelDelta);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public sealed class PointerPoint
 {
     internal PointerPoint(
@@ -84,13 +196,38 @@ public sealed class PointerPoint
         Microsoft.UI.Input.PointerDeviceType deviceType,
         bool isInContact,
         PointerPointProperties properties)
+        : this(
+            pointerId,
+            unchecked((uint)timestamp),
+            timestamp,
+            position,
+            rawPosition,
+            Windows.Devices.Input.PointerDevice
+                .GetPointerDevice(legacyDeviceType),
+            deviceType,
+            isInContact,
+            properties)
+    {
+    }
+
+    private PointerPoint(
+        uint pointerId,
+        uint frameId,
+        ulong timestamp,
+        Vector2 position,
+        Vector2 rawPosition,
+        Windows.Devices.Input.PointerDevice
+            pointerDevice,
+        Microsoft.UI.Input.PointerDeviceType deviceType,
+        bool isInContact,
+        PointerPointProperties properties)
     {
         PointerId = pointerId;
         Timestamp = timestamp;
-        FrameId = unchecked((uint)timestamp);
+        FrameId = frameId;
         Position = new Windows.Foundation.Point(position.X, position.Y);
         RawPosition = rawPosition;
-        PointerDevice = Windows.Devices.Input.PointerDevice.GetPointerDevice(legacyDeviceType);
+        PointerDevice = pointerDevice;
         PointerDeviceType = deviceType;
         IsInContact = isInContact;
         Properties = properties;
@@ -107,41 +244,178 @@ public sealed class PointerPoint
     public bool IsInContact { get; }
     public PointerPointProperties Properties { get; }
 
+    public static PointerPoint GetCurrentPoint(
+        uint pointerId)
+    {
+        if (!InputSystem.TryGetCurrentPointerInput(
+                pointerId,
+                out PointerInputEvent input))
+        {
+            return null!;
+        }
+
+        return FromInput(input);
+    }
+
     public PointerPoint? GetTransformedPoint(IPointerPointTransform transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
         if (!transform.TryTransform(Position, out var transformedPosition) ||
             !transform.TryTransformBounds(Properties.ContactRect, out var transformedContactRect)) return null;
-        var transformedProperties = new PointerPointProperties
-        {
-            ContactRect = transformedContactRect,
-            IsBarrelButtonPressed = Properties.IsBarrelButtonPressed,
-            IsHorizontalMouseWheel = Properties.IsHorizontalMouseWheel,
-            IsInRange = Properties.IsInRange,
-            IsInverted = Properties.IsInverted,
-            IsLeftButtonPressed = Properties.IsLeftButtonPressed,
-            IsMiddleButtonPressed = Properties.IsMiddleButtonPressed,
-            IsRightButtonPressed = Properties.IsRightButtonPressed,
-            IsXButton1Pressed = Properties.IsXButton1Pressed,
-            IsXButton2Pressed = Properties.IsXButton2Pressed,
-            IsPrimary = Properties.IsPrimary,
-            IsCanceled = Properties.IsCanceled,
-            IsEraser = Properties.IsEraser,
-            Orientation = Properties.Orientation,
-            PointerUpdateKind = Properties.PointerUpdateKind,
-            Pressure = Properties.Pressure,
-            TouchConfidence = Properties.TouchConfidence,
-            Twist = Properties.Twist,
-            XTilt = Properties.XTilt,
-            YTilt = Properties.YTilt,
-            MouseWheelDelta = Properties.MouseWheelDelta
-        };
+        PointerPointProperties transformedProperties =
+            Properties.WithContactRect(
+                transformedContactRect);
         var transformed = new Vector2((float)transformedPosition.X, (float)transformedPosition.Y);
-        return new PointerPoint(PointerId, Timestamp, transformed, transformed,
-            PointerDevice.PointerDeviceType, PointerDeviceType, IsInContact, transformedProperties);
+        return new PointerPoint(
+            PointerId,
+            FrameId,
+            Timestamp,
+            transformed,
+            transformed,
+            PointerDevice,
+            PointerDeviceType,
+            IsInContact,
+            transformedProperties);
+    }
+
+    internal PointerPoint WithPrediction(
+        ulong timestamp,
+        Vector2 position,
+        PointerPointProperties properties) =>
+        new(
+            PointerId,
+            FrameId,
+            timestamp,
+            position,
+            position,
+            PointerDevice,
+            PointerDeviceType,
+            IsInContact,
+            properties);
+
+    internal static PointerPoint FromInput(
+        in PointerInputEvent input) =>
+        new(
+            input.PointerId,
+            input.Timestamp,
+            input.Position,
+            input.Position,
+            input.DeviceType,
+            input.IsInContact,
+            new PointerPointProperties(
+                contactRect:
+                    new Windows.Foundation.Rect(
+                        input.ContactRect.X,
+                        input.ContactRect.Y,
+                        input.ContactRect.Width,
+                        input.ContactRect.Height),
+                isLeftButtonPressed:
+                    input.IsLeftButtonPressed,
+                isMiddleButtonPressed:
+                    input.IsMiddleButtonPressed,
+                isRightButtonPressed:
+                    input.IsRightButtonPressed,
+                isHorizontalMouseWheel:
+                    input.WheelDeltaX != 0f &&
+                    input.WheelDeltaY == 0f,
+                isPrimary: input.IsPrimary,
+                isCanceled:
+                    input.Kind ==
+                    PointerInputKind.Canceled,
+                pressure: input.Pressure,
+                pointerUpdateKind:
+                    input.UpdateKind,
+                mouseWheelDelta:
+                    (int)(input.WheelDeltaY != 0f
+                        ? input.WheelDeltaY
+                        : input.WheelDeltaX)));
+}
+
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
+public sealed class PointerEventArgs
+{
+    private const int MaximumPointCount = 64;
+    private static readonly IList<PointerPoint>
+        EmptyPoints = Array.Empty<PointerPoint>();
+    private readonly IList<PointerPoint>
+        _intermediatePoints;
+
+    internal PointerEventArgs(
+        PointerPoint currentPoint,
+        Windows.System.VirtualKeyModifiers keyModifiers =
+            Windows.System.VirtualKeyModifiers.None,
+        IReadOnlyList<PointerPoint>?
+            historyBeforeCurrentPoint = null)
+    {
+        ArgumentNullException.ThrowIfNull(currentPoint);
+
+        CurrentPoint = currentPoint;
+        KeyModifiers = keyModifiers;
+
+        int availableHistoryCount =
+            historyBeforeCurrentPoint?.Count ?? 0;
+        int historyCount = Math.Min(
+            availableHistoryCount,
+            MaximumPointCount - 1);
+        int historyStart =
+            availableHistoryCount - historyCount;
+        var points =
+            new PointerPoint[historyCount + 1];
+        for (int index = 0;
+             index < historyCount;
+             index++)
+        {
+            points[index] =
+                historyBeforeCurrentPoint![
+                    historyStart + index];
+        }
+        points[^1] = currentPoint;
+        _intermediatePoints =
+            Array.AsReadOnly(points);
+    }
+
+    public PointerPoint CurrentPoint { get; }
+
+    public bool Handled { get; set; }
+
+    public Windows.System.VirtualKeyModifiers
+        KeyModifiers { get; }
+
+    public IList<PointerPoint>
+        GetIntermediatePoints() =>
+        _intermediatePoints;
+
+    public IList<PointerPoint>
+        GetIntermediateTransformedPoints(
+            IPointerPointTransform transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+
+        var transformedPoints =
+            new PointerPoint[_intermediatePoints.Count];
+        for (int index = 0;
+             index < transformedPoints.Length;
+             index++)
+        {
+            PointerPoint? transformed =
+                _intermediatePoints[index]
+                    .GetTransformedPoint(transform);
+            if (transformed is null)
+                return EmptyPoints;
+            transformedPoints[index] =
+                transformed;
+        }
+
+        return Array.AsReadOnly(
+            transformedPoints);
     }
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public interface IPointerPointTransform
 {
     IPointerPointTransform Inverse { get; }
@@ -149,6 +423,9 @@ public interface IPointerPointTransform
     bool TryTransformBounds(Windows.Foundation.Rect inRect, out Windows.Foundation.Rect outRect);
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum PointerDeviceType
 {
     Touch = 0,
@@ -157,6 +434,9 @@ public enum PointerDeviceType
     Touchpad = 3
 }
 
+[ContractVersion(
+    "Microsoft.Foundation.WindowsAppSDKContract",
+    0x00010000)]
 public enum PointerUpdateKind
 {
     Other = 0,
@@ -177,6 +457,7 @@ namespace Microsoft.UI.Xaml.Input
 {
 using InputPointerDeviceType = Microsoft.UI.Input.PointerDeviceType;
 using LegacyPointerDeviceType = Windows.Devices.Input.PointerDeviceType;
+using Microsoft.UI.Xaml.Markup;
 
 public sealed class Pointer
 {
@@ -383,26 +664,80 @@ public delegate void ManipulationDeltaEventHandler(object sender, ManipulationDe
 public delegate void ManipulationInertiaStartingEventHandler(object sender, ManipulationInertiaStartingRoutedEventArgs e);
 public delegate void ManipulationCompletedEventHandler(object sender, ManipulationCompletedRoutedEventArgs e);
 
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
 public enum InputScopeNameValue
 {
     Default = 0,
-    Url,
-    EmailSmtpAddress,
-    Number,
-    TelephoneNumber,
-    Search,
-    Chat,
-    NameOrPhoneNumber,
-    Password,
-    NumericPin
+    Url = 1,
+    EmailSmtpAddress = 5,
+    PersonalFullName = 7,
+    CurrencyAmountAndSymbol = 20,
+    CurrencyAmount = 21,
+    DateMonthNumber = 23,
+    DateDayNumber = 24,
+    DateYear = 25,
+    Digits = 28,
+    Number = 29,
+    Password = 31,
+    TelephoneNumber = 32,
+    TelephoneCountryCode = 33,
+    TelephoneAreaCode = 34,
+    TelephoneLocalNumber = 35,
+    TimeHour = 37,
+    TimeMinutesOrSeconds = 38,
+    NumberFullWidth = 39,
+    AlphanumericHalfWidth = 40,
+    AlphanumericFullWidth = 41,
+    Hiragana = 44,
+    KatakanaHalfWidth = 45,
+    KatakanaFullWidth = 46,
+    Hanja = 47,
+    HangulHalfWidth = 48,
+    HangulFullWidth = 49,
+    Search = 50,
+    Formula = 51,
+    SearchIncremental = 52,
+    ChineseHalfWidth = 53,
+    ChineseFullWidth = 54,
+    NativeScript = 55,
+    Text = 57,
+    Chat = 58,
+    NameOrPhoneNumber = 59,
+    EmailNameOrAddress = 60,
+    Maps = 62,
+    NumericPassword = 63,
+    NumericPin = 64,
+    AlphanumericPin = 65,
+    FormulaNumber = 67,
+    ChatWithoutEmoji = 68
 }
 
-public sealed class InputScopeName
+[ContentProperty(Name = nameof(NameValue))]
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class InputScopeName :
+    Microsoft.UI.Xaml.DependencyObject
 {
+    public InputScopeName()
+    {
+    }
+
+    public InputScopeName(InputScopeNameValue nameValue)
+    {
+        NameValue = nameValue;
+    }
+
     public InputScopeNameValue NameValue { get; set; }
 }
 
-public sealed class InputScope
+[ContractVersion(
+    "Microsoft.UI.Xaml.WinUIContract",
+    0x00010000)]
+public sealed class InputScope :
+    Microsoft.UI.Xaml.DependencyObject
 {
     public IList<InputScopeName> Names { get; } = new List<InputScopeName>();
 }
@@ -476,5 +811,7 @@ public readonly record struct PointerInputEvent(
     float WheelDeltaX = 0f,
     float WheelDeltaY = 0f,
     bool IsPreciseWheel = false,
-    VirtualKeyModifiers Modifiers = VirtualKeyModifiers.None);
+    VirtualKeyModifiers Modifiers = VirtualKeyModifiers.None,
+    Microsoft.UI.Input.PointerUpdateKind UpdateKind =
+        Microsoft.UI.Input.PointerUpdateKind.Other);
 }

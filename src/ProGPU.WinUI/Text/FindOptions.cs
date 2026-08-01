@@ -13,7 +13,7 @@ using ProGPU.Vector;
 namespace Microsoft.UI.Text;
 
 [Flags]
-public enum FindOptions
+public enum FindOptions : uint
 {
     None = 0,
     Word = 2,

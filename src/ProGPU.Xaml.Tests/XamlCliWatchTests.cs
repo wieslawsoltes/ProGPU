@@ -72,6 +72,7 @@ public sealed class XamlCliWatchTests
                         timeout.Token);
             var initial =
                 ParseResult(initialLine);
+            Assert.Equal("1.0", initial.ProtocolVersion);
             Assert.Equal(
                 "Applied",
                 initial.Status);
@@ -80,6 +81,29 @@ public sealed class XamlCliWatchTests
                 initial.CommitResult);
             Assert.True(
                 initial.ArtifactWritten);
+            Assert.Equal(1, initial.Submitted);
+            Assert.Equal(1, initial.Completed);
+            Assert.Equal(1, initial.Applied);
+            Assert.Equal(0, initial.CacheHits);
+            Assert.Equal(0, initial.CurrentQueueDepth);
+            Assert.Equal(1, initial.MaximumQueueDepth);
+            Assert.Equal(
+                1,
+                initial.AllocationMeasurements);
+            Assert.True(
+                initial.LastAllocatedBytes >= 0);
+            Assert.True(
+                initial.AverageDurationMilliseconds >
+                0);
+            Assert.True(
+                initial.P95DurationUpperBoundMilliseconds >=
+                initial.MedianDurationUpperBoundMilliseconds);
+            Assert.True(
+                initial.P99DurationUpperBoundMilliseconds >=
+                initial.P95DurationUpperBoundMilliseconds);
+            Assert.Equal(
+                "InsufficientSamples",
+                initial.PerformanceBudgetStatus);
             Assert.True(File.Exists(output));
             var initialImage =
                 await File.ReadAllBytesAsync(
@@ -99,6 +123,7 @@ public sealed class XamlCliWatchTests
                         timeout.Token);
             var reload =
                 ParseResult(reloadLine);
+            Assert.Equal("1.0", reload.ProtocolVersion);
             Assert.Equal(
                 "AcceptedWithoutRuntimeChange",
                 reload.Status);
@@ -109,6 +134,28 @@ public sealed class XamlCliWatchTests
             Assert.Equal("None", reload.Action);
             Assert.False(
                 reload.ArtifactWritten);
+            Assert.Equal(2, reload.Submitted);
+            Assert.Equal(2, reload.Completed);
+            Assert.Equal(1, reload.Applied);
+            Assert.Equal(1, reload.CacheHits);
+            Assert.Equal(0, reload.CurrentQueueDepth);
+            Assert.Equal(1, reload.MaximumQueueDepth);
+            Assert.Equal(
+                2,
+                reload.AllocationMeasurements);
+            Assert.True(
+                reload.LastAllocatedBytes >= 0);
+            Assert.True(
+                reload.AverageAllocatedBytes >= 0);
+            Assert.True(
+                reload.P95AllocatedBytesUpperBound >=
+                reload.MedianAllocatedBytesUpperBound);
+            Assert.True(
+                reload.P99AllocatedBytesUpperBound >=
+                reload.P95AllocatedBytesUpperBound);
+            Assert.Equal(
+                "Passed",
+                reload.PerformanceBudgetStatus);
             Assert.Equal(
                 initial.Generation + 1,
                 reload.Generation);
@@ -147,11 +194,103 @@ public sealed class XamlCliWatchTests
         }
     }
 
+    [Fact]
+    public async Task WatchCommandFailsBoundedRunWithInsufficientBudgetSamples()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var configuration =
+            new DirectoryInfo(
+                AppContext.BaseDirectory)
+                .Parent?.Name ??
+            throw new InvalidOperationException(
+                "The test configuration directory could not be located.");
+        var cliAssembly = Path.Combine(
+            repositoryRoot,
+            "tools",
+            "ProGPU.Xaml.Cli",
+            "bin",
+            configuration,
+            "net10.0",
+            "ProGPU.Xaml.Cli.dll");
+        var project = Path.Combine(
+            repositoryRoot,
+            "src",
+            "ProGPU.Samples",
+            "ProGPU.Samples.csproj");
+        var xaml = Path.Combine(
+            repositoryRoot,
+            "src",
+            "ProGPU.Samples",
+            "Pages",
+            "XamlCompilerWelcomePage.xaml");
+        var temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(
+            temporaryDirectory);
+        var output = Path.Combine(
+            temporaryDirectory,
+            "preview.dll");
+        using var process = new Process
+        {
+            StartInfo =
+                CreateStartInfo(
+                    cliAssembly,
+                    xaml,
+                    project,
+                    output,
+                    maximumUpdates: 1,
+                    minimumBudgetSamples: 2)
+        };
+        using var timeout =
+            new CancellationTokenSource(
+                TimeSpan.FromMinutes(1));
+        try
+        {
+            Assert.True(process.Start());
+            var result = ParseResult(
+                await process.StandardOutput
+                    .ReadLineAsync(timeout.Token));
+            await process.WaitForExitAsync(
+                timeout.Token);
+            var error =
+                await process.StandardError
+                    .ReadToEndAsync(timeout.Token);
+
+            Assert.Equal(
+                "InsufficientSamples",
+                result.PerformanceBudgetStatus);
+            Assert.Equal(1, result.Completed);
+            Assert.Equal(1, process.ExitCode);
+            Assert.DoesNotContain(
+                "PGXAMLCLI",
+                error,
+                StringComparison.Ordinal);
+            Assert.True(File.Exists(output));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(
+                    entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+
+            Directory.Delete(
+                temporaryDirectory,
+                recursive: true);
+        }
+    }
+
     private static ProcessStartInfo CreateStartInfo(
         string cliAssembly,
         string xaml,
         string project,
-        string output)
+        string output,
+        int maximumUpdates = 2,
+        int minimumBudgetSamples = 2)
     {
         var startInfo =
             new ProcessStartInfo("dotnet")
@@ -176,7 +315,25 @@ public sealed class XamlCliWatchTests
         startInfo.ArgumentList.Add("--json");
         startInfo.ArgumentList.Add(
             "--max-updates");
-        startInfo.ArgumentList.Add("2");
+        startInfo.ArgumentList.Add(
+            maximumUpdates.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add(
+            "--budget-min-samples");
+        startInfo.ArgumentList.Add(
+            minimumBudgetSamples.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add(
+            "--max-p95-ms");
+        startInfo.ArgumentList.Add("60000");
+        startInfo.ArgumentList.Add(
+            "--max-p95-allocated-bytes");
+        startInfo.ArgumentList.Add(
+            long.MaxValue.ToString(
+                System.Globalization
+                    .CultureInfo.InvariantCulture));
         return startInfo;
     }
 
@@ -189,7 +346,14 @@ public sealed class XamlCliWatchTests
         using var document =
             JsonDocument.Parse(line!);
         var root = document.RootElement;
+        var telemetry =
+            root.GetProperty("telemetry");
+        var performanceBudget =
+            root.GetProperty(
+                "performanceBudget");
         return new WatchResult(
+            root.GetProperty("protocolVersion")
+                .GetString()!,
             root.GetProperty("status")
                 .GetString()!,
             root.GetProperty("commitResult")
@@ -209,7 +373,54 @@ public sealed class XamlCliWatchTests
                 .GetInt64(),
             root.GetProperty(
                     "artifactWritten")
-                .GetBoolean());
+                .GetBoolean(),
+            telemetry.GetProperty("submitted")
+                .GetInt64(),
+            telemetry.GetProperty("completed")
+                .GetInt64(),
+            telemetry.GetProperty("applied")
+                .GetInt64(),
+            telemetry.GetProperty("cacheHits")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "currentQueueDepth")
+                .GetInt32(),
+            telemetry.GetProperty(
+                    "maximumQueueDepth")
+                .GetInt32(),
+            telemetry.GetProperty(
+                    "allocationMeasurements")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "lastAllocatedBytes")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "averageDurationMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "medianDurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "p95DurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "p99DurationUpperBoundMilliseconds")
+                .GetDouble(),
+            telemetry.GetProperty(
+                    "averageAllocatedBytes")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "medianAllocatedBytesUpperBound")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "p95AllocatedBytesUpperBound")
+                .GetInt64(),
+            telemetry.GetProperty(
+                    "p99AllocatedBytesUpperBound")
+                .GetInt64(),
+            performanceBudget.GetProperty(
+                    "status")
+                .GetString()!);
     }
 
     private static string FindRepositoryRoot()
@@ -240,10 +451,28 @@ public sealed class XamlCliWatchTests
     }
 
     private sealed record WatchResult(
+        string ProtocolVersion,
         string Status,
         string CommitResult,
         string? Mode,
         string? Action,
         long Generation,
-        bool ArtifactWritten);
+        bool ArtifactWritten,
+        long Submitted,
+        long Completed,
+        long Applied,
+        long CacheHits,
+        int CurrentQueueDepth,
+        int MaximumQueueDepth,
+        long AllocationMeasurements,
+        long LastAllocatedBytes,
+        double AverageDurationMilliseconds,
+        double MedianDurationUpperBoundMilliseconds,
+        double P95DurationUpperBoundMilliseconds,
+        double P99DurationUpperBoundMilliseconds,
+        long AverageAllocatedBytes,
+        long MedianAllocatedBytesUpperBound,
+        long P95AllocatedBytesUpperBound,
+        long P99AllocatedBytesUpperBound,
+        string PerformanceBudgetStatus);
 }

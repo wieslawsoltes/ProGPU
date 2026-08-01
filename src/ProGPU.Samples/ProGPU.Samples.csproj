@@ -21,6 +21,8 @@
     <ProjectReference Include="..\ProGPU.Xaml\ProGPU.Xaml.csproj" />
     <ProjectReference Include="..\ProGPU.Xaml.Roslyn\ProGPU.Xaml.Roslyn.csproj"
                       Condition="'$(ProGpuSamplesMobile)' != 'true'" />
+    <ProjectReference Include="..\ProGPU.Xaml.Workspaces\ProGPU.Xaml.Workspaces.csproj"
+                      Condition="'$(ProGpuSamplesMobile)' != 'true'" />
     <ProjectReference Include="..\ProGPU.Xaml.SourceGenerator\ProGPU.Xaml.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

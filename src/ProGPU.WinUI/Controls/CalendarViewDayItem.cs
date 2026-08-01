@@ -59,7 +59,7 @@ public class CalendarViewDayItem : Control
             var foreground = IsBlackout
                 ? ThemeManager.GetBrush("TextDisabled")
                 : Foreground ?? ThemeManager.GetBrush("TextPrimary");
-            context.DrawText(Date.Day.ToString(System.Globalization.CultureInfo.CurrentCulture), font,
+            context.DrawText(Date.Day.ToString(global::System.Globalization.CultureInfo.CurrentCulture), font,
                 (float)FontSize, foreground, new Vector2(Padding.Left, Padding.Top));
         }
 

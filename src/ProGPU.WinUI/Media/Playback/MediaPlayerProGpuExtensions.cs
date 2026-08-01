@@ -1,3 +1,6 @@
+using System.Runtime.CompilerServices;
+using Microsoft.UI.Composition;
+using ProGPU.Backend;
 using ProGPU.Media.Diagnostics;
 using ProGPU.Media.Playback;
 using Windows.Media;
@@ -29,11 +32,30 @@ public readonly record struct ProGpuMediaPlaybackCommand(
 
 public static class MediaPlayerProGpuExtensions
 {
+    private static readonly ConditionalWeakTable<
+        Windows.Media.Playback.MediaPlayer,
+        MediaPlayerCompositionSurface> CompositionSurfaces = new();
+
     public static MediaGpuSurface GetProGpuSurface(
         this Windows.Media.Playback.MediaPlayer mediaPlayer)
     {
         ArgumentNullException.ThrowIfNull(mediaPlayer);
         return mediaPlayer.ProGpuVideoSurface;
+    }
+
+    /// <summary>
+    /// Returns the stable typed composition surface for the player's decoded
+    /// video frames. The adapter forwards the same-device GPU texture lease
+    /// and frame invalidation; it never reads or copies pixel data.
+    /// </summary>
+    public static ICompositionSurface GetProGpuCompositionSurface(
+        this Windows.Media.Playback.MediaPlayer mediaPlayer)
+    {
+        ArgumentNullException.ThrowIfNull(mediaPlayer);
+        return CompositionSurfaces.GetValue(
+            mediaPlayer,
+            static player => new MediaPlayerCompositionSurface(
+                player.ProGpuVideoSurface));
     }
 
     public static MediaPlaybackDiagnosticsSnapshot
@@ -142,5 +164,30 @@ public static class MediaPlayerProGpuExtensions
             default:
                 return false;
         }
+    }
+
+    private sealed class MediaPlayerCompositionSurface :
+        ICompositionSurface,
+        IProGpuInvalidatingTextureSource
+    {
+        private readonly MediaGpuSurface _surface;
+
+        public MediaPlayerCompositionSurface(MediaGpuSurface surface)
+        {
+            _surface = surface;
+        }
+
+        public event EventHandler? TextureChanged
+        {
+            add => _surface.FrameAvailable += value;
+            remove => _surface.FrameAvailable -= value;
+        }
+
+        public bool TryGetGpuTexture(out GpuTexture texture) =>
+            _surface.TryGetGpuTexture(out texture);
+
+        public bool TryAcquireGpuTextureLease(
+            out IProGpuTextureLease lease) =>
+            _surface.TryAcquireGpuTextureLease(out lease);
     }
 }

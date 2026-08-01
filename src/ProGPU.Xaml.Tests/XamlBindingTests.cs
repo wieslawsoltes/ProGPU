@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.CodeAnalysis.Text;
 using System.Collections.Immutable;
 using System.Text;
@@ -1036,6 +1037,252 @@ namespace Demo {
         Assert.Contains(bound.Diagnostics, diagnostic => diagnostic.Id == "PGXAML2014");
         Assert.Contains(bound.Diagnostics, diagnostic => diagnostic.Id == "PGXAML2015");
         Assert.Contains(bound.Diagnostics, diagnostic => diagnostic.Id == "PGXAML2016");
+    }
+
+    [Fact]
+    public void OrdinaryEventHandlerRetainsExactSymbolsThroughEmission()
+    {
+        // SEM-035, TST-078
+        const string xaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.EventPage">
+  <Button Click="OnClick" />
+</Page>
+""";
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        private void OnClick(object? sender, System.EventArgs args) { }
+        private void OnClick(object? sender, object args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+        var bound = new XamlSemanticBinder().Bind(
+            Convert(xaml),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+
+        Assert.DoesNotContain(
+            bound.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var handler = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundEventHandler>());
+        Assert.Equal("Click", handler.EventSymbol.Name);
+        Assert.Equal("Invoke", handler.DelegateInvokeMethod.Name);
+        Assert.Equal("OnClick", handler.Method?.Name);
+        Assert.Equal(Accessibility.Private, handler.Method?.DeclaredAccessibility);
+        Assert.Equal(
+            "System.EventArgs",
+            handler.Method?.Parameters[1].Type.ToDisplayString());
+        Assert.False(handler.IsError);
+
+        var program = new XamlConstructionLowerer().Lower(bound);
+        var irHandler = Assert.Single(
+            DescendantIrValues(program.Root).OfType<XamlIrEventHandler>());
+        Assert.Same(handler, irHandler.Value);
+
+        var emitted = new CSharpXamlEmitter().Emit(
+            Convert(xaml),
+            typeSystem,
+            profile,
+            new XamlCompilerOptions { Strict = false });
+        Assert.DoesNotContain(
+            emitted.Diagnostics,
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var generatedTree = Assert.Single(emitted.Sources).GeneratedSyntaxTree!;
+        var subscription = Assert.Single(
+            generatedTree.GetRoot().DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>(),
+            assignment => assignment.IsKind(
+                SyntaxKind.AddAssignmentExpression));
+        Assert.Equal("this.OnClick", subscription.Right.ToString());
+        Assert.DoesNotContain(
+            compilation.AddSyntaxTrees(generatedTree).GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+        var sourceInspection = new XamlDocumentInspectionService().Inspect(
+            SourceText.From(xaml),
+            "EventPage.xaml");
+        var inspection =
+            new RoslynXamlCompilationInspectionService().Inspect(
+                sourceInspection,
+                typeSystem,
+                profile,
+                new RoslynXamlCompilationInspectionOptions
+                {
+                    CompilerOptions = new XamlCompilerOptions
+                    {
+                        Strict = false
+                    }
+                });
+        Assert.Contains(
+            inspection.Bound.Entries,
+            entry =>
+                entry.Kind == XamlInspectionEntryKind.BoundValue &&
+                entry.Name == "EventHandler OnClick" &&
+                entry.Value.Contains(
+                    "OnClick",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            inspection.Ir.Entries,
+            entry =>
+                entry.Kind == XamlInspectionEntryKind.IrValue &&
+                entry.Name == "EventHandler" &&
+                entry.Value.Contains(
+                    "OnClick",
+                    StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("private static void OnClick(object? sender, System.EventArgs args) { }")]
+    [InlineData("private void OnClick<T>(object? sender, System.EventArgs args) { }")]
+    [InlineData("private int OnClick(object? sender, System.EventArgs args) => 0;")]
+    [InlineData("private void OnClick(object? sender) { }")]
+    [InlineData("private void OnClick(ref object? sender, System.EventArgs args) { }")]
+    public void OrdinaryEventHandlerRejectsUnusableCodeBehindMethod(
+        string method)
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText($$"""
+namespace Demo
+{
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        {{method}}
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var bound = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.EventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            new RoslynXamlTypeSystem(compilation, profile),
+            new XamlSemanticBindingOptions { Strict = false });
+
+        var diagnostic = Assert.Single(
+            bound.Diagnostics,
+            item => item.Id == "PGXAML2084");
+        var handler = Assert.Single(
+            DescendantValues(bound.Root).OfType<XamlBoundEventHandler>());
+        Assert.Null(handler.Method);
+        Assert.Same(diagnostic, handler.Diagnostic);
+        Assert.True(handler.IsError);
+    }
+
+    [Fact]
+    public void OrdinaryEventHandlerRejectsAmbiguousCompatibleOverloads()
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public delegate void StringEventHandler(string sender, System.EventArgs args);
+    public class EventButton : Microsoft.UI.Xaml.Controls.Button
+    {
+        public event StringEventHandler? Custom;
+    }
+    public partial class EventPage : Microsoft.UI.Xaml.Controls.Page
+    {
+        private void OnCustom(object sender, System.EventArgs args) { }
+        private void OnCustom(System.IComparable sender, System.EventArgs args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var bound = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:Demo"
+      x:Class="Demo.EventPage">
+  <local:EventButton Custom="OnCustom" />
+</Page>
+"""),
+            new RoslynXamlTypeSystem(compilation, profile),
+            new XamlSemanticBindingOptions { Strict = false });
+
+        Assert.Contains(bound.Diagnostics, item => item.Id == "PGXAML2084");
+        Assert.True(
+            Assert.Single(
+                DescendantValues(bound.Root)
+                    .OfType<XamlBoundEventHandler>())
+                .IsError);
+    }
+
+    [Fact]
+    public void OrdinaryEventHandlerHonorsAccessibleTypeLayerNameHiding()
+    {
+        // SEM-035, TST-078
+        var compilation = CreateCompilation().AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("""
+namespace Demo
+{
+    public class EventPageBase : Microsoft.UI.Xaml.Controls.Page
+    {
+        protected void OnClick(object? sender, System.EventArgs args) { }
+    }
+    public partial class InheritedEventPage : EventPageBase { }
+    public partial class ShadowedEventPage : EventPageBase
+    {
+        private static void OnClick(object? sender, System.EventArgs args) { }
+    }
+}
+"""));
+        var profile = new WinUiXamlProfile();
+        var typeSystem = new RoslynXamlTypeSystem(compilation, profile);
+
+        var inherited = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.InheritedEventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+        var inheritedHandler = Assert.Single(
+            DescendantValues(inherited.Root)
+                .OfType<XamlBoundEventHandler>());
+        Assert.Equal(
+            "EventPageBase",
+            inheritedHandler.Method?.ContainingType.Name);
+        Assert.DoesNotContain(
+            inherited.Diagnostics,
+            item => item.Id == "PGXAML2084");
+
+        var shadowed = new XamlSemanticBinder().Bind(
+            Convert("""
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.ShadowedEventPage">
+  <Button Click="OnClick" />
+</Page>
+"""),
+            typeSystem,
+            new XamlSemanticBindingOptions { Strict = false });
+        Assert.Contains(
+            shadowed.Diagnostics,
+            item => item.Id == "PGXAML2084");
+        Assert.Null(
+            Assert.Single(
+                DescendantValues(shadowed.Root)
+                    .OfType<XamlBoundEventHandler>())
+                .Method);
     }
 
     [Fact]
@@ -10057,14 +10304,14 @@ namespace Demo {
     {
         if (root == null) yield break;
         foreach (var member in root.Members)
-        foreach (var value in member.Values)
-        {
-            yield return value;
-            if (value is XamlBoundObject child)
-                foreach (var descendant in DescendantValues(child)) yield return descendant;
-            else if (value is XamlBoundBinding binding)
-                foreach (var descendant in DescendantValues(binding.Extension)) yield return descendant;
-        }
+            foreach (var value in member.Values)
+            {
+                yield return value;
+                if (value is XamlBoundObject child)
+                    foreach (var descendant in DescendantValues(child)) yield return descendant;
+                else if (value is XamlBoundBinding binding)
+                    foreach (var descendant in DescendantValues(binding.Extension)) yield return descendant;
+            }
     }
 
     private static IEnumerable<XamlIrObject> DescendantIr(XamlIrObject? root)
@@ -10072,20 +10319,20 @@ namespace Demo {
         if (root == null) yield break;
         yield return root;
         foreach (var operation in root.Operations)
-        foreach (var value in operation.Values.OfType<XamlIrObject>())
-        foreach (var descendant in DescendantIr(value)) yield return descendant;
+            foreach (var value in operation.Values.OfType<XamlIrObject>())
+                foreach (var descendant in DescendantIr(value)) yield return descendant;
     }
 
     private static IEnumerable<XamlIrValue> DescendantIrValues(XamlIrObject? root)
     {
         if (root == null) yield break;
         foreach (var operation in root.Operations)
-        foreach (var value in operation.Values)
-        {
-            yield return value;
-            if (value is XamlIrObject child)
-                foreach (var descendant in DescendantIrValues(child)) yield return descendant;
-        }
+            foreach (var value in operation.Values)
+            {
+                yield return value;
+                if (value is XamlIrObject child)
+                    foreach (var descendant in DescendantIrValues(child)) yield return descendant;
+            }
     }
 
     private sealed class DependencyMetadataProvider : ProGPU.Xaml.Schema.IXamlSchemaMetadataProvider
@@ -10246,7 +10493,8 @@ namespace Demo {
         public string MetadataProviderId => "tests.designer-annotations";
         public int MetadataPriority => 2000;
         public IReadOnlyList<ProGPU.Xaml.Schema.XamlSchemaAttributeRule>
-            AttributeRules { get; } =
+            AttributeRules
+        { get; } =
             ProGPU.Xaml.Roslyn.XamlSchemaAttributeCatalog.Wpf.Where(rule =>
                     string.Equals(
                         rule.Semantic,
@@ -12761,6 +13009,575 @@ namespace Demo {
     }
 
     [Fact]
+    public async Task ProjectWatchTransportVersionsBoundsAndDetachesHostResults()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="transport" />
+</Page>
+""";
+        const string invalidXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock MissingProperty="invalid" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(
+                session,
+                new RoslynXamlProjectWatchTransportOptions
+                {
+                    MaximumDiagnosticCount = 8,
+                    MaximumTextLength = 32
+                });
+
+        var current =
+            RoslynXamlProjectWatchProtocolVersion.Current;
+        Assert.Equal(
+            new RoslynXamlProjectWatchProtocolVersion(1, 0),
+            current);
+        Assert.Equal("1.0", current.ToString());
+        Assert.True(current.CanServe(current));
+        Assert.False(
+            current.CanServe(
+                new RoslynXamlProjectWatchProtocolVersion(1, 1)));
+        Assert.False(
+            current.CanServe(
+                new RoslynXamlProjectWatchProtocolVersion(2, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchProtocolVersion(-1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchRequest(
+                    -1,
+                    fixture.Project,
+                    fixture.TargetXamlDocumentId));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchTransport(
+                    session,
+                    new RoslynXamlProjectWatchTransportOptions
+                    {
+                        MaximumDiagnosticCount =
+                            RoslynXamlProjectWatchTransportOptions
+                                .AbsoluteMaximumDiagnosticCount + 1
+                    }));
+
+        var incompatible =
+            new RoslynXamlProjectWatchRequest(
+                40,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true,
+                protocolVersion:
+                    new RoslynXamlProjectWatchProtocolVersion(2, 0));
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => transport.SubmitAsync(incompatible));
+        Assert.Equal(0, session.Version);
+
+        var accepted = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                41,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true));
+        Assert.Equal(current, accepted.ProtocolVersion);
+        Assert.Equal(41, accepted.Sequence);
+        Assert.Equal(1, accepted.Version);
+        Assert.Equal(
+            RoslynXamlProjectWatchStatus.Applied,
+            accepted.Status);
+        Assert.Equal(
+            RoslynXamlProjectCommitResult.Accepted,
+            accepted.CommitResult);
+        Assert.True(accepted.Accepted);
+        Assert.True(accepted.IsInitial);
+        Assert.True(accepted.RequiresRuntimePublication);
+        Assert.True(accepted.Diagnostics.Length <= 8);
+        Assert.DoesNotContain(
+            accepted.Diagnostics,
+            static diagnostic =>
+                diagnostic.Severity ==
+                DiagnosticSeverity.Error);
+        Assert.True(accepted.TextTruncated);
+        Assert.True(accepted.Message.Length <= 32);
+        Assert.DoesNotContain(
+            typeof(RoslynXamlProjectWatchResultSnapshot)
+                .GetProperties(),
+            static property =>
+                typeof(Project).IsAssignableFrom(
+                    property.PropertyType) ||
+                typeof(Compilation).IsAssignableFrom(
+                    property.PropertyType) ||
+                typeof(SyntaxTree).IsAssignableFrom(
+                    property.PropertyType) ||
+                property.PropertyType ==
+                    typeof(RoslynXamlProjectPreviewUpdate));
+
+        var rejected = await transport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                42,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                SourceText.From(invalidXaml),
+                immediate: true));
+        Assert.Equal(42, rejected.Sequence);
+        Assert.Equal(
+            RoslynXamlProjectWatchStatus.Rejected,
+            rejected.Status);
+        Assert.False(rejected.Accepted);
+        Assert.NotEmpty(rejected.Diagnostics);
+        Assert.All(
+            rejected.Diagnostics,
+            static diagnostic =>
+            {
+                Assert.False(string.IsNullOrEmpty(diagnostic.Id));
+                Assert.True(diagnostic.Message.Length <= 32);
+            });
+
+        var zeroDiagnosticTransport =
+            new RoslynXamlProjectWatchTransport(
+                session,
+                new RoslynXamlProjectWatchTransportOptions
+                {
+                    MaximumDiagnosticCount = 0,
+                    MaximumTextLength = 32
+                });
+        var bounded = await zeroDiagnosticTransport.SubmitAsync(
+            new RoslynXamlProjectWatchRequest(
+                43,
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                SourceText.From(invalidXaml),
+                immediate: true));
+        Assert.Empty(bounded.Diagnostics);
+        Assert.True(bounded.DiagnosticsTruncated);
+    }
+
+    [Fact]
+    public async Task WorkspaceProjectSelectorUsesCurrentSnapshotsAndRecoversReloadedIds()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="workspace" />
+</Page>
+""";
+        const string editedXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="unsaved" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        var workspaceRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.Selector",
+            Guid.NewGuid().ToString("N"));
+        var projectPath = Path.Combine(
+            workspaceRoot,
+            "PreviewProject.csproj");
+        var documentPath = Path.Combine(
+            workspaceRoot,
+            "Pages",
+            "MainPage.xaml");
+        var projectId = fixture.Project.Id;
+        var documentId = fixture.TargetXamlDocumentId;
+        var nonXamlDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var initialSolution = fixture.Project.Solution
+            .WithProjectFilePath(projectId, projectPath)
+            .RemoveAdditionalDocument(documentId)
+            .AddAdditionalDocument(
+                documentId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath)
+            .AddAdditionalDocument(
+                nonXamlDocumentId,
+                "Notes.txt",
+                SourceText.From("not xaml"),
+                filePath: Path.Combine(
+                    workspaceRoot,
+                    "Notes.txt"));
+        Assert.True(
+            fixture.Workspace.TryApplyChanges(initialSolution));
+
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                static (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(session);
+        using var adapter =
+            new RoslynXamlWorkspaceProjectSelectorAdapter(
+                fixture.Workspace,
+                transport);
+        var changed = new List<
+            RoslynXamlWorkspaceSelectionSnapshot>();
+        adapter.SelectionChanged += (_, args) =>
+            changed.Add(args.Selection);
+
+        var selected = adapter.Select(
+            projectId,
+            documentId);
+        Assert.True(selected.CanSubmit);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.Ready,
+            selected.Status);
+        Assert.Equal(Path.GetFullPath(projectPath),
+            selected.ProjectFilePath);
+        Assert.Equal(Path.GetFullPath(documentPath),
+            selected.DocumentFilePath);
+        Assert.False(selected.HasUnsavedText);
+
+        var unsaved = SourceText.From(editedXaml);
+        var unsavedSelection = adapter.SetUnsavedText(unsaved);
+        Assert.True(unsavedSelection.HasUnsavedText);
+        Assert.True(
+            unsavedSelection.Revision > selected.Revision);
+        Assert.True(adapter.TryCreateRequest(
+            70,
+            out var request,
+            immediate: true));
+        Assert.NotNull(request);
+        Assert.Same(unsaved, request!.UnsavedText);
+        Assert.Same(
+            fixture.Workspace.CurrentSolution
+                .GetProject(projectId),
+            request.Project);
+        Assert.Equal(documentId, request.XamlDocumentId);
+        var accepted = await adapter.SubmitAsync(
+            71,
+            immediate: true);
+        Assert.True(accepted.Accepted);
+        Assert.Equal(71, accepted.Sequence);
+
+        var invalidSelection = adapter.Select(
+            projectId,
+            fixture.TargetCodeDocumentId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus
+                .NotAdditionalDocument,
+            invalidSelection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            72,
+            out _));
+        var nonXamlSelection = adapter.Select(
+            projectId,
+            nonXamlDocumentId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.NotXamlDocument,
+            nonXamlSelection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            72,
+            out _));
+
+        adapter.Select(
+            projectId,
+            documentId,
+            projectPath,
+            documentPath);
+        adapter.SetUnsavedText(unsaved);
+        var removed = fixture.Workspace.CurrentSolution
+            .RemoveAdditionalDocument(documentId);
+        Assert.True(fixture.Workspace.TryApplyChanges(removed));
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus
+                .DocumentUnavailable,
+            adapter.Selection.Status);
+        Assert.False(adapter.TryCreateRequest(
+            73,
+            out _));
+
+        var replacementDocumentId =
+            DocumentId.CreateNewId(projectId);
+        var restored = fixture.Workspace.CurrentSolution
+            .AddAdditionalDocument(
+                replacementDocumentId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath);
+        Assert.True(fixture.Workspace.TryApplyChanges(restored));
+        var recoveredDocument = adapter.Selection;
+        Assert.True(recoveredDocument.CanSubmit);
+        Assert.Equal(
+            replacementDocumentId,
+            recoveredDocument.DocumentId);
+        Assert.True(recoveredDocument.HasUnsavedText);
+
+        var replacementProjectId = ProjectId.CreateNewId();
+        var replacementXamlId =
+            DocumentId.CreateNewId(replacementProjectId);
+        var reloaded = fixture.Workspace.CurrentSolution
+            .RemoveProject(projectId)
+            .AddProject(
+                ProjectInfo.Create(
+                    replacementProjectId,
+                    VersionStamp.Create(),
+                    "PreviewProject",
+                    "PreviewProject",
+                    LanguageNames.CSharp,
+                    filePath: projectPath,
+                    compilationOptions:
+                        new CSharpCompilationOptions(
+                            OutputKind.DynamicallyLinkedLibrary),
+                    parseOptions:
+                        new CSharpParseOptions(
+                            LanguageVersion.Preview,
+                            preprocessorSymbols:
+                                new[] { "PROJECT_PREVIEW" })))
+            .AddMetadataReferences(
+                replacementProjectId,
+                PlatformReferences())
+            .AddDocument(
+                DocumentId.CreateNewId(replacementProjectId),
+                "Framework.cs",
+                SourceText.From(Framework))
+            .AddDocument(
+                DocumentId.CreateNewId(replacementProjectId),
+                "MainPage.cs",
+                SourceText.From("""
+#if PROJECT_PREVIEW
+namespace Demo;
+public partial class MainPage : Microsoft.UI.Xaml.Controls.Page
+{
+    public MainPage() { InitializeComponent(); }
+}
+#endif
+"""))
+            .AddAdditionalDocument(
+                replacementXamlId,
+                "MainPage.xaml",
+                SourceText.From(pageXaml),
+                folders: new[] { "Pages" },
+                filePath: documentPath);
+        Assert.True(fixture.Workspace.TryApplyChanges(reloaded));
+        var recoveredProject = adapter.Selection;
+        Assert.True(recoveredProject.CanSubmit);
+        Assert.Equal(
+            replacementProjectId,
+            recoveredProject.ProjectId);
+        Assert.Equal(
+            replacementXamlId,
+            recoveredProject.DocumentId);
+        Assert.True(adapter.TryCreateRequest(
+            74,
+            out var reloadedRequest));
+        Assert.Equal(
+            replacementProjectId,
+            reloadedRequest!.Project.Id);
+        Assert.Same(unsaved, reloadedRequest.UnsavedText);
+        Assert.True(changed.Count >= 7);
+
+        var selectionChecksum = 0L;
+        for (var index = 0; index < 10_000; index++)
+            selectionChecksum += adapter.Selection.Revision;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var allocationBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 1_000_000; index++)
+        {
+            var current = adapter.Selection;
+            selectionChecksum += current.Revision;
+        }
+        var allocationAfter =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.True(selectionChecksum > 0);
+        Assert.Equal(allocationBefore, allocationAfter);
+
+        var revisionBeforeDispose =
+            adapter.Selection.Revision;
+        adapter.Dispose();
+        var postDispose = fixture.Workspace.CurrentSolution
+            .WithAdditionalDocumentText(
+                replacementXamlId,
+                SourceText.From(editedXaml));
+        Assert.True(fixture.Workspace.TryApplyChanges(postDispose));
+        Assert.Equal(
+            revisionBeforeDispose,
+            changed[changed.Count - 1].Revision);
+        Assert.Throws<ObjectDisposedException>(
+            () => _ = adapter.Selection);
+        Assert.Throws<ObjectDisposedException>(
+            () => adapter.TryCreateRequest(75, out _));
+    }
+
+    [Fact]
+    public void WorkspaceProjectSelectorRefreshesRenamedPathsBeforeIdRecreation()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage" />
+""";
+        var workspaceRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ProGPU.Xaml.SelectorRename",
+            Guid.NewGuid().ToString("N"));
+        var originalProjectPath = Path.Combine(
+            workspaceRoot,
+            "PreviewProject.csproj");
+        var originalDocumentPath = Path.Combine(
+            workspaceRoot,
+            "Pages",
+            "MainPage.xaml");
+        var renamedProjectPath = Path.Combine(
+            workspaceRoot,
+            "RenamedPreviewProject.csproj");
+        var renamedDocumentPath = Path.Combine(
+            workspaceRoot,
+            "RenamedPages",
+            "RenamedMainPage.xaml");
+        var projectId = ProjectId.CreateNewId();
+        var documentId = DocumentId.CreateNewId(projectId);
+        using var workspace = new ReloadableWorkspace();
+        workspace.AddProjectSnapshot(
+            CreateReloadableProjectInfo(
+                projectId,
+                documentId,
+                originalProjectPath,
+                originalDocumentPath,
+                pageXaml));
+
+        var coordinator =
+            new RoslynXamlProjectPreviewCoordinator(
+                new WinUiXamlProfile());
+        using var session =
+            new RoslynXamlProjectWatchSession(
+                coordinator,
+                static (_, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.FromResult(true);
+                },
+                TimeSpan.Zero);
+        var transport =
+            new RoslynXamlProjectWatchTransport(session);
+        using var adapter =
+            new RoslynXamlWorkspaceProjectSelectorAdapter(
+                workspace,
+                transport);
+        var changed = new List<
+            RoslynXamlWorkspaceSelectionSnapshot>();
+        adapter.SelectionChanged += (_, args) =>
+            changed.Add(args.Selection);
+        var selected = adapter.Select(projectId, documentId);
+        var unsaved = SourceText.From(
+            pageXaml.Replace(" />", " Tag=\"unsaved\" />"));
+        adapter.SetUnsavedText(unsaved);
+
+        workspace.ReloadProjectSnapshot(
+            CreateReloadableProjectInfo(
+                projectId,
+                documentId,
+                renamedProjectPath,
+                renamedDocumentPath,
+                pageXaml));
+        var renamed = adapter.Selection;
+        Assert.True(renamed.CanSubmit);
+        Assert.True(renamed.Revision > selected.Revision);
+        Assert.Equal(projectId, renamed.ProjectId);
+        Assert.Equal(documentId, renamed.DocumentId);
+        Assert.Equal(
+            Path.GetFullPath(renamedProjectPath),
+            renamed.ProjectFilePath);
+        Assert.Equal(
+            Path.GetFullPath(renamedDocumentPath),
+            renamed.DocumentFilePath);
+        Assert.True(renamed.HasUnsavedText);
+        Assert.True(adapter.TryCreateRequest(
+            80,
+            out var renamedRequest,
+            immediate: true));
+        Assert.Same(unsaved, renamedRequest!.UnsavedText);
+        Assert.Equal(projectId, renamedRequest.Project.Id);
+        Assert.Equal(documentId, renamedRequest.XamlDocumentId);
+
+        workspace.RemoveProjectSnapshot(projectId);
+        Assert.Equal(
+            RoslynXamlWorkspaceSelectionStatus.ProjectUnavailable,
+            adapter.Selection.Status);
+        var replacementProjectId = ProjectId.CreateNewId();
+        var replacementDocumentId =
+            DocumentId.CreateNewId(replacementProjectId);
+        workspace.AddProjectSnapshot(
+            CreateReloadableProjectInfo(
+                replacementProjectId,
+                replacementDocumentId,
+                renamedProjectPath,
+                renamedDocumentPath,
+                pageXaml));
+        var recovered = adapter.Selection;
+        Assert.True(recovered.CanSubmit);
+        Assert.Equal(replacementProjectId, recovered.ProjectId);
+        Assert.Equal(replacementDocumentId, recovered.DocumentId);
+        Assert.True(recovered.HasUnsavedText);
+        Assert.True(adapter.TryCreateRequest(
+            81,
+            out var recoveredRequest));
+        Assert.Same(unsaved, recoveredRequest!.UnsavedText);
+        Assert.Equal(
+            replacementProjectId,
+            recoveredRequest.Project.Id);
+        Assert.Equal(
+            replacementDocumentId,
+            recoveredRequest.XamlDocumentId);
+        Assert.True(changed.Count >= 5);
+        for (var index = 1; index < changed.Count; index++)
+        {
+            Assert.True(
+                changed[index].Revision >
+                changed[index - 1].Revision);
+        }
+    }
+
+    [Fact]
     public async Task ProjectWatchSessionDebouncesSupersededSnapshotsAndRetainsLastGoodState()
     {
         const string baselineXaml = """
@@ -12853,7 +13670,8 @@ namespace Demo {
                     return Task.FromResult(
                         allowPublication);
                 },
-                TimeSpan.FromMilliseconds(75));
+                TimeSpan.FromMilliseconds(75),
+                new SteppedAllocationCounter());
 
         var initial = await watch.SubmitAsync(
             fixture.Project,
@@ -12962,13 +13780,267 @@ namespace Demo {
                 cancellationToken:
                     canceled.Token));
 
+        using var activeCancellation =
+            new CancellationTokenSource();
+        var activeCanceledTask =
+            watch.SubmitAsync(
+                thirdProject,
+                fixture.TargetXamlDocumentId,
+                cancellationToken:
+                    activeCancellation.Token);
+        activeCancellation.Cancel();
+        await Assert.ThrowsAsync<
+            OperationCanceledException>(
+            () => activeCanceledTask);
+
         var stoppedTask = watch.SubmitAsync(
             thirdProject,
             fixture.TargetXamlDocumentId);
         watch.Dispose();
+        var stopped = await stoppedTask;
         Assert.Equal(
             RoslynXamlProjectWatchStatus.Stopped,
-            (await stoppedTask).Status);
+            stopped.Status);
+
+        var telemetry = stopped.Telemetry;
+        Assert.Equal(9, telemetry.SubmittedCount);
+        Assert.Equal(9, telemetry.CompletedCount);
+        Assert.Equal(3, telemetry.AppliedCount);
+        Assert.Equal(1, telemetry.CacheHitCount);
+        Assert.Equal(2, telemetry.RejectedCount);
+        Assert.Equal(1, telemetry.SupersededCount);
+        Assert.Equal(1, telemetry.StoppedCount);
+        Assert.Equal(
+            1,
+            telemetry.CallerCanceledCount);
+        Assert.Equal(0, telemetry.FaultedCount);
+        Assert.Equal(3, telemetry.CanceledWorkCount);
+        Assert.Equal(0, telemetry.CurrentQueueDepth);
+        Assert.True(
+            telemetry.MaximumQueueDepth >= 2);
+        Assert.True(
+            telemetry.TotalDuration > TimeSpan.Zero);
+        Assert.True(
+            telemetry.MaximumDuration >=
+            telemetry.LastDuration);
+        Assert.True(
+            telemetry.AverageDuration >
+            TimeSpan.Zero);
+        Assert.True(
+            telemetry.MedianDurationUpperBound <=
+            telemetry.P95DurationUpperBound);
+        Assert.True(
+            telemetry.P95DurationUpperBound <=
+            telemetry.P99DurationUpperBound);
+        Assert.Equal(
+            9,
+            telemetry.AllocationMeasurementCount);
+        Assert.True(
+            telemetry.TotalAllocatedBytes > 0);
+        Assert.True(
+            telemetry.MaximumAllocatedBytes >=
+            telemetry.LastAllocatedBytes);
+        Assert.True(
+            telemetry.AverageAllocatedBytes >= 64);
+        Assert.True(
+            telemetry.MedianAllocatedBytesUpperBound >=
+            64);
+        Assert.True(
+            telemetry.MedianAllocatedBytesUpperBound <=
+            telemetry.P95AllocatedBytesUpperBound);
+        Assert.True(
+            telemetry.P95AllocatedBytesUpperBound <=
+            telemetry.P99AllocatedBytesUpperBound);
+        Assert.Equal(telemetry, watch.Telemetry);
+
+        var insufficient =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 10,
+                maximumP95Duration:
+                    TimeSpan.MaxValue,
+                maximumP95AllocatedBytes:
+                    long.MaxValue)
+            .Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus
+                .InsufficientSamples,
+            insufficient.Status);
+        Assert.False(insufficient.IsConclusive);
+        Assert.False(insufficient.Passed);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetViolation.None,
+            insufficient.Violations);
+
+        var passingBudget =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 9,
+                maximumP95Duration:
+                    TimeSpan.MaxValue,
+                maximumP95AllocatedBytes:
+                    long.MaxValue);
+        var passed =
+            passingBudget.Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus.Passed,
+            passed.Status);
+        Assert.True(passed.IsConclusive);
+        Assert.True(passed.Passed);
+        Assert.Equal(
+            telemetry.CompletedCount,
+            passed.CompletedSampleCount);
+        Assert.Equal(
+            telemetry.AllocationMeasurementCount,
+            passed.AllocationSampleCount);
+        Assert.Equal(
+            telemetry.P95DurationUpperBound,
+            passed.P95DurationUpperBound);
+        Assert.Equal(
+            telemetry.P95AllocatedBytesUpperBound,
+            passed.P95AllocatedBytesUpperBound);
+
+        var exceeded =
+            new RoslynXamlProjectWatchPerformanceBudget(
+                minimumSampleCount: 9,
+                maximumP95Duration:
+                    TimeSpan.Zero,
+                maximumP95AllocatedBytes: 63)
+            .Evaluate(telemetry);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetStatus.Exceeded,
+            exceeded.Status);
+        Assert.False(exceeded.Passed);
+        Assert.Equal(
+            RoslynXamlProjectWatchBudgetViolation
+                .P95Duration |
+            RoslynXamlProjectWatchBudgetViolation
+                .P95AllocatedBytes,
+            exceeded.Violations);
+
+        _ = watch.Telemetry;
+        _ = passingBudget.Evaluate(watch.Telemetry);
+        var allocatedBeforeReads =
+            GC.GetAllocatedBytesForCurrentThread();
+        long observedTicks = 0;
+        for (var index = 0;
+             index < 100_000;
+             index++)
+        {
+            observedTicks ^=
+                passingBudget
+                    .Evaluate(watch.Telemetry)
+                    .P95DurationUpperBound
+                    .Ticks;
+        }
+        var allocatedByReads =
+            GC.GetAllocatedBytesForCurrentThread() -
+            allocatedBeforeReads;
+        GC.KeepAlive(observedTicks);
+        Assert.Equal(0, allocatedByReads);
+    }
+
+    [Fact]
+    public void ProjectWatchPerformanceBudgetRejectsInvalidConfiguration()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 0,
+                    maximumP95Duration:
+                        TimeSpan.FromSeconds(1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1,
+                    maximumP95Duration:
+                        TimeSpan.FromTicks(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1,
+                    maximumP95AllocatedBytes: -1));
+        Assert.Throws<ArgumentException>(
+            () =>
+                new RoslynXamlProjectWatchPerformanceBudget(
+                    minimumSampleCount: 1));
+    }
+
+    private sealed class SteppedAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        private long _allocatedBytes;
+
+        public long GetTotalAllocatedBytes() =>
+            Interlocked.Add(
+                ref _allocatedBytes,
+                64);
+    }
+
+    [Fact]
+    public async Task ProjectWatchTelemetryCountsFaultsWithoutTrustingAllocationCounter()
+    {
+        const string pageXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.MainPage">
+  <TextBlock Text="fault" />
+</Page>
+""";
+        const string siblingXaml = """
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      x:Class="Demo.SecondaryPage" />
+""";
+        using var fixture = CreatePreviewProject(
+            pageXaml,
+            siblingXaml);
+        using var watch =
+            new RoslynXamlProjectWatchSession(
+                new RoslynXamlProjectPreviewCoordinator(
+                    new WinUiXamlProfile()),
+                (_, _) =>
+                    throw new InvalidOperationException(
+                        "publisher failed"),
+                TimeSpan.Zero,
+                new ThrowingAllocationCounter());
+
+        var exception = await Assert.ThrowsAsync<
+            InvalidOperationException>(
+            () => watch.SubmitAsync(
+                fixture.Project,
+                fixture.TargetXamlDocumentId,
+                immediate: true));
+        Assert.Equal(
+            "publisher failed",
+            exception.Message);
+
+        var telemetry = watch.Telemetry;
+        Assert.Equal(1, telemetry.SubmittedCount);
+        Assert.Equal(1, telemetry.CompletedCount);
+        Assert.Equal(1, telemetry.FaultedCount);
+        Assert.Equal(0, telemetry.CurrentQueueDepth);
+        Assert.Equal(
+            0,
+            telemetry.AllocationMeasurementCount);
+        Assert.Equal(
+            0,
+            telemetry.AverageAllocatedBytes);
+        Assert.Equal(
+            0,
+            telemetry.MedianAllocatedBytesUpperBound);
+        Assert.Equal(
+            0,
+            telemetry.P95AllocatedBytesUpperBound);
+        Assert.Equal(
+            0,
+            telemetry.P99AllocatedBytesUpperBound);
+    }
+
+    private sealed class ThrowingAllocationCounter :
+        IRoslynXamlProjectWatchAllocationCounter
+    {
+        public long GetTotalAllocatedBytes() =>
+            throw new InvalidOperationException(
+                "telemetry unavailable");
     }
 
     private static Task<RoslynXamlProjectPreview>
@@ -13002,6 +14074,56 @@ namespace Demo {
                 SourceText.From(text),
                 PreservationMode.PreserveIdentity)
             .GetProject(project.Id)!;
+
+    private static ProjectInfo CreateReloadableProjectInfo(
+        ProjectId projectId,
+        DocumentId documentId,
+        string projectFilePath,
+        string documentFilePath,
+        string xaml)
+    {
+        var document = DocumentInfo.Create(
+            documentId,
+            Path.GetFileName(documentFilePath),
+            folders: null,
+            loader: TextLoader.From(
+                TextAndVersion.Create(
+                    SourceText.From(xaml),
+                    VersionStamp.Create())),
+            filePath: documentFilePath);
+        return ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "PreviewProject",
+            "PreviewProject",
+            LanguageNames.CSharp,
+            filePath: projectFilePath,
+            compilationOptions:
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary),
+            parseOptions:
+                new CSharpParseOptions(LanguageVersion.Preview),
+            additionalDocuments: new[] { document });
+    }
+
+    private sealed class ReloadableWorkspace : Workspace
+    {
+        public ReloadableWorkspace()
+            : base(
+                MefHostServices.DefaultHost,
+                nameof(ReloadableWorkspace))
+        {
+        }
+
+        public void AddProjectSnapshot(ProjectInfo project) =>
+            OnProjectAdded(project);
+
+        public void ReloadProjectSnapshot(ProjectInfo project) =>
+            OnProjectReloaded(project);
+
+        public void RemoveProjectSnapshot(ProjectId projectId) =>
+            OnProjectRemoved(projectId);
+    }
 
     private static PreviewProjectFixture CreatePreviewProject(
         string targetXaml,

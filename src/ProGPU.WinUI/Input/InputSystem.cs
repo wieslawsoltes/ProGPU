@@ -10,6 +10,7 @@ using System.Diagnostics;
 using Silk.NET.Input;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using ProGPU.WinUI.Platform;
 using ProGPU.WinUI.Input;
 using Windows.Devices.Input;
 
@@ -28,17 +29,30 @@ public class WindowInputState
     public bool IsAltPressed;
     public bool IsKeyboardFocusActive;
     public IInputContext? InputContext;
-    public System.Threading.CancellationTokenSource? HoverCancellation;
+    public global::System.Threading.CancellationTokenSource? HoverCancellation;
     public ToolTip? ActiveToolTip;
     public FrameworkElement? HoveredElementForTimer;
     public bool IsLeftButtonPressed;
     public bool IsMiddleButtonPressed;
     public bool IsRightButtonPressed;
     public Action<StandardCursor>? CursorChanged;
+    internal IInputCursorProvider? InputCursorProvider;
+    internal Microsoft.UI.Input.InputCursor? ActiveInputCursor;
+    internal Microsoft.UI.Content.ContentIsland? ContentIsland;
+    internal IContentIslandFocusProvider? ContentIslandFocusProvider;
+    internal Microsoft.UI.Input.InputKeyboardSource? KeyboardSource;
+    internal Microsoft.UI.Input.InputPointerSource? PointerSource;
+    internal VirtualKeyStateMap KeyboardState;
+    internal VirtualKeyStateMap MessageKeyboardState;
+    internal bool HasHostFocus;
+    internal Action<bool>? HostFocusChanged;
     internal FrameworkElement? ComposingElement;
     internal RelativePointerCaptureState RelativePointerCapture { get; } = new();
     internal Dictionary<uint, PointerContactState> PointerContacts { get; } = new();
     internal Dictionary<uint, FrameworkElement> CapturedElements { get; } = new();
+    internal Dictionary<uint, PointerInputEvent> CurrentPointerInputs { get; } = new();
+    internal uint CurrentMousePointerId;
+    internal uint CurrentPenPointerId;
     internal Dictionary<FrameworkElement, ManipulationSession> Manipulations { get; } = new();
     internal uint CurrentDispatchPointerId;
     internal FrameworkElement? LastTappedElement;
@@ -176,7 +190,7 @@ public static class InputSystem
     private static bool _isShiftPressed { get => Current.IsShiftPressed; set => Current.IsShiftPressed = value; }
     private static bool _isControlPressed { get => Current.IsControlPressed; set => Current.IsControlPressed = value; }
     private static bool _isAltPressed { get => Current.IsAltPressed; set => Current.IsAltPressed = value; }
-    private static System.Threading.CancellationTokenSource? _hoverCancellation { get => Current.HoverCancellation; set => Current.HoverCancellation = value; }
+    private static global::System.Threading.CancellationTokenSource? _hoverCancellation { get => Current.HoverCancellation; set => Current.HoverCancellation = value; }
     private static ToolTip? _activeToolTip { get => Current.ActiveToolTip; set => Current.ActiveToolTip = value; }
     private static FrameworkElement? _hoveredElementForTimer { get => Current.HoveredElementForTimer; set => Current.HoveredElementForTimer = value; }
 
@@ -289,6 +303,7 @@ public static class InputSystem
             return;
         }
         _capturedElement = element;
+        UpdateProtectedCursor();
     }
 
     public static bool CapturePointer(FrameworkElement element, Pointer pointer)
@@ -298,7 +313,11 @@ public static class InputSystem
         if (!pointer.IsInContact || !Current.PointerContacts.ContainsKey(pointer.PointerId)) return false;
         if (Current.CapturedElements.ContainsKey(pointer.PointerId)) return false;
         Current.CapturedElements[pointer.PointerId] = element;
-        if (pointer.PointerId == 1) _capturedElement = element;
+        if (pointer.PointerId == 1)
+        {
+            _capturedElement = element;
+            UpdateProtectedCursor();
+        }
         return true;
     }
 
@@ -312,6 +331,7 @@ public static class InputSystem
             return;
         }
         _capturedElement = null;
+        UpdateProtectedCursor();
         DevToolsInputSystem.ReleasePointerCapture();
     }
 
@@ -321,7 +341,11 @@ public static class InputSystem
         ArgumentNullException.ThrowIfNull(pointer);
         if (!Current.CapturedElements.TryGetValue(pointer.PointerId, out var captured) || !ReferenceEquals(captured, element)) return;
         Current.CapturedElements.Remove(pointer.PointerId);
-        if (pointer.PointerId == 1) _capturedElement = null;
+        if (pointer.PointerId == 1)
+        {
+            _capturedElement = null;
+            UpdateProtectedCursor();
+        }
         RaiseCaptureLost(element, Current.PointerContacts.TryGetValue(pointer.PointerId, out var contact) ? contact.LastEvent : default, pointer);
     }
 
@@ -351,6 +375,23 @@ public static class InputSystem
                     // Ignore if cursor configuration is unsupported in the current platform/context
                 }
             }
+        }
+    }
+
+    internal static void NotifyProtectedCursorChanged(
+        UIElement element)
+    {
+        UIElement? cursorOwner =
+            _capturedElement ??
+            _hoveredElement;
+        for (UIElement? current = cursorOwner;
+             current is not null;
+             current = current.Parent as UIElement)
+        {
+            if (!ReferenceEquals(current, element))
+                continue;
+            UpdateProtectedCursor();
+            return;
         }
     }
 
@@ -445,6 +486,51 @@ public static class InputSystem
         return (ulong)wholeSeconds * 1_000_000UL + fractionalMicros;
     }
 
+    internal static bool InjectKeyboardInput(
+        WindowInputState state,
+        in KeyboardInputEvent input)
+    {
+        WindowInputState previous = Current;
+        try
+        {
+            Current = state;
+            bool wasDown =
+                (state.KeyboardState.Get(input.VirtualKey) &
+                    Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+            state.KeyboardState.SetDown(
+                input.VirtualKey,
+                !input.IsReleased);
+            if (!input.IsReleased &&
+                !wasDown &&
+                input.VirtualKey is
+                    Windows.System.VirtualKey.CapitalLock or
+                    Windows.System.VirtualKey.NumberKeyLock or
+                    Windows.System.VirtualKey.Scroll)
+            {
+                state.KeyboardState.ToggleLocked(
+                    input.VirtualKey);
+            }
+            state.MessageKeyboardState =
+                state.KeyboardState;
+            return state.KeyboardSource?
+                .RaiseKey(input) == true;
+        }
+        finally
+        {
+            Current = previous;
+        }
+    }
+
+    internal static void SetHostFocus(
+        WindowInputState state,
+        bool hasFocus)
+    {
+        if (state.HasHostFocus == hasFocus)
+            return;
+        state.HasHostFocus = hasFocus;
+        state.HostFocusChanged?.Invoke(hasFocus);
+    }
+
     private static PointerInputEvent CreateMouseEvent(PointerInputKind kind, Vector2 position) => new(
         kind,
         1,
@@ -474,9 +560,30 @@ public static class InputSystem
             IsLeftButtonPressed = left,
             IsMiddleButtonPressed = middle,
             IsRightButtonPressed = right,
-            Pressure = left ? 0.5f : 0f
+            Pressure = left ? 0.5f : 0f,
+            UpdateKind = GetMouseUpdateKind(kind, button)
         };
     }
+
+    private static Microsoft.UI.Input.PointerUpdateKind GetMouseUpdateKind(
+        PointerInputKind kind,
+        MouseButton button) =>
+        (kind, button) switch
+        {
+            (PointerInputKind.Pressed, MouseButton.Left) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed,
+            (PointerInputKind.Released, MouseButton.Left) =>
+                Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased,
+            (PointerInputKind.Pressed, MouseButton.Right) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonPressed,
+            (PointerInputKind.Released, MouseButton.Right) =>
+                Microsoft.UI.Input.PointerUpdateKind.RightButtonReleased,
+            (PointerInputKind.Pressed, MouseButton.Middle) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonPressed,
+            (PointerInputKind.Released, MouseButton.Middle) =>
+                Microsoft.UI.Input.PointerUpdateKind.MiddleButtonReleased,
+            _ => Microsoft.UI.Input.PointerUpdateKind.Other
+        };
 
     private static VirtualKeyModifiers GetCurrentModifiers()
     {
@@ -497,9 +604,16 @@ public static class InputSystem
         Current.IsMiddleButtonPressed = input.IsMiddleButtonPressed;
         Current.IsRightButtonPressed = input.IsRightButtonPressed;
         Current.CurrentDispatchPointerId = input.PointerId;
+        TrackCurrentPointer(input);
 
         try
         {
+            if (Current.PointerSource?
+                    .Process(input) == true)
+            {
+                return;
+            }
+
             switch (input.Kind)
             {
                 case PointerInputKind.Pressed:
@@ -521,8 +635,74 @@ public static class InputSystem
         }
         finally
         {
+            if (input.DeviceType ==
+                    PointerDeviceType.Touch &&
+                input.Kind is
+                    PointerInputKind.Released or
+                    PointerInputKind.Canceled)
+            {
+                Current.CurrentPointerInputs.Remove(
+                    input.PointerId);
+            }
             Current.CurrentDispatchPointerId = 0;
         }
+    }
+
+    internal static bool TryGetCurrentPointerInput(
+        uint pointerId,
+        out PointerInputEvent input)
+    {
+        if (pointerId == 0)
+        {
+            input = default;
+            return false;
+        }
+
+        return Current.CurrentPointerInputs.TryGetValue(
+            pointerId,
+            out input);
+    }
+
+    internal static void TrackCurrentPointer(
+        in PointerInputEvent input)
+    {
+        if (input.PointerId == 0)
+            return;
+
+        WindowInputState state = Current;
+        if (input.DeviceType ==
+            PointerDeviceType.Mouse)
+        {
+            uint previousPointerId =
+                state.CurrentMousePointerId;
+            if (previousPointerId != 0 &&
+                previousPointerId !=
+                    input.PointerId)
+            {
+                state.CurrentPointerInputs.Remove(
+                    previousPointerId);
+            }
+            state.CurrentMousePointerId =
+                input.PointerId;
+        }
+        else if (input.DeviceType ==
+                 PointerDeviceType.Pen)
+        {
+            uint previousPointerId =
+                state.CurrentPenPointerId;
+            if (previousPointerId != 0 &&
+                previousPointerId !=
+                    input.PointerId)
+            {
+                state.CurrentPointerInputs.Remove(
+                    previousPointerId);
+            }
+            state.CurrentPenPointerId =
+                input.PointerId;
+        }
+
+        state.CurrentPointerInputs[input.PointerId] =
+            input;
     }
 
     private static void OnPointerPressedCore(PointerInputEvent input)
@@ -742,8 +922,90 @@ public static class InputSystem
         for (var index = oldPath.Count - 1; index > common; index--) oldPath[index].OnPointerExited(CreatePointerArgs(oldPath[index], input, pointer));
         for (var index = common + 1; index < newPath.Count; index++) newPath[index].OnPointerEntered(CreatePointerArgs(newPath[index], input, pointer));
         _hoveredElement = hit;
+        UpdateProtectedCursor();
         ResetHoverTimer(hit);
     }
+
+    private static void UpdateProtectedCursor()
+    {
+        UIElement? cursorOwner =
+            _capturedElement ??
+            _hoveredElement;
+        Microsoft.UI.Input.InputCursor? cursor = null;
+        for (UIElement? current = cursorOwner;
+             current is not null;
+             current = current.Parent as UIElement)
+        {
+            cursor = current.GetProtectedCursor();
+            if (cursor is not null)
+                break;
+        }
+
+        cursor ??=
+            Current.PointerSource?.CursorCore;
+        if (cursor?.IsDisposed == true)
+            cursor = null;
+        if (ReferenceEquals(Current.ActiveInputCursor, cursor))
+            return;
+
+        Current.ActiveInputCursor = cursor;
+        Current.InputCursorProvider?.SetCursor(cursor);
+        SetMouseCursor(MapStandardCursor(cursor));
+    }
+
+    internal static void RefreshInputCursor(
+        WindowInputState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (ReferenceEquals(_currentState, state))
+        {
+            UpdateProtectedCursor();
+            return;
+        }
+
+        Microsoft.UI.Input.InputCursor? cursor =
+            state.PointerSource?.CursorCore;
+        if (ReferenceEquals(
+            state.ActiveInputCursor,
+            cursor))
+        {
+            return;
+        }
+        state.ActiveInputCursor = cursor;
+        state.InputCursorProvider?
+            .SetCursor(cursor);
+    }
+
+    private static StandardCursor MapStandardCursor(
+        Microsoft.UI.Input.InputCursor? cursor) =>
+        cursor is Microsoft.UI.Input.InputSystemCursor systemCursor
+            ? systemCursor.CursorShape switch
+            {
+                Microsoft.UI.Input.InputSystemCursorShape.Cross =>
+                    StandardCursor.Crosshair,
+                Microsoft.UI.Input.InputSystemCursorShape.Hand =>
+                    StandardCursor.Hand,
+                Microsoft.UI.Input.InputSystemCursorShape.IBeam =>
+                    StandardCursor.IBeam,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeAll =>
+                    StandardCursor.ResizeAll,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNortheastSouthwest =>
+                    StandardCursor.NeswResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth =>
+                    StandardCursor.VResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeNorthwestSoutheast =>
+                    StandardCursor.NwseResize,
+                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast =>
+                    StandardCursor.HResize,
+                Microsoft.UI.Input.InputSystemCursorShape.UniversalNo =>
+                    StandardCursor.NotAllowed,
+                Microsoft.UI.Input.InputSystemCursorShape.Wait =>
+                    StandardCursor.Wait,
+                Microsoft.UI.Input.InputSystemCursorShape.AppStarting =>
+                    StandardCursor.WaitArrow,
+                _ => StandardCursor.Arrow
+            }
+            : StandardCursor.Default;
 
     private static void UpdateContactOver(
         PointerContactState contact,
@@ -1494,6 +1756,7 @@ public static class InputSystem
             }
 
             _hoveredElement = hit;
+            UpdateProtectedCursor();
             ResetHoverTimer(hit);
         }
 
@@ -1740,12 +2003,6 @@ public static class InputSystem
         _hoverCancellation = null;
         DismissToolTip();
 
-        if (key == Key.F12 || (key == Key.D && IsControlPressedDynamic() && IsShiftPressedDynamic()))
-        {
-            DevToolsService.ToggleDevTools();
-            return;
-        }
-
         if (key == Key.ShiftLeft || key == Key.ShiftRight)
         {
             _isShiftPressed = true;
@@ -1757,6 +2014,40 @@ public static class InputSystem
         if (key == Key.AltLeft || key == Key.AltRight)
         {
             _isAltPressed = true;
+        }
+
+        var virtualKey =
+            SilkVirtualKeyMap.FromSilk(key);
+        bool wasKeyDown =
+            (Current.KeyboardState.Get(virtualKey) &
+                Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+        bool isSystemKey =
+            _isAltPressed ||
+            key is Key.AltLeft or Key.AltRight;
+        var keyStatus = new Microsoft.UI.Input.PhysicalKeyStatus(
+            1,
+            0,
+            false,
+            isSystemKey,
+            wasKeyDown,
+            false);
+        var keyboardInput = new KeyboardInputEvent(
+            virtualKey,
+            keyStatus,
+            GetTimestamp(),
+            isSystemKey,
+            false);
+        if (InjectKeyboardInput(
+            Current,
+            keyboardInput))
+        {
+            return;
+        }
+
+        if (key == Key.F12 || (key == Key.D && IsControlPressedDynamic() && IsShiftPressedDynamic()))
+        {
+            DevToolsService.ToggleDevTools();
+            return;
         }
 
         // Assemble active VirtualKeyModifiers
@@ -1810,10 +2101,29 @@ public static class InputSystem
                 FocusManager.TryMoveFocus(FocusNavigationDirection.Right);
             }
         }
+
+        if (!handled &&
+            (key == Key.Menu ||
+             (key == Key.F10 &&
+              IsShiftPressedDynamic())) &&
+            Current.KeyboardSource?
+                .RaiseContextMenuKey() == true)
+        {
+            return;
+        }
     }
 
     private static void OnKeyUp(Key key)
     {
+        var virtualKey =
+            SilkVirtualKeyMap.FromSilk(key);
+        bool wasKeyDown =
+            (Current.KeyboardState.Get(virtualKey) &
+                Microsoft.UI.Input.VirtualKeyStates.Down) != 0;
+        bool isSystemKey =
+            _isAltPressed ||
+            key is Key.AltLeft or Key.AltRight;
+
         if (key == Key.ShiftLeft || key == Key.ShiftRight)
         {
             _isShiftPressed = false;
@@ -1827,6 +2137,23 @@ public static class InputSystem
             _isAltPressed = false;
         }
 
+        var keyStatus = new Microsoft.UI.Input.PhysicalKeyStatus(
+            1,
+            0,
+            false,
+            isSystemKey,
+            wasKeyDown,
+            true);
+        var keyboardInput = new KeyboardInputEvent(
+            virtualKey,
+            keyStatus,
+            GetTimestamp(),
+            isSystemKey,
+            true);
+        bool handled = InjectKeyboardInput(
+            Current,
+            keyboardInput);
+
         if (key == Key.ShiftLeft || key == Key.ShiftRight || key == Key.ControlLeft || key == Key.ControlRight)
         {
             if (!DevToolsService.IsInspectModeActive)
@@ -1835,7 +2162,8 @@ public static class InputSystem
             }
         }
 
-        if (_focusedElement != null)
+        if (!handled &&
+            _focusedElement != null)
         {
             _focusedElement.OnKeyUp(new KeyRoutedEventArgs { Key = key });
         }
@@ -1843,6 +2171,20 @@ public static class InputSystem
 
     private static void OnKeyChar(char c)
     {
+        if (Current.KeyboardSource?
+            .RaiseCharacter(
+                c,
+                new Microsoft.UI.Input.PhysicalKeyStatus(
+                    1,
+                    0,
+                    false,
+                    _isAltPressed,
+                    false,
+                    false)) == true)
+        {
+            return;
+        }
+
         if (_focusedElement != null)
         {
             _focusedElement.OnCharacterReceived(new CharacterReceivedRoutedEventArgs { Character = c });
@@ -1883,6 +2225,7 @@ public static class InputSystem
 
         ReleasePointerCapture();
         IsKeyboardFocusActive = false;
+        SetHostFocus(Current, false);
         _hoverCancellation?.Cancel();
         _hoverCancellation = null;
         DismissToolTip();
@@ -1979,16 +2322,16 @@ public static class InputSystem
 
         DismissToolTip();
 
-        var cts = new System.Threading.CancellationTokenSource();
+        var cts = new global::System.Threading.CancellationTokenSource();
         _hoverCancellation = cts;
         
-        System.Threading.Tasks.Task.Delay(500, cts.Token).ContinueWith(t =>
+        global::System.Threading.Tasks.Task.Delay(500, cts.Token).ContinueWith(t =>
         {
-            if (t.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && !cts.IsCancellationRequested)
+            if (t.Status == global::System.Threading.Tasks.TaskStatus.RanToCompletion && !cts.IsCancellationRequested)
             {
                 ShowToolTip(element);
             }
-        }, System.Threading.Tasks.TaskScheduler.Default);
+        }, global::System.Threading.Tasks.TaskScheduler.Default);
     }
 
     private static void ShowToolTip(FrameworkElement element)

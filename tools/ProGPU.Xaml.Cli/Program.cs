@@ -832,7 +832,7 @@ internal static partial class Program
         Console.WriteLine("  progpu-xaml inspect <file> --project <project.csproj> [--framework <id>] [--json]");
         Console.WriteLine("  progpu-xaml compile <file> --project <project.csproj> [--framework <id>] [--output <directory>] [--json]");
         Console.WriteLine("  progpu-xaml preview <file> --project <project.csproj> [--framework <id>] [--output <assembly.dll>] [--json]");
-        Console.WriteLine("  progpu-xaml watch <file> --project <project.csproj> [--framework <id>] [--output <assembly.dll>] [--debounce-ms <milliseconds>] [--stdin] [--max-updates <count>] [--json]");
+        Console.WriteLine("  progpu-xaml watch <file> --project <project.csproj> [--framework <id>] [--output <assembly.dll>] [--debounce-ms <milliseconds>] [--stdin] [--max-updates <count>] [--budget-min-samples <count>] [--max-p95-ms <milliseconds>] [--max-p95-allocated-bytes <bytes>] [--json]");
         Console.WriteLine("  progpu-xaml project <project.csproj> [--framework <id>] [--output <directory>] [--json]");
     }
 }

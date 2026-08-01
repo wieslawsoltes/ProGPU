@@ -19,12 +19,53 @@ The current position is:
 | M0 Compiler architecture | Complete | The framework-neutral Roslyn pipeline, profile boundary, typed construction IR, structured C# emission, source-generator host, Workspaces host, and clean-room rules exist |
 | M1 WinUI vertical slice | Complete for MVP breadth; runtime depth remains partial | Representative pages and the unchanged Fluent theme compile, generate Roslyn trees, construct dictionaries/templates, and execute selected binding/state behavior |
 | M2 Project preview and watch | Active/advanced | Immutable project preview, semantic delta planning, transactional coordination, CLI preview, and CLI watch exist; full evaluated project-graph input watching and IDE transport remain |
-| M3 Coordinated C# metadata updates | Not started as an executable producer | Metadata changes are detected and classified, but Roslyn metadata/IL/PDB deltas are not yet produced and applied through a framework-neutral transport |
+| M3 Coordinated C# metadata updates | Active/expanded producer slice | A bounded transactional Roslyn edit session emits and runtime-validates ordinary method, property/indexer-accessor, and custom-event-accessor metadata/IL/PDB deltas; declaration/type-shape coverage and combined XAML publication remain |
 | M4 XAML live-patch semantics | Partial | Transactional root replacement and last-good retention exist; namescope/resource/template-aware patching and guaranteed fallback coverage are incomplete |
 | M5 Quality and conformance closure | Partial | Strong focused tests and Fluent corpus gates exist; sustained performance, subtree reuse, broader fuzzing, determinism matrices, and visual/runtime conformance remain |
 | M6 Productization | Partial | Packages, MSBuild integration, CLI tool packaging, samples, and playground exist; project selection, published-feed install validation, compatibility docs, and release qualification remain |
 
-This means the project is past the compiler-prototype stage but is not yet an MVP. Four blocking product gates remain: executable metadata updates, complete hot-reload fallback semantics, quality closure, and end-user productization. M2 is the current integration gate.
+This means the project is past the compiler-prototype stage but is not yet an MVP. Four blocking product gates remain: coordinated metadata/XAML publication, complete hot-reload fallback semantics, quality closure, and end-user productization. M2 is the current integration gate.
+
+## Preview.32 compiler handoff
+
+The current release boundary includes a real transactional Roslyn metadata
+delta producer rather than a metadata-only plan. It supports ordinary method,
+property/indexer accessor, custom-event accessor, constructor, destructor,
+operator, conversion-operator, non-virtual method insertion, and instance
+constructor insertion updates. Capability negotiation rejects unsupported
+runtime environments before emission. Coordinated callers can attach one
+immutable XAML diagnostic origin so unsupported shape, capability, and
+environment diagnostics report the exact XAML path, span, and line span
+without retaining `SourceText`. The project watch pipeline, versioned
+transport, IDE-neutral selector, deterministic input topology, performance
+distributions, and enforceable bounded-run budgets are also implemented.
+Transactional compiler output published below `obj` or `bin` is filtered for
+change, create, delete, and rename notifications. A caller-selected preview
+output and its bounded transactional temporary-file family are also excluded
+explicitly, even when placed under the watched project root, so publication
+cannot recursively trigger another watch compilation.
+
+This is an explicit handoff, not an MVP-complete claim. Work remaining after
+preview.32 is:
+
+1. Automatically map changed stable XAML identities to diagnostic origins at
+   the project coordinator boundary.
+2. Add host adapters for runtime metadata-update and dynamic-code capability
+   discovery, then enforce candidate validation → metadata emission/apply →
+   XAML publication → joint baseline commit ordering.
+3. Model and test recovery when metadata application succeeds but framework
+   tree replacement fails, including multi-project ownership and cancellation.
+4. Complete namescope/resource/template-aware live patch operations plus a
+   transactional owning-subtree or whole-root fallback for every safe edit.
+5. Close cross-platform watch topology, edit-storm, shutdown, percentile,
+   allocation, deterministic-output, fuzz, visual, accessibility, and
+   collectible-context lifetime gates.
+6. Validate installation from the published feed and finish end-user host,
+   compatibility, extension, and release documentation.
+
+The detailed authoritative state remains in M2 through M6 below and in
+`FEATURE_MATRIX.md`; this section records the immutable release boundary so a
+new task can resume without treating partial runtime depth as complete.
 
 ## MVP definition
 
@@ -86,25 +127,85 @@ Already implemented:
 - debounced latest-wins watch sessions with cancellation and stale-baseline retry;
 - no-op acceptance without unnecessary runtime publication;
 - standalone `watch` with human and JSON Lines output plus transactional artifact writes;
+- immutable deterministic watch-input discovery over the target and reachable loaded Roslyn project graph, including project roots/files, source, additional, analyzer-config, linked external, and explicit/evaluated host inputs;
+- installed-MSBuild evaluation of resolved external imports plus conservative exact conditional-import candidates, including candidates whose conditions are currently false or whose parent directory does not yet exist;
+- a reusable Workspaces-owned file-system subscription with exact-file grouping, nearest-existing-ancestor recovery, transactional topology replacement, topology-equivalent build-input reclassification, explicit custom-preview-output suppression, and graph refresh after directory rename or watcher errors;
+- immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, including fixed-histogram median/P95/P99 upper bounds and CLI JSON Lines publication;
+- an immutable allocation-free P95 performance-budget evaluator plus CLI duration/allocation thresholds, minimum-sample gating, structured results, and failing bounded-run exit status;
+- a versioned immutable IDE/playground/CLI watch transport that forwards Roslyn project/document/text snapshots into a caller-owned session and returns bounded detached results without retaining compiler graphs;
+- an IDE-neutral workspace/project-selector adapter that observes caller-owned current solution snapshots, retains only stable IDs/path fallbacks plus unsaved text, refreshes path fallbacks across selected project/document renames, recovers subsequently recreated identities, and delegates directly to the shared transport;
+- the sample playground now reuses one immutable process-wide Roslyn project while each page owns its watch pipeline, submits unsaved editor text through transport protocol `1.0`, projects only accepted compiler snapshots, and retains the last good inspection/preview after rejected target changes;
 - process coverage against a real MSBuild-loaded sample.
 
 Remaining exit work:
 
-- derive the watch input set from the evaluated project and referenced-project graph, including imported props, targets, editor configuration, linked files, and resources outside the project directory;
-- add a versioned IDE/playground transport that sends immutable snapshots and structured results without owning compiler state;
-- publish duration, allocation, canceled-work, cache-hit, and queue-depth telemetry;
+- complete automated rapid reachable-project add/remove/rename plus nested, wildcard, and property-changing conditional-import recovery coverage on Windows, macOS, and Linux;
+- calibrate and commit representative platform/workload percentile and allocation budgets using the published distributions and existing enforcement contract;
 - prove rapid edit storms, delete/rename, project reload, and host shutdown behavior on Windows, macOS, and Linux.
 
 ### M3 — Roslyn metadata-delta production and transport
 
-State: pending and MVP-blocking.
+State: active/expanded producer slice and MVP-blocking.
+
+Primary clean-room contracts for this lane are Roslyn's public
+[`SemanticEdit`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.emit.semanticedit),
+[`Compilation.EmitDifference`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.compilation.emitdifference),
+and .NET
+[`MetadataUpdater`](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.metadata.metadataupdater)
+APIs together with the ECMA-335 metadata model and the published
+[C# classes](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/classes)
+and
+[operators](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/expressions#124-operators)
+specifications. ProGPU uses only those contracts and independently observed
+delta/runtime behavior; no compiler or IDE implementation source is copied,
+translated, or structurally reproduced.
+
+Already implemented:
+
+- a disposable framework-neutral C# edit session owning one accepted
+  `Compilation`, initial PE/portable PDB, module metadata, `EmitBaseline`,
+  explicit ordinary-method, property/indexer-accessor, custom-event-accessor,
+  constructor, destructor, user-defined operator, non-virtual ordinary-method
+  insertion, and instance-constructor insertion capabilities, monotonic
+  generation, and an immutable exact set of methods inserted in accepted
+  generations;
+- candidate-first compiler diagnostics and declaration-shape validation;
+- source-located unsupported-edit diagnostics for exact method additions,
+  declaration changes, deletions, and broader candidate topology changes;
+- typed immutable per-session runtime capability restriction for method,
+  accessor, special-method, and supported insertion edits, with pre-emission
+  rejection at the affected symbol;
+- an explicit immutable XAML diagnostic origin that routes coordinated rude-
+  edit and unavailable-runtime-capability failures to an exact XAML path,
+  span, and line span without retaining the caller's source text;
+- real Roslyn `EmitDifference` metadata, IL, and portable-PDB payloads with
+  detached immutable ownership and updated-method tokens;
+- transactional no-op/ready/rejected states plus foreign, invalid, disposed,
+  and stale commit rejection;
+- consecutive committed generations and real `MetadataUpdater.ApplyUpdate`
+  execution gates for methods, property accessors, event accessors,
+  constructors, operators, and inserted static/instance methods under the
+  runtime's explicit editable-assembly capability;
+- exact block/expression-bodied getter, setter, indexer, event `add`, and event
+  `remove`, constructor, destructor, operator, and conversion-operator
+  method-symbol updates while auto-property initializer, constructor
+  initializer, and declaration changes fail closed.
+- exact `SemanticEditKind.Insert` production for non-virtual ordinary methods
+  and instance constructors added to an existing declaration, including
+  generation-two updates through the accepted added-symbol identity set;
+  deletion, virtual/override/explicit-interface/static-constructor insertion,
+  field/property/type addition, and existing signature/attribute changes fail
+  closed before emission.
+
+Remaining implementation:
 
 Required implementation:
 
-- a framework-neutral edit-session contract that owns the last accepted Roslyn `Compilation`, baseline module metadata, active capabilities, and generation;
-- Roslyn `EmitDifference` production of metadata, IL, and PDB deltas from accepted C# changes;
-- rude-edit and unsupported-runtime diagnostics with original C# or XAML locations where available;
-- explicit capability negotiation for metadata-update support, dynamic-code support, and restart-required changes;
+- automatic projection of changed stable XAML identities into the diagnostic-
+  origin contract at the project coordinator boundary;
+- host adapters that discover runtime metadata-update and dynamic-code support
+  and project it into the typed capability snapshot, plus broader
+  runtime-specific additions;
 - candidate-first ordering: validate the XAML artifact, produce and validate metadata deltas, apply metadata, publish the XAML replacement, then commit both baselines;
 - an explicit recovery state when metadata publication succeeds but framework replacement fails; no silent divergence;
 - typed adapters for .NET metadata update handlers and framework-specific tree replacement;
