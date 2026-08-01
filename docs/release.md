@@ -130,7 +130,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.34 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.35 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -148,7 +148,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.34`.
+for example `v0.1.0-preview.35`.
 
 ## NuGet Publishing
 
