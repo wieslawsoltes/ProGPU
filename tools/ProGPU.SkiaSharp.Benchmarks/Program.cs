@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using SkiaSharp;
+using SkiaSharp.Internals;
 
 return ProgramEntry.Run(args);
 
@@ -89,6 +90,7 @@ internal static class ProgramEntry
             new BenchmarkCase("d3d-resource-info-value", 100_000, RunD3DResourceInfoValue),
             new BenchmarkCase("backend-wrapper-metadata", 100_000, RunBackendWrapperMetadata),
             new BenchmarkCase("graphics-cache-controls", 100_000, RunGraphicsCacheControls),
+            new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -254,6 +256,20 @@ internal static class ProgramEntry
             _ = SKGraphics.SetFontCacheLimit(bytes);
             checksum = Mix(checksum, (uint)SKGraphics.GetFontCacheCountLimit());
             checksum = Mix(checksum, (ulong)SKGraphics.GetFontCacheLimit());
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunPlatformLockRead(int operations)
+    {
+        IPlatformLock platformLock = PlatformLock.Create();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            platformLock.EnterReadLock();
+            checksum = Mix(checksum, (uint)(index & 7));
+            platformLock.ExitReadLock();
         }
 
         return checksum;

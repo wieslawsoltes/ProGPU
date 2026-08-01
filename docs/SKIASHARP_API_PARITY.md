@@ -583,3 +583,36 @@ Time Profiler captures measured `2.408` versus `17.892` ns/op; Allocations
 retained zero bytes per operation. Metal System Trace exported zero target
 command-buffer, device-allocation, and resource-allocation rows for both
 CPU-only binaries.
+
+### Typed platform runtime checkpoint
+
+`PlatformConfiguration`, `IPlatformLock`, `PlatformLock`, and
+`SKAutoCoInitialize` close 26 additional entries in the official 4.151.0
+metadata contract. Runtime flags use the platform and process-architecture
+information supplied by .NET, while the mutable Linux flavor remains an atomic
+process-wide compatibility setting. The default lock is a typed
+`ReaderWriterLockSlim` adapter supporting read, upgradeable-read, write, and
+recursive entry without reflection or per-entry allocation. Lock entry and
+exit are fixed `O(1)` work when uncontended and use the runtime lock's bounded
+per-instance state; contention has scheduler-dependent wait time. On Windows,
+`SKAutoCoInitialize` balances each successful multithreaded-apartment
+initialization, including `S_FALSE`, with exactly one `CoUninitialize` call.
+Other platforms use the same idempotent object lifetime without loading a
+Windows library or initializing WebGPU.
+
+The clean-room design follows the public
+[RuntimeInformation contract](https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.runtimeinformation),
+[ReaderWriterLockSlim contract](https://learn.microsoft.com/dotnet/fundamentals/runtime-libraries/system-threading-readerwriterlockslim),
+[CoInitializeEx contract](https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex),
+and [CoUninitialize balance rule](https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-couninitialize).
+Independent tests cover platform-flag consistency, factory replacement,
+recursive read, upgradeable/read/write modes, one million steady-state lock
+pairs with zero managed allocation, and idempotent COM lifetime behavior.
+Three alternating Apple M3 Pro Release process pairs retained the exact native
+checksum. The read-lock pair measured `1.194` ProGPU/native (`9.241` versus
+`7.737` ns/op); both harnesses reported only the same amortized `0.0012` B/op
+one-time measurement overhead. Matched Time Profiler captures measured `9.194`
+versus `7.757` ns/op, while Allocations captures measured `9.171` versus
+`7.907` ns/op with the same checksum and allocation result. Metal System Trace
+exported zero target command-buffer, device-allocation, and resource-allocation
+rows for both CPU-only binaries.
