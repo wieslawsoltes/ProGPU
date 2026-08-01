@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 internal static class MetadataApiSurfaceSelfTests
@@ -51,6 +52,7 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.StartsWith(
                     "attribute|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture.Item(",
                     StringComparison.Ordinal) &&
+                entry.Contains("ContractMarkerAttribute", StringComparison.Ordinal) &&
                 !entry.Contains(".get.", StringComparison.Ordinal) &&
                 !entry.Contains(".set.", StringComparison.Ordinal))
             .Select(GetOwner)
@@ -195,9 +197,13 @@ internal static class MetadataApiSurfaceSelfTests
                     StringComparison.Ordinal) &&
                 entry.Contains("name=MarshalContract;", StringComparison.Ordinal));
         bool methodMarshallingDescriptors =
-            methodMarshallingEntry?.Contains("returnmarshal=", StringComparison.Ordinal) == true &&
+            methodMarshallingEntry?.Contains(
+                "returnmetadata=flags=-;",
+                StringComparison.Ordinal) == true &&
             methodMarshallingEntry.Contains("marshal=", StringComparison.Ordinal) &&
-            !methodMarshallingEntry.Contains("returnmarshal=-", StringComparison.Ordinal) &&
+            !methodMarshallingEntry.Contains(
+                "returnmetadata=flags=-;default=-;marshal=-",
+                StringComparison.Ordinal) &&
             !methodMarshallingEntry.Contains(":marshal=-", StringComparison.Ordinal);
         string? accessorMarshallingEntry = surface.Entries.FirstOrDefault(
             static entry =>
@@ -214,6 +220,31 @@ internal static class MetadataApiSurfaceSelfTests
         bool accessorMarshallingDescriptor =
             getterMetadata.Contains("marshal=", StringComparison.Ordinal) &&
             !getterMetadata.Contains("marshal=-", StringComparison.Ordinal);
+        string? publicFieldMarshallingEntry = surface.Entries.FirstOrDefault(
+            static entry =>
+                entry.StartsWith(
+                    "field|ProGPU.WinUI.ApiParity.SelfTest.SequentialLayoutClass|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=Name;", StringComparison.Ordinal));
+        bool publicFieldMarshallingDescriptor =
+            publicFieldMarshallingEntry?.Contains("marshal=", StringComparison.Ordinal) == true &&
+            !publicFieldMarshallingEntry.Contains("marshal=-", StringComparison.Ordinal);
+        bool callerMemberNameAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.SemanticExtensionFixture.Capture`0(System.String,System.String)->System.Void.parameter[1]",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "System.Runtime.CompilerServices.CallerMemberNameAttribute",
+                    StringComparison.Ordinal));
+        bool extensionMethodAttribute = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "attribute|ProGPU.WinUI.ApiParity.SelfTest.SemanticExtensionFixture.Capture`0(System.String,System.String)->System.Void|",
+                    StringComparison.Ordinal) &&
+                entry.Contains(
+                    "System.Runtime.CompilerServices.ExtensionAttribute",
+                    StringComparison.Ordinal));
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -256,6 +287,9 @@ internal static class MetadataApiSurfaceSelfTests
             !fieldMarshallingDescriptor ||
             !methodMarshallingDescriptors ||
             !accessorMarshallingDescriptor ||
+            !publicFieldMarshallingDescriptor ||
+            !callerMemberNameAttribute ||
+            !extensionMethodAttribute ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -281,6 +315,9 @@ internal static class MetadataApiSurfaceSelfTests
                 $"fieldMarshallingDescriptor={fieldMarshallingDescriptor}, " +
                 $"methodMarshallingDescriptors={methodMarshallingDescriptors}, " +
                 $"accessorMarshallingDescriptor={accessorMarshallingDescriptor}, " +
+                $"publicFieldMarshallingDescriptor={publicFieldMarshallingDescriptor}, " +
+                $"callerMemberNameAttribute={callerMemberNameAttribute}, " +
+                $"extensionMethodAttribute={extensionMethodAttribute}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -412,6 +449,24 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         {
             public short Value;
             private byte _tail;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public class SequentialLayoutClass
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 8)]
+        public string Name = string.Empty;
+    }
+
+    public static class SemanticExtensionFixture
+    {
+        public static void Capture(
+            this string value,
+            [CallerMemberName] string caller = "")
+        {
+            _ = value;
+            _ = caller;
         }
     }
 }

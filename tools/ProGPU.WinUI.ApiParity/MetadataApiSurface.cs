@@ -174,7 +174,7 @@ internal sealed record MetadataApiSurface(
         foreach (var fieldHandle in type.GetFields())
         {
             var field = reader.GetFieldDefinition(fieldHandle);
-            bool isLayoutField = kind == "struct" &&
+            bool isLayoutField = (kind is "struct" or "class") &&
                 layoutKind is "sequential" or "explicit" &&
                 !field.Attributes.HasFlag(FieldAttributes.Static);
             int currentFieldOrder = isLayoutField ? fieldOrder++ : -1;
@@ -195,7 +195,8 @@ internal sealed record MetadataApiSurface(
                 $"readonly={field.Attributes.HasFlag(FieldAttributes.InitOnly)};" +
                 $"literal={field.Attributes.HasFlag(FieldAttributes.Literal)};" +
                 $"type={fieldType};name={fieldName};constant={constant};" +
-                layoutMetadata);
+                $"{layoutMetadata};" +
+                $"marshal={FormatMarshallingDescriptor(reader, field)}");
             AddAttributes(
                 reader,
                 formatter,
@@ -310,7 +311,7 @@ internal sealed record MetadataApiSurface(
             $"final={method.Attributes.HasFlag(MethodAttributes.Final)};" +
             $"newslot={method.Attributes.HasFlag(MethodAttributes.NewSlot)};" +
             $"return={signature.ReturnType};" +
-            $"returnmarshal={FormatMarshallingDescriptor(reader, returnDefinition)};" +
+            $"returnmetadata={FormatReturnParameterMetadata(reader, returnDefinition)};" +
             $"name={methodName};" +
             $"arity={method.GetGenericParameters().Count};" +
             $"params=({string.Join(",", parameterText)})");
@@ -598,7 +599,8 @@ internal sealed record MetadataApiSurface(
         string kind,
         string layoutKind)
     {
-        if (kind != "struct" || layoutKind is not ("sequential" or "explicit"))
+        if (kind is not ("struct" or "class") ||
+            layoutKind is not ("sequential" or "explicit"))
             return "-";
 
         var path = new HashSet<TypeDefinitionHandle> { typeHandle };
@@ -697,6 +699,18 @@ internal sealed record MetadataApiSurface(
             ? FormatMarshallingDescriptor(reader, definition)
             : "-";
 
+    private static string FormatReturnParameterMetadata(
+        MetadataReader reader,
+        Parameter? parameter)
+    {
+        if (parameter is not Parameter definition)
+            return "flags=-;default=-;marshal=-";
+
+        return $"flags={FormatParameterAttributes(definition.Attributes)};" +
+            $"default={FormatConstant(reader, definition.GetDefaultValue())};" +
+            $"marshal={FormatMarshallingDescriptor(reader, definition)}";
+    }
+
     private static void AddAttributes(
         MetadataReader reader,
         MetadataNameFormatter formatter,
@@ -725,15 +739,24 @@ internal sealed record MetadataApiSurface(
         // XAML, deprecation, flags, and other semantic attributes remain.
         return !attributeType.StartsWith("ABI.", StringComparison.Ordinal) &&
             !attributeType.StartsWith("WinRT.", StringComparison.Ordinal) &&
-            !attributeType.StartsWith(
-                "System.Runtime.CompilerServices.",
-                StringComparison.Ordinal) &&
+            !IsCompilerImplementationAttribute(attributeType) &&
             attributeType is not
                 "System.CodeDom.Compiler.GeneratedCodeAttribute" and not
                 "System.Diagnostics.DebuggerBrowsableAttribute" and not
                 "System.Diagnostics.DebuggerDisplayAttribute" and not
                 "System.Runtime.InteropServices.GuidAttribute";
     }
+
+    private static bool IsCompilerImplementationAttribute(string attributeType) =>
+        attributeType is
+            "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute" or
+            "System.Runtime.CompilerServices.AsyncStateMachineAttribute" or
+            "System.Runtime.CompilerServices.CompilationRelaxationsAttribute" or
+            "System.Runtime.CompilerServices.CompilerGeneratedAttribute" or
+            "System.Runtime.CompilerServices.IteratorStateMachineAttribute" or
+            "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute" or
+            "System.Runtime.CompilerServices.SkipLocalsInitAttribute" or
+            "System.Runtime.CompilerServices.StateMachineAttribute";
 
     private static bool ShouldIncludeApiInterface(
         string typeKind,

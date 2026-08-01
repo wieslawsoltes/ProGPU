@@ -67,15 +67,21 @@ types, names, defaults, and semantic attributes are keyed beneath that full
 property identity. Event add/remove method attributes and their return/handler
 parameter flags, types, names, defaults, and semantic attributes are likewise
 keyed beneath a canonical event owner. Sequential and explicit public value
-types retain layout kind, string format, packing, size, visible instance-field declaration
-order, and explicit offsets. A name-neutral layout sequence retains every
+sequential/explicit public value types and classes retain layout kind, string
+format, packing, size, visible instance-field declaration order, and explicit
+offsets. A name-neutral layout sequence retains every
 instance field's type, order, and offset, including non-public storage, so a
 private sequential-layout change cannot silently alter the public ABI.
 Assembly-local embedded value types are expanded recursively with cycle
 protection, and raw ECMA-335 field-marshalling descriptors are retained, so
 nested packing/size and fixed-buffer or fixed-string changes are visible too.
 Raw marshalling descriptors on method, property-accessor, and event-accessor
-return/parameter rows are part of the same canonical contract.
+return/parameter rows and all visible fields are part of the same canonical
+contract, together with return parameter flags/defaults. Consumer-semantic
+compiler-services attributes such as extension-method, caller-information,
+nullable, tuple-name, required-member, and interpolated-string-handler
+contracts remain visible; only explicit state-machine/toolchain implementation
+markers are filtered.
 The command-line gate runs an isolated metadata self-test before comparison
 and proves that method/parameter/property/event accessor attributes, accessor
 parameter metadata, value-type layout, method/property/event dispatch flags,
@@ -1919,10 +1925,11 @@ next value read. Pointer snapshots now preserve horizontal wheel deltas,
 changed mouse-button metadata, and predicted frame identifiers across
 transforms. The final metadata-review pass also makes public value-type ABI
 layout and event-accessor contracts first-class comparator inputs, with
-independent self-tests. These changes preserve the final pinned report at
-8,981 candidate entries, 5,229 exact matches, 11,350 missing entries, and
-3,752 extras. The monotonic budget is ratcheted to those exact matching and
-missing counts.
+independent self-tests. Retaining consumer-semantic compiler attributes makes
+2,592 previously hidden ProGPU declarations explicit, so the final pinned
+report records 11,573 candidate entries, 5,229 exact matches, 11,350 missing
+entries, and 6,344 extras. The monotonic budget is ratcheted to those exact
+matching and missing counts.
 
 ## Preview.32 parity handoff
 
@@ -1932,15 +1939,15 @@ declarations exact. Remaining work is measured, not inferred:
 
 | Area | Exact | Missing | ProGPU-only |
 |---|---:|---:|---:|
-| `Microsoft.UI` | 193 | 0 | 0 |
-| `Microsoft.UI.Composition` | 441 | 1,091 | 0 |
-| `Microsoft.UI.Content` | 185 | 155 | 0 |
-| `Microsoft.UI.Dispatching` | 58 | 0 | 0 |
-| `Microsoft.UI.Input` | 585 | 0 | 2 |
-| `Microsoft.UI.System` | 6 | 0 | 0 |
-| `Microsoft.UI.Text` | 535 | 0 | 0 |
-| `Microsoft.UI.Windowing` | 192 | 0 | 0 |
-| `Microsoft.UI.Xaml` | 3,034 | 10,104 | 3,749 |
+| `Microsoft.UI` | 193 | 0 | 14 |
+| `Microsoft.UI.Composition` | 441 | 1,091 | 89 |
+| `Microsoft.UI.Content` | 185 | 155 | 56 |
+| `Microsoft.UI.Dispatching` | 58 | 0 | 30 |
+| `Microsoft.UI.Input` | 585 | 0 | 207 |
+| `Microsoft.UI.System` | 6 | 0 | 5 |
+| `Microsoft.UI.Text` | 535 | 0 | 10 |
+| `Microsoft.UI.Windowing` | 192 | 0 | 40 |
+| `Microsoft.UI.Xaml` | 3,034 | 10,104 | 5,893 |
 
 The next parity task should therefore continue in two evidence-backed lanes:
 complete retained WebGPU Composition families with typed bounded ownership,
