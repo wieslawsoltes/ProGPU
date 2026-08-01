@@ -957,9 +957,11 @@ public sealed class RenderCommandList : List<RenderCommand>
     public new void Add(RenderCommand command)
     {
         base.Add(command);
-        if ((command.Brush is IRetainedCommandInterceptBrush ||
+        var interceptor = CommandInterceptor;
+        if (interceptor is not null &&
+            (command.Brush is IRetainedCommandInterceptBrush ||
              command.Pen?.Brush is IRetainedCommandInterceptBrush) &&
-            CommandInterceptor?.Invoke(Count - 1) == true)
+            interceptor(Count - 1))
         {
             return;
         }

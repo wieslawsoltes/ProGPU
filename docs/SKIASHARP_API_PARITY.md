@@ -1183,3 +1183,57 @@ metadata and the official
 No implementation source was consulted. The required cross-engine rendering
 review remains unchanged because this checkpoint neither changes scene/path
 compilation nor text shaping, caching, or GPU submission.
+
+## Preview.35 full metadata closure and WebGPU mask execution
+
+The pinned official SkiaSharp 4.151.0 comparison now reports 4,222 exact
+matches of 4,222 reference entries and zero missing entries. The final slice
+closes nullable/obsolete metadata, managed disposal, WebP frame/encoder, pinned
+raw text-run buffers, `SKMaskFilter`, `SKNoDrawCanvas`, `SKNWayCanvas`, and
+`SKOverdrawCanvas` contracts. Metadata equality is the contract-ledger result;
+behavior and performance remain independently gated.
+
+Mask filters retain immutable blur, alpha-table/gamma/clip, and shader
+descriptions. Ordinary draw commands remain on the existing direct retained
+path. A typed marker activates interception only for filtered brushes; the
+source command renders once into a bounded offscreen target and the existing
+WebGPU image-filter graph performs separable blur, alpha lookup, or `DstIn`
+shader masking. Overdraw uses a dedicated 16-by-16 WebGPU compute shader and a
+96-byte six-color uniform, mapping transparent input to transparent output,
+counts one through five to their palette entries, and saturated counts to the
+last entry. No CPU readback, external codec, reflection, or per-pixel managed
+loop is introduced.
+
+The clean-room design used the public
+[`SkMaskFilter`](https://api.skia.org/classSkMaskFilter.html) and
+[`SkCanvas`](https://api.skia.org/classSkCanvas.html) contracts,
+[Direct2D Gaussian blur](https://learn.microsoft.com/windows/win32/direct2d/gaussian-blur),
+[Win2D Gaussian blur](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Effects_GaussianBlurEffect.htm),
+[WebRender's retained frame architecture](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello's wgpu renderer](https://github.com/linebender/vello),
+[Parley's reusable layout model](https://github.com/linebender/parley), and
+[HarfBuzz shaping](https://harfbuzz.github.io/harfbuzz-hb-shape.html). ProGPU
+adopts retained filter descriptions, bounded GPU intermediates, and explicit
+compute/composite stages; it rejects copied engine structure, CPU bitmap
+fallback, per-frame reflection, and changes to reusable shaping/layout output.
+
+Focused mask/forwarding/shader-resource tests pass, including GPU blur-tail and
+overdraw pixel checks. The complete macOS core suite passes 3,167/3,167 and the
+headless suite passes 225/225. Three alternating matched Release process pairs
+preserve every semantic checksum. The final Apple M3 Pro run records retained
+canvas routing at `738.425` versus native `207.625` ns/op (`3.557`), path build
+and bounds at `3,793.146` versus `711.500` ns/op (`5.331`), and bounded surface
+snapshot at `66,053.955` versus `482.085` ns/op (`137.017`). These gaps remain
+explicit optimization work; full metadata closure does not claim an overall
+performance win.
+
+The filtered-command marker is now gated behind the presence of an interceptor,
+so ordinary framework-neutral command lists do not pay two type tests. Matched
+macOS Instruments runs against exact pre-change commit `65cc9641` retained the
+same checksum and `0.788` managed B/op: Time Profiler measured `169.313` before
+and `165.688` ns/op after, Allocations measured `171.219` and `166.627` ns/op,
+and Metal System Trace measured `173.121` and `166.933` ns/op. Target Metal
+command-buffer submissions, current device allocation, and resource-allocation
+exports are empty in both runs, as expected for state-only recording. Raw
+traces, TOCs, table exports, and exact-run JSON are retained under
+`artifacts/performance/skiasharp-interceptor-instruments`.

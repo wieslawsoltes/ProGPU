@@ -2036,6 +2036,35 @@ API counts alone remain insufficient: the corresponding WebGPU rendering,
 platform behavior, accessibility, input, layout, threading, and resource
 lifetime contracts must pass independently before parity can be claimed.
 
+## Preview.35 release closure and next parity lane
+
+Preview.35 re-ran the pinned official NuGet comparison without changing the
+WinUI candidate surface: 4,952 of 16,579 official declarations match exactly,
+11,627 remain missing, and 6,652 candidate declarations are ProGPU-only. The
+release instead completes the adjacent SkiaSharp metadata ledger and retained
+WebGPU mask/filter execution used by framework hosts.
+
+The next WinUI parity branch starts from the immutable preview.35 tag. Its
+ordered, automatically checked work remains:
+
+1. add the official API-contract marker types and use the official
+   `System.Type` `ContractVersionAttribute` constructor where applicable;
+2. close `Microsoft.UI.Composition` in retained WebGPU families, including
+   animations, interactions, brushes, effects, device loss, and bounded
+   resource lifetime;
+3. reconcile `Microsoft.UI.Xaml` through behavior-complete dependency-property,
+   control, layout, input, automation, and accessibility clusters;
+4. remove accidental ProGPU-only declarations or move intentional extension
+   seams outside the official namespaces;
+5. ratchet `eng/winui-api-baseline.json` after every reviewed slice and require
+   focused behavior/rendering tests, cross-platform builds, packages, and
+   matched performance evidence in addition to metadata comparison.
+
+The automatic gate remains `eng/progpu-winui-api-check.sh`, backed by exact
+official package hashes and the monotonic 4,952/11,627 baseline. No declaration
+will count as complete unless its observable behavior, accessibility, input,
+threading, rendering quality, and lifetime contract are independently proven.
+
 ## Implementation policy
 
 API presence is only the first gate. Each parity implementation must be
