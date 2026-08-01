@@ -1179,39 +1179,8 @@ public struct SKImageInfo : IEquatable<SKImageInfo>
 
     public readonly int BytesPerPixel => GetBytesPerPixel(ColorType);
 
-    internal static int GetBytesPerPixel(SKColorType colorType) => colorType switch
-    {
-        SKColorType.Unknown => 0,
-        SKColorType.Alpha8 or
-            SKColorType.Gray8 or
-            SKColorType.R8Unorm => 1,
-        SKColorType.Rgb565 or
-            SKColorType.Argb4444 or
-            SKColorType.Rg88 or
-            SKColorType.AlphaF16 or
-            SKColorType.Alpha16 or
-            SKColorType.R16Unorm or
-            SKColorType.RF16 => 2,
-        SKColorType.Rgba8888 or
-            SKColorType.Rgb888x or
-            SKColorType.Bgra8888 or
-            SKColorType.Rgba1010102 or
-            SKColorType.Rgb101010x or
-            SKColorType.RgF16 or
-            SKColorType.Rg1616 or
-            SKColorType.Bgra1010102 or
-            SKColorType.Bgr101010x or
-            SKColorType.Bgr101010xXR or
-            SKColorType.Srgba8888 => 4,
-        SKColorType.RgbaF16 or
-            SKColorType.RgbaF16Clamped or
-            SKColorType.Rgba16161616 or
-            SKColorType.Rgba10x6 or
-            SKColorType.Bgra10101010XR or
-            SKColorType.RgbF16F16F16x => 8,
-        SKColorType.RgbaF32 => 16,
-        _ => 0,
-    };
+    internal static int GetBytesPerPixel(SKColorType colorType) =>
+        colorType.GetBytesPerPixel();
     public readonly int BitShiftPerPixel => BytesPerPixel switch
     {
         1 => 0,

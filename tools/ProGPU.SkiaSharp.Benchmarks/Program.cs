@@ -73,6 +73,7 @@ internal static class ProgramEntry
             new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
+            new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
             new BenchmarkCase("swizzle-copy-4k", 10_000, RunSwizzleCopy),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
@@ -422,6 +423,29 @@ internal static class ProgramEntry
                 (uint)minimum.Major << 8 |
                 (uint)minimum.Minor |
                 (SkiaSharpVersion.CheckNativeLibraryCompatible((index & 1) != 0) ? 1u : 0u));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunPixelFormatMetadata(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var colorType = (SKColorType)(index % 29);
+            var geometry = (SKPixelGeometry)(index % 5);
+            var alphaType = (SKAlphaType)(index & 3);
+            checksum = Mix(
+                checksum,
+                (uint)colorType.GetBytesPerPixel() << 28 |
+                (uint)colorType.GetBitShiftPerPixel() << 24 |
+                (uint)colorType.GetAlphaType(alphaType) << 20 |
+                (geometry.IsHorizontal() ? 1u << 19 : 0) |
+                (geometry.IsVertical() ? 1u << 18 : 0) |
+                (geometry.IsRgb() ? 1u << 17 : 0) |
+                (geometry.IsBgr() ? 1u << 16 : 0) |
+                colorType.ToGlSizedFormat());
         }
 
         return checksum;

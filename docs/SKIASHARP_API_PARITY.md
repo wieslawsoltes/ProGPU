@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,412 ProGPU
-entries, 3,177 exact matches, 1,045 missing entries, and 1,235 ProGPU-only
-entries. The missing surface comprises 69 type identities, 20 fields, 22
-interfaces, 620 methods, 129 properties, and 185 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,426 ProGPU
+entries, 3,195 exact matches, 1,027 missing entries, and 1,231 ProGPU-only
+entries. The missing surface comprises 68 type identities, 20 fields, 22
+interfaces, 612 methods, 129 properties, and 176 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -179,3 +179,27 @@ Pro Release process pairs produced exact semantic checksums; ProGPU measured
 clean-room behavior follows the public
 [SkiaSharpVersion contract](https://learn.microsoft.com/dotnet/api/skiasharp.skiasharpversion)
 and retains no native-library discovery or loader side effects.
+
+### Pixel-format and LCD geometry metadata
+
+`SkiaExtensions` now matches all 18 entries in the 4.151.0 metadata contract,
+replacing the former non-official `SKGlExtensions` identity. Pixel-geometry
+classification, byte and bit-shift sizes, alpha compatibility, and OpenGL sized
+formats cover all 29 declared color types. Unknown declared formats retain
+their documented zero values, while out-of-range enum values fail with the
+official `colorType` argument boundary. `SKImageInfo` now delegates to the same
+single format-size contract instead of retaining a second mapping.
+
+Every valid query is allocation-free fixed `O(1)` CPU work and cannot initialize
+WebGPU. Independent tests exhaust the color-type and alpha-type matrices,
+geometry categories, GL mappings, invalid enums, and one million stable queries.
+The source-built Avalonia.Skia projects continue to compile for net8 and net10
+against the official extension identity. Three alternating Apple M3 Pro Release
+process pairs produced exact checksums and zero allocations; ProGPU measured
+`0.683` of native time for the combined workload. Matched Time Profiler and
+Allocations captures from the same binaries preserved that ordering, exact
+checksums, and zero managed bytes per operation. The clean-room contract uses
+the public
+[SkiaExtensions API](https://learn.microsoft.com/dotnet/api/skiasharp.skiaextensions),
+[Skia color-type documentation](https://api.skia.org/SkColorType_8h.html), and
+[Khronos sized internal formats](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glTexStorage2D.xhtml).
