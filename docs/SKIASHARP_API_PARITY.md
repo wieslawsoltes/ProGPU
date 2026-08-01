@@ -28,6 +28,29 @@ evidence where applicable, and matched Release benchmarks for native SkiaSharp
 and ProGPU. Rendering work must preserve ProGPU's WebGPU ownership, quality,
 device-loss, bounded-resource, and allocation contracts.
 
+The matched benchmark runner is
+`eng/progpu-run-skiasharp-benchmarks.sh`. It compiles identical source against
+official SkiaSharp and ProGPU, alternates process order, verifies semantic
+checksums, and preserves raw median/p95 timing and allocation distributions plus
+environment metadata. Its scheduled workflow runs on macOS, Linux, and Windows;
+small timing deltas on shared runners remain informational until calibrated on
+dedicated hardware.
+
+The initial local Release run on an Apple M3 Pro, .NET 10.0.5, macOS 26.4.1,
+using three alternating process pairs and 72 measured samples per backend,
+produced the following diagnostic baseline:
+
+| Workload | Native median ns/op | ProGPU median ns/op | ProGPU/native | Native B/op | ProGPU B/op |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| point arithmetic | 2.076 | 2.158 | 1.039 | 0 | 0 |
+| matrix map point | 8.713 | 4.547 | 0.522 | 0 | 0 |
+| path builder, detach, and bounds | 808.542 | 3,284.499 | 4.062 | 168 | 3,520 |
+
+These figures identify path construction/ownership as the first measured CPU
+and allocation hotspot. They are not a cross-platform performance claim; raw
+distributions and environment records remain in generated artifacts, and the
+path work requires matched profiling plus equivalent before/after runs.
+
 ## Current baseline
 
 The first pinned comparison records 4,222 official entries, 4,362 ProGPU
