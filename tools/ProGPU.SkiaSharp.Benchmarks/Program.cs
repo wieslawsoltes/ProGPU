@@ -66,6 +66,10 @@ internal static class ProgramEntry
         {
             new BenchmarkCase("point-arithmetic", 200_000, RunPointArithmetic),
             new BenchmarkCase("matrix-map-point", 100_000, RunMatrixMapPoint),
+            new BenchmarkCase("pmcolor-premultiply", 65_536, RunPremultiplyColor),
+            new BenchmarkCase("pmcolor-unpremultiply", 65_536, RunUnpremultiplyColor),
+            new BenchmarkCase("pmcolor-array-premultiply", 1_000, RunPremultiplyColorArrays),
+            new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
             new BenchmarkCase("path-build-bounds", 1_000, RunPathBuildBounds)
         };
         var results = new List<BenchmarkCaseResult>(cases.Length);
@@ -277,6 +281,90 @@ internal static class ProgramEntry
         }
 
         return checksum;
+    }
+
+    private static ulong RunPremultiplyColor(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var alpha = (byte)(index >> 8);
+            var component = (byte)index;
+            var source = new SKColor(
+                component,
+                (byte)(component ^ 0x5a),
+                (byte)(255 - component),
+                alpha);
+            var premultiplied = SKPMColor.PreMultiply(source);
+            checksum = Mix(checksum, (uint)premultiplied);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunUnpremultiplyColor(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var alpha = (byte)(index >> 8);
+            var component = (byte)index;
+            var packed =
+                ((uint)alpha << 24) |
+                ((uint)component << 16) |
+                ((uint)(byte)(component ^ 0xa5) << 8) |
+                (byte)(255 - component);
+            checksum = Mix(
+                checksum,
+                (uint)SKPMColor.UnPreMultiply(new SKPMColor(packed)));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunPremultiplyColorArrays(int operations)
+    {
+        var source = CreateColorArray();
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var premultiplied = SKPMColor.PreMultiply(source);
+            var item = index & (source.Length - 1);
+            checksum = Mix(checksum, (uint)premultiplied[item]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunUnpremultiplyColorArrays(int operations)
+    {
+        var source = SKPMColor.PreMultiply(CreateColorArray());
+
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var restored = SKPMColor.UnPreMultiply(source);
+            var item = index & (source.Length - 1);
+            checksum = Mix(checksum, (uint)restored[item]);
+        }
+
+        return checksum;
+    }
+
+    private static SKColor[] CreateColorArray()
+    {
+        var source = new SKColor[64];
+        for (var index = 0; index < source.Length; index++)
+        {
+            source[index] = new SKColor(
+                (byte)(index * 3),
+                (byte)(255 - index * 2),
+                (byte)(index * 4),
+                (byte)(index * 4));
+        }
+
+        return source;
     }
 
     private static ulong Combine(float first, float second) =>

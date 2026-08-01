@@ -53,10 +53,10 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The first pinned comparison records 4,222 official entries, 4,362 ProGPU
-entries, 3,127 exact matches, 1,095 missing entries, and 1,235 ProGPU-only
-entries. The missing surface comprises 73 type identities, 20 fields, 24
-interfaces, 653 methods, 135 properties, and 190 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,384 ProGPU
+entries, 3,149 exact matches, 1,073 missing entries, and 1,235 ProGPU-only
+entries. The missing surface comprises 72 type identities, 20 fields, 23
+interfaces, 638 methods, 131 properties, and 189 semantic attributes. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -82,3 +82,33 @@ Primary public contracts:
 - <https://learn.microsoft.com/dotnet/api/skiasharp>
 - <https://www.w3.org/TR/SVG2/>
 - <https://www.w3.org/TR/webgpu/>
+
+## Implemented parity checkpoints
+
+### Premultiplied color values
+
+`SKPMColor` now matches the complete 4.151.0 public metadata contract. Scalar
+premultiply and unpremultiply are allocation-free fixed-work operations; array
+overloads allocate exactly one result array and process `N` colors in `O(N)`
+time with `O(1)` auxiliary storage. The implementation retains native RGBA
+memory packing, rounded divide-by-255 premultiplication, and a generated
+read-only 8.24 reciprocal table for deterministic unpremultiplication without
+per-channel division. It is CPU-only and cannot initialize WebGPU.
+
+Independent tests cover packed identity, logical channels, formatting,
+operators, allocation ownership, transparent input, and component bounds. The
+matched benchmark exhaustively checks every alpha/component pair and separately
+measures scalar and 64-element array overloads against the official package.
+On the recorded Apple M3 Pro Release run, all four semantic checksums and
+managed allocations matched exactly. ProGPU/native median ratios were `1.014`
+for scalar premultiply, `1.121` for scalar unpremultiply, `1.080` for the
+64-element premultiply array, and `1.183` for the unpremultiply array. These
+small but repeatable remaining CPU gaps are retained as optimization work; this
+checkpoint establishes parity without claiming a performance win.
+The design used the public
+[SkiaSharp contract](https://learn.microsoft.com/dotnet/api/skiasharp.skpmcolor)
+and Skia's documented
+[premultiplied color](https://api.skia.org/SkColor_8h.html) and
+[unpremultiply scale](https://api.skia.org/classSkUnPreMultiply.html)
+contracts. No foreign implementation code, source layout, or helper structure
+was incorporated.
