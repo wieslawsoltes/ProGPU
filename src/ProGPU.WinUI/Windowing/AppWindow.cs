@@ -401,6 +401,8 @@ public sealed class AppWindow
         }
 
         _showOnce = true;
+        if (_presenter is OverlappedPresenter overlappedPresenter)
+            overlappedPresenter.ApplyRequestedStartupState();
         ApplyPresenter();
         Show();
     }

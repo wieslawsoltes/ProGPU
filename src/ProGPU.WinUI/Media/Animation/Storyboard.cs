@@ -150,7 +150,7 @@ public class Timeline : DependencyObject
         ArgumentNullException.ThrowIfNull(_);
     }
 
-    public bool AllowDependentAnimations { get; set; }
+    public static bool AllowDependentAnimations { get; set; } = true;
 
     public bool AutoReverse
     {

@@ -301,7 +301,8 @@ internal static partial class Program
             new RoslynXamlProjectWatchFileSystemSubscription(
                 changedPath =>
                     signals.Writer.TryWrite(
-                        changedPath));
+                        changedPath),
+                new[] { output });
         subscription.Update(inputSet);
         while (!cancellationToken
                    .IsCancellationRequested)

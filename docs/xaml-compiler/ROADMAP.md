@@ -40,8 +40,10 @@ without retaining `SourceText`. The project watch pipeline, versioned
 transport, IDE-neutral selector, deterministic input topology, performance
 distributions, and enforceable bounded-run budgets are also implemented.
 Transactional compiler output published below `obj` or `bin` is filtered for
-change, create, delete, and rename notifications; output-to-output renames
-therefore cannot recursively trigger another watch compilation.
+change, create, delete, and rename notifications. A caller-selected preview
+output and its bounded transactional temporary-file family are also excluded
+explicitly, even when placed under the watched project root, so publication
+cannot recursively trigger another watch compilation.
 
 This is an explicit handoff, not an MVP-complete claim. Work remaining after
 preview.32 is:
@@ -127,7 +129,7 @@ Already implemented:
 - standalone `watch` with human and JSON Lines output plus transactional artifact writes;
 - immutable deterministic watch-input discovery over the target and reachable loaded Roslyn project graph, including project roots/files, source, additional, analyzer-config, linked external, and explicit/evaluated host inputs;
 - installed-MSBuild evaluation of resolved external imports plus conservative exact conditional-import candidates, including candidates whose conditions are currently false or whose parent directory does not yet exist;
-- a reusable Workspaces-owned file-system subscription with exact-file grouping, nearest-existing-ancestor recovery, transactional topology replacement, topology-equivalent build-input reclassification, and graph refresh after directory rename or watcher errors;
+- a reusable Workspaces-owned file-system subscription with exact-file grouping, nearest-existing-ancestor recovery, transactional topology replacement, topology-equivalent build-input reclassification, explicit custom-preview-output suppression, and graph refresh after directory rename or watcher errors;
 - immutable cumulative watch telemetry for outcomes, cache hits, canceled/faulted work, queue depth, elapsed duration, and optional host-supplied managed-allocation deltas, including fixed-histogram median/P95/P99 upper bounds and CLI JSON Lines publication;
 - an immutable allocation-free P95 performance-budget evaluator plus CLI duration/allocation thresholds, minimum-sample gating, structured results, and failing bounded-run exit status;
 - a versioned immutable IDE/playground/CLI watch transport that forwards Roslyn project/document/text snapshots into a caller-owned session and returns bounded detached results without retaining compiler graphs;

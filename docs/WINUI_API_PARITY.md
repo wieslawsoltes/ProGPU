@@ -52,7 +52,8 @@ Markdown reports under `artifacts/winui-api/report/`.
 
 The canonical surface includes externally visible types, inheritance,
 interfaces, generic constraints, public/protected fields and constants,
-constructors, methods, properties, events, accessor visibility, parameter
+constructors, methods, properties, events, accessor visibility and static,
+abstract, virtual, final, and new-slot flags, parameter
 direction/default metadata, and public custom-attribute type identities. Every
 semantic custom attribute is compared by type and raw ECMA-335 value blob.
 Method-, return-, and parameter-owned attributes plus generic constraints use
@@ -62,8 +63,9 @@ so overloads and `params` contracts cannot collapse into one declaration. The
 same identity rule includes a property's return and complete index-parameter
 types, so overloaded indexer attributes cannot collapse or move silently. The
 command-line gate runs an isolated metadata self-test before comparison and
-proves that method/parameter/property attributes, `params`, overloaded
-indexers, and constrained generic overloads remain distinct.
+proves that method/parameter/property attributes, property accessor flags,
+`params`, overloaded indexers, and constrained generic overloads remain
+distinct.
 C#/WinRT projection plumbing, ABI helper attributes, and compiler-only
 diagnostic attributes are excluded because they describe the producing
 toolchain rather than the consumer contract. This also excludes generated
@@ -1313,7 +1315,9 @@ storage. Parent/child navigation is `O(1)` for direct parent and endpoint-child
 queries and `O(C)` for sibling lookup across `C` children, with no navigation
 scratch allocation. Event, notification, property, structure, text-edit, and
 invalidation forwarding stays typed and reflection-free behind a caller-owned
-platform callback seam. Framework-element and rich-edit default behavior routes
+platform callback seam. Every event-raising helper resolves `EventsSource`
+before entering that seam, while invalidation remains owned by the original
+peer. Framework-element and rich-edit default behavior routes
 through internal typed helpers from the public base Core methods, preserving
 the projected metadata shape without reflection or duplicate public overrides.
 
@@ -1827,8 +1831,9 @@ The release-boundary slice aligns every declaration owned directly by
 `TimePicker`, `TimePickerValueChangedEventArgs`, and
 `TimePickerSelectedValueChangedEventArgs`. It adds 15 exact matches and
 reconciles 12 former ProGPU-only declarations, advancing the pinned report to
-8,968 candidate entries, 5,215 exact matches, 11,364 missing entries, and
-3,753 extras after overload- and parameter-qualified metadata ownership. The independently owned `TimePickerFlyout`, flyout presenter,
+8,980 candidate entries, 5,229 exact matches, 11,350 missing entries, and
+3,751 extras after overload/parameter-qualified metadata ownership and exact
+property-accessor flag comparison. The independently owned `TimePickerFlyout`, flyout presenter,
 and automation-peer contracts remain in the explicit parity backlog.
 
 Dependency-property identifiers are official static get-only properties, the
@@ -1852,17 +1857,47 @@ Primary clean-room contracts consulted:
 - the pinned official NuGet ECMA-335 projection metadata and XML documentation.
 
 Focused tests cover defaults, sub-minute truncation, minute-step coercion,
-nullable synchronization and reset, transactional CLR and direct
-dependency-property validation, preservation of the prior local/effective
-clock value after rejected assignments, the two official clock identifiers,
+nullable synchronization and reset, transactional validation for local,
+style, default-style, animation, and theme-resource dependency-property
+sources, preservation of the prior local/effective clock value after rejected
+assignments, the two official clock identifiers,
 exact public metadata shape, and zero managed allocations across 100,000 warmed
 identifier reads. No Microsoft or foreign implementation source or method
 body was inspected, copied, or adapted.
 
+### Final preview.32 metadata and lifecycle hardening
+
+The final review extends property comparison beyond visibility to the exact
+static, abstract, virtual, final, and new-slot flags of each getter and setter.
+The independent self-test covers static and virtual/new-slot properties. The
+new evidence corrected `OverlappedPresenter.RequestedStartupState` and
+`Timeline.AllowDependentAnimations` to their official static contracts,
+removed unintended virtual accessors from the exact `FrameworkElement`
+alignment properties, and adds the official `IScrollSnapPointsInfo` contract
+to the regular `CarouselPanel` and `PivotPanel` implementations. Regular
+panels return one analytic spacing and an allocation-free empty irregular set.
+The startup-state property remains the process startup request rather than
+tracking later presenter mutations, and the app-wide dependent-animation
+switch defaults to enabled.
+
+Primary clean-room contracts consulted for this hardening pass:
+
+- [OverlappedPresenter.RequestedStartupState](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.overlappedpresenter.requestedstartupstate)
+- [Timeline.AllowDependentAnimations](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.media.animation.timeline.allowdependentanimations)
+- [IScrollSnapPointsInfo](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.primitives.iscrollsnappointsinfo)
+- the pinned official NuGet ECMA-335 projection metadata and XML documentation.
+
+Dependency-property validation now runs on converted values before mutation
+for local, style, default-style, animation, and theme-resource reevaluation
+sources. Automation event helpers route through `EventsSource`. These changes
+advance the final pinned report to 8,980 candidate entries, 5,229 exact
+matches, 11,350 missing entries, and 3,751 extras without relaxing the
+monotonic budget.
+
 ## Preview.32 parity handoff
 
 This release closes the current implementation lane; it does not claim full
-WinUI parity. The deterministic report proves 5,215 of 16,579 official
+WinUI parity. The deterministic report proves 5,229 of 16,579 official
 declarations exact. Remaining work is measured, not inferred:
 
 | Area | Exact | Missing | ProGPU-only |
@@ -1875,7 +1910,7 @@ declarations exact. Remaining work is measured, not inferred:
 | `Microsoft.UI.System` | 6 | 0 | 0 |
 | `Microsoft.UI.Text` | 535 | 0 | 0 |
 | `Microsoft.UI.Windowing` | 192 | 0 | 0 |
-| `Microsoft.UI.Xaml` | 3,020 | 10,118 | 3,751 |
+| `Microsoft.UI.Xaml` | 3,034 | 10,104 | 3,749 |
 
 The next parity task should therefore continue in two evidence-backed lanes:
 complete retained WebGPU Composition families with typed bounded ownership,

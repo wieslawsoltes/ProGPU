@@ -549,7 +549,7 @@ public partial class FrameworkElement
         base.Margin = t;
     }
 
-    public override Microsoft.UI.Xaml.Thickness Margin
+    public new Microsoft.UI.Xaml.Thickness Margin
     {
         get => (Microsoft.UI.Xaml.Thickness)(GetValue(MarginProperty) ?? default(Microsoft.UI.Xaml.Thickness));
         set => SetValue(MarginProperty, value);
@@ -592,7 +592,7 @@ public partial class FrameworkElement
         base.HorizontalAlignment = val;
     }
 
-    public override Microsoft.UI.Xaml.HorizontalAlignment HorizontalAlignment
+    public new Microsoft.UI.Xaml.HorizontalAlignment HorizontalAlignment
     {
         get => (Microsoft.UI.Xaml.HorizontalAlignment)(GetValue(HorizontalAlignmentProperty) ?? Microsoft.UI.Xaml.HorizontalAlignment.Stretch);
         set => SetValue(HorizontalAlignmentProperty, value);
@@ -613,7 +613,7 @@ public partial class FrameworkElement
         base.VerticalAlignment = val;
     }
 
-    public override Microsoft.UI.Xaml.VerticalAlignment VerticalAlignment
+    public new Microsoft.UI.Xaml.VerticalAlignment VerticalAlignment
     {
         get => (Microsoft.UI.Xaml.VerticalAlignment)(GetValue(VerticalAlignmentProperty) ?? Microsoft.UI.Xaml.VerticalAlignment.Stretch);
         set => SetValue(VerticalAlignmentProperty, value);

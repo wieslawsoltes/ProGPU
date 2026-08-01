@@ -342,6 +342,57 @@ public sealed class XamlProjectWatchInputTests
     }
 
     [Fact]
+    public async Task FileSystemSubscriptionIgnoresCustomPreviewOutputRename()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "progpu-xaml-watch-custom-output-" +
+            Guid.NewGuid().ToString("N"));
+        var projectPath = Path.Combine(root, "App.csproj");
+        var outputPath = Path.Combine(root, "preview.dll");
+        var temporaryPath =
+            outputPath + ".tmp." + Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(projectPath, "<Project />");
+        File.WriteAllText(temporaryPath, "generated");
+
+        try
+        {
+            using var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = workspace.CurrentSolution
+                .AddProject(
+                    CreateProjectInfo(
+                        projectId,
+                        "App",
+                        projectPath))
+                .GetProject(projectId)!;
+            var inputSet =
+                RoslynXamlProjectWatchInputSet.Create(project);
+            var signals = Channel.CreateUnbounded<string>();
+            using var subscription =
+                new RoslynXamlProjectWatchFileSystemSubscription(
+                    changedPath =>
+                        signals.Writer.TryWrite(changedPath),
+                    new[] { outputPath });
+            Assert.True(subscription.Update(inputSet));
+
+            File.Move(temporaryPath, outputPath);
+            using var timeout =
+                new CancellationTokenSource(
+                    TimeSpan.FromMilliseconds(750));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    await signals.Reader.ReadAsync(timeout.Token));
+            Assert.False(subscription.TakeRefreshRequested());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task TopologyEquivalentUpdateRefreshesBuildClassification()
     {
         var root = Path.Combine(

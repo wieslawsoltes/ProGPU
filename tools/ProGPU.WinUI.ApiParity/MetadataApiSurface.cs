@@ -334,7 +334,9 @@ internal sealed record MetadataApiSurface(
             $"property|{typeName}|access={access};type={signature.ReturnType};" +
             $"name={propertyName};index=({string.Join(",", signature.ParameterTypes)});" +
             $"get={GetAccessorAccess(reader, accessors.Getter)};" +
-            $"set={GetAccessorAccess(reader, accessors.Setter)}");
+            $"set={GetAccessorAccess(reader, accessors.Setter)};" +
+            FormatAccessorFlags(reader, "get", accessors.Getter) + ";" +
+            FormatAccessorFlags(reader, "set", accessors.Setter));
         AddAttributes(
             reader,
             formatter,
@@ -343,6 +345,26 @@ internal sealed record MetadataApiSurface(
             signature.ReturnType,
             property.GetCustomAttributes(),
             entries);
+    }
+
+    private static string FormatAccessorFlags(
+        MetadataReader reader,
+        string prefix,
+        MethodDefinitionHandle handle)
+    {
+        if (handle.IsNil)
+        {
+            return $"{prefix}static=-;{prefix}abstract=-;" +
+                $"{prefix}virtual=-;{prefix}final=-;{prefix}newslot=-";
+        }
+
+        MethodAttributes attributes =
+            reader.GetMethodDefinition(handle).Attributes;
+        return $"{prefix}static={attributes.HasFlag(MethodAttributes.Static)};" +
+            $"{prefix}abstract={attributes.HasFlag(MethodAttributes.Abstract)};" +
+            $"{prefix}virtual={attributes.HasFlag(MethodAttributes.Virtual)};" +
+            $"{prefix}final={attributes.HasFlag(MethodAttributes.Final)};" +
+            $"{prefix}newslot={attributes.HasFlag(MethodAttributes.NewSlot)}";
     }
 
     private static void AddEvent(

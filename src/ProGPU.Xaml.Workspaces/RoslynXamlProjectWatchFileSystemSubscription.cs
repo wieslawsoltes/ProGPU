@@ -24,6 +24,9 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
 {
     private readonly Action<string> _signal;
     private readonly StringComparer _pathComparer;
+    private readonly StringComparison _pathComparison;
+    private readonly HashSet<string> _excludedFiles;
+    private readonly string[] _excludedTemporaryPrefixes;
     private readonly object _gate = new object();
     private List<FileSystemWatcher> _watchers =
         new List<FileSystemWatcher>();
@@ -33,7 +36,8 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
     private int _disposed;
 
     public RoslynXamlProjectWatchFileSystemSubscription(
-        Action<string> signal)
+        Action<string> signal,
+        IEnumerable<string>? excludedFiles = null)
     {
         _signal = signal ??
             throw new ArgumentNullException(nameof(signal));
@@ -41,6 +45,16 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
             Path.DirectorySeparatorChar == '\\'
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal;
+        _pathComparison = Path.DirectorySeparatorChar == '\\'
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        _excludedFiles = new HashSet<string>(
+            (excludedFiles ?? Array.Empty<string>())
+                .Select(Path.GetFullPath),
+            _pathComparer);
+        _excludedTemporaryPrefixes = _excludedFiles
+            .Select(static path => path + ".tmp.")
+            .ToArray();
         _refreshFiles =
             new HashSet<string>(_pathComparer);
     }
@@ -210,6 +224,8 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
         bool IsRelevantPath(string path)
         {
             var fullPath = Path.GetFullPath(path);
+            if (IsExcludedPath(fullPath))
+                return false;
             return IsUnderDirectory(
                        fullPath,
                        projectDirectory) &&
@@ -261,6 +277,11 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
                 var fullPath =
                     Path.GetFullPath(
                         eventArgs.FullPath);
+                if (IsExcludedPath(oldFullPath) &&
+                    IsExcludedPath(fullPath))
+                {
+                    return;
+                }
                 if (IsBuildOutput(oldFullPath) &&
                     IsBuildOutput(fullPath))
                 {
@@ -440,6 +461,20 @@ public sealed class RoslynXamlProjectWatchFileSystemSubscription :
                normalized.EndsWith(
                    "/bin",
                    StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsExcludedPath(string path)
+    {
+        if (_excludedFiles.Contains(path))
+            return true;
+
+        foreach (var prefix in _excludedTemporaryPrefixes)
+        {
+            if (path.StartsWith(prefix, _pathComparison))
+                return true;
+        }
+
+        return false;
     }
 
     private bool IsUnderDirectory(

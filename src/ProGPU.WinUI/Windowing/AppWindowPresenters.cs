@@ -178,7 +178,8 @@ public sealed class OverlappedPresenter :
     private int? _preferredMaximumWidth;
     private int? _preferredMinimumHeight;
     private int? _preferredMinimumWidth;
-    private OverlappedPresenterState _requestedStartupState;
+    private static OverlappedPresenterState s_requestedStartupState =
+        OverlappedPresenterState.Restored;
     private OverlappedPresenterState _state;
 
     private OverlappedPresenter(
@@ -194,8 +195,6 @@ public sealed class OverlappedPresenter :
         _isMaximizable = isMaximizable;
         _isMinimizable = isMinimizable;
         _isResizable = isResizable;
-        _requestedStartupState =
-            OverlappedPresenterState.Restored;
         _state = OverlappedPresenterState.Restored;
     }
 
@@ -269,8 +268,8 @@ public sealed class OverlappedPresenter :
             nameof(value));
     }
 
-    public OverlappedPresenterState RequestedStartupState =>
-        _requestedStartupState;
+    public static OverlappedPresenterState RequestedStartupState =>
+        s_requestedStartupState;
 
     public OverlappedPresenterState State => _state;
 
@@ -334,16 +333,15 @@ public sealed class OverlappedPresenter :
         NotifyConfigurationChanged();
     }
 
+    internal void ApplyRequestedStartupState() =>
+        SetState(RequestedStartupState);
+
     private void SetState(OverlappedPresenterState state)
     {
-        if (_state == state &&
-            _requestedStartupState == state)
-        {
+        if (_state == state)
             return;
-        }
 
         _state = state;
-        _requestedStartupState = state;
         NotifyConfigurationChanged();
     }
 

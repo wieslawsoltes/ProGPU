@@ -53,22 +53,43 @@ internal static class MetadataApiSurfaceSelfTests
             .Select(GetOwner)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        bool staticPropertyFlags = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "property|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=StaticValue;", StringComparison.Ordinal) &&
+                entry.Contains("getstatic=True", StringComparison.Ordinal) &&
+                entry.Contains("setstatic=True", StringComparison.Ordinal));
+        bool virtualPropertyFlags = surface.Entries.Any(
+            static entry =>
+                entry.StartsWith(
+                    "property|ProGPU.WinUI.ApiParity.SelfTest.OverloadFixture|",
+                    StringComparison.Ordinal) &&
+                entry.Contains("name=VirtualValue;", StringComparison.Ordinal) &&
+                entry.Contains("getvirtual=True", StringComparison.Ordinal) &&
+                entry.Contains("getnewslot=True", StringComparison.Ordinal) &&
+                entry.Contains("setvirtual=True", StringComparison.Ordinal) &&
+                entry.Contains("setnewslot=True", StringComparison.Ordinal));
 
         if (attributeOwners.Length != 2 ||
             genericOwners.Length != 2 ||
             parameterAttributeOwners.Length != 2 ||
             paramArrayOwners.Length != 1 ||
-            propertyAttributeOwners.Length != 2)
+            propertyAttributeOwners.Length != 2 ||
+            !staticPropertyFlags ||
+            !virtualPropertyFlags)
         {
             throw new InvalidOperationException(
                 "Method, parameter, params, and property attributes plus generic constraints must retain their complete overload owner signature. " +
                 $"Observed method={attributeOwners.Length}, generic={genericOwners.Length}, " +
                 $"parameter={parameterAttributeOwners.Length}, params={paramArrayOwners.Length}, " +
-                $"property={propertyAttributeOwners.Length}.");
+                $"property={propertyAttributeOwners.Length}, " +
+                $"staticFlags={staticPropertyFlags}, virtualFlags={virtualPropertyFlags}.");
         }
 
         Console.WriteLine(
-            "WinUI API metadata owner self-test passed for method/parameter/property attributes, params, and generic constraints.");
+            "WinUI API metadata owner self-test passed for method/parameter/property attributes, property accessor flags, params, and generic constraints.");
         return 0;
     }
 
@@ -94,7 +115,7 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
         public string Identity { get; } = identity;
     }
 
-    public sealed class OverloadFixture
+    public class OverloadFixture
     {
         [ContractMarker("scalar")]
         public void Apply([ParameterContractMarker("scalar")] int value) => _ = value;
@@ -109,6 +130,10 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
 
         [ContractMarker("text-index")]
         public int this[string index] => index.Length;
+
+        public static int StaticValue { get; set; }
+
+        public virtual int VirtualValue { get; set; }
 
         public void Transform<T>(T value)
             where T : class => _ = value;

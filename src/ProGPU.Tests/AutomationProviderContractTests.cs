@@ -944,6 +944,7 @@ public sealed class AutomationProviderContractTests
     public void AutomationPeerEventsAndAnnotationsPreserveTypedState()
     {
         var peer = new ProbeAutomationPeer("event-source");
+        var redirectedPeer = new ProbeAutomationPeer("redirected-source");
         var child = new ProbeAutomationPeer("child");
         var property = new AutomationProperty(17);
         var changedData = new[] { "composition" };
@@ -953,6 +954,7 @@ public sealed class AutomationProviderContractTests
         AutomationPeer? structurePeer = null;
         AutomationPeer? textPeer = null;
         AutomationPeer? invalidatedPeer = null;
+        AutomationPeer? automationPeer = null;
 
         try
         {
@@ -962,7 +964,11 @@ public sealed class AutomationProviderContractTests
             AutomationPeerEventRuntime.PeerInvalidated =
                 source => invalidatedPeer = source;
             AutomationPeerEventRuntime.AutomationEventRaised =
-                (_, eventId) => automationEvents.Add(eventId);
+                (source, eventId) =>
+                {
+                    automationPeer = source;
+                    automationEvents.Add(eventId);
+                };
             AutomationPeerEventRuntime.NotificationEventRaised =
                 (source, _, _, _, _) => notificationPeer = source;
             AutomationPeerEventRuntime.PropertyChangedEventRaised =
@@ -995,6 +1001,7 @@ public sealed class AutomationProviderContractTests
             Assert.True(AutomationPeer.ListenerExists(
                 AutomationEvents.AutomationFocusChanged));
             peer.InvalidatePeer();
+            peer.EventsSource = redirectedPeer;
             peer.RaiseAutomationEvent(
                 AutomationEvents.AutomationFocusChanged);
             peer.RaiseNotificationEvent(
@@ -1014,10 +1021,11 @@ public sealed class AutomationProviderContractTests
                 changedData);
 
             Assert.Same(peer, invalidatedPeer);
-            Assert.Same(peer, notificationPeer);
-            Assert.Same(peer, propertyPeer);
-            Assert.Same(peer, structurePeer);
-            Assert.Same(peer, textPeer);
+            Assert.Same(redirectedPeer, automationPeer);
+            Assert.Same(redirectedPeer, notificationPeer);
+            Assert.Same(redirectedPeer, propertyPeer);
+            Assert.Same(redirectedPeer, structurePeer);
+            Assert.Same(redirectedPeer, textPeer);
             Assert.Equal(
                 [
                     AutomationEvents.AutomationFocusChanged,

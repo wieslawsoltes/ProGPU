@@ -196,7 +196,7 @@ public class AutomationPeer : DependencyObject
     public void RaiseAutomationEvent(
         AutomationEvents eventId) =>
         AutomationPeerEventRuntime.RaiseAutomationEvent(
-            this,
+            GetEffectiveEventsSource(),
             eventId);
 
     public void RaiseNotificationEvent(
@@ -205,7 +205,7 @@ public class AutomationPeer : DependencyObject
         string displayString,
         string activityId) =>
         AutomationPeerEventRuntime.RaiseNotificationEvent(
-            this,
+            GetEffectiveEventsSource(),
             notificationKind,
             notificationProcessing,
             displayString,
@@ -216,7 +216,7 @@ public class AutomationPeer : DependencyObject
         object oldValue,
         object newValue) =>
         AutomationPeerEventRuntime.RaisePropertyChangedEvent(
-            this,
+            GetEffectiveEventsSource(),
             automationProperty,
             oldValue,
             newValue);
@@ -225,7 +225,7 @@ public class AutomationPeer : DependencyObject
         AutomationStructureChangeType structureChangeType,
         AutomationPeer child) =>
         AutomationPeerEventRuntime.RaiseStructureChangedEvent(
-            this,
+            GetEffectiveEventsSource(),
             structureChangeType,
             child);
 
@@ -233,9 +233,12 @@ public class AutomationPeer : DependencyObject
         AutomationTextEditChangeType automationTextEditChangeType,
         IReadOnlyList<string> changedData) =>
         AutomationPeerEventRuntime.RaiseTextEditTextChangedEvent(
-            this,
+            GetEffectiveEventsSource(),
             automationTextEditChangeType,
             changedData);
+
+    private AutomationPeer GetEffectiveEventsSource() =>
+        _eventsSource ?? this;
 
     public void SetFocus() =>
         SetFocusCore();

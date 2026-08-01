@@ -60,8 +60,12 @@ public sealed class WindowingPresenterTests
             OverlappedPresenterState.Minimized,
             presenter.State);
         Assert.Equal(
-            OverlappedPresenterState.Minimized,
-            presenter.RequestedStartupState);
+            OverlappedPresenterState.Restored,
+            OverlappedPresenter.RequestedStartupState);
+        presenter.ApplyRequestedStartupState();
+        Assert.Equal(
+            OverlappedPresenterState.Restored,
+            presenter.State);
 
         presenter.Maximize();
         Assert.Equal(

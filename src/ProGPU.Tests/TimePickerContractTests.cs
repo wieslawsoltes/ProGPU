@@ -141,6 +141,53 @@ public sealed class TimePickerContractTests
     }
 
     [Fact]
+    public void ClockIdentifierValidationCoversEveryDependencyValueSource()
+    {
+        var styled = new TimePicker();
+        styled.SetStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            "24HourClock");
+        Assert.Throws<ArgumentException>(() => styled.SetStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            "GregorianCalendar"));
+        Assert.Equal("24HourClock", styled.ClockIdentifier);
+
+        var defaultStyled = new TimePicker();
+        defaultStyled.SetDefaultStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            "24HourClock");
+        Assert.Throws<ArgumentException>(() =>
+            defaultStyled.SetDefaultStyleValue(
+                TimePicker.ClockIdentifierProperty,
+                null));
+        Assert.Equal("24HourClock", defaultStyled.ClockIdentifier);
+
+        var animated = new TimePicker();
+        animated.SetAnimatedValue(
+            TimePicker.ClockIdentifierProperty,
+            "24HourClock");
+        Assert.Throws<ArgumentException>(() => animated.SetAnimatedValue(
+            TimePicker.ClockIdentifierProperty,
+            "GregorianCalendar"));
+        Assert.Equal("24HourClock", animated.ClockIdentifier);
+    }
+
+    [Fact]
+    public void RejectedThemeReevaluationRetainsThePreviousClockValue()
+    {
+        var picker = new TimePicker();
+        picker.Resources["Clock"] = "24HourClock";
+        picker.SetStyleValue(
+            TimePicker.ClockIdentifierProperty,
+            new ThemeResource(picker, "Clock"));
+        Assert.Equal("24HourClock", picker.ClockIdentifier);
+
+        Assert.Throws<ArgumentException>(() =>
+            picker.Resources["Clock"] = "GregorianCalendar");
+        Assert.Equal("24HourClock", picker.ClockIdentifier);
+    }
+
+    [Fact]
     public void DependencyPropertyAssignmentUsesTheSameCoercionPath()
     {
         var picker = new TimePicker { MinuteIncrement = 15 };

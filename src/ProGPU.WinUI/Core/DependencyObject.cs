@@ -542,9 +542,11 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     localTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                _localValues[i] = property == null
+                object? candidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+                property?.ValidateValue(candidate);
+                _localValues[i] = candidate;
                 hasThemeResource = true;
             }
             if (i < _styleThemeResources.Length && _styleThemeResources[i] is ThemeResource styleTr)
@@ -555,9 +557,11 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     styleTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                _styleValues[i] = property == null
+                object? candidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+                property?.ValidateValue(candidate);
+                _styleValues[i] = candidate;
                 hasThemeResource = true;
             }
             if (i < _defaultStyleThemeResources.Length && _defaultStyleThemeResources[i] is ThemeResource defaultStyleTr)
@@ -568,9 +572,11 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     defaultStyleTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                _defaultStyleValues[i] = property == null
+                object? candidate = property == null
                     ? resolved
                     : XamlValueConverter.ConvertTo(property.PropertyType, resolved);
+                property?.ValidateValue(candidate);
+                _defaultStyleValues[i] = candidate;
                 hasThemeResource = true;
             }
             if (i < _animatedThemeResources.Length && _animatedThemeResources[i] is ThemeResource animatedTr)
@@ -581,11 +587,13 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                     animatedTr.ResourceKey,
                     activeTheme,
                     activeFamily);
-                _animatedValues[i] =
+                object? candidate =
                     ConvertAnimatedThemeResourceValue(
                         property,
                         resolved,
                         animatedTr);
+                property?.ValidateValue(candidate);
+                _animatedValues[i] = candidate;
                 hasThemeResource = true;
             }
             
@@ -697,14 +705,11 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
 
     internal void SetAnimatedValue(DependencyProperty dp, object? value)
     {
-        int idx = dp.Index;
-        EnsureSize(idx);
-        object? oldValue = GetValue(dp);
-        _hasAnimatedValues[idx] = true;
-
+        ThemeResource? animatedThemeResource;
+        object? animatedValue;
         if (value is ThemeResource themeResource)
         {
-            _animatedThemeResources[idx] = themeResource;
+            animatedThemeResource = themeResource;
             var resolved = XamlResourceResolver.ResolveTheme(
                 themeResource.LookupRoot,
                 this,
@@ -715,7 +720,7 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                 this is FrameworkElement familyElement
                     ? familyElement.ActualThemeFamily
                     : ThemeManager.CurrentThemeFamily);
-            _animatedValues[idx] =
+            animatedValue =
                 ConvertAnimatedThemeResourceValue(
                     dp,
                     resolved,
@@ -725,7 +730,7 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         {
             var themeResourceValue =
                 new ThemeResource(themeBrush.LookupRoot, themeBrush.ResourceKey);
-            _animatedThemeResources[idx] = themeResourceValue;
+            animatedThemeResource = themeResourceValue;
             var resolved = XamlResourceResolver.ResolveTheme(
                 themeResourceValue.LookupRoot,
                 this,
@@ -736,7 +741,7 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
                 this is FrameworkElement familyElement
                     ? familyElement.ActualThemeFamily
                     : ThemeManager.CurrentThemeFamily);
-            _animatedValues[idx] =
+            animatedValue =
                 ConvertAnimatedThemeResourceValue(
                     dp,
                     resolved,
@@ -744,10 +749,17 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
         }
         else
         {
-            _animatedThemeResources[idx] = null;
-            _animatedValues[idx] = value;
+            animatedThemeResource = null;
+            animatedValue = value;
         }
 
+        dp.ValidateValue(animatedValue);
+        int idx = dp.Index;
+        EnsureSize(idx);
+        object? oldValue = GetValue(dp);
+        _hasAnimatedValues[idx] = true;
+        _animatedThemeResources[idx] = animatedThemeResource;
+        _animatedValues[idx] = animatedValue;
         UpdateEffectiveValue(dp, idx, oldValue);
     }
 
@@ -793,29 +805,33 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
 
     public void SetStyleValue(DependencyProperty dp, object? value)
     {
-        int idx = dp.Index;
-        EnsureSize(idx);
-        object? oldValue = GetValue(dp);
-        
+        ThemeResource? styleThemeResource;
+        object? styleValue;
         if (value is ThemeResource themeResource)
         {
-            _styleThemeResources[idx] = themeResource;
+            styleThemeResource = themeResource;
             var resolved = XamlResourceResolver.ResolveTheme(themeResource.LookupRoot, this, themeResource.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _styleValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+            styleValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
         }
         else if (value is ProGPU.Vector.ThemeResourceBrush trBrush)
         {
             var tr = new ThemeResource(trBrush.LookupRoot, trBrush.ResourceKey);
-            _styleThemeResources[idx] = tr;
+            styleThemeResource = tr;
             var resolved = XamlResourceResolver.ResolveTheme(tr.LookupRoot, this, tr.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _styleValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+            styleValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
         }
         else
         {
-            _styleThemeResources[idx] = null;
-            _styleValues[idx] = value;
+            styleThemeResource = null;
+            styleValue = value;
         }
-        
+
+        dp.ValidateValue(styleValue);
+        int idx = dp.Index;
+        EnsureSize(idx);
+        object? oldValue = GetValue(dp);
+        _styleThemeResources[idx] = styleThemeResource;
+        _styleValues[idx] = styleValue;
         UpdateEffectiveValue(dp, idx, oldValue);
     }
 
@@ -839,29 +855,33 @@ public class DependencyObject : ProGPU.Layout.LayoutNode
 
     public void SetDefaultStyleValue(DependencyProperty dp, object? value)
     {
-        int idx = dp.Index;
-        EnsureSize(idx);
-        object? oldValue = GetValue(dp);
-        
+        ThemeResource? defaultStyleThemeResource;
+        object? defaultStyleValue;
         if (value is ThemeResource themeResource)
         {
-            _defaultStyleThemeResources[idx] = themeResource;
+            defaultStyleThemeResource = themeResource;
             var resolved = XamlResourceResolver.ResolveTheme(themeResource.LookupRoot, this, themeResource.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _defaultStyleValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+            defaultStyleValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
         }
         else if (value is ProGPU.Vector.ThemeResourceBrush trBrush)
         {
             var tr = new ThemeResource(trBrush.LookupRoot, trBrush.ResourceKey);
-            _defaultStyleThemeResources[idx] = tr;
+            defaultStyleThemeResource = tr;
             var resolved = XamlResourceResolver.ResolveTheme(tr.LookupRoot, this, tr.ResourceKey, (this is FrameworkElement fe) ? fe.ActualTheme : ThemeManager.CurrentTheme, (this is FrameworkElement feFam) ? feFam.ActualThemeFamily : ThemeManager.CurrentThemeFamily);
-            _defaultStyleValues[idx] = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
+            defaultStyleValue = XamlValueConverter.ConvertTo(dp.PropertyType, resolved);
         }
         else
         {
-            _defaultStyleThemeResources[idx] = null;
-            _defaultStyleValues[idx] = value;
+            defaultStyleThemeResource = null;
+            defaultStyleValue = value;
         }
-        
+
+        dp.ValidateValue(defaultStyleValue);
+        int idx = dp.Index;
+        EnsureSize(idx);
+        object? oldValue = GetValue(dp);
+        _defaultStyleThemeResources[idx] = defaultStyleThemeResource;
+        _defaultStyleValues[idx] = defaultStyleValue;
         UpdateEffectiveValue(dp, idx, oldValue);
     }
 

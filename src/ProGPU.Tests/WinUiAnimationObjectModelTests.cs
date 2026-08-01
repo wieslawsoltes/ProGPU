@@ -165,7 +165,10 @@ public sealed class WinUiAnimationObjectModelTests
         VisualStateManager.GetVisualStateGroups(root).Add(group);
 
         Assert.Equal(new RepeatBehavior(1d), animation.RepeatBehavior);
-        Assert.False(animation.AllowDependentAnimations);
+        Assert.True(Timeline.AllowDependentAnimations);
+        Timeline.AllowDependentAnimations = false;
+        Assert.False(Timeline.AllowDependentAnimations);
+        Timeline.AllowDependentAnimations = true;
         Assert.IsType<TimelineCollection>(storyboard.Children);
         Assert.True(VisualStateManager.GoToState(root, "Active", false));
         Assert.Equal(0.75d, target.Opacity);
@@ -1339,6 +1342,10 @@ public sealed class WinUiAnimationObjectModelTests
 
         Assert.True(carousel.AreHorizontalSnapPointsRegular);
         Assert.False(carousel.AreVerticalSnapPointsRegular);
+        Assert.IsAssignableFrom<IScrollSnapPointsInfo>(carousel);
+        Assert.Empty(carousel.GetIrregularSnapPoints(
+            Orientation.Vertical,
+            SnapPointsAlignment.Near));
         Assert.Equal(100f, carousel.TotalVirtualWidth);
         Assert.Equal(60f, carousel.GetRegularSnapPoints(
             Orientation.Horizontal,
@@ -1354,6 +1361,10 @@ public sealed class WinUiAnimationObjectModelTests
         pivot.Arrange(new ProGPU.Scene.Rect(0f, 0f, 200f, 100f));
 
         Assert.True(pivot.AreHorizontalSnapPointsRegular);
+        Assert.IsAssignableFrom<IScrollSnapPointsInfo>(pivot);
+        Assert.Empty(pivot.GetIrregularSnapPoints(
+            Orientation.Vertical,
+            SnapPointsAlignment.Near));
         Assert.Equal(30f, page.Size.X);
         Assert.IsAssignableFrom<Canvas>(new PivotHeaderPanel());
     }
