@@ -53,10 +53,9 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 4,630 ProGPU
-entries, 3,434 exact matches, 788 missing entries, and 1,196 ProGPU-only
-entries. The missing surface comprises 51 type identities, 16 fields, 14
-interfaces, 536 methods, 69 properties, and 102 semantic attributes. This is
+The current pinned comparison records 4,222 official entries, 4,702 ProGPU
+entries, 3,503 exact matches, 719 missing entries, and 1,199 ProGPU-only
+entries. This is
 a starting point, not a compatibility claim, and the matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
@@ -84,6 +83,59 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Variable-font descriptors and immutable typeface instances
+
+`SKFontVariationAxis`, `SKFontVariationPositionCoordinate`,
+`SKFontPaletteOverride`, and the stack-only `SKFontArguments` now match the
+official 4.151.0 sequential value contracts, mutable properties, readonly
+accessors, typed equality, hashing, and operators. `SKTypeface` now uses the
+official `SKObject` ownership hierarchy and exposes allocation-free span APIs
+for variation axes and current positions. Variation cloning maps four-byte axis
+tags directly onto ProGPU's existing immutable OpenType instances; unknown axes
+are ignored, omitted axes use their defaults, and user coordinates are clamped
+and normalized by the existing `fvar`/`avar` engine. Array properties allocate
+only their documented result, while warmed span queries are `O(A)` with zero
+managed allocation for `A` axes. Typeface cloning is `O(A + R)` for `R`
+requested coordinates and preserves distinct font-instance identity for shaping
+and retained glyph/cache keys. A thread-safe immutable last-position entry
+turns repeated clones into bounded `O(R)` comparison plus one required wrapper,
+without weakening the existing 32-instance normalized-coordinate cache. It
+remains CPU-only and cannot initialize WebGPU.
+
+Three alternating Apple M3 Pro Release process pairs, 72 samples per backend,
+retained exact semantic checksums. Span queries measured `11.850` ns/op for
+ProGPU versus `594.391` ns/op for native (`0.020` ratio), both at zero managed
+allocation. Repeated clones measured `137.959` versus `31,021.542` ns/op
+(`0.004` ratio) and `88` versus `112` managed bytes per clone. The value-only
+contract measured `3.658` versus `3.654` ns/op with zero allocation, neutral at
+timer resolution. Matched Xcode Time Profiler captures measured queries at
+`11.819` versus `580.759` ns/op and clones at `134.521` versus `31,392.875`
+ns/op. Allocations plus VM Tracker retained zero bytes per query and `88` versus
+`112` managed bytes per clone while preserving the same ordering. Metal System
+Trace completed both exact-binary workloads with zero target-process command
+buffer submissions and no `MTLDevice.currentAllocatedSize` samples, confirming
+that font instance selection does not initialize a GPU.
+
+The clean-room design used the public
+[SkiaSharp font-arguments contract](https://learn.microsoft.com/dotnet/api/skiasharp.skfontarguments),
+[Skia font-argument model](https://api.skia.org/structSkFontArguments.html),
+[OpenType `fvar`](https://learn.microsoft.com/typography/opentype/spec/fvar) and
+[`avar`](https://learn.microsoft.com/typography/opentype/spec/avar) contracts,
+[DirectWrite axis selection](https://learn.microsoft.com/windows/win32/directwrite/font-selection),
+[Core Text variation descriptors](https://developer.apple.com/documentation/coretext/ctfontdescriptorcreatecopywithvariation(_:_:_:)),
+and [HarfBuzz variation settings](https://harfbuzz.github.io/harfbuzz-hb-font.html).
+ProGPU adopts their shared immutable axis/value instance model and the rule that
+unspecified axes resolve to defaults. It adapts that model to bounded managed
+instance caches and retained WebGPU glyph resources. It rejects per-draw font
+mutation and GPU shaping: Skia's
+[text architecture](https://docs.skia.org/docs/dev/design/text_overview/),
+[Parley](https://docs.rs/parley/latest/parley/), and
+[WebRender](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+all reinforce reusable CPU shaping/layout followed by cached glyph preparation
+and GPU composition. Color-palette clone behavior remains an explicit follow-up;
+the descriptor contract is present but no incomplete palette renderer is
+advertised by this checkpoint.
 
 ### OpenGL and Metal backend handle descriptors
 

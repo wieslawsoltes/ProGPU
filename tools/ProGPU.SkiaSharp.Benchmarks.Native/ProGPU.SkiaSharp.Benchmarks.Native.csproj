@@ -15,5 +15,8 @@
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies"
                       Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
+    <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\InterVariable.ttf"
+          Link="InterVariable.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

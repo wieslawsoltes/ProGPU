@@ -23,6 +23,7 @@ internal static class ProgramEntry
     };
 
     private static long s_sink;
+    private static SKTypeface? s_variableTypeface;
 
     public static int Run(string[] args)
     {
@@ -72,6 +73,9 @@ internal static class ProgramEntry
             new BenchmarkCase("pmcolor-array-unpremultiply", 1_000, RunUnpremultiplyColorArrays),
             new BenchmarkCase("four-byte-tag-value", 100_000, RunFourByteTagValue),
             new BenchmarkCase("four-byte-tag-format", 10_000, RunFourByteTagFormat),
+            new BenchmarkCase("font-variation-value", 100_000, RunFontVariationValue),
+            new BenchmarkCase("font-variation-query", 100_000, RunFontVariationQuery),
+            new BenchmarkCase("font-variation-clone", 1_000, RunFontVariationClone),
             new BenchmarkCase("version-compatibility", 100_000, RunVersionCompatibility),
             new BenchmarkCase("pixel-format-metadata", 100_000, RunPixelFormatMetadata),
             new BenchmarkCase("color-primaries-to-d50", 100_000, RunColorPrimariesToD50),
@@ -451,6 +455,93 @@ internal static class ProgramEntry
 
         return checksum;
     }
+
+    private static ulong RunFontVariationValue(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var axis = new SKFontVariationAxis
+            {
+                Tag = SKFourByteTag.Parse("wght"),
+                Min = 100,
+                Default = 400,
+                Max = 900,
+                IsHidden = (index & 1) != 0
+            };
+            var coordinate = new SKFontVariationPositionCoordinate
+            {
+                Axis = axis.Tag,
+                Value = 100 + (index & 799)
+            };
+            var palette = new SKFontPaletteOverride
+            {
+                Index = (ushort)(index & 63),
+                Color = 0xff000000u | (uint)index
+            };
+            checksum = Mix(checksum, (uint)axis.Tag);
+            checksum = Mix(checksum, unchecked((uint)BitConverter.SingleToInt32Bits(coordinate.Value)));
+            checksum = Mix(checksum, palette.Color ^ palette.Index ^ (axis.IsHidden ? 1u : 0u));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontVariationQuery(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationAxis> axes = stackalloc SKFontVariationAxis[2];
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2];
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            int axisCount = typeface.GetVariationDesignParameters(axes);
+            int positionCount = typeface.GetVariationDesignPosition(position);
+            checksum = Mix(checksum, (uint)(axisCount + positionCount));
+            checksum = Mix(checksum, (uint)axes[index & 1].Tag);
+            checksum = Mix(
+                checksum,
+                unchecked((uint)BitConverter.SingleToInt32Bits(position[index & 1].Value)));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunFontVariationClone(int operations)
+    {
+        SKTypeface typeface = GetVariableTypeface();
+        Span<SKFontVariationPositionCoordinate> position =
+            stackalloc SKFontVariationPositionCoordinate[2]
+            {
+                new() { Axis = SKFourByteTag.Parse("opsz"), Value = 23 },
+                new() { Axis = SKFourByteTag.Parse("wght"), Value = 537 }
+            };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using SKTypeface clone = typeface.Clone(position);
+            Span<SKFontVariationPositionCoordinate> actual =
+                stackalloc SKFontVariationPositionCoordinate[2];
+            int count = clone.GetVariationDesignPosition(actual);
+            checksum = Mix(checksum, (uint)(clone.FontWeight + count));
+            checksum = Mix(
+                checksum,
+                unchecked((uint)BitConverter.SingleToInt32Bits(actual[index & 1].Value)));
+        }
+
+        return checksum;
+    }
+
+    private static SKTypeface LoadVariableTypeface()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "InterVariable.ttf");
+        return SKTypeface.FromFile(path) ??
+            throw new InvalidOperationException($"Unable to load benchmark variable font: {path}.");
+    }
+
+    private static SKTypeface GetVariableTypeface() =>
+        s_variableTypeface ??= LoadVariableTypeface();
 
     private static ulong RunVersionCompatibility(int operations)
     {

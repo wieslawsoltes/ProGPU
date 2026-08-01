@@ -12,5 +12,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SkiaSharp\SkiaSharp.csproj" />
+    <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\InterVariable.ttf"
+          Link="InterVariable.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
