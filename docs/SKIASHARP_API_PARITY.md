@@ -53,20 +53,20 @@ path work requires matched profiling plus equivalent before/after runs.
 
 ## Current baseline
 
-The current pinned comparison records 4,222 official entries, 5,201 ProGPU
-entries, 4,183 exact matches, 39 missing entries, and 1,018 ProGPU-only
+The current pinned comparison records 4,222 official entries, 5,198 ProGPU
+entries, 4,186 exact matches, 36 missing entries, and 1,012 ProGPU-only
 entries. This is a progress checkpoint, not a compatibility claim, and the
 matching/missing budget
 is ratcheted after every reviewed slice. ProGPU-only entries are audited and
 removed when accidental; explicitly documented extension seams remain outside
 the official parity claim.
 
-The remaining 39 entries are concentrated in nullable/obsolete metadata;
+The remaining 36 entries are concentrated in nullable/obsolete metadata;
 `SKMaskFilter`; N-way, no-draw, and overdraw canvases; raw text-run buffers;
 and a small set of related value and helper contracts. The continuation branch
 regenerated the original 97-entry baseline from the pinned official package at
 `v0.1.0-preview.34`
-(`39b53dbb`) before implementation; the unresolved 39 entries remain explicit,
+(`39b53dbb`) before implementation; the unresolved 36 entries remain explicit,
 reviewable work for its draft PR. GPU-visible
 families require original retained WebGPU implementations and
 quality/performance tests; unsupported platform codecs must fail explicitly
@@ -94,6 +94,25 @@ Primary public contracts:
 - <https://www.w3.org/TR/webgpu/>
 
 ## Implemented parity checkpoints
+
+### Compact font metrics and pinned raw text-run buffers
+
+`SKFontMetrics` now uses the official sequential flags-plus-fifteen-floats ABI.
+The four nullable decoration metrics are represented by validity bits and
+inline values, preserving null semantics in a fixed 64-byte value with no heap
+storage. `SKRawRunBuffer<T>` now uses the official readonly pointer/length
+layout. Builder arrays are allocated directly in pinned managed storage and
+remain owned by the builder, so glyph, position, text, and cluster spans stay
+valid across compacting collections without `GCHandle`, copying, or per-access
+allocation.
+
+Focused tests verify the exact field types and size, nullable metric behavior,
+raw span lengths and snapshots, compacting-GC stability, and exactly zero
+managed bytes across 10,000 warmed position reads. The matched benchmark suite
+includes the same public raw-buffer access workload for official SkiaSharp and
+ProGPU. The exact metadata gate advances from 4,183 to 4,186 matches, reduces
+missing entries from 39 to 36, and removes six accidental ProGPU-only metadata
+entries.
 
 ### Platform codec and managed stream contracts
 
