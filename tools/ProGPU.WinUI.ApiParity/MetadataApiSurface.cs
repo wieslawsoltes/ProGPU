@@ -101,7 +101,8 @@ internal sealed record MetadataApiSurface(
         var layoutKind = GetLayoutKind(type.Attributes);
         var layoutFields = FormatLayoutFields(
             reader,
-            provider,
+            formatter,
+            typeHandle,
             type,
             kind,
             layoutKind);
@@ -110,7 +111,8 @@ internal sealed record MetadataApiSurface(
             $"kind={kind};abstract={type.Attributes.HasFlag(TypeAttributes.Abstract)};" +
             $"sealed={type.Attributes.HasFlag(TypeAttributes.Sealed)};" +
             $"base={baseType};arity={genericArity};" +
-            $"layout={layoutKind};pack={layout.PackingSize};size={layout.Size};" +
+            $"layout={layoutKind};charset={GetStringFormat(type.Attributes)};" +
+            $"pack={layout.PackingSize};size={layout.Size};" +
             $"layoutfields={layoutFields}");
 
         AddAttributes(reader, formatter, typeName, type.GetCustomAttributes(), entries);
@@ -578,9 +580,19 @@ internal sealed record MetadataApiSurface(
             _ => "auto"
         };
 
+    private static string GetStringFormat(TypeAttributes attributes) =>
+        (attributes & TypeAttributes.StringFormatMask) switch
+        {
+            TypeAttributes.UnicodeClass => "unicode",
+            TypeAttributes.AutoClass => "auto",
+            TypeAttributes.CustomFormatClass => "custom",
+            _ => "ansi"
+        };
+
     private static string FormatLayoutFields(
         MetadataReader reader,
-        CanonicalSignatureProvider provider,
+        MetadataNameFormatter formatter,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition type,
         string kind,
         string layoutKind)
@@ -588,6 +600,8 @@ internal sealed record MetadataApiSurface(
         if (kind != "struct" || layoutKind is not ("sequential" or "explicit"))
             return "-";
 
+        var path = new HashSet<TypeDefinitionHandle> { typeHandle };
+        var provider = new LayoutSignatureProvider(formatter);
         var fields = new List<string>();
         foreach (FieldDefinitionHandle handle in type.GetFields())
         {
@@ -595,12 +609,74 @@ internal sealed record MetadataApiSurface(
             if (field.Attributes.HasFlag(FieldAttributes.Static))
                 continue;
 
-            string fieldType = field.DecodeSignature(
+            LayoutTypeInfo fieldType = field.DecodeSignature(
                 provider,
                 GenericContext.Empty);
-            fields.Add($"{fields.Count}:{field.GetOffset()}:{fieldType}");
+            fields.Add(
+                $"{{order={fields.Count};offset={field.GetOffset()};" +
+                $"type={FormatLayoutType(reader, formatter, fieldType, path)};" +
+                $"marshal={FormatMarshallingDescriptor(reader, field)}}}");
         }
         return $"({string.Join(",", fields)})";
+    }
+
+    private static string FormatLayoutType(
+        MetadataReader reader,
+        MetadataNameFormatter formatter,
+        LayoutTypeInfo fieldType,
+        ISet<TypeDefinitionHandle> path)
+    {
+        if (fieldType.EmbeddedValueType.IsNil)
+            return fieldType.Display;
+
+        TypeDefinitionHandle handle = fieldType.EmbeddedValueType;
+        if (!path.Add(handle))
+            return $"{fieldType.Display}{{recursive}}";
+
+        try
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            string baseType = type.BaseType.IsNil
+                ? "-"
+                : formatter.GetTypeName(type.BaseType);
+            string kind = GetTypeKind(type, baseType);
+            string layoutKind = GetLayoutKind(type.Attributes);
+            TypeLayout layout = type.GetLayout();
+            var provider = new LayoutSignatureProvider(formatter);
+            var fields = new List<string>();
+            foreach (FieldDefinitionHandle fieldHandle in type.GetFields())
+            {
+                FieldDefinition field = reader.GetFieldDefinition(fieldHandle);
+                if (field.Attributes.HasFlag(FieldAttributes.Static))
+                    continue;
+
+                LayoutTypeInfo nestedType = field.DecodeSignature(
+                    provider,
+                    GenericContext.Empty);
+                fields.Add(
+                    $"{{order={fields.Count};offset={field.GetOffset()};" +
+                    $"type={FormatLayoutType(reader, formatter, nestedType, path)};" +
+                    $"marshal={FormatMarshallingDescriptor(reader, field)}}}");
+            }
+            return $"{fieldType.Display}{{kind={kind};layout={layoutKind};" +
+                $"charset={GetStringFormat(type.Attributes)};" +
+                $"pack={layout.PackingSize};size={layout.Size};" +
+                $"fields=({string.Join(",", fields)})}}";
+        }
+        finally
+        {
+            path.Remove(handle);
+        }
+    }
+
+    private static string FormatMarshallingDescriptor(
+        MetadataReader reader,
+        FieldDefinition field)
+    {
+        BlobHandle descriptor = field.GetMarshallingDescriptor();
+        return descriptor.IsNil
+            ? "-"
+            : Convert.ToHexString(reader.GetBlobBytes(descriptor));
     }
 
     private static void AddAttributes(
@@ -878,6 +954,124 @@ internal sealed record MetadataApiSurface(
     private readonly record struct GenericContext
     {
         public static GenericContext Empty => default;
+    }
+
+    private readonly record struct LayoutTypeInfo(
+        string Display,
+        TypeDefinitionHandle EmbeddedValueType = default);
+
+    private sealed class LayoutSignatureProvider :
+        ISignatureTypeProvider<LayoutTypeInfo, GenericContext>
+    {
+        private readonly MetadataNameFormatter _formatter;
+
+        public LayoutSignatureProvider(MetadataNameFormatter formatter)
+        {
+            _formatter = formatter;
+        }
+
+        public LayoutTypeInfo GetArrayType(LayoutTypeInfo elementType, ArrayShape shape)
+        {
+            string bounds = shape.Rank == 1
+                ? "*"
+                : new string(',', shape.Rank - 1);
+            return new($"{elementType.Display}[{bounds}]");
+        }
+
+        public LayoutTypeInfo GetByReferenceType(LayoutTypeInfo elementType) =>
+            new($"{elementType.Display}&");
+
+        public LayoutTypeInfo GetFunctionPointerType(
+            MethodSignature<LayoutTypeInfo> signature) =>
+            new(
+                $"fnptr({string.Join(",", signature.ParameterTypes.Select(static type => type.Display))})->" +
+                signature.ReturnType.Display);
+
+        public LayoutTypeInfo GetGenericInstantiation(
+            LayoutTypeInfo genericType,
+            ImmutableArray<LayoutTypeInfo> typeArguments) =>
+            new(
+                $"{genericType.Display}<" +
+                $"{string.Join(",", typeArguments.Select(static type => type.Display))}>",
+                genericType.EmbeddedValueType);
+
+        public LayoutTypeInfo GetGenericMethodParameter(
+            GenericContext context,
+            int index) => new($"!!{index}");
+
+        public LayoutTypeInfo GetGenericTypeParameter(
+            GenericContext context,
+            int index) => new($"!{index}");
+
+        public LayoutTypeInfo GetModifiedType(
+            LayoutTypeInfo modifier,
+            LayoutTypeInfo unmodifiedType,
+            bool isRequired) =>
+            new(
+                $"{unmodifiedType.Display} " +
+                $"{(isRequired ? "modreq" : "modopt")}({modifier.Display})",
+                unmodifiedType.EmbeddedValueType);
+
+        public LayoutTypeInfo GetPinnedType(LayoutTypeInfo elementType) =>
+            new($"{elementType.Display} pinned");
+
+        public LayoutTypeInfo GetPointerType(LayoutTypeInfo elementType) =>
+            new($"{elementType.Display}*");
+
+        public LayoutTypeInfo GetPrimitiveType(PrimitiveTypeCode typeCode) =>
+            new(typeCode switch
+            {
+                PrimitiveTypeCode.Void => "System.Void",
+                PrimitiveTypeCode.Boolean => "System.Boolean",
+                PrimitiveTypeCode.Char => "System.Char",
+                PrimitiveTypeCode.SByte => "System.SByte",
+                PrimitiveTypeCode.Byte => "System.Byte",
+                PrimitiveTypeCode.Int16 => "System.Int16",
+                PrimitiveTypeCode.UInt16 => "System.UInt16",
+                PrimitiveTypeCode.Int32 => "System.Int32",
+                PrimitiveTypeCode.UInt32 => "System.UInt32",
+                PrimitiveTypeCode.Int64 => "System.Int64",
+                PrimitiveTypeCode.UInt64 => "System.UInt64",
+                PrimitiveTypeCode.Single => "System.Single",
+                PrimitiveTypeCode.Double => "System.Double",
+                PrimitiveTypeCode.String => "System.String",
+                PrimitiveTypeCode.IntPtr => "System.IntPtr",
+                PrimitiveTypeCode.UIntPtr => "System.UIntPtr",
+                PrimitiveTypeCode.Object => "System.Object",
+                PrimitiveTypeCode.TypedReference => "System.TypedReference",
+                _ => typeCode.ToString()
+            });
+
+        public LayoutTypeInfo GetSZArrayType(LayoutTypeInfo elementType) =>
+            new($"{elementType.Display}[]");
+
+        public LayoutTypeInfo GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            string baseType = type.BaseType.IsNil
+                ? "-"
+                : _formatter.GetTypeName(type.BaseType);
+            bool isValueType = baseType is "System.ValueType" or "System.Enum";
+            return new(
+                _formatter.GetTypeName(handle),
+                isValueType ? handle : default);
+        }
+
+        public LayoutTypeInfo GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) => new(_formatter.GetTypeName(handle));
+
+        public LayoutTypeInfo GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext genericContext,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            reader.GetTypeSpecification(handle)
+                .DecodeSignature(this, genericContext);
     }
 
     private sealed class CanonicalSignatureProvider :

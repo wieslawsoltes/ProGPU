@@ -141,7 +141,9 @@ internal static class MetadataApiSurfaceSelfTests
                 entry.StartsWith(
                     "type|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
                     StringComparison.Ordinal) &&
-                entry.Contains("layout=explicit;pack=2;size=16", StringComparison.Ordinal));
+                entry.Contains(
+                    "layout=explicit;charset=ansi;pack=2;size=16",
+                    StringComparison.Ordinal));
         bool explicitFieldLayout = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -162,8 +164,30 @@ internal static class MetadataApiSurfaceSelfTests
                     "type|ProGPU.WinUI.ApiParity.SelfTest.LayoutFixture|",
                     StringComparison.Ordinal) &&
                 entry.Contains(
-                    "layoutfields=(0:4:System.Int16,1:2:System.Byte,2:0:System.Int32)",
+                    "layoutfields=({order=0;offset=4;type=System.Int16;marshal=-}," +
+                    "{order=1;offset=2;type=System.Byte;marshal=-}," +
+                    "{order=2;offset=0;type=System.Int32;marshal=-})",
                     StringComparison.Ordinal));
+        string? marshalLayoutEntry = surface.Entries.FirstOrDefault(
+            static entry => entry.StartsWith(
+                "type|ProGPU.WinUI.ApiParity.SelfTest.MarshalLayoutFixture|",
+                StringComparison.Ordinal));
+        bool nestedPrivateValueTypeLayout = marshalLayoutEntry?.Contains(
+            "NestedLayout{kind=struct;layout=sequential;",
+            StringComparison.Ordinal) == true &&
+            marshalLayoutEntry.Contains("charset=unicode;", StringComparison.Ordinal) &&
+            marshalLayoutEntry.Contains(
+                "type=System.Int16;marshal=-",
+                StringComparison.Ordinal) &&
+            marshalLayoutEntry.Contains(
+                "type=System.Byte;marshal=-",
+                StringComparison.Ordinal);
+        bool fieldMarshallingDescriptor = marshalLayoutEntry?.Contains(
+            "type=System.String;marshal=",
+            StringComparison.Ordinal) == true &&
+            !marshalLayoutEntry.Contains(
+                "type=System.String;marshal=-",
+                StringComparison.Ordinal);
         bool eventAccessorMethodAttribute = surface.Entries.Any(
             static entry =>
                 entry.StartsWith(
@@ -202,6 +226,8 @@ internal static class MetadataApiSurfaceSelfTests
             !explicitTypeLayout ||
             !explicitFieldLayout ||
             !privateFieldLayout ||
+            !nestedPrivateValueTypeLayout ||
+            !fieldMarshallingDescriptor ||
             !eventAccessorMethodAttribute ||
             !eventAccessorReturnAttribute ||
             !eventAccessorParameterMetadata)
@@ -223,6 +249,8 @@ internal static class MetadataApiSurfaceSelfTests
                 $"explicitTypeLayout={explicitTypeLayout}, " +
                 $"explicitFieldLayout={explicitFieldLayout}, " +
                 $"privateFieldLayout={privateFieldLayout}, " +
+                $"nestedPrivateValueTypeLayout={nestedPrivateValueTypeLayout}, " +
+                $"fieldMarshallingDescriptor={fieldMarshallingDescriptor}, " +
                 $"eventAccessorMethodAttribute={eventAccessorMethodAttribute}, " +
                 $"eventAccessorReturnAttribute={eventAccessorReturnAttribute}, " +
                 $"eventAccessorParameterMetadata={eventAccessorParameterMetadata}.");
@@ -334,5 +362,21 @@ namespace ProGPU.WinUI.ApiParity.SelfTest
 
         [FieldOffset(0)]
         public int First;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MarshalLayoutFixture
+    {
+        private NestedLayout _nested;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 16)]
+        private string? _name;
+
+        [StructLayout(LayoutKind.Sequential, Pack = 2)]
+        private struct NestedLayout
+        {
+            public short Value;
+            private byte _tail;
+        }
     }
 }
