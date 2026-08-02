@@ -134,14 +134,11 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
             SKRotationScaleMatrix.CreateTranslation(10f, 12f),
             rotation.Positions[0]);
 
-        _ = positioned.Positions[0].X;
+        var warmChecksum = ReadPositionX(positioned, 10_000);
         var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-        var checksum = 0f;
-        for (var iteration = 0; iteration < 10_000; iteration++)
-        {
-            checksum += positioned.Positions[0].X;
-        }
+        var checksum = ReadPositionX(positioned, 10_000);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        Assert.Equal(60_000f, warmChecksum);
         Assert.Equal(60_000f, checksum);
         Assert.Equal(0, allocated);
 
@@ -226,6 +223,17 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
 
     private static MethodInfo? GetBuilderMethod(string name, params Type[] parameterTypes) =>
         typeof(SKTextBlobBuilder).GetMethod(name, parameterTypes);
+
+    private static float ReadPositionX(SKRawRunBuffer<SKPoint> run, int count)
+    {
+        var checksum = 0f;
+        for (var iteration = 0; iteration < count; iteration++)
+        {
+            checksum += run.Positions[0].X;
+        }
+
+        return checksum;
+    }
 
     private static void AssertParameterNames(MethodBase? method, params string[] expected)
     {

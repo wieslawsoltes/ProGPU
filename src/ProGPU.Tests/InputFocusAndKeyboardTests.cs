@@ -690,24 +690,20 @@ public sealed class InputFocusAndKeyboardTests
                 InputLightDismissRegistration
                     .Notify(appWindow.Id));
 
+            int warmDelivered = NotifyLightDismiss(
+                appWindow.Id,
+                Count);
             _ = GC.GetAllocatedBytesForCurrentThread();
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
-            int delivered = 0;
-            for (int index = 0;
-                 index < Count;
-                 index++)
-            {
-                if (InputLightDismissRegistration
-                    .Notify(appWindow.Id))
-                {
-                    delivered++;
-                }
-            }
+            int delivered = NotifyLightDismiss(
+                appWindow.Id,
+                Count);
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread() -
                 before;
 
+            Assert.Equal(Count, warmDelivered);
             Assert.Equal(Count, delivered);
             Assert.Equal(0, allocated);
             appWindow.Destroy();
@@ -1016,6 +1012,25 @@ public sealed class InputFocusAndKeyboardTests
             checksum ^= (int)listener.State;
         }
         return checksum;
+    }
+
+    private static int NotifyLightDismiss(
+        Microsoft.UI.WindowId windowId,
+        int count)
+    {
+        int delivered = 0;
+        for (int index = 0;
+             index < count;
+             index++)
+        {
+            if (InputLightDismissRegistration
+                .Notify(windowId))
+            {
+                delivered++;
+            }
+        }
+
+        return delivered;
     }
 
     private static void RunOnDispatcherThread(
