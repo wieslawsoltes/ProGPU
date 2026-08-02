@@ -435,3 +435,30 @@ The final product is reached through the following evidence gates. Work may over
 - Reflection confined to explicitly documented tooling activation does not authorize reflection in compiler, generated code, binding, resources, or normal runtime.
 - No roadmap gate permits copying or porting implementation or test source from another project.
 - Every completed gate updates `REQUIREMENTS.md`, `FEATURE_MATRIX.md`, `IMPLEMENTATION_PLAN.md`, the clean-room record when research was performed, and the relevant package/sample documentation.
+
+## Preview.36 compiler handoff
+
+Preview.36 intentionally ships no new XAML compiler feature claim. The current
+compiler breadth, unchanged pinned Fluent corpus, source-generator/MSBuild/CLI
+package consumer, workspace services, and detached Roslyn diagnostic-origin
+projection remain available and gated. The compiler is still pre-MVP.
+
+The next compiler branch starts from the immutable Preview.36 tag. Its five
+MVP-blocking product slices remain explicit:
+
+1. runtime capability adapters for each declared compiler/profile feature;
+2. atomic metadata apply, XAML publication, joint commit, rollback, and
+   last-good recovery;
+3. namescope, resource, template, and binding fine-patch execution with a safe
+   root-replacement fallback;
+4. Windows/macOS/Linux stress, deterministic performance, visual,
+   accessibility, and collectible-context leak gates;
+5. published-feed source-generator/MSBuild/CLI/workspace/playground consumer
+   evidence, documentation, and release productization.
+
+After those blockers, the broader final-product work remains the F1-F9 program
+above: full WinUI runtime parity, XAML 2009 and writer completion, independent
+Avalonia/WPF/MAUI profiles, bidirectional language services, AOT/binary
+artifacts, the public extension SDK, and long-term corpus/fuzz/performance
+governance. A parsed corpus cannot count as semantic, generated, runtime,
+hot-reload, or editing completion without its own evidence.

@@ -2079,3 +2079,32 @@ Behavior, rendering quality, accessibility, input, layout, threading, device
 loss, and performance validation are tracked separately from declaration
 parity. The metadata report therefore measures contract coverage and is not by
 itself a claim of behavioral completion.
+
+## Preview.36 handoff after SkiaSharp performance closure
+
+Preview.36 claims no additional official WinUI declarations. The pinned NuGet
+comparator remains the source of truth: 4,952 of 16,579 declarations match
+exactly, 11,627 remain missing, and 6,652 candidate declarations are
+ProGPU-only. This release closes adjacent retained path and immutable
+surface-snapshot work used by every framework host.
+
+The next WinUI parity branch must start from the immutable Preview.36 tag and
+keep `eng/progpu-winui-api-check.sh` plus `eng/winui-api-baseline.json` as
+monotonic automatic gates. Work remains ordered as follows:
+
+1. official API-contract marker types and the `System.Type`
+   `ContractVersionAttribute` constructor;
+2. behavior-complete retained WebGPU `Microsoft.UI.Composition` families,
+   including animation, interactions, brushes/effects, device loss, and
+   bounded resource ownership;
+3. behavior-complete `Microsoft.UI.Xaml` dependency-property, control, layout,
+   input, automation, and accessibility clusters;
+4. removal or namespace isolation of the 6,652 ProGPU-only declarations while
+   preserving intentional typed extension seams;
+5. a ratcheted official-metadata report plus focused behavior, rendering,
+   accessibility, package, cross-platform, and matched performance evidence
+   for every slice.
+
+Rendering declarations must continue to lower to typed, reflection-free
+retained WebGPU work. Metadata presence alone does not establish behavior,
+quality, accessibility, threading, or lifetime parity.

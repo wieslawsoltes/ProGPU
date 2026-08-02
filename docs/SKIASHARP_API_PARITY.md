@@ -1237,3 +1237,95 @@ command-buffer submissions, current device allocation, and resource-allocation
 exports are empty in both runs, as expected for state-only recording. Raw
 traces, TOCs, table exports, and exact-run JSON are retained under
 `artifacts/performance/skiasharp-interceptor-instruments`.
+
+## Preview.36 retained path and immutable snapshot continuation
+
+This continuation closes the three explicit Preview.35 performance slices
+without changing the complete 4,222-of-4,222 official 4.151.0 metadata ledger.
+
+Common `SKPathBuilder` move, line, quadratic, cubic, and close operations now
+write one pooled contiguous command stream. Bounds are maintained
+incrementally, immutable detach transfers ownership in `O(1)`, and the public
+`PathGeometry` graph materializes only when requested. Complex conic,
+analytic-arc, add-path, transform, reverse, and iterator paths retain the typed
+geometry implementation. Construction is CPU-only `O(N)` time and storage for
+`N` commands, bounds are `O(1)`, and storage retention is bounded to one
+thread-local array of at most 1,024 commands; larger arrays return to the
+shared pool.
+
+Surface snapshots now create one immutable full-surface WebGPU texture per
+content generation. Bounded images are constant-time shared views with
+composed origins and reference-counted lifetime. The next surface command
+invalidates only the cache reference; returned images retain the old
+generation and preserve the immutable snapshot contract. A generation
+performs one GPU texture copy and requires copy-source, copy-destination, and
+texture-binding usage; repeated snapshots allocate no texture, submit no copy,
+and perform no CPU readback. Borrowed externally mutable targets remain
+uncached. Cold cross-context, raster, encoded-data, and release-callback state
+is held lazily, so ordinary views do not allocate unrelated locks or maps.
+
+The clean-room design uses Skia's public
+[`SkPathBuilder`](https://api.skia.org/classSkPathBuilder.html),
+[`SkPath`](https://api.skia.org/classSkPath.html), and
+[`SkSurface::makeImageSnapshot`](https://api.skia.org/classSkSurface.html)
+contracts; Direct2D's
+[path geometry model](https://learn.microsoft.com/windows/win32/direct2d/path-geometries-overview);
+Win2D's
+[offscreen target model](https://learn.microsoft.com/windows/apps/develop/win2d/offscreen-drawing);
+WebGPU's
+[texture usage, lifetime, and texel-copy rules](https://gpuweb.github.io/gpuweb/);
+WebRender's
+[retained display-list architecture](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html);
+and Vello's
+[compute-centric renderer](https://github.com/linebender/vello). ProGPU adopts
+immutable generations, explicit GPU ownership, lazy typed materialization, and
+retained-resource reuse. It rejects copied source structure, per-view GPU
+copies, CPU readback, unbounded exact-position caches, and GPU initialization
+in path construction. SkParagraph, Parley, DirectWrite, and HarfBuzz were also
+reviewed at the architecture boundary; this slice does not alter shaping or
+line layout, so their reusable CPU result boundary remains unchanged.
+
+Three alternating exact-checksum Apple M3 Pro Release process pairs at commit
+`c989623c` produced these medians:
+
+| Workload | Native SkiaSharp | ProGPU | Ratio | Managed B/op, native/ProGPU |
+| --- | ---: | ---: | ---: | ---: |
+| retained canvas state routing | 206.148 ns | 215.754 ns | 1.047 | 0.175 / 0.788 |
+| path build and bounds | 766.542 ns | 512.875 ns | 0.669 | 168 / 224 |
+| bounded surface snapshot | 411.052 ns | 223.758 ns | 0.544 | 104.168 / 104.890 |
+
+The former canvas ratio was a Tier-0 measurement artifact. Thirty-two full
+warmups stabilize dynamic PGO before sampling; the steady route is within 4.7%
+of native and remains below one managed byte per operation. Against exact
+Preview.35, packed path construction fell from `2,868.104` to `534.312` ns/op
+and from `3,520` to `224` managed B/op. It is faster than the native `764.459`
+ns/op result, while native's `168` managed B/op excludes its native
+allocations; no unsupported total-memory comparison is made.
+
+Matched macOS profiling compares exact Preview.35 product commit `561a5bd2`
+with exact product commit `c989623c`; the baseline harness contains only the
+dependency-reference and operation-count changes needed to run the same case.
+Time Profiler measured snapshots at `34,701.302` versus `114.981` ns/op.
+Allocations plus VM Tracker measured `78,493.290` versus `124.304` ns/op and
+`512.834` versus `104.890` managed B/op; raw native tables are retained because
+`xctrace` does not expose an allocation-table export schema for this template.
+EventPipe measured `34,994.175` versus `147.485` ns/op and attributes the
+baseline to per-call `SKSurface.Snapshot`, `GpuTexture.Allocate`, and queue
+submission, while the candidate samples the shared-view/reference-count path.
+
+A bounded 100-operation Metal System Trace avoids an unusable multi-gigabyte
+baseline while exercising the same path. Baseline/candidate exports contain
+4,090/131 command-buffer-submission rows and 198/121 resource allocation or
+deallocation rows. The candidate creates the surface backing texture and one
+labelled immutable snapshot generation rather than a texture per view. Raw
+traces, TOCs, exported tables, exact-run JSON, EventPipe, and Speedscope files
+are retained under `artifacts/performance/skiasharp-surface-c989623c`; packed
+path evidence is under
+`artifacts/performance/skiasharp-packed-path-0cba9fb9`.
+
+The three Preview.35 blockers are closed. Residual matched CPU ratios above
+native remain separately visible: platform-lock read `1.139`, PM-color array
+unpremultiply `1.165`, string round-trip `1.140`, and in-place 4 KiB swizzle
+`1.094`. Image-subset and gradient-factory managed representations also remain
+larger where their latency is faster. These are future optimization slices,
+not blockers for this release boundary.
