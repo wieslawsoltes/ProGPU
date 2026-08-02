@@ -19,9 +19,16 @@ if [[ "${actual_revision}" != "${expected_revision}" ]]; then
   exit 3
 fi
 
+dotnet restore "${test_project}" \
+  --configfile "${repo_root}/NuGet.config" \
+  -p:ProGpuTextShaperTests=true \
+  -p:ProGpuSourceRoot="${repo_root}" \
+  -p:ProGpuAvaloniaSourceRoot="${avalonia_root}"
+
 dotnet build "${test_project}" \
   -c Release \
   -m:1 \
+  --no-restore \
   -p:ProGpuTextShaperTests=true \
   -p:ProGpuSourceRoot="${repo_root}" \
   -p:ProGpuAvaloniaSourceRoot="${avalonia_root}"
