@@ -39,8 +39,8 @@ public sealed class SkPathBuilderCompatibilityTests
         var small = Measure(4);
         var large = Measure(256);
 
-        Assert.InRange(small.AllocatedBytes, 0, 320);
-        Assert.InRange(large.AllocatedBytes, 0, 320);
+        Assert.InRange(small.AllocatedBytes, 0, 192);
+        Assert.InRange(large.AllocatedBytes, 0, 192);
         Assert.InRange(Math.Abs(large.AllocatedBytes - small.AllocatedBytes), 0, 32);
         Assert.Equal(new SKRect(1f, 2f, 16f, 17f), small.Bounds);
         Assert.Equal(new SKRect(1f, 2f, 268f, 269f), large.Bounds);
