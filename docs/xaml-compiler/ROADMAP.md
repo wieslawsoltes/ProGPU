@@ -481,3 +481,14 @@ publication and recovery, fine-grained namescope/resource/template/binding
 patching with safe fallback, cross-platform stress/performance/visual/
 accessibility/leak gates, and published-feed productization evidence before an
 MVP claim.
+
+## Preview.39 compiler handoff
+
+Preview.39 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.38 compiler packages, diagnostic-origin projection, and the same
+five pre-MVP product blockers. The next compiler branch starts from the
+immutable Preview.39 tag and must complete runtime capability adapters, atomic
+publication and recovery, fine-grained namescope/resource/template/binding
+patching with safe fallback, cross-platform stress/performance/visual/
+accessibility/leak gates, and published-feed productization evidence before an
+MVP claim.
