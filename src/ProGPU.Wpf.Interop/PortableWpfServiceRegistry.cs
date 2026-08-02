@@ -475,7 +475,8 @@ public sealed class PortableWindowActivationCallbacks
         Action<object>? dispose = null,
         Func<object, bool>? dragMove = null,
         Func<object, IntPtr>? getHandle = null,
-        Func<IntPtr, PortableWindowRegion, bool>? setWindowRegion = null)
+        Func<IntPtr, PortableWindowRegion, bool>? setWindowRegion = null,
+        Func<object, bool>? requestActivation = null)
     {
         Activate = activate ?? throw new ArgumentNullException(nameof(activate));
         Show = show;
@@ -492,6 +493,7 @@ public sealed class PortableWindowActivationCallbacks
         DragMove = dragMove;
         GetHandle = getHandle;
         SetWindowRegion = setWindowRegion;
+        RequestActivation = requestActivation;
     }
 
     public Func<object, object?> Activate { get; }
@@ -523,6 +525,16 @@ public sealed class PortableWindowActivationCallbacks
     public Func<object, IntPtr>? GetHandle { get; }
 
     public Func<IntPtr, PortableWindowRegion, bool>? SetWindowRegion { get; }
+
+    /// <summary>
+    /// Requests native foreground activation for an existing portable window host.
+    /// </summary>
+    /// <remarks>
+    /// This callback is distinct from <see cref="Activate"/>, which creates or resolves
+    /// the portable activation object. Hosts should return <see langword="true"/> only
+    /// when the native platform accepted the foreground request.
+    /// </remarks>
+    public Func<object, bool>? RequestActivation { get; }
 }
 
 public sealed class PortableWindowInputEvent
