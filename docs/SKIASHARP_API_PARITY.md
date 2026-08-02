@@ -1617,3 +1617,68 @@ Raw distributions and compact profiler target results are retained under
 summaries, 433 MiB of raw Instruments/EventPipe data and 102 MiB of exact
 baseline build state were deleted. No task-owned `.trace`, `.nettrace`,
 Speedscope, Xcode scratch, or temporary worktree remains.
+
+## Copy-on-write runtime-effect snapshots after Preview.40
+
+`SKRuntimeEffectUniforms` now publishes its current uniform byte storage as an
+immutable retained snapshot. A later write or reset clones the buffer only
+when that storage has already been published, preserving every older shader,
+color-filter, or blender instance without copying on every construction.
+Effects with no child slots reuse the empty child array, and the common
+identity instance no longer stores a 36-byte `SKMatrix`; a compact derived
+instance carries the matrix only for a non-identity transform. Public API and
+observable mutation isolation remain unchanged.
+
+Snapshot publication is `O(1)`. The first mutation after publication is
+`O(U)` time and storage for `U` uniform bytes; later mutations before another
+snapshot are `O(1)`. Existing child capture remains `O(C)` for `C` child slots.
+The path is CPU-only and performs no WebGPU initialization, upload, or command
+submission.
+
+The clean-room design used Skia's public
+[Runtime Effects and SkSL](https://docs.skia.org/docs/user/sksl/) contract;
+Direct2D's
+[resource-format boundary](https://learn.microsoft.com/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes);
+Win2D's
+[premultiplied-alpha contract](https://microsoft.github.io/Win2D/WinUI2/html/PremultipliedAlpha.htm);
+WebRender's
+[retained blob-image architecture](https://searchfox.org/firefox-main/source/gfx/wr/webrender/doc/blob.md);
+Vello's [typed retained renderer boundary](https://github.com/linebender/vello);
+DirectWrite [glyph runs](https://learn.microsoft.com/windows/win32/directwrite/glyphs-and-glyph-runs);
+and HarfBuzz's
+[reusable shaping outputs](https://harfbuzz.github.io/shaping-and-shape-plans.html).
+ProGPU adopts immutable retained payloads, copy-on-write ownership, and compact
+identity state. It rejects writable shared snapshots, reflection, CPU-pixel
+fallbacks, copied foreign implementation structure, moving text shaping into
+this layer, and GPU initialization for this CPU ownership API.
+
+Three interleaved Apple M3 Pro Release process pairs compared exact Preview.40
+merge `3dbf79b8` with product commit `fa77c4ad`, using 128 warmups and 192
+samples per process. Across 576 samples per side, the exact checksum remained
+`1721237190835759209`; median latency fell from `220.8291` to `140.1958`
+ns/op (`36.51%` lower), throughput rose `57.51%`, and managed allocation fell
+from `544` to `360` B/op (`33.82%` lower). Scheduler interference dominates
+the tail, so no P95 improvement is claimed. An exploratory official SkiaSharp
+4.151.0 comparison produced the same checksum; its managed counter excludes
+native allocation and is not used for a total-memory claim.
+
+Matched macOS profiling retained the same allocation result. Time Profiler
+measured `206.865` versus `175.498` ns/op; Allocations plus VM Tracker measured
+`259.502` versus `177.112`; EventPipe sampled-thread-time measured `212.559`
+versus `166.342`; and Metal System Trace measured `224.460` versus `172.181`.
+EventPipe attributed `38.54%` exclusive baseline samples to `ToShader`; that
+frame left the candidate top 15 after the compact path became inlineable. Both
+Metal traces exported zero target command-buffer submissions and zero
+`MTLDevice.currentAllocatedSize` rows.
+
+Focused runtime-effect tests pass 7/7, including snapshot mutation isolation,
+transformed-matrix fidelity, and a 400-B/op allocation ceiling. The full core
+suite passes 3,242/3,242, the headless suite passes 225/225, and the XAML
+compiler suite passes 307/307. The official Skia API gate remains
+`reference=4222`, `matching=4222`, `missing=0`, and `extra=998`; documentation
+and package-manifest gates pass. Distributions, compact profiler results, the
+complete research record, and reproduction protocol are retained under
+`artifacts/performance/skiasharp-runtime-effect-cow`. After extraction,
+approximately 8.6 GiB of task-owned raw EventPipe/Instruments data and
+temporary exact-baseline state were deleted; no task-owned trace, scratch, path
+marker, or worktree remains.

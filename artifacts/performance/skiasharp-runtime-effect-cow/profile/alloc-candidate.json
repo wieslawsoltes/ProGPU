@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "backend": "ProGPU",
+  "repositoryCommit": "fa77c4ad24942431e8369b92cbeda342d77c948b",
+  "dirtyState": "clean",
+  "capturedAtUtc": "2026-08-02T21:49:13.835032+00:00",
+  "framework": ".NET 10.0.5",
+  "operatingSystem": "macOS 26.4.1",
+  "architecture": "Arm64",
+  "processorCount": 11,
+  "harnessAssemblyVersion": "0.1.0.0",
+  "skiaAssemblyVersion": "0.1.0.0",
+  "warmupCount": 1,
+  "sampleCount": 3,
+  "results": [
+    {
+      "name": "runtime-effect-uniform-snapshot",
+      "operationsPerSample": 500000,
+      "checksum": 4582063500015178895,
+      "nanosecondsPerOperation": [
+        260.941418,
+        177.111832,
+        174.406916
+      ],
+      "allocatedBytesPerOperation": [
+        360,
+        360,
+        360
+      ],
+      "medianNanoseconds": 177.111832,
+      "p95Nanoseconds": 260.941418,
+      "minimumNanoseconds": 174.406916,
+      "maximumNanoseconds": 260.941418,
+      "medianAllocatedBytes": 360
+    }
+  ]
+}
