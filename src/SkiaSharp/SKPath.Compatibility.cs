@@ -704,7 +704,7 @@ public partial class SKPath
 
     private void AppendRoundRect(
         SKRect rect,
-        IReadOnlyList<SKPoint> sourceRadii,
+        ReadOnlySpan<SKPoint> sourceRadii,
         SKPathDirection direction,
         uint startIndex)
     {

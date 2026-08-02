@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using ProGPU.Vector;
 
 namespace SkiaSharp;
@@ -721,14 +722,17 @@ public enum SKRoundRectType
 
 public class SKRoundRect : SKObject
 {
+    private const int CornerCount = 4;
     private const float NearlyZero = 1f / (1 << 12);
-    private readonly SKPoint[] _radii = new SKPoint[4];
+    private CornerRadiusBuffer _radii;
     private SKRect _rect;
     private SKRoundRectType _type;
 
+    private ReadOnlySpan<SKPoint> RadiiReadOnlySpan => _radii;
+
     public SKRect Rect => _rect;
 
-    public SKPoint[] Radii => (SKPoint[])_radii.Clone();
+    public SKPoint[] Radii => RadiiReadOnlySpan.ToArray();
 
     public SKRoundRectType Type => _type;
 
@@ -740,7 +744,7 @@ public class SKRoundRect : SKObject
 
     public bool AllCornersCircular => CheckAllCornersCircular(NearlyZero);
 
-    internal SKPoint[] CornerRadii => _radii;
+    internal ReadOnlySpan<SKPoint> CornerRadii => RadiiReadOnlySpan;
 
     public SKRoundRect()
         : base(SKObjectHandle.Create(), owns: true)
@@ -749,7 +753,7 @@ public class SKRoundRect : SKObject
     }
 
     public SKRoundRect(SKRect rect)
-        : this()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetRect(rect);
     }
@@ -760,22 +764,22 @@ public class SKRoundRect : SKObject
     }
 
     public SKRoundRect(SKRect rect, float xRadius, float yRadius)
-        : this()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         SetRect(rect, xRadius, yRadius);
     }
 
     public SKRoundRect(SKRoundRect rrect)
-        : this()
+        : base(SKObjectHandle.Create(), owns: true)
     {
         _rect = rrect._rect;
         _type = rrect._type;
-        Array.Copy(rrect._radii, _radii, _radii.Length);
+        _radii = rrect._radii;
     }
 
     public bool CheckAllCornersCircular(float tolerance)
     {
-        for (var index = 0; index < _radii.Length; index++)
+        for (var index = 0; index < CornerCount; index++)
         {
             if (!(MathF.Abs(_radii[index].X - _radii[index].Y) <= tolerance))
             {
@@ -789,7 +793,7 @@ public class SKRoundRect : SKObject
     public void SetEmpty()
     {
         _rect = SKRect.Empty;
-        Array.Clear(_radii);
+        ClearRadii();
         _type = SKRoundRectType.Empty;
     }
 
@@ -800,7 +804,7 @@ public class SKRoundRect : SKObject
             return;
         }
 
-        Array.Clear(_radii);
+        ClearRadii();
         _type = SKRoundRectType.Rect;
     }
 
@@ -838,7 +842,7 @@ public class SKRoundRect : SKObject
             yRadius = _rect.Height * 0.5f;
         }
 
-        Array.Fill(_radii, new SKPoint(xRadius, yRadius));
+        FillRadii(new SKPoint(xRadius, yRadius));
         _type = type;
     }
 
@@ -853,12 +857,12 @@ public class SKRoundRect : SKObject
         var yRadius = _rect.Height * 0.5f;
         if (xRadius == 0f || yRadius == 0f)
         {
-            Array.Clear(_radii);
+            ClearRadii();
             _type = SKRoundRectType.Rect;
             return;
         }
 
-        Array.Fill(_radii, new SKPoint(xRadius, yRadius));
+        FillRadii(new SKPoint(xRadius, yRadius));
         _type = SKRoundRectType.Oval;
     }
 
@@ -1000,6 +1004,7 @@ public class SKRoundRect : SKObject
                CheckCornerContainment(rect.Left, rect.Bottom);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public SKPoint GetRadii(SKRoundRectCorner corner) => _radii[(int)corner];
 
     public void Deflate(SKSize size) => Deflate(size.Width, size.Height);
@@ -1118,7 +1123,7 @@ public class SKRoundRect : SKObject
         _rect = rect.Standardized;
         if (IsEmptyRect(_rect))
         {
-            Array.Clear(_radii);
+            ClearRadii();
             _type = SKRoundRectType.Empty;
             return false;
         }
@@ -1149,7 +1154,7 @@ public class SKRoundRect : SKObject
         if (degenerate)
         {
             _rect = rect;
-            Array.Clear(_radii);
+            ClearRadii();
             _type = SKRoundRectType.Empty;
             return;
         }
@@ -1202,14 +1207,14 @@ public class SKRoundRect : SKObject
     {
         if (IsEmptyRect(_rect))
         {
-            Array.Clear(_radii);
+            ClearRadii();
             _type = SKRoundRectType.Empty;
             return;
         }
 
         var allRadiiEqual = true;
         var allCornersSquare = _radii[0].X == 0f || _radii[0].Y == 0f;
-        for (var index = 1; index < _radii.Length; index++)
+        for (var index = 1; index < CornerCount; index++)
         {
             if (_radii[index].X != 0f && _radii[index].Y != 0f)
             {
@@ -1230,7 +1235,7 @@ public class SKRoundRect : SKObject
         {
             if (_radii[0].X >= _rect.Width * 0.5f && _radii[0].Y >= _rect.Height * 0.5f)
             {
-                Array.Fill(_radii, new SKPoint(_rect.Width * 0.5f, _rect.Height * 0.5f));
+                FillRadii(new SKPoint(_rect.Width * 0.5f, _rect.Height * 0.5f));
                 _type = SKRoundRectType.Oval;
             }
             else
@@ -1247,7 +1252,7 @@ public class SKRoundRect : SKObject
     private bool ClampToZero()
     {
         var allCornersSquare = true;
-        for (var index = 0; index < _radii.Length; index++)
+        for (var index = 0; index < CornerCount; index++)
         {
             if (_radii[index].X <= 0f || _radii[index].Y <= 0f)
             {
@@ -1342,7 +1347,7 @@ public class SKRoundRect : SKObject
             return false;
         }
 
-        for (var index = 0; index < _radii.Length; index++)
+        for (var index = 0; index < CornerCount; index++)
         {
             var radius = _radii[index];
             if (!float.IsFinite(radius.X) || !float.IsFinite(radius.Y) ||
@@ -1361,7 +1366,7 @@ public class SKRoundRect : SKObject
     {
         if (IsEmptyRect(_rect))
         {
-            for (var index = 0; index < _radii.Length; index++)
+            for (var index = 0; index < CornerCount; index++)
             {
                 if (_radii[index] != default)
                 {
@@ -1374,7 +1379,7 @@ public class SKRoundRect : SKObject
 
         var allRadiiEqual = true;
         var allCornersSquare = _radii[0].X == 0f || _radii[0].Y == 0f;
-        for (var index = 1; index < _radii.Length; index++)
+        for (var index = 1; index < CornerCount; index++)
         {
             allCornersSquare &= _radii[index].X == 0f || _radii[index].Y == 0f;
             allRadiiEqual &= _radii[index] == _radii[index - 1];
@@ -1449,6 +1454,18 @@ public class SKRoundRect : SKObject
             : new SKPoint(_radii[index].X, value);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ClearRadii() => _radii = default;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void FillRadii(SKPoint radius)
+    {
+        _radii[0] = radius;
+        _radii[1] = radius;
+        _radii[2] = radius;
+        _radii[3] = radius;
+    }
+
     private static double ComputeMinimumScale(double first, double second, double limit, double current) =>
         first + second > limit ? Math.Min(current, limit / (first + second)) : current;
 
@@ -1480,6 +1497,12 @@ public class SKRoundRect : SKObject
     private static bool IsFinite(SKRect rect) =>
         float.IsFinite(rect.Left) && float.IsFinite(rect.Top) &&
         float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
+
+    [InlineArray(CornerCount)]
+    private struct CornerRadiusBuffer
+    {
+        private SKPoint _element0;
+    }
 }
 
 public class SKRegion : SKObject
