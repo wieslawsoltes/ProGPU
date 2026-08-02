@@ -2146,3 +2146,19 @@ continue the ordered API-contract, Composition, XAML behavior, namespace, and
 validation work above. Metadata comparison remains automatic and monotonic;
 behavior, accessibility, input, device loss, rendering quality, allocation,
 and performance remain separate completion gates.
+
+## Preview.40 handoff after native pixel-swizzle optimization
+
+Preview.40 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining. The release accelerates a shared allocation-free CPU
+pixel-format boundary without changing the retained WebGPU renderer or WinUI
+public surface.
+
+The next WinUI parity branch must start from the immutable Preview.40 tag and
+continue the ordered API-contract, retained WebGPU Composition, XAML behavior,
+namespace, and validation work above. The official NuGet metadata comparator
+remains automatic and monotonic; behavior, accessibility, input, device loss,
+rendering quality, allocation, and performance remain independent completion
+gates. Rendering additions must remain typed, reflection-free WebGPU work and
+must not substitute metadata equality for runtime conformance.
