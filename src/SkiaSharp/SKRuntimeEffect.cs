@@ -55,24 +55,39 @@ internal sealed class SKRuntimeEffectProgram
     public int UniformSize { get; }
 }
 
-internal sealed class SKRuntimeEffectInstance
+internal class SKRuntimeEffectInstance
 {
     public SKRuntimeEffectInstance(
         SKRuntimeEffectProgram program,
         byte[] uniformData,
-        SKObject[] children,
-        SKMatrix localMatrix)
+        SKObject[] children)
     {
         Program = program;
         UniformData = uniformData;
         Children = children;
-        LocalMatrix = localMatrix;
     }
 
     public SKRuntimeEffectProgram Program { get; }
     public byte[] UniformData { get; }
     public SKObject[] Children { get; }
-    public SKMatrix LocalMatrix { get; }
+    public virtual SKMatrix LocalMatrix => SKMatrix.Identity;
+}
+
+internal sealed class SKTransformedRuntimeEffectInstance : SKRuntimeEffectInstance
+{
+    private readonly SKMatrix _localMatrix;
+
+    public SKTransformedRuntimeEffectInstance(
+        SKRuntimeEffectProgram program,
+        byte[] uniformData,
+        SKObject[] children,
+        SKMatrix localMatrix)
+        : base(program, uniformData, children)
+    {
+        _localMatrix = localMatrix;
+    }
+
+    public override SKMatrix LocalMatrix => _localMatrix;
 }
 
 public class SKRuntimeEffect : SKObject
@@ -129,14 +144,22 @@ public class SKRuntimeEffect : SKObject
     public SKShader ToShader()
     {
         using var uniforms = new SKRuntimeEffectUniforms(this);
-        using var children = new SKRuntimeEffectChildren(this);
-        return ToShader(uniforms, children);
+        return ToShader(uniforms);
     }
 
     public SKShader ToShader(SKRuntimeEffectUniforms uniforms)
     {
+        EnsureKind(SKRuntimeEffectKind.Shader);
+        if (_program.ChildDescriptors.Length == 0)
+        {
+            return SKShader.CreateRuntime(CreateInstance(
+                uniforms,
+                Array.Empty<SKObject>(),
+                SKMatrix.Identity));
+        }
+
         using var children = new SKRuntimeEffectChildren(this);
-        return ToShader(uniforms, children);
+        return SKShader.CreateRuntime(CreateInstance(uniforms, children, SKMatrix.Identity));
     }
 
     public SKShader ToShader(SKRuntimeEffectUniforms uniforms, SKRuntimeEffectChildren children) =>
@@ -154,14 +177,22 @@ public class SKRuntimeEffect : SKObject
     public SKColorFilter ToColorFilter()
     {
         using var uniforms = new SKRuntimeEffectUniforms(this);
-        using var children = new SKRuntimeEffectChildren(this);
-        return ToColorFilter(uniforms, children);
+        return ToColorFilter(uniforms);
     }
 
     public SKColorFilter ToColorFilter(SKRuntimeEffectUniforms uniforms)
     {
+        EnsureKind(SKRuntimeEffectKind.ColorFilter);
+        if (_program.ChildDescriptors.Length == 0)
+        {
+            return SKColorFilter.CreateRuntime(CreateInstance(
+                uniforms,
+                Array.Empty<SKObject>(),
+                SKMatrix.Identity));
+        }
+
         using var children = new SKRuntimeEffectChildren(this);
-        return ToColorFilter(uniforms, children);
+        return SKColorFilter.CreateRuntime(CreateInstance(uniforms, children, SKMatrix.Identity));
     }
 
     public SKColorFilter ToColorFilter(
@@ -175,14 +206,22 @@ public class SKRuntimeEffect : SKObject
     public SKBlender ToBlender()
     {
         using var uniforms = new SKRuntimeEffectUniforms(this);
-        using var children = new SKRuntimeEffectChildren(this);
-        return ToBlender(uniforms, children);
+        return ToBlender(uniforms);
     }
 
     public SKBlender ToBlender(SKRuntimeEffectUniforms uniforms)
     {
+        EnsureKind(SKRuntimeEffectKind.Blender);
+        if (_program.ChildDescriptors.Length == 0)
+        {
+            return SKBlender.CreateRuntime(CreateInstance(
+                uniforms,
+                Array.Empty<SKObject>(),
+                SKMatrix.Identity));
+        }
+
         using var children = new SKRuntimeEffectChildren(this);
-        return ToBlender(uniforms, children);
+        return SKBlender.CreateRuntime(CreateInstance(uniforms, children, SKMatrix.Identity));
     }
 
     public SKBlender ToBlender(
@@ -202,11 +241,24 @@ public class SKRuntimeEffect : SKObject
         ArgumentNullException.ThrowIfNull(children);
         uniforms.EnsureEffect(this);
         children.EnsureEffect(this);
-        return new SKRuntimeEffectInstance(
-            _program,
-            uniforms.CopyData(),
-            children.CopyValues(),
-            localMatrix);
+        return CreateInstance(uniforms, children.CopyValues(), localMatrix);
+    }
+
+    private SKRuntimeEffectInstance CreateInstance(
+        SKRuntimeEffectUniforms uniforms,
+        SKObject[] children,
+        SKMatrix localMatrix)
+    {
+        ArgumentNullException.ThrowIfNull(uniforms);
+        uniforms.EnsureEffect(this);
+        var uniformData = uniforms.SnapshotData();
+        return localMatrix.IsIdentity
+            ? new SKRuntimeEffectInstance(_program, uniformData, children)
+            : new SKTransformedRuntimeEffectInstance(
+                _program,
+                uniformData,
+                children,
+                localMatrix);
     }
 
     private void EnsureKind(SKRuntimeEffectKind expected)
@@ -305,6 +357,7 @@ public class SKRuntimeEffectUniforms : IDisposable, IEnumerable<string>
 {
     private readonly SKRuntimeEffect _effect;
     private byte[] _data;
+    private bool _dataIsShared;
     private int _disposed;
 
     public SKRuntimeEffectUniforms(SKRuntimeEffect effect)
@@ -337,12 +390,14 @@ public class SKRuntimeEffectUniforms : IDisposable, IEnumerable<string>
                 nameof(value));
         }
 
+        EnsureWritable();
         value.WriteTo(_data.AsSpan(descriptor.Offset, descriptor.Size));
     }
 
     public void Reset()
     {
         ThrowIfDisposed();
+        EnsureWritable();
         _data.AsSpan().Clear();
     }
 
@@ -369,10 +424,11 @@ public class SKRuntimeEffectUniforms : IDisposable, IEnumerable<string>
         GC.SuppressFinalize(this);
     }
 
-    internal byte[] CopyData()
+    internal byte[] SnapshotData()
     {
         ThrowIfDisposed();
-        return (byte[])_data.Clone();
+        _dataIsShared = true;
+        return _data;
     }
 
     internal void EnsureEffect(SKRuntimeEffect effect)
@@ -395,6 +451,17 @@ public class SKRuntimeEffectUniforms : IDisposable, IEnumerable<string>
             }
         }
         return null;
+    }
+
+    private void EnsureWritable()
+    {
+        if (!_dataIsShared)
+        {
+            return;
+        }
+
+        _data = (byte[])_data.Clone();
+        _dataIsShared = false;
     }
 
     private void ThrowIfDisposed()
