@@ -117,7 +117,9 @@ internal static class ProgramEntry
             // warm the gradient factories through their final dynamic-PGO tier.
             new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
             new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
-            new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
+            // Amortize the one-time image upload so the distribution measures the
+            // allocation and reference-count path of each immutable subset view.
+            new BenchmarkCase("image-bounded-subset", 10_000, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),

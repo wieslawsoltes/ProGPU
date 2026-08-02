@@ -38,16 +38,31 @@ public partial class SKImage : SKObject
         public TextureStorage(
             GpuTexture texture,
             bool ownsTexture,
+            SKImageInfo info,
+            byte[]? portableRgbaPixels,
+            bool isTextureBacked,
             SKImageTextureReleaseDelegate? releaseProc = null,
             object? releaseContext = null)
         {
             Texture = texture;
             _ownsTexture = ownsTexture;
+            ColorType = info.ColorType;
+            AlphaType = info.AlphaType;
+            ColorSpace = info.ColorSpace;
+            PortableRgbaPixels = portableRgbaPixels;
+            PortableRowWidth = info.Width;
+            IsTextureBacked = isTextureBacked;
             _releaseProc = releaseProc;
             _releaseContext = releaseContext;
         }
 
         public GpuTexture Texture { get; }
+        public SKColorType ColorType { get; }
+        public SKAlphaType AlphaType { get; }
+        public SKColorSpace? ColorSpace { get; }
+        public byte[]? PortableRgbaPixels { get; }
+        public int PortableRowWidth { get; }
+        public bool IsTextureBacked { get; }
 
         public void AddReference()
         {
@@ -87,24 +102,20 @@ public partial class SKImage : SKObject
 
     private readonly TextureStorage _textureStorage;
     internal GpuTexture Texture => _textureStorage.Texture;
-    private readonly SKImageInfo _info;
-    private readonly byte[]? _portableRgbaPixels;
-    private readonly int _portableOriginX;
-    private readonly int _portableOriginY;
-    private readonly int _portableRowWidth;
-    private readonly uint _textureOriginX;
-    private readonly uint _textureOriginY;
-    private readonly bool _isTextureBacked;
+    private readonly int _width;
+    private readonly int _height;
+    private readonly int _originX;
+    private readonly int _originY;
     private ImageOptionalState? _optionalState;
-    public int Width => _info.Width;
-    public int Height => _info.Height;
-    public SKImageInfo Info => _info;
-    public SKColorType ColorType => _info.ColorType;
-    public SKAlphaType AlphaType => _info.AlphaType;
-    public SKColorSpace? ColorSpace => _info.ColorSpace;
+    public int Width => _width;
+    public int Height => _height;
+    public SKImageInfo Info => new(Width, Height, ColorType, AlphaType, ColorSpace);
+    public SKColorType ColorType => _textureStorage.ColorType;
+    public SKAlphaType AlphaType => _textureStorage.AlphaType;
+    public SKColorSpace? ColorSpace => _textureStorage.ColorSpace;
     public bool IsAlphaOnly => ColorType == SKColorType.Alpha8;
     public bool IsLazyGenerated => false;
-    public bool IsTextureBacked => _isTextureBacked;
+    public bool IsTextureBacked => _textureStorage.IsTextureBacked;
 
     public SKData EncodedData => _optionalState?.EncodedBytes is not { } bytes
         ? null!
@@ -128,41 +139,29 @@ public partial class SKImage : SKObject
         _textureStorage = new TextureStorage(
             texture,
             ownsTexture,
+            info,
+            portableRgbaPixels,
+            isTextureBacked,
             textureReleaseProc,
             textureReleaseContext);
-        _portableRgbaPixels = portableRgbaPixels;
-        _portableRowWidth = info.Width;
-        _isTextureBacked = isTextureBacked;
-        _info = new SKImageInfo(
-            info.Width,
-            info.Height,
-            info.ColorType,
-            info.AlphaType,
-            info.ColorSpace);
+        _width = info.Width;
+        _height = info.Height;
     }
 
     private SKImage(
         TextureStorage textureStorage,
-        SKImageInfo info,
-        byte[]? portableRgbaPixels,
-        int portableOriginX,
-        int portableOriginY,
-        int portableRowWidth,
-        uint textureOriginX,
-        uint textureOriginY,
-        bool isTextureBacked)
+        int width,
+        int height,
+        int originX,
+        int originY)
         : base(SKObjectHandle.Create(), owns: true)
     {
         textureStorage.AddReference();
         _textureStorage = textureStorage;
-        _portableRgbaPixels = portableRgbaPixels;
-        _portableOriginX = portableOriginX;
-        _portableOriginY = portableOriginY;
-        _portableRowWidth = portableRowWidth;
-        _textureOriginX = textureOriginX;
-        _textureOriginY = textureOriginY;
-        _isTextureBacked = isTextureBacked;
-        _info = info;
+        _width = width;
+        _height = height;
+        _originX = originX;
+        _originY = originY;
     }
 
     public static SKImage FromBitmap(SKBitmap bitmap)
@@ -425,14 +424,10 @@ public partial class SKImage : SKObject
 
         return new SKImage(
             _textureStorage,
-            new SKImageInfo(subset.Width, subset.Height, ColorType, AlphaType, ColorSpace),
-            _portableRgbaPixels,
-            checked(_portableOriginX + subset.Left),
-            checked(_portableOriginY + subset.Top),
-            _portableRowWidth,
-            checked(_textureOriginX + (uint)subset.Left),
-            checked(_textureOriginY + (uint)subset.Top),
-            _isTextureBacked);
+            subset.Width,
+            subset.Height,
+            checked(_originX + subset.Left),
+            checked(_originY + subset.Top));
     }
 
     private static uint CalculateMipLevelCount(uint width, uint height)
@@ -460,8 +455,8 @@ public partial class SKImage : SKObject
             alphaMode: Texture.AlphaMode);
         texture.CopyBaseLevelRegionFrom(
             Texture,
-            _textureOriginX,
-            _textureOriginY,
+            checked((uint)_originX),
+            checked((uint)_originY),
             0,
             0,
             checked((uint)Width),
@@ -469,8 +464,8 @@ public partial class SKImage : SKObject
         return new SKImage(
             texture,
             ownsTexture: true,
-            _info,
-            _portableRgbaPixels is null
+            Info,
+            _textureStorage.PortableRgbaPixels is null
                 ? null
                 : CopyPortablePixels());
     }
@@ -485,7 +480,7 @@ public partial class SKImage : SKObject
             return Texture;
         }
 
-        if (_portableRgbaPixels is null)
+        if (_textureStorage.PortableRgbaPixels is null)
         {
             throw new InvalidOperationException(
                 "SKCanvas.DrawImage cannot draw an SKImage from a different WebGPU context. " +
@@ -529,7 +524,7 @@ public partial class SKImage : SKObject
             }
 
             var texture = CreateTextureFromRgbaPixels(
-                _info,
+                Info,
                 GetPortablePixelsForUpload(),
                 requiredContext,
                 generateMipmaps: false,
@@ -549,8 +544,8 @@ public partial class SKImage : SKObject
         var texture = GetTextureForContext(requiredContext);
         if (ReferenceEquals(texture, Texture))
         {
-            sourceX = _textureOriginX;
-            sourceY = _textureOriginY;
+            sourceX = checked((uint)_originX);
+            sourceY = checked((uint)_originY);
         }
         else
         {
@@ -563,17 +558,18 @@ public partial class SKImage : SKObject
 
     private ReadOnlySpan<byte> GetPortablePixelsForUpload()
     {
-        if (_portableRgbaPixels is null)
+        var portableRgbaPixels = _textureStorage.PortableRgbaPixels;
+        if (portableRgbaPixels is null)
         {
             return default;
         }
 
-        if (_portableOriginX == 0 &&
-            _portableOriginY == 0 &&
-            _portableRowWidth == Width &&
-            _portableRgbaPixels.Length == checked(Width * Height * 4))
+        if (_originX == 0 &&
+            _originY == 0 &&
+            _textureStorage.PortableRowWidth == Width &&
+            portableRgbaPixels.Length == checked(Width * Height * 4))
         {
-            return _portableRgbaPixels;
+            return portableRgbaPixels;
         }
 
         return CopyPortablePixelRegion();
@@ -581,17 +577,18 @@ public partial class SKImage : SKObject
 
     private byte[] CopyPortablePixels()
     {
-        if (_portableRgbaPixels is null)
+        var portableRgbaPixels = _textureStorage.PortableRgbaPixels;
+        if (portableRgbaPixels is null)
         {
             return [];
         }
 
-        if (_portableOriginX == 0 &&
-            _portableOriginY == 0 &&
-            _portableRowWidth == Width &&
-            _portableRgbaPixels.Length == checked(Width * Height * 4))
+        if (_originX == 0 &&
+            _originY == 0 &&
+            _textureStorage.PortableRowWidth == Width &&
+            portableRgbaPixels.Length == checked(Width * Height * 4))
         {
-            return _portableRgbaPixels.ToArray();
+            return portableRgbaPixels.ToArray();
         }
 
         return CopyPortablePixelRegion();
@@ -600,10 +597,12 @@ public partial class SKImage : SKObject
     private byte[] CopyPortablePixelRegion()
     {
         var pixels = GC.AllocateUninitializedArray<byte>(checked(Width * Height * 4));
+        var portableRgbaPixels = _textureStorage.PortableRgbaPixels!;
+        var portableRowWidth = _textureStorage.PortableRowWidth;
         for (var row = 0; row < Height; row++)
         {
-            _portableRgbaPixels!.AsSpan(
-                    checked(((_portableOriginY + row) * _portableRowWidth + _portableOriginX) * 4),
+            portableRgbaPixels.AsSpan(
+                    checked(((_originY + row) * portableRowWidth + _originX) * 4),
                     checked(Width * 4))
                 .CopyTo(pixels.AsSpan(checked(row * Width * 4)));
         }
@@ -682,7 +681,7 @@ public partial class SKImage : SKObject
         var image = new SKImage(
             texture,
             ownsTexture: true,
-            _info,
+            Info,
             rgbaPixels,
             isTextureBacked: false);
         image.SetMaterializedRasterPixels(
@@ -720,14 +719,14 @@ public partial class SKImage : SKObject
 
     private byte[] ReadTexturePixelsAsRgba8888()
     {
-        if (_portableRgbaPixels is not null)
+        if (_textureStorage.PortableRgbaPixels is not null)
         {
             return CopyPortablePixels();
         }
 
         byte[] pixels;
-        if (_textureOriginX == 0 &&
-            _textureOriginY == 0 &&
+        if (_originX == 0 &&
+            _originY == 0 &&
             Texture.Width == checked((uint)Width) &&
             Texture.Height == checked((uint)Height))
         {
@@ -745,8 +744,8 @@ public partial class SKImage : SKObject
                 alphaMode: Texture.AlphaMode);
             texture.CopyBaseLevelRegionFrom(
                 Texture,
-                _textureOriginX,
-                _textureOriginY,
+                checked((uint)_originX),
+                checked((uint)_originY),
                 0,
                 0,
                 checked((uint)Width),

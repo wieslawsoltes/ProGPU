@@ -143,7 +143,7 @@ public partial class SKImage
     {
         ArgumentNullException.ThrowIfNull(pixmap);
         var optionalState = Volatile.Read(ref _optionalState);
-        if (_isTextureBacked && optionalState?.RasterPixels is null)
+        if (IsTextureBacked && optionalState?.RasterPixels is null)
         {
             pixmap.Reset();
             return false;
@@ -151,10 +151,11 @@ public partial class SKImage
 
         EnsureRasterPixels();
         optionalState = EnsureOptionalState();
+        var info = Info;
         pixmap.Reset(
-            _info,
+            info,
             optionalState.RasterPixelsHandle.AddrOfPinnedObject(),
-            _info.RowBytes);
+            info.RowBytes);
         pixmap.SetPixelSource(this);
         return true;
     }
@@ -188,10 +189,11 @@ public partial class SKImage
         var optionalState = EnsureOptionalState();
         lock (optionalState.RasterPixelLock)
         {
+            var info = Info;
             if (optionalState.RasterPixels is null)
             {
                 optionalState.RasterPixels = GC.AllocateUninitializedArray<byte>(
-                    checked((int)_info.BytesSize64));
+                    checked((int)info.BytesSize64));
             }
 
             if (!optionalState.RasterPixelsHandle.IsAllocated &&
@@ -201,9 +203,9 @@ public partial class SKImage
                     optionalState.RasterPixels,
                     GCHandleType.Pinned);
                 if (!ReadPixels(
-                        _info,
+                        info,
                         optionalState.RasterPixelsHandle.AddrOfPinnedObject(),
-                        _info.RowBytes,
+                        info.RowBytes,
                         0,
                         0,
                         SKImageCachingHint.Allow))

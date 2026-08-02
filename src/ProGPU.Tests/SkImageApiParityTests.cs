@@ -122,6 +122,35 @@ public sealed class SkImageApiParityTests
     }
 
     [Fact]
+    public void BoundedSubsetViewAllocationRemainsCompact()
+    {
+        using var image = SKImage.FromPixelCopy(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul),
+            Enumerable.Repeat((byte)255, 64).ToArray());
+        var subsetBounds = new SKRectI(1, 1, 3, 3);
+        const int iterations = 10_000;
+
+        for (var index = 0; index < 2_000; index++)
+        {
+            using var warmup = image.Subset(subsetBounds);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var checksum = 0;
+        for (var index = 0; index < iterations; index++)
+        {
+            using var subset = image.Subset(subsetBounds);
+            checksum += subset.Width + subset.Height;
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(iterations * 4, checksum);
+        Assert.True(
+            allocated <= iterations * 72L,
+            $"Expected one compact immutable image view per subset, but measured {allocated / (double)iterations:F3} B/op.");
+    }
+
+    [Fact]
     public void SurfaceSnapshotsShareOneImmutableTexturePerContentGeneration()
     {
         using var surface = SKSurface.Create(

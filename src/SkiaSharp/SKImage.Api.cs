@@ -189,26 +189,22 @@ public partial class SKImage
         }
 
         if (context is not null &&
-            (context.IsAbandoned || (_isTextureBacked && !IsValid(context))))
+            (context.IsAbandoned || (IsTextureBacked && !IsValid(context))))
         {
             return null!;
         }
 
-        if (_isTextureBacked && context is null)
+        if (IsTextureBacked && context is null)
         {
             return null!;
         }
 
         return new SKImage(
             _textureStorage,
-            new SKImageInfo(subset.Width, subset.Height, ColorType, AlphaType, ColorSpace),
-            _portableRgbaPixels,
-            checked(_portableOriginX + subset.Left),
-            checked(_portableOriginY + subset.Top),
-            _portableRowWidth,
-            checked(_textureOriginX + (uint)subset.Left),
-            checked(_textureOriginY + (uint)subset.Top),
-            _isTextureBacked);
+            subset.Width,
+            subset.Height,
+            checked(_originX + subset.Left),
+            checked(_originY + subset.Top));
     }
 
     public SKImage ToTextureImage(GRContext context) =>
@@ -244,8 +240,8 @@ public partial class SKImage
             {
                 texture.CopyBaseLevelRegionFrom(
                     Texture,
-                    _textureOriginX,
-                    _textureOriginY,
+                    checked((uint)_originX),
+                    checked((uint)_originY),
                     0,
                     0,
                     checked((uint)Width),
@@ -258,8 +254,8 @@ public partial class SKImage
                 return new SKImage(
                     texture,
                     true,
-                    _info,
-                    _portableRgbaPixels is null
+                    Info,
+                    _textureStorage.PortableRgbaPixels is null
                         ? null
                         : CopyPortablePixels(),
                     true);
@@ -278,7 +274,7 @@ public partial class SKImage
             targetContext,
             mipmapped,
             "SKImage Cross-context Texture");
-        return new SKImage(transferred, true, _info, pixels, true);
+        return new SKImage(transferred, true, Info, pixels, true);
     }
 
     public SKImage ApplyImageFilter(
@@ -334,7 +330,7 @@ public partial class SKImage
         if (sourceBounds.Width <= 0 || sourceBounds.Height <= 0 ||
             outputBounds.Width <= 0 || outputBounds.Height <= 0 ||
             (context is not null &&
-             (context.IsAbandoned || (_isTextureBacked && !IsValid(context)))))
+             (context.IsAbandoned || (IsTextureBacked && !IsValid(context)))))
         {
             outSubset = SKRectI.Empty;
             outOffset = SKPointI.Empty;
@@ -367,7 +363,7 @@ public partial class SKImage
 
     private static SKImage TransferToRecordingContext(SKImage image, GRRecordingContext context)
     {
-        var info = image._info;
+        var info = image.Info;
         var pixels = image.ReadTexturePixelsAsRgba8888();
         var texture = CreateTextureFromRgbaPixels(
             image.CreateReadbackInfo(),
