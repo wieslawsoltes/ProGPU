@@ -1467,3 +1467,76 @@ suite passes 3,238/3,238 and the headless suite passes 225/225. The official
 SkiaSharp metadata gate reports `reference=4222`, `matching=4222`, `missing=0`,
 and `extra=998`; the one-entry extension-count movement is compiler-emitted
 nullable metadata redistribution, not a new public member.
+
+## Compact immutable image views after Preview.38
+
+`SKImage` subsets now share one root-invariant `TextureStorage` containing the
+texture, pixel format, alpha format, color space, portable pixel snapshot, row
+width, texture-backed classification, ownership callbacks, and atomic lifetime.
+Each immutable view retains only that storage reference, its width and height,
+one composed origin pair, and lazily created view-specific state. `Info` remains
+an official value-returning boundary and is reconstructed from those fields.
+Nested subsets compose checked origins in `O(1)` time, never copy pixels, never
+upload another texture, and remain valid after their parent view is disposed.
+The compare/exchange retain loop deliberately preserves the existing
+no-resurrection ownership rule; a tempting increment-and-rollback shortcut was
+rejected because concurrent retainers could observe the rollback after final
+release.
+
+This clean-room design used Skia's public
+[`SkImage` immutability and subset contract](https://api.skia.org/classSkImage.html),
+the [WebGPU texture-view model](https://gpuweb.github.io/gpuweb/),
+[Direct2D source rectangles](https://learn.microsoft.com/windows/win32/api/d2d1_1/nf-d2d1_1-id2d1devicecontext-drawbitmap%28id2d1bitmap_constd2d1_rect_f__float_d2d1_interpolation_mode_constd2d1_rect_f__constd2d1_matrix_4x4_f_%29),
+[Win2D image source rectangles](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawImage_8.htm),
+[WebRender's retained-scene model](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and [Vello's wgpu renderer](https://github.com/linebender/vello). ProGPU adopts
+immutable shared backing storage, cheap typed views, explicit ownership, and
+deferred source-rectangle evaluation. It rejects copied implementation
+structure, per-view pixel buffers, texture duplication, reflection, and an
+unbounded view cache. The text boundary was reviewed against
+[Skia's shaping architecture](https://skia.org/docs/dev/design/text_shaper/),
+[Parley](https://github.com/linebender/parley), and
+[HarfBuzz](https://harfbuzz.github.io/harfbuzz-hb-shape.html); this storage
+change does not move shaping, layout, glyph caching, or renderer work. No
+foreign implementation source was consulted.
+
+Three alternating Apple M3 Pro Release process pairs compared exact
+Preview.38 commit `65f86cf4` with implementation commit `c7046673` after 2,000
+dynamic-PGO warmups and 192 samples. The exact checksum remained
+`15041971963811491075`. Aggregate median subset latency fell from `29.312` to
+`26.450` ns/op (`9.76%`), or `10.82%` more operations per second. Managed
+allocation fell from `105.694` to `65.693` B/op (`37.85%`). Scheduler
+interruptions dominate the raw p95 values, so no tail-latency improvement is
+claimed. A stabilized official SkiaSharp 4.151.0 differential measured
+`339.927` versus `26.450` ns/op with the same checksum. Official managed
+allocation was `104.021` B/op versus ProGPU's `65.693` B/op, but that counter
+excludes Skia's native heap, so it is not treated as a total-memory comparison.
+
+Matched macOS 26.4.1 profiling isolated one long-lived immutable source image
+from source upload by overriding only the benchmark operation count. Each Time
+Profiler and EventPipe process constructed 400 million subset views. Time
+Profiler measured exact Preview.38 at `36.429` and the candidate at `32.553`
+ns/op (`10.64%` lower); EventPipe measured `40.414` versus `35.315` ns/op
+(`12.62%` lower), with about `96%` exclusive sampled CPU in the intended
+benchmark body. The same sustained path allocated exactly `104` versus `64`
+managed B/op (`38.46%` lower). A bounded 40-million-view Allocations plus VM
+Tracker lane measured `37.198` versus `33.065` ns/op. Its native heap and VM
+totals include runtime/device startup and did not show a retained regression;
+they are not used as evidence for the managed object-size claim.
+
+The matched 40-million-view Metal System Trace lane measured `37.882` versus
+`33.152` ns/op. Both binaries exported exactly `26` target resource-allocation
+rows, `42` current-allocation-size intervals, the same `1,196,032`-byte peak,
+and zero target command-buffer submissions, errors, compiler spills, or hangs.
+Thus source creation remains the only GPU work and view count does not multiply
+GPU resources. Raw Instruments traces, table exports, EventPipe traces, and
+temporary exact-baseline binaries were removed after these summaries were
+extracted. Reproducible benchmark distributions remain under
+`artifacts/performance/skiasharp-image-view-c7046673`.
+
+A 10,000-view focused allocation guard requires at most `72` managed B/view;
+image, surface, pixmap, and effect ownership tests pass. The complete macOS
+core suite passes 3,239/3,239 and the headless suite passes 225/225. The
+official API metadata gate remains `reference=4222`, `matching=4222`,
+`missing=0`, and `extra=998`; this implementation and its benchmark operation
+override add no public API.

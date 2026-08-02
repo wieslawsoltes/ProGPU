@@ -80,7 +80,10 @@ internal static class ProgramEntry
         // for ProGPU while the native P/Invoke wrapper has already stabilized.
         var warmupCount = options.OptionalInt("warmup", 32);
         var sampleCount = options.OptionalInt("samples", 24);
+        var operationOverride = options.OptionalInt("operations", 0);
         if (warmupCount < 1 || sampleCount < 3)
+            throw new ArgumentOutOfRangeException(nameof(options));
+        if (operationOverride < 0)
             throw new ArgumentOutOfRangeException(nameof(options));
 
         var cases = new[]
@@ -117,7 +120,9 @@ internal static class ProgramEntry
             // warm the gradient factories through their final dynamic-PGO tier.
             new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
             new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
-            new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
+            // Amortize the one-time image upload so the distribution measures the
+            // allocation and reference-count path of each immutable subset view.
+            new BenchmarkCase("image-bounded-subset", 10_000, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
@@ -137,8 +142,11 @@ internal static class ProgramEntry
         var results = new List<BenchmarkCaseResult>(selectedCases.Length);
         foreach (var benchmark in selectedCases)
         {
+            var operations = operationOverride > 0
+                ? operationOverride
+                : benchmark.Operations;
             for (var index = 0; index < warmupCount; index++)
-                Volatile.Write(ref s_sink, unchecked((long)benchmark.Body(benchmark.Operations)));
+                Volatile.Write(ref s_sink, unchecked((long)benchmark.Body(operations)));
 
             var elapsed = new double[sampleCount];
             var allocated = new double[sampleCount];
@@ -147,7 +155,7 @@ internal static class ProgramEntry
             {
                 var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
                 var started = Stopwatch.GetTimestamp();
-                checksum = benchmark.Body(benchmark.Operations);
+                checksum = benchmark.Body(operations);
                 var finished = Stopwatch.GetTimestamp();
                 var allocatedAfter = GC.GetAllocatedBytesForCurrentThread();
                 Volatile.Write(ref s_sink, unchecked((long)checksum));
@@ -155,16 +163,16 @@ internal static class ProgramEntry
                 elapsed[index] =
                     (finished - started) * 1_000_000_000d /
                     Stopwatch.Frequency /
-                    benchmark.Operations;
+                    operations;
                 allocated[index] =
                     (allocatedAfter - allocatedBefore) /
-                    (double)benchmark.Operations;
+                    operations;
             }
 
             results.Add(
                 new BenchmarkCaseResult(
                     benchmark.Name,
-                    benchmark.Operations,
+                    operations,
                     checksum,
                     elapsed,
                     allocated,
