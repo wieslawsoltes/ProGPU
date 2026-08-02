@@ -462,3 +462,11 @@ Avalonia/WPF/MAUI profiles, bidirectional language services, AOT/binary
 artifacts, the public extension SDK, and long-term corpus/fuzz/performance
 governance. A parsed corpus cannot count as semantic, generated, runtime,
 hot-reload, or editing completion without its own evidence.
+
+## Preview.37 compiler handoff
+
+Preview.37 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.36 diagnostic-origin projection and the same five pre-MVP product
+blockers. The next compiler branch starts from the immutable Preview.37 tag and
+must retain atomic publication/recovery, namescope/resource/template fallback,
+cross-platform stress and performance gates, and published-feed evidence.

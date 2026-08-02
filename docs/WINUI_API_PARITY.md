@@ -2108,3 +2108,14 @@ monotonic automatic gates. Work remains ordered as follows:
 Rendering declarations must continue to lower to typed, reflection-free
 retained WebGPU work. Metadata presence alone does not establish behavior,
 quality, accessibility, threading, or lifetime parity.
+
+## Preview.37 handoff after compact-gradient optimization
+
+Preview.37 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining. The release changes only the shared SkiaSharp retained
+gradient representation and preserves the existing WebGPU rendering path.
+
+The next WinUI parity branch must start from the immutable Preview.37 tag and
+preserve the automatic API comparator, behavioral gates, rendering-quality
+tests, and allocation/performance evidence before claiming new parity.
