@@ -22,7 +22,7 @@ public partial class SKPath : SKObject
     private Vector2 _contourStart;
     private SKPathFillType _fillType = SKPathFillType.Winding;
 
-    private PathGeometry? _geometry = new();
+    private PathGeometry? _geometry;
     private PackedPathData? _packedPathData;
 
     public PathGeometry Geometry => EnsureGeometry();
@@ -198,11 +198,23 @@ public partial class SKPath : SKObject
             return _geometry;
         }
 
-        var packed = _packedPathData!;
-        _geometry = packed.Materialize(_fillType);
-        _packedPathData = null;
-        packed.Dispose();
-        RestoreCurrentState();
+        if (_packedPathData is { } packed)
+        {
+            _geometry = packed.Materialize(_fillType);
+            _packedPathData = null;
+            packed.Dispose();
+            RestoreCurrentState();
+        }
+        else
+        {
+            _geometry = new PathGeometry
+            {
+                FillRule = _fillType is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
+                    ? FillRule.EvenOdd
+                    : FillRule.Nonzero,
+            };
+        }
+
         return _geometry;
     }
 

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "backend": "ProGPU",
+  "repositoryCommit": "c8213c55ae6b09f84ce6afb3f3af60dff486bbda",
+  "dirtyState": "clean",
+  "capturedAtUtc": "2026-08-02T22:38:37.466003+00:00",
+  "framework": ".NET 10.0.5",
+  "operatingSystem": "macOS 26.4.1",
+  "architecture": "Arm64",
+  "processorCount": 11,
+  "harnessAssemblyVersion": "0.1.0.0",
+  "skiaAssemblyVersion": "0.1.0.0",
+  "warmupCount": 4,
+  "sampleCount": 3,
+  "results": [
+    {
+      "name": "path-build-bounds",
+      "operationsPerSample": 500000,
+      "checksum": 2119042592402444547,
+      "nanosecondsPerOperation": [
+        406.248332,
+        406.572166,
+        411.40625
+      ],
+      "allocatedBytesPerOperation": [
+        136,
+        136,
+        136
+      ],
+      "medianNanoseconds": 406.572166,
+      "p95Nanoseconds": 411.40625,
+      "minimumNanoseconds": 406.248332,
+      "maximumNanoseconds": 411.40625,
+      "medianAllocatedBytes": 136
+    }
+  ]
+}
