@@ -21,22 +21,36 @@ public partial class SKPath : SKObject
     private Vector2 _contourStart;
     private SKPathFillType _fillType = SKPathFillType.Winding;
 
-    public PathGeometry Geometry { get; } = new();
+    private PathGeometry? _geometry = new();
+    private PackedPathData? _packedPathData;
+
+    public PathGeometry Geometry => EnsureGeometry();
     public SKPathFillType FillType
     {
         get => _fillType;
         set
         {
             _fillType = value;
-            Geometry.FillRule = value is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
-                ? FillRule.EvenOdd
-                : FillRule.Nonzero;
+            if (_geometry is not null)
+            {
+                _geometry.FillRule = value is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
+                    ? FillRule.EvenOdd
+                    : FillRule.Nonzero;
+            }
         }
     }
 
     public SKPath()
         : base(SKObjectHandle.Create(), owns: true)
     {
+    }
+
+    internal SKPath(PackedPathData packedPathData, SKPathFillType fillType)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _geometry = null;
+        _packedPathData = packedPathData ?? throw new ArgumentNullException(nameof(packedPathData));
+        _fillType = fillType;
     }
 
     public SKPath(SKPath path)
@@ -84,6 +98,11 @@ public partial class SKPath : SKObject
     {
         get
         {
+            if (_packedPathData is not null)
+            {
+                return _packedPathData.CalculateBounds();
+            }
+
             return Geometry.TryGetBounds(out var min, out var max)
                 ? new SKRect(min.X, min.Y, max.X, max.Y)
                 : SKRect.Empty;
@@ -169,7 +188,22 @@ public partial class SKPath : SKObject
         }
     }
 
-    public bool IsEmpty => Geometry.Figures.Count == 0;
+    public bool IsEmpty => _packedPathData?.IsEmpty ?? Geometry.Figures.Count == 0;
+
+    private PathGeometry EnsureGeometry()
+    {
+        if (_geometry is not null)
+        {
+            return _geometry;
+        }
+
+        var packed = _packedPathData!;
+        _geometry = packed.Materialize(_fillType);
+        _packedPathData = null;
+        packed.Dispose();
+        RestoreCurrentState();
+        return _geometry;
+    }
 
     private static void IncludeQuadraticExtrema(
         Vector2 p0,
@@ -651,6 +685,12 @@ public partial class SKPath : SKObject
 
     protected override void Dispose(bool disposing)
     {
+        if (disposing)
+        {
+            _packedPathData?.Dispose();
+            _packedPathData = null;
+        }
+
         base.Dispose(disposing);
     }
 
@@ -658,6 +698,7 @@ public partial class SKPath : SKObject
     {
         base.DisposeNative();
     }
+
 }
 
 public enum SKRoundRectCorner

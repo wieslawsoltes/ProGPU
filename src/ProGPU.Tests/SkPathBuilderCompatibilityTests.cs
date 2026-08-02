@@ -8,6 +8,53 @@ namespace ProGPU.Tests;
 public sealed class SkPathBuilderCompatibilityTests
 {
     [Fact]
+    public void PackedDetachAndBoundsStayBoundedIndependentOfSegmentCount()
+    {
+        static (long AllocatedBytes, SKRect Bounds) Measure(int segmentCount)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            using var builder = new SKPathBuilder();
+            builder.MoveTo(1f, 2f);
+            for (var index = 0; index < segmentCount; index++)
+            {
+                builder.LineTo(index + 3f, index + 4f);
+                builder.QuadTo(index + 5f, index + 6f, index + 7f, index + 8f);
+                builder.CubicTo(
+                    index + 9f,
+                    index + 10f,
+                    index + 11f,
+                    index + 12f,
+                    index + 13f,
+                    index + 14f);
+            }
+
+            builder.Close();
+            using var path = builder.Detach();
+            var bounds = path.Bounds;
+            return (GC.GetAllocatedBytesForCurrentThread() - before, bounds);
+        }
+
+        _ = Measure(4);
+        _ = Measure(256);
+        var small = Measure(4);
+        var large = Measure(256);
+
+        Assert.InRange(small.AllocatedBytes, 0, 320);
+        Assert.InRange(large.AllocatedBytes, 0, 320);
+        Assert.InRange(Math.Abs(large.AllocatedBytes - small.AllocatedBytes), 0, 32);
+        Assert.Equal(new SKRect(1f, 2f, 16f, 17f), small.Bounds);
+        Assert.Equal(new SKRect(1f, 2f, 268f, 269f), large.Bounds);
+
+        using var replacementBuilder = new SKPathBuilder();
+        replacementBuilder.MoveTo(-100f, -200f);
+        replacementBuilder.MoveTo(5f, 7f);
+        replacementBuilder.LineTo(11f, 13f);
+        using var replacementPath = replacementBuilder.Detach();
+        Assert.Equal(new SKRect(5f, 7f, 11f, 13f), replacementPath.Bounds);
+        Assert.Single(replacementPath.Geometry.Figures);
+    }
+
+    [Fact]
     public void SnapshotDetachAndResetPreserveNativeOwnershipAndFillRules()
     {
         using var builder = new SKPathBuilder { FillType = SKPathFillType.EvenOdd };

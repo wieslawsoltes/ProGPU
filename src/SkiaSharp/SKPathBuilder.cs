@@ -4,12 +4,14 @@ namespace SkiaSharp;
 
 public class SKPathBuilder : SKObject
 {
-    private SKPath _path;
+    private PackedPathData? _packedPath;
+    private SKPath? _path;
+    private SKPathFillType _fillType = SKPathFillType.Winding;
 
     public SKPathBuilder()
         : base(SKObjectHandle.Create(), owns: true)
     {
-        _path = new SKPath();
+        _packedPath = PackedPathData.Rent();
     }
 
     public SKPathBuilder(SKPath path)
@@ -17,84 +19,209 @@ public class SKPathBuilder : SKObject
     {
         ArgumentNullException.ThrowIfNull(path);
         _path = new SKPath(path);
+        _fillType = path.FillType;
     }
 
     public SKPathFillType FillType
     {
-        get => _path.FillType;
-        set => _path.FillType = value;
+        get => _path?.FillType ?? _fillType;
+        set
+        {
+            _fillType = value;
+            if (_path is not null)
+            {
+                _path.FillType = value;
+            }
+        }
     }
 
-    internal bool IsEmpty => _path.IsEmpty;
+    internal bool IsEmpty => _path?.IsEmpty ?? (_packedPath?.IsEmpty ?? true);
 
     internal void ReplaceWith(SKPath path)
     {
         ArgumentNullException.ThrowIfNull(path);
+        _packedPath?.Dispose();
+        _packedPath = null;
         var previous = _path;
         _path = path;
-        previous.Dispose();
+        _fillType = path.FillType;
+        previous?.Dispose();
     }
 
     public SKPath Detach()
     {
-        var path = _path;
-        _path = new SKPath();
+        SKPath path;
+        if (_path is not null)
+        {
+            path = _path;
+            _path = null;
+        }
+        else
+        {
+            path = new SKPath(TakePackedPath(), _fillType);
+        }
+
+        _fillType = SKPathFillType.Winding;
         return path;
     }
 
-    public SKPath Snapshot() => new(_path);
+    public SKPath Snapshot() => _path is not null
+        ? new SKPath(_path)
+        : new SKPath(EnsurePackedPath().Clone(), _fillType);
 
-    public void Reset() => _path.Reset();
+    public void Reset()
+    {
+        if (_path is not null)
+        {
+            _path.Reset();
+            _fillType = _path.FillType;
+            return;
+        }
 
-    public void MoveTo(SKPoint point) => _path.MoveTo(point);
+        EnsurePackedPath().Reset();
+        _fillType = SKPathFillType.Winding;
+    }
 
-    public void MoveTo(float x, float y) => _path.MoveTo(x, y);
+    public void MoveTo(SKPoint point) => MoveTo(point.X, point.Y);
 
-    public void RMoveTo(SKPoint point) => _path.RMoveTo(point);
+    public void MoveTo(float x, float y)
+    {
+        if (_path is not null)
+        {
+            _path.MoveTo(x, y);
+        }
+        else
+        {
+            EnsurePackedPath().MoveTo(x, y);
+        }
+    }
 
-    public void RMoveTo(float dx, float dy) => _path.RMoveTo(dx, dy);
+    public void RMoveTo(SKPoint point) => RMoveTo(point.X, point.Y);
 
-    public void LineTo(SKPoint point) => _path.LineTo(point);
+    public void RMoveTo(float dx, float dy)
+    {
+        if (_path is not null)
+        {
+            _path.RMoveTo(dx, dy);
+            return;
+        }
 
-    public void LineTo(float x, float y) => _path.LineTo(x, y);
+        var current = EnsurePackedPath().CurrentPoint;
+        MoveTo(current.X + dx, current.Y + dy);
+    }
 
-    public void RLineTo(SKPoint point) => _path.RLineTo(point);
+    public void LineTo(SKPoint point) => LineTo(point.X, point.Y);
 
-    public void RLineTo(float dx, float dy) => _path.RLineTo(dx, dy);
+    public void LineTo(float x, float y)
+    {
+        if (_path is not null)
+        {
+            _path.LineTo(x, y);
+        }
+        else
+        {
+            EnsurePackedPath().LineTo(x, y);
+        }
+    }
 
-    public void QuadTo(SKPoint point0, SKPoint point1) => _path.QuadTo(point0, point1);
+    public void RLineTo(SKPoint point) => RLineTo(point.X, point.Y);
 
-    public void QuadTo(float x0, float y0, float x1, float y1) => _path.QuadTo(x0, y0, x1, y1);
+    public void RLineTo(float dx, float dy)
+    {
+        if (_path is not null)
+        {
+            _path.RLineTo(dx, dy);
+            return;
+        }
 
-    public void RQuadTo(SKPoint point0, SKPoint point1) => _path.RQuadTo(point0, point1);
+        var current = EnsurePackedPath().CurrentPoint;
+        LineTo(current.X + dx, current.Y + dy);
+    }
 
-    public void RQuadTo(float dx0, float dy0, float dx1, float dy1) =>
-        _path.RQuadTo(dx0, dy0, dx1, dy1);
+    public void QuadTo(SKPoint point0, SKPoint point1) =>
+        QuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
-    public void ConicTo(SKPoint point0, SKPoint point1, float w) => _path.ConicTo(point0, point1, w);
+    public void QuadTo(float x0, float y0, float x1, float y1)
+    {
+        if (_path is not null)
+        {
+            _path.QuadTo(x0, y0, x1, y1);
+        }
+        else
+        {
+            EnsurePackedPath().QuadTo(x0, y0, x1, y1);
+        }
+    }
+
+    public void RQuadTo(SKPoint point0, SKPoint point1) =>
+        RQuadTo(point0.X, point0.Y, point1.X, point1.Y);
+
+    public void RQuadTo(float dx0, float dy0, float dx1, float dy1)
+    {
+        if (_path is not null)
+        {
+            _path.RQuadTo(dx0, dy0, dx1, dy1);
+            return;
+        }
+
+        var current = EnsurePackedPath().CurrentPoint;
+        QuadTo(
+            current.X + dx0,
+            current.Y + dy0,
+            current.X + dx1,
+            current.Y + dy1);
+    }
+
+    public void ConicTo(SKPoint point0, SKPoint point1, float w) =>
+        GetMutablePath().ConicTo(point0, point1, w);
 
     public void ConicTo(float x0, float y0, float x1, float y1, float w) =>
-        _path.ConicTo(x0, y0, x1, y1, w);
+        GetMutablePath().ConicTo(x0, y0, x1, y1, w);
 
-    public void RConicTo(SKPoint point0, SKPoint point1, float w) => _path.RConicTo(point0, point1, w);
+    public void RConicTo(SKPoint point0, SKPoint point1, float w) =>
+        GetMutablePath().RConicTo(point0, point1, w);
 
     public void RConicTo(float dx0, float dy0, float dx1, float dy1, float w) =>
-        _path.RConicTo(dx0, dy0, dx1, dy1, w);
+        GetMutablePath().RConicTo(dx0, dy0, dx1, dy1, w);
 
     public void CubicTo(SKPoint point0, SKPoint point1, SKPoint point2) =>
-        _path.CubicTo(point0, point1, point2);
+        CubicTo(point0.X, point0.Y, point1.X, point1.Y, point2.X, point2.Y);
 
-    public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2) =>
-        _path.CubicTo(x0, y0, x1, y1, x2, y2);
+    public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2)
+    {
+        if (_path is not null)
+        {
+            _path.CubicTo(x0, y0, x1, y1, x2, y2);
+        }
+        else
+        {
+            EnsurePackedPath().CubicTo(x0, y0, x1, y1, x2, y2);
+        }
+    }
 
     public void RCubicTo(SKPoint point0, SKPoint point1, SKPoint point2) =>
-        _path.RCubicTo(point0, point1, point2);
+        RCubicTo(point0.X, point0.Y, point1.X, point1.Y, point2.X, point2.Y);
 
-    public void RCubicTo(float dx0, float dy0, float dx1, float dy1, float dx2, float dy2) =>
-        _path.RCubicTo(dx0, dy0, dx1, dy1, dx2, dy2);
+    public void RCubicTo(float dx0, float dy0, float dx1, float dy1, float dx2, float dy2)
+    {
+        if (_path is not null)
+        {
+            _path.RCubicTo(dx0, dy0, dx1, dy1, dx2, dy2);
+            return;
+        }
+
+        var current = EnsurePackedPath().CurrentPoint;
+        CubicTo(
+            current.X + dx0,
+            current.Y + dy0,
+            current.X + dx1,
+            current.Y + dy1,
+            current.X + dx2,
+            current.Y + dy2);
+    }
 
     public void ArcTo(SKPoint r, float xAxisRotate, SKPathArcSize largeArc, SKPathDirection sweep, SKPoint xy) =>
-        _path.ArcTo(r, xAxisRotate, largeArc, sweep, xy);
+        GetMutablePath().ArcTo(r, xAxisRotate, largeArc, sweep, xy);
 
     public void ArcTo(
         float rx,
@@ -104,19 +231,19 @@ public class SKPathBuilder : SKObject
         SKPathDirection sweep,
         float x,
         float y) =>
-        _path.ArcTo(rx, ry, xAxisRotate, largeArc, sweep, x, y);
+        GetMutablePath().ArcTo(rx, ry, xAxisRotate, largeArc, sweep, x, y);
 
     public void ArcTo(SKRect oval, float startAngle, float sweepAngle, bool forceMoveTo) =>
-        _path.ArcTo(oval, startAngle, sweepAngle, forceMoveTo);
+        GetMutablePath().ArcTo(oval, startAngle, sweepAngle, forceMoveTo);
 
     public void ArcTo(SKPoint point1, SKPoint point2, float radius) =>
-        _path.ArcTo(point1, point2, radius);
+        GetMutablePath().ArcTo(point1, point2, radius);
 
     public void ArcTo(float x1, float y1, float x2, float y2, float radius) =>
-        _path.ArcTo(x1, y1, x2, y2, radius);
+        GetMutablePath().ArcTo(x1, y1, x2, y2, radius);
 
     public void RArcTo(SKPoint r, float xAxisRotate, SKPathArcSize largeArc, SKPathDirection sweep, SKPoint xy) =>
-        _path.RArcTo(r, xAxisRotate, largeArc, sweep, xy);
+        GetMutablePath().RArcTo(r, xAxisRotate, largeArc, sweep, xy);
 
     public void RArcTo(
         float rx,
@@ -126,55 +253,90 @@ public class SKPathBuilder : SKObject
         SKPathDirection sweep,
         float x,
         float y) =>
-        _path.RArcTo(rx, ry, xAxisRotate, largeArc, sweep, x, y);
+        GetMutablePath().RArcTo(rx, ry, xAxisRotate, largeArc, sweep, x, y);
 
-    public void Close() => _path.Close();
+    public void Close()
+    {
+        if (_path is not null)
+        {
+            _path.Close();
+        }
+        else
+        {
+            EnsurePackedPath().Close();
+        }
+    }
 
     public void AddRect(SKRect rect, SKPathDirection direction = SKPathDirection.Clockwise) =>
-        _path.AddRect(rect, direction);
+        GetMutablePath().AddRect(rect, direction);
 
     public void AddRect(SKRect rect, SKPathDirection direction, uint startIndex) =>
-        _path.AddRect(rect, direction, startIndex);
+        GetMutablePath().AddRect(rect, direction, startIndex);
 
     public void AddRoundRect(SKRoundRect rect, SKPathDirection direction = SKPathDirection.Clockwise) =>
-        _path.AddRoundRect(rect, direction);
+        GetMutablePath().AddRoundRect(rect, direction);
 
     public void AddRoundRect(SKRoundRect rect, SKPathDirection direction, uint startIndex) =>
-        _path.AddRoundRect(rect, direction, startIndex);
+        GetMutablePath().AddRoundRect(rect, direction, startIndex);
 
     public void AddRoundRect(
         SKRect rect,
         float rx,
         float ry,
         SKPathDirection dir = SKPathDirection.Clockwise) =>
-        _path.AddRoundRect(rect, rx, ry, dir);
+        GetMutablePath().AddRoundRect(rect, rx, ry, dir);
 
     public void AddOval(SKRect rect, SKPathDirection direction = SKPathDirection.Clockwise) =>
-        _path.AddOval(rect, direction);
+        GetMutablePath().AddOval(rect, direction);
 
     public void AddCircle(
         float x,
         float y,
         float radius,
         SKPathDirection dir = SKPathDirection.Clockwise) =>
-        _path.AddCircle(x, y, radius, dir);
+        GetMutablePath().AddCircle(x, y, radius, dir);
 
     public void AddArc(SKRect oval, float startAngle, float sweepAngle) =>
-        _path.AddArc(oval, startAngle, sweepAngle);
+        GetMutablePath().AddArc(oval, startAngle, sweepAngle);
 
-    public void AddPoly(ReadOnlySpan<SKPoint> points, bool close = true) => _path.AddPoly(points, close);
+    public void AddPoly(ReadOnlySpan<SKPoint> points, bool close = true) =>
+        GetMutablePath().AddPoly(points, close);
 
-    public void AddPoly(SKPoint[] points, bool close = true) => _path.AddPoly(points, close);
+    public void AddPoly(SKPoint[] points, bool close = true) =>
+        GetMutablePath().AddPoly(points, close);
 
-    public void AddPath(SKPath other, SKPathAddMode mode = SKPathAddMode.Append) => _path.AddPath(other, mode);
+    public void AddPath(SKPath other, SKPathAddMode mode = SKPathAddMode.Append) =>
+        GetMutablePath().AddPath(other, mode);
 
     public void AddPath(SKPath other, float dx, float dy, SKPathAddMode mode = SKPathAddMode.Append) =>
-        _path.AddPath(other, dx, dy, mode);
+        GetMutablePath().AddPath(other, dx, dy, mode);
 
     public void AddPath(SKPath other, in SKMatrix matrix, SKPathAddMode mode = SKPathAddMode.Append) =>
-        _path.AddPath(other, matrix, mode);
+        GetMutablePath().AddPath(other, matrix, mode);
 
-    public void ReverseAddPath(SKPath other) => _path.AddPathReverse(other);
+    public void ReverseAddPath(SKPath other) => GetMutablePath().AddPathReverse(other);
+
+    private PackedPathData EnsurePackedPath() =>
+        _packedPath ??= PackedPathData.Rent();
+
+    private PackedPathData TakePackedPath()
+    {
+        var packedPath = EnsurePackedPath();
+        _packedPath = null;
+        return packedPath;
+    }
+
+    private SKPath GetMutablePath()
+    {
+        if (_path is not null)
+        {
+            return _path;
+        }
+
+        _path = new SKPath(TakePackedPath(), _fillType);
+        _ = _path.Geometry;
+        return _path;
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -187,7 +349,10 @@ public class SKPathBuilder : SKObject
 
     protected override void DisposeManaged()
     {
-        _path.Dispose();
+        _packedPath?.Dispose();
+        _packedPath = null;
+        _path?.Dispose();
+        _path = null;
         base.DisposeManaged();
     }
 }
