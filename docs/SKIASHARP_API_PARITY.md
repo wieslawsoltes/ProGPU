@@ -1404,3 +1404,66 @@ paint-alpha, transformed-picture, and GPU pixel-coverage tests pass. The full
 macOS core suite passes 3,237/3,237 and the headless suite passes 225/225. The
 official API metadata gate still reports `reference=4222`, `matching=4222`,
 `missing=0`, and `extra=997` ProGPU extensions.
+
+## Inline rounded-rectangle storage after Preview.37
+
+`SKRoundRect` now keeps its fixed four `SKPoint` corner radii in an inline value
+buffer instead of allocating a second managed array for every instance. The
+copy constructor transfers those four values directly, uniform initialization
+uses four bounded stores, and internal `SKPath`/canvas consumers borrow a
+`ReadOnlySpan<SKPoint>`. The public `Radii` property still returns a fresh
+caller-owned four-point array, preserving the official ownership boundary.
+Construction, copying, normalization, classification, and radius access remain
+fixed `O(1)` CPU work and storage. They do not initialize WebGPU, allocate a
+native geometry object, or change retained path topology.
+
+This clean-room change was designed from Skia's public
+[`SkRRect` contract](https://api.skia.org/classSkRRect.html), the official
+[`SKRoundRect` API](https://learn.microsoft.com/dotnet/api/skiasharp.skroundrect),
+[`GetRadii`](https://learn.microsoft.com/dotnet/api/skiasharp.skroundrect.getradii),
+and
+[`SetRectRadii`](https://learn.microsoft.com/dotnet/api/skiasharp.skroundrect.setrectradii)
+contracts, plus the official .NET
+[`InlineArrayAttribute`](https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.inlinearrayattribute?view=net-10.0)
+and [C# inline-array specification](https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-12.0/inline-arrays).
+ProGPU adopts the observable four-corner value and ownership contracts and
+adapts them to its typed CPU-only geometry model. It rejects source-array
+aliasing, an unbounded cache, native allocation, reflection, and GPU setup for
+metadata operations. No foreign implementation source was consulted. This is
+an object-storage change rather than a renderer, text, scene, or GPU-pipeline
+change, so the existing cross-engine rendering architecture review remains
+unchanged.
+
+Three alternating Apple M3 Pro Release process pairs compared exact
+Preview.37 commit `d510dd5c` with the final candidate after 2,000 dynamic-PGO
+warmups and 192 samples per binary. The exact semantic checksum remained
+`13947687467187634243`. Aggregate median construction/disposal latency fell
+from `31.0687` to `25.1271` ns/op, a `19.12%` latency reduction or `23.65%`
+more operations per second. Managed allocation fell from `120` to `88` B/op,
+a `26.67%` reduction. Scheduler interruptions dominate the raw p95 values
+(`111.9750` versus `112.3459` ns/op), so no tail-latency improvement is
+claimed. A separate three-pair differential against official SkiaSharp
+4.151.0 measured `63.417` versus `25.038` ns/op with the same checksum.
+Official managed allocation was `80` B/op versus ProGPU's `88` B/op, but that
+counter excludes Skia's native `SkRRect` allocation, so it is not treated as a
+total-memory comparison. The complete default-warmup matrix also preserved all
+checksums and measured this case at `90.442` versus `35.606` ns/op.
+
+Matched macOS 26.4.1 profiling used the same 400-million-construction Release
+workload for Preview.37 and the candidate. Time Profiler and Allocations plus
+VM Tracker each sampled 12 seconds. EventPipe sampled-thread-time plus verbose
+GC attributed `99.23%`/`99.64%` exclusive CPU to the benchmark body; the
+baseline's `SpanHelpers.ClearWithoutReferences` entry (`0.23%`) disappeared
+from the candidate hot list. Three-second Metal System Trace captures exported
+zero target application-encoder and zero target Metal-driver rows for both
+binaries, confirming the value path remains CPU-only. Raw tracing artifacts
+were removed after extracting these summaries to recover local disk space, as
+requested; reproducible benchmark JSON and Markdown remain under
+`artifacts/performance/skiasharp-roundrect-inline`.
+
+The focused rounded-rectangle/path/canvas tests pass, including a 10,000-object
+allocation guard requiring at most `96` managed B/op. The complete macOS core
+suite passes 3,238/3,238 and the headless suite passes 225/225. The official
+SkiaSharp metadata gate reports `reference=4222`, `matching=4222`, `missing=0`,
+and `extra=998`; the one-entry extension-count movement is compiler-emitted
+nullable metadata redistribution, not a new public member.

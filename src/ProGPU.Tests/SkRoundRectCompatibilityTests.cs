@@ -58,6 +58,32 @@ public sealed class SkRoundRectCompatibilityTests
     }
 
     [Fact]
+    public void ConstructionKeepsCornerRadiiInSingleManagedAllocation()
+    {
+        const int iterations = 10_000;
+        var rect = new SKRect(0f, 0f, 64f, 48f);
+
+        using (var warmup = new SKRoundRect(rect, 8f, 4f))
+        {
+            Assert.Equal(new SKPoint(8f, 4f), warmup.GetRadii(SKRoundRectCorner.UpperLeft));
+        }
+
+        var checksum = 0f;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            using var value = new SKRoundRect(rect, (index & 15) + 1f, 4f);
+            checksum += value.GetRadii(SKRoundRectCorner.UpperLeft).X;
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(85_000f, checksum);
+        Assert.True(
+            allocated <= 96L * iterations,
+            $"Expected one bounded SKRoundRect allocation per construction, but measured {allocated / (double)iterations:F3} B/op.");
+    }
+
+    [Fact]
     public void UniformAndOvalConstructionMatchesNative()
     {
         using var uniform = new SKRoundRect(new SKRect(0f, 0f, 20f, 10f), 100f, 30f);
