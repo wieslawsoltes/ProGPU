@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace SkiaSharp;
 
@@ -141,14 +142,19 @@ public partial class SKImage
     public bool PeekPixels(SKPixmap pixmap)
     {
         ArgumentNullException.ThrowIfNull(pixmap);
-        if (_isTextureBacked && _rasterPixels is null)
+        var optionalState = Volatile.Read(ref _optionalState);
+        if (_isTextureBacked && optionalState?.RasterPixels is null)
         {
             pixmap.Reset();
             return false;
         }
 
         EnsureRasterPixels();
-        pixmap.Reset(_info, _rasterPixelsHandle.AddrOfPinnedObject(), _info.RowBytes);
+        optionalState = EnsureOptionalState();
+        pixmap.Reset(
+            _info,
+            optionalState.RasterPixelsHandle.AddrOfPinnedObject(),
+            _info.RowBytes);
         pixmap.SetPixelSource(this);
         return true;
     }
@@ -179,27 +185,31 @@ public partial class SKImage
 
     private void EnsureRasterPixels()
     {
-        lock (_rasterPixelLock)
+        var optionalState = EnsureOptionalState();
+        lock (optionalState.RasterPixelLock)
         {
-            if (_rasterPixels is null)
+            if (optionalState.RasterPixels is null)
             {
-                _rasterPixels = GC.AllocateUninitializedArray<byte>(
+                optionalState.RasterPixels = GC.AllocateUninitializedArray<byte>(
                     checked((int)_info.BytesSize64));
             }
 
-            if (!_rasterPixelsHandle.IsAllocated && _rasterPixels.Length > 0)
+            if (!optionalState.RasterPixelsHandle.IsAllocated &&
+                optionalState.RasterPixels.Length > 0)
             {
-                _rasterPixelsHandle = GCHandle.Alloc(_rasterPixels, GCHandleType.Pinned);
+                optionalState.RasterPixelsHandle = GCHandle.Alloc(
+                    optionalState.RasterPixels,
+                    GCHandleType.Pinned);
                 if (!ReadPixels(
                         _info,
-                        _rasterPixelsHandle.AddrOfPinnedObject(),
+                        optionalState.RasterPixelsHandle.AddrOfPinnedObject(),
                         _info.RowBytes,
                         0,
                         0,
                         SKImageCachingHint.Allow))
                 {
-                    _rasterPixelsHandle.Free();
-                    _rasterPixels = null;
+                    optionalState.RasterPixelsHandle.Free();
+                    optionalState.RasterPixels = null;
                     throw new InvalidOperationException("The immutable image could not be materialized as raster pixels.");
                 }
             }
@@ -208,17 +218,20 @@ public partial class SKImage
 
     private void SetMaterializedRasterPixels(byte[] pixels)
     {
-        lock (_rasterPixelLock)
+        var optionalState = EnsureOptionalState();
+        lock (optionalState.RasterPixelLock)
         {
-            if (_rasterPixelsHandle.IsAllocated)
+            if (optionalState.RasterPixelsHandle.IsAllocated)
             {
-                _rasterPixelsHandle.Free();
+                optionalState.RasterPixelsHandle.Free();
             }
 
-            _rasterPixels = pixels;
+            optionalState.RasterPixels = pixels;
             if (pixels.Length > 0)
             {
-                _rasterPixelsHandle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+                optionalState.RasterPixelsHandle = GCHandle.Alloc(
+                    pixels,
+                    GCHandleType.Pinned);
             }
         }
     }

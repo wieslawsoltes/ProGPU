@@ -122,6 +122,33 @@ public sealed class SkImageApiParityTests
     }
 
     [Fact]
+    public void SurfaceSnapshotsShareOneImmutableTexturePerContentGeneration()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(2, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+
+        using var first = surface.Snapshot(new SKRectI(0, 0, 1, 1));
+        using var second = surface.Snapshot(new SKRectI(1, 0, 2, 1));
+
+        Assert.Same(first.Texture, second.Texture);
+        Assert.Equal((uint)2, first.Texture.Width);
+        Assert.Equal((uint)1, first.Texture.Height);
+
+        surface.Canvas.Clear(SKColors.Blue);
+        using var nextGeneration = surface.Snapshot(new SKRectI(0, 0, 1, 1));
+
+        Assert.NotSame(first.Texture, nextGeneration.Texture);
+        Assert.False(first.Texture.IsDisposed);
+        using var firstRaster = first.ToRasterImage();
+        using var nextRaster = nextGeneration.ToRasterImage();
+        using var firstPixels = firstRaster.PeekPixels();
+        using var nextPixels = nextRaster.PeekPixels();
+        Assert.Equal(SKColors.Red, firstPixels.GetPixelColor(0, 0));
+        Assert.Equal(SKColors.Blue, nextPixels.GetPixelColor(0, 0));
+    }
+
+    [Fact]
     public void DrawingSubsetMaterializesOnlyItsComposedTextureRegion()
     {
         using var image = SKImage.FromPixelCopy(
