@@ -1682,3 +1682,62 @@ complete research record, and reproduction protocol are retained under
 approximately 8.6 GiB of task-owned raw EventPipe/Instruments data and
 temporary exact-baseline state were deleted; no task-owned trace, scratch, path
 marker, or worktree remains.
+
+## Lazy empty and packed path geometry after runtime-effect snapshots
+
+`SKPath` now defers `PathGeometry` construction until an empty path is actually
+materialized or mutated. The packed constructor no longer allocates an empty
+geometry only to discard it before retaining `PackedPathData`. Packed bounds,
+detach ownership, analytic verbs, fill rules, close/current-point behavior,
+and later geometry materialization are unchanged.
+
+Empty construction, packed detach, and packed bounds remain `O(1)` beyond the
+retained command stream. First materialization remains `O(N)` time and storage
+for `N` commands. The path stays CPU-only and adds no tessellation, WebGPU
+initialization, upload, or command submission.
+
+The clean-room design used Skia's public
+[`SkPathBuilder`](https://api.skia.org/classSkPathBuilder.html) contract;
+Direct2D's
+[`ID2D1GeometrySink`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1geometrysink);
+Win2D's
+[path/figure behavior](https://learn.microsoft.com/dotnet/communitytoolkit/archive/windows/win2d-path-mini-language);
+WebRender's
+[retained scene-building boundary](https://searchfox.org/firefox-main/source/gfx/wr/webrender/src);
+Vello's [GPU scene model](https://github.com/linebender/vello) and
+[compact encoding](https://docs.rs/vello_encoding/latest/vello_encoding/struct.Encoding.html);
+Skia [shaped text](https://docs.skia.org/docs/dev/design/text_shaper/);
+DirectWrite [glyph runs](https://learn.microsoft.com/windows/win32/directwrite/glyphs-and-glyph-runs);
+Parley's [shared layout resources](https://docs.rs/parley/latest/parley/); and
+HarfBuzz's [shaped output](https://harfbuzz.github.io/shaping-and-shape-plans.html).
+ProGPU adopts lazy retained storage and preserves analytic commands until an
+explicit materialization boundary. It rejects eager tessellation, reflection,
+GPU setup, copied foreign implementation structure, and text reshaping.
+
+Three interleaved long-running process pairs compared exact merged main
+`3c3c46b8` with product commit `c8213c55`, using 128 warmups, 192 samples per
+process, and 10,000 path builds per sample. Managed allocation fell from `224`
+to `136` B/op (`39.29%`), while the exact checksum remained
+`8402956917441101891`. Median latency differed by only `0.40%`, inside
+process/frequency noise, so no process-pair latency claim is made. A matched
+official SkiaSharp 4.151.0 set measured approximately `725.5` versus `529.3`
+ns/op and `168` versus `136` managed B/op; native Skia allocations are outside
+that managed counter.
+
+Matched Time Profiler measured `523.428` versus `406.363` ns/op (`22.36%`
+lower), Allocations plus VM Tracker measured `418.704` versus `406.572`, and
+Metal System Trace measured `425.999` versus `414.783`. EventPipe whole-process
+timing was `427.227` versus `440.719`, but its exclusive `Detach` samples fell
+from `0.27%` to `0.10%`; no EventPipe throughput claim is made. Both Metal
+traces exported zero target command-buffer submissions and zero
+`MTLDevice.currentAllocatedSize` rows.
+
+The focused path suite passes 93/93 and tightens the packed-detach ceiling to
+192 managed bytes for both small and 256-segment paths. Core passes
+3,242/3,242, headless passes 225/225, and the XAML compiler passes 307/307.
+Official API metadata remains 4,222/4,222 required with zero missing; docs and
+package manifests pass. Distributions, profiler target results, and research
+are retained under
+`artifacts/performance/skiasharp-path-lazy-geometry`. After extraction, 272 MiB
+of raw profiler data and 102 MiB of exact-baseline build state were deleted; no
+task-owned trace, scratch directory, or worktree remains.
