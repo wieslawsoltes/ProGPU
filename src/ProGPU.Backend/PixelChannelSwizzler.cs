@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.Arm;
 using System.Runtime.InteropServices;
 
 namespace ProGPU.Backend;
@@ -10,12 +9,14 @@ namespace ProGPU.Backend;
 /// </summary>
 public static class PixelChannelSwizzler
 {
+    // Every index is deliberately in [0, 15]. ShuffleNative can therefore map
+    // one complete RGBA/BGRA vector with the hardware's native byte-table
+    // instruction without the index normalization required by Shuffle.
     private static readonly Vector128<byte> s_redBlueShuffle = Vector128.Create(
         (byte)2, 1, 0, 3,
         6, 5, 4, 7,
         10, 9, 8, 11,
         14, 13, 12, 15);
-    private static readonly Vector128<byte> s_redBlueMask = Vector128.Create(0x00ff00ffu).AsByte();
 
     /// <summary>
     /// Swaps the first and third bytes of each complete four-byte pixel.
@@ -90,21 +91,6 @@ public static class PixelChannelSwizzler
         ref var start = ref MemoryMarshal.GetReference(pixels);
         var offset = 0;
 
-        if (AdvSimd.IsSupported)
-        {
-            for (; offset <= pixels.Length - 64; offset += 64)
-            {
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref start, (nuint)offset))
-                    .StoreUnsafe(ref start, (nuint)offset);
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref start, (nuint)(offset + 16)))
-                    .StoreUnsafe(ref start, (nuint)(offset + 16));
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref start, (nuint)(offset + 32)))
-                    .StoreUnsafe(ref start, (nuint)(offset + 32));
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref start, (nuint)(offset + 48)))
-                    .StoreUnsafe(ref start, (nuint)(offset + 48));
-            }
-        }
-
         if (Vector128.IsHardwareAccelerated)
         {
             var shuffle = s_redBlueShuffle;
@@ -114,16 +100,16 @@ public static class PixelChannelSwizzler
                 var second = Vector128.LoadUnsafe(ref start, (nuint)(offset + 16));
                 var third = Vector128.LoadUnsafe(ref start, (nuint)(offset + 32));
                 var fourth = Vector128.LoadUnsafe(ref start, (nuint)(offset + 48));
-                Vector128.Shuffle(first, shuffle).StoreUnsafe(ref start, (nuint)offset);
-                Vector128.Shuffle(second, shuffle).StoreUnsafe(ref start, (nuint)(offset + 16));
-                Vector128.Shuffle(third, shuffle).StoreUnsafe(ref start, (nuint)(offset + 32));
-                Vector128.Shuffle(fourth, shuffle).StoreUnsafe(ref start, (nuint)(offset + 48));
+                Vector128.ShuffleNative(first, shuffle).StoreUnsafe(ref start, (nuint)offset);
+                Vector128.ShuffleNative(second, shuffle).StoreUnsafe(ref start, (nuint)(offset + 16));
+                Vector128.ShuffleNative(third, shuffle).StoreUnsafe(ref start, (nuint)(offset + 32));
+                Vector128.ShuffleNative(fourth, shuffle).StoreUnsafe(ref start, (nuint)(offset + 48));
             }
 
             for (; offset <= pixels.Length - Vector128<byte>.Count; offset += Vector128<byte>.Count)
             {
                 var value = Vector128.LoadUnsafe(ref start, (nuint)offset);
-                Vector128.Shuffle(value, shuffle).StoreUnsafe(ref start, (nuint)offset);
+                Vector128.ShuffleNative(value, shuffle).StoreUnsafe(ref start, (nuint)offset);
             }
         }
 
@@ -144,21 +130,6 @@ public static class PixelChannelSwizzler
         ref var destinationStart = ref MemoryMarshal.GetReference(destination);
         var offset = 0;
 
-        if (AdvSimd.IsSupported)
-        {
-            for (; offset <= source.Length - 64; offset += 64)
-            {
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref sourceStart, (nuint)offset))
-                    .StoreUnsafe(ref destinationStart, (nuint)offset);
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 16)))
-                    .StoreUnsafe(ref destinationStart, (nuint)(offset + 16));
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 32)))
-                    .StoreUnsafe(ref destinationStart, (nuint)(offset + 32));
-                SwapRedBlueArm(Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 48)))
-                    .StoreUnsafe(ref destinationStart, (nuint)(offset + 48));
-            }
-        }
-
         if (Vector128.IsHardwareAccelerated)
         {
             var shuffle = s_redBlueShuffle;
@@ -168,20 +139,20 @@ public static class PixelChannelSwizzler
                 var second = Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 16));
                 var third = Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 32));
                 var fourth = Vector128.LoadUnsafe(ref sourceStart, (nuint)(offset + 48));
-                Vector128.Shuffle(first, shuffle)
+                Vector128.ShuffleNative(first, shuffle)
                     .StoreUnsafe(ref destinationStart, (nuint)offset);
-                Vector128.Shuffle(second, shuffle)
+                Vector128.ShuffleNative(second, shuffle)
                     .StoreUnsafe(ref destinationStart, (nuint)(offset + 16));
-                Vector128.Shuffle(third, shuffle)
+                Vector128.ShuffleNative(third, shuffle)
                     .StoreUnsafe(ref destinationStart, (nuint)(offset + 32));
-                Vector128.Shuffle(fourth, shuffle)
+                Vector128.ShuffleNative(fourth, shuffle)
                     .StoreUnsafe(ref destinationStart, (nuint)(offset + 48));
             }
 
             for (; offset <= source.Length - Vector128<byte>.Count; offset += Vector128<byte>.Count)
             {
                 var pixels = Vector128.LoadUnsafe(ref sourceStart, (nuint)offset);
-                Vector128.Shuffle(pixels, shuffle)
+                Vector128.ShuffleNative(pixels, shuffle)
                     .StoreUnsafe(ref destinationStart, (nuint)offset);
             }
         }
@@ -197,14 +168,6 @@ public static class PixelChannelSwizzler
             Unsafe.Add(ref destinationStart, offset + 2) = red;
             Unsafe.Add(ref destinationStart, offset + 3) = alpha;
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector128<byte> SwapRedBlueArm(Vector128<byte> value)
-    {
-        var reversedWords = AdvSimd.ReverseElement8(value.AsUInt32());
-        var redBlue = AdvSimd.ReverseElement8(reversedWords.AsUInt16()).AsByte();
-        return AdvSimd.BitwiseSelect(s_redBlueMask, redBlue, value);
     }
 
     private static void SwapBackward(

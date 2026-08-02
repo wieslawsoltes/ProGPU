@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\..\src\SkiaSharp\SkiaSharp.csproj" />
     <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\InterVariable.ttf"
           Link="InterVariable.ttf"

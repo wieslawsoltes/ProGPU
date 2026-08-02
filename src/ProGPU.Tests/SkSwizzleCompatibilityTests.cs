@@ -20,6 +20,22 @@ public sealed class SkSwizzleCompatibilityTests
     }
 
     [Fact]
+    public void CoreInPlaceSwizzleTransformsEveryVectorBlockAndPreservesTail()
+    {
+        var pixels = new byte[4_099];
+        for (var index = 0; index < pixels.Length; index++)
+            pixels[index] = unchecked((byte)(index * 37 + 11));
+
+        var expected = (byte[])pixels.Clone();
+        for (var offset = 0; offset < expected.Length - 3; offset += 4)
+            (expected[offset], expected[offset + 2]) = (expected[offset + 2], expected[offset]);
+
+        PixelChannelSwizzler.SwapRedBlue32(pixels);
+
+        Assert.Equal(expected, pixels);
+    }
+
+    [Fact]
     public void CoreCopySwizzleClampsCountAndSupportsOverlap()
     {
         byte[] source = [1, 2, 3, 4, 5, 6, 7, 8];

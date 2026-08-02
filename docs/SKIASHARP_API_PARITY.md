@@ -1540,3 +1540,80 @@ core suite passes 3,239/3,239 and the headless suite passes 225/225. The
 official API metadata gate remains `reference=4222`, `matching=4222`,
 `missing=0`, and `extra=998`; this implementation and its benchmark operation
 override add no public API.
+
+## Native byte-table pixel swizzle after Preview.39
+
+The shared 32-bit pixel channel swizzler now uses .NET 10's hardware-native
+128-bit byte-table shuffle whenever `Vector128` acceleration is available. Its
+constant indices are all in `[0, 15]`, so `ShuffleNative` can lower directly to
+the architecture's native table instruction without the normalization required
+by the portable `Shuffle` operation. This replaces the former Apple ARM64
+sequence of two element reversals plus a bitwise select. Four vectors are
+unrolled per iteration, remaining complete vectors use the same primitive, and
+the existing scalar loop preserves incomplete trailing bytes. Forward copy,
+in-place conversion, count clamping, backward overlap handling, and every
+public `SKSwizzle` overload retain their existing contracts.
+
+For `P` complete pixels the algorithm is `O(P)` time and `O(1)` auxiliary
+storage. It performs one load, one native byte shuffle, and one store per
+16-byte vector on the common path. It allocates no managed memory, initializes
+no WebGPU device, submits no GPU command, and does not change alpha or the
+middle two bytes of any pixel. A 4,099-byte regression covers every vector
+block plus an incomplete tail; the focused suite passes 6/6.
+
+The clean-room design used only public contracts and independently measured
+behavior: Skia's public
+[`SkSwapRB`](https://skia.googlesource.com/skia/+/8d9d892657a7/include/core/SkSwizzle.h)
+RGBA/BGRA contract; Direct2D's
+[`BGRA`/`RGBA` format guidance](https://learn.microsoft.com/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes);
+Win2D's raw
+[`CanvasBitmap.GetPixelBytes`](https://microsoft.github.io/Win2D/WinUI2/html/M_Microsoft_Graphics_Canvas_CanvasBitmap_GetPixelBytes.htm)
+default-BGRA contract; WebRender's
+[`swizzling` architecture](https://searchfox.org/firefox-main/source/gfx/wr/webrender/doc/swizzling.md);
+Vello's [wgpu renderer boundary](https://github.com/linebender/vello); and the
+.NET 10
+[`Vector128.ShuffleNative`](https://learn.microsoft.com/dotnet/api/system.runtime.intrinsics.vector128.shufflenative?view=net-10.0)
+contract. ProGPU adopts explicit format boundaries, avoids conversion when the
+existing caller already has the target format, and uses one portable native
+SIMD primitive when a CPU-visible buffer must observably change. It rejects a
+GPU/shader substitute for the public mutating CPU API, per-platform duplicate
+loops, runtime reflection, copied implementation structure, and hidden buffer
+allocation. No foreign implementation source was copied or adapted.
+
+The mandatory text-boundary review used Skia's
+[`Shaped Text`](https://docs.skia.org/docs/dev/design/text_shaper/), DirectWrite
+[`glyph runs`](https://learn.microsoft.com/windows/win32/directwrite/glyphs-and-glyph-runs),
+Parley's [shared layout resources](https://docs.rs/parley/latest/parley/), and
+HarfBuzz's
+[`shaping output`](https://harfbuzz.github.io/shaping-and-shape-plans.html).
+This byte-format transform remains below those reusable shaping/layout results
+and changes no font, glyph, atlas, subpixel, or fallback state.
+
+Three interleaved Apple M3 Pro Release process pairs compared exact
+Preview.39 merge `3efcf9e5` with product commit `bfc6c62a`, using 128 complete
+warmups and 192 samples per process. Across 576 samples per side the exact
+checksum remained `12185046443090060243`, median latency fell from `90.375` to
+`79.942` ns/op (`11.55%` lower), and throughput rose `13.05%`; both sides
+allocated exactly `0` managed B/op. Scheduler interference dominates the raw
+p95 distribution, so no tail-latency claim is made. An exploratory matched
+official SkiaSharp 4.151.0 process set measured `85.442` versus `81.804` ns/op,
+so the candidate was `4.26%` faster with the same checksum and allocation.
+
+Matched long-running macOS profiling used 20 million 4-KiB operations per
+sample and checksum `895921851728446851`. Time Profiler measured `93.264`
+versus `46.231` ns/op (`50.43%` lower). Allocations plus VM Tracker measured
+`97.338` versus `49.173` ns/op (`49.48%` lower) and retained zero managed
+bytes per operation. Persistent native heap plus anonymous VM was effectively
+unchanged at `107,098,816` versus `107,111,136` bytes; the 12-KiB difference
+is startup noise, while candidate total allocation bytes were lower.
+EventPipe measured `92.400` versus `85.772` ns/op and attributed 95.70%/95.18%
+exclusive sampled time to the intended swizzle body. Metal System Trace
+measured `97.363` versus `47.386` ns/op (`51.33%` lower); both traces exported
+zero target command-buffer submissions, command-buffer errors, compiler
+spills, hangs, Metal resource allocations, and `currentAllocatedSize` rows.
+
+Raw distributions and compact profiler target results are retained under
+`artifacts/performance/skiasharp-swizzle-native-shuffle`. After extracting the
+summaries, 433 MiB of raw Instruments/EventPipe data and 102 MiB of exact
+baseline build state were deleted. No task-owned `.trace`, `.nettrace`,
+Speedscope, Xcode scratch, or temporary worktree remains.

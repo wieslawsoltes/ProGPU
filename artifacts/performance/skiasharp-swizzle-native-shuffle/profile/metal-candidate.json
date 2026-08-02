@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "backend": "ProGPU",
+  "repositoryCommit": "bfc6c62a52583b3c1500fb2c5402d98b490c968d",
+  "dirtyState": "clean",
+  "capturedAtUtc": "2026-08-02T20:38:59.415804+00:00",
+  "framework": ".NET 10.0.5",
+  "operatingSystem": "macOS 26.4.1",
+  "architecture": "Arm64",
+  "processorCount": 11,
+  "harnessAssemblyVersion": "0.1.0.0",
+  "skiaAssemblyVersion": "0.1.0.0",
+  "warmupCount": 1,
+  "sampleCount": 3,
+  "results": [
+    {
+      "name": "swizzle-in-place-4k",
+      "operationsPerSample": 20000000,
+      "checksum": 895921851728446851,
+      "nanosecondsPerOperation": [
+        83.6667833,
+        47.1850042,
+        47.3858104
+      ],
+      "allocatedBytesPerOperation": [
+        0,
+        0,
+        0
+      ],
+      "medianNanoseconds": 47.3858104,
+      "p95Nanoseconds": 83.6667833,
+      "minimumNanoseconds": 47.1850042,
+      "maximumNanoseconds": 83.6667833,
+      "medianAllocatedBytes": 0
+    }
+  ]
+}
