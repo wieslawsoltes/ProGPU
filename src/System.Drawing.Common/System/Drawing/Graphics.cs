@@ -438,6 +438,101 @@ public class Graphics :
         }
     }
 
+    public void DrawCurve(Pen pen, PointF[] points) =>
+        DrawCurve(pen, points, 0, GetCurveSegmentCount(points), 0.5f);
+
+    public void DrawCurve(Pen pen, PointF[] points, float tension) =>
+        DrawCurve(pen, points, 0, GetCurveSegmentCount(points), tension);
+
+    public void DrawCurve(Pen pen, PointF[] points, int offset, int numberOfSegments) =>
+        DrawCurve(pen, points, offset, numberOfSegments, 0.5f);
+
+    public void DrawCurve(Pen pen, PointF[] points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        ValidateCurveRange(points, offset, numberOfSegments);
+
+        var geometry = new PathGeometry();
+        PointF start = points[offset];
+        var figure = new PathFigure(new Vector2(start.X, start.Y));
+        geometry.Figures.Add(figure);
+        float scale = tension / 3f;
+
+        for (int index = offset; index < offset + numberOfSegments; index++)
+        {
+            PointF current = points[index];
+            PointF previous = index == 0 ? current : points[index - 1];
+            PointF next = points[index + 1];
+            PointF following = index + 2 < points.Length ? points[index + 2] : next;
+            figure.Segments.Add(new CubicBezierSegment(
+                new Vector2(
+                    current.X + ((next.X - previous.X) * scale),
+                    current.Y + ((next.Y - previous.Y) * scale)),
+                new Vector2(
+                    next.X - ((following.X - current.X) * scale),
+                    next.Y - ((following.Y - current.Y) * scale)),
+                new Vector2(next.X, next.Y)));
+        }
+
+        _context.DrawPath(null, TransformPen(pen), geometry, CurrentTransform4x4());
+    }
+
+    public void DrawCurve(Pen pen, Point[] points) =>
+        DrawCurve(pen, points, 0, GetCurveSegmentCount(points), 0.5f);
+
+    public void DrawCurve(Pen pen, Point[] points, float tension) =>
+        DrawCurve(pen, points, 0, GetCurveSegmentCount(points), tension);
+
+    public void DrawCurve(Pen pen, Point[] points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        ValidateCurveRange(points, offset, numberOfSegments);
+
+        var geometry = new PathGeometry();
+        Point start = points[offset];
+        var figure = new PathFigure(new Vector2(start.X, start.Y));
+        geometry.Figures.Add(figure);
+        float scale = tension / 3f;
+
+        for (int index = offset; index < offset + numberOfSegments; index++)
+        {
+            Point current = points[index];
+            Point previous = index == 0 ? current : points[index - 1];
+            Point next = points[index + 1];
+            Point following = index + 2 < points.Length ? points[index + 2] : next;
+            figure.Segments.Add(new CubicBezierSegment(
+                new Vector2(
+                    current.X + ((next.X - previous.X) * scale),
+                    current.Y + ((next.Y - previous.Y) * scale)),
+                new Vector2(
+                    next.X - ((following.X - current.X) * scale),
+                    next.Y - ((following.Y - current.Y) * scale)),
+                new Vector2(next.X, next.Y)));
+        }
+
+        _context.DrawPath(null, TransformPen(pen), geometry, CurrentTransform4x4());
+    }
+
+    private static int GetCurveSegmentCount<TPoint>(TPoint[]? points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        return points.Length - 1;
+    }
+
+    private static void ValidateCurveRange<TPoint>(TPoint[]? points, int offset, int numberOfSegments)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (points.Length < 2)
+        {
+            throw new ArgumentException("At least two points are required to draw a curve.", nameof(points));
+        }
+
+        if (offset < 0 || numberOfSegments < 1 || offset >= points.Length || numberOfSegments > points.Length - offset - 1)
+        {
+            throw new ArgumentException("The curve offset and segment count must describe a valid point range.", nameof(numberOfSegments));
+        }
+    }
+
     public void DrawRectangle(Pen pen, Rectangle rect) => DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
     public void DrawRectangle(Pen pen, int x, int y, int width, int height) => DrawRectangle(pen, (float)x, y, width, height);
 
