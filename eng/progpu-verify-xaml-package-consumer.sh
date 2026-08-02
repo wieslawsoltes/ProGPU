@@ -8,7 +8,7 @@ if [[ ! -x "${dotnet}" ]]; then
 fi
 
 configuration="${PROGPU_CONFIGURATION:-Release}"
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.39}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.40}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/${configuration}}"
 fixture="${repo_root}/eng/fixtures/xaml-package-consumer"
 

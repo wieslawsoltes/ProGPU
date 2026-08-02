@@ -492,3 +492,15 @@ publication and recovery, fine-grained namescope/resource/template/binding
 patching with safe fallback, cross-platform stress/performance/visual/
 accessibility/leak gates, and published-feed productization evidence before an
 MVP claim.
+
+## Preview.40 compiler handoff
+
+Preview.40 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.39 compiler packages, automatic official WinUI API ledger, changed-
+identity diagnostic-origin projection, and the same five pre-MVP product
+blockers. The next compiler branch starts from the immutable Preview.40 tag and
+must complete runtime capability adapters; atomic metadata/XAML publication,
+joint commit, and recovery; fine-grained namescope/resource/template/binding
+patching with safe fallback; cross-platform stress/performance/visual/
+accessibility/leak and collectible-context gates; and published-feed host and
+productization evidence before an MVP claim.
