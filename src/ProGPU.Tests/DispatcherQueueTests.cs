@@ -330,7 +330,10 @@ public sealed class DispatcherQueueTests
             timer.Start();
             await Task.Delay(20);
             timer.Interval = TimeSpan.FromMilliseconds(250);
-            await Task.Delay(500);
+            // Release after the first reconfigured period but comfortably
+            // before the second. Releasing at exactly two periods races the
+            // second legitimate timer callback on loaded CI hosts.
+            await Task.Delay(300);
             releaseQueue.Set();
 
             await firstTick.Task.WaitAsync(TimeSpan.FromSeconds(5));
