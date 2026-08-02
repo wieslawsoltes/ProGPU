@@ -470,3 +470,14 @@ the Preview.36 diagnostic-origin projection and the same five pre-MVP product
 blockers. The next compiler branch starts from the immutable Preview.37 tag and
 must retain atomic publication/recovery, namescope/resource/template fallback,
 cross-platform stress and performance gates, and published-feed evidence.
+
+## Preview.38 compiler handoff
+
+Preview.38 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.37 compiler packages, diagnostic-origin projection, and the same
+five pre-MVP product blockers. The next compiler branch starts from the
+immutable Preview.38 tag and must complete runtime capability adapters, atomic
+publication and recovery, fine-grained namescope/resource/template/binding
+patching with safe fallback, cross-platform stress/performance/visual/
+accessibility/leak gates, and published-feed productization evidence before an
+MVP claim.
