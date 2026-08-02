@@ -228,7 +228,8 @@ public partial class SKShader
         float endAngle) =>
         CreateSweepGradientCore(
             center,
-            CreateGradientStops(colors, colorPos),
+            colors,
+            colorPos,
             tileMode,
             startAngle,
             endAngle,
@@ -245,7 +246,8 @@ public partial class SKShader
         SKMatrix localMatrix) =>
         CreateSweepGradientCore(
             center,
-            CreateGradientStops(colors, colorPos),
+            colors,
+            colorPos,
             tileMode,
             startAngle,
             endAngle,
@@ -319,7 +321,8 @@ public partial class SKShader
         SKMatrix localMatrix) =>
         CreateSweepGradientCore(
             center,
-            CreateGradientStops(colors, colorPos),
+            colors,
+            colorPos,
             tileMode,
             startAngle,
             endAngle,
@@ -431,13 +434,15 @@ public partial class SKShader
 
     private static SKShader CreateSweepGradientCore(
         SKPoint center,
-        GradientStop[] stops,
+        SKColor[] colors,
+        float[]? colorPos,
         SKShaderTileMode tileMode,
         float startAngle,
         float endAngle,
         SKMatrix localMatrix,
         GradientColorInterpolationMode interpolationMode)
     {
+        var stops = GetGradientStops(colors, colorPos);
         if (!float.IsFinite(startAngle) || !float.IsFinite(endAngle) || startAngle > endAngle)
         {
             return CreateEmpty();
@@ -448,48 +453,61 @@ public partial class SKShader
             return CreateEmpty();
         }
 
-        if (startAngle == endAngle && tileMode is SKShaderTileMode.Repeat or SKShaderTileMode.Mirror)
-        {
-            var average = AverageGradientColor(stops);
-            return new SKShader(() => new SolidColorBrush(average));
-        }
-
-        var spreadMethod = MapTileMode(tileMode);
         if (!TryGetShaderCoordinateTransform(localMatrix, out var coordinateTransform))
         {
             return CreateEmpty();
         }
-        return new SKShader(() => new SweepGradientBrush(
-            new Vector2(center.X, center.Y),
-            CloneGradientStops(stops))
-        {
-            StartAngle = startAngle,
-            EndAngle = endAngle,
-            SpreadMethod = spreadMethod,
-            CoordinateTransform = coordinateTransform,
-            ColorInterpolationMode = interpolationMode,
-        });
+
+        var data = new SweepGradientShaderData(
+            center,
+            stops,
+            MapTileMode(tileMode),
+            interpolationMode,
+            coordinateTransform,
+            startAngle,
+            endAngle);
+        return startAngle == endAngle && tileMode is SKShaderTileMode.Repeat or SKShaderTileMode.Mirror
+            ? new SKShader(() => new SolidColorBrush(data.AverageColor()))
+            : data;
     }
 
-    private static Vector4 AverageGradientColor(IReadOnlyList<GradientStop> stops)
+    private static SKShader CreateSweepGradientCore(
+        SKPoint center,
+        SKColorF[] colors,
+        float[]? colorPos,
+        SKShaderTileMode tileMode,
+        float startAngle,
+        float endAngle,
+        SKMatrix localMatrix,
+        GradientColorInterpolationMode interpolationMode)
     {
-        if (stops.Count == 0)
+        var stops = GetGradientStops(colors, colorPos);
+        if (!float.IsFinite(startAngle) || !float.IsFinite(endAngle) || startAngle > endAngle)
         {
-            return Vector4.Zero;
+            return CreateEmpty();
         }
 
-        var average = stops[0].Color * Math.Clamp(stops[0].Offset, 0f, 1f);
-        var previousOffset = Math.Clamp(stops[0].Offset, 0f, 1f);
-        for (var index = 1; index < stops.Count; index++)
+        if (startAngle == endAngle && tileMode == SKShaderTileMode.Decal)
         {
-            var offset = Math.Clamp(stops[index].Offset, previousOffset, 1f);
-            average += (stops[index - 1].Color + stops[index].Color) *
-                (0.5f * (offset - previousOffset));
-            previousOffset = offset;
+            return CreateEmpty();
         }
 
-        average += stops[^1].Color * (1f - previousOffset);
-        return Vector4.Clamp(average, Vector4.Zero, Vector4.One);
+        if (!TryGetShaderCoordinateTransform(localMatrix, out var coordinateTransform))
+        {
+            return CreateEmpty();
+        }
+
+        var data = new SweepGradientShaderData(
+            center,
+            stops,
+            MapTileMode(tileMode),
+            interpolationMode,
+            coordinateTransform,
+            startAngle,
+            endAngle);
+        return startAngle == endAngle && tileMode is SKShaderTileMode.Repeat or SKShaderTileMode.Mirror
+            ? new SKShader(() => new SolidColorBrush(data.AverageColor()))
+            : data;
     }
 
     private static SKSamplingOptions SamplingFromQuality(int quality) => quality switch
