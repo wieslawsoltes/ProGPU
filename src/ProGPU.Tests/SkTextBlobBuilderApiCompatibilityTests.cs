@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using SkiaSharp;
 using Xunit;
 
@@ -134,11 +135,10 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
             SKRotationScaleMatrix.CreateTranslation(10f, 12f),
             rotation.Positions[0]);
 
-        var warmChecksum = ReadPositionX(positioned, 10_000);
+        _ = SumPositionX(positioned, 10_000);
         var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-        var checksum = ReadPositionX(positioned, 10_000);
+        var checksum = SumPositionX(positioned, 10_000);
         var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
-        Assert.Equal(60_000f, warmChecksum);
         Assert.Equal(60_000f, checksum);
         Assert.Equal(0, allocated);
 
@@ -154,6 +154,20 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
         Assert.Equal(
             SKRotationScaleMatrix.CreateTranslation(10f, 12f),
             blob.Runs[2].RotationScaleMatrices![0]);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float SumPositionX(
+        SKRawRunBuffer<SKPoint> run,
+        int count)
+    {
+        var checksum = 0f;
+        for (var iteration = 0; iteration < count; iteration++)
+        {
+            checksum += run.Positions[0].X;
+        }
+
+        return checksum;
     }
 
     [Fact]
@@ -223,17 +237,6 @@ public sealed class SkTextBlobBuilderApiCompatibilityTests
 
     private static MethodInfo? GetBuilderMethod(string name, params Type[] parameterTypes) =>
         typeof(SKTextBlobBuilder).GetMethod(name, parameterTypes);
-
-    private static float ReadPositionX(SKRawRunBuffer<SKPoint> run, int count)
-    {
-        var checksum = 0f;
-        for (var iteration = 0; iteration < count; iteration++)
-        {
-            checksum += run.Positions[0].X;
-        }
-
-        return checksum;
-    }
 
     private static void AssertParameterNames(MethodBase? method, params string[] expected)
     {
