@@ -2119,3 +2119,17 @@ gradient representation and preserves the existing WebGPU rendering path.
 The next WinUI parity branch must start from the immutable Preview.37 tag and
 preserve the automatic API comparator, behavioral gates, rendering-quality
 tests, and allocation/performance evidence before claiming new parity.
+
+## Preview.38 handoff after rounded-rectangle optimization
+
+Preview.38 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining. The release changes only shared SkiaSharp CPU geometry
+storage and preserves the retained WebGPU rendering path.
+
+The next WinUI parity branch must start from the immutable Preview.38 tag and
+continue the ordered API-contract, Composition, XAML behavior, namespace, and
+validation work above. Every rendering declaration must continue to lower to
+typed, reflection-free retained WebGPU work, with official metadata comparison,
+behavior, accessibility, device-loss, quality, allocation, and performance
+gates kept independent.
