@@ -5,14 +5,17 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.40 continues the media and SkiaSharp performance line from preview.39.
+Preview.41 continues the media and SkiaSharp performance line from preview.40.
 It retains the native zero-copy media player, standalone editing packages,
 WebGPU effects, packed retained paths, shared immutable surface snapshots,
 compact typed gradients, inline rounded-rectangle radii, compact immutable
-image views, and the complete SkiaSharp 4.151.0 public metadata ledger. This
-release accelerates shared allocation-free RGBA/BGRA pixel conversion with
-.NET 10 hardware-native 128-bit byte-table shuffles while preserving forward,
-in-place, backward-overlap, count-clamping, and incomplete-tail behavior.
+image views, accelerated pixel swizzles, and the complete SkiaSharp 4.151.0
+public metadata ledger. This release stores runtime-effect uniforms in
+immutable copy-on-write snapshots, bypasses empty child collections, and keeps
+identity instances compact. It also adds the optional typed
+`PortableWindowActivationCallbacks.RequestActivation` seam so LibreWPF can
+request native foreground activation without reflection or managed-focus
+simulation.
 Exact checksums, native comparisons, managed allocation counters, macOS
 Instruments, EventPipe, and Metal System Trace are recorded in
 `docs/SKIASHARP_API_PARITY.md`. WinUI remains at 4,952 exact of
@@ -22,7 +25,7 @@ claim. Detailed work remaining is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.40 closure and continuation
+## Preview.41 closure and continuation
 
 The release boundary includes the reusable, framework-neutral media engine,
 native platform media/audio providers, WebGPU presentation and effects, the
@@ -31,7 +34,7 @@ The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
 LibreWinForms without making the editor API part of the official WinUI parity
 claim.
 
-The next WinUI parity branch starts from the immutable preview.40 tag. It must
+The next WinUI parity branch starts from the immutable preview.41 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -39,7 +42,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.40 retains preview.39's automatic
+The XAML compiler remains pre-MVP. Preview.41 retains preview.40's automatic
 projection of changed
 stable XAML identities to detached Roslyn metadata diagnostic origins. The five
 remaining product blockers are runtime capability adapters; atomic metadata
@@ -50,13 +53,11 @@ productization evidence.
 
 SkiaSharp's official metadata ledger remains closed at this boundary. Three
 interleaved exact-checksum Apple M3 Pro Release process pairs measured the
-4-KiB in-place swizzle at `79.942 ns/op`, down from preview.39's `90.375`
-ns/op (`11.55%`), with `13.05%` higher throughput and exactly zero managed
-bytes per operation on both sides. The matched official SkiaSharp 4.151.0 set
-measured `85.442 ns/op` versus ProGPU's `81.804 ns/op` (`4.26%` lower).
-Matched Time Profiler, Allocations plus VM Tracker, EventPipe, and Metal System
-Trace lanes preserve the same ordering; persistent heap plus anonymous VM is
-effectively unchanged, and the CPU mutation path submits no Metal work.
+runtime-effect path at `140.1958 ns/op`, down from preview.40's `220.8291`
+ns/op (`36.51%`), with `57.51%` higher throughput and managed allocation
+reduced from `544` to `360 B/op` (`33.82%`). Matched Time Profiler,
+Allocations plus VM Tracker, EventPipe, and Metal System Trace lanes preserve
+the same ordering and checksum; this CPU ownership path submits no Metal work.
 Remaining behavioral and performance depth is tracked explicitly in
 `docs/SKIASHARP_API_PARITY.md`.
 
@@ -106,19 +107,19 @@ Remaining behavioral and performance depth is tracked explicitly in
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.40`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.40`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.40`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.40`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.41`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.41`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.41`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.41`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.40` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.41` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.40 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.41 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -136,7 +137,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.40 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.41 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -154,7 +155,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.40`.
+for example `v0.1.0-preview.41`.
 
 ## NuGet Publishing
 
