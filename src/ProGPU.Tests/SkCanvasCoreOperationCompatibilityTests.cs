@@ -157,10 +157,42 @@ public sealed class SkCanvasCoreOperationCompatibilityTests
         Assert.Empty(canvas.DrawingContext.Commands);
     }
 
+    [Fact]
+    public void RetainedCanvasStateInitializationAvoidsDuplicateClipCommandStorage()
+    {
+        const int iterations = 128;
+        for (var index = 0; index < 8; index++)
+        {
+            RecordOneEmptyClipCycle();
+        }
+
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            RecordOneEmptyClipCycle();
+        }
+
+        long bytesPerCycle =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+        Assert.True(
+            bytesPerCycle <= 6_000,
+            $"Expected no more than 6,000 managed bytes per retained canvas cycle, actual: {bytesPerCycle}.");
+    }
+
     private static void CycleEmptyClip(SKCanvas canvas, SKRect clip)
     {
         int restoreCount = canvas.Save();
         canvas.ClipRect(clip);
         canvas.RestoreToCount(restoreCount);
+    }
+
+    private static void RecordOneEmptyClipCycle()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 20f, 20f));
+        CycleEmptyClip(canvas, new SKRect(2f, 3f, 18f, 17f));
+        using var picture = recorder.EndRecording();
+        GC.KeepAlive(picture);
     }
 }

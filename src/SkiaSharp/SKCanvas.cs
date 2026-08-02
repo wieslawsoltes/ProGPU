@@ -141,19 +141,104 @@ public class SKCanvas : SKObject
             DeviceBounds.Bottom <= DeviceBounds.Top;
     }
 
-    private readonly Stack<(
+    private readonly record struct CanvasState(
         SKMatrix Matrix,
         float Opacity,
         int PushedScopesCount,
-        ClipState ClipState)> _stateStack = new();
+        ClipState ClipState);
+
+    private CanvasState[]? _savedStates;
+    private int _savedStateCount;
     private readonly record struct PushedScope(
         PushKind Kind,
         DrawingContext Context,
         int CommandIndex);
 
-    private readonly Stack<PushedScope> _pushedScopes = new();
-    private readonly Stack<RenderCommand> _activeClipPushes = new();
-    private readonly Stack<LayerFrame> _layerStack = new();
+    private struct RetainedStack<T>
+    {
+        private T[]? _items;
+
+        public int Count { get; private set; }
+
+        public ref readonly T this[int index] => ref _items![index];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Push(T item)
+        {
+            var items = _items;
+            if (items == null)
+            {
+                items = new T[4];
+                _items = items;
+            }
+            else if (Count == items.Length)
+            {
+                Array.Resize(ref _items, checked(items.Length * 2));
+                items = _items;
+            }
+
+            items[Count++] = item;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T Pop()
+        {
+            if (Count == 0)
+            {
+                throw new InvalidOperationException("The retained stack is empty.");
+            }
+
+            var index = --Count;
+            var item = _items![index];
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+            {
+                _items[index] = default!;
+            }
+
+            return item;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T Peek()
+        {
+            if (Count == 0)
+            {
+                throw new InvalidOperationException("The retained stack is empty.");
+            }
+
+            return _items![Count - 1];
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryPeek(out T item)
+        {
+            if (Count == 0)
+            {
+                item = default!;
+                return false;
+            }
+
+            item = _items![Count - 1];
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryPop(out T item)
+        {
+            if (Count == 0)
+            {
+                item = default!;
+                return false;
+            }
+
+            item = Pop();
+            return true;
+        }
+
+    }
+
+    private RetainedStack<PushedScope> _pushedScopes;
+    private RetainedStack<LayerFrame> _layerStack;
 
     private sealed class LayerFrame
     {
@@ -195,7 +280,7 @@ public class SKCanvas : SKObject
 
     public SKMatrix TotalMatrix => _currentMatrix;
 
-    public int SaveCount => _stateStack.Count + 1;
+    public int SaveCount => _savedStateCount + 1;
 
     public SKMatrix44 TotalMatrix44 => SKMatrix44.FromMatrix4x4(_currentMatrix.ToMatrix4x4());
 
@@ -338,7 +423,7 @@ public class SKCanvas : SKObject
             backdrop: null,
             SKCanvasSaveLayerRecFlags.None,
             previousContext: null,
-            _stateStack.Count,
+            _savedStateCount,
             new SKRect(0f, 0f, _width, _height),
             SKMatrix.Identity,
             SnapshotActiveClipPushes());
@@ -454,8 +539,24 @@ public class SKCanvas : SKObject
 
     public int Save()
     {
-        var restoreCount = SaveCount;
-        _stateStack.Push((_currentMatrix, _currentOpacity, _pushedScopes.Count, _clipState));
+        var restoreCount = _savedStateCount + 1;
+        var savedStates = _savedStates;
+        if (savedStates == null)
+        {
+            savedStates = new CanvasState[4];
+            _savedStates = savedStates;
+        }
+        else if (_savedStateCount == savedStates.Length)
+        {
+            Array.Resize(ref _savedStates, checked(savedStates.Length * 2));
+            savedStates = _savedStates;
+        }
+
+        savedStates[_savedStateCount++] = new CanvasState(
+            _currentMatrix,
+            _currentOpacity,
+            _pushedScopes.Count,
+            _clipState);
         return restoreCount;
     }
 
@@ -505,7 +606,7 @@ public class SKCanvas : SKObject
             backdrop,
             flags,
             previousContext,
-            _stateStack.Count,
+            _savedStateCount,
             bounds,
             _currentMatrix,
             SnapshotActiveClipPushes()));
@@ -523,13 +624,13 @@ public class SKCanvas : SKObject
 
     public void Restore()
     {
-        if (_stateStack.Count > 0)
+        if (_savedStateCount > 0)
         {
-            var layerFrame = _layerStack.Count > 0 && _layerStack.Peek().StateDepth == _stateStack.Count
+            var layerFrame = _layerStack.Count > 0 && _layerStack.Peek().StateDepth == _savedStateCount
                 ? _layerStack.Pop()
                 : null;
 
-            var state = _stateStack.Pop();
+            var state = _savedStates![--_savedStateCount];
             _currentMatrix = state.Matrix;
             _currentOpacity = state.Opacity;
             _clipState = state.ClipState;
@@ -540,7 +641,6 @@ public class SKCanvas : SKObject
                 var scope = _pushedScopes.Pop();
                 if (TryRemoveEmptyClipScope(scope))
                 {
-                    PopActiveClipScope();
                     continue;
                 }
 
@@ -548,11 +648,9 @@ public class SKCanvas : SKObject
                 {
                     case PushKind.RectClip:
                         scope.Context.PopClip();
-                        PopActiveClipScope();
                         break;
                     case PushKind.GeometryClip:
                         scope.Context.PopGeometryClip();
-                        PopActiveClipScope();
                         break;
                     case PushKind.Opacity:
                         scope.Context.PopOpacity();
@@ -570,7 +668,7 @@ public class SKCanvas : SKObject
     public void RestoreToCount(int count)
     {
         var targetDepth = Math.Max(1, count) - 1;
-        while (_stateStack.Count > targetDepth)
+        while (_savedStateCount > targetDepth)
         {
             Restore();
         }
@@ -2604,8 +2702,34 @@ public class SKCanvas : SKObject
 
     private RenderCommand[] SnapshotActiveClipPushes()
     {
-        var clips = _activeClipPushes.ToArray();
-        Array.Reverse(clips);
+        var clipCount = 0;
+        for (var index = 0; index < _pushedScopes.Count; index++)
+        {
+            ref readonly var scope = ref _pushedScopes[index];
+            if (scope.Kind is PushKind.RectClip or PushKind.GeometryClip)
+            {
+                clipCount++;
+            }
+        }
+
+        if (clipCount == 0)
+        {
+            return Array.Empty<RenderCommand>();
+        }
+
+        // The scope stack already owns the stable context/index pair for every
+        // live clip. Materialize full commands only at the layer snapshot boundary.
+        var clips = new RenderCommand[clipCount];
+        var clipIndex = 0;
+        for (var index = 0; index < _pushedScopes.Count; index++)
+        {
+            ref readonly var scope = ref _pushedScopes[index];
+            if (scope.Kind is PushKind.RectClip or PushKind.GeometryClip)
+            {
+                clips[clipIndex++] = scope.Context.Commands[scope.CommandIndex];
+            }
+        }
+
         return clips;
     }
 
@@ -2644,7 +2768,6 @@ public class SKCanvas : SKObject
         };
         _context.Commands.Add(command);
         _pushedScopes.Push(new PushedScope(PushKind.RectClip, _context, commandIndex));
-        _activeClipPushes.Push(command);
     }
 
     private void PushGeometryClipScope(PathGeometry geometry, Matrix4x4 transform)
@@ -2658,7 +2781,6 @@ public class SKCanvas : SKObject
         };
         _context.Commands.Add(command);
         _pushedScopes.Push(new PushedScope(PushKind.GeometryClip, _context, commandIndex));
-        _activeClipPushes.Push(command);
     }
 
     private static bool TryRemoveEmptyClipScope(PushedScope scope)
@@ -2672,14 +2794,6 @@ public class SKCanvas : SKObject
 
         scope.Context.Commands.RemoveAt(scope.CommandIndex);
         return true;
-    }
-
-    private void PopActiveClipScope()
-    {
-        if (_activeClipPushes.Count > 0)
-        {
-            _activeClipPushes.Pop();
-        }
     }
 
     private void GetPathDeviceBounds(SKPath path, out SKRect bounds, out bool isRect)
