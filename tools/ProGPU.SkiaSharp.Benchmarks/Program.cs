@@ -113,7 +113,9 @@ internal static class ProgramEntry
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
-            new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
+            // Keep each sample above the sub-millisecond timer-noise floor and
+            // warm the gradient factories through their final dynamic-PGO tier.
+            new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
             new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),

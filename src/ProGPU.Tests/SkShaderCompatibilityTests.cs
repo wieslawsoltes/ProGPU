@@ -130,6 +130,87 @@ public sealed class SkShaderCompatibilityTests
     }
 
     [Fact]
+    public void ReusedGradientInputsDetectMutationWithoutChangingExistingShaders()
+    {
+        var colors = new[]
+        {
+            new SKColorF(1f, 0f, 0f, 1f),
+            new SKColorF(0f, 1f, 0f, 1f),
+            new SKColorF(0f, 0f, 1f, 1f),
+        };
+        var positions = new[] { 0f, 0.4f, 1f };
+        using var colorSpace = SKColorSpace.CreateSrgb();
+        using var before = SKShader.CreateLinearGradient(
+            SKPoint.Empty,
+            new SKPoint(16f, 0f),
+            colors,
+            colorSpace,
+            positions,
+            SKShaderTileMode.Clamp,
+            SKMatrix.CreateTranslation(3f, 5f));
+        using var shared = SKShader.CreateRadialGradient(
+            new SKPoint(8f, 8f),
+            8f,
+            colors,
+            colorSpace,
+            positions,
+            SKShaderTileMode.Clamp,
+            SKMatrix.CreateTranslation(3f, 5f));
+
+        colors[0] = new SKColorF(0.25f, 0.5f, 0.75f, 1f);
+        positions[0] = 0.2f;
+        using var after = SKShader.CreateSweepGradient(
+            new SKPoint(8f, 8f),
+            colors,
+            colorSpace,
+            positions,
+            SKShaderTileMode.Clamp,
+            0f,
+            360f,
+            SKMatrix.CreateTranslation(3f, 5f));
+
+        var beforeStops = Assert.IsType<LinearGradientBrush>(before.ToBrush()).Stops;
+        var sharedStops = Assert.IsType<RadialGradientBrush>(shared.ToBrush()).Stops;
+        var afterStops = Assert.IsType<SweepGradientBrush>(after.ToBrush()).Stops;
+        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), beforeStops[0].Color);
+        Assert.Equal(0f, beforeStops[0].Offset);
+        Assert.Equal(beforeStops, sharedStops);
+        Assert.Equal(new Vector4(0.25f, 0.5f, 0.75f, 1f), afterStops[0].Color);
+        Assert.Equal(0.2f, afterStops[0].Offset);
+    }
+
+    [Fact]
+    public void GradientStopOverflowOwnsAllInputValues()
+    {
+        var colors = new[]
+        {
+            SKColors.Red,
+            SKColors.Green,
+            SKColors.Blue,
+            SKColors.White,
+        };
+        var positions = new[] { 0f, 0.25f, 0.75f, 1f };
+        using var shader = SKShader.CreateLinearGradient(
+            SKPoint.Empty,
+            new SKPoint(20f, 0f),
+            colors,
+            positions,
+            SKShaderTileMode.Clamp);
+
+        colors[3] = SKColors.Black;
+        positions[3] = 0.9f;
+
+        var first = Assert.IsType<LinearGradientBrush>(shader.ToBrush());
+        Assert.Equal(4, first.Stops.Length);
+        Assert.Equal(ToVector(SKColors.White), first.Stops[3].Color);
+        Assert.Equal(1f, first.Stops[3].Offset);
+        first.Stops[3] = default;
+        var second = Assert.IsType<LinearGradientBrush>(shader.ToBrush());
+        Assert.Equal(ToVector(SKColors.White), second.Stops[3].Color);
+        Assert.Equal(1f, second.Stops[3].Offset);
+    }
+
+    [Fact]
     public void FloatGradientFactoriesRetainColorSpaceTileModeAndLocalMatrix()
     {
         var colors = new[]
