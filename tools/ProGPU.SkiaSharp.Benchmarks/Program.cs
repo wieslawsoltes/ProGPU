@@ -75,7 +75,10 @@ internal static class ProgramEntry
                 $"This binary was compiled for {CompiledBackend}, not {backend}.");
         }
 
-        var warmupCount = options.OptionalInt("warmup", 8);
+        // Thirty-two full workload passes are required for stable Tier-1 dynamic-PGO
+        // code on the retained canvas route. Shorter warmups can report Tier-0 time
+        // for ProGPU while the native P/Invoke wrapper has already stabilized.
+        var warmupCount = options.OptionalInt("warmup", 32);
         var sampleCount = options.OptionalInt("samples", 24);
         if (warmupCount < 1 || sampleCount < 3)
             throw new ArgumentOutOfRangeException(nameof(options));
@@ -113,7 +116,7 @@ internal static class ProgramEntry
             new BenchmarkCase("shader-gradient-factories", 1_000, RunShaderGradientFactories),
             new BenchmarkCase("runtime-effect-uniform-snapshot", 1_000, RunRuntimeEffectUniformSnapshot),
             new BenchmarkCase("image-bounded-subset", 100, RunImageBoundedSubset),
-            new BenchmarkCase("surface-bounded-snapshot", 100, RunSurfaceBoundedSnapshot),
+            new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),

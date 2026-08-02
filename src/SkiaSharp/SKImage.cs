@@ -12,6 +12,22 @@ namespace SkiaSharp;
 
 public partial class SKImage : SKObject
 {
+    private sealed class ImageOptionalState
+    {
+        public readonly object PortableTextureLock = new();
+        public readonly object RasterPixelLock = new();
+        public Dictionary<WgpuContext, GpuTexture>? PortableTextures;
+        public WgpuContext? LastPortableContext;
+        public GpuTexture? LastPortableTexture;
+        public byte[]? RasterPixels;
+        public GCHandle RasterPixelsHandle;
+        public byte[]? EncodedBytes;
+        public SKImageRasterReleaseDelegate? RasterReleaseProc;
+        public IntPtr RasterReleasePixels;
+        public object? ReleaseContext;
+        public int ReleaseInvoked;
+    }
+
     private sealed class TextureStorage
     {
         private int _referenceCount = 1;
@@ -79,18 +95,7 @@ public partial class SKImage : SKObject
     private readonly uint _textureOriginX;
     private readonly uint _textureOriginY;
     private readonly bool _isTextureBacked;
-    private readonly object _portableTextureLock = new();
-    private readonly object _rasterPixelLock = new();
-    private Dictionary<WgpuContext, GpuTexture>? _portableTextures;
-    private WgpuContext? _lastPortableContext;
-    private GpuTexture? _lastPortableTexture;
-    private byte[]? _rasterPixels;
-    private GCHandle _rasterPixelsHandle;
-    private byte[]? _encodedBytes;
-    private SKImageRasterReleaseDelegate? _rasterReleaseProc;
-    private IntPtr _rasterReleasePixels;
-    private object? _releaseContext;
-    private int _releaseInvoked;
+    private ImageOptionalState? _optionalState;
     public int Width => _info.Width;
     public int Height => _info.Height;
     public SKImageInfo Info => _info;
@@ -101,7 +106,9 @@ public partial class SKImage : SKObject
     public bool IsLazyGenerated => false;
     public bool IsTextureBacked => _isTextureBacked;
 
-    public SKData EncodedData => _encodedBytes is null ? null! : SKData.CreateCopy(_encodedBytes);
+    public SKData EncodedData => _optionalState?.EncodedBytes is not { } bytes
+        ? null!
+        : SKData.CreateCopy(bytes);
 
     internal SKImage(GpuTexture texture)
         : this(texture, ownsTexture: false, CreateTextureInfo(texture), portableRgbaPixels: null)
@@ -261,7 +268,7 @@ public partial class SKImage : SKObject
             }
 
             var image = FromBitmap(bitmap);
-            image._encodedBytes = data.ToArray();
+            image.EnsureOptionalState().EncodedBytes = data.ToArray();
             return image;
         }
         catch (Exception exception) when (IsInvalidEncodedImageException(exception))
@@ -405,6 +412,29 @@ public partial class SKImage : SKObject
             portableRgbaPixels: null);
     }
 
+    internal SKImage CreateSharedTextureView(SKRectI subset)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        var bounds = new SKRectI(0, 0, Width, Height);
+        if (subset.Width <= 0 || subset.Height <= 0 || !bounds.Contains(subset))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(subset),
+                "The shared texture view must be non-empty and contained by the image.");
+        }
+
+        return new SKImage(
+            _textureStorage,
+            new SKImageInfo(subset.Width, subset.Height, ColorType, AlphaType, ColorSpace),
+            _portableRgbaPixels,
+            checked(_portableOriginX + subset.Left),
+            checked(_portableOriginY + subset.Top),
+            _portableRowWidth,
+            checked(_textureOriginX + (uint)subset.Left),
+            checked(_textureOriginY + (uint)subset.Top),
+            _isTextureBacked);
+    }
+
     private static uint CalculateMipLevelCount(uint width, uint height)
     {
         var dimension = Math.Max(width, height);
@@ -469,30 +499,33 @@ public partial class SKImage : SKObject
                 "The target WebGPU context is not available for image materialization.");
         }
 
-        if (ReferenceEquals(Volatile.Read(ref _lastPortableContext), requiredContext))
+        var optionalState = Volatile.Read(ref _optionalState);
+        if (optionalState is not null &&
+            ReferenceEquals(Volatile.Read(ref optionalState.LastPortableContext), requiredContext))
         {
-            var lastTexture = Volatile.Read(ref _lastPortableTexture);
+            var lastTexture = Volatile.Read(ref optionalState.LastPortableTexture);
             if (lastTexture is not null && !lastTexture.IsDisposed)
             {
                 return lastTexture;
             }
         }
 
-        lock (_portableTextureLock)
+        optionalState ??= EnsureOptionalState();
+        lock (optionalState.PortableTextureLock)
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
 
-            _portableTextures ??= new Dictionary<WgpuContext, GpuTexture>();
-            if (_portableTextures.TryGetValue(requiredContext, out var cachedTexture))
+            optionalState.PortableTextures ??= new Dictionary<WgpuContext, GpuTexture>();
+            if (optionalState.PortableTextures.TryGetValue(requiredContext, out var cachedTexture))
             {
                 if (!cachedTexture.IsDisposed)
                 {
-                    Volatile.Write(ref _lastPortableTexture, cachedTexture);
-                    Volatile.Write(ref _lastPortableContext, requiredContext);
+                    Volatile.Write(ref optionalState.LastPortableTexture, cachedTexture);
+                    Volatile.Write(ref optionalState.LastPortableContext, requiredContext);
                     return cachedTexture;
                 }
 
-                _portableTextures.Remove(requiredContext);
+                optionalState.PortableTextures.Remove(requiredContext);
             }
 
             var texture = CreateTextureFromRgbaPixels(
@@ -501,9 +534,9 @@ public partial class SKImage : SKObject
                 requiredContext,
                 generateMipmaps: false,
                 "SKImage Context-local Texture");
-            _portableTextures.Add(requiredContext, texture);
-            Volatile.Write(ref _lastPortableTexture, texture);
-            Volatile.Write(ref _lastPortableContext, requiredContext);
+            optionalState.PortableTextures.Add(requiredContext, texture);
+            Volatile.Write(ref optionalState.LastPortableTexture, texture);
+            Volatile.Write(ref optionalState.LastPortableContext, requiredContext);
             return texture;
         }
     }
@@ -652,7 +685,8 @@ public partial class SKImage : SKObject
             _info,
             rgbaPixels,
             isTextureBacked: false);
-        image.SetMaterializedRasterPixels(_rasterPixels!.ToArray());
+        image.SetMaterializedRasterPixels(
+            EnsureOptionalState().RasterPixels!.ToArray());
         return image;
     }
 
@@ -772,39 +806,48 @@ public partial class SKImage : SKObject
 
     protected override void DisposeManaged()
     {
-        lock (_portableTextureLock)
+        var optionalState = Volatile.Read(ref _optionalState);
+        if (optionalState is not null)
         {
-            Volatile.Write(ref _lastPortableContext, null);
-            Volatile.Write(ref _lastPortableTexture, null);
-            if (_portableTextures is not null)
+            lock (optionalState.PortableTextureLock)
             {
-                foreach (var texture in _portableTextures.Values)
+                Volatile.Write(ref optionalState.LastPortableContext, null);
+                Volatile.Write(ref optionalState.LastPortableTexture, null);
+                if (optionalState.PortableTextures is not null)
                 {
-                    texture.Dispose();
+                    foreach (var texture in optionalState.PortableTextures.Values)
+                    {
+                        texture.Dispose();
+                    }
+
+                    optionalState.PortableTextures.Clear();
+                    optionalState.PortableTextures = null;
+                }
+            }
+
+            lock (optionalState.RasterPixelLock)
+            {
+                if (optionalState.RasterPixelsHandle.IsAllocated)
+                {
+                    optionalState.RasterPixelsHandle.Free();
                 }
 
-                _portableTextures.Clear();
-                _portableTextures = null;
+                optionalState.RasterPixels = null;
             }
-        }
 
-        lock (_rasterPixelLock)
-        {
-            if (_rasterPixelsHandle.IsAllocated)
+            if (Interlocked.Exchange(ref optionalState.ReleaseInvoked, 1) == 0)
             {
-                _rasterPixelsHandle.Free();
+                optionalState.RasterReleaseProc?.Invoke(
+                    optionalState.RasterReleasePixels,
+                    optionalState.ReleaseContext!);
             }
-
-            _rasterPixels = null;
-        }
-
-        if (Interlocked.Exchange(ref _releaseInvoked, 1) == 0)
-        {
-            _rasterReleaseProc?.Invoke(_rasterReleasePixels, _releaseContext!);
         }
 
         base.DisposeManaged();
     }
+
+    private ImageOptionalState EnsureOptionalState() =>
+        LazyInitializer.EnsureInitialized(ref _optionalState);
 
     protected override void Dispose(bool disposing)
     {

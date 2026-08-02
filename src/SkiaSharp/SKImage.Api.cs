@@ -109,9 +109,10 @@ public partial class SKImage
     {
         ArgumentNullException.ThrowIfNull(pixmap);
         var image = FromPixelCopy(pixmap);
-        image._rasterReleaseProc = releaseProc;
-        image._rasterReleasePixels = pixmap.GetPixels();
-        image._releaseContext = releaseContext;
+        var optionalState = image.EnsureOptionalState();
+        optionalState.RasterReleaseProc = releaseProc;
+        optionalState.RasterReleasePixels = pixmap.GetPixels();
+        optionalState.ReleaseContext = releaseContext;
         return image;
     }
 
