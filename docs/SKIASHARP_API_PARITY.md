@@ -1329,3 +1329,78 @@ unpremultiply `1.165`, string round-trip `1.140`, and in-place 4 KiB swizzle
 `1.094`. Image-subset and gradient-factory managed representations also remain
 larger where their latency is faster. These are future optimization slices,
 not blockers for this release boundary.
+
+## Compact retained gradients after Preview.36
+
+Product commit `4be7dbb1` closes the Preview.36 gradient-factory allocation
+item without changing the complete 4,222-of-4,222 SkiaSharp 4.151.0 metadata
+ledger or the existing WebGPU gradient renderer. `SKShader` now stores one
+typed payload plus a compact kind instead of retaining eight nullable payload
+references. Linear, radial, sweep, and two-point-conical gradients use original
+typed descriptors rather than closure-backed brush factories. The descriptors
+pack spread/interpolation options into one byte and preserve the exact local
+matrix, geometry, color-space selection, and immutable stop snapshot.
+
+The common zero-to-three-stop path uses a bounded per-thread last-input lookup.
+It reuses compact immutable stop storage only while the exact source array,
+positions array, and values remain unchanged. Caller mutation creates a new
+snapshot, so existing shaders cannot observe later input changes. More than
+three stops always receive an independent owned array. The lookup retains at
+most one three-element `SKColor` input and one three-element `SKColorF` input,
+their optional positions and immutable snapshots, plus one matrix result per
+thread. Factory validation and snapshotting are `O(S)` time for `S` stops;
+unchanged common inputs are bounded `O(S)` comparisons with `S <= 3` and no
+stop-array allocation. Overflow storage and the public `ToBrush` ownership
+boundary remain `O(S)` time and storage. Matrix inversion is fixed `O(1)` work
+and is reused only for an exact unchanged matrix. No reflection, unbounded
+cache, CPU raster fallback, GPU initialization, or backend-specific public
+handle is introduced.
+
+The clean-room review used Skia's public
+[`SkGradientShader` contract](https://api.skia.org/classSkGradientShader.html),
+[Skia's shaped-text architecture](https://skia.org/docs/dev/design/text_shaper/),
+[Direct2D brushes](https://learn.microsoft.com/windows/win32/direct2d/direct2d-brushes-overview),
+[Direct2D/DirectWrite separation](https://learn.microsoft.com/windows/win32/direct2d/direct2d-and-directwrite),
+[Win2D linear gradients](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Brushes_CanvasLinearGradientBrush.htm),
+the [WebGPU specification](https://gpuweb.github.io/gpuweb/),
+[WebRender's retained-frame model](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+[Vello's wgpu renderer](https://github.com/linebender/vello),
+[Parley's reusable layout model](https://github.com/linebender/parley), and
+[HarfBuzz shaping](https://harfbuzz.github.io/harfbuzz-hb-shape.html). ProGPU
+adopts immutable retained parameters, explicit interpolation/addressing, typed
+ownership, and deferred GPU evaluation. It adapts those contracts to one
+framework-neutral descriptor shared by Avalonia, WinUI, WPF, and WinForms. It
+rejects copied implementation structure, render-target-bound factory objects,
+per-tile uploads, source-array aliasing, and moving Unicode shaping or line
+layout onto this shader path. Actual gradient sampling and compositing remain
+in the existing WebGPU pipeline.
+
+Three alternating exact-checksum Apple M3 Pro Release process pairs compare
+exact Preview.36 commit `7a94fb3c` with the candidate implementation. The
+median of run medians fell from `369.452` to `218.160` ns/op (`40.95%`), while
+managed allocation fell from `1,480` to `472` B/op (`68.11%`). At 2,000 warmup
+passes the same binaries measured `243.584` versus `137.938` ns/op, confirming
+the ordering after final dynamic PGO. The stabilized official SkiaSharp
+4.151.0 differential measured native `1,283.516` versus ProGPU `198.848`
+ns/op with the same checksum. Managed allocation was `416` versus `472` B/op;
+the native counter excludes Skia's native heap work, so no unsupported total
+memory comparison is made. The baseline harness changes are limited to the
+direct backend reference required by a clean worktree and increasing this
+case from 1,000 to 16,000 operations to clear the sub-millisecond timer-noise
+floor.
+
+Matched macOS Time Profiler captures measured exact Preview.36 at `329.578`
+ns/op and the candidate at `182.654` ns/op. Allocations plus VM Tracker measured
+`329.314` versus `184.297` ns/op and the same `1,480` versus `472` managed B/op.
+EventPipe measured `327.648` versus `189.569` ns/op. Metal System Trace measured
+`330.810` versus `183.625` ns/op; both exported zero target command-buffer,
+current-allocation-size, and resource-allocation rows, confirming construction
+is CPU-only. Raw process JSON, Instruments traces and TOCs, Metal table exports,
+EventPipe traces, and Speedscope conversions are retained under
+`artifacts/performance/skiasharp-gradient-typed-final`.
+
+Mutation, overflow ownership, colorspace, tile-mode, local-matrix, degeneracy,
+paint-alpha, transformed-picture, and GPU pixel-coverage tests pass. The full
+macOS core suite passes 3,237/3,237 and the headless suite passes 225/225. The
+official API metadata gate still reports `reference=4222`, `matching=4222`,
+`missing=0`, and `extra=997` ProGPU extensions.
