@@ -34,7 +34,7 @@ The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
 LibreWinForms without making the editor API part of the official WinUI parity
 claim.
 
-The next WinUI parity branch starts from the immutable preview.41 tag. It must
+The next WinUI parity branch starts from the immutable preview.42 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -107,19 +107,19 @@ Remaining behavioral and performance depth is tracked explicitly in
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.41`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.41`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.41`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.41`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.42`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.42`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.42`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.42`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.41` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.42` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.41 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.42 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -137,7 +137,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.41 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.42 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -155,7 +155,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.41`.
+for example `v0.1.0-preview.42`.
 
 ## NuGet Publishing
 
