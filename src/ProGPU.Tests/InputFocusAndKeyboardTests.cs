@@ -1,6 +1,7 @@
 using Microsoft.UI.Content;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using ProGPU.WinUI.Platform;
@@ -690,20 +691,18 @@ public sealed class InputFocusAndKeyboardTests
                 InputLightDismissRegistration
                     .Notify(appWindow.Id));
 
+            Assert.Equal(
+                Count,
+                CountLightDismissNotifications(
+                    appWindow.Id,
+                    Count));
             _ = GC.GetAllocatedBytesForCurrentThread();
             long before =
                 GC.GetAllocatedBytesForCurrentThread();
-            int delivered = 0;
-            for (int index = 0;
-                 index < Count;
-                 index++)
-            {
-                if (InputLightDismissRegistration
-                    .Notify(appWindow.Id))
-                {
-                    delivered++;
-                }
-            }
+            int delivered =
+                CountLightDismissNotifications(
+                    appWindow.Id,
+                    Count);
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread() -
                 before;
@@ -712,6 +711,23 @@ public sealed class InputFocusAndKeyboardTests
             Assert.Equal(0, allocated);
             appWindow.Destroy();
         });
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+    private static int CountLightDismissNotifications(
+        Microsoft.UI.WindowId windowId,
+        int count)
+    {
+        int delivered = 0;
+        for (int index = 0; index < count; index++)
+        {
+            if (InputLightDismissRegistration.Notify(windowId))
+            {
+                delivered++;
+            }
+        }
+
+        return delivered;
     }
 
     [Fact]
