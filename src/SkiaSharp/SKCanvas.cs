@@ -23,6 +23,8 @@ public class SKCanvas : SKObject
     private static readonly ConditionalWeakTable<SKColorSpace, byte[]> s_toSrgbTables = new();
     private static readonly ConditionalWeakTable<GpuTexture, TextureColorSpace> s_textureColorSpaces = new();
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
+    private static readonly PathGeometry s_unitRectangleGeometry =
+        CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
 
     private sealed class TextureColorSpace
     {
@@ -5170,7 +5172,16 @@ public class SKCanvas : SKObject
 
             if (paint?.IsAntialias != false)
             {
-                _context.PushGeometryClip(CreateRectGeometry(dest), _currentMatrix.ToMatrix4x4());
+                // The destination edge clip is immutable geometry. Reuse one
+                // unit rectangle and place it with the command transform so
+                // repeated image draws stay O(1) and allocation-free here.
+                var clipTransform =
+                    Matrix4x4.CreateScale(dest.Width, dest.Height, 1f) *
+                    Matrix4x4.CreateTranslation(dest.Left, dest.Top, 0f) *
+                    _currentMatrix.ToMatrix4x4();
+                _context.PushGeometryClip(
+                    s_unitRectangleGeometry,
+                    clipTransform);
                 pushedEdgeClip = true;
             }
 
