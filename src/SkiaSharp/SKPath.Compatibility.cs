@@ -666,7 +666,8 @@ public partial class SKPath
 
     private void ConnectOvalArc(Vector2 start, bool forceMoveTo)
     {
-        if (forceMoveTo || Geometry.Figures.Count == 0)
+        var geometry = Geometry;
+        if (forceMoveTo || geometry.Figures.Count == 0)
         {
             MoveTo(start.X, start.Y);
             return;
@@ -708,6 +709,8 @@ public partial class SKPath
         SKPathDirection direction,
         uint startIndex)
     {
+        _ = Geometry;
+
         Span<Vector2> radii = stackalloc Vector2[4];
         for (var index = 0; index < radii.Length; index++)
         {

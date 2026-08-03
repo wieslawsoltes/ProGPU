@@ -44,6 +44,7 @@ public partial class SKPath : SKObject
     public SKPath()
         : base(SKObjectHandle.Create(), owns: true)
     {
+        _packedPathData = PackedPathData.Rent();
     }
 
     internal SKPath(PackedPathData packedPathData, SKPathFillType fillType)
@@ -114,67 +115,62 @@ public partial class SKPath : SKObject
     {
         get
         {
+            if (_packedPathData is { } packed)
+            {
+                return packed.CalculateTightBounds();
+            }
+
             if (Geometry.IsCombined)
             {
                 return Bounds;
             }
 
-            var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
-            var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-            var hasBounds = false;
-
-            void Include(Vector2 point)
-            {
-                if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
-                {
-                    return;
-                }
-
-                min = Vector2.Min(min, point);
-                max = Vector2.Max(max, point);
-                hasBounds = true;
-            }
+            var bounds = new SKPathBoundsAccumulator();
 
             foreach (var figure in Geometry.Figures)
             {
                 var current = figure.StartPoint;
-                Include(current);
+                bounds.Include(current);
 
                 foreach (var segment in figure.Segments)
                 {
                     switch (segment)
                     {
                         case LineSegment line:
-                            Include(line.Point);
+                            bounds.Include(line.Point);
                             current = line.Point;
                             break;
 
                         case QuadraticBezierSegment quadratic:
-                            IncludeQuadraticExtrema(current, quadratic.ControlPoint, quadratic.Point, Include);
-                            Include(quadratic.Point);
+                            SKPathTightBounds.IncludeQuadratic(
+                                ref bounds,
+                                current,
+                                quadratic.ControlPoint,
+                                quadratic.Point);
+                            bounds.Include(quadratic.Point);
                             current = quadratic.Point;
                             break;
 
                         case CubicBezierSegment cubic:
-                            IncludeCubicExtrema(
+                            SKPathTightBounds.IncludeCubic(
+                                ref bounds,
                                 current,
                                 cubic.ControlPoint1,
                                 cubic.ControlPoint2,
-                                cubic.Point,
-                                Include);
-                            Include(cubic.Point);
+                                cubic.Point);
+                            bounds.Include(cubic.Point);
                             current = cubic.Point;
                             break;
 
                         case ArcSegment arc:
                             if (ArcSegmentGeometry.TryGetArcBounds(current, arc, out var arcMin, out var arcMax))
                             {
-                                Include(arcMin);
-                                Include(arcMax);
+                                bounds.Include(arcMin);
+                                bounds.Include(arcMax);
                             }
                             else
                             {
-                                Include(arc.Point);
+                                bounds.Include(arc.Point);
                             }
 
                             current = arc.Point;
@@ -183,9 +179,7 @@ public partial class SKPath : SKObject
                 }
             }
 
-            return hasBounds
-                ? new SKRect(min.X, min.Y, max.X, max.Y)
-                : SKRect.Empty;
+            return bounds.ToRect();
         }
     }
 
@@ -218,124 +212,36 @@ public partial class SKPath : SKObject
         return _geometry;
     }
 
-    private static void IncludeQuadraticExtrema(
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Action<Vector2> include)
-    {
-        IncludeQuadraticAxisExtremum(p0.X, p1.X, p2.X, p0, p1, p2, include);
-        IncludeQuadraticAxisExtremum(p0.Y, p1.Y, p2.Y, p0, p1, p2, include);
-    }
-
-    private static void IncludeQuadraticAxisExtremum(
-        float v0,
-        float v1,
-        float v2,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Action<Vector2> include)
-    {
-        var denominator = v0 - 2f * v1 + v2;
-        if (MathF.Abs(denominator) <= 1e-6f)
-        {
-            return;
-        }
-
-        var t = (v0 - v1) / denominator;
-        if (t > 0f && t < 1f)
-        {
-            var oneMinusT = 1f - t;
-            include(oneMinusT * oneMinusT * p0 + 2f * oneMinusT * t * p1 + t * t * p2);
-        }
-    }
-
-    private static void IncludeCubicExtrema(
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        IncludeCubicAxisExtrema(p0.X, p1.X, p2.X, p3.X, p0, p1, p2, p3, include);
-        IncludeCubicAxisExtrema(p0.Y, p1.Y, p2.Y, p3.Y, p0, p1, p2, p3, include);
-    }
-
-    private static void IncludeCubicAxisExtrema(
-        float v0,
-        float v1,
-        float v2,
-        float v3,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        var a = -v0 + 3f * v1 - 3f * v2 + v3;
-        var b = 2f * (v0 - 2f * v1 + v2);
-        var c = v1 - v0;
-
-        if (MathF.Abs(a) <= 1e-6f)
-        {
-            if (MathF.Abs(b) > 1e-6f)
-            {
-                IncludeCubicAt(-c / b, p0, p1, p2, p3, include);
-            }
-
-            return;
-        }
-
-        var discriminant = b * b - 4f * a * c;
-        if (discriminant < 0f)
-        {
-            return;
-        }
-
-        var root = MathF.Sqrt(MathF.Max(0f, discriminant));
-        var denominator = 2f * a;
-        IncludeCubicAt((-b + root) / denominator, p0, p1, p2, p3, include);
-        if (root > 1e-6f)
-        {
-            IncludeCubicAt((-b - root) / denominator, p0, p1, p2, p3, include);
-        }
-    }
-
-    private static void IncludeCubicAt(
-        float t,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        if (t <= 0f || t >= 1f || !float.IsFinite(t))
-        {
-            return;
-        }
-
-        var oneMinusT = 1f - t;
-        include(
-            oneMinusT * oneMinusT * oneMinusT * p0 +
-            3f * oneMinusT * oneMinusT * t * p1 +
-            3f * oneMinusT * t * t * p2 +
-            t * t * t * p3);
-    }
-
     private void EnsureFigure()
     {
-        if (_currentFigure == null)
+        if (_currentFigure is not null)
         {
-            _currentFigure = new PathFigure(_currentPoint);
-            Geometry.Figures.Add(_currentFigure);
-            _contourStart = _currentPoint;
+            return;
         }
+
+        var geometry = Geometry;
+        if (_currentFigure is not null)
+        {
+            return;
+        }
+
+        _currentFigure = new PathFigure(_currentPoint);
+        geometry.Figures.Add(_currentFigure);
+        _contourStart = _currentPoint;
     }
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MoveTo(float x, float y)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.MoveTo(x, y);
+            _currentPoint = new Vector2(x, y);
+            _contourStart = _currentPoint;
+            return;
+        }
+
         var point = new Vector2(x, y);
         if (_currentFigure is { IsClosed: false, Segments.Count: 0 })
         {
@@ -355,8 +261,16 @@ public partial class SKPath : SKObject
     public void MoveTo(SKPoint point) => MoveTo(point.X, point.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void LineTo(float x, float y)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.LineTo(x, y);
+            _currentPoint = new Vector2(x, y);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x, y);
         _currentFigure!.Segments.Add(new LineSegment(point));
@@ -367,8 +281,16 @@ public partial class SKPath : SKObject
     public void LineTo(SKPoint point) => LineTo(point.X, point.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void QuadTo(float x0, float y0, float x1, float y1)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.QuadTo(x0, y0, x1, y1);
+            _currentPoint = new Vector2(x1, y1);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x1, y1);
         _currentFigure!.Segments.Add(new QuadraticBezierSegment(new Vector2(x0, y0), point));
@@ -380,8 +302,16 @@ public partial class SKPath : SKObject
         QuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.CubicTo(x0, y0, x1, y1, x2, y2);
+            _currentPoint = new Vector2(x2, y2);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x2, y2);
         _currentFigure!.Segments.Add(new CubicBezierSegment(new Vector2(x0, y0), new Vector2(x1, y1), point));
@@ -409,8 +339,16 @@ public partial class SKPath : SKObject
     }
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Close()
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.Close();
+            _currentPoint = packed.CurrentPoint;
+            return;
+        }
+
         if (_currentFigure != null)
         {
             _currentFigure.IsClosed = true;
@@ -421,6 +359,14 @@ public partial class SKPath : SKObject
 
     public void Reset()
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.Reset();
+            ResetCurrentState();
+            FillType = SKPathFillType.Winding;
+            return;
+        }
+
         Geometry.Figures.Clear();
         ResetCurrentState();
         FillType = SKPathFillType.Winding;
