@@ -160,7 +160,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     public void LargeTransientCommandCapacityReturnsToPoolOnClear()
     {
         var context = new DrawingContext();
-        context.EnsureCommandCapacity(257);
+        context.Commands.EnsureCapacity(257);
         for (int index = 0; index < 257; index++)
         {
             context.Commands.Add(new RenderCommand
@@ -177,6 +177,20 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         Assert.Empty(context.Commands);
         Assert.Equal(0, context.Commands.Capacity);
+    }
+
+    [Fact]
+    public void ExplicitLargeRetainedCommandCapacitySurvivesClear()
+    {
+        var context = new DrawingContext();
+        context.EnsureCommandCapacity(257);
+        context.Commands.Add(default);
+
+        int retainedCapacity = context.Commands.Capacity;
+        context.Clear();
+
+        Assert.True(retainedCapacity >= 257);
+        Assert.Equal(retainedCapacity, context.Commands.Capacity);
     }
 
     [Fact]

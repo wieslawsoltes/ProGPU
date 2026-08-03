@@ -1966,6 +1966,23 @@ public sealed class RenderCommandList :
         return _items.Length;
     }
 
+    internal int EnsureRetainedCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        if (_items.Length >= capacity && !_pooled)
+        {
+            return _items.Length;
+        }
+
+        int retainedCapacity = Math.Max(capacity, _count);
+        var replacement = retainedCapacity == 0
+            ? Array.Empty<RenderCommand>()
+            : new RenderCommand[retainedCapacity];
+        AsSpan().CopyTo(replacement);
+        ReplaceStorage(replacement, pooled: false);
+        return _items.Length;
+    }
+
     public Span<RenderCommand> AsSpan() => _items.AsSpan(0, _count);
 
     public RenderCommand[] ToArray()
@@ -2090,7 +2107,7 @@ public class DrawingContext :
     public void EnsureCommandCapacity(int capacity)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(capacity);
-        Commands.EnsureCapacity(capacity);
+        Commands.EnsureRetainedCapacity(capacity);
     }
 
     /// <summary>
