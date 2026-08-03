@@ -1689,7 +1689,7 @@ namespace ProGPU.Scene.Extensions
                     buffers[i] = (CommandBuffer*)_pendingCommandBuffers[i];
                 }
 
-                wgpu.QueueSubmit(queue, (uint)count, buffers);
+                compositor.Context.Submit((uint)count, buffers);
 
                 for (int i = 0; i < count; i++)
                 {

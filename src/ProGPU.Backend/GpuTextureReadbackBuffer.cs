@@ -273,7 +273,7 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         var commandBufferDesc = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
     }

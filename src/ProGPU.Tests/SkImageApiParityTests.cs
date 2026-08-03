@@ -178,6 +178,43 @@ public sealed class SkImageApiParityTests
     }
 
     [Fact]
+    public unsafe void TextureBackedSubsetReadPixelsUsesViewRelativeCoordinates()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(3, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var red = new SKPaint { Color = SKColors.Red };
+        using var green = new SKPaint { Color = SKColors.Green };
+        using var blue = new SKPaint { Color = SKColors.Blue };
+        surface.Canvas.DrawRect(0, 0, 1, 1, red);
+        surface.Canvas.DrawRect(1, 0, 1, 1, green);
+        surface.Canvas.DrawRect(2, 0, 1, 1, blue);
+        using var subset = surface.Snapshot(new SKRectI(1, 0, 3, 1));
+        var destination = new byte[8];
+        fixed (byte* destinationAddress = destination)
+        {
+            Assert.True(subset.ReadPixels(
+                new SKImageInfo(
+                    2,
+                    1,
+                    SKColorType.Rgba8888,
+                    SKAlphaType.Premul),
+                (IntPtr)destinationAddress,
+                8,
+                0,
+                0,
+                SKImageCachingHint.Disallow));
+        }
+
+        Assert.Equal(
+            new byte[]
+            {
+                0, 128, 0, 255,
+                0, 0, 255, 255
+            },
+            destination);
+    }
+
+    [Fact]
     public void DrawingSubsetMaterializesOnlyItsComposedTextureRegion()
     {
         using var image = SKImage.FromPixelCopy(

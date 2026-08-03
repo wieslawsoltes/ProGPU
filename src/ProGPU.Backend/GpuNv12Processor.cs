@@ -515,8 +515,7 @@ public static unsafe class GpuNv12Processor
                 throw new InvalidOperationException(
                     "Failed to finish the RGBA-to-NV12 command buffer.");
             }
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
         }
@@ -656,8 +655,7 @@ public static unsafe class GpuNv12Processor
                 throw new InvalidOperationException(
                     "Failed to finish the NV12 processor command buffer.");
             }
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
         }
@@ -788,8 +786,7 @@ public static unsafe class GpuNv12Processor
                 throw new InvalidOperationException(
                     "Failed to finish the NV12-to-RGBA command buffer.");
             }
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
         }
@@ -854,8 +851,7 @@ public static unsafe class GpuNv12Processor
                 throw new InvalidOperationException(
                     "Failed to finish the NV12 solid-color command buffer.");
             }
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
         }

@@ -29,6 +29,8 @@ public enum WgpuBackendKind
 
 public unsafe class WgpuContext : IDisposable
 {
+    private const int QueuePollSubmissionInterval = 2;
+    private const int MaxDeferredQueueSubmissions = 8;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;
@@ -135,6 +137,27 @@ public unsafe class WgpuContext : IDisposable
     public readonly List<IDisposable> PendingExternalTextureOwners =
         new();
     private readonly HashSet<IntPtr> _pendingSnapshotSeen = new();
+    private long _queueSubmissionCount;
+    private long _drainedQueueSubmissionCount;
+    private long _polledQueueSubmissionCount;
+
+    public void Submit(
+        nuint commandCount,
+        CommandBuffer** commandBuffers)
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (commandCount == 0)
+        {
+            return;
+        }
+        if (commandBuffers == null)
+        {
+            throw new ArgumentNullException(nameof(commandBuffers));
+        }
+
+        Api.QueueSubmit(Queue, commandCount, commandBuffers);
+        Interlocked.Increment(ref _queueSubmissionCount);
+    }
 
     public void QueueBufferDisposal(IntPtr ptr)
     {
@@ -325,12 +348,40 @@ public unsafe class WgpuContext : IDisposable
                     }
                 }
 
-                if (views.Length > 0 || textures.Length > 0 || buffers.Length > 0 || bindGroups.Length > 0 ||
-                    layouts.Length > 0 || pipeLayouts.Length > 0 || renderPipes.Length > 0 ||
-                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0 ||
-                    externalTextureOwners is not null)
+                // WebGPU command buffers retain ordinary referenced resources
+                // until submitted work completes, so dropping the application's
+                // native handle references must not serialize every frame on the
+                // device queue. A periodic non-blocking poll retires completed
+                // work, and a fixed submission bound forces a full drain so
+                // native command/resource residency cannot grow with frame
+                // count. Imported external storage is different: its
+                // platform owner sits outside WebGPU's reference graph and must
+                // remain alive until all previously submitted use has completed.
+                var submittedQueueWork =
+                    Volatile.Read(ref _queueSubmissionCount);
+                var drainedQueueWork =
+                    Volatile.Read(ref _drainedQueueSubmissionCount);
+                var deferredQueueSubmissions =
+                    submittedQueueWork - drainedQueueWork;
+                if (externalTextureOwners is not null ||
+                    deferredQueueSubmissions >= MaxDeferredQueueSubmissions)
                 {
                     WaitIdle();
+                    Volatile.Write(
+                        ref _drainedQueueSubmissionCount,
+                        submittedQueueWork);
+                    Volatile.Write(
+                        ref _polledQueueSubmissionCount,
+                        submittedQueueWork);
+                }
+                else if (submittedQueueWork -
+                         Volatile.Read(ref _polledQueueSubmissionCount) >=
+                         QueuePollSubmissionInterval)
+                {
+                    PollDevice(wait: false);
+                    Volatile.Write(
+                        ref _polledQueueSubmissionCount,
+                        submittedQueueWork);
                 }
 
                 // Release dependants before their immutable ABI objects. This

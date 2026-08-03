@@ -260,7 +260,7 @@ public unsafe class GlyphAtlas : IDisposable
             _batchEncoder,
             "Glyph Rasterizer Batch Command Buffer\0"u8);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
         RasterBatchSubmissionCount++;
 
         _context.Api.CommandBufferRelease(cmdBuffer);
@@ -976,7 +976,7 @@ public unsafe class GlyphAtlas : IDisposable
                                     encoder,
                                     "Glyph Rasterizer Command Buffer\0"u8);
 
-                                _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+                                _context.Submit(1, &cmdBuffer);
 
                                 // Clean up temporary resources
                                 _context.Api.CommandBufferRelease(cmdBuffer);
@@ -1095,7 +1095,7 @@ public unsafe class GlyphAtlas : IDisposable
             height);
         var commandBufferDescriptor = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
         _context.Api.BindGroupRelease(bindGroup);
@@ -1693,7 +1693,7 @@ public unsafe class GlyphAtlas : IDisposable
             size);
         var commandBufferDescriptor = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
     }

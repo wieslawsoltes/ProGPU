@@ -160,6 +160,50 @@ public sealed class SkSurfaceBackendRenderTargetTests
     }
 
     [Fact]
+    public void BgraBackendSurfaceReadPixelsConvertsToRequestedRgba()
+    {
+        using var grContext = GRContext.CreateGl() ??
+            throw new InvalidOperationException("Failed to create GRContext.");
+        using var texture = new GpuTexture(
+            grContext.Context,
+            2,
+            2,
+            TextureFormat.Bgra8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc |
+            TextureUsage.CopyDst | TextureUsage.TextureBinding,
+            "SKSurface wrapped BGRA direct readback test");
+        using var renderTarget = new GRBackendRenderTarget(2, 2, texture);
+        using var surface = SKSurface.Create(
+            grContext,
+            renderTarget,
+            GRSurfaceOrigin.TopLeft,
+            SKColorType.Bgra8888);
+        surface.Canvas.Clear(SKColors.Red);
+
+        var pixels = Marshal.AllocHGlobal(16);
+        try
+        {
+            Assert.True(surface.ReadPixels(
+                new SKImageInfo(
+                    2,
+                    2,
+                    SKColorType.Rgba8888,
+                    SKAlphaType.Premul),
+                pixels,
+                8,
+                0,
+                0));
+            var readback = new byte[16];
+            Marshal.Copy(pixels, readback, 0, readback.Length);
+            AssertPixel(readback, 2, 1, 1, 255, 0, 0, 255);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pixels);
+        }
+    }
+
+    [Fact]
     public void RepeatedFlushesPreserveExistingGpuSurfaceContents()
     {
         using var surface = SKSurface.Create(new SKImageInfo(8, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
@@ -176,6 +220,60 @@ public sealed class SkSurfaceBackendRenderTargetTests
         var pixels = snapshot.Texture.ReadPixels();
         AssertPixel(pixels, 8, 1, 1, 255, 0, 0, 255);
         AssertPixel(pixels, 8, 6, 1, 0, 0, 255, 255);
+    }
+
+    [Fact]
+    public void ReleasedSnapshotGenerationReusesTheSurfaceBackingTexture()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+        using var first = surface.Snapshot();
+        var firstTexture = first.Texture;
+        first.Dispose();
+
+        surface.Canvas.Clear(SKColors.Blue);
+        surface.Flush();
+        using var second = surface.Snapshot();
+
+        Assert.Same(firstTexture, second.Texture);
+        AssertPixel(second.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+    }
+
+    [Fact]
+    public void RetainedSnapshotGenerationCopiesOnTheNextSurfaceWrite()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+        using var first = surface.Snapshot();
+
+        surface.Canvas.Clear(SKColors.Blue);
+        surface.Flush();
+        using var second = surface.Snapshot();
+
+        Assert.NotSame(first.Texture, second.Texture);
+        AssertPixel(first.Texture.ReadPixels(), 4, 2, 2, 255, 0, 0, 255);
+        AssertPixel(second.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+    }
+
+    [Fact]
+    public void DeferredSurfaceDrawKeepsTheRecordedSourceGenerationImmutable()
+    {
+        using var source = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var destination = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        source.Canvas.Clear(SKColors.Red);
+        source.Draw(destination.Canvas, 0f, 0f, null);
+
+        source.Canvas.Clear(SKColors.Blue);
+        destination.Flush();
+
+        using var sourceSnapshot = source.Snapshot();
+        using var destinationSnapshot = destination.Snapshot();
+        AssertPixel(sourceSnapshot.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+        AssertPixel(destinationSnapshot.Texture.ReadPixels(), 4, 2, 2, 255, 0, 0, 255);
     }
 
     [Theory]

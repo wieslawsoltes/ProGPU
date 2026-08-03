@@ -42,7 +42,7 @@ public partial class SKSurface
         return true;
     }
 
-    public bool ReadPixels(
+    public unsafe bool ReadPixels(
         SKImageInfo dstInfo,
         IntPtr dstPixels,
         int dstRowBytes,
@@ -55,8 +55,39 @@ public partial class SKSurface
         }
 
         Flush();
-        using var image = new SKImage(_gpuTexture);
-        return image.ReadPixels(dstInfo, dstPixels, dstRowBytes, srcX, srcY);
+        if (_pixels != IntPtr.Zero)
+        {
+            using var cpuSource = new SKPixmap(
+                new SKImageInfo(
+                    _width,
+                    _height,
+                    _colorType,
+                    _alphaType,
+                    _colorSpace),
+                _pixels,
+                _rowBytes);
+            return cpuSource.ReadPixels(
+                dstInfo,
+                dstPixels,
+                dstRowBytes,
+                srcX,
+                srcY);
+        }
+
+        var readbackPixels = ReadBackingTexturePixels();
+        fixed (byte* readbackAddress = readbackPixels)
+        {
+            using var gpuSource = new SKPixmap(
+                CreateBackingTextureReadbackInfo(),
+                (IntPtr)readbackAddress,
+                checked(_width * 4));
+            return gpuSource.ReadPixels(
+                dstInfo,
+                dstPixels,
+                dstRowBytes,
+                srcX,
+                srcY);
+        }
     }
 
     public void Flush(bool submit, bool synchronous = false)

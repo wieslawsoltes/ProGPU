@@ -505,7 +505,7 @@ public unsafe class ProGpuHostControl : ContentControl
             var cmdBufferDesc = new CommandBufferDescriptor();
             var cmdBuffer = _wgpuContext.Api.CommandEncoderFinish(encoder, &cmdBufferDesc);
             
-            _wgpuContext.Api.QueueSubmit(_wgpuContext.Queue, 1, &cmdBuffer);
+            _wgpuContext.Submit(1, &cmdBuffer);
             _wgpuContext.Api.CommandBufferRelease(cmdBuffer);
             _wgpuContext.Api.CommandEncoderRelease(encoder);
 

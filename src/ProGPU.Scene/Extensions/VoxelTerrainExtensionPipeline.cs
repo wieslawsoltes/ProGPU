@@ -209,8 +209,7 @@ public sealed unsafe class VoxelTerrainExtensionPipeline : ICompositorExtension,
             buffers[index] = (CommandBuffer*)_pendingCommandBuffers[index];
         }
 
-        compositor.Context.Api.QueueSubmit(
-            compositor.Context.Queue,
+        compositor.Context.Submit(
             (uint)_pendingCommandBuffers.Count,
             buffers);
         ReleasePendingCommandBuffers(compositor.Context);

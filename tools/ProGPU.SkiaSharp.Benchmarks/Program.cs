@@ -135,6 +135,26 @@ internal static class ProgramEntry
             new BenchmarkCase("image-bounded-subset", 10_000, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
             new BenchmarkCase(
+                "avalonia-surface-frame",
+                256,
+                RunAvaloniaSurfaceFrame),
+            new BenchmarkCase(
+                "avalonia-surface-compose",
+                128,
+                RunAvaloniaSurfaceCompose),
+            new BenchmarkCase(
+                "avalonia-surface-conversion-readback",
+                32,
+                RunAvaloniaSurfaceConversionReadback),
+            new BenchmarkCase(
+                "avalonia-surface-direct-readback",
+                32,
+                RunAvaloniaSurfaceDirectReadback),
+            new BenchmarkCase(
+                "avalonia-image-repeated-readback",
+                32,
+                RunAvaloniaImageRepeatedReadback),
+            new BenchmarkCase(
                 "avalonia-writeable-bitmap-snapshot",
                 128,
                 RunAvaloniaWriteableBitmapSnapshot),
@@ -377,6 +397,228 @@ internal static class ProgramEntry
             using var snapshot = surface.Snapshot(new SKRectI(offset, offset, offset + 32, offset + 32));
             checksum = Mix(checksum, (uint)snapshot.Width);
             checksum = Mix(checksum, (uint)snapshot.Height);
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaSurfaceFrame(int operations)
+    {
+        const int width = 128;
+        const int height = 96;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        using var surface = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        var canvas = surface.Canvas;
+        for (var index = 0; index < operations; index++)
+        {
+            canvas.Clear(new SKColor(
+                (byte)index,
+                (byte)(index * 3),
+                (byte)(index * 7),
+                255));
+            canvas.Flush();
+        }
+
+        var pixels = new byte[checked(width * height * 4)];
+        fixed (byte* destination = pixels)
+        {
+            using var snapshot = surface.Snapshot();
+            if (!snapshot.ReadPixels(info, (IntPtr)destination, info.RowBytes))
+            {
+                throw new InvalidOperationException(
+                    "The Avalonia surface-frame benchmark could not read its final frame.");
+            }
+        }
+
+        return MixPixels(pixels);
+    }
+
+    private static unsafe ulong RunAvaloniaSurfaceCompose(int operations)
+    {
+        const int width = 96;
+        const int height = 64;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        using var source = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        using var destination = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        var sourceCanvas = source.Canvas;
+        var destinationCanvas = destination.Canvas;
+        for (var index = 0; index < operations; index++)
+        {
+            sourceCanvas.Clear(new SKColor(
+                (byte)(index * 5),
+                (byte)(index * 3),
+                (byte)index,
+                255));
+            sourceCanvas.Flush();
+            destinationCanvas.Clear(SKColors.Transparent);
+            source.Draw(destinationCanvas, 0f, 0f, null);
+            destinationCanvas.Flush();
+        }
+
+        var pixels = new byte[checked(width * height * 4)];
+        fixed (byte* destinationPixels = pixels)
+        {
+            using var snapshot = destination.Snapshot();
+            if (!snapshot.ReadPixels(
+                    info,
+                    (IntPtr)destinationPixels,
+                    info.RowBytes))
+            {
+                throw new InvalidOperationException(
+                    "The Avalonia surface-compose benchmark could not read its final frame.");
+            }
+        }
+
+        return MixPixels(pixels);
+    }
+
+    private static unsafe ulong RunAvaloniaSurfaceConversionReadback(int operations)
+    {
+        const int width = 64;
+        const int height = 48;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var surfacePixels = new byte[checked(width * height * 4)];
+        var destinationPixels = new byte[surfacePixels.Length];
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* surfaceAddress = surfacePixels)
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            using var surface = SKSurface.Create(
+                info,
+                (IntPtr)surfaceAddress,
+                info.RowBytes,
+                new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+            var canvas = surface.Canvas;
+            for (var index = 0; index < operations; index++)
+            {
+                canvas.Clear(new SKColor(
+                    (byte)(index * 11),
+                    (byte)(index * 7),
+                    (byte)(index * 3),
+                    255));
+                using var snapshot = surface.Snapshot();
+                if (!snapshot.ReadPixels(
+                        info,
+                        (IntPtr)destinationAddress,
+                        info.RowBytes,
+                        0,
+                        0,
+                        SKImageCachingHint.Disallow))
+                {
+                    throw new InvalidOperationException(
+                        "The Avalonia conversion benchmark could not read its frame.");
+                }
+
+                checksum = Mix(checksum, destinationPixels[0]);
+                checksum = Mix(checksum, destinationPixels[1]);
+                checksum = Mix(checksum, destinationPixels[2]);
+                checksum = Mix(checksum, destinationPixels[3]);
+            }
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaSurfaceDirectReadback(int operations)
+    {
+        const int width = 64;
+        const int height = 48;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var destinationPixels = new byte[checked(width * height * 4)];
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            using var surface = SKSurface.Create(
+                info,
+                new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+            var canvas = surface.Canvas;
+            for (var index = 0; index < operations; index++)
+            {
+                canvas.Clear(new SKColor(
+                    (byte)(index * 13),
+                    (byte)(index * 7),
+                    (byte)(index * 5),
+                    255));
+                if (!surface.ReadPixels(
+                        info,
+                        (IntPtr)destinationAddress,
+                        info.RowBytes,
+                        0,
+                        0))
+                {
+                    throw new InvalidOperationException(
+                        "The direct surface-readback benchmark could not read its frame.");
+                }
+
+                checksum = Mix(checksum, destinationPixels[0]);
+                checksum = Mix(checksum, destinationPixels[1]);
+                checksum = Mix(checksum, destinationPixels[2]);
+                checksum = Mix(checksum, destinationPixels[3]);
+            }
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaImageRepeatedReadback(int operations)
+    {
+        const int width = 64;
+        const int height = 48;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var destinationPixels = new byte[checked(width * height * 4)];
+        using var surface = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        surface.Canvas.Clear(new SKColor(31, 79, 143, 255));
+        using var image = surface.Snapshot();
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            for (var index = 0; index < operations; index++)
+            {
+                if (!image.ReadPixels(
+                        info,
+                        (IntPtr)destinationAddress,
+                        info.RowBytes,
+                        0,
+                        0,
+                        SKImageCachingHint.Disallow))
+                {
+                    throw new InvalidOperationException(
+                        "The repeated image-readback benchmark could not read its frame.");
+                }
+
+                checksum = Mix(checksum, destinationPixels[0]);
+                checksum = Mix(checksum, destinationPixels[1]);
+                checksum = Mix(checksum, destinationPixels[2]);
+                checksum = Mix(checksum, destinationPixels[3]);
+            }
         }
 
         return checksum;
@@ -1512,6 +1754,17 @@ internal static class ProgramEntry
 
     private static ulong Mix(ulong state, ulong value) =>
         (state ^ value) * 1099511628211UL;
+
+    private static ulong MixPixels(ReadOnlySpan<byte> pixels)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < pixels.Length; index++)
+        {
+            checksum = Mix(checksum, pixels[index]);
+        }
+
+        return checksum;
+    }
 
     private static double Median(IEnumerable<double> values)
     {

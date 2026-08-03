@@ -1415,7 +1415,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedClearCount++;
             }
@@ -1479,7 +1479,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 SubmittedCopyCount++;
             }
         }
@@ -1591,7 +1591,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 destinationResource.MarkBackendContentsChanged();
                 SubmittedResolveCount++;
             }
@@ -1730,7 +1730,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedClearCount++;
             }
@@ -2039,7 +2039,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 command.Texture?.MarkBackendContentsChanged();
                 SubmittedDrawCount++;
             }
@@ -2531,7 +2531,7 @@ public sealed unsafe class ProGpuDirectXDeviceContext : IDisposable
             commandBuffer = context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 SubmittedDispatchCount++;
             }
         }

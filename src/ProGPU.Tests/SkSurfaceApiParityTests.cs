@@ -91,6 +91,91 @@ public sealed class SkSurfaceApiParityTests
     }
 
     [Fact]
+    public unsafe void ExternalPixelSnapshotReadbackRemainsImmutableAcrossSurfaceFrames()
+    {
+        var info = new SKImageInfo(
+            2,
+            2,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var surfacePixels = new byte[info.BytesSize];
+        var firstPixels = new byte[info.BytesSize];
+        var secondPixels = new byte[info.BytesSize];
+        fixed (byte* surfaceAddress = surfacePixels)
+        fixed (byte* firstAddress = firstPixels)
+        fixed (byte* secondAddress = secondPixels)
+        {
+            using var surface = SKSurface.Create(
+                info,
+                (IntPtr)surfaceAddress,
+                info.RowBytes);
+            surface.Canvas.Clear(SKColors.Red);
+            using var first = surface.Snapshot();
+
+            surface.Canvas.Clear(SKColors.Blue);
+            using var second = surface.Snapshot();
+
+            Assert.True(first.ReadPixels(
+                info,
+                (IntPtr)firstAddress,
+                info.RowBytes));
+            Assert.True(second.ReadPixels(
+                info,
+                (IntPtr)secondAddress,
+                info.RowBytes));
+        }
+
+        Assert.All(Enumerable.Range(0, 4), index =>
+        {
+            Assert.Equal(255, firstPixels[index * 4]);
+            Assert.Equal(0, firstPixels[index * 4 + 1]);
+            Assert.Equal(0, firstPixels[index * 4 + 2]);
+            Assert.Equal(255, firstPixels[index * 4 + 3]);
+
+            Assert.Equal(0, secondPixels[index * 4]);
+            Assert.Equal(0, secondPixels[index * 4 + 1]);
+            Assert.Equal(255, secondPixels[index * 4 + 2]);
+            Assert.Equal(255, secondPixels[index * 4 + 3]);
+        });
+    }
+
+    [Fact]
+    public unsafe void ExternalPixelSurfaceReadPixelsUsesTheCurrentFrame()
+    {
+        var info = new SKImageInfo(
+            2,
+            2,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var surfacePixels = new byte[info.BytesSize];
+        var destinationPixels = new byte[info.BytesSize];
+        fixed (byte* surfaceAddress = surfacePixels)
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            using var surface = SKSurface.Create(
+                info,
+                (IntPtr)surfaceAddress,
+                info.RowBytes);
+            surface.Canvas.Clear(SKColors.Blue);
+
+            Assert.True(surface.ReadPixels(
+                info,
+                (IntPtr)destinationAddress,
+                info.RowBytes,
+                0,
+                0));
+        }
+
+        Assert.All(Enumerable.Range(0, 4), index =>
+        {
+            Assert.Equal(0, destinationPixels[index * 4]);
+            Assert.Equal(0, destinationPixels[index * 4 + 1]);
+            Assert.Equal(255, destinationPixels[index * 4 + 2]);
+            Assert.Equal(255, destinationPixels[index * 4 + 3]);
+        });
+    }
+
+    [Fact]
     public void RasterSurfaceCreatesOneLazyStableCpuView()
     {
         using var surface = SKSurface.Create(

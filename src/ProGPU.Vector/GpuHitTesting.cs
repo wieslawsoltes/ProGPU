@@ -1201,7 +1201,7 @@ public static unsafe class GpuHitTestEngine
                     throw new InvalidOperationException("Failed to finish GPU hit-test command encoder.");
                 }
 
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 context.Api.CommandBufferRelease(commandBuffer);
                 commandBuffer = null;
                 context.Api.CommandEncoderRelease(encoder);
@@ -1512,7 +1512,7 @@ public static unsafe class GpuHitTestEngine
                     throw new InvalidOperationException("Failed to finish GPU hit-test command encoder.");
                 }
 
-                context.Api.QueueSubmit(context.Queue, 1, &commandBuffer);
+                context.Submit(1, &commandBuffer);
                 context.Api.CommandBufferRelease(commandBuffer);
                 commandBuffer = null;
                 context.Api.CommandEncoderRelease(encoder);

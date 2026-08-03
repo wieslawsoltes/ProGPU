@@ -3785,7 +3785,7 @@ public unsafe class PathAtlas : IDisposable
             };
             var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDescriptor);
             SilkMarshal.Free((nint)commandBufferDescriptor.Label);
-            _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+            _context.Submit(1, &commandBuffer);
 
             _context.Api.CommandBufferRelease(commandBuffer);
             _context.Api.CommandEncoderRelease(encoder);

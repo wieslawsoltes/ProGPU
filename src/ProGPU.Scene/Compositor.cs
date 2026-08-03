@@ -3560,7 +3560,7 @@ SceneStateUploadComplete:
             encoder,
             "Compositor Command Buffer\0"u8);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
         RecallSubmittedSceneUpload();
 
         _context.Api.CommandBufferRelease(cmdBuffer);
@@ -15029,7 +15029,7 @@ SceneStateUploadComplete:
             encoder,
             "Offscreen Compositor Command Buffer\0"u8);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
         RecallSubmittedSceneUpload();
 
         _context.Api.CommandBufferRelease(cmdBuffer);
