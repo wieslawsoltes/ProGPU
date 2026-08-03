@@ -749,7 +749,9 @@ internal enum RetainedCommandDataKind : byte
     SimplePath,
     RectangleClip,
     GeometryClip,
-    NoData
+    NoData,
+    SimpleGlyphRun,
+    ScalarState
 }
 
 internal readonly struct RetainedTextCommandData
@@ -964,6 +966,16 @@ internal readonly struct RetainedRenderCommand
             return RetainedCommandDataKind.SimpleTexture;
         }
 
+        if (IsSimpleGlyphRun(in command, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.SimpleGlyphRun;
+        }
+
+        if (IsScalarState(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.ScalarState;
+        }
+
         if (!hasText && !hasTexture && !hasOther)
         {
             return RetainedCommandDataKind.Basic;
@@ -1068,6 +1080,119 @@ internal readonly struct RetainedRenderCommand
         !command.IsPenThicknessLocal &&
         command.PathSampleGrid == 0 &&
         command.PathCoverageGamma == 0f;
+
+    private static bool IsSimpleGlyphRun(
+        in RenderCommand command,
+        bool hasTexture,
+        bool hasOther) =>
+        command.Type == RenderCommandType.DrawGlyphRun &&
+        !hasTexture &&
+        !hasOther &&
+        command.Text is null &&
+        command.TextShapingOptions is null &&
+        command.TextAlignment == default &&
+        command.Rotation == 0f &&
+        command.Rect == default &&
+        command.Pen is null &&
+        command.Path is null &&
+        command.GeometryCache is null &&
+        !command.IsPenThicknessLocal &&
+        command.PathSampleGrid == 0 &&
+        command.PathCoverageGamma == 0f;
+
+    private static bool IsScalarState(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther)
+    {
+        if (hasTexture ||
+            !HasDefaultCoreData(
+                in command,
+                allowBrush: false,
+                allowPen: false,
+                allowPath: false) ||
+            command.Rect != default ||
+            command.Transform != default)
+        {
+            return false;
+        }
+
+        return command.Type switch
+        {
+            RenderCommandType.PushOpacity =>
+                hasText &&
+                !hasOther &&
+                HasOnlyFontSizeTextData(in command),
+            RenderCommandType.PushBlendMode =>
+                !hasText &&
+                hasOther &&
+                HasOnlyIntParamOtherData(in command),
+            _ => false
+        };
+    }
+
+    private static bool HasOnlyFontSizeTextData(in RenderCommand command) =>
+        command.Text is null &&
+        command.Font is null &&
+        command.Position == default &&
+        !command.IsBold &&
+        !command.IsItalic &&
+        command.TextShapingOptions is null &&
+        command.TextAlignment == default &&
+        command.FontTransform == default &&
+        !command.HasFontTransform &&
+        command.Rotation == 0f &&
+        command.TextRenderingMode == default &&
+        command.TextHintingMode == default &&
+        !command.UseVectorGlyphRendering &&
+        !command.PreferGlyphAtlas &&
+        !command.UseLogicalGlyphAtlasResolution &&
+        command.GlyphIndices is null &&
+        command.GlyphPositions is null &&
+        command.GlyphRangeStart == 0 &&
+        command.GlyphRangeCount == 0;
+
+    private static bool HasOnlyIntParamOtherData(in RenderCommand command) =>
+        command.Position2 == default &&
+        command.Position3 == default &&
+        command.Position4 == default &&
+        command.RadiusX == 0f &&
+        command.RadiusY == 0f &&
+        command.CornerRadius == 0f &&
+        command.PolylinePoints is null &&
+        !command.IsClosed &&
+        command.SplineKnots is null &&
+        command.SplineWeights is null &&
+        command.SplineDegree == 0 &&
+        command.Position3D1 == default &&
+        command.Position3D2 == default &&
+        command.Edges3D is null &&
+        command.StaticBuffer is null &&
+        command.GpuPoints is null &&
+        command.GpuPointsCount == 0 &&
+        !command.UseGpuTransforms &&
+        command.CameraView == default &&
+        command.Scale == default &&
+        command.Translate == default &&
+        command.PointBufferOffset == 0 &&
+        command.PointBufferCount == 0 &&
+        command.DoubleBufferOffset == 0 &&
+        command.DoubleBufferCount == 0 &&
+        command.Line3DBufferOffset == 0 &&
+        command.Line3DBufferCount == 0 &&
+        command.WeightBufferOffset == 0 &&
+        command.WeightBufferCount == 0 &&
+        command.FloatBufferOffset == 0 &&
+        command.FloatBufferCount == 0 &&
+        command.SeriesCacheKey is null &&
+        command.Picture is null &&
+        command.Visual is null &&
+        command.VertexMesh is null &&
+        command.VertexColorBlendMode == default &&
+        command.ExtensionId == 0 &&
+        command.FloatParam == 0f &&
+        command.DataParam is null;
 
     private static bool HasDefaultCoreData(
         in RenderCommand command,
@@ -1391,6 +1516,118 @@ internal readonly struct RetainedGeometryClipCommand
         };
 }
 
+internal readonly struct RetainedSimpleGlyphRunCommand
+{
+    private const ushort BoldFlag = 1 << 0;
+    private const ushort ItalicFlag = 1 << 1;
+    private const ushort FontTransformFlag = 1 << 2;
+    private const ushort VectorRenderingFlag = 1 << 3;
+    private const ushort PreferAtlasFlag = 1 << 4;
+    private const ushort LogicalAtlasResolutionFlag = 1 << 5;
+    private const ushort EdgeAliasedFlag = 1 << 6;
+
+    private readonly Brush? _brush;
+    private readonly TtfFont? _font;
+    private readonly ushort[]? _glyphIndices;
+    private readonly Vector2[]? _glyphPositions;
+    private readonly Vector2 _position;
+    private readonly Vector2 _fontTransform;
+    private readonly float _fontSize;
+    private readonly int _glyphRangeStart;
+    private readonly int _glyphRangeCount;
+    private readonly int _hitTestId;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly ushort _flags;
+    private readonly byte _textRenderingMode;
+    private readonly byte _textHintingMode;
+
+    public RetainedSimpleGlyphRunCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _brush = command.Brush;
+        _font = command.Font;
+        _glyphIndices = command.GlyphIndices;
+        _glyphPositions = command.GlyphPositions;
+        _position = command.Position;
+        _fontTransform = command.FontTransform;
+        _fontSize = command.FontSize;
+        _glyphRangeStart = command.GlyphRangeStart;
+        _glyphRangeCount = command.GlyphRangeCount;
+        _hitTestId = command.HitTestId;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _flags = (ushort)(
+            (command.IsBold ? BoldFlag : 0) |
+            (command.IsItalic ? ItalicFlag : 0) |
+            (command.HasFontTransform ? FontTransformFlag : 0) |
+            (command.UseVectorGlyphRendering ? VectorRenderingFlag : 0) |
+            (command.PreferGlyphAtlas ? PreferAtlasFlag : 0) |
+            (command.UseLogicalGlyphAtlasResolution
+                ? LogicalAtlasResolutionFlag
+                : 0) |
+            (command.IsEdgeAliased ? EdgeAliasedFlag : 0));
+        _textRenderingMode = checked((byte)command.TextRenderingMode);
+        _textHintingMode = checked((byte)command.TextHintingMode);
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawGlyphRun,
+            HitTestId = _hitTestId,
+            Brush = _brush,
+            Font = _font,
+            FontSize = _fontSize,
+            Position = _position,
+            FontTransform = _fontTransform,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            IsBold = (_flags & BoldFlag) != 0,
+            IsItalic = (_flags & ItalicFlag) != 0,
+            HasFontTransform = (_flags & FontTransformFlag) != 0,
+            UseVectorGlyphRendering = (_flags & VectorRenderingFlag) != 0,
+            PreferGlyphAtlas = (_flags & PreferAtlasFlag) != 0,
+            UseLogicalGlyphAtlasResolution =
+                (_flags & LogicalAtlasResolutionFlag) != 0,
+            IsEdgeAliased = (_flags & EdgeAliasedFlag) != 0,
+            TextRenderingMode = (TextRenderingMode)_textRenderingMode,
+            TextHintingMode = (TextHintingMode)_textHintingMode,
+            GlyphIndices = _glyphIndices,
+            GlyphPositions = _glyphPositions,
+            GlyphRangeStart = _glyphRangeStart,
+            GlyphRangeCount = _glyphRangeCount
+        };
+}
+
+internal readonly struct RetainedScalarStateCommand
+{
+    private readonly RenderCommandType _type;
+    private readonly int _value;
+
+    public RetainedScalarStateCommand(in RenderCommand command)
+    {
+        _type = command.Type;
+        _value = command.Type == RenderCommandType.PushOpacity
+            ? BitConverter.SingleToInt32Bits(command.FontSize)
+            : command.IntParam;
+    }
+
+    public RenderCommand Expand() =>
+        _type == RenderCommandType.PushOpacity
+            ? new RenderCommand
+            {
+                Type = _type,
+                FontSize = BitConverter.Int32BitsToSingle(_value)
+            }
+            : new RenderCommand
+            {
+                Type = _type,
+                IntParam = _value
+            };
+}
+
 /// <summary>
 /// Immutable command snapshot with an ordered 32-bit token stream plus typed
 /// rectangle, path, clip, text, texture, transform, and uncommon-command
@@ -1413,6 +1650,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private readonly RetainedSimplePathCommand[] _simplePaths;
     private readonly RetainedRectangleClipCommand[] _rectangleClips;
     private readonly RetainedGeometryClipCommand[] _geometryClips;
+    private readonly RetainedSimpleGlyphRunCommand[] _simpleGlyphRuns;
+    private readonly RetainedScalarStateCommand[] _scalarStates;
     private readonly Matrix4x4[] _transforms;
     private readonly Visual[] _embeddedVisuals;
 
@@ -1430,6 +1669,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _simplePaths = [];
             _rectangleClips = [];
             _geometryClips = [];
+            _simpleGlyphRuns = [];
+            _scalarStates = [];
             _transforms = [];
             _embeddedVisuals = [];
             return;
@@ -1444,6 +1685,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         int simplePathCount = 0;
         int rectangleClipCount = 0;
         int geometryClipCount = 0;
+        int simpleGlyphRunCount = 0;
+        int scalarStateCount = 0;
         int embeddedVisualCount = 0;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
@@ -1500,6 +1743,12 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     case RetainedCommandDataKind.GeometryClip:
                         geometryClipCount++;
                         break;
+                    case RetainedCommandDataKind.SimpleGlyphRun:
+                        simpleGlyphRunCount++;
+                        break;
+                    case RetainedCommandDataKind.ScalarState:
+                        scalarStateCount++;
+                        break;
                 }
                 if (commands[index].Type == RenderCommandType.DrawVisual &&
                     commands[index].Visual != null)
@@ -1536,6 +1785,12 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _geometryClips = geometryClipCount == 0
                 ? []
                 : new RetainedGeometryClipCommand[geometryClipCount];
+            _simpleGlyphRuns = simpleGlyphRunCount == 0
+                ? []
+                : new RetainedSimpleGlyphRunCommand[simpleGlyphRunCount];
+            _scalarStates = scalarStateCount == 0
+                ? []
+                : new RetainedScalarStateCommand[scalarStateCount];
             _transforms = new Matrix4x4[transformCount];
             _embeddedVisuals = embeddedVisualCount == 0
                 ? []
@@ -1550,6 +1805,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             int simplePathIndex = 0;
             int rectangleClipIndex = 0;
             int geometryClipIndex = 0;
+            int simpleGlyphRunIndex = 0;
+            int scalarStateIndex = 0;
             int embeddedVisualIndex = 0;
             for (int index = 0; index < commands.Length; index++)
             {
@@ -1623,6 +1880,18 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                                 in command,
                                 transformIndices[index]);
                         break;
+                    case RetainedCommandDataKind.SimpleGlyphRun:
+                        dataIndex = simpleGlyphRunIndex;
+                        _simpleGlyphRuns[simpleGlyphRunIndex++] =
+                            new RetainedSimpleGlyphRunCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.ScalarState:
+                        dataIndex = scalarStateIndex;
+                        _scalarStates[scalarStateIndex++] =
+                            new RetainedScalarStateCommand(in command);
+                        break;
                     case RetainedCommandDataKind.NoData:
                         dataIndex = (int)command.Type;
                         break;
@@ -1676,6 +1945,10 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     _rectangleClips[dataIndex].Expand(_transforms),
                 RetainedCommandDataKind.GeometryClip =>
                     _geometryClips[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.SimpleGlyphRun =>
+                    _simpleGlyphRuns[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.ScalarState =>
+                    _scalarStates[dataIndex].Expand(),
                 RetainedCommandDataKind.NoData => new RenderCommand
                 {
                     Type = (RenderCommandType)dataIndex
@@ -1706,6 +1979,10 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedRectangleClipCommand>() +
         (long)_geometryClips.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedGeometryClipCommand>() +
+        (long)_simpleGlyphRuns.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() +
+        (long)_scalarStates.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedScalarStateCommand>() +
         (long)_transforms.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>() +
         (long)_embeddedVisuals.Length * IntPtr.Size;
@@ -1754,7 +2031,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private static bool RequiresTransform(
         RetainedCommandDataKind dataKind) =>
         dataKind is not RetainedCommandDataKind.Auxiliary and
-            not RetainedCommandDataKind.NoData;
+            not RetainedCommandDataKind.NoData and
+            not RetainedCommandDataKind.ScalarState;
 
     private static int GetTransformTableCapacity(int commandCount)
     {

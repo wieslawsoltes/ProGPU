@@ -97,6 +97,14 @@ these results establish a material improvement and memory floor for the next
 typed text/glyph and immutable-image slices, not completion of the broader
 performance goal.
 
+The next packing checkpoint adds an at-most-96-byte common glyph-run record and
+an exact 8-byte scalar state record for opacity and blend pushes. On the same
+three-process mixed-picture workload, retained managed allocation falls again
+from 1,080 to 424 B/op (-60.7%, or -73.9% from Preview.46), while median time
+moves from 3,533.693 to 3,511.312 ns/op (-0.6%). Exact glyph arrays, positions,
+font transform, rendering/hinting modes, presentation dependencies, transform,
+and pop ordering round-trip through the compact stream.
+
 ## Readback checkpoint measurement
 
 The readback checkpoint uses the same Release runner and three fresh processes

@@ -340,6 +340,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             new Vector2(2f, 3f),
             new Vector2(9f, 11f));
         var transform = Matrix4x4.CreateTranslation(4f, 5f, 0f);
+        ushort[] glyphIndices = [7, 9];
+        Vector2[] glyphPositions = [new(0f, 0f), new(8f, 0f)];
         RenderCommand[] source =
         [
             new()
@@ -385,6 +387,40 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 Path = path,
                 Transform = transform
             },
+            new()
+            {
+                Type = RenderCommandType.DrawGlyphRun,
+                HitTestId = 9,
+                Brush = brush,
+                FontSize = 14f,
+                Position = new Vector2(3f, 5f),
+                FontTransform = new Vector2(1.25f, 0.125f),
+                HasFontTransform = true,
+                Transform = transform,
+                PresentationDependencies =
+                    RenderCommandPresentationDependencies.TextRendering |
+                    RenderCommandPresentationDependencies.TextHinting,
+                IsBold = true,
+                TextRenderingMode = TextRenderingMode.ClearType,
+                TextHintingMode = TextHintingMode.Fixed,
+                UseVectorGlyphRendering = true,
+                PreferGlyphAtlas = true,
+                IsEdgeAliased = true,
+                GlyphIndices = glyphIndices,
+                GlyphPositions = glyphPositions,
+                GlyphRangeStart = 1,
+                GlyphRangeCount = 1
+            },
+            new()
+            {
+                Type = RenderCommandType.PushOpacity,
+                FontSize = 0.625f
+            },
+            new()
+            {
+                Type = RenderCommandType.PushBlendMode,
+                IntParam = (int)GpuBlendMode.Multiply
+            },
             new() { Type = RenderCommandType.PopGeometryClip },
             new() { Type = RenderCommandType.PopClip },
             new() { Type = RenderCommandType.PopOpacity },
@@ -395,6 +431,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         using var picture = new GpuPicture(source, [], [], [], []);
 
         Assert.Equal(source, picture.RetainedCommands.Clone());
+        Assert.True(Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() <= 96);
+        Assert.Equal(8, Unsafe.SizeOf<RetainedScalarStateCommand>());
         Assert.True(
             picture.CommandStorageBytes < source.Length * 96L,
             $"Expected packed Avalonia command storage, actual={picture.CommandStorageBytes} bytes.");
