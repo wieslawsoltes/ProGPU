@@ -157,10 +157,17 @@ public partial class SKImage : SKObject
 
         public void AddReference()
         {
+            var spin = new SpinWait();
             while (true)
             {
                 var count = Volatile.Read(ref _referenceCount);
-                if (count <= 0)
+                if (count == -1)
+                {
+                    spin.SpinOnce();
+                    continue;
+                }
+
+                if (count == 0)
                 {
                     throw new ObjectDisposedException(nameof(SKImage));
                 }
@@ -177,7 +184,33 @@ public partial class SKImage : SKObject
 
         public void ReleaseReference()
         {
-            if (Interlocked.Decrement(ref _referenceCount) != 0)
+            var spin = new SpinWait();
+            int remaining;
+            while (true)
+            {
+                var count = Volatile.Read(ref _referenceCount);
+                if (count == -1)
+                {
+                    spin.SpinOnce();
+                    continue;
+                }
+
+                if (count <= 0)
+                {
+                    return;
+                }
+
+                remaining = count - 1;
+                if (Interlocked.CompareExchange(
+                        ref _referenceCount,
+                        remaining,
+                        count) == count)
+                {
+                    break;
+                }
+            }
+
+            if (remaining != 0)
             {
                 return;
             }
