@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace SkiaSharp;
 
-internal sealed class SKTextBlobRun
+internal readonly struct SKTextBlobRun
 {
     public SKFont Font { get; }
     public ushort[] GlyphIndices { get; }
@@ -59,6 +59,15 @@ public partial class SKTextBlob : SKObject
         }
 
         Runs = runs;
+        if (runs.Length == 1)
+        {
+            var run = runs[0];
+            GlyphIndices = run.GlyphIndices;
+            GlyphPositions = run.GlyphPositions;
+            HasEmboldenedRuns = run.Font.Embolden;
+            return;
+        }
+
         var glyphCount = 0;
         foreach (var run in runs)
         {
