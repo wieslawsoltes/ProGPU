@@ -1,0 +1,891 @@
+{
+  "schemaVersion": 1,
+  "capturedUtc": "2026-08-03T16:29:24.887718+00:00",
+  "process": {
+    "pid": 55932,
+    "name": "dotnet",
+    "platform": "macOS 26.4.1",
+    "architecture": "Arm64"
+  },
+  "configuration": {
+    "durationSeconds": 10,
+    "intervalSeconds": 2,
+    "nativeHeap": true,
+    "runtimeCounters": true
+  },
+  "samples": [
+    {
+      "elapsedSeconds": 0.0005125,
+      "timestampUtc": "2026-08-03T16:29:24.894342+00:00",
+      "process": {
+        "workingSetBytes": 198787072,
+        "privateBytes": 0,
+        "virtualBytes": 455204143104,
+        "pagedBytes": 0,
+        "threadCount": 16,
+        "handleCount": 0,
+        "totalProcessorTimeMs": 3495.1
+      },
+      "dotnet": {},
+      "macVmmap": {
+        "physicalFootprintBytes": 337851187,
+        "peakPhysicalFootprintBytes": 346134938,
+        "regions": {
+          "Dispatch continuations": {
+            "virtualBytes": 92274688,
+            "residentBytes": 540672,
+            "dirtyBytes": 540672
+          },
+          "IOAccelerator (graphics)": {
+            "virtualBytes": 13736346,
+            "residentBytes": 7274496,
+            "dirtyBytes": 6701056
+          },
+          "IOSurface": {
+            "virtualBytes": 26319258,
+            "residentBytes": 26214400,
+            "dirtyBytes": 26214400
+          },
+          "MALLOC_SMALL": {
+            "virtualBytes": 58720256,
+            "residentBytes": 31142707,
+            "dirtyBytes": 31142707
+          },
+          "MALLOC_SMALL (empty)": {
+            "virtualBytes": 8437760,
+            "residentBytes": 344064,
+            "dirtyBytes": 344064
+          },
+          "MALLOC_TINY": {
+            "virtualBytes": 4194304,
+            "residentBytes": 212992,
+            "dirtyBytes": 212992
+          },
+          "Stack": {
+            "virtualBytes": 26738688,
+            "residentBytes": 737280,
+            "dirtyBytes": 589824
+          },
+          "VM_ALLOCATE": {
+            "virtualBytes": 1610612736,
+            "residentBytes": 59139686,
+            "dirtyBytes": 59139686
+          },
+          "owned unmapped": {
+            "virtualBytes": 8388608,
+            "residentBytes": 4194304,
+            "dirtyBytes": 0
+          },
+          "owned unmapped (graphics)": {
+            "virtualBytes": 146800640,
+            "residentBytes": 143759770,
+            "dirtyBytes": 5324800
+          }
+        },
+        "exitCode": 0,
+        "error": null
+      }
+    },
+    {
+      "elapsedSeconds": 4.0549104,
+      "timestampUtc": "2026-08-03T16:29:28.944799+00:00",
+      "process": {
+        "workingSetBytes": 199655424,
+        "privateBytes": 0,
+        "virtualBytes": 455210942464,
+        "pagedBytes": 0,
+        "threadCount": 21,
+        "handleCount": 0,
+        "totalProcessorTimeMs": 3534.7333
+      },
+      "dotnet": {
+        "cpu-usage": 3.956294215089647E-05
+      },
+      "macVmmap": {
+        "physicalFootprintBytes": 161061274,
+        "peakPhysicalFootprintBytes": 346134938,
+        "regions": {
+          "Dispatch continuations": {
+            "virtualBytes": 92274688,
+            "residentBytes": 475136,
+            "dirtyBytes": 475136
+          },
+          "IOAccelerator (graphics)": {
+            "virtualBytes": 13736346,
+            "residentBytes": 2113536,
+            "dirtyBytes": 1540096
+          },
+          "IOSurface": {
+            "virtualBytes": 26319258,
+            "residentBytes": 26214400,
+            "dirtyBytes": 26214400
+          },
+          "MALLOC_LARGE": {
+            "virtualBytes": 13107200,
+            "residentBytes": 0,
+            "dirtyBytes": 0
+          },
+          "MALLOC_SMALL": {
+            "virtualBytes": 58720256,
+            "residentBytes": 31142707,
+            "dirtyBytes": 31142707
+          },
+          "MALLOC_SMALL (empty)": {
+            "virtualBytes": 8437760,
+            "residentBytes": 344064,
+            "dirtyBytes": 344064
+          },
+          "MALLOC_TINY": {
+            "virtualBytes": 4194304,
+            "residentBytes": 212992,
+            "dirtyBytes": 212992
+          },
+          "Stack": {
+            "virtualBytes": 30198989,
+            "residentBytes": 819200,
+            "dirtyBytes": 671744
+          },
+          "VM_ALLOCATE": {
+            "virtualBytes": 1610612736,
+            "residentBytes": 58195968,
+            "dirtyBytes": 58195968
+          },
+          "owned unmapped": {
+            "virtualBytes": 8388608,
+            "residentBytes": 4194304,
+            "dirtyBytes": 0
+          },
+          "owned unmapped (graphics)": {
+            "virtualBytes": 79691776,
+            "residentBytes": 76650906,
+            "dirtyBytes": 5324800
+          }
+        },
+        "exitCode": 0,
+        "error": null
+      }
+    },
+    {
+      "elapsedSeconds": 7.0179805,
+      "timestampUtc": "2026-08-03T16:29:31.908008+00:00",
+      "process": {
+        "workingSetBytes": 198180864,
+        "privateBytes": 0,
+        "virtualBytes": 455210942464,
+        "pagedBytes": 0,
+        "threadCount": 21,
+        "handleCount": 0,
+        "totalProcessorTimeMs": 3553.8416
+      },
+      "dotnet": {
+        "active-timer-count": 1,
+        "alloc-rate": 40904,
+        "assembly-count": 71,
+        "cpu-usage": 0.028764612056550818,
+        "exception-count": 0,
+        "gc-committed": 20.80768,
+        "gc-fragmentation": 0.2013498697585438,
+        "gc-heap-size": 18.427752,
+        "gen-0-gc-budget": 8,
+        "gen-0-gc-count": 0,
+        "gen-0-size": 1939632,
+        "gen-1-gc-count": 0,
+        "gen-1-size": 24,
+        "gen-2-gc-count": 0,
+        "gen-2-size": 7465696,
+        "il-bytes-jitted": 1503153,
+        "loh-size": 1292840,
+        "methods-jitted-count": 21997,
+        "monitor-lock-contention-count": 0,
+        "poh-size": 57216,
+        "threadpool-completed-items-count": 1,
+        "threadpool-queue-length": 0,
+        "threadpool-thread-count": 2,
+        "time-in-gc": 94,
+        "time-in-jit": 27.282500000000027,
+        "total-pause-time-by-gc": 0,
+        "working-set": 198.115328
+      },
+      "macVmmap": {
+        "physicalFootprintBytes": 161166131,
+        "peakPhysicalFootprintBytes": 346134938,
+        "regions": {
+          "Dispatch continuations": {
+            "virtualBytes": 92274688,
+            "residentBytes": 475136,
+            "dirtyBytes": 475136
+          },
+          "IOAccelerator (graphics)": {
+            "virtualBytes": 13736346,
+            "residentBytes": 2113536,
+            "dirtyBytes": 1540096
+          },
+          "IOSurface": {
+            "virtualBytes": 26319258,
+            "residentBytes": 26214400,
+            "dirtyBytes": 26214400
+          },
+          "MALLOC_LARGE": {
+            "virtualBytes": 13107200,
+            "residentBytes": 0,
+            "dirtyBytes": 0
+          },
+          "MALLOC_SMALL": {
+            "virtualBytes": 58720256,
+            "residentBytes": 31142707,
+            "dirtyBytes": 27053261
+          },
+          "MALLOC_SMALL (empty)": {
+            "virtualBytes": 8437760,
+            "residentBytes": 344064,
+            "dirtyBytes": 16384
+          },
+          "MALLOC_TINY": {
+            "virtualBytes": 4194304,
+            "residentBytes": 212992,
+            "dirtyBytes": 212992
+          },
+          "Stack": {
+            "virtualBytes": 30198989,
+            "residentBytes": 819200,
+            "dirtyBytes": 671744
+          },
+          "VM_ALLOCATE": {
+            "virtualBytes": 1610612736,
+            "residentBytes": 58195968,
+            "dirtyBytes": 58195968
+          },
+          "owned unmapped": {
+            "virtualBytes": 8388608,
+            "residentBytes": 4194304,
+            "dirtyBytes": 0
+          },
+          "owned unmapped (graphics)": {
+            "virtualBytes": 46137344,
+            "residentBytes": 43096474,
+            "dirtyBytes": 5324800
+          }
+        },
+        "exitCode": 0,
+        "error": null
+      }
+    },
+    {
+      "elapsedSeconds": 10.000683,
+      "timestampUtc": "2026-08-03T16:29:34.890764+00:00",
+      "process": {
+        "workingSetBytes": 198197248,
+        "privateBytes": 0,
+        "virtualBytes": 455210369024,
+        "pagedBytes": 0,
+        "threadCount": 20,
+        "handleCount": 0,
+        "totalProcessorTimeMs": 3557.075
+      },
+      "dotnet": {
+        "active-timer-count": 1,
+        "alloc-rate": 8192,
+        "assembly-count": 71,
+        "cpu-usage": 0.05831809376481585,
+        "exception-count": 0,
+        "gc-committed": 20.80768,
+        "gc-fragmentation": 0.2013498697585438,
+        "gc-heap-size": 18.435944,
+        "gen-0-gc-budget": 8,
+        "gen-0-gc-count": 0,
+        "gen-0-size": 1939632,
+        "gen-1-gc-count": 0,
+        "gen-1-size": 24,
+        "gen-2-gc-count": 0,
+        "gen-2-size": 7465696,
+        "il-bytes-jitted": 1504812,
+        "loh-size": 1292840,
+        "methods-jitted-count": 22018,
+        "monitor-lock-contention-count": 0,
+        "poh-size": 57216,
+        "threadpool-completed-items-count": 0,
+        "threadpool-queue-length": 0,
+        "threadpool-thread-count": 2,
+        "time-in-gc": 94,
+        "time-in-jit": 5.62929999999983,
+        "total-pause-time-by-gc": 0,
+        "working-set": 198.148096
+      },
+      "macVmmap": {
+        "physicalFootprintBytes": 155398963,
+        "peakPhysicalFootprintBytes": 346134938,
+        "regions": {
+          "Dispatch continuations": {
+            "virtualBytes": 92274688,
+            "residentBytes": 540672,
+            "dirtyBytes": 540672
+          },
+          "IOAccelerator (graphics)": {
+            "virtualBytes": 13736346,
+            "residentBytes": 2113536,
+            "dirtyBytes": 1540096
+          },
+          "IOSurface": {
+            "virtualBytes": 26319258,
+            "residentBytes": 26214400,
+            "dirtyBytes": 26214400
+          },
+          "MALLOC_LARGE": {
+            "virtualBytes": 13107200,
+            "residentBytes": 0,
+            "dirtyBytes": 0
+          },
+          "MALLOC_SMALL": {
+            "virtualBytes": 58720256,
+            "residentBytes": 31142707,
+            "dirtyBytes": 27053261
+          },
+          "MALLOC_SMALL (empty)": {
+            "virtualBytes": 8437760,
+            "residentBytes": 344064,
+            "dirtyBytes": 16384
+          },
+          "MALLOC_TINY": {
+            "virtualBytes": 4194304,
+            "residentBytes": 212992,
+            "dirtyBytes": 212992
+          },
+          "Stack": {
+            "virtualBytes": 29674701,
+            "residentBytes": 770048,
+            "dirtyBytes": 655360
+          },
+          "VM_ALLOCATE": {
+            "virtualBytes": 1610612736,
+            "residentBytes": 58195968,
+            "dirtyBytes": 58195968
+          },
+          "owned unmapped": {
+            "virtualBytes": 3932160,
+            "residentBytes": 0,
+            "dirtyBytes": 0
+          },
+          "owned unmapped (graphics)": {
+            "virtualBytes": 8388608,
+            "residentBytes": 5324800,
+            "dirtyBytes": 5324800
+          }
+        },
+        "exitCode": 0,
+        "error": null
+      }
+    }
+  ],
+  "macVmmapDiagnostics": {
+    "attemptedSamples": 4,
+    "successfulSamples": 4,
+    "failedSamples": 0
+  },
+  "growth": {
+    "workingSetBytes": {
+      "firstBytes": 198787072,
+      "lastBytes": 198197248,
+      "deltaBytes": -589824
+    },
+    "physicalFootprintBytes": {
+      "firstBytes": 337851187,
+      "lastBytes": 155398963,
+      "deltaBytes": -182452224
+    },
+    "region-resident:owned unmapped (graphics)": {
+      "firstBytes": 143759770,
+      "lastBytes": 5324800,
+      "deltaBytes": -138434970
+    },
+    "region-dirty:owned unmapped (graphics)": {
+      "firstBytes": 5324800,
+      "lastBytes": 5324800,
+      "deltaBytes": 0
+    },
+    "region-resident:IOAccelerator (graphics)": {
+      "firstBytes": 7274496,
+      "lastBytes": 2113536,
+      "deltaBytes": -5160960
+    },
+    "region-dirty:IOAccelerator (graphics)": {
+      "firstBytes": 6701056,
+      "lastBytes": 1540096,
+      "deltaBytes": -5160960
+    },
+    "region-resident:VM_ALLOCATE": {
+      "firstBytes": 59139686,
+      "lastBytes": 58195968,
+      "deltaBytes": -943718
+    },
+    "region-dirty:VM_ALLOCATE": {
+      "firstBytes": 59139686,
+      "lastBytes": 58195968,
+      "deltaBytes": -943718
+    },
+    "region-resident:IOSurface": {
+      "firstBytes": 26214400,
+      "lastBytes": 26214400,
+      "deltaBytes": 0
+    },
+    "region-dirty:IOSurface": {
+      "firstBytes": 26214400,
+      "lastBytes": 26214400,
+      "deltaBytes": 0
+    },
+    "region-resident:Dispatch continuations": {
+      "firstBytes": 540672,
+      "lastBytes": 540672,
+      "deltaBytes": 0
+    },
+    "region-dirty:Dispatch continuations": {
+      "firstBytes": 540672,
+      "lastBytes": 540672,
+      "deltaBytes": 0
+    }
+  },
+  "runtimeCounterError": null,
+  "runtimeEventDiagnostics": {
+    "events": {
+      "EventCounters": 135,
+      "ProcessInfo": 1
+    },
+    "lastPayloadType": "Microsoft.Diagnostics.Tracing.Parsers.DynamicTraceEventData\u002BStructValue",
+    "lastPayloadText": "{ \u0022Payload\u0022:{ \u0022Name\u0022:\u0022time-in-jit\u0022, \u0022DisplayName\u0022:\u0022Time spent in JIT\u0022, \u0022DisplayRateTimeScale\u0022:\u002200:00:01\u0022, \u0022Increment\u0022:2,6059999999999945, \u0022IntervalSec\u0022:2,675151, \u0022Metadata\u0022:\u0022\u0022, \u0022Series\u0022:\u0022Interval=2000\u0022, \u0022CounterType\u0022:\u0022Sum\u0022, \u0022DisplayUnits\u0022:\u0022ms\u0022 } }"
+  },
+  "nativeHeap": {
+    "nodeCount": 100689,
+    "allocatedBytes": 32008000,
+    "classes": {
+      "non-object": {
+        "count": 73891,
+        "bytes": 27300192
+      },
+      "MTLResourceList": {
+        "count": 22,
+        "bytes": 1081344
+      },
+      "IOGPUMetalPooledResource": {
+        "count": 187,
+        "bytes": 71808
+      },
+      "AGX::G15::VertexProgramVariant": {
+        "count": 6,
+        "bytes": 30720
+      },
+      "AGX::G15::ComputeProgramVariant": {
+        "count": 5,
+        "bytes": 25600
+      },
+      "AGX::G15::FragmentProgramVariant": {
+        "count": 5,
+        "bytes": 25600
+      },
+      "AGXG15XFamilyRenderPipeline": {
+        "count": 5,
+        "bytes": 20480
+      },
+      "AGXG15SDevice._impl (malloc)": {
+        "count": 1,
+        "bytes": 20480
+      },
+      "AGX::G15::BackgroundObjectProgramVariant": {
+        "count": 4,
+        "bytes": 14336
+      },
+      "AGX::G15::BlitComputeProgramVariant": {
+        "count": 4,
+        "bytes": 14336
+      },
+      "AGXG15XFamilyCommandBuffer": {
+        "count": 15,
+        "bytes": 13440
+      },
+      "AGXG15XFamilyBuffer": {
+        "count": 24,
+        "bytes": 10752
+      },
+      "AGX::G15::BlitVertexFastClearProgramVariant": {
+        "count": 3,
+        "bytes": 10752
+      },
+      "AGXG15XFamilyCommandBuffer._impl (malloc)": {
+        "count": 15,
+        "bytes": 9600
+      },
+      "AGX::G15::Texture": {
+        "count": 9,
+        "bytes": 9216
+      },
+      "AGXG15XFamilyFragmentProgram": {
+        "count": 4,
+        "bytes": 7168
+      },
+      "IOGPUMetalDeviceShmem": {
+        "count": 40,
+        "bytes": 6400
+      },
+      "_MTLDeviceFeatureQueries": {
+        "count": 1,
+        "bytes": 6144
+      },
+      "AGXBuffer": {
+        "count": 13,
+        "bytes": 5824
+      },
+      "IOGPUMetalResourcePool": {
+        "count": 44,
+        "bytes": 4928
+      },
+      "IOGPUMetalResourcePool._resourceArgs (struct IOGPUNewResourceArgs)": {
+        "count": 44,
+        "bytes": 4928
+      },
+      "AGXG15XFamilyVertexProgram": {
+        "count": 3,
+        "bytes": 4608
+      },
+      "_MTLFunctionInternal": {
+        "count": 9,
+        "bytes": 4032
+      },
+      "AGXG15XFamilyTexture": {
+        "count": 6,
+        "bytes": 3840
+      },
+      "AGX::G15::ClearVisibilityVertexProgramVariant": {
+        "count": 1,
+        "bytes": 3584
+      },
+      "AGX::G15::DummyFeedbackFragmentProgramVariant": {
+        "count": 1,
+        "bytes": 3584
+      },
+      "AGX::G15::PassthroughVertexProgramVariant": {
+        "count": 1,
+        "bytes": 3584
+      },
+      "AGX::EndOfTileProgramKey": {
+        "count": 3,
+        "bytes": 3328
+      },
+      "AGXG15SDevice": {
+        "count": 1,
+        "bytes": 3072
+      },
+      "AGXG15SDevice._buffer_suballocator (struct IOGPUMetalSuballocator)": {
+        "count": 1,
+        "bytes": 3072
+      },
+      "AGXG15XFamilyComputeProgram": {
+        "count": 2,
+        "bytes": 2560
+      },
+      "std::__shared_ptr_emplace\u003CMTLXPCCompilerConnection\u003E": {
+        "count": 10,
+        "bytes": 1920
+      },
+      "IOGPUMetalResource": {
+        "count": 6,
+        "bytes": 1920
+      },
+      "AGXG15XFamilyComputePipeline": {
+        "count": 2,
+        "bytes": 1792
+      },
+      "AGX::BackgroundObjectProgramKey": {
+        "count": 2,
+        "bytes": 1664
+      },
+      "AGXG15XFamilyCommandQueue": {
+        "count": 1,
+        "bytes": 1280
+      },
+      "MTLVertexAttributeInternal": {
+        "count": 24,
+        "bytes": 1152
+      },
+      "std::__shared_ptr_emplace\u003CAGX::FunctionTableSet\u003CAGXG15XFamilyUserIntersectionFunctionTable\u003E\u003E": {
+        "count": 13,
+        "bytes": 1040
+      },
+      "std::__shared_ptr_emplace\u003CAGX::FunctionTableSet\u003CAGXG15XFamilyVisibleFunctionTable\u003E\u003E": {
+        "count": 13,
+        "bytes": 1040
+      },
+      "AGX::BlitComputeProgramKey": {
+        "count": 1,
+        "bytes": 1024
+      },
+      "AGX::BlitFragmentProgramKey": {
+        "count": 1,
+        "bytes": 1024
+      },
+      "_MTLLibrary._cacheEntry (struct MTLLibraryContainer)": {
+        "count": 9,
+        "bytes": 864
+      },
+      "_MTLLibrary": {
+        "count": 12,
+        "bytes": 768
+      },
+      "AGX::BlitFastClearProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::BlitSparseProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::BlitVertexFastClearProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::BlitVertexProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::ComputeControlFlowPredicateProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::PassthroughObjectProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::TessellationObjectProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGX::TileDispatchVertexProgramKey": {
+        "count": 1,
+        "bytes": 768
+      },
+      "AGXG15XFamilySampler": {
+        "count": 3,
+        "bytes": 576
+      },
+      "AGXG15XFamilyResidencySet._hashTable (struct)": {
+        "count": 1,
+        "bytes": 512
+      },
+      "AGXG15XFamilyRayTracingAccelerationStructure": {
+        "count": 1,
+        "bytes": 448
+      },
+      "IOGPUMetalDeviceShmemPool": {
+        "count": 5,
+        "bytes": 320
+      },
+      "MTLCompilerFSCache": {
+        "count": 2,
+        "bytes": 320
+      },
+      "MTLCompilerScheduler": {
+        "count": 1,
+        "bytes": 320
+      },
+      "AGXG15XFamilyResidencySet": {
+        "count": 1,
+        "bytes": 256
+      },
+      "AGXG15XFamilyComputeOrFragmentOrTileProgram": {
+        "count": 6,
+        "bytes": 192
+      },
+      "AGXG15XFamilyCommandBuffer._scheduledCallbackBlockPtr (malloc)": {
+        "count": 4,
+        "bytes": 192
+      },
+      "MTLPipelineDataCache": {
+        "count": 1,
+        "bytes": 160
+      },
+      "std::__shared_ptr_emplace\u003CAGX::G15::Sampler\u003E": {
+        "count": 1,
+        "bytes": 160
+      },
+      "MTLResourceListPool": {
+        "count": 3,
+        "bytes": 144
+      },
+      "std::__shared_ptr_emplace\u003CMTLCompilerProcess\u003E": {
+        "count": 2,
+        "bytes": 128
+      },
+      "AGXG15SDevice._supportedGPUFamilies (vector\u003CMTLGPUFamily\u003E)": {
+        "count": 1,
+        "bytes": 128
+      },
+      "MTLCommandQueueDescriptorInternal": {
+        "count": 1,
+        "bytes": 112
+      },
+      "AGXG15XFamilyCommandBuffer._completedCallbackBlockPtr (malloc)": {
+        "count": 2,
+        "bytes": 96
+      },
+      "MTLCompiler": {
+        "count": 1,
+        "bytes": 80
+      },
+      "AGXG15SDevice._libraryBuilder (malloc)": {
+        "count": 1,
+        "bytes": 64
+      },
+      "MTLIOAccelService": {
+        "count": 1,
+        "bytes": 64
+      },
+      "MTLIOAccelServiceGlobalContext": {
+        "count": 1,
+        "bytes": 64
+      },
+      "MTLLoader": {
+        "count": 1,
+        "bytes": 64
+      },
+      "MTLLoader._global (malloc)": {
+        "count": 1,
+        "bytes": 64
+      },
+      "AGX::G15::EncoderComputeServiceCDMSubstreamProcessor": {
+        "count": 1,
+        "bytes": 48
+      },
+      "AGXG15SDevice._commandBufferStoragePool (struct IOGPUMetalCommandBufferStoragePool)": {
+        "count": 1,
+        "bytes": 48
+      },
+      "MTLIOAccelService._notifyPort (struct IONotificationPort)": {
+        "count": 1,
+        "bytes": 48
+      },
+      "MTLIOAccelServiceGlobalContext._deviceNotifyPort (struct IONotificationPort)": {
+        "count": 1,
+        "bytes": 48
+      },
+      "IOGPUMemoryInfo": {
+        "count": 1,
+        "bytes": 32
+      },
+      "_MTLPipelineCache": {
+        "count": 1,
+        "bytes": 32
+      },
+      "std::__shared_ptr_pointer\u003CMTLCompilerCache*, std::shared_ptr\u003CMTLCompilerCache\u003E::__shared_ptr_default_delete\u003CMTLCompilerCache, MTLCompilerCache\u003E\u003E": {
+        "count": 1,
+        "bytes": 32
+      },
+      "AGXG15SDevice._pipelineLibraryBuilder (struct MTLPipelineLibraryBuilder)": {
+        "count": 1,
+        "bytes": 16
+      },
+      "MTLPrivateDataTable": {
+        "count": 1,
+        "bytes": 16
+      }
+    },
+    "exitCode": 0,
+    "error": null
+  },
+  "benchmark": {
+    "SchemaVersion": 2,
+    "Backend": "ProGPU.SourceBuilt.SilkNet",
+    "TextShaper": "ProGPU",
+    "Page": "Composition",
+    "Run": 1,
+    "WarmupFrames": 180,
+    "MeasuredFrames": 600,
+    "ElapsedSeconds": 7.4423769,
+    "FramesPerSecond": 80.61940534078568,
+    "AverageFrameMs": 12.385616500000003,
+    "FrameTimeSampleCount": 600,
+    "MinFrameMs": 1.0427,
+    "MedianFrameMs": 10.96575,
+    "P95FrameMs": 22.615615,
+    "P99FrameMs": 24.54593,
+    "MaxFrameMs": 31.9309,
+    "ProcessCpuSeconds": 0.867536,
+    "ProcessCpuPercent": 1.059700551995816,
+    "AllocatedBytes": 3880056,
+    "AllocatedBytesPerFrame": 6466.76,
+    "ManagedBytes": 18253096,
+    "GcCommittedBytes": 20807680,
+    "ManagedFragmentedBytes": 21656,
+    "ProcessWorkingSetBytes": 198623232,
+    "ProcessResidentBytes": 198000640,
+    "ProcessWiredBytes": 0,
+    "ProcessPhysicalFootprintBytes": 341410968,
+    "ProcessPeakPhysicalFootprintBytes": 346162328,
+    "Gen0Collections": 2,
+    "Gen1Collections": 2,
+    "Gen2Collections": 2,
+    "FirstRenderedFrameMs": 4892.933,
+    "WindowLogicalWidth": 1024,
+    "WindowLogicalHeight": 800,
+    "WindowRenderScaling": 2,
+    "WindowPhysicalWidth": 2048,
+    "WindowPhysicalHeight": 1600,
+    "AverageCompileMs": 0.23502668918918906,
+    "AverageUploadMs": 0.011527364864864866,
+    "AverageRenderMs": 0.32919527027027035,
+    "AverageCompositorMs": 0.5765640202702698,
+    "RenderTargetWidth": 2048,
+    "RenderTargetHeight": 1600,
+    "DpiScale": 1,
+    "CompositorMetricSampleCount": 592,
+    "CompileTimeSampleCount": 592,
+    "MinCompileMs": 0.1175,
+    "MedianCompileMs": 0.20835,
+    "P95CompileMs": 0.40886999999999996,
+    "P99CompileMs": 0.46548000000000006,
+    "MaxCompileMs": 0.4975,
+    "UploadTimeSampleCount": 592,
+    "MinUploadMs": 0.0045,
+    "MedianUploadMs": 0.011,
+    "P95UploadMs": 0.0254,
+    "P99UploadMs": 0.031109,
+    "MaxUploadMs": 0.0421,
+    "RenderTimeSampleCount": 592,
+    "MinRenderMs": 0.1262,
+    "MedianRenderMs": 0.32095,
+    "P95RenderMs": 0.5654299999999998,
+    "P99RenderMs": 0.6400080000000004,
+    "MaxRenderMs": 0.7286,
+    "CompositorTimeSampleCount": 592,
+    "MinCompositorMs": 0.264,
+    "MedianCompositorMs": 0.5339,
+    "P95CompositorMs": 0.9615749999999998,
+    "P99CompositorMs": 1.1123590000000003,
+    "MaxCompositorMs": 1.204,
+    "SceneCacheHits": 0,
+    "DrawCalls": 77,
+    "RecordedCommands": 6,
+    "VectorVertices": 356,
+    "TextVertices": 296,
+    "PathAtlasEntries": 5,
+    "PathAtlasTextureBytes": 262144,
+    "GlyphAtlasTextureBytes": 262144,
+    "ColorGlyphAtlasTextureBytes": 16384,
+    "TrackedIntermediateTextureBytes": 0,
+    "MetalAllocatedBytes": 29458432,
+    "PresentationPath": "SilkNetWebGpuSurface",
+    "RetainedCompositionScenes": 1,
+    "RetainedCompositionServerBackendRenders": 774,
+    "RetainedCompositionSceneNodes": 609,
+    "RetainedCompositionFallbackNodes": 0,
+    "RetainedCompositionCustomVisualNodes": 1,
+    "RetainedCompositionCustomVisualCompilations": 772,
+    "RetainedCompositionPictureHits": 0,
+    "RetainedCompositionPictureCompilations": 0,
+    "RetainedCompositionLayoutClipSynchronizations": 0,
+    "RetainedCompositionGeometryClipSynchronizations": 0,
+    "RetainedCompositionBitmapCacheSynchronizations": 0,
+    "RetainedCompositionEffectSynchronizations": 0,
+    "RetainedCompositionOpacityMaskSynchronizations": 0,
+    "RetainedCompositionInheritedDrawingOptionsSynchronizations": 0,
+    "RetainedCompositionTopologySynchronizationsDuringMeasurement": 0,
+    "RetainedCompositionAdornerSynchronizationsDuringMeasurement": 0,
+    "RetainedCompositionSceneFullSynchronizationsDuringMeasurement": 0
+  }
+}

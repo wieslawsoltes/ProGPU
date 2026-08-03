@@ -1,0 +1,3 @@
+[ControlCatalog] runtime backend: Windowing: Silk.NET/GLFW | Rendering: WebGPU/Dawn via Silk.NET | Compositor: ProGPU retained | Text: ProGPU OpenType
+[ControlCatalog] selected page=Composition index=18
+[ControlCatalog] actual presentation: WebGPU/Dawn via Silk.NET surface

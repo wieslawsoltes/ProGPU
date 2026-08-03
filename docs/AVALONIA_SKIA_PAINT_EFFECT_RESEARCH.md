@@ -147,8 +147,16 @@ run, show:
   claims correlate managed allocation, process footprint, EventPipe,
   Instruments, wgpu-native resources, and Metal allocation data.
 
-Final acceptance requires matched Release binaries, exact semantic checksums,
-GPU pixel tests for blur/shadow/clip/opacity, official API metadata comparison,
-the full test/package matrix, and macOS Time Profiler, Allocations/VM Tracker,
-and Metal System Trace runs. Raw trace bundles are temporary; compact exported
-summaries are retained and the raw bundles are removed after analysis.
+Final qualification for commit `6466fbdb` used matched Release binaries,
+exact semantic checksums, GPU pixel tests for blur/shadow/clip/opacity, the
+official API metadata comparison, the full test/package matrix, EventPipe and
+native-memory sampling, and macOS Time Profiler, Allocations/VM Tracker, and
+Metal System Trace runs. The compact evidence is retained under
+`artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final`.
+ProGPU measured 80.619 versus 78.305 frames/s and 6,466.76 versus 7,485.97
+managed bytes/frame, but its 22.616 ms P95 exceeded Skia's 17.021 ms and its
+first active physical footprint was higher. Instruments reported 198,790,144
+versus 205,265,120 persistent heap-plus-anonymous-VM bytes, with zero spills,
+hangs, or command-buffer errors. These mixed results are recorded explicitly;
+they do not support a universal speed or memory claim. All raw trace bundles,
+exports, Xcode scratch, dumps, and gcdumps were removed after analysis.

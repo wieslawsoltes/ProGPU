@@ -1,0 +1,466 @@
+{
+  "SchemaVersion": 2,
+  "GeneratedUtc": "2026-08-03T16:35:41.418817+00:00",
+  "Resources": {
+    "Count": 0,
+    "TotalBytes": 0,
+    "LiveAtCaptureEndCount": 0,
+    "LiveAtCaptureEndBytes": 0,
+    "Groups": [],
+    "LargestResources": []
+  },
+  "NativeAllocations": {
+    "HeapAndAnonymousVmPersistentBytes": 205265120,
+    "HeapPersistentBytes": 37591264,
+    "AnonymousVmPersistentBytes": 167673856,
+    "AllVmRegionsPersistentBytes": 1225687040,
+    "HeapAndAnonymousVmTotalBytes": 768632304,
+    "HeapAndAnonymousVmTransientBytes": 563367184,
+    "LargestPersistentCategories": [
+      {
+        "Category": "VM: Memory Tag 255",
+        "PersistentBytes": 546111488,
+        "TotalBytes": 4488953856,
+        "TransientBytes": 3942842368,
+        "PersistentCount": 6,
+        "TotalCount": 14
+      },
+      {
+        "Category": "VM: Mapped File",
+        "PersistentBytes": 440434688,
+        "TotalBytes": 471449600,
+        "TransientBytes": 31014912,
+        "PersistentCount": 134,
+        "TotalCount": 162
+      },
+      {
+        "Category": "VM: Dispatch continuations",
+        "PersistentBytes": 92274688,
+        "TotalBytes": 92274688,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "VM: MALLOC_SMALL",
+        "PersistentBytes": 71303168,
+        "TotalBytes": 71303168,
+        "TransientBytes": 0,
+        "PersistentCount": 17,
+        "TotalCount": 17
+      },
+      {
+        "Category": "VM: IOSurface",
+        "PersistentBytes": 39321600,
+        "TotalBytes": 39321600,
+        "TransientBytes": 0,
+        "PersistentCount": 3,
+        "TotalCount": 3
+      },
+      {
+        "Category": "Malloc 64,00 KiB",
+        "PersistentBytes": 13959168,
+        "TotalBytes": 19922944,
+        "TransientBytes": 5963776,
+        "PersistentCount": 213,
+        "TotalCount": 304
+      },
+      {
+        "Category": "VM: CoreServices",
+        "PersistentBytes": 13598720,
+        "TotalBytes": 27197440,
+        "TransientBytes": 13598720,
+        "PersistentCount": 1,
+        "TotalCount": 2
+      },
+      {
+        "Category": "VM: Stack",
+        "PersistentBytes": 11501568,
+        "TotalBytes": 25296896,
+        "TransientBytes": 13795328,
+        "PersistentCount": 10,
+        "TotalCount": 24
+      },
+      {
+        "Category": "VM: IOAccelerator",
+        "PersistentBytes": 6520832,
+        "TotalBytes": 6520832,
+        "TransientBytes": 0,
+        "PersistentCount": 64,
+        "TotalCount": 64
+      },
+      {
+        "Category": "Malloc 1,00 MiB",
+        "PersistentBytes": 4194304,
+        "TotalBytes": 4194304,
+        "TransientBytes": 0,
+        "PersistentCount": 4,
+        "TotalCount": 4
+      },
+      {
+        "Category": "Malloc 96,00 KiB",
+        "PersistentBytes": 1867776,
+        "TotalBytes": 8159232,
+        "TransientBytes": 6291456,
+        "PersistentCount": 19,
+        "TotalCount": 83
+      },
+      {
+        "Category": "VM: CoreAnimation",
+        "PersistentBytes": 1359872,
+        "TotalBytes": 2031616,
+        "TransientBytes": 671744,
+        "PersistentCount": 37,
+        "TotalCount": 64
+      },
+      {
+        "Category": "Malloc 320,00 KiB",
+        "PersistentBytes": 1310720,
+        "TotalBytes": 15728640,
+        "TransientBytes": 14417920,
+        "PersistentCount": 4,
+        "TotalCount": 48
+      },
+      {
+        "Category": "VM: CoreUI image data",
+        "PersistentBytes": 1277952,
+        "TotalBytes": 1277952,
+        "TransientBytes": 0,
+        "PersistentCount": 9,
+        "TotalCount": 9
+      },
+      {
+        "Category": "Malloc 48 Bytes",
+        "PersistentBytes": 1123056,
+        "TotalBytes": 4813728,
+        "TransientBytes": 3690672,
+        "PersistentCount": 23397,
+        "TotalCount": 100286
+      },
+      {
+        "Category": "VM: ImageIO_PNG_Data",
+        "PersistentBytes": 1064960,
+        "TotalBytes": 1064960,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 992,00 KiB",
+        "PersistentBytes": 1015808,
+        "TotalBytes": 1015808,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 32 Bytes",
+        "PersistentBytes": 962176,
+        "TotalBytes": 3099328,
+        "TransientBytes": 2137152,
+        "PersistentCount": 30068,
+        "TotalCount": 96854
+      },
+      {
+        "Category": "Malloc 304,00 KiB",
+        "PersistentBytes": 933888,
+        "TotalBytes": 20856832,
+        "TransientBytes": 19922944,
+        "PersistentCount": 3,
+        "TotalCount": 67
+      },
+      {
+        "Category": "Malloc 64 Bytes",
+        "PersistentBytes": 748352,
+        "TotalBytes": 3221120,
+        "TransientBytes": 2472768,
+        "PersistentCount": 11693,
+        "TotalCount": 50330
+      },
+      {
+        "Category": "Malloc 128,00 KiB",
+        "PersistentBytes": 524288,
+        "TotalBytes": 13500416,
+        "TransientBytes": 12976128,
+        "PersistentCount": 4,
+        "TotalCount": 103
+      },
+      {
+        "Category": "Malloc 464,00 KiB",
+        "PersistentBytes": 475136,
+        "TotalBytes": 12353536,
+        "TransientBytes": 11878400,
+        "PersistentCount": 1,
+        "TotalCount": 26
+      },
+      {
+        "Category": "Malloc 448,00 KiB",
+        "PersistentBytes": 458752,
+        "TotalBytes": 15138816,
+        "TransientBytes": 14680064,
+        "PersistentCount": 1,
+        "TotalCount": 33
+      },
+      {
+        "Category": "MTLResourceList",
+        "PersistentBytes": 393216,
+        "TotalBytes": 393216,
+        "TransientBytes": 0,
+        "PersistentCount": 8,
+        "TotalCount": 8
+      }
+    ],
+    "Details": {
+      "LiveCount": 95485,
+      "LiveBytes": 205265120,
+      "LargestLiveGroups": [
+        {
+          "Category": "VM: Dispatch continuations",
+          "ResponsibleCaller": "0x107ccb26c",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 92274688,
+          "FirstTimestamp": "00:01.808.026",
+          "LastTimestamp": "00:01.808.026"
+        },
+        {
+          "Category": "VM: IOSurface",
+          "ResponsibleCaller": "CA::SurfaceUtil::CAIOSurfaceCreate(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned long long, CA::SurfaceUtil::SurfaceAlignment, __CFString const*)",
+          "ResponsibleLibrary": "QuartzCore",
+          "LiveCount": 3,
+          "LiveBytes": 39321600,
+          "FirstTimestamp": "00:03.456.056",
+          "LastTimestamp": "00:03.860.062"
+        },
+        {
+          "Category": "VM: CoreServices",
+          "ResponsibleCaller": "CSStore2::VM::Allocate(unsigned int)",
+          "ResponsibleLibrary": "CoreServicesStore",
+          "LiveCount": 1,
+          "LiveBytes": 13598720,
+          "FirstTimestamp": "00:02.455.004",
+          "LastTimestamp": "00:02.455.004"
+        },
+        {
+          "Category": "Malloc 64,00 KiB",
+          "ResponsibleCaller": "ArenaAllocator::allocateNewPage(unsigned long)",
+          "ResponsibleLibrary": "libclrjit.dylib",
+          "LiveCount": 203,
+          "LiveBytes": 13303808,
+          "FirstTimestamp": "00:01.623.686",
+          "LastTimestamp": "00:02.269.900"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "CorUnix::InternalCreateThread(CorUnix::CPalThread*, _SECURITY_ATTRIBUTES*, unsigned int, unsigned int (*)(void*), void*, unsigned int, CorUnix::PalThreadType, unsigned long*, void**)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 6,
+          "LiveBytes": 9207808,
+          "FirstTimestamp": "00:01.600.163",
+          "LastTimestamp": "00:02.006.560"
+        },
+        {
+          "Category": "VM: IOAccelerator",
+          "ResponsibleCaller": "-[IOGPUMetalResource initWithDevice:remoteStorageResource:options:args:argsSize:]",
+          "ResponsibleLibrary": "IOGPU",
+          "LiveCount": 54,
+          "LiveBytes": 6356992,
+          "FirstTimestamp": "00:01.994.744",
+          "LastTimestamp": "00:08.869.162"
+        },
+        {
+          "Category": "Malloc 1,00 MiB",
+          "ResponsibleCaller": "0x107b2fde4",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 4,
+          "LiveBytes": 4194304,
+          "FirstTimestamp": "00:02.168.695",
+          "LastTimestamp": "00:02.500.369"
+        },
+        {
+          "Category": "Malloc 96,00 KiB",
+          "ResponsibleCaller": "0x107bafcb0",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 18,
+          "LiveBytes": 1769472,
+          "FirstTimestamp": "00:02.335.027",
+          "LastTimestamp": "00:02.353.762"
+        },
+        {
+          "Category": "VM: CoreUI image data",
+          "ResponsibleCaller": "-[_CSIRenditionBlockData _allocateImageBytes]",
+          "ResponsibleLibrary": "CoreUI",
+          "LiveCount": 9,
+          "LiveBytes": 1277952,
+          "FirstTimestamp": "00:03.877.769",
+          "LastTimestamp": "00:03.983.458"
+        },
+        {
+          "Category": "VM: CoreAnimation",
+          "ResponsibleCaller": "CA::Render::Shmem::new_shmem(unsigned long)",
+          "ResponsibleLibrary": "QuartzCore",
+          "LiveCount": 22,
+          "LiveBytes": 1114112,
+          "FirstTimestamp": "00:03.452.168",
+          "LastTimestamp": "00:03.989.542"
+        },
+        {
+          "Category": "VM: ImageIO_PNG_Data",
+          "ResponsibleCaller": "_ImageIO_Malloc",
+          "ResponsibleLibrary": "ImageIO",
+          "LiveCount": 1,
+          "LiveBytes": 1064960,
+          "FirstTimestamp": "00:04.036.659",
+          "LastTimestamp": "00:04.036.659"
+        },
+        {
+          "Category": "Malloc 992,00 KiB",
+          "ResponsibleCaller": "0x107b2fde4",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 1015808,
+          "FirstTimestamp": "00:02.503.488",
+          "LastTimestamp": "00:02.503.488"
+        },
+        {
+          "Category": "Malloc 320,00 KiB",
+          "ResponsibleCaller": "0x107b054d8",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 3,
+          "LiveBytes": 983040,
+          "FirstTimestamp": "00:02.335.694",
+          "LastTimestamp": "00:02.352.693"
+        },
+        {
+          "Category": "Malloc 304,00 KiB",
+          "ResponsibleCaller": "0x107b054d8",
+          "ResponsibleLibrary": "libSkiaSharp.dylib",
+          "LiveCount": 3,
+          "LiveBytes": 933888,
+          "FirstTimestamp": "00:02.347.556",
+          "LastTimestamp": "00:02.353.848"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "SEHInitializeMachExceptions",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:01.599.535",
+          "LastTimestamp": "00:01.599.535"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "InitializeSignalHandlingCore",
+          "ResponsibleLibrary": "libSystem.Native.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:01.686.610",
+          "LastTimestamp": "00:01.686.610"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "\u002B[NSEvent(NSConcurrentEvents) _startConcurrentEventProcessing]",
+          "ResponsibleLibrary": "AppKit",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:01.930.315",
+          "LastTimestamp": "00:01.930.315"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "CVDisplayLink::start()",
+          "ResponsibleLibrary": "CoreVideo",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:03.430.886",
+          "LastTimestamp": "00:03.430.886"
+        },
+        {
+          "Category": "Malloc 32 Bytes",
+          "ResponsibleCaller": "CallCountingManager::SetCodeEntryPoint(NativeCodeVersion, unsigned long, bool, bool*)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 16910,
+          "LiveBytes": 541120,
+          "FirstTimestamp": "00:03.056.869",
+          "LastTimestamp": "00:10.895.947"
+        },
+        {
+          "Category": "Malloc 464,00 KiB",
+          "ResponsibleCaller": "fscache_insert_and_retain",
+          "ResponsibleLibrary": "libCoreFSCache.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 475136,
+          "FirstTimestamp": "00:03.764.551",
+          "LastTimestamp": "00:03.764.551"
+        },
+        {
+          "Category": "Malloc 48 Bytes",
+          "ResponsibleCaller": "operator_new_impl[abi:nqe210106](unsigned long, std::__type_descriptor_t)",
+          "ResponsibleLibrary": "libc\u002B\u002Babi.dylib",
+          "LiveCount": 9663,
+          "LiveBytes": 463824,
+          "FirstTimestamp": "00:01.584.182",
+          "LastTimestamp": "00:04.108.471"
+        },
+        {
+          "Category": "Malloc 448,00 KiB",
+          "ResponsibleCaller": "SLSCopyRegisteredCursorImages",
+          "ResponsibleLibrary": "SkyLight",
+          "LiveCount": 1,
+          "LiveBytes": 458752,
+          "FirstTimestamp": "00:01.977.989",
+          "LastTimestamp": "00:01.977.989"
+        },
+        {
+          "Category": "Malloc 48 Bytes",
+          "ResponsibleCaller": "fscache_open_worker",
+          "ResponsibleLibrary": "libCoreFSCache.dylib",
+          "LiveCount": 8194,
+          "LiveBytes": 393312,
+          "FirstTimestamp": "00:03.486.020",
+          "LastTimestamp": "00:03.523.954"
+        },
+        {
+          "Category": "MTLResourceList",
+          "ResponsibleCaller": "MTLResourceListPoolCreateResourceList",
+          "ResponsibleLibrary": "Metal",
+          "LiveCount": 8,
+          "LiveBytes": 393216,
+          "FirstTimestamp": "00:02.041.146",
+          "LastTimestamp": "00:08.854.019"
+        }
+      ]
+    }
+  },
+  "CurrentAllocatedSize": {
+    "Count": 16,
+    "Total": 1003749376,
+    "Maximum": 62734336,
+    "Last": 62734336
+  },
+  "DrawableWaits": {
+    "Count": 38,
+    "Total": 575242458,
+    "Maximum": 17236458,
+    "Last": 13533125
+  },
+  "CompilerSpills": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpillGroups": [],
+  "PotentialHangs": {
+    "Count": 0,
+    "TotalDurationNanoseconds": 0,
+    "MaximumDurationNanoseconds": 0,
+    "Groups": [],
+    "Intervals": []
+  },
+  "HangRiskCount": 0,
+  "CommandBufferErrorCount": 0,
+  "CommandBufferSubmissionCount": 40,
+  "CommandBufferCompletionCount": 370
+}

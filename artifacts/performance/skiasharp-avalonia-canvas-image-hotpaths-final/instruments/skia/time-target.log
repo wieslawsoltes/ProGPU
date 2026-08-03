@@ -1,0 +1,6 @@
+[ControlCatalog] runtime backend: Windowing: Avalonia.Native | Rendering: Skia | Compositor: Avalonia retained | Text: HarfBuzz
+2026-08-03 18:34:12.021877+0200 dotnet[58819:40771416] [WindowTab] Cannot index window tabs due to missing main bundle identifier
+[ControlCatalog] selected page=Composition index=18
+App activated: Background
+2026-08-03 18:34:13.055686+0200 dotnet[58819:40771779] [Common] Unable to obtain a task name port right for pid 481: (os/kern) failure (0x5)
+App deactivated: Background

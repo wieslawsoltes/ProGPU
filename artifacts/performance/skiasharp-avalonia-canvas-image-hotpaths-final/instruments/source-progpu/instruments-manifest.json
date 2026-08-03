@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-03T16:33:27.012509+00:00",
+  "durationSeconds": 8,
+  "windowSeconds": 3,
+  "targetMode": "launch",
+  "target": "/usr/local/share/dotnet/dotnet",
+  "arguments": [
+    "integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/AvaloniaSourceControlCatalog.dll",
+    "--page",
+    "Composition"
+  ],
+  "environmentVariableNames": [
+    "PROGPU_AVALONIA_DIRECT_PRESENTATION",
+    "PROGPU_AVALONIA_BENCHMARK_OUTPUT",
+    "PROGPU_AVALONIA_BENCHMARK_WARMUP_FRAMES",
+    "PROGPU_AVALONIA_BENCHMARK_MEASURE_FRAMES",
+    "PROGPU_AVALONIA_BENCHMARK_CUSTOM_VISUAL",
+    "PROGPU_AVALONIA_BENCHMARK_DIAGNOSTIC_HOLD_SECONDS",
+    "DYLD_LIBRARY_PATH"
+  ],
+  "cleanupTraces": true,
+  "cleanupExports": true,
+  "allocationDetails": true,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 198790144
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations-target.log",
+      "RecordExitCode": 54,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations-statistics.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/allocations-list.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 88111352,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 31739819,
+      "DeletedTemporaryBytes": 26128693
+    },
+    {
+      "Key": "time",
+      "Template": "Time Profiler",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-target.log",
+      "RecordExitCode": 54,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-time-profile.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-time-sample.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/time-hang-risks.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 6924983,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 2723556,
+      "DeletedTemporaryBytes": 69092269
+    },
+    {
+      "Key": "metal",
+      "Template": "Metal System Trace",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-target.log",
+      "RecordExitCode": 54,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-current-allocated-size.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-kernel-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-application-command-buffer-submissions.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-command-buffer-completed.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-ca-client-buffer-wait-interval.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-metal-command-buffer-error.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-graphics-compiler-spill-events.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-hang-risks.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final/instruments/source-progpu/metal-time-profile.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 93986103,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 197723,
+      "DeletedTemporaryBytes": 83915293
+    }
+  ]
+}
