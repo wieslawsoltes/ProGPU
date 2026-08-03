@@ -256,6 +256,11 @@ public unsafe class PathAtlas : IDisposable
     private const int ExactRecoveryPathLimit = 10;
     private const int ExactRecoveryNodeBudget = 25_000;
     private const int ExactRecoveryCandidateBudget = 250_000;
+    private const int MaxBooleanProgramInstructions = 63;
+    private const int MaxBooleanProgramStackDepth = 16;
+    private const uint BooleanProgramFlag = 0x80000000u;
+    private const uint BooleanOperationTokenFlag = 0x80000000u;
+    private const uint BooleanEmptyToken = 0x40000000u;
 
     private readonly WgpuContext _context;
     private GpuTexture _atlasTexture;
@@ -534,6 +539,7 @@ public unsafe class PathAtlas : IDisposable
     }
     public uint LastRasterStagingBytes { get; private set; }
     public int LastDirectBooleanRasterizationCount { get; private set; }
+    public int LastBooleanProgramRasterizationCount { get; private set; }
     public uint PeakRasterStagingBytes { get; private set; }
     public uint PeakRasterWidth { get; private set; }
     public uint PeakRasterHeight { get; private set; }
@@ -1153,11 +1159,7 @@ public unsafe class PathAtlas : IDisposable
         out float localMaxX,
         out float localMaxY)
     {
-        if (TryGetDirectBooleanOperands(path, out var pathA, out var pathB, out _) &&
-            TryGetCompiledFillPath(pathA, out var recordsA, out var segmentsA, out _, out _, out _, out _) &&
-            TryGetCompiledFillPath(pathB, out var recordsB, out var segmentsB, out _, out _, out _, out _) &&
-            recordsA.Length == 1 && segmentsA.Length != 0 &&
-            recordsB.Length == 1 && segmentsB.Length != 0 &&
+        if (CanRasterizeBooleanTree(path) &&
             path.TryGetBounds(out var min, out var max))
         {
             localMinX = min.X;
@@ -1183,6 +1185,7 @@ public unsafe class PathAtlas : IDisposable
         out GpuPathSegment[] segmentsA,
         out GpuPathRecord[] recordsB,
         out GpuPathSegment[] segmentsB,
+        out GpuPathRecord[] booleanProgram,
         out uint pathOpKind)
     {
         if (TryGetDirectBooleanOperands(path, out var pathA, out var pathB, out var op) &&
@@ -1191,12 +1194,30 @@ public unsafe class PathAtlas : IDisposable
             recordsA.Length == 1 && segmentsA.Length != 0 &&
             recordsB.Length == 1 && segmentsB.Length != 0)
         {
+            booleanProgram = Array.Empty<GpuPathRecord>();
             pathOpKind = checked((uint)op + 1u);
+            return true;
+        }
+
+        if (path.IsCombined &&
+            path.CombinedQueryKind is not CombinedPathQueryKind.Empty and
+                not CombinedPathQueryKind.ResultOperandA and
+                not CombinedPathQueryKind.ResultOperandB &&
+            TryBuildBooleanProgram(
+                path,
+                out recordsA,
+                out segmentsA,
+                out booleanProgram))
+        {
+            recordsB = Array.Empty<GpuPathRecord>();
+            segmentsB = Array.Empty<GpuPathSegment>();
+            pathOpKind = BooleanProgramFlag | checked((uint)booleanProgram.Length);
             return true;
         }
 
         recordsB = Array.Empty<GpuPathRecord>();
         segmentsB = Array.Empty<GpuPathSegment>();
+        booleanProgram = Array.Empty<GpuPathRecord>();
         pathOpKind = 0;
         return TryGetCompiledFillPath(
             path,
@@ -1208,6 +1229,231 @@ public unsafe class PathAtlas : IDisposable
             out _) &&
             recordsA.Length != 0 &&
             segmentsA.Length != 0;
+    }
+
+    private bool CanRasterizeBooleanTree(PathGeometry path)
+    {
+        if (!path.IsCombined ||
+            path.CombinedQueryKind is CombinedPathQueryKind.Empty or
+                CombinedPathQueryKind.ResultOperandA or
+                CombinedPathQueryKind.ResultOperandB)
+        {
+            return false;
+        }
+
+        int instructionCount = 0;
+        int stackDepth = 0;
+        int maxStackDepth = 0;
+        return TryCountBooleanProgram(
+                path,
+                ref instructionCount,
+                ref stackDepth,
+                ref maxStackDepth) &&
+            instructionCount <= MaxBooleanProgramInstructions &&
+            stackDepth == 1 &&
+            maxStackDepth <= MaxBooleanProgramStackDepth;
+    }
+
+    private bool TryCountBooleanProgram(
+        PathGeometry path,
+        ref int instructionCount,
+        ref int stackDepth,
+        ref int maxStackDepth)
+    {
+        if (instructionCount >= MaxBooleanProgramInstructions)
+        {
+            return false;
+        }
+
+        if (path.IsCombined)
+        {
+            switch (path.CombinedQueryKind)
+            {
+                case CombinedPathQueryKind.Empty:
+                    instructionCount++;
+                    stackDepth++;
+                    maxStackDepth = Math.Max(maxStackDepth, stackDepth);
+                    return maxStackDepth <= MaxBooleanProgramStackDepth;
+                case CombinedPathQueryKind.ResultOperandA:
+                    return path.PathA != null && TryCountBooleanProgram(
+                        path.PathA,
+                        ref instructionCount,
+                        ref stackDepth,
+                        ref maxStackDepth);
+                case CombinedPathQueryKind.ResultOperandB:
+                    return path.PathB != null && TryCountBooleanProgram(
+                        path.PathB,
+                        ref instructionCount,
+                        ref stackDepth,
+                        ref maxStackDepth);
+            }
+
+            if (path.PathA == null || path.PathB == null || (uint)path.Op > 4u ||
+                !TryCountBooleanProgram(
+                    path.PathA,
+                    ref instructionCount,
+                    ref stackDepth,
+                    ref maxStackDepth) ||
+                !TryCountBooleanProgram(
+                    path.PathB,
+                    ref instructionCount,
+                    ref stackDepth,
+                    ref maxStackDepth) ||
+                stackDepth < 2 || instructionCount >= MaxBooleanProgramInstructions)
+            {
+                return false;
+            }
+
+            instructionCount++;
+            stackDepth--;
+            return true;
+        }
+
+        if (!TryGetCompiledFillPath(
+                path,
+                out var records,
+                out var segments,
+                out _,
+                out _,
+                out _,
+                out _) ||
+            records.Length != 1 ||
+            segments.Length == 0)
+        {
+            return false;
+        }
+
+        instructionCount++;
+        stackDepth++;
+        maxStackDepth = Math.Max(maxStackDepth, stackDepth);
+        return maxStackDepth <= MaxBooleanProgramStackDepth;
+    }
+
+    private bool TryBuildBooleanProgram(
+        PathGeometry path,
+        out GpuPathRecord[] records,
+        out GpuPathSegment[] segments,
+        out GpuPathRecord[] program)
+    {
+        var recordBuilder = new List<GpuPathRecord>();
+        var segmentBuilder = new List<GpuPathSegment>();
+        var programBuilder = new List<GpuPathRecord>();
+        int stackDepth = 0;
+        int maxStackDepth = 0;
+        if (!TryAppendBooleanProgramNode(
+                path,
+                recordBuilder,
+                segmentBuilder,
+                programBuilder,
+                ref stackDepth,
+                ref maxStackDepth) ||
+            stackDepth != 1 ||
+            maxStackDepth > MaxBooleanProgramStackDepth ||
+            programBuilder.Count > MaxBooleanProgramInstructions)
+        {
+            records = Array.Empty<GpuPathRecord>();
+            segments = Array.Empty<GpuPathSegment>();
+            program = Array.Empty<GpuPathRecord>();
+            return false;
+        }
+
+        records = recordBuilder.ToArray();
+        segments = segmentBuilder.ToArray();
+        program = programBuilder.ToArray();
+        return records.Length != 0 && segments.Length != 0 && program.Length != 0;
+    }
+
+    private bool TryAppendBooleanProgramNode(
+        PathGeometry path,
+        List<GpuPathRecord> records,
+        List<GpuPathSegment> segments,
+        List<GpuPathRecord> program,
+        ref int stackDepth,
+        ref int maxStackDepth)
+    {
+        if (program.Count >= MaxBooleanProgramInstructions)
+        {
+            return false;
+        }
+
+        if (path.IsCombined)
+        {
+            switch (path.CombinedQueryKind)
+            {
+                case CombinedPathQueryKind.Empty:
+                    program.Add(new GpuPathRecord { StartSegment = BooleanEmptyToken });
+                    stackDepth++;
+                    maxStackDepth = Math.Max(maxStackDepth, stackDepth);
+                    return maxStackDepth <= MaxBooleanProgramStackDepth;
+                case CombinedPathQueryKind.ResultOperandA:
+                    return path.PathA != null && TryAppendBooleanProgramNode(
+                        path.PathA,
+                        records,
+                        segments,
+                        program,
+                        ref stackDepth,
+                        ref maxStackDepth);
+                case CombinedPathQueryKind.ResultOperandB:
+                    return path.PathB != null && TryAppendBooleanProgramNode(
+                        path.PathB,
+                        records,
+                        segments,
+                        program,
+                        ref stackDepth,
+                        ref maxStackDepth);
+            }
+
+            if (path.PathA == null || path.PathB == null || (uint)path.Op > 4u ||
+                !TryAppendBooleanProgramNode(
+                    path.PathA,
+                    records,
+                    segments,
+                    program,
+                    ref stackDepth,
+                    ref maxStackDepth) ||
+                !TryAppendBooleanProgramNode(
+                    path.PathB,
+                    records,
+                    segments,
+                    program,
+                    ref stackDepth,
+                    ref maxStackDepth) ||
+                stackDepth < 2 || program.Count >= MaxBooleanProgramInstructions)
+            {
+                return false;
+            }
+
+            program.Add(new GpuPathRecord
+            {
+                StartSegment = BooleanOperationTokenFlag | checked((uint)path.Op + 1u)
+            });
+            stackDepth--;
+            return true;
+        }
+
+        if (!TryGetCompiledFillPath(
+                path,
+                out var leafRecords,
+                out var leafSegments,
+                out _,
+                out _,
+                out _,
+                out _) ||
+            leafRecords.Length != 1 ||
+            leafSegments.Length == 0)
+        {
+            return false;
+        }
+
+        var record = leafRecords[0];
+        record.StartSegment = checked(record.StartSegment + (uint)segments.Count);
+        uint recordIndex = checked((uint)records.Count);
+        records.Add(record);
+        segments.AddRange(leafSegments);
+        program.Add(new GpuPathRecord { StartSegment = recordIndex });
+        stackDepth++;
+        maxStackDepth = Math.Max(maxStackDepth, stackDepth);
+        return maxStackDepth <= MaxBooleanProgramStackDepth;
     }
 
     private static bool TryGetDirectBooleanOperands(
@@ -1338,10 +1584,12 @@ public unsafe class PathAtlas : IDisposable
         GpuPathSegment[] SegmentsA,
         GpuPathRecord[] RecordsB,
         GpuPathSegment[] SegmentsB,
+        GpuPathRecord[] BooleanProgram,
         int RecordOffsetA,
         int SegmentOffsetA,
         int RecordOffsetB,
         int SegmentOffsetB,
+        int BooleanProgramOffset,
         uint PathOpKind,
         int OutputByteOffset,
         uint OutputBytesPerRow);
@@ -3589,6 +3837,7 @@ public unsafe class PathAtlas : IDisposable
         if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
         LastRasterStagingBytes = 0;
         LastDirectBooleanRasterizationCount = 0;
+        LastBooleanProgramRasterizationCount = 0;
         if (_pendingPaths.Count == 0) return;
 
         PendingRasterization[]? rasterizations = null;
@@ -3624,6 +3873,7 @@ public unsafe class PathAtlas : IDisposable
                         out var segmentsA,
                         out var recordsB,
                         out var segmentsB,
+                        out var booleanProgram,
                         out var pathOpKind))
                 {
                     continue;
@@ -3635,21 +3885,30 @@ public unsafe class PathAtlas : IDisposable
                     segmentsA,
                     recordsB,
                     segmentsB,
+                    booleanProgram,
                     totalRecordCount,
                     totalSegmentCount,
                     recordsB.Length == 0
                         ? totalRecordCount
                         : checked(totalRecordCount + recordsA.Length),
                     checked(totalSegmentCount + segmentsA.Length),
+                    checked(totalRecordCount + recordsA.Length + recordsB.Length),
                     pathOpKind,
                     0,
                     0);
                 if (pathOpKind != 0)
                 {
                     LastDirectBooleanRasterizationCount++;
+                    if ((pathOpKind & BooleanProgramFlag) != 0)
+                    {
+                        LastBooleanProgramRasterizationCount++;
+                    }
                 }
                 totalRecordCount = checked(
-                    totalRecordCount + recordsA.Length + recordsB.Length);
+                    totalRecordCount +
+                    recordsA.Length +
+                    recordsB.Length +
+                    booleanProgram.Length);
                 totalSegmentCount = checked(
                     totalSegmentCount + segmentsA.Length + segmentsB.Length);
                 if (diagnosticsEnabled)
@@ -3687,12 +3946,17 @@ public unsafe class PathAtlas : IDisposable
                         ? totalRecordCount
                         : checked(totalRecordCount + rasterization.RecordsA.Length),
                     SegmentOffsetB = checked(totalSegmentCount + rasterization.SegmentsA.Length),
+                    BooleanProgramOffset = checked(
+                        totalRecordCount +
+                        rasterization.RecordsA.Length +
+                        rasterization.RecordsB.Length),
                     OutputBytesPerRow = outputBytesPerRow
                 };
                 totalRecordCount = checked(
                     totalRecordCount +
                     rasterization.RecordsA.Length +
-                    rasterization.RecordsB.Length);
+                    rasterization.RecordsB.Length +
+                    rasterization.BooleanProgram.Length);
                 totalSegmentCount = checked(
                     totalSegmentCount +
                     rasterization.SegmentsA.Length +
@@ -3790,6 +4054,11 @@ public unsafe class PathAtlas : IDisposable
                         record.StartSegment + (uint)rasterization.SegmentOffsetB);
                     recordData[rasterization.RecordOffsetB + recordIndex] = record;
                 }
+
+                rasterization.BooleanProgram.AsSpan().CopyTo(
+                    recordData.AsSpan(
+                        rasterization.BooleanProgramOffset,
+                        rasterization.BooleanProgram.Length));
             }
 
             for (int dispatchIndex = 0; dispatchIndex < dispatchCount; dispatchIndex++)
@@ -3816,7 +4085,10 @@ public unsafe class PathAtlas : IDisposable
                         Width = info.Width,
                         Height = info.Height,
                         SampleGrid = info.Key.SampleGrid,
-                        PathIndexB = checked((uint)rasterization.RecordOffsetB),
+                        PathIndexB = checked((uint)(
+                            rasterization.BooleanProgram.Length == 0
+                                ? rasterization.RecordOffsetB
+                                : rasterization.BooleanProgramOffset)),
                         PathOpKind = rasterization.PathOpKind,
                     };
                     MemoryMarshal.Write(

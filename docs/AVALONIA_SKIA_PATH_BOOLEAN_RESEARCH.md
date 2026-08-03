@@ -61,6 +61,10 @@ Adopted:
   supersample, applies the requested set operation to the two masks, and only
   then averages coverage. This is sample-exact for the configured 8x8 lattice;
   it does not approximate set membership by combining scalar coverage values.
+- Nested render-only trees compile to an original bounded postfix program.
+  Up to 63 leaf/operation instructions and a stack depth of 16 execute in the
+  same analytic WebGPU raster dispatch, with explicit shader bounds checks and
+  a deterministic exact-topology fallback beyond those limits.
 - One unescaped deferred node may be recycled per thread. Recording, clipping,
   chaining, or otherwise sharing the node permanently marks it non-recyclable;
   retained commands can never observe reused state.
@@ -82,11 +86,10 @@ Rejected:
   boolean node;
 - moving Unicode/OpenType shaping or line layout into this geometry slice.
 
-Nested boolean trees and callers that explicitly request exact contour topology
-still use the existing analytical WebGPU geometry solver and result mapping.
-Flattening nested render-only expressions into a bounded GPU operation program
-is the next path-operation sub-slice. No CPU bitmap mask, CPU rasterization, or
-scalar coverage composition is used.
+Callers that explicitly request exact contour topology, plus expressions beyond
+the bounded render program, use the existing analytical WebGPU geometry solver
+and result mapping. No CPU bitmap mask, CPU rasterization, polygon flattening,
+or scalar coverage composition is used.
 
 ## Cost model and measured evidence
 
@@ -97,6 +100,9 @@ Contained rendering compiles only the selected operand in `O(S)` CPU packing
 and `O(P * A * S)` WebGPU work for `P` atlas texels and `A` supersamples. A
 direct binary render packs `S1 + S2` analytic segments and performs
 `O(P * A * (S1 + S2))` WebGPU work with `O(1)` shader-local membership storage.
+A nested expression with `N` postfix instructions and total leaf segment visits
+`S` performs `O(P * A * (S + N))` WebGPU work and uses `O(D)` private mask
+storage for stack depth `D <= 16`.
 Storage is one bounded result object plus immutable operand references; the
 thread cache retains at most one deferred node.
 
@@ -118,11 +124,12 @@ setup and is not used for the steady API claim.
 
 ## Validation and cleanup
 
-Focused boolean/topology/render/arc compatibility passes 67/67. Additional
+Focused boolean/topology/render/arc/shader compatibility passes 73/73. Additional
 regressions prove copy-on-write source mutation and an 88-byte steady allocation
-ceiling. Shader-resource and GPU-render regressions pass 21/21, including all
+ceiling. Shader-resource and GPU-render regressions pass 22/22, including all
 five binary operations at A-only, overlapping, and B-only sample locations; a
-dispatch diagnostic proves those cases used the direct boolean rasterizer.
+right-nested stack-depth-three expression; and dispatch diagnostics proving the
+binary and postfix rasterizers were used.
 Final acceptance still requires the full core/headless/Avalonia suite,
 official API metadata, package gates, and matched macOS EventPipe plus
 Instruments Time Profiler, Allocations/VM Tracker, and Metal System Trace runs.
