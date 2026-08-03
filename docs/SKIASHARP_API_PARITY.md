@@ -1751,7 +1751,11 @@ materialized as full `RenderCommand` values only when a save-layer snapshot
 needs them. This removes the former second copy of every active clip command.
 Popped reference-containing entries are cleared immediately, arbitrary nesting
 still grows geometrically, clip/layer order remains LIFO, and the public
-one-based save-count contract is unchanged.
+one-based save-count contract is unchanged. Bitmap flushes retain live clip
+semantics by temporarily borrowing the active commands, clearing consumed draw
+state, replaying only those pushes into the reused context, and rebasing their
+typed scope indices. This keeps later draws and save-layer snapshots valid
+without restoring duplicate per-clip storage to the normal recording path.
 
 Save, push, and pop are amortized `O(1)`; an occasional capacity growth is
 `O(D)` time/storage for depth `D`. A layer snapshot is `O(S + C)` time and
@@ -1794,10 +1798,11 @@ report zero target resources, submissions, waits, errors, spills, hangs, and
 `currentAllocatedSize` rows. The 60,176-byte persistent native/VM delta is
 startup/JIT noise and is not treated as a memory improvement.
 
-Focused canvas/state tests pass 110/110, including active-clip replay, nested
-save counts, zero-allocation warm cycling, and a cold allocation ceiling that
-rejects duplicate clip-command storage. The complete core suite passes
-3,248/3,248, headless passes 225/225, and the XAML compiler passes 307/307.
+Focused canvas/state tests pass 111/111, including active-clip replay, bitmap
+flush rebasing, nested save counts, zero-allocation warm cycling, and a cold
+allocation ceiling that rejects duplicate clip-command storage. The complete
+core suite passes 3,249/3,249, headless passes 225/225, and the XAML compiler
+passes 307/307.
 Official API metadata remains 4,222/4,222 required with zero missing and 998
 documented extensions; shader-resource, docs, and package-manifest gates pass.
 Compact distributions and profiler summaries are retained under
