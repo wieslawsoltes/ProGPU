@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "backend": "ProGPU",
+  "repositoryCommit": "b1a30c1c",
+  "dirtyState": "clean",
+  "capturedAtUtc": "2026-08-02T23:46:48.429956+00:00",
+  "framework": ".NET 10.0.5",
+  "operatingSystem": "macOS 26.4.1",
+  "architecture": "Arm64",
+  "processorCount": 11,
+  "harnessAssemblyVersion": "0.1.0.0",
+  "skiaAssemblyVersion": "0.1.0.0",
+  "warmupCount": 1,
+  "sampleCount": 3,
+  "results": [
+    {
+      "name": "canvas-retained-state-routing",
+      "operationsPerSample": 10000000,
+      "checksum": 4230757312777397478,
+      "nanosecondsPerOperation": [
+        111.717125,
+        110.4884167,
+        110.8408083
+      ],
+      "allocatedBytesPerOperation": [
+        0,
+        0,
+        0
+      ],
+      "medianNanoseconds": 110.8408083,
+      "p95Nanoseconds": 111.717125,
+      "minimumNanoseconds": 110.4884167,
+      "maximumNanoseconds": 111.717125,
+      "medianAllocatedBytes": 0
+    }
+  ]
+}

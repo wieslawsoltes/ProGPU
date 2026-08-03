@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
+using ProGPU.Scene;
 using Silk.NET.WebGPU;
 using SkiaSharp;
 using Xunit;
@@ -46,6 +47,30 @@ public sealed class SkImageBitmapTests
         using var image = SKImage.FromBitmap(bitmap);
 
         Assert.Equal(new byte[] { 255, 0, 0, 255 }, image.Texture.ReadPixels()[..4]);
+    }
+
+    [Fact]
+    public void BitmapFlushRebasesLiveClipBeforeSaveLayerSnapshot()
+    {
+        using var bitmap = new SKBitmap(new SKImageInfo(8, 8, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        using var paint = new SKPaint { Color = SKColors.Red };
+
+        var restoreCount = canvas.Save();
+        canvas.ClipRect(new SKRect(1f, 1f, 7f, 7f));
+        canvas.DrawRect(new SKRect(0f, 0f, 8f, 8f), paint);
+        canvas.Flush();
+
+        Assert.Collection(
+            canvas.DrawingContext.Commands,
+            command => Assert.Equal(RenderCommandType.PushClip, command.Type));
+
+        var layerRestoreCount = canvas.SaveLayer();
+        Assert.Equal(2, layerRestoreCount);
+        canvas.RestoreToCount(layerRestoreCount);
+        canvas.RestoreToCount(restoreCount);
+
+        Assert.Empty(canvas.DrawingContext.Commands);
     }
 
     [Fact]

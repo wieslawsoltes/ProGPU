@@ -1,0 +1,466 @@
+{
+  "SchemaVersion": 2,
+  "GeneratedUtc": "2026-08-02T23:45:44.750145+00:00",
+  "Resources": {
+    "Count": 0,
+    "TotalBytes": 0,
+    "LiveAtCaptureEndCount": 0,
+    "LiveAtCaptureEndBytes": 0,
+    "Groups": [],
+    "LargestResources": []
+  },
+  "NativeAllocations": {
+    "HeapAndAnonymousVmPersistentBytes": 105536944,
+    "HeapPersistentBytes": 3743152,
+    "AnonymousVmPersistentBytes": 101793792,
+    "AllVmRegionsPersistentBytes": 722337792,
+    "HeapAndAnonymousVmTotalBytes": 131180832,
+    "HeapAndAnonymousVmTransientBytes": 25643888,
+    "LargestPersistentCategories": [
+      {
+        "Category": "VM: Memory Tag 255",
+        "PersistentBytes": 546062336,
+        "TotalBytes": 1603239936,
+        "TransientBytes": 1057177600,
+        "PersistentCount": 5,
+        "TotalCount": 8
+      },
+      {
+        "Category": "VM: Dispatch continuations",
+        "PersistentBytes": 92274688,
+        "TotalBytes": 92274688,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "VM: Mapped File",
+        "PersistentBytes": 66093056,
+        "TotalBytes": 83558400,
+        "TransientBytes": 17465344,
+        "PersistentCount": 69,
+        "TotalCount": 86
+      },
+      {
+        "Category": "VM: Stack",
+        "PersistentBytes": 9256960,
+        "TotalBytes": 18513920,
+        "TransientBytes": 9256960,
+        "PersistentCount": 7,
+        "TotalCount": 14
+      },
+      {
+        "Category": "VM: MALLOC_SMALL",
+        "PersistentBytes": 8388608,
+        "TotalBytes": 8388608,
+        "TransientBytes": 0,
+        "PersistentCount": 2,
+        "TotalCount": 2
+      },
+      {
+        "Category": "Malloc 64,00 KiB",
+        "PersistentBytes": 1769472,
+        "TotalBytes": 1900544,
+        "TransientBytes": 131072,
+        "PersistentCount": 27,
+        "TotalCount": 29
+      },
+      {
+        "Category": "Malloc 800,00 KiB",
+        "PersistentBytes": 819200,
+        "TotalBytes": 819200,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "VM: Activity Tracing",
+        "PersistentBytes": 262144,
+        "TotalBytes": 262144,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 144,00 KiB",
+        "PersistentBytes": 147456,
+        "TotalBytes": 147456,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 48,00 KiB",
+        "PersistentBytes": 147456,
+        "TotalBytes": 1179648,
+        "TransientBytes": 1032192,
+        "PersistentCount": 3,
+        "TotalCount": 24
+      },
+      {
+        "Category": "Malloc 16,00 KiB",
+        "PersistentBytes": 81920,
+        "TotalBytes": 671744,
+        "TransientBytes": 589824,
+        "PersistentCount": 5,
+        "TotalCount": 41
+      },
+      {
+        "Category": "Malloc 32 Bytes",
+        "PersistentBytes": 81632,
+        "TotalBytes": 246528,
+        "TransientBytes": 164896,
+        "PersistentCount": 2551,
+        "TotalCount": 7704
+      },
+      {
+        "Category": "Malloc 64 Bytes",
+        "PersistentBytes": 77248,
+        "TotalBytes": 145856,
+        "TransientBytes": 68608,
+        "PersistentCount": 1207,
+        "TotalCount": 2279
+      },
+      {
+        "Category": "Malloc 1,50 KiB",
+        "PersistentBytes": 75264,
+        "TotalBytes": 236544,
+        "TransientBytes": 161280,
+        "PersistentCount": 49,
+        "TotalCount": 154
+      },
+      {
+        "Category": "Malloc 24,00 KiB",
+        "PersistentBytes": 49152,
+        "TotalBytes": 196608,
+        "TransientBytes": 147456,
+        "PersistentCount": 2,
+        "TotalCount": 8
+      },
+      {
+        "Category": "Malloc 192 Bytes",
+        "PersistentBytes": 44736,
+        "TotalBytes": 324480,
+        "TransientBytes": 279744,
+        "PersistentCount": 233,
+        "TotalCount": 1690
+      },
+      {
+        "Category": "Malloc 224 Bytes",
+        "PersistentBytes": 30464,
+        "TotalBytes": 114240,
+        "TransientBytes": 83776,
+        "PersistentCount": 136,
+        "TotalCount": 510
+      },
+      {
+        "Category": "Malloc 28,00 KiB",
+        "PersistentBytes": 28672,
+        "TotalBytes": 888832,
+        "TransientBytes": 860160,
+        "PersistentCount": 1,
+        "TotalCount": 31
+      },
+      {
+        "Category": "Malloc 3,00 KiB",
+        "PersistentBytes": 27648,
+        "TotalBytes": 82944,
+        "TransientBytes": 55296,
+        "PersistentCount": 9,
+        "TotalCount": 27
+      },
+      {
+        "Category": "Malloc 8,00 KiB",
+        "PersistentBytes": 24576,
+        "TotalBytes": 139264,
+        "TransientBytes": 114688,
+        "PersistentCount": 3,
+        "TotalCount": 17
+      },
+      {
+        "Category": "Malloc 7,00 KiB",
+        "PersistentBytes": 21504,
+        "TotalBytes": 28672,
+        "TransientBytes": 7168,
+        "PersistentCount": 3,
+        "TotalCount": 4
+      },
+      {
+        "Category": "Malloc 5,00 KiB",
+        "PersistentBytes": 20480,
+        "TotalBytes": 128000,
+        "TransientBytes": 107520,
+        "PersistentCount": 4,
+        "TotalCount": 25
+      },
+      {
+        "Category": "Malloc 48 Bytes",
+        "PersistentBytes": 20256,
+        "TotalBytes": 151920,
+        "TransientBytes": 131664,
+        "PersistentCount": 422,
+        "TotalCount": 3165
+      },
+      {
+        "Category": "Malloc 128 Bytes",
+        "PersistentBytes": 20224,
+        "TotalBytes": 66432,
+        "TransientBytes": 46208,
+        "PersistentCount": 158,
+        "TotalCount": 519
+      }
+    ],
+    "Details": {
+      "LiveCount": 6227,
+      "LiveBytes": 105536944,
+      "LargestLiveGroups": [
+        {
+          "Category": "VM: Dispatch continuations",
+          "ResponsibleCaller": "specialized _NSSwiftProcessInfo.operatingSystemVersion.getter",
+          "ResponsibleLibrary": "Foundation",
+          "LiveCount": 1,
+          "LiveBytes": 92274688,
+          "FirstTimestamp": "00:10.037.706",
+          "LastTimestamp": "00:10.037.706"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "CorUnix::InternalCreateThread(CorUnix::CPalThread*, _SECURITY_ATTRIBUTES*, unsigned int, unsigned int (*)(void*), void*, unsigned int, CorUnix::PalThreadType, unsigned long*, void**)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 5,
+          "LiveBytes": 8110080,
+          "FirstTimestamp": "00:01.099.376",
+          "LastTimestamp": "00:01.107.740"
+        },
+        {
+          "Category": "Malloc 64,00 KiB",
+          "ResponsibleCaller": "ArenaAllocator::allocateNewPage(unsigned long)",
+          "ResponsibleLibrary": "libclrjit.dylib",
+          "LiveCount": 27,
+          "LiveBytes": 1769472,
+          "FirstTimestamp": "00:01.119.633",
+          "LastTimestamp": "00:01.127.038"
+        },
+        {
+          "Category": "Malloc 800,00 KiB",
+          "ResponsibleCaller": "WKS::gc_heap::init_semi_shared()",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 819200,
+          "FirstTimestamp": "00:01.100.912",
+          "LastTimestamp": "00:01.100.912"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "SEHInitializeMachExceptions",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:01.099.090",
+          "LastTimestamp": "00:01.099.090"
+        },
+        {
+          "Category": "VM: Stack",
+          "ResponsibleCaller": "InitializeSignalHandlingCore",
+          "ResponsibleLibrary": "libSystem.Native.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 573440,
+          "FirstTimestamp": "00:10.035.134",
+          "LastTimestamp": "00:10.035.134"
+        },
+        {
+          "Category": "VM: Activity Tracing",
+          "ResponsibleCaller": "specialized _NSSwiftProcessInfo.operatingSystemVersion.getter",
+          "ResponsibleLibrary": "Foundation",
+          "LiveCount": 1,
+          "LiveBytes": 262144,
+          "FirstTimestamp": "00:10.036.777",
+          "LastTimestamp": "00:10.036.777"
+        },
+        {
+          "Category": "Malloc 144,00 KiB",
+          "ResponsibleCaller": "WKS::gc_heap::init_gc_heap(int)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 147456,
+          "FirstTimestamp": "00:01.100.934",
+          "LastTimestamp": "00:01.100.934"
+        },
+        {
+          "Category": "Malloc 1,50 KiB",
+          "ResponsibleCaller": "GetMDInternalInterface",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 39,
+          "LiveBytes": 59904,
+          "FirstTimestamp": "00:01.101.086",
+          "LastTimestamp": "00:10.066.157"
+        },
+        {
+          "Category": "Malloc 48,00 KiB",
+          "ResponsibleCaller": "StringToUnicode(char const*)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 49152,
+          "FirstTimestamp": "00:01.099.037",
+          "LastTimestamp": "00:01.099.037"
+        },
+        {
+          "Category": "Malloc 48,00 KiB",
+          "ResponsibleCaller": "VirtualCallStubManager::InitStatic()",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 49152,
+          "FirstTimestamp": "00:01.100.534",
+          "LastTimestamp": "00:01.100.534"
+        },
+        {
+          "Category": "Malloc 48,00 KiB",
+          "ResponsibleCaller": "DbgTransportSession::Init(DebuggerIPCControlBlock*)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 49152,
+          "FirstTimestamp": "00:01.100.766",
+          "LastTimestamp": "00:01.100.766"
+        },
+        {
+          "Category": "Malloc 16,00 KiB",
+          "ResponsibleCaller": "\u003CCall stack limit reached\u003E",
+          "ResponsibleLibrary": "",
+          "LiveCount": 2,
+          "LiveBytes": 32768,
+          "FirstTimestamp": "00:00.000.000",
+          "LastTimestamp": "00:00.000.000"
+        },
+        {
+          "Category": "Malloc 64 Bytes",
+          "ResponsibleCaller": "ep_event_alloc(_EventPipeProvider*, unsigned long long, unsigned int, unsigned int, EventPipeEventLevel, bool, unsigned char const*, unsigned int)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 452,
+          "LiveBytes": 28928,
+          "FirstTimestamp": "00:01.099.620",
+          "LastTimestamp": "00:01.100.041"
+        },
+        {
+          "Category": "Malloc 28,00 KiB",
+          "ResponsibleCaller": "HashMap::Rehash()",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 28672,
+          "FirstTimestamp": "00:01.141.295",
+          "LastTimestamp": "00:01.141.295"
+        },
+        {
+          "Category": "Malloc 24,00 KiB",
+          "ResponsibleCaller": "EEStartup()",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 24576,
+          "FirstTimestamp": "00:01.099.558",
+          "LastTimestamp": "00:01.099.558"
+        },
+        {
+          "Category": "Malloc 24,00 KiB",
+          "ResponsibleCaller": "HashMap::Rehash()",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 24576,
+          "FirstTimestamp": "00:10.052.113",
+          "LastTimestamp": "00:10.052.113"
+        },
+        {
+          "Category": "Malloc 192 Bytes",
+          "ResponsibleCaller": "BINDER_SPACE::ApplicationContext::SetupBindingPaths(SString\u0026, SString\u0026, SString\u0026, int)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 95,
+          "LiveBytes": 18240,
+          "FirstTimestamp": "00:01.108.720",
+          "LastTimestamp": "00:01.109.059"
+        },
+        {
+          "Category": "Malloc 192 Bytes",
+          "ResponsibleCaller": "CorUnix::CListedObjectManager::AllocateObject(CorUnix::CPalThread*, CorUnix::CObjectType*, CorUnix::CObjectAttributes*, CorUnix::IPalObject**)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 94,
+          "LiveBytes": 18048,
+          "FirstTimestamp": "00:01.099.305",
+          "LastTimestamp": "00:10.066.038"
+        },
+        {
+          "Category": "Malloc 32 Bytes",
+          "ResponsibleCaller": "CallCountingManager::SetCodeEntryPoint(NativeCodeVersion, unsigned long, bool, bool*)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 520,
+          "LiveBytes": 16640,
+          "FirstTimestamp": "00:01.322.738",
+          "LastTimestamp": "00:07.807.894"
+        },
+        {
+          "Category": "Malloc 16,00 KiB",
+          "ResponsibleCaller": "Initialize(int, char const* const*, unsigned int)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 16384,
+          "FirstTimestamp": "00:01.099.285",
+          "LastTimestamp": "00:01.099.285"
+        },
+        {
+          "Category": "Malloc 16,00 KiB",
+          "ResponsibleCaller": "Initialize(int, char const* const*, unsigned int)",
+          "ResponsibleLibrary": "libclrjit.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 16384,
+          "FirstTimestamp": "00:01.119.587",
+          "LastTimestamp": "00:01.119.587"
+        },
+        {
+          "Category": "Malloc 16,00 KiB",
+          "ResponsibleCaller": "SBuffer::ReallocateBuffer(unsigned int, SBuffer::Preserve)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 1,
+          "LiveBytes": 16384,
+          "FirstTimestamp": "00:10.056.999",
+          "LastTimestamp": "00:10.056.999"
+        },
+        {
+          "Category": "Malloc 224 Bytes",
+          "ResponsibleCaller": "BINDER_SPACE::ApplicationContext::SetupBindingPaths(SString\u0026, SString\u0026, SString\u0026, int)",
+          "ResponsibleLibrary": "libcoreclr.dylib",
+          "LiveCount": 71,
+          "LiveBytes": 15904,
+          "FirstTimestamp": "00:01.108.726",
+          "LastTimestamp": "00:01.109.063"
+        }
+      ]
+    }
+  },
+  "CurrentAllocatedSize": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "DrawableWaits": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpills": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpillGroups": [],
+  "PotentialHangs": {
+    "Count": 0,
+    "TotalDurationNanoseconds": 0,
+    "MaximumDurationNanoseconds": 0,
+    "Groups": [],
+    "Intervals": []
+  },
+  "HangRiskCount": 0,
+  "CommandBufferErrorCount": 0,
+  "CommandBufferSubmissionCount": 0,
+  "CommandBufferCompletionCount": 522
+}

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-02T23:45:44.787722+00:00",
+  "durationSeconds": 18,
+  "windowSeconds": 6,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "/tmp/progpu-canvas-state-baseline/tools/ProGPU.SkiaSharp.Benchmarks/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.dll",
+    "run",
+    "--backend",
+    "ProGPU",
+    "--case",
+    "canvas-retained-state-routing",
+    "--operations",
+    "10000000",
+    "--warmup",
+    "1",
+    "--samples",
+    "3",
+    "--output",
+    "/tmp/progpu-canvas-profile-baseline.json",
+    "--commit",
+    "19867237",
+    "--dirty",
+    "clean"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": true,
+  "allocationDetails": true,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 105536944
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations-statistics.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/allocations-list.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 10303003,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 2040931,
+      "DeletedTemporaryBytes": 21943992
+    },
+    {
+      "Key": "time",
+      "Template": "Time Profiler",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-time-profile.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-time-sample.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/time-hang-risks.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 6076493,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 45137,
+      "DeletedTemporaryBytes": 59184008
+    },
+    {
+      "Key": "metal",
+      "Template": "Metal System Trace",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-current-allocated-size.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-kernel-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-application-command-buffer-submissions.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-command-buffer-completed.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-ca-client-buffer-wait-interval.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-metal-command-buffer-error.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-graphics-compiler-spill-events.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-hang-risks.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-canvas-state-routing/baseline-instruments/metal-time-profile.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 108468746,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 128119,
+      "DeletedTemporaryBytes": 147998664
+    }
+  ]
+}

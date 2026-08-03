@@ -1741,3 +1741,71 @@ are retained under
 `artifacts/performance/skiasharp-path-lazy-geometry`. After extraction, 272 MiB
 of raw profiler data and 102 MiB of exact-baseline build state were deleted; no
 task-owned trace, scratch directory, or worktree remains.
+
+## Compact retained canvas state after Preview.41
+
+`SKCanvas` now stores saved state, pushed scopes, and layer frames in lazy typed
+value buffers rather than eagerly allocating generic stack wrapper objects.
+Active clips are derived from the already authoritative pushed-scope stack and
+materialized as full `RenderCommand` values only when a save-layer snapshot
+needs them. This removes the former second copy of every active clip command.
+Popped reference-containing entries are cleared immediately, arbitrary nesting
+still grows geometrically, clip/layer order remains LIFO, and the public
+one-based save-count contract is unchanged. Bitmap flushes retain live clip
+semantics by temporarily borrowing the active commands, clearing consumed draw
+state, replaying only those pushes into the reused context, and rebasing their
+typed scope indices. This keeps later draws and save-layer snapshots valid
+without restoring duplicate per-clip storage to the normal recording path.
+
+Save, push, and pop are amortized `O(1)`; an occasional capacity growth is
+`O(D)` time/storage for depth `D`. A layer snapshot is `O(S + C)` time and
+`O(C)` output storage for `S` active scopes and `C` clips. Warm state cycling is
+allocation-free. The change is CPU-only: it does not initialize WebGPU, alter a
+retained draw command, change raster quality, or move shaping/layout work.
+
+The clean-room design used Skia's public
+[`SkCanvas`](https://api.skia.org/classSkCanvas.html) save/restore contract;
+Direct2D's
+[`PushAxisAlignedClip`](https://learn.microsoft.com/windows/win32/direct2d/id2d1rendertarget-pushaxisalignedclip)
+LIFO nesting contract; Win2D's
+[`CanvasDrawingSession`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasDrawingSession.htm)
+stateful drawing boundary; WebRender's
+[retained display-list architecture](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst);
+Vello's [typed GPU scene](https://github.com/linebender/vello); Parley's
+[reusable layout model](https://docs.rs/parley/latest/parley/); and HarfBuzz's
+[shaping output contract](https://harfbuzz.github.io/shaping-and-shape-plans.html).
+ProGPU adopts compact typed storage, strict nested ownership, and deferred GPU
+evaluation. It rejects copied foreign implementation structure, reflection,
+duplicate full-command storage, GPU bookkeeping for CPU state, and reshaping
+text during canvas save/restore.
+
+Three interleaved Apple M3 Pro Release process pairs compared exact unpublished
+Preview.41 tag commit `19867237` with product commit `b1a30c1c`, using 128
+warmups and 192 samples per process. Across 576 samples per side, the semantic
+checksum remained `17022205643649352006`; median latency fell from `177.5375`
+to `109.2416` ns/op (`38.47%`), throughput rose `62.52%`, and P95 fell from
+`226.1542` to `121.9334` ns/op (`46.08%`). Cold one-cycle managed allocation
+fell from `7,880` to `4,472` bytes (`43.25%`). Official SkiaSharp 4.151.0
+measured `190.4417` ns/op with the same checksum; its managed counter excludes
+native allocations and is not used for a total-memory comparison.
+
+Matched final-binary profiling measured Preview.41 versus candidate at
+`220.872`/`105.889` ns/op in Time Profiler, `217.826`/`109.157` in Allocations
+plus VM Tracker, `231.644`/`110.841` in EventPipe sampled thread time, and
+`231.903`/`107.858` in Metal System Trace. EventPipe's baseline duplicate
+active-clip copy frames disappear from the candidate. Both Metal captures
+report zero target resources, submissions, waits, errors, spills, hangs, and
+`currentAllocatedSize` rows. The 60,176-byte persistent native/VM delta is
+startup/JIT noise and is not treated as a memory improvement.
+
+Focused canvas/state tests pass 111/111, including active-clip replay, bitmap
+flush rebasing, nested save counts, zero-allocation warm cycling, and a cold
+allocation ceiling that rejects duplicate clip-command storage. The complete
+core suite passes 3,249/3,249, headless passes 225/225, and the XAML compiler
+passes 307/307.
+Official API metadata remains 4,222/4,222 required with zero missing and 998
+documented extensions; shader-resource, docs, and package-manifest gates pass.
+Compact distributions and profiler summaries are retained under
+`artifacts/performance/skiasharp-canvas-state-routing`. Raw Instruments,
+EventPipe, Xcode scratch, preliminary captures, and the exact-baseline worktree
+were removed after extraction, reclaiming roughly 1.2 GiB of task-owned data.
