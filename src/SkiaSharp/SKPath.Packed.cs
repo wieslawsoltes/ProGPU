@@ -487,6 +487,40 @@ internal sealed class PackedPathData : IDisposable
         _figureHasSegments = false;
     }
 
+    public void AddTriangles(ReadOnlySpan<StrokeJoinTriangle> triangles)
+    {
+        if (triangles.IsEmpty)
+        {
+            return;
+        }
+
+        ApplyPendingTranslation();
+        EnsureWritableCommandStorage(checked(_count + triangles.Length * 4));
+        var commands = Commands;
+        for (var index = 0; index < triangles.Length; index++)
+        {
+            var triangle = triangles[index];
+            commands[_count++] = new PackedPathCommand(PackedPathCommandKind.Move, triangle.P0);
+            commands[_count++] = new PackedPathCommand(PackedPathCommandKind.Line, triangle.P1);
+            commands[_count++] = new PackedPathCommand(PackedPathCommandKind.Line, triangle.P2);
+            commands[_count++] = new PackedPathCommand(PackedPathCommandKind.Close);
+            IncludeBounds(triangle.P0);
+            IncludeBounds(triangle.P1);
+            IncludeBounds(triangle.P2);
+            if (_trackTightBounds)
+            {
+                _tightBounds.Include(triangle.P0);
+                _tightBounds.Include(triangle.P1);
+                _tightBounds.Include(triangle.P2);
+            }
+        }
+
+        _currentPoint = triangles[^1].P0;
+        _contourStart = _currentPoint;
+        _hasOpenFigure = false;
+        _figureHasSegments = false;
+    }
+
     public void Reset()
     {
         _count = 0;

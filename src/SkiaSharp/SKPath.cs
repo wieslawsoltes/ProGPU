@@ -393,6 +393,26 @@ public partial class SKPath : SKObject
         }
     }
 
+    internal void AddTriangles(ReadOnlySpan<StrokeJoinTriangle> triangles)
+    {
+        if (_packedPathData is { } packed)
+        {
+            packed.AddTriangles(triangles);
+            _currentPoint = packed.CurrentPoint;
+            _contourStart = packed.ContourStart;
+            return;
+        }
+
+        for (var index = 0; index < triangles.Length; index++)
+        {
+            var triangle = triangles[index];
+            MoveTo(triangle.P0.X, triangle.P0.Y);
+            LineTo(triangle.P1.X, triangle.P1.Y);
+            LineTo(triangle.P2.X, triangle.P2.Y);
+            Close();
+        }
+    }
+
     public void Reset()
     {
         if (_packedPathData is { } packed)

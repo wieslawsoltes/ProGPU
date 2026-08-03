@@ -874,24 +874,25 @@ public partial class SKPaint : SKObject
 
     private void AddStrokeJoins(
         SKPath destination,
-        IReadOnlyList<Vector2> points,
+        List<Vector2> points,
         bool isClosed,
         float strokeWidth)
     {
-        if (points.Count < 3)
+        var pointCount = points.Count;
+        if (pointCount < 3)
         {
             return;
         }
 
         var first = isClosed ? 0 : 1;
-        var end = isClosed ? points.Count : points.Count - 1;
+        var end = isClosed ? pointCount : pointCount - 1;
         var lineJoin = MapStrokeJoin(StrokeJoin);
         Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         for (var index = first; index < end; index++)
         {
-            var previous = points[(index - 1 + points.Count) % points.Count];
+            var previous = points[index == 0 ? pointCount - 1 : index - 1];
             var current = points[index];
-            var next = points[(index + 1) % points.Count];
+            var next = points[index + 1 == pointCount ? 0 : index + 1];
             var triangleCount = StrokeJoinGeometry.WriteLineJoin(
                 triangles,
                 lineJoin,
@@ -906,7 +907,7 @@ public partial class SKPaint : SKObject
 
     private void AddStrokeCaps(
         SKPath destination,
-        IReadOnlyList<Vector2> points,
+        List<Vector2> points,
         float strokeWidth)
     {
         if (points.Count < 2 || StrokeCap == SKStrokeCap.Butt)
@@ -967,14 +968,7 @@ public partial class SKPaint : SKObject
         SKPath destination,
         ReadOnlySpan<StrokeJoinTriangle> triangles)
     {
-        for (var index = 0; index < triangles.Length; index++)
-        {
-            var triangle = triangles[index];
-            destination.MoveTo(triangle.P0.X, triangle.P0.Y);
-            destination.LineTo(triangle.P1.X, triangle.P1.Y);
-            destination.LineTo(triangle.P2.X, triangle.P2.Y);
-            destination.Close();
-        }
+        destination.AddTriangles(triangles);
     }
 
     private static bool IsDegenerateFigure(IReadOnlyList<Vector2> points)
