@@ -2085,6 +2085,13 @@ public class DrawingContext :
 
     public int RetainedResourceCount => _retainedResources?.Count ?? 0;
 
+    internal bool HasCommandSideBuffers =>
+        _pointBuffer is { Count: > 0 } ||
+        _doubleBuffer is { Count: > 0 } ||
+        _line3DBuffer is { Count: > 0 } ||
+        _floatBuffer is { Count: > 0 } ||
+        _imageEffectBuffer is { Count: > 0 };
+
     public DrawingContext()
     {
         Commands = new RenderCommandList(this);
@@ -4040,6 +4047,19 @@ public class DrawingContext :
             }
         }
         _retainedResources.Clear();
+    }
+
+    internal void MoveRetainedResourcesTo(DrawingContext destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (_retainedResources == null || _retainedResources.Count == 0)
+        {
+            return;
+        }
+
+        MoveRetainedResourcesTo(
+            destination._retainedResources ??=
+                new List<RetainedResourceLease>(_retainedResources.Count));
     }
 
     private static bool ContainsRetainedResourceIdentity(

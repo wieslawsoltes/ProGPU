@@ -237,13 +237,15 @@ public sealed class SkCanvasStateTests
         var command = Assert.Single(
             picture.Picture.Commands,
             static command => command.Type == RenderCommandType.DrawVisual);
-        var visual = Assert.IsAssignableFrom<DrawingVisual>(command.Visual);
+        var visual = Assert.IsAssignableFrom<Visual>(command.Visual);
+        var commandCache = Assert.IsAssignableFrom<IOwnedRenderCommandCache>(visual);
         var blur = Assert.IsType<BlurEffect>(visual.Effect);
         Assert.Equal(2f, blur.BlurRadius);
         Assert.False(visual.CacheAsLayer);
         Assert.Equal(new Vector2(96f, 96f), visual.Size);
         Assert.Contains(
-            visual.Context.Commands,
+            Enumerable.Range(0, commandCache.RenderCommandCount)
+                .Select(commandCache.GetRenderCommand),
             static retained => retained.Type == RenderCommandType.DrawRect);
         Assert.DoesNotContain(
             picture.Picture.Commands,

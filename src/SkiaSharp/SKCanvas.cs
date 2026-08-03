@@ -249,6 +249,7 @@ public class SKCanvas : SKObject
             DrawingContext parentContext,
             DrawingContext layerContext,
             SKPaint? paint,
+            bool clonePaint,
             SKImageFilter? backdrop,
             SKCanvasSaveLayerRecFlags flags,
             DrawingContext? previousContext,
@@ -259,7 +260,13 @@ public class SKCanvas : SKObject
         {
             ParentContext = parentContext;
             LayerContext = layerContext;
-            Paint = paint;
+            Paint = clonePaint ? paint?.Clone() : null;
+            HasPaint = paint != null;
+            PaintAlpha = paint?.Color.A ?? byte.MaxValue;
+            PaintBlendMode = paint?.BlendMode ?? SKBlendMode.SrcOver;
+            PaintHasArithmeticBlender = paint?.HasArithmeticBlender == true;
+            ImageFilter = paint?.ImageFilter;
+            ColorFilter = paint?.ColorFilter;
             Backdrop = backdrop;
             Flags = flags;
             PreviousContext = previousContext;
@@ -272,6 +279,12 @@ public class SKCanvas : SKObject
         public DrawingContext ParentContext { get; }
         public DrawingContext LayerContext { get; }
         public SKPaint? Paint { get; }
+        public bool HasPaint { get; }
+        public byte PaintAlpha { get; }
+        public SKBlendMode PaintBlendMode { get; }
+        public bool PaintHasArithmeticBlender { get; }
+        public SKImageFilter? ImageFilter { get; }
+        public SKColorFilter? ColorFilter { get; }
         public SKImageFilter? Backdrop { get; }
         public SKCanvasSaveLayerRecFlags Flags { get; }
         public DrawingContext? PreviousContext { get; }
@@ -287,7 +300,43 @@ public class SKCanvas : SKObject
     /// when this visual is replayed; disposing the lease releases any resources
     /// retained by commands in the subtree.
     /// </summary>
-    private sealed class RetainedLayerVisual : DrawingVisual, IDisposable
+    private sealed class RetainedLayerVisual : Visual, IOwnedRenderCommandCache, IDisposable
+    {
+        private readonly GpuPictureCommandCollection _commands;
+        private readonly DrawingContext _resourceContext = new();
+        private bool _disposed;
+
+        public RetainedLayerVisual(DrawingContext source)
+        {
+            _commands = new GpuPictureCommandCollection(source.Commands.AsSpan());
+            source.MoveRetainedResourcesTo(_resourceContext);
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => _resourceContext;
+
+        public int RenderCommandCount => _commands.Count;
+
+        public RenderCommand GetRenderCommand(int index) => _commands[index];
+
+        public override void OnRender(DrawingContext context)
+        {
+            // IOwnedRenderCommandCache supplies the compact immutable stream.
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            Effect = null;
+            _resourceContext.Clear();
+        }
+    }
+
+    private sealed class RetainedDrawingLayerVisual : DrawingVisual, IDisposable
     {
         private bool _disposed;
 
@@ -450,6 +499,7 @@ public class SKCanvas : SKObject
             parentContext,
             layerContext,
             layerPaint,
+            clonePaint: true,
             backdrop: null,
             SKCanvasSaveLayerRecFlags.None,
             previousContext: null,
@@ -633,7 +683,8 @@ public class SKCanvas : SKObject
         _layerStack.Push(new LayerFrame(
             parentContext,
             layerContext,
-            paint?.Clone(),
+            paint,
+            clonePaint: !_isPictureRecording,
             backdrop,
             flags,
             previousContext,
@@ -725,8 +776,8 @@ public class SKCanvas : SKObject
     private void RestoreLayerCore(LayerFrame layerFrame)
     {
         _context = layerFrame.ParentContext;
-        var hasSourceGeneratingFilter = layerFrame.Paint?.ImageFilter != null ||
-            layerFrame.Paint?.ColorFilter != null ||
+        var hasSourceGeneratingFilter = layerFrame.ImageFilter != null ||
+            layerFrame.ColorFilter != null ||
             layerFrame.PreviousContext != null;
         if ((!hasSourceGeneratingFilter && layerFrame.LayerContext.Commands.Count == 0) ||
             !IsValidLayerBounds(layerFrame.Bounds))
@@ -734,8 +785,10 @@ public class SKCanvas : SKObject
             return;
         }
 
-        var pushedBlendMode = PushPaintBlendMode(layerFrame.Paint);
-        var opacity = layerFrame.Paint?.Color.A / 255f ?? 1f;
+        var pushedBlendMode = PushPaintBlendMode(
+            layerFrame.PaintHasArithmeticBlender,
+            layerFrame.PaintBlendMode);
+        var opacity = layerFrame.HasPaint ? layerFrame.PaintAlpha / 255f : 1f;
 
         try
         {
@@ -783,7 +836,7 @@ public class SKCanvas : SKObject
         if (!_isPictureRecording ||
             layerFrame.Backdrop != null ||
             layerFrame.PreviousContext != null ||
-            layerFrame.Paint?.ColorFilter != null ||
+            layerFrame.ColorFilter != null ||
             layerFrame.Flags != SKCanvasSaveLayerRecFlags.None ||
             !TryCreateRetainedLayerEffect(layerFrame, out var effect))
         {
@@ -793,28 +846,40 @@ public class SKCanvas : SKObject
         var transformedBounds = MapRectToBounds(
             layerFrame.Bounds,
             layerFrame.BoundsMatrix.ToMatrix4x4());
-        var visual = new RetainedLayerVisual
+        Visual visual;
+        IDisposable ownedVisual;
+        if (layerFrame.LayerContext.HasCommandSideBuffers)
         {
-            Size = new Vector2(
-                GetRequiredTextureExtent(_width, transformedBounds.Right),
-                GetRequiredTextureExtent(_height, transformedBounds.Bottom)),
-            Effect = effect,
-            CacheAsLayer = effect == null,
-        };
+            var drawingVisual = new RetainedDrawingLayerVisual();
+            ReplayActiveClipPushes(drawingVisual.Context, layerFrame.ActiveClipPushes);
+            var pushedLayerBoundsClip = PushLayerBoundsClip(drawingVisual.Context, layerFrame);
+            drawingVisual.Context.Append(layerFrame.LayerContext);
+            if (pushedLayerBoundsClip)
+            {
+                drawingVisual.Context.PopClip();
+            }
+            PopReplayedClipPushes(drawingVisual.Context, layerFrame.ActiveClipPushes);
+            visual = drawingVisual;
+            ownedVisual = drawingVisual;
+        }
+        else
+        {
+            PrepareCompactLayerCommands(layerFrame);
+            var compactVisual = new RetainedLayerVisual(layerFrame.LayerContext);
+            visual = compactVisual;
+            ownedVisual = compactVisual;
+        }
+
+        visual.Size = new Vector2(
+            GetRequiredTextureExtent(_width, transformedBounds.Right),
+            GetRequiredTextureExtent(_height, transformedBounds.Bottom));
+        visual.Effect = effect;
+        visual.CacheAsLayer = effect == null;
 
         var retained = false;
         try
         {
-            ReplayActiveClipPushes(visual.Context, layerFrame.ActiveClipPushes);
-            var pushedLayerBoundsClip = PushLayerBoundsClip(visual.Context, layerFrame);
-            visual.Context.Append(layerFrame.LayerContext);
-            if (pushedLayerBoundsClip)
-            {
-                visual.Context.PopClip();
-            }
-            PopReplayedClipPushes(visual.Context, layerFrame.ActiveClipPushes);
-
-            _context.RetainResource(visual);
+            _context.RetainResource(ownedVisual);
             retained = true;
             _context.DrawVisual(visual);
             return true;
@@ -823,9 +888,29 @@ public class SKCanvas : SKObject
         {
             if (!retained)
             {
-                visual.Dispose();
+                ownedVisual.Dispose();
             }
         }
+    }
+
+    private void PrepareCompactLayerCommands(LayerFrame layerFrame)
+    {
+        var commands = layerFrame.LayerContext.Commands;
+        var clipPushes = layerFrame.ActiveClipPushes;
+        for (var index = clipPushes.Length - 1; index >= 0; index--)
+        {
+            commands.Insert(0, clipPushes[index]);
+        }
+
+        var pushedLayerBoundsClip = !IsFullCanvasLayerBounds(layerFrame.Bounds);
+        if (pushedLayerBoundsClip)
+        {
+            commands.Insert(
+                clipPushes.Length,
+                CreateLayerBoundsClipCommand(layerFrame));
+            layerFrame.LayerContext.PopClip();
+        }
+        PopReplayedClipPushes(layerFrame.LayerContext, clipPushes);
     }
 
     private static bool TryCreateRetainedLayerEffect(
@@ -833,7 +918,7 @@ public class SKCanvas : SKObject
         out EffectBase? effect)
     {
         effect = null;
-        if (layerFrame.Paint?.ImageFilter is not { } filter)
+        if (layerFrame.ImageFilter is not { } filter)
         {
             return true;
         }
@@ -905,12 +990,12 @@ public class SKCanvas : SKObject
 
     private void DrawRestoredLayerTexture(LayerFrame layerFrame, GpuTexture texture)
     {
-        if (layerFrame.Paint?.ImageFilter is { } imageFilter)
+        if (layerFrame.ImageFilter is { } imageFilter)
         {
             texture = RenderImageFilterGraph(texture, imageFilter, layerFrame.BoundsMatrix.ToMatrix4x4());
         }
 
-        if (layerFrame.Paint?.ColorFilter is { } colorFilter)
+        if (layerFrame.ColorFilter is { } colorFilter)
         {
             var filteredTexture = RenderColorFilter(texture, colorFilter, cropRect: null);
             if (!ReferenceEquals(filteredTexture, texture))
@@ -2855,7 +2940,12 @@ public class SKCanvas : SKObject
             return false;
         }
 
-        context.Commands.Add(new RenderCommand
+        context.Commands.Add(CreateLayerBoundsClipCommand(layerFrame));
+        return true;
+    }
+
+    private static RenderCommand CreateLayerBoundsClipCommand(LayerFrame layerFrame) =>
+        new()
         {
             Type = RenderCommandType.PushClip,
             Rect = new Rect(
@@ -2864,9 +2954,7 @@ public class SKCanvas : SKObject
                 layerFrame.Bounds.Width,
                 layerFrame.Bounds.Height),
             Transform = layerFrame.BoundsMatrix.ToMatrix4x4()
-        });
-        return true;
-    }
+        };
 
     private RenderCommand[] SnapshotActiveClipPushes()
     {
@@ -3211,13 +3299,22 @@ public class SKCanvas : SKObject
 
     private bool PushPaintBlendMode(SKPaint? paint)
     {
-        if (paint?.HasArithmeticBlender == true)
+        return PushPaintBlendMode(
+            paint?.HasArithmeticBlender == true,
+            paint?.BlendMode ?? SKBlendMode.SrcOver);
+    }
+
+    private bool PushPaintBlendMode(
+        bool hasArithmeticBlender,
+        SKBlendMode paintBlendMode)
+    {
+        if (hasArithmeticBlender)
         {
             throw new NotSupportedException(
                 "Arithmetic SKBlender rendering requires destination-sampling compositor support.");
         }
 
-        var blendMode = MapBlendMode(paint?.BlendMode ?? SKBlendMode.SrcOver);
+        var blendMode = MapBlendMode(paintBlendMode);
         if (blendMode == GpuBlendMode.SrcOver)
         {
             return false;
