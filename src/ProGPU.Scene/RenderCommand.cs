@@ -875,7 +875,7 @@ internal readonly struct RetainedRenderCommand
     private readonly Pen? _pen;
     private readonly PathGeometry? _path;
     private readonly RenderCommandGeometryCache? _geometryCache;
-    private readonly Matrix4x4 _transform;
+    private readonly int _transformIndex;
     private readonly RenderCommandPresentationDependencies _presentationDependencies;
     private readonly bool _isEdgeAliased;
     private readonly bool _isPenThicknessLocal;
@@ -887,7 +887,8 @@ internal readonly struct RetainedRenderCommand
     public RetainedRenderCommand(
         in RenderCommand command,
         RetainedCommandDataKind dataKind,
-        int dataIndex)
+        int dataIndex,
+        int transformIndex)
     {
         _type = command.Type;
         _hitTestId = command.HitTestId;
@@ -896,7 +897,7 @@ internal readonly struct RetainedRenderCommand
         _pen = command.Pen;
         _path = command.Path;
         _geometryCache = command.GeometryCache;
-        _transform = command.Transform;
+        _transformIndex = transformIndex;
         _presentationDependencies = command.PresentationDependencies;
         _isEdgeAliased = command.IsEdgeAliased;
         _isPenThicknessLocal = command.IsPenThicknessLocal;
@@ -909,7 +910,8 @@ internal readonly struct RetainedRenderCommand
     public RenderCommand Expand(
         RenderCommand[] auxiliary,
         RetainedTextCommandData[] text,
-        RetainedTextureCommandData[] texture)
+        RetainedTextureCommandData[] texture,
+        Matrix4x4[] transforms)
     {
         if (_dataKind == RetainedCommandDataKind.Auxiliary)
         {
@@ -925,7 +927,7 @@ internal readonly struct RetainedRenderCommand
             Pen = _pen,
             Path = _path,
             GeometryCache = _geometryCache,
-            Transform = _transform,
+            Transform = transforms[_transformIndex],
             PresentationDependencies = _presentationDependencies,
             IsEdgeAliased = _isEdgeAliased,
             IsPenThicknessLocal = _isPenThicknessLocal,
@@ -1050,12 +1052,19 @@ internal readonly struct RetainedRenderCommand
         command.DataParam is not null;
 }
 
+/// <summary>
+/// Immutable command snapshot with compact core, text, texture, transform, and
+/// uncommon-command storage. Construction is O(C) average and O(C²) only for
+/// adversarial transform-hash collisions, with O(C) bounded scratch and retained
+/// storage for C commands. Indexing and replay expansion are allocation-free O(1).
+/// </summary>
 internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
 {
     private readonly RetainedRenderCommand[] _commands;
     private readonly RenderCommand[] _auxiliary;
     private readonly RetainedTextCommandData[] _text;
     private readonly RetainedTextureCommandData[] _texture;
+    private readonly Matrix4x4[] _transforms;
 
     internal GpuPictureCommandCollection(ReadOnlySpan<RenderCommand> commands)
     {
@@ -1065,6 +1074,7 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _auxiliary = [];
             _text = [];
             _texture = [];
+            _transforms = [];
             return;
         }
 
@@ -1073,13 +1083,28 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         int textureCount = 0;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
+        int[] transformIndices =
+            ArrayPool<int>.Shared.Rent(commands.Length);
+        Matrix4x4[] transformScratch =
+            ArrayPool<Matrix4x4>.Shared.Rent(commands.Length);
+        int transformTableCapacity = GetTransformTableCapacity(commands.Length);
+        int[] transformTable =
+            ArrayPool<int>.Shared.Rent(transformTableCapacity);
+        Array.Clear(transformTable, 0, transformTableCapacity);
         try
         {
+            int transformCount = 0;
             for (int index = 0; index < commands.Length; index++)
             {
                 RetainedCommandDataKind dataKind =
                     RetainedRenderCommand.Classify(in commands[index]);
                 classifications[index] = (byte)dataKind;
+                transformIndices[index] = GetOrAddTransform(
+                    in commands[index].Transform,
+                    transformScratch,
+                    transformTable,
+                    transformTableCapacity - 1,
+                    ref transformCount);
                 switch (dataKind)
                 {
                     case RetainedCommandDataKind.Auxiliary:
@@ -1104,6 +1129,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _texture = textureCount == 0
                 ? []
                 : new RetainedTextureCommandData[textureCount];
+            _transforms = new Matrix4x4[transformCount];
+            transformScratch.AsSpan(0, transformCount).CopyTo(_transforms);
             int auxiliaryIndex = 0;
             int textIndex = 0;
             int textureIndex = 0;
@@ -1134,12 +1161,16 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 _commands[index] = new RetainedRenderCommand(
                     in command,
                     dataKind,
-                    dataIndex);
+                    dataIndex,
+                    transformIndices[index]);
             }
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(classifications);
+            ArrayPool<int>.Shared.Return(transformIndices);
+            ArrayPool<Matrix4x4>.Shared.Return(transformScratch);
+            ArrayPool<int>.Shared.Return(transformTable);
         }
     }
 
@@ -1148,7 +1179,11 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     public int Length => _commands.Length;
 
     public RenderCommand this[int index] =>
-        _commands[index].Expand(_auxiliary, _text, _texture);
+        _commands[index].Expand(
+            _auxiliary,
+            _text,
+            _texture,
+            _transforms);
 
     internal long ApproximateStorageBytes =>
         (long)_commands.Length *
@@ -1158,7 +1193,9 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         (long)_text.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextCommandData>() +
         (long)_texture.Length *
-            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureCommandData>();
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureCommandData>() +
+        (long)_transforms.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>();
 
     internal RenderCommand[] Clone()
     {
@@ -1182,6 +1219,52 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private static int GetTransformTableCapacity(int commandCount)
+    {
+        int required = checked(commandCount * 2);
+        int capacity = 4;
+        while (capacity < required)
+        {
+            capacity = checked(capacity * 2);
+        }
+
+        return capacity;
+    }
+
+    private static int GetOrAddTransform(
+        in Matrix4x4 transform,
+        Matrix4x4[] transforms,
+        int[] table,
+        int tableMask,
+        ref int count)
+    {
+        if (count != 0 && transforms[count - 1].Equals(transform))
+        {
+            return count - 1;
+        }
+
+        int slot = (int)((uint)transform.GetHashCode() * 2654435761u) &
+            tableMask;
+        while (true)
+        {
+            int index = table[slot] - 1;
+            if (index < 0)
+            {
+                index = count++;
+                transforms[index] = transform;
+                table[slot] = index + 1;
+                return index;
+            }
+
+            if (transforms[index].Equals(transform))
+            {
+                return index;
+            }
+
+            slot = (slot + 1) & tableMask;
+        }
+    }
 
     public struct Enumerator : IEnumerator<RenderCommand>
     {
