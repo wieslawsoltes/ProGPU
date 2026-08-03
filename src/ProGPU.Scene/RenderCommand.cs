@@ -1071,62 +1071,75 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         int auxiliaryCount = 0;
         int textCount = 0;
         int textureCount = 0;
-        for (int index = 0; index < commands.Length; index++)
+        byte[] classifications =
+            ArrayPool<byte>.Shared.Rent(commands.Length);
+        try
         {
-            switch (RetainedRenderCommand.Classify(in commands[index]))
+            for (int index = 0; index < commands.Length; index++)
             {
-                case RetainedCommandDataKind.Auxiliary:
-                    auxiliaryCount++;
-                    break;
-                case RetainedCommandDataKind.Text:
-                    textCount++;
-                    break;
-                case RetainedCommandDataKind.Texture:
-                    textureCount++;
-                    break;
+                RetainedCommandDataKind dataKind =
+                    RetainedRenderCommand.Classify(in commands[index]);
+                classifications[index] = (byte)dataKind;
+                switch (dataKind)
+                {
+                    case RetainedCommandDataKind.Auxiliary:
+                        auxiliaryCount++;
+                        break;
+                    case RetainedCommandDataKind.Text:
+                        textCount++;
+                        break;
+                    case RetainedCommandDataKind.Texture:
+                        textureCount++;
+                        break;
+                }
+            }
+
+            _commands = new RetainedRenderCommand[commands.Length];
+            _auxiliary = auxiliaryCount == 0
+                ? []
+                : new RenderCommand[auxiliaryCount];
+            _text = textCount == 0
+                ? []
+                : new RetainedTextCommandData[textCount];
+            _texture = textureCount == 0
+                ? []
+                : new RetainedTextureCommandData[textureCount];
+            int auxiliaryIndex = 0;
+            int textIndex = 0;
+            int textureIndex = 0;
+            for (int index = 0; index < commands.Length; index++)
+            {
+                ref readonly RenderCommand command = ref commands[index];
+                RetainedCommandDataKind dataKind =
+                    (RetainedCommandDataKind)classifications[index];
+                int dataIndex = -1;
+                switch (dataKind)
+                {
+                    case RetainedCommandDataKind.Auxiliary:
+                        dataIndex = auxiliaryIndex;
+                        _auxiliary[auxiliaryIndex++] = command;
+                        break;
+                    case RetainedCommandDataKind.Text:
+                        dataIndex = textIndex;
+                        _text[textIndex++] =
+                            new RetainedTextCommandData(in command);
+                        break;
+                    case RetainedCommandDataKind.Texture:
+                        dataIndex = textureIndex;
+                        _texture[textureIndex++] =
+                            new RetainedTextureCommandData(in command);
+                        break;
+                }
+
+                _commands[index] = new RetainedRenderCommand(
+                    in command,
+                    dataKind,
+                    dataIndex);
             }
         }
-
-        _commands = new RetainedRenderCommand[commands.Length];
-        _auxiliary = auxiliaryCount == 0
-            ? []
-            : new RenderCommand[auxiliaryCount];
-        _text = textCount == 0
-            ? []
-            : new RetainedTextCommandData[textCount];
-        _texture = textureCount == 0
-            ? []
-            : new RetainedTextureCommandData[textureCount];
-        int auxiliaryIndex = 0;
-        int textIndex = 0;
-        int textureIndex = 0;
-        for (int index = 0; index < commands.Length; index++)
+        finally
         {
-            RenderCommand command = commands[index];
-            RetainedCommandDataKind dataKind =
-                RetainedRenderCommand.Classify(in command);
-            int dataIndex = -1;
-            switch (dataKind)
-            {
-                case RetainedCommandDataKind.Auxiliary:
-                    dataIndex = auxiliaryIndex;
-                    _auxiliary[auxiliaryIndex++] = command;
-                    break;
-                case RetainedCommandDataKind.Text:
-                    dataIndex = textIndex;
-                    _text[textIndex++] = new RetainedTextCommandData(in command);
-                    break;
-                case RetainedCommandDataKind.Texture:
-                    dataIndex = textureIndex;
-                    _texture[textureIndex++] =
-                        new RetainedTextureCommandData(in command);
-                    break;
-            }
-
-            _commands[index] = new RetainedRenderCommand(
-                in command,
-                dataKind,
-                dataIndex);
+            ArrayPool<byte>.Shared.Return(classifications);
         }
     }
 
