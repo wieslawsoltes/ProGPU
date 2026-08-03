@@ -5710,15 +5710,23 @@ SceneStateUploadComplete:
     private void PreparePictureLayerCaches(
         GpuPictureCommandCollection commands)
     {
-        // Retained layer textures are render tasks, not ordered display-list
-        // draws. Materialize them before accumulating picture geometry so a
-        // nested offscreen submission never splits the main texture stream.
+        // Retained effect and layer textures are render tasks, not ordered
+        // display-list draws. Materialize them before accumulating picture
+        // geometry so a nested offscreen submission never splits the main
+        // texture stream.
         ReadOnlySpan<Visual> embeddedVisuals = commands.EmbeddedVisuals;
         for (var visualIndex = 0;
              visualIndex < embeddedVisuals.Length;
              visualIndex++)
         {
             Visual visual = embeddedVisuals[visualIndex];
+            if (visual.Effect != null &&
+                !_elementsRenderingEffects.Contains(visual))
+            {
+                PrepareEffectTexture(visual);
+                continue;
+            }
+
             if (visual.CacheAsLayer &&
                 IsCacheAsLayerEnabled &&
                 !_elementsRenderingLayers.Contains(visual))
@@ -13535,6 +13543,19 @@ SceneStateUploadComplete:
     // Helper methods for real-time drop shadows and Gaussian/backdrop blurs
     private void ApplyAndDrawEffect(Visual fe, Matrix4x4 parentTransform)
     {
+        PrepareAndDrawEffect(fe, parentTransform, drawOnMain: true);
+    }
+
+    private void PrepareEffectTexture(Visual fe)
+    {
+        PrepareAndDrawEffect(fe, Matrix4x4.Identity, drawOnMain: false);
+    }
+
+    private void PrepareAndDrawEffect(
+        Visual fe,
+        Matrix4x4 parentTransform,
+        bool drawOnMain)
+    {
         var effect = fe.Effect;
         if (effect == null) return;
 
@@ -13720,6 +13741,12 @@ SceneStateUploadComplete:
             }
 
             _effectCacheKeys[fe] = effectCacheKey;
+        }
+
+        if (!drawOnMain)
+        {
+            fe.IsDirty = false;
+            return;
         }
 
         var cachedTextures = textures!;

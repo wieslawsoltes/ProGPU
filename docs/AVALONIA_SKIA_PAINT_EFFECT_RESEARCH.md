@@ -72,10 +72,13 @@ Adopted:
   release picture image leases or advance frame-owned caches before the main
   command buffer has submitted, preserving strict display-list ordering with
   images recorded before `SaveLayer`.
-- Picture replay prepares retained layer render tasks before compiling ordered
-  draws. This keeps nested WebGPU submissions out of an already accumulated
-  texture stream while preserving the original image/layer composition order;
-  stable cached replay remains one texture draw per layer.
+- Picture replay prepares retained effect and layer render tasks before
+  compiling ordered draws. This keeps nested WebGPU submissions out of an
+  already accumulated texture stream while preserving the original
+  image/effect/layer composition order; stable cached replay remains one
+  texture draw per effect or layer. A compact embedded-visual index makes the
+  prepass `O(V)` for `V` embedded visuals without rescanning or expanding the
+  `C` retained commands.
 - Common blur/drop-shadow values are inline in specialized filter objects.
   Four-value dashes use inline storage. Color tables deduplicate identical and
   identity channels while preserving an immutable caller snapshot.
