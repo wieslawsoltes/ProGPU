@@ -114,6 +114,16 @@ improves from 3,412.750 to 3,367.188 ns/op (-1.3%) and from 9,311 to 8,180 B/op
 pool was measured and rejected: it increased allocation by 20 B/op and slowed
 the median, so no pooling code remains.
 
+The positioned-text checkpoint keeps the common one-run builder state in one
+typed field instead of adding and clearing a `List<T>` reference slot for every
+blob. Multi-run builders promote the first run to the existing list exactly
+once; immutable blob snapshots and the bounded pinned run lease are unchanged.
+Construction and disposal remain `O(1)` outside the caller's `O(G)` glyph and
+position copies. In three fresh matched processes, the Avalonia positioned-run
+workload is 268.375 ns/op and 89 B/op versus official SkiaSharp at 289.270
+ns/op and 136 B/op: ProGPU is 7.2% faster and allocates 34.6% less managed
+memory, with the exact checksum preserved.
+
 ## Readback checkpoint measurement
 
 The readback checkpoint uses the same Release runner and three fresh processes
