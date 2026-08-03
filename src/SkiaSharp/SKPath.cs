@@ -223,6 +223,29 @@ public partial class SKPath : SKObject
         return _geometry;
     }
 
+    internal void ReplaceWithOwned(SKPath source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(this, source))
+        {
+            return;
+        }
+
+        _packedPathData?.Dispose();
+        _packedPathData = source._packedPathData;
+        _geometry = source._geometry;
+        _currentFigure = source._currentFigure;
+        _currentPoint = source._currentPoint;
+        _contourStart = source._contourStart;
+        _fillType = source._fillType;
+
+        source._packedPathData = null;
+        source._geometry = null;
+        source._currentFigure = null;
+        source.ResetCurrentState();
+        source._fillType = SKPathFillType.Winding;
+    }
+
     private void EnsureFigure()
     {
         if (_currentFigure is not null)

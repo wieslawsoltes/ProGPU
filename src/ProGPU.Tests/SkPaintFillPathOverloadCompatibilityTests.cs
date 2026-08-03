@@ -144,6 +144,32 @@ public sealed class SkPaintFillPathOverloadCompatibilityTests
         Assert.True(result.IsEmpty);
     }
 
+    [Fact]
+    public void WarmedCallerOwnedStrokeDestinationKeepsManagedAllocationBounded()
+    {
+        using var source = CreateCurve();
+        using var destination = new SKPath();
+        using var paint = CreateStrokePaint();
+
+#pragma warning disable CS0618
+        for (var index = 0; index < 64; index++)
+        {
+            Assert.True(paint.GetFillPath(source, destination));
+        }
+
+        const int iterations = 256;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            paint.GetFillPath(source, destination);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+#pragma warning restore CS0618
+
+        Assert.True(allocated <= iterations * 128L, $"Allocated {allocated} bytes.");
+        Assert.False(destination.IsEmpty);
+    }
+
     private static SKPath CreateCurve(SKPathFillType fillType = SKPathFillType.Winding)
     {
         var path = new SKPath { FillType = fillType };

@@ -44,6 +44,112 @@ public static class StrokeJoinGeometry
             maxRoundSegments);
     }
 
+    public static int WriteLineJoin(
+        Span<StrokeJoinTriangle> destination,
+        PenLineJoin lineJoin,
+        float thickness,
+        float miterLimit,
+        Vector2 previousPoint,
+        Vector2 joinPoint,
+        Vector2 nextPoint,
+        bool isSmoothJoin = false,
+        int maxRoundSegments = MaxTrianglesPerJoin)
+    {
+        if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon ||
+            !TryNormalize(joinPoint - previousPoint, out var incomingDirection) ||
+            !TryNormalize(nextPoint - joinPoint, out var outgoingDirection))
+        {
+            return 0;
+        }
+
+        var turn = Cross(incomingDirection, outgoingDirection);
+        if (MathF.Abs(turn) <= Epsilon)
+        {
+            return 0;
+        }
+
+        var radius = thickness * 0.5f;
+        var outerSign = turn > 0f ? -1f : 1f;
+        var previousOuterPoint = joinPoint + GetLeftNormal(incomingDirection) * outerSign * radius;
+        var nextOuterPoint = joinPoint + GetLeftNormal(outgoingDirection) * outerSign * radius;
+        if (lineJoin == PenLineJoin.Bevel)
+        {
+            EnsureDestination(destination, 1);
+            destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
+            return 1;
+        }
+
+        if (lineJoin == PenLineJoin.Miter)
+        {
+            var clampedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f ? miterLimit : 1f;
+            var hasMiter = TryIntersectLines(
+                previousOuterPoint,
+                incomingDirection,
+                nextOuterPoint,
+                outgoingDirection,
+                out var miterPoint) &&
+                Vector2.Distance(joinPoint, miterPoint) <= radius * clampedMiterLimit + Epsilon;
+            var count = hasMiter ? 2 : 1;
+            EnsureDestination(destination, count);
+            destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
+            if (hasMiter)
+            {
+                destination[1] = new StrokeJoinTriangle(previousOuterPoint, miterPoint, nextOuterPoint);
+            }
+            return count;
+        }
+
+        var start = MathF.Atan2(
+            previousOuterPoint.Y - joinPoint.Y,
+            previousOuterPoint.X - joinPoint.X);
+        var end = MathF.Atan2(
+            nextOuterPoint.Y - joinPoint.Y,
+            nextOuterPoint.X - joinPoint.X);
+        if (turn > 0f)
+        {
+            while (end < start)
+            {
+                end += MathF.PI * 2f;
+            }
+        }
+        else
+        {
+            while (end > start)
+            {
+                end -= MathF.PI * 2f;
+            }
+        }
+
+        var sweep = end - start;
+        var segmentCount = Math.Clamp(
+            (int)MathF.Ceiling(MathF.Abs(sweep) / (MathF.PI / 8f)),
+            1,
+            Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin));
+        EnsureDestination(destination, segmentCount);
+        for (var index = 0; index < segmentCount; index++)
+        {
+            var angle0 = start + sweep * index / segmentCount;
+            var angle1 = start + sweep * (index + 1) / segmentCount;
+            var point0 = new Vector2(
+                joinPoint.X + MathF.Cos(angle0) * radius,
+                joinPoint.Y + MathF.Sin(angle0) * radius);
+            var point1 = new Vector2(
+                joinPoint.X + MathF.Cos(angle1) * radius,
+                joinPoint.Y + MathF.Sin(angle1) * radius);
+            destination[index] = new StrokeJoinTriangle(joinPoint, point0, point1);
+        }
+
+        return segmentCount;
+    }
+
+    private static void EnsureDestination(Span<StrokeJoinTriangle> destination, int count)
+    {
+        if (destination.Length < count)
+        {
+            throw new ArgumentException("The destination cannot hold the generated join triangles.", nameof(destination));
+        }
+    }
+
     public static StrokeJoinTriangle[] CreateDirectionalJoin(
         PenLineJoin lineJoin,
         float thickness,

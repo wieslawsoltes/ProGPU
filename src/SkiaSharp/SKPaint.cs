@@ -18,6 +18,9 @@ public enum SKPaintStyle
 
 public partial class SKPaint : SKObject
 {
+    [ThreadStatic]
+    private static List<Vector2>? s_strokePointCache;
+
     private const float HairlineStrokeWidth = 1f;
     private SKShader? _shader;
     private SKBlender? _blender;
@@ -507,18 +510,23 @@ public partial class SKPaint : SKObject
     {
         ArgumentNullException.ThrowIfNull(src);
         ArgumentNullException.ThrowIfNull(dst);
-        if (!TryCreateFillPath(src, NormalizeResolutionScale(resScale), out var result))
+        var normalizedScale = NormalizeResolutionScale(resScale);
+        if (!ReferenceEquals(src, dst) &&
+            PathEffect is not { IsDash: false } &&
+            (Style != SKPaintStyle.Stroke || StrokeWidth != 0f))
+        {
+            dst.Reset();
+            return TryPopulateFillPath(src, normalizedScale, dst);
+        }
+
+        if (!TryCreateFillPath(src, normalizedScale, out var result))
         {
             result.Dispose();
             return false;
         }
 
-        using (result)
-        {
-            dst.Reset();
-            dst.FillType = result.FillType;
-            dst.AddPath(result);
-        }
+        dst.ReplaceWithOwned(result);
+        result.Dispose();
 
         return true;
     }
@@ -577,6 +585,11 @@ public partial class SKPaint : SKObject
     private bool TryCreateFillPath(SKPath source, float resScale, out SKPath destination)
     {
         destination = new SKPath();
+        return TryPopulateFillPath(source, resScale, destination);
+    }
+
+    private bool TryPopulateFillPath(SKPath source, float resScale, SKPath destination)
+    {
         if (PathEffect is { IsDash: false } materializedEffect)
         {
             var applied = materializedEffect.TryApply(
@@ -586,13 +599,20 @@ public partial class SKPaint : SKObject
                 out var paintAdjustment);
             if (applied)
             {
-                destination.Dispose();
                 using (effectedPath)
                 using (var paint = Clone())
                 {
                     paint.PathEffect = null;
                     paintAdjustment.Apply(paint);
-                    return paint.TryCreateFillPath(effectedPath, resScale, out destination);
+                    if (!paint.TryCreateFillPath(effectedPath, resScale, out var result))
+                    {
+                        result.Dispose();
+                        return false;
+                    }
+
+                    destination.ReplaceWithOwned(result);
+                    result.Dispose();
+                    return true;
                 }
             }
             effectedPath.Dispose();
@@ -629,52 +649,59 @@ public partial class SKPaint : SKObject
             }
 
             var points = FlattenFigure(figure, resScale);
-            RemoveConsecutiveDuplicatePoints(points);
-            if (figure.IsClosed &&
-                points.Count > 1 &&
-                Vector2.DistanceSquared(points[0], points[^1]) <= 0.0000001f)
+            try
             {
-                points.RemoveAt(points.Count - 1);
-            }
-
-            if (!figure.IsClosed && figure.Segments.Count > 0 && IsDegenerateFigure(points))
-            {
-                if (StrokeCap == SKStrokeCap.Round)
+                RemoveConsecutiveDuplicatePoints(points);
+                if (figure.IsClosed &&
+                    points.Count > 1 &&
+                    Vector2.DistanceSquared(points[0], points[^1]) <= 0.0000001f)
                 {
-                    destination.AddCircle(figure.StartPoint.X, figure.StartPoint.Y, halfWidth);
-                }
-                else if (StrokeCap == SKStrokeCap.Square)
-                {
-                    destination.AddRect(new SKRect(
-                        figure.StartPoint.X - halfWidth,
-                        figure.StartPoint.Y - halfWidth,
-                        figure.StartPoint.X + halfWidth,
-                        figure.StartPoint.Y + halfWidth));
+                    points.RemoveAt(points.Count - 1);
                 }
 
-                continue;
-            }
+                if (!figure.IsClosed && figure.Segments.Count > 0 && IsDegenerateFigure(points))
+                {
+                    if (StrokeCap == SKStrokeCap.Round)
+                    {
+                        destination.AddCircle(figure.StartPoint.X, figure.StartPoint.Y, halfWidth);
+                    }
+                    else if (StrokeCap == SKStrokeCap.Square)
+                    {
+                        destination.AddRect(new SKRect(
+                            figure.StartPoint.X - halfWidth,
+                            figure.StartPoint.Y - halfWidth,
+                            figure.StartPoint.X + halfWidth,
+                            figure.StartPoint.Y + halfWidth));
+                    }
 
-            if (PathEffect is { IsDash: true, Intervals.Length: > 0 } dashEffect)
-            {
-                AddDashedStrokeSegments(destination, points, figure.IsClosed, halfWidth, dashEffect);
-                continue;
-            }
+                    continue;
+                }
 
-            for (var i = 1; i < points.Count; i++)
-            {
-                AddStrokeSegment(destination, points[i - 1], points[i], halfWidth);
-            }
+                if (PathEffect is { IsDash: true, Intervals.Length: > 0 } dashEffect)
+                {
+                    AddDashedStrokeSegments(destination, points, figure.IsClosed, halfWidth, dashEffect);
+                    continue;
+                }
 
-            if (figure.IsClosed && points.Count > 1)
-            {
-                AddStrokeSegment(destination, points[^1], points[0], halfWidth);
-            }
+                for (var i = 1; i < points.Count; i++)
+                {
+                    AddStrokeSegment(destination, points[i - 1], points[i], halfWidth);
+                }
 
-            AddStrokeJoins(destination, points, figure.IsClosed, halfWidth * 2f);
-            if (!figure.IsClosed)
+                if (figure.IsClosed && points.Count > 1)
+                {
+                    AddStrokeSegment(destination, points[^1], points[0], halfWidth);
+                }
+
+                AddStrokeJoins(destination, points, figure.IsClosed, halfWidth * 2f);
+                if (!figure.IsClosed)
+                {
+                    AddStrokeCaps(destination, points, halfWidth * 2f);
+                }
+            }
+            finally
             {
-                AddStrokeCaps(destination, points, halfWidth * 2f);
+                ReturnStrokePoints(points);
             }
         }
 
@@ -694,10 +721,17 @@ public partial class SKPaint : SKObject
         for (var index = 0; index < figures.Count; index++)
         {
             var points = FlattenFigure(figures[index]);
-            var winding = GetSignedArea(points);
-            if (MathF.Abs(winding) > 0.0001f && MathF.Sign(winding) != desiredWinding)
+            try
             {
-                figures[index] = ReverseFigure(figures[index]);
+                var winding = GetSignedArea(points);
+                if (MathF.Abs(winding) > 0.0001f && MathF.Sign(winding) != desiredWinding)
+                {
+                    figures[index] = ReverseFigure(figures[index]);
+                }
+            }
+            finally
+            {
+                ReturnStrokePoints(points);
             }
         }
     }
@@ -707,10 +741,18 @@ public partial class SKPaint : SKObject
         var dominantArea = 0f;
         for (var index = 0; index < figures.Count; index++)
         {
-            var area = GetSignedArea(FlattenFigure(figures[index]));
-            if (MathF.Abs(area) > MathF.Abs(dominantArea))
+            var points = FlattenFigure(figures[index]);
+            try
             {
-                dominantArea = area;
+                var area = GetSignedArea(points);
+                if (MathF.Abs(area) > MathF.Abs(dominantArea))
+                {
+                    dominantArea = area;
+                }
+            }
+            finally
+            {
+                ReturnStrokePoints(points);
             }
         }
 
@@ -844,20 +886,21 @@ public partial class SKPaint : SKObject
         var first = isClosed ? 0 : 1;
         var end = isClosed ? points.Count : points.Count - 1;
         var lineJoin = MapStrokeJoin(StrokeJoin);
+        Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         for (var index = first; index < end; index++)
         {
             var previous = points[(index - 1 + points.Count) % points.Count];
             var current = points[index];
             var next = points[(index + 1) % points.Count];
-            AddStrokeTriangles(
-                destination,
-                StrokeJoinGeometry.CreateLineJoin(
-                    lineJoin,
-                    strokeWidth,
-                    StrokeMiter,
-                    previous,
-                    current,
-                    next));
+            var triangleCount = StrokeJoinGeometry.WriteLineJoin(
+                triangles,
+                lineJoin,
+                strokeWidth,
+                StrokeMiter,
+                previous,
+                current,
+                next);
+            AddStrokeTriangles(destination, triangles[..triangleCount]);
         }
     }
 
@@ -872,28 +915,29 @@ public partial class SKPaint : SKObject
         }
 
         var lineCap = MapStrokeCap(StrokeCap);
+        Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeCapGeometry.MaxTrianglesPerCap];
         if (TryFindDistinctPoint(points, 0, 1, out var firstNeighbor))
         {
-            AddStrokeTriangles(
-                destination,
-                StrokeCapGeometry.CreateLineCap(
-                    lineCap,
-                    strokeWidth,
-                    points[0],
-                    firstNeighbor,
-                    isStart: true));
+            var triangleCount = StrokeCapGeometry.WriteLineCap(
+                triangles,
+                lineCap,
+                strokeWidth,
+                points[0],
+                firstNeighbor,
+                isStart: true);
+            AddStrokeTriangles(destination, triangles[..triangleCount]);
         }
 
         if (TryFindDistinctPoint(points, points.Count - 1, -1, out var lastNeighbor))
         {
-            AddStrokeTriangles(
-                destination,
-                StrokeCapGeometry.CreateLineCap(
-                    lineCap,
-                    strokeWidth,
-                    lastNeighbor,
-                    points[^1],
-                    isStart: false));
+            var triangleCount = StrokeCapGeometry.WriteLineCap(
+                triangles,
+                lineCap,
+                strokeWidth,
+                lastNeighbor,
+                points[^1],
+                isStart: false);
+            AddStrokeTriangles(destination, triangles[..triangleCount]);
         }
     }
 
@@ -921,9 +965,9 @@ public partial class SKPaint : SKObject
 
     private static void AddStrokeTriangles(
         SKPath destination,
-        IReadOnlyList<StrokeJoinTriangle> triangles)
+        ReadOnlySpan<StrokeJoinTriangle> triangles)
     {
-        for (var index = 0; index < triangles.Count; index++)
+        for (var index = 0; index < triangles.Length; index++)
         {
             var triangle = triangles[index];
             destination.MoveTo(triangle.P0.X, triangle.P0.Y);
@@ -1102,14 +1146,16 @@ public partial class SKPaint : SKObject
 
     private static List<Vector2> FlattenFigure(PathFigure figure, float resScale = 1f)
     {
-        // Skia increases stroker precision with the device resolution. The square-root
-        // schedule preserves sub-pixel quality without making large transforms linear
-        // in scale; the cap keeps adversarial matrices bounded.
-        var curveSegments = Math.Clamp(
-            (int)MathF.Ceiling(24f * MathF.Sqrt(NormalizeResolutionScale(resScale))),
-            24,
-            192);
-        var result = new List<Vector2> { figure.StartPoint };
+        // Subdivide only until the control polygon is within 1/4 logical pixel
+        // of its chord. Higher device resolution tightens that tolerance while
+        // the fixed depth keeps adversarial curves bounded to O(2^8) spans.
+        var tolerance = 0.25f / NormalizeResolutionScale(resScale);
+        var toleranceSquared = tolerance * tolerance;
+        const int maximumDepth = 8;
+        var result = s_strokePointCache ?? new List<Vector2>();
+        s_strokePointCache = null;
+        result.Clear();
+        result.Add(figure.StartPoint);
         var current = figure.StartPoint;
         foreach (var segment in figure.Segments)
         {
@@ -1120,27 +1166,25 @@ public partial class SKPaint : SKObject
                     current = line.Point;
                     break;
                 case QuadraticBezierSegment quadratic:
-                    for (var i = 1; i <= curveSegments; i++)
-                    {
-                        result.Add(BezierSegmentGeometry.EvaluateQuadratic(
-                            current,
-                            quadratic.ControlPoint,
-                            quadratic.Point,
-                            (float)i / curveSegments));
-                    }
+                    FlattenQuadratic(
+                        result,
+                        current,
+                        quadratic.ControlPoint,
+                        quadratic.Point,
+                        toleranceSquared,
+                        maximumDepth);
 
                     current = quadratic.Point;
                     break;
                 case CubicBezierSegment cubic:
-                    for (var i = 1; i <= curveSegments; i++)
-                    {
-                        result.Add(BezierSegmentGeometry.EvaluateCubic(
-                            current,
-                            cubic.ControlPoint1,
-                            cubic.ControlPoint2,
-                            cubic.Point,
-                            (float)i / curveSegments));
-                    }
+                    FlattenCubic(
+                        result,
+                        current,
+                        cubic.ControlPoint1,
+                        cubic.ControlPoint2,
+                        cubic.Point,
+                        toleranceSquared,
+                        maximumDepth);
 
                     current = cubic.Point;
                     break;
@@ -1157,6 +1201,106 @@ public partial class SKPaint : SKObject
         }
 
         return result;
+    }
+
+    private static void FlattenQuadratic(
+        List<Vector2> destination,
+        Vector2 point0,
+        Vector2 point1,
+        Vector2 point2,
+        float toleranceSquared,
+        int depthRemaining)
+    {
+        if (depthRemaining == 0 ||
+            DistanceToLineSquared(point1, point0, point2) <= toleranceSquared)
+        {
+            destination.Add(point2);
+            return;
+        }
+
+        var point01 = (point0 + point1) * 0.5f;
+        var point12 = (point1 + point2) * 0.5f;
+        var midpoint = (point01 + point12) * 0.5f;
+        FlattenQuadratic(
+            destination,
+            point0,
+            point01,
+            midpoint,
+            toleranceSquared,
+            depthRemaining - 1);
+        FlattenQuadratic(
+            destination,
+            midpoint,
+            point12,
+            point2,
+            toleranceSquared,
+            depthRemaining - 1);
+    }
+
+    private static void FlattenCubic(
+        List<Vector2> destination,
+        Vector2 point0,
+        Vector2 point1,
+        Vector2 point2,
+        Vector2 point3,
+        float toleranceSquared,
+        int depthRemaining)
+    {
+        if (depthRemaining == 0 ||
+            MathF.Max(
+                DistanceToLineSquared(point1, point0, point3),
+                DistanceToLineSquared(point2, point0, point3)) <= toleranceSquared)
+        {
+            destination.Add(point3);
+            return;
+        }
+
+        var point01 = (point0 + point1) * 0.5f;
+        var point12 = (point1 + point2) * 0.5f;
+        var point23 = (point2 + point3) * 0.5f;
+        var point012 = (point01 + point12) * 0.5f;
+        var point123 = (point12 + point23) * 0.5f;
+        var midpoint = (point012 + point123) * 0.5f;
+        FlattenCubic(
+            destination,
+            point0,
+            point01,
+            point012,
+            midpoint,
+            toleranceSquared,
+            depthRemaining - 1);
+        FlattenCubic(
+            destination,
+            midpoint,
+            point123,
+            point23,
+            point3,
+            toleranceSquared,
+            depthRemaining - 1);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float DistanceToLineSquared(Vector2 point, Vector2 lineStart, Vector2 lineEnd)
+    {
+        var line = lineEnd - lineStart;
+        var lengthSquared = line.LengthSquared();
+        if (lengthSquared <= 0.0000001f)
+        {
+            return Vector2.DistanceSquared(point, lineStart);
+        }
+
+        var cross = line.X * (lineStart.Y - point.Y) -
+                    (lineStart.X - point.X) * line.Y;
+        return cross * cross / lengthSquared;
+    }
+
+    private static void ReturnStrokePoints(List<Vector2> points)
+    {
+        points.Clear();
+        if (s_strokePointCache is null && points.Capacity <= 4_096)
+        {
+            s_strokePointCache = points;
+        }
     }
 
     private static void AddStrokeSegment(SKPath path, Vector2 start, Vector2 end, float halfWidth)
