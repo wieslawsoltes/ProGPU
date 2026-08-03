@@ -139,6 +139,21 @@ public sealed class SkMatrixCompatibilityTests
     }
 
     [Fact]
+    public void AffineRectangleMappingPreservesSkewAndNegativeScaleBounds()
+    {
+        var skewed = new SKMatrix(2f, 0.5f, 10f, -0.25f, 3f, 20f, 0f, 0f, 1f);
+        Assert.Equal(
+            new SKRect(13f, 24.5f, 26f, 43.75f),
+            skewed.MapRect(new SKRect(1f, 2f, 6f, 8f)));
+
+        var reflected = SKMatrix.CreateScale(-2f, -3f).PostConcat(
+            SKMatrix.CreateTranslation(10f, 20f));
+        Assert.Equal(
+            new SKRect(-2f, -4f, 8f, 14f),
+            reflected.MapRect(new SKRect(1f, 2f, 6f, 8f)));
+    }
+
+    [Fact]
     public void RadiusEqualityHashAndInternalMatrixConversionMatchNativeValues()
     {
         var matrix = SKMatrix.CreateScale(2f, 3f);

@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace SkiaSharp;
 
@@ -289,8 +290,26 @@ public partial struct SKMatrix
     public static void Concat(ref SKMatrix target, SKMatrix first, SKMatrix second) =>
         target = Concat(first, second);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly SKRect MapRect(SKRect source)
     {
+        if (!HasPerspective)
+        {
+            var leftScale = source.Left * _scaleX;
+            var rightScale = source.Right * _scaleX;
+            var topSkew = source.Top * _skewX;
+            var bottomSkew = source.Bottom * _skewX;
+            var leftSkew = source.Left * _skewY;
+            var rightSkew = source.Right * _skewY;
+            var topScale = source.Top * _scaleY;
+            var bottomScale = source.Bottom * _scaleY;
+            return new SKRect(
+                MathF.Min(leftScale, rightScale) + MathF.Min(topSkew, bottomSkew) + _transX,
+                MathF.Min(leftSkew, rightSkew) + MathF.Min(topScale, bottomScale) + _transY,
+                MathF.Max(leftScale, rightScale) + MathF.Max(topSkew, bottomSkew) + _transX,
+                MathF.Max(leftSkew, rightSkew) + MathF.Max(topScale, bottomScale) + _transY);
+        }
+
         Span<SKPoint> corners =
         [
             new SKPoint(source.Left, source.Top),
@@ -299,17 +318,7 @@ public partial struct SKMatrix
             new SKPoint(source.Left, source.Bottom)
         ];
 
-        if (HasPerspective)
-        {
-            return MapPerspectiveRect(corners);
-        }
-
-        for (var index = 0; index < corners.Length; index++)
-        {
-            corners[index] = MapPoint(corners[index]);
-        }
-
-        return GetBounds(corners);
+        return MapPerspectiveRect(corners);
     }
 
     public readonly SKPoint MapPoint(SKPoint point) => MapPoint(point.X, point.Y);

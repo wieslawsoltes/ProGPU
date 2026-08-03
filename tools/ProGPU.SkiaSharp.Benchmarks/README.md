@@ -22,7 +22,9 @@ premultiplied-color conversion, 64-element color-array conversion, OpenType tag
 value/formatting operations, and retained path construction/bounds. It also
 tracks the exact reusable-paint, positioned-text-blob, and legacy stream-path
 patterns used by Avalonia.Skia so shim optimization follows real framework call
-sites rather than metadata frequency alone. Each implemented API cluster adds
+sites rather than metadata frequency alone. Canvas coverage decomposes retained
+save/restore, matrix, and clip routing so regressions can be attributed without
+changing the full framework-shaped workload. Each implemented API cluster adds
 an equivalent workload
 or an explicit explanation that its behavior is already covered by a broader
 component/application benchmark. GPU/rendering clusters additionally require a

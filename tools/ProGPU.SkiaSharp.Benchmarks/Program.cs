@@ -118,6 +118,9 @@ internal static class ProgramEntry
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
+            new BenchmarkCase("canvas-save-restore", 100_000, RunCanvasSaveRestore),
+            new BenchmarkCase("canvas-matrix-routing", 100_000, RunCanvasMatrixRouting),
+            new BenchmarkCase("canvas-clip-routing", 10_000, RunCanvasClipRouting),
             new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
             new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
             new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
@@ -403,6 +406,57 @@ internal static class ProgramEntry
         using var picture = recorder.EndRecording();
         checksum = Mix(checksum, picture is null ? 0u : 1u);
         return checksum;
+    }
+
+    private static ulong RunCanvasSaveRestore(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var restoreCount = canvas.Save();
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
+    }
+
+    private static ulong RunCanvasMatrixRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            canvas.Scale(1.0001f);
+            var translation = SKMatrix.CreateTranslation(index & 3, index & 7);
+            canvas.Concat(in translation);
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(canvas.TotalMatrix.TransX));
+            canvas.ResetMatrix();
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
+    }
+
+    private static ulong RunCanvasClipRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var restoreCount = canvas.Save();
+            canvas.ClipRect(new SKRect(1f, 2f, 63f, 62f));
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
     }
 
     private static ulong RunAvaloniaPaintReuse(int operations)

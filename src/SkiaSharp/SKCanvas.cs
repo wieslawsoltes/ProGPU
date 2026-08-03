@@ -281,7 +281,11 @@ public class SKCanvas : SKObject
 
     public SKMatrix TotalMatrix => _currentMatrix;
 
-    public int SaveCount => _savedStateCount + 1;
+    public int SaveCount
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _savedStateCount + 1;
+    }
 
     public SKMatrix44 TotalMatrix44 => SKMatrix44.FromMatrix4x4(_currentMatrix.ToMatrix4x4());
 
@@ -538,6 +542,7 @@ public class SKCanvas : SKObject
         // Retained canvases have no immediate attachment contents to invalidate.
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int Save()
     {
         var restoreCount = _savedStateCount + 1;
@@ -623,6 +628,7 @@ public class SKCanvas : SKObject
 
     public int SaveLayer() => SaveLayer(new SKRect(0, 0, _width, _height), null);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Restore()
     {
         if (_savedStateCount > 0)
@@ -666,6 +672,7 @@ public class SKCanvas : SKObject
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RestoreToCount(int count)
     {
         var targetDepth = Math.Max(1, count) - 1;
@@ -2758,6 +2765,7 @@ public class SKCanvas : SKObject
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void PushRectClipScope(SKRect rect, Matrix4x4 transform)
     {
         int commandIndex = _context.Commands.Count;
@@ -2784,6 +2792,7 @@ public class SKCanvas : SKObject
         _pushedScopes.Push(new PushedScope(PushKind.GeometryClip, _context, commandIndex));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool TryRemoveEmptyClipScope(PushedScope scope)
     {
         if (scope.Kind is not (PushKind.RectClip or PushKind.GeometryClip) ||
@@ -2814,6 +2823,7 @@ public class SKCanvas : SKObject
         isRect = false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void UpdateClipForIntersection(SKRect deviceBounds, bool isRect)
     {
         if (_clipState.IsEmpty)
@@ -3079,6 +3089,7 @@ public class SKCanvas : SKObject
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Scale(float s)
     {
         if (s != 1f)
@@ -3087,6 +3098,7 @@ public class SKCanvas : SKObject
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Scale(float sx, float sy)
     {
         _currentMatrix.ScaleX *= sx;
@@ -3191,6 +3203,7 @@ public class SKCanvas : SKObject
         _currentMatrix = SKMatrix.Identity;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Concat(in SKMatrix m)
     {
         _currentMatrix = SKMatrix.Concat(_currentMatrix, m);
@@ -3259,6 +3272,7 @@ public class SKCanvas : SKObject
         return QuickReject(path.Bounds);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ClipRect(SKRect rect, SKClipOperation operation = SKClipOperation.Intersect, bool antialias = false)
     {
         var transform = _currentMatrix.ToMatrix4x4();
