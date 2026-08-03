@@ -1951,10 +1951,18 @@ public sealed class RenderCommandList :
             nextCapacity = capacity;
         }
 
-        RenderCommand[] replacement =
-            ArrayPool<RenderCommand>.Shared.Rent(nextCapacity);
+        // ArrayPool<T> rounds a first request up to its minimum bucket. Since
+        // RenderCommand is intentionally wide, renting for the overwhelmingly
+        // common one-to-four-command recording would retain substantially more
+        // storage than the commands themselves. Keep that first exact-sized
+        // array owned by the list; growth beyond it switches to pooled scratch
+        // storage and preserves the amortized O(1) append contract.
+        bool pooled = nextCapacity > DefaultCapacity;
+        RenderCommand[] replacement = pooled
+            ? ArrayPool<RenderCommand>.Shared.Rent(nextCapacity)
+            : new RenderCommand[nextCapacity];
         AsSpan().CopyTo(replacement);
-        ReplaceStorage(replacement, pooled: true);
+        ReplaceStorage(replacement, pooled);
         return _items.Length;
     }
 
