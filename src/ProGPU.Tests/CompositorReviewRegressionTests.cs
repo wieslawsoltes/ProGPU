@@ -201,6 +201,124 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RetainedPictureCommandSpecializationsRoundTripWithoutFullArray()
+    {
+        var brush = new SolidColorBrush(new Vector4(0.2f, 0.4f, 0.6f, 1f));
+        var path = RenderCommandGeometryCache.CreateLinePath(
+            new Vector2(1f, 2f),
+            new Vector2(3f, 4f));
+        ushort[] glyphIndices = [4, 9];
+        Vector2[] glyphPositions = [new(5f, 6f), new(11f, 6f)];
+        var marker = new object();
+        var inlineEffect = new ImageEffectCommandData(
+            0.1f,
+            0.2f,
+            0.3f,
+            0.4f,
+            0.5f,
+            0.6f,
+            0.7f,
+            null,
+            null,
+            luminanceToAlpha: true);
+        RenderCommand[] source =
+        [
+            new()
+            {
+                Type = RenderCommandType.DrawPath,
+                HitTestId = 17,
+                Brush = brush,
+                Path = path,
+                Transform = Matrix4x4.CreateTranslation(2f, 3f, 0f),
+                IsPenThicknessLocal = true,
+                PathSampleGrid = 8,
+                PathCoverageGamma = 1.25f
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawGlyphRun,
+                Brush = brush,
+                FontSize = 14f,
+                Position = new Vector2(4f, 8f),
+                FontTransform = new Vector2(1.2f, 0.1f),
+                HasFontTransform = true,
+                TextRenderingMode = TextRenderingMode.ClearType,
+                TextHintingMode = TextHintingMode.Fixed,
+                PreferGlyphAtlas = true,
+                GlyphIndices = glyphIndices,
+                GlyphPositions = glyphPositions,
+                GlyphRangeStart = 1,
+                GlyphRangeCount = 1
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawTexture,
+                Rect = new Rect(1f, 2f, 30f, 40f),
+                SrcRect = new Rect(3f, 4f, 10f, 12f),
+                TextureSamplingMode = TextureSamplingMode.Cubic,
+                TextureMaxAnisotropy = 4,
+                TextureCubicCoefficients = new Vector2(1f / 3f, 1f / 3f),
+                HasTextureCubicCoefficients = true,
+                SnapTextureToPixels = true,
+                HasImageEffect = true,
+                ImageEffect = inlineEffect
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawExtension,
+                Position2 = new Vector2(7f, 8f),
+                CameraView = Matrix4x4.CreateRotationX(0.25f),
+                ExtensionId = 41,
+                IntParam = 42,
+                FloatParam = 43f,
+                DataParam = marker
+            }
+        ];
+
+        using var picture = new GpuPicture(source, [], [], [], []);
+
+        RenderCommand core = picture.RetainedCommands[0];
+        Assert.Equal(17, core.HitTestId);
+        Assert.Same(brush, core.Brush);
+        Assert.Same(path, core.Path);
+        Assert.True(core.IsPenThicknessLocal);
+        Assert.Equal(8u, core.PathSampleGrid);
+        Assert.Equal(1.25f, core.PathCoverageGamma);
+        Assert.Equal(source[0].Transform, core.Transform);
+
+        RenderCommand text = picture.RetainedCommands[1];
+        Assert.Same(glyphIndices, text.GlyphIndices);
+        Assert.Same(glyphPositions, text.GlyphPositions);
+        Assert.Equal(14f, text.FontSize);
+        Assert.Equal(TextRenderingMode.ClearType, text.TextRenderingMode);
+        Assert.True(text.PreferGlyphAtlas);
+        Assert.Equal(1, text.GlyphRangeStart);
+        Assert.Equal(1, text.GlyphRangeCount);
+
+        RenderCommand texture = picture.RetainedCommands[2];
+        Assert.Equal(TextureSamplingMode.Cubic, texture.TextureSamplingMode);
+        Assert.Equal((byte)4, texture.TextureMaxAnisotropy);
+        Assert.True(texture.HasTextureCubicCoefficients);
+        Assert.True(texture.SnapTextureToPixels);
+        Assert.True(texture.HasImageEffect);
+        Assert.Equal(0.6f, texture.ImageEffect.Invert);
+        Assert.True(texture.ImageEffect.LuminanceToAlpha);
+
+        RenderCommand auxiliary = picture.RetainedCommands[3];
+        Assert.Equal(new Vector2(7f, 8f), auxiliary.Position2);
+        Assert.Equal(41, auxiliary.ExtensionId);
+        Assert.Equal(42, auxiliary.IntParam);
+        Assert.Equal(43f, auxiliary.FloatParam);
+        Assert.Same(marker, auxiliary.DataParam);
+        Assert.Equal(source[3].CameraView, auxiliary.CameraView);
+
+        Assert.True(
+            picture.CommandStorageBytes <
+            source.Length * Unsafe.SizeOf<RenderCommand>());
+        Assert.Equal(source, picture.RetainedCommands.Clone());
+    }
+
+    [Fact]
     public void SkRectUnionIncludesEmptyOriginInCoordinateEnvelope()
     {
         var bounds = SKRect.Empty;

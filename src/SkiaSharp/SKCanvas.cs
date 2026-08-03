@@ -934,7 +934,7 @@ public class SKCanvas : SKObject
         out SKColorSpace colorSpace)
     {
         SKColorSpace? candidate = null;
-        foreach (var command in picture.Commands)
+        foreach (var command in picture.RetainedCommands)
         {
             switch (command.Type)
             {
@@ -3459,7 +3459,7 @@ public class SKCanvas : SKObject
 
         pictureCache[picture] = picture;
         RenderCommand[]? convertedCommands = null;
-        var commands = picture.Commands;
+        var commands = picture.RetainedCommands;
         for (var index = 0; index < commands.Length; index++)
         {
             var command = commands[index];
@@ -3475,7 +3475,7 @@ public class SKCanvas : SKObject
 
                 if (!ReferenceEquals(convertedTexture, texture))
                 {
-                    convertedCommands ??= (RenderCommand[])commands.Clone();
+                    convertedCommands ??= commands.Clone();
                     command.Texture = convertedTexture;
                     convertedCommands[index] = command;
                 }
@@ -3488,7 +3488,7 @@ public class SKCanvas : SKObject
                     textureCache);
                 if (!ReferenceEquals(convertedPicture, nestedPicture))
                 {
-                    convertedCommands ??= (RenderCommand[])commands.Clone();
+                    convertedCommands ??= commands.Clone();
                     command.Picture = convertedPicture;
                     convertedCommands[index] = command;
                 }

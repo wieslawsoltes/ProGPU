@@ -5469,7 +5469,7 @@ SceneStateUploadComplete:
     {
         if (picture == null) return;
         var pictureStrokeScale = TransformMetrics.GetStrokeScale(globalTransform);
-        var commands = picture.Commands;
+        var commands = picture.RetainedCommands;
         for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)
         {
             var cmd = commands[commandIndex];

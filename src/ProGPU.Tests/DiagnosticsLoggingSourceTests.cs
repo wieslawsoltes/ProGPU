@@ -556,7 +556,7 @@ public class DiagnosticsLoggingSourceTests
     {
         string source = ReadSource("src", "ProGPU.Scene", "RenderCommand.cs");
 
-        Assert.Contains("CopyList(_recordingContext.Commands)", source, StringComparison.Ordinal);
+        Assert.Contains("_recordingContext.Commands.AsSpan()", source, StringComparison.Ordinal);
         Assert.Contains("CopyList(_recordingContext.PointBuffer)", source, StringComparison.Ordinal);
         Assert.Contains("CopyList(_recordingContext.DoubleBuffer)", source, StringComparison.Ordinal);
         Assert.Contains("CopyList(_recordingContext.Line3DBuffer)", source, StringComparison.Ordinal);
@@ -673,7 +673,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var cmd = diagnosticCommands[commandIndex];", source, StringComparison.Ordinal);
         Assert.Contains("var commands = ctx.Commands;", source, StringComparison.Ordinal);
         Assert.Contains("var commandCount = commands.Count;", source, StringComparison.Ordinal);
-        Assert.Contains("var commands = picture.Commands;\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var commands = picture.RetainedCommands;\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("var commands = context.Commands;\n            var commandCount = commands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("var textRecords = staticBuffer.TextRecords;\n            for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("staticBuffer.UpdateTextBuffer(CollectionsMarshal.AsSpan(_textVerticesList));", source, StringComparison.Ordinal);
