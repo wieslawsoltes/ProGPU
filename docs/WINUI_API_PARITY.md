@@ -2193,3 +2193,20 @@ automatic monotonic gates. Work remains ordered as follows:
 Metadata equality remains only one gate. Observable behavior, accessibility,
 input, threading, device-loss recovery, rendering quality, steady-state
 allocation, and performance must continue to pass independently.
+
+## Preview.47 handoff after retained Avalonia.Skia stream optimization
+
+Preview.47 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining and 6,652 ProGPU-only entries. This release compacts the
+shared SkiaSharp retained picture, immutable-image, layer, and positioned-text
+paths used by Avalonia and other hosts while preserving typed WebGPU rendering.
+It adds no CPU renderer or reflection bridge and does not change the WinUI
+public surface.
+
+The next broad WinUI parity PR starts from the immutable Preview.47 tag and
+keeps `eng/progpu-winui-api-check.sh` plus `eng/winui-api-baseline.json` as
+automatic monotonic gates. API-contract markers, retained WebGPU Composition
+families, behavior-complete XAML control/property clusters, ProGPU-only surface
+reconciliation, and matched quality/performance evidence remain independently
+required. Metadata equality alone cannot establish behavioral compatibility.

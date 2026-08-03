@@ -532,3 +532,19 @@ profiles, bidirectional language services, AOT/binary artifacts, the public
 extension SDK, and long-term corpus/fuzz/performance governance. Parsing or
 generating a corpus alone does not establish runtime, hot-reload, editing,
 accessibility, or framework conformance.
+
+## Preview.47 compiler handoff
+
+Preview.47 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.46 syntax, schema, semantic, lowering, structured Roslyn emission,
+source-generator/MSBuild/CLI/workspace packages, pinned Fluent corpus,
+transactional preview path, and changed-identity diagnostic-origin projection.
+The compiler remains pre-MVP.
+
+The next compiler work starts from the immutable Preview.47 tag with the same
+five explicit blockers: complete runtime capability adapters; atomic metadata
+and XAML publication with rollback/recovery; fine-grained namescope, resource,
+template, and binding patches with safe root fallback; cross-platform stress,
+performance, visual, accessibility, and collectible-context gates; and
+published-feed host/productization evidence. The broader F1-F9 program remains
+unchanged, and parsing or generation alone is not a runtime or product claim.
