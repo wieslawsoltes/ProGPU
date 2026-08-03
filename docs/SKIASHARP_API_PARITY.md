@@ -1903,6 +1903,14 @@ every later draw. Blob construction therefore keeps its previous allocation
 profile, while recording is no longer `O(G)` allocation per draw for `G`
 glyphs. Rotation/scale runs retain their separate per-glyph transform path.
 
+The Avalonia canvas path also reuses package-private solid brushes and pens
+while relevant `SKPaint` state is unchanged; public mutable conversion results
+remain independent, and a paint mutation publishes a new retained resource so
+earlier commands stay immutable. Ordinary rectangles no longer materialize a
+path merely to reject a special-shader route. Antialiased image draws reuse one
+immutable unit-rectangle edge clip and place it through the retained command
+transform instead of allocating a four-segment geometry per draw.
+
 Recorder growth is amortized `O(1)` per command and `O(C)` for a capacity
 change. Immutable snapshot construction is `O(C)` average with `O(C)` pooled
 scratch for `C` commands; its open-addressed transform table is kept below a
@@ -1911,7 +1919,8 @@ Replay expansion is allocation-free `O(1)` per command. Retained storage is
 `O(C + A + T + X + U)` for compact commands, uncommon payloads, text payloads,
 texture payloads, and unique transforms. No raster quality, DPI/subpixel
 policy, scene invalidation, WebGPU submission, or resource-lifetime boundary
-changes in this CPU recording tranche.
+changes in this CPU recording tranche. Solid-paint reuse, the ordinary
+rectangle shader check, and unit-clip placement are allocation-free `O(1)`.
 
 The clean-room design used these primary contracts and architecture records:
 
@@ -1954,20 +1963,47 @@ per-frame adapters, hiding retained allocations in native memory, eager glyph
 position conversion, unbounded exact-position caches, and moving Unicode or
 OpenType shaping onto the GPU.
 
-The exact Preview.44 product line (`84a86f68`) measured the new mixed
-Avalonia-shaped picture at `35,344` managed B/op and `5,545.570` ns/op. The
-current branch measures `2,535` managed B/op (`92.83%` lower) with the identical
-checksum `2454466986173768955`; one shared-machine run measured `4,176.352`
-ns/op, but final matched-process and profiler evidence is still required before
-a latency claim. Immutable-image picture recording fell from `2,486` to `146`
-managed B/op (`94.13%` lower), and the inline command value fell from `816` to
-`576` bytes before compact picture packing. Official SkiaSharp managed counters
-exclude its native allocations and are not treated as total-memory evidence.
+Three alternating Apple M3 Pro Release process pairs compared exact Preview.44
+`84a86f68` with product commit `d22fcef3`, using 64 warmups and 96 samples per
+process. Across 288 samples per side, the mixed Avalonia-shaped picture retained
+checksum `2454466986173768955`; median latency fell from `7,543.213` to
+`4,457.357` ns/op (`40.91%`), throughput rose `69.23%`, and managed allocation
+fell from `35,344` to `1,627` B/op (`95.40%`). Scheduler and GC interference
+dominate the tail, so P95 is recorded in the artifact but not used as the
+primary claim. Immutable-image picture recording separately fell from `2,486`
+to `146` managed B/op (`94.13%`), and the inline command value fell from `816`
+to `576` bytes before compact picture packing.
 
-Current focused validation passes 205 picture/state/effect/layer/source tests,
-129 text/blob/state tests, 86 Avalonia renderer contract tests, and the headless
-pixel gate. The unchanged Avalonia.Skia 12.0.5 source project builds with zero
-warnings and errors against the shim. Final API/package/full-suite gates,
-three alternating Release process pairs, EventPipe, and paired Xcode Time
-Profiler, Allocations plus VM Tracker, and Metal System Trace captures remain
-required before this section is finalized.
+Official SkiaSharp 4.151.0 remains faster for the mixed wrapper workload at a
+pooled `396.078` ns/op median and `10` managed B/op with the same checksum.
+That counter excludes native Skia picture allocation, so it is neither a total
+memory comparison nor evidence that ProGPU has reached native latency.
+
+Matched macOS Allocations plus VM Tracker, Time Profiler, and Metal System
+Trace launches each completed the same four warmups plus eight 16,384-operation
+samples. Instrumented latency measured Preview.44/candidate at
+`19,748.180`/`3,428.551`, `19,587.496`/`3,421.159`, and
+`19,956.059`/`3,226.458` ns/op respectively; managed allocation was
+`35,281`/`1,537` B/op throughout. Allocations reported total
+heap-plus-anonymous-VM allocation falling from `2,441,702,816` to
+`327,050,480` bytes, while bounded pool retention raised persistent storage by
+`7.37` MB, so no persistent-footprint improvement is claimed. The Metal pair
+was resource-identical: 42 resources totaling `3,227,648` bytes, maximum
+`MTLDevice.currentAllocatedSize` `1,589,248` bytes, zero target submissions,
+and zero waits, errors, spills, or hangs.
+
+Matched EventPipe measured `23,176.839` versus `2,460.077` ns/op. Preview.44's
+exclusive command-list growth/copy, rectangle geometry, and paint-conversion
+frames leave the candidate hot list; remaining samples center on GC polling,
+reference clearing, compact snapshot construction, and retained-array
+allocation.
+
+The complete core suite passes 3,267/3,267, headless passes 225/225, Avalonia
+renderer contracts pass 86/86, and the XAML compiler suite passes. The unchanged
+Avalonia.Skia 12.0.5 source project builds with zero warnings and errors. The
+official API gate remains `reference=4222`, `matching=4222`, `missing=0`, and
+`extra=998`; documentation and package-manifest gates pass. Distributions,
+compact profiler summaries, research, and reproduction details are retained in
+`artifacts/performance/skiasharp-avalonia-hotpaths-final`. More than 3.4 GiB of
+raw Instruments/EventPipe data, XML exports, Xcode scratch, exploratory runs,
+and incomplete captures were deleted after extraction; no raw trace remains.

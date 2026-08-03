@@ -1,0 +1,338 @@
+{
+  "SchemaVersion": 2,
+  "GeneratedUtc": "2026-08-03T08:49:58.843914+00:00",
+  "Resources": {
+    "Count": 42,
+    "TotalBytes": 3227648,
+    "LiveAtCaptureEndCount": 42,
+    "LiveAtCaptureEndBytes": 3227648,
+    "Groups": [
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Count": 14,
+        "TotalBytes": 1835008,
+        "LiveAtCaptureEndCount": 14,
+        "LiveAtCaptureEndBytes": 1835008
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Count": 7,
+        "TotalBytes": 737280,
+        "LiveAtCaptureEndCount": 7,
+        "LiveAtCaptureEndBytes": 737280
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Count": 9,
+        "TotalBytes": 262144,
+        "LiveAtCaptureEndCount": 9,
+        "LiveAtCaptureEndBytes": 262144
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Texture",
+        "Count": 8,
+        "TotalBytes": 262144,
+        "LiveAtCaptureEndCount": 8,
+        "LiveAtCaptureEndBytes": 262144
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Texture",
+        "Count": 4,
+        "TotalBytes": 131072,
+        "LiveAtCaptureEndCount": 4,
+        "LiveAtCaptureEndBytes": 131072
+      }
+    ],
+    "LargestResources": [
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) zero init buffer",
+        "SizeBytes": 524288,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963645875,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee772",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963182875,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::adapter::_$LT$impl$u20$wgpu_hal..Adapter$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Adapter$GT$::open::hc8c0e3de05863667"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee773",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963196416,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "-[IOGPUMetalBuffer initWithPrimaryBuffer:heapIndex:bufferIndex:bufferOffset:length:args:argsSize:gpuTag:]"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee774",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963203333,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 0u, 268435456u, AGX::G15::TextureHeapElem, AGX::G15::TextureHeapElem, unsigned long long\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee775",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963209250,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 0u, 268435456u, AGX::G15::TextureHeapElem, AGX::G15::TextureHeapElem, unsigned long long\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee776",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963216000,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 0u, 0u, AGX::G15::SamplerHeapElem\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee777",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963225958,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 0u, 0u, AGX::G15::BVHStateHeapElem\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee778",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963232750,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 0u, 0u, unsigned long long\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee779",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963237666,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C16u, 0u, true, 8u, 0u, AGX::G15::TensorStateHeapElem\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee77a",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963246000,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C32u, 0u, true, 0u, 0u, unsigned long long\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee77b",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963251083,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "__36-[AGXG15XFamilyDevice setupDeferred]_block_invoke"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee77c",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963255333,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "__36-[AGXG15XFamilyDevice setupDeferred]_block_invoke"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee77d",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963261291,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "AGX::Mempool\u003C32u, 0u, true, 0u, 0u, std::__1::array\u003Cunsigned long long, 8ul\u003E\u003E::grow(unsigned int, bool)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee77e",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963265625,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "__36-[AGXG15XFamilyDevice setupDeferred]_block_invoke"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee781",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963493125,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "invocation function for block in AGX::Device\u003CAGX::G15::Encoders, AGX::G15::Classes, AGX::G15::ObjClasses\u003E::createFastIntegerDivideBufferIfNeeded(AGXG15XFamilyDevice*)"
+      },
+      {
+        "Owner": "metal-driver",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee782",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963538291,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "__36-[AGXG15XFamilyDevice setupDeferred]_block_invoke"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "Resource 0x2321cee783",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 963546083,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "Unavailable"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 972026458,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_texture::h55018f0b1128144a"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1621291416,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_texture::h55018f0b1128144a"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1686501708,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_texture::h55018f0b1128144a"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1749307291,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_texture::h55018f0b1128144a"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1810762333,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "0x10b7d6047"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1886842000,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "0x10b7d6047"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Texture",
+        "Label": "SKImage Pixel Copy Texture",
+        "SizeBytes": 32768,
+        "LiveAtCaptureEnd": true,
+        "CreationNanoseconds": 1962021791,
+        "LifetimeNanoseconds": null,
+        "RelevantFrame": "0x10b7d6047"
+      }
+    ]
+  },
+  "NativeAllocations": {
+    "HeapAndAnonymousVmPersistentBytes": 0,
+    "HeapPersistentBytes": 0,
+    "AnonymousVmPersistentBytes": 0,
+    "AllVmRegionsPersistentBytes": 0,
+    "HeapAndAnonymousVmTotalBytes": 0,
+    "HeapAndAnonymousVmTransientBytes": 0,
+    "LargestPersistentCategories": [],
+    "Details": {
+      "LiveCount": 0,
+      "LiveBytes": 0,
+      "LargestLiveGroups": []
+    }
+  },
+  "CurrentAllocatedSize": {
+    "Count": 58,
+    "Total": 51806208,
+    "Maximum": 1589248,
+    "Last": 1589248
+  },
+  "DrawableWaits": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpills": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpillGroups": [],
+  "PotentialHangs": {
+    "Count": 0,
+    "TotalDurationNanoseconds": 0,
+    "MaximumDurationNanoseconds": 0,
+    "Groups": [],
+    "Intervals": []
+  },
+  "HangRiskCount": 0,
+  "CommandBufferErrorCount": 0,
+  "CommandBufferSubmissionCount": 0,
+  "CommandBufferCompletionCount": 1693
+}

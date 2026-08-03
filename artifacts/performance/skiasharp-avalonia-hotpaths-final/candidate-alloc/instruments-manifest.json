@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-03T08:46:44.356336+00:00",
+  "durationSeconds": 6,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "tools/ProGPU.SkiaSharp.Benchmarks/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.dll",
+    "run",
+    "--backend",
+    "ProGPU",
+    "--case",
+    "avalonia-mixed-picture-recording",
+    "--warmup",
+    "4",
+    "--samples",
+    "8",
+    "--operations",
+    "16384",
+    "--output",
+    "/private/tmp/progpu-candidate-alloc.json",
+    "--commit",
+    "d22fcef3",
+    "--dirty",
+    "clean"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": true,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 116181792
+  },
+  "captures": [
+    {
+      "Key": "allocations",
+      "Template": "Allocations",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/allocations.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/allocations-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/allocations.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/allocations-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-alloc/allocations-statistics.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 14691478,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 43292,
+      "DeletedTemporaryBytes": 15543102
+    }
+  ]
+}

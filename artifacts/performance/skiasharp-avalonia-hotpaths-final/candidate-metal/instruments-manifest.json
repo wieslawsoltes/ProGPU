@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-03T08:49:58.868446+00:00",
+  "durationSeconds": 6,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "tools/ProGPU.SkiaSharp.Benchmarks/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.dll",
+    "run",
+    "--backend",
+    "ProGPU",
+    "--case",
+    "avalonia-mixed-picture-recording",
+    "--warmup",
+    "4",
+    "--samples",
+    "8",
+    "--operations",
+    "16384",
+    "--output",
+    "/private/tmp/progpu-candidate-metal.json",
+    "--commit",
+    "d22fcef3",
+    "--dirty",
+    "clean"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": true,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/instruments-summary.md",
+    "resourceCount": 42,
+    "maximumCurrentAllocatedBytes": 1589248,
+    "nativeHeapAndAnonymousVmPersistentBytes": 0
+  },
+  "captures": [
+    {
+      "Key": "metal",
+      "Template": "Metal System Trace",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-current-allocated-size.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-kernel-resource-allocations.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-application-command-buffer-submissions.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-command-buffer-completed.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-ca-client-buffer-wait-interval.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-metal-command-buffer-error.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-graphics-compiler-spill-events.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-hang-risks.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-metal/metal-time-profile.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 62370018,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 1482839,
+      "DeletedTemporaryBytes": 256092670
+    }
+  ]
+}
