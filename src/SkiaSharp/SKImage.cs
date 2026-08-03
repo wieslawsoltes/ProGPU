@@ -479,13 +479,16 @@ public partial class SKImage : SKObject
         }
     }
 
-    internal static SKImage FromOwnedTexture(GpuTexture texture, SKImageInfo? info = null)
+    internal static SKImage FromOwnedTexture(
+        GpuTexture texture,
+        SKImageInfo? info = null,
+        byte[]? portableRgbaPixels = null)
     {
         return new SKImage(
             texture,
             ownsTexture: true,
             info ?? CreateTextureInfo(texture),
-            portableRgbaPixels: null);
+            portableRgbaPixels);
     }
 
     internal static SKImage FromBorrowedTexture(GpuTexture texture, SKImageInfo info)
@@ -741,6 +744,27 @@ public partial class SKImage : SKObject
         if (dstPixels == IntPtr.Zero)
         {
             return false;
+        }
+
+        var portablePixels = _textureStorage.PortableRgbaPixels;
+        if (portablePixels is not null)
+        {
+            fixed (byte* portableBase = portablePixels)
+            {
+                var portableRowBytes = checked(_textureStorage.PortableRowWidth * 4);
+                var portableOffset = checked(
+                    (_originY * _textureStorage.PortableRowWidth + _originX) * 4);
+                using var source = new SKPixmap(
+                    CreateReadbackInfo(),
+                    (IntPtr)(portableBase + portableOffset),
+                    portableRowBytes);
+                return source.ReadPixels(
+                    dstInfo,
+                    dstPixels,
+                    dstRowBytes,
+                    srcX,
+                    srcY);
+            }
         }
 
         byte[] pixels = ReadTexturePixelsAsRgba8888();

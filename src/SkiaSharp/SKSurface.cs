@@ -567,9 +567,22 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
                 (uint)_width,
                 (uint)_height);
 
+            // A CPU-backed surface has already completed the required GPU
+            // readback during Flush. Transfer that immutable generation to the
+            // snapshot so ReadPixels and cross-context materialization do not
+            // map the same frame a second time. The surface allocates its next
+            // readback generation only after a subsequent drawing mutation.
+            var portableRgbaPixels = _pixels != IntPtr.Zero
+                ? _readbackPixels
+                : null;
             var generation = SKImage.FromOwnedTexture(
                 snapshotTexture,
-                new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace));
+                new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace),
+                portableRgbaPixels);
+            if (portableRgbaPixels is not null)
+            {
+                _readbackPixels = null;
+            }
             if (!_ownsTexture)
             {
                 var view = generation.CreateSharedTextureView(bounds);
