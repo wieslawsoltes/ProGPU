@@ -220,16 +220,20 @@ public sealed class SkCanvasStateTests
     {
         using var recorder = new SKPictureRecorder();
         var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        using var filter = SKImageFilter.CreateBlur(2f, 2f);
         using var layerPaint = new SKPaint
         {
             Color = new SKColor(32, 64, 128, 192),
-            ImageFilter = SKImageFilter.CreateBlur(2f, 2f),
+            ImageFilter = filter,
         };
         using var fill = new SKPaint { Color = SKColors.Red };
 
         var restoreCount = canvas.SaveLayer(
             new SKRect(1f, 2f, 81f, 74f),
             layerPaint);
+        layerPaint.ImageFilter = null;
+        layerPaint.Color = SKColors.White;
+        filter.Dispose();
         canvas.DrawRect(new SKRect(4f, 6f, 52f, 38f), fill);
         canvas.RestoreToCount(restoreCount);
         using var picture = recorder.EndRecording();
@@ -250,6 +254,10 @@ public sealed class SkCanvasStateTests
         Assert.DoesNotContain(
             picture.Picture.Commands,
             static retained => retained.Type == RenderCommandType.DrawTexture);
+        var opacity = Assert.Single(
+            picture.Picture.Commands,
+            static retained => retained.Type == RenderCommandType.PushOpacity);
+        Assert.InRange(opacity.FontSize, (192f / 255f) - 0.0001f, (192f / 255f) + 0.0001f);
         Assert.Equal(1, picture.Picture.RetainedResourceCount);
     }
 
