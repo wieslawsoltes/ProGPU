@@ -151,6 +151,10 @@ internal static class ProgramEntry
                 32,
                 RunAvaloniaSurfaceDirectReadback),
             new BenchmarkCase(
+                "avalonia-image-repeated-readback",
+                32,
+                RunAvaloniaImageRepeatedReadback),
+            new BenchmarkCase(
                 "avalonia-writeable-bitmap-snapshot",
                 128,
                 RunAvaloniaWriteableBitmapSnapshot),
@@ -566,6 +570,48 @@ internal static class ProgramEntry
                 {
                     throw new InvalidOperationException(
                         "The direct surface-readback benchmark could not read its frame.");
+                }
+
+                checksum = Mix(checksum, destinationPixels[0]);
+                checksum = Mix(checksum, destinationPixels[1]);
+                checksum = Mix(checksum, destinationPixels[2]);
+                checksum = Mix(checksum, destinationPixels[3]);
+            }
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaImageRepeatedReadback(int operations)
+    {
+        const int width = 64;
+        const int height = 48;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var destinationPixels = new byte[checked(width * height * 4)];
+        using var surface = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        surface.Canvas.Clear(new SKColor(31, 79, 143, 255));
+        using var image = surface.Snapshot();
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            for (var index = 0; index < operations; index++)
+            {
+                if (!image.ReadPixels(
+                        info,
+                        (IntPtr)destinationAddress,
+                        info.RowBytes,
+                        0,
+                        0,
+                        SKImageCachingHint.Disallow))
+                {
+                    throw new InvalidOperationException(
+                        "The repeated image-readback benchmark could not read its frame.");
                 }
 
                 checksum = Mix(checksum, destinationPixels[0]);

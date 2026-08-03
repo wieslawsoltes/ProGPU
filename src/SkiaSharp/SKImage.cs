@@ -34,6 +34,9 @@ public partial class SKImage : SKObject
         private int _ownsTexture;
         private readonly SKImageTextureReleaseDelegate? _releaseProc;
         private readonly object? _releaseContext;
+        private readonly object _readbackLock = new();
+        private GpuTextureReadbackBuffer? _readbackBuffer;
+        private byte[]? _readbackPixels;
 
         public TextureStorage(
             GpuTexture texture,
@@ -63,6 +66,32 @@ public partial class SKImage : SKObject
         public byte[]? PortableRgbaPixels { get; }
         public int PortableRowWidth { get; }
         public bool IsTextureBacked { get; }
+
+        public object ReadbackLock => _readbackLock;
+
+        public byte[] ReadTexturePixels()
+        {
+            var byteCount = checked(
+                (int)(Texture.Width * Texture.Height * 4));
+            if (_readbackPixels is null ||
+                _readbackPixels.Length != byteCount)
+            {
+                _readbackPixels =
+                    GC.AllocateUninitializedArray<byte>(byteCount);
+            }
+
+            _readbackBuffer ??= new GpuTextureReadbackBuffer(Texture.Context);
+            try
+            {
+                Texture.ReadPixels(_readbackPixels, _readbackBuffer);
+            }
+            finally
+            {
+                Texture.Context.CleanupPendingResources();
+            }
+
+            return _readbackPixels;
+        }
 
         bool IProGpuTextureSource.TryGetGpuTexture(out GpuTexture texture) =>
             TryGetGpuTexture(Texture.Context, out texture);
@@ -156,6 +185,13 @@ public partial class SKImage : SKObject
             if (Volatile.Read(ref _ownsTexture) != 0)
             {
                 Texture.Dispose();
+            }
+
+            lock (_readbackLock)
+            {
+                _readbackBuffer?.Dispose();
+                _readbackBuffer = null;
+                _readbackPixels = null;
             }
 
             _releaseProc?.Invoke(_releaseContext!);
@@ -787,14 +823,24 @@ public partial class SKImage : SKObject
             }
         }
 
-        byte[] pixels = ReadTexturePixelsAsRgba8888();
-        fixed (byte* sourcePixels = pixels)
+        lock (_textureStorage.ReadbackLock)
         {
-            using var source = new SKPixmap(
-                CreateReadbackInfo(),
-                (IntPtr)sourcePixels,
-                checked(Width * 4));
-            return source.ReadPixels(dstInfo, dstPixels, dstRowBytes, srcX, srcY);
+            byte[] pixels = _textureStorage.ReadTexturePixels();
+            fixed (byte* sourcePixels = pixels)
+            {
+                var sourceOffset = checked(
+                    (_originY * (int)Texture.Width + _originX) * 4);
+                using var source = new SKPixmap(
+                    CreateNativeTextureReadbackInfo(),
+                    (IntPtr)(sourcePixels + sourceOffset),
+                    checked((int)Texture.Width * 4));
+                return source.ReadPixels(
+                    dstInfo,
+                    dstPixels,
+                    dstRowBytes,
+                    srcX,
+                    srcY);
+            }
         }
     }
 
@@ -988,6 +1034,18 @@ public partial class SKImage : SKObject
         Width,
         Height,
         SKColorType.Rgba8888,
+        Texture.AlphaMode == GpuTextureAlphaMode.Straight
+            ? SKAlphaType.Unpremul
+            : SKAlphaType.Premul,
+        ColorSpace);
+
+    private SKImageInfo CreateNativeTextureReadbackInfo() => new(
+        Width,
+        Height,
+        Texture.Format is TextureFormat.Bgra8Unorm or
+            TextureFormat.Bgra8UnormSrgb
+                ? SKColorType.Bgra8888
+                : SKColorType.Rgba8888,
         Texture.AlphaMode == GpuTextureAlphaMode.Straight
             ? SKAlphaType.Unpremul
             : SKAlphaType.Premul,
