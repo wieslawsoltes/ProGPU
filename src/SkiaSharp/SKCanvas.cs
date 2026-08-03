@@ -3029,6 +3029,10 @@ public class SKCanvas : SKObject
 
     private void PushGeometryClipScope(PathGeometry geometry, Matrix4x4 transform)
     {
+        if (geometry.IsCombined)
+        {
+            geometry.MarkSharedSnapshot();
+        }
         int commandIndex = _context.Commands.Count;
         var command = new RenderCommand
         {
@@ -3057,7 +3061,7 @@ public class SKCanvas : SKObject
     private void GetPathDeviceBounds(SKPath path, out SKRect bounds, out bool isRect)
     {
         var transform = _currentMatrix.ToMatrix4x4();
-        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.Geometry, out var rect))
+        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.RetainedGeometry, out var rect))
         {
             bounds = _currentMatrix.MapRect(rect);
             isRect = true;
@@ -3556,12 +3560,12 @@ public class SKCanvas : SKObject
             if (IsInverseFillType(path.FillType))
             {
                 UpdateClipForIntersection(deviceBounds, isDeviceRect);
-                PushGeometryClipScope(path.Geometry, _currentMatrix.ToMatrix4x4());
+                PushGeometryClipScope(path.RetainedGeometry, _currentMatrix.ToMatrix4x4());
             }
             else
             {
                 UpdateClipForDifference(deviceBounds, isDeviceRect);
-                var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+                var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
                 PushGeometryClipScope(CreateCanvasDifferenceGeometry(excluded), Matrix4x4.Identity);
             }
             return;
@@ -3570,13 +3574,13 @@ public class SKCanvas : SKObject
         if (IsInverseFillType(path.FillType))
         {
             UpdateClipForDifference(deviceBounds, isDeviceRect);
-            var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+            var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
             PushGeometryClipScope(CreateCanvasDifferenceGeometry(excluded), Matrix4x4.Identity);
             return;
         }
 
         var transform = _currentMatrix.ToMatrix4x4();
-        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.Geometry, out var rect))
+        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.RetainedGeometry, out var rect))
         {
             UpdateClipForIntersection(deviceBounds, isDeviceRect);
             PushRectClipScope(rect, transform);
@@ -3584,7 +3588,7 @@ public class SKCanvas : SKObject
         }
 
         UpdateClipForIntersection(deviceBounds, isDeviceRect);
-        PushGeometryClipScope(path.Geometry, transform);
+        PushGeometryClipScope(path.RetainedGeometry, transform);
     }
 
     public void ClipRoundRect(
@@ -4035,7 +4039,7 @@ public class SKCanvas : SKObject
     {
             using var clipPath = new SKPath();
             clipPath.AddRoundRect(rect);
-            if (TryDrawSpecialShader(clipPath.Geometry, rect.Rect, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, rect.Rect, paint))
             {
                 return;
             }
@@ -4108,7 +4112,7 @@ public class SKCanvas : SKObject
         {
             using var clipPath = new SKPath();
             AddOvalPath(clipPath, rect);
-            if (TryDrawSpecialShader(clipPath.Geometry, rect, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, rect, paint))
             {
                 return;
             }
@@ -4151,7 +4155,7 @@ public class SKCanvas : SKObject
             using var clipPath = new SKPath();
             clipPath.AddCircle(cx, cy, radius);
             var bounds = new SKRect(cx - radius, cy - radius, cx + radius, cy + radius);
-            if (TryDrawSpecialShader(clipPath.Geometry, bounds, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, bounds, paint))
             {
                 return;
             }
@@ -4236,7 +4240,7 @@ public class SKCanvas : SKObject
             effectedPath.Dispose();
         }
 
-        if (TryDrawSpecialShader(path.Geometry, path.Bounds, paint))
+        if (TryDrawSpecialShader(path.RetainedGeometry, path.RetainedBounds, paint))
         {
             return;
         }
@@ -4251,7 +4255,7 @@ public class SKCanvas : SKObject
             {
                 if (brush != null)
                 {
-                    var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+                    var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
                     AddDrawPathCommand(
                         CreateCanvasDifferenceGeometry(excluded),
                         brush,
@@ -4264,7 +4268,7 @@ public class SKCanvas : SKObject
                 if (pen != null)
                 {
                     AddDrawPathCommand(
-                        path.Geometry,
+                        path.RetainedGeometry,
                         null,
                         pen,
                         _currentMatrix.ToMatrix4x4(),
@@ -4276,7 +4280,7 @@ public class SKCanvas : SKObject
             }
 
             AddDrawPathCommand(
-                path.Geometry,
+                path.RetainedGeometry,
                 brush,
                 pen,
                 _currentMatrix.ToMatrix4x4(),
@@ -4412,6 +4416,10 @@ public class SKCanvas : SKObject
         bool isEdgeAliased = false,
         TextPathRasterizationInfo? textRasterization = null)
     {
+        if (path.IsCombined)
+        {
+            path.MarkSharedSnapshot();
+        }
         var textInfo = textRasterization.GetValueOrDefault();
         _context.Commands.Add(new RenderCommand
         {
@@ -4624,7 +4632,7 @@ public class SKCanvas : SKObject
                 using var fillPath = paint.GetFillPath(sourcePath);
                 if (fillPath != null)
                 {
-                    DrawShaderLayer(shader!, fillPath.Geometry, fillPath.Bounds, paint, drawAsFill: true);
+                    DrawShaderLayer(shader!, fillPath.RetainedGeometry, fillPath.RetainedBounds, paint, drawAsFill: true);
                 }
             }
         }

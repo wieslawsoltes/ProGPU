@@ -99,6 +99,17 @@ enum FillRule
     Nonzero = 1
 }
 
+internal enum CombinedPathQueryKind : byte
+{
+    Unknown = 0,
+    Empty = 1,
+    BoundsOperandA = 2,
+    BoundsOperandB = 3,
+    UnionBounds = 4,
+    ResultOperandA = 5,
+    ResultOperandB = 6,
+}
+
 #if PROGPU_VECTOR_INTERNAL
 internal
 #else
@@ -210,19 +221,82 @@ public
 #endif
 class PathGeometry : IGeometrySource2D
 {
-    public List<PathFigure> Figures { get; } = new();
+    private const byte CombinedBit = 1 << 0;
+    private const byte SharedSnapshotBit = 1 << 1;
+    private const int QueryKindShift = 2;
+
+    private byte _combinedState;
+    private List<PathFigure>? _figures;
+
+    public List<PathFigure> Figures => _figures ??= new List<PathFigure>();
     public FillRule FillRule { get; set; } = FillRule.Nonzero;
 
-    public bool IsCombined { get; set; }
+    public bool IsCombined
+    {
+        get => (_combinedState & CombinedBit) != 0;
+        set => _combinedState = value
+            ? (byte)(_combinedState | CombinedBit)
+            : (byte)(_combinedState & ~CombinedBit);
+    }
     public PathGeometry? PathA { get; set; }
     public PathGeometry? PathB { get; set; }
     public int Op { get; set; }
+
+    internal bool IsSharedSnapshot => (_combinedState & SharedSnapshotBit) != 0;
+    internal CombinedPathQueryKind CombinedQueryKind =>
+        (CombinedPathQueryKind)(_combinedState >> QueryKindShift);
+    internal bool? CombinedIsEmpty => CombinedQueryKind switch
+    {
+        CombinedPathQueryKind.Empty => true,
+        CombinedPathQueryKind.Unknown => null,
+        _ => false,
+    };
+    internal bool HasExactCombinedBounds =>
+        CombinedQueryKind != CombinedPathQueryKind.Unknown;
+
+    internal void MarkSharedSnapshot() => _combinedState |= SharedSnapshotBit;
+
+    internal void SetCombinedQueryKind(CombinedPathQueryKind kind)
+    {
+        _combinedState = (byte)(
+            (_combinedState & (CombinedBit | SharedSnapshotBit)) |
+            ((byte)kind << QueryKindShift));
+    }
+
+    internal void InitializeDeferred(
+        PathGeometry pathA,
+        PathGeometry pathB,
+        int op,
+        FillRule fillRule)
+    {
+        _combinedState = CombinedBit;
+        PathA = pathA;
+        PathB = pathB;
+        Op = op;
+        FillRule = fillRule;
+    }
+
+    internal bool TryResetDeferredForReuse()
+    {
+        if (!IsCombined || IsSharedSnapshot || _figures is { Count: > 0 })
+        {
+            return false;
+        }
+
+        _figures?.Clear();
+        _combinedState = 0;
+        PathA = null;
+        PathB = null;
+        Op = 0;
+        FillRule = FillRule.Nonzero;
+        return true;
+    }
 
     public PathGeometry CreateTransformed(Matrix4x4 transform)
     {
         if (IsCombined)
         {
-            return new PathGeometry
+            var result = new PathGeometry
             {
                 IsCombined = true,
                 PathA = PathA?.CreateTransformed(transform) ?? new PathGeometry(),
@@ -230,6 +304,8 @@ class PathGeometry : IGeometrySource2D
                 Op = Op,
                 FillRule = FillRule
             };
+            result.SetCombinedQueryKind(CombinedQueryKind);
+            return result;
         }
 
         var path = new PathGeometry
@@ -400,6 +476,22 @@ class PathGeometry : IGeometrySource2D
 
     private bool TryGetCombinedBounds(out Vector2 min, out Vector2 max)
     {
+        switch (CombinedQueryKind)
+        {
+            case CombinedPathQueryKind.Empty:
+                min = default;
+                max = default;
+                return false;
+            case CombinedPathQueryKind.BoundsOperandA:
+            case CombinedPathQueryKind.ResultOperandA:
+                return TryGetOperandBounds(PathA, out min, out max);
+            case CombinedPathQueryKind.BoundsOperandB:
+            case CombinedPathQueryKind.ResultOperandB:
+                return TryGetOperandBounds(PathB, out min, out max);
+            case CombinedPathQueryKind.UnionBounds:
+                return TryGetUnionBounds(PathA, PathB, out min, out max);
+        }
+
         Vector2 minA = default;
         Vector2 maxA = default;
         Vector2 minB = default;
@@ -478,6 +570,59 @@ class PathGeometry : IGeometrySource2D
                 max = default;
                 return false;
         }
+    }
+
+    private static bool TryGetOperandBounds(
+        PathGeometry? path,
+        out Vector2 min,
+        out Vector2 max)
+    {
+        if (path?.TryGetBounds(out min, out max) == true)
+        {
+            return true;
+        }
+
+        min = default;
+        max = default;
+        return false;
+    }
+
+    private static bool TryGetUnionBounds(
+        PathGeometry? pathA,
+        PathGeometry? pathB,
+        out Vector2 min,
+        out Vector2 max)
+    {
+        Vector2 minA = default;
+        Vector2 maxA = default;
+        Vector2 minB = default;
+        Vector2 maxB = default;
+        bool hasA = pathA?.TryGetBounds(out minA, out maxA) == true;
+        bool hasB = pathB?.TryGetBounds(out minB, out maxB) == true;
+        if (hasA && hasB)
+        {
+            min = Vector2.Min(minA, minB);
+            max = Vector2.Max(maxA, maxB);
+            return true;
+        }
+
+        if (hasA)
+        {
+            min = minA;
+            max = maxA;
+            return true;
+        }
+
+        if (hasB)
+        {
+            min = minB;
+            max = maxB;
+            return true;
+        }
+
+        min = default;
+        max = default;
+        return false;
     }
 
     /// <summary>

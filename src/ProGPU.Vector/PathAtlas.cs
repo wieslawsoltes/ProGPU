@@ -791,6 +791,36 @@ public unsafe class PathAtlas : IDisposable
                 return (Array.Empty<GpuPathRecord>(), Array.Empty<GpuPathSegment>());
             }
 
+            if (path.CombinedQueryKind == CombinedPathQueryKind.Empty)
+            {
+                localMinX = localMinY = localMaxX = localMaxY = 0f;
+                return (Array.Empty<GpuPathRecord>(), Array.Empty<GpuPathSegment>());
+            }
+
+            if (path.CombinedQueryKind == CombinedPathQueryKind.ResultOperandA &&
+                CanCompileDeferredOperand(path, path.PathA))
+            {
+                return CompilePathCore(
+                    path.PathA,
+                    fillOnly,
+                    out localMinX,
+                    out localMinY,
+                    out localMaxX,
+                    out localMaxY);
+            }
+
+            if (path.CombinedQueryKind == CombinedPathQueryKind.ResultOperandB &&
+                CanCompileDeferredOperand(path, path.PathB))
+            {
+                return CompilePathCore(
+                    path.PathB,
+                    fillOnly,
+                    out localMinX,
+                    out localMinY,
+                    out localMaxX,
+                    out localMaxY);
+            }
+
             var combined = PathOpGeometrySolver.Combine(path.PathA, path.PathB, path.Op);
             return CompilePathCore(
                 combined,
@@ -956,6 +986,11 @@ public unsafe class PathAtlas : IDisposable
 
         return (records, CopySegments(segments));
     }
+
+    private static bool CanCompileDeferredOperand(
+        PathGeometry combined,
+        PathGeometry operand) =>
+        combined.FillRule == operand.FillRule || operand.Figures.Count == 1;
 
     private static int EstimateSegmentCapacity(List<PathFigure> figures, bool fillOnly)
     {

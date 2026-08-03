@@ -49,15 +49,37 @@ internal static class RoundedRectanglePathGeometry
         float height = bottom - top;
         float tolerance = GetTolerance(width, height);
         if (!float.IsFinite(width) || !float.IsFinite(height) ||
-            width <= tolerance || height <= tolerance ||
-            !NearlyEqual(figure.StartPoint.Y, top, tolerance))
+            width <= tolerance || height <= tolerance)
         {
             return false;
         }
 
         List<PathSegment> segments = figure.Segments;
+        int rotation = -1;
+        Vector2 contourStart = default;
+        for (int candidate = 0; candidate < segments.Count; candidate++)
+        {
+            Vector2 candidateStart = candidate == 0
+                ? figure.StartPoint
+                : GetEndPoint(segments[candidate - 1]);
+            if (segments[candidate] is LineSegment candidateLine &&
+                NearlyEqual(candidateStart.Y, top, tolerance) &&
+                NearlyEqual(candidateLine.Point.Y, top, tolerance) &&
+                candidateLine.Point.X + tolerance >= candidateStart.X)
+            {
+                rotation = candidate;
+                contourStart = candidateStart;
+                break;
+            }
+        }
+
+        if (rotation < 0)
+        {
+            return false;
+        }
+
         int segmentIndex = 0;
-        Vector2 current = figure.StartPoint;
+        Vector2 current = contourStart;
         var radiiX = Vector4.Zero;
         var radiiY = Vector4.Zero;
 
@@ -106,7 +128,7 @@ internal static class RoundedRectanglePathGeometry
                 ref radiiX,
                 ref radiiY) ||
             segmentIndex != segments.Count ||
-            !PointsEqual(current, figure.StartPoint, tolerance) ||
+            !PointsEqual(current, contourStart, tolerance) ||
             radiiX.X + radiiX.Y > width + tolerance ||
             radiiX.W + radiiX.Z > width + tolerance ||
             radiiY.X + radiiY.W > height + tolerance ||
@@ -131,7 +153,7 @@ internal static class RoundedRectanglePathGeometry
             ref Vector2 point)
         {
             if (segmentIndex >= segments.Count ||
-                segments[segmentIndex++] is not LineSegment line ||
+                GetSegment(segmentIndex++) is not LineSegment line ||
                 !IsFinite(line.Point))
             {
                 return false;
@@ -162,7 +184,7 @@ internal static class RoundedRectanglePathGeometry
             ref Vector4 yRadii)
         {
             if (segmentIndex >= segments.Count ||
-                segments[segmentIndex] is not ArcSegment arc)
+                GetSegment(segmentIndex) is not ArcSegment arc)
             {
                 return PointsEqual(point, corner, tolerance);
             }
@@ -234,6 +256,19 @@ internal static class RoundedRectanglePathGeometry
             point = end;
             return true;
         }
+
+
+        PathSegment GetSegment(int relativeIndex) =>
+            segments[(rotation + relativeIndex) % segments.Count];
+
+        static Vector2 GetEndPoint(PathSegment segment) => segment switch
+        {
+            LineSegment line => line.Point,
+            QuadraticBezierSegment quadratic => quadratic.Point,
+            CubicBezierSegment cubic => cubic.Point,
+            ArcSegment arc => arc.Point,
+            _ => default,
+        };
     }
 
     public static bool Contains(
@@ -249,6 +284,19 @@ internal static class RoundedRectanglePathGeometry
             inner.Height <= tolerance)
         {
             return false;
+        }
+
+        // A canonical rounded rectangle is convex. If the outer contour owns
+        // all four corners of the inner contour's bounding rectangle, it owns
+        // that rectangle and therefore the entire inner contour. This proves
+        // common inset ellipse/circle containment without approximating either
+        // analytic boundary.
+        if (ContainsPoint(outer, new Vector2(inner.Left, inner.Top), tolerance) &&
+            ContainsPoint(outer, new Vector2(inner.Right, inner.Top), tolerance) &&
+            ContainsPoint(outer, new Vector2(inner.Right, inner.Bottom), tolerance) &&
+            ContainsPoint(outer, new Vector2(inner.Left, inner.Bottom), tolerance))
+        {
+            return true;
         }
 
         for (int cornerIndex = 0; cornerIndex < 4; cornerIndex++)
@@ -284,6 +332,22 @@ internal static class RoundedRectanglePathGeometry
         }
 
         return true;
+    }
+
+    public static bool ContainsBounds(
+        RoundedRectanglePathContour outer,
+        Vector2 min,
+        Vector2 max)
+    {
+        float tolerance = GetTolerance(outer.Width, outer.Height);
+        return min.X >= outer.Left - tolerance &&
+            min.Y >= outer.Top - tolerance &&
+            max.X <= outer.Right + tolerance &&
+            max.Y <= outer.Bottom + tolerance &&
+            ContainsPoint(outer, new Vector2(min.X, min.Y), tolerance) &&
+            ContainsPoint(outer, new Vector2(max.X, min.Y), tolerance) &&
+            ContainsPoint(outer, new Vector2(max.X, max.Y), tolerance) &&
+            ContainsPoint(outer, new Vector2(min.X, max.Y), tolerance);
     }
 
     public static bool HasPartialRoundedCorners(RoundedRectanglePathContour contour)

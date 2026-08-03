@@ -11,6 +11,8 @@ namespace SkiaSharp;
 public partial class SKPath : SKObject
 {
     private const string UsePathBuilderMessage = "Use SKPathBuilder instead.";
+    [ThreadStatic]
+    private static PathGeometry? s_deferredGeometryCache;
     public override IntPtr Handle
     {
         get => base.Handle;
@@ -27,7 +29,8 @@ public partial class SKPath : SKObject
 
     internal PackedPathData? PackedPathData => _packedPathData;
 
-    public PathGeometry Geometry => EnsureGeometry();
+    public PathGeometry Geometry => EnsureWritableGeometry();
+    internal PathGeometry RetainedGeometry => EnsureGeometry();
     public SKPathFillType FillType
     {
         get => _fillType;
@@ -36,7 +39,7 @@ public partial class SKPath : SKObject
             _fillType = value;
             if (_geometry is not null)
             {
-                _geometry.FillRule = value is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
+                EnsureWritableGeometry().FillRule = value is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
                     ? FillRule.EvenOdd
                     : FillRule.Nonzero;
             }
@@ -56,6 +59,13 @@ public partial class SKPath : SKObject
         _packedPathData = packedPathData ?? throw new ArgumentNullException(nameof(packedPathData));
         _currentPoint = packedPathData.CurrentPoint;
         _contourStart = packedPathData.ContourStart;
+        _fillType = fillType;
+    }
+
+    private SKPath(PathGeometry geometry, SKPathFillType fillType)
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+        _geometry = geometry ?? throw new ArgumentNullException(nameof(geometry));
         _fillType = fillType;
     }
 
@@ -118,7 +128,28 @@ public partial class SKPath : SKObject
                 return _packedPathData.CalculateBounds();
             }
 
-            return Geometry.TryGetBounds(out var min, out var max)
+            var geometry = RetainedGeometry;
+            if (geometry.IsCombined && !geometry.HasExactCombinedBounds)
+            {
+                geometry = EnsureSolvedGeometry();
+            }
+
+            return geometry.TryGetBounds(out var min, out var max)
+                ? new SKRect(min.X, min.Y, max.X, max.Y)
+                : SKRect.Empty;
+        }
+    }
+
+    internal SKRect RetainedBounds
+    {
+        get
+        {
+            if (_packedPathData is { } packed)
+            {
+                return packed.CalculateBounds();
+            }
+
+            return RetainedGeometry.TryGetBounds(out var min, out var max)
                 ? new SKRect(min.X, min.Y, max.X, max.Y)
                 : SKRect.Empty;
         }
@@ -133,14 +164,14 @@ public partial class SKPath : SKObject
                 return packed.CalculateTightBounds();
             }
 
-            if (Geometry.IsCombined)
+            if (RetainedGeometry.IsCombined)
             {
                 return Bounds;
             }
 
             var bounds = new SKPathBoundsAccumulator();
 
-            foreach (var figure in Geometry.Figures)
+            foreach (var figure in RetainedGeometry.Figures)
             {
                 var current = figure.StartPoint;
                 bounds.Include(current);
@@ -196,7 +227,24 @@ public partial class SKPath : SKObject
         }
     }
 
-    public bool IsEmpty => _packedPathData?.IsEmpty ?? Geometry.Figures.Count == 0;
+    public bool IsEmpty
+    {
+        get
+        {
+            if (_packedPathData is { } packed)
+            {
+                return packed.IsEmpty;
+            }
+
+            var geometry = RetainedGeometry;
+            if (!geometry.IsCombined)
+            {
+                return geometry.Figures.Count == 0;
+            }
+
+            return geometry.CombinedIsEmpty ?? EnsureSolvedGeometry().Figures.Count == 0;
+        }
+    }
 
     private PathGeometry EnsureGeometry()
     {
@@ -225,6 +273,49 @@ public partial class SKPath : SKObject
         return _geometry;
     }
 
+    private PathGeometry EnsureSolvedGeometry()
+    {
+        var geometry = EnsureGeometry();
+        if (!geometry.IsCombined)
+        {
+            return geometry;
+        }
+
+        PathGeometry solved;
+        if (geometry.PathA is null || geometry.PathB is null)
+        {
+            solved = new PathGeometry { FillRule = geometry.FillRule };
+        }
+        else
+        {
+            solved = PathOpGeometrySolver.Combine(geometry.PathA, geometry.PathB, geometry.Op);
+        }
+
+        _geometry = solved;
+        ReturnDeferredGeometry(geometry);
+        RestoreCurrentState();
+        return solved;
+    }
+
+    private PathGeometry EnsureWritableGeometry()
+    {
+        var geometry = EnsureSolvedGeometry();
+        if (!geometry.IsSharedSnapshot)
+        {
+            return geometry;
+        }
+
+        var clone = new PathGeometry { FillRule = geometry.FillRule };
+        foreach (var figure in geometry.Figures)
+        {
+            clone.Figures.Add(CloneFigure(figure, Vector2.Zero));
+        }
+
+        _geometry = clone;
+        RestoreCurrentState();
+        return clone;
+    }
+
     internal void ReplaceWithOwned(SKPath source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -234,6 +325,11 @@ public partial class SKPath : SKObject
         }
 
         _packedPathData?.Dispose();
+        if (_geometry is { } previous &&
+            !ReferenceEquals(previous, source._geometry))
+        {
+            ReturnDeferredGeometry(previous);
+        }
         _packedPathData = source._packedPathData;
         _geometry = source._geometry;
         _currentFigure = source._currentFigure;
@@ -687,10 +783,13 @@ public partial class SKPath : SKObject
 
     public SKPath Op(SKPath other, SKPathOp op)
     {
-        var result = new SKPath();
-        var solvedGeometry = PathOpGeometrySolver.Combine(this.Geometry, other.Geometry, (int)op);
-        ApplySolvedGeometry(result, solvedGeometry);
-        return result;
+        ArgumentNullException.ThrowIfNull(other);
+        var geometry = PathOpGeometrySolver.CreateDeferred(
+            RetainedGeometry,
+            other.RetainedGeometry,
+            (int)op,
+            RentDeferredGeometry());
+        return new SKPath(geometry, ToSkPathFillType(geometry.FillRule));
     }
 
     public bool Op(SKPath other, SKPathOp op, SKPath result)
@@ -701,20 +800,38 @@ public partial class SKPath : SKObject
             return false;
         }
 
-        var solvedGeometry = PathOpGeometrySolver.Combine(Geometry, other.Geometry, (int)op);
-        ApplySolvedGeometry(result, solvedGeometry);
+        var geometry = PathOpGeometrySolver.CreateDeferred(
+            RetainedGeometry,
+            other.RetainedGeometry,
+            (int)op,
+            RentDeferredGeometry());
+        result.ReplaceWithDeferredGeometry(geometry);
         return true;
+    }
+
+    private void ReplaceWithDeferredGeometry(PathGeometry geometry)
+    {
+        _packedPathData?.Dispose();
+        _packedPathData = null;
+        if (_geometry is { } previous)
+        {
+            ReturnDeferredGeometry(previous);
+        }
+        _geometry = geometry;
+        _fillType = ToSkPathFillType(geometry.FillRule);
+        ResetCurrentState();
     }
 
     private static void ApplySolvedGeometry(SKPath result, PathGeometry solvedGeometry)
     {
-        result.Geometry.Figures.Clear();
-        result.FillType = ToSkPathFillType(solvedGeometry.FillRule);
-        foreach (var fig in solvedGeometry.Figures)
+        result._packedPathData?.Dispose();
+        result._packedPathData = null;
+        if (result._geometry is { } previous)
         {
-            result.Geometry.Figures.Add(fig);
+            ReturnDeferredGeometry(previous);
         }
-
+        result._geometry = solvedGeometry;
+        result._fillType = ToSkPathFillType(solvedGeometry.FillRule);
         result.RestoreCurrentState();
     }
 
@@ -725,12 +842,37 @@ public partial class SKPath : SKObject
             : SKPathFillType.Winding;
     }
 
+    private static PathGeometry RentDeferredGeometry()
+    {
+        var geometry = s_deferredGeometryCache;
+        if (geometry is null)
+        {
+            return new PathGeometry();
+        }
+
+        s_deferredGeometryCache = null;
+        return geometry;
+    }
+
+    private static void ReturnDeferredGeometry(PathGeometry geometry)
+    {
+        if (s_deferredGeometryCache is null && geometry.TryResetDeferredForReuse())
+        {
+            s_deferredGeometryCache = geometry;
+        }
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
             _packedPathData?.Dispose();
             _packedPathData = null;
+            if (_geometry is { } geometry)
+            {
+                _geometry = null;
+                ReturnDeferredGeometry(geometry);
+            }
         }
 
         base.Dispose(disposing);
