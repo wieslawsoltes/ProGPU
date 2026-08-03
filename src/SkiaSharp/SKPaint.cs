@@ -24,6 +24,10 @@ public partial class SKPaint : SKObject
     private SKBlendMode _blendMode = SKBlendMode.SrcOver;
     private SKPathEffect? _pathEffect;
     private float _strokeWidth;
+    private SolidColorBrush? _retainedSolidBrush;
+    private SKColor _retainedSolidBrushColor;
+    private Pen? _retainedScaledPen;
+    private Pen? _retainedLocalPen;
 
     public SKPaintStyle Style { get; set; } = SKPaintStyle.Fill;
     public SKColor Color { get; set; } = SKColors.Black;
@@ -236,6 +240,22 @@ public partial class SKPaint : SKObject
         return ApplyMaskFilter(new SolidColorBrush(c));
     }
 
+    // Ordinary Avalonia drawing repeatedly records the same mutable SKPaint.
+    // Reuse only the package-private retained resources for the immutable,
+    // effect-free solid-color case. Public conversion methods continue to
+    // return independent mutable objects. Lookup is allocation-free O(1).
+    internal Brush? ToRetainedBrush()
+    {
+        if (Style == SKPaintStyle.Stroke)
+        {
+            return null;
+        }
+
+        return TryGetRetainedSolidBrush(out var brush)
+            ? brush
+            : ToFillBrush();
+    }
+
     public Pen? ToPen()
     {
         return ToPen(1f);
@@ -275,6 +295,25 @@ public partial class SKPaint : SKObject
             dashOffset);
     }
 
+    internal Pen? ToRetainedPen(float strokeScale)
+    {
+        if (Style == SKPaintStyle.Fill)
+        {
+            return null;
+        }
+
+        var scaledStrokeWidth = ScaleStrokeWidth(StrokeWidth, strokeScale);
+        if (!TryGetRetainedSolidBrush(out var brush))
+        {
+            return ToPen(strokeScale);
+        }
+
+        return GetOrCreateRetainedPen(
+            ref _retainedScaledPen,
+            brush,
+            scaledStrokeWidth);
+    }
+
     internal Pen? ToLocalPen(float strokeScale)
     {
         if (Style == SKPaintStyle.Fill) return null;
@@ -285,6 +324,14 @@ public partial class SKPaint : SKObject
             localStrokeWidth = float.IsFinite(strokeScale) && strokeScale > 0f
                 ? HairlineStrokeWidth / strokeScale
                 : HairlineStrokeWidth;
+        }
+
+        if (TryGetRetainedSolidBrush(out var retainedBrush))
+        {
+            return GetOrCreateRetainedPen(
+                ref _retainedLocalPen,
+                retainedBrush,
+                localStrokeWidth);
         }
 
         Brush penBrush;
@@ -316,6 +363,62 @@ public partial class SKPaint : SKObject
             MapStrokeCap(StrokeCap),
             dashArray,
             dashOffset);
+    }
+
+    private bool TryGetRetainedSolidBrush(out SolidColorBrush brush)
+    {
+        if (Shader != null ||
+            ColorFilter != null ||
+            MaskFilter != null ||
+            PathEffect != null)
+        {
+            brush = null!;
+            return false;
+        }
+
+        if (_retainedSolidBrush == null ||
+            _retainedSolidBrushColor != Color)
+        {
+            var color = Color;
+            _retainedSolidBrush = new SolidColorBrush(new Vector4(
+                color.R / 255.0f,
+                color.G / 255.0f,
+                color.B / 255.0f,
+                color.A / 255.0f));
+            _retainedSolidBrushColor = color;
+        }
+
+        brush = _retainedSolidBrush;
+        return true;
+    }
+
+    private Pen GetOrCreateRetainedPen(
+        ref Pen? cached,
+        SolidColorBrush brush,
+        float strokeWidth)
+    {
+        var lineJoin = MapStrokeJoin(StrokeJoin);
+        var lineCap = MapStrokeCap(StrokeCap);
+        if (cached == null ||
+            !ReferenceEquals(cached.Brush, brush) ||
+            cached.Thickness != strokeWidth ||
+            cached.LineJoin != lineJoin ||
+            cached.MiterLimit != StrokeMiter ||
+            cached.StartLineCap != lineCap ||
+            cached.EndLineCap != lineCap ||
+            cached.DashCap != lineCap)
+        {
+            cached = new Pen(
+                brush,
+                strokeWidth,
+                lineJoin,
+                StrokeMiter,
+                lineCap,
+                lineCap,
+                lineCap);
+        }
+
+        return cached;
     }
 
     internal Pen ToPen(Brush brush, float strokeScale)

@@ -3741,7 +3741,8 @@ public class SKCanvas : SKObject
     public void DrawRect(float x, float y, float w, float h, SKPaint paint)
     {
         var rect = new SKRect(x, y, x + w, y + h);
-        if (TryDrawSpecialShader(CreateRectGeometry(rect), rect, paint))
+        if (HasSpecialShader(paint.Shader) &&
+            TryDrawSpecialShader(CreateRectGeometry(rect), rect, paint))
         {
             return;
         }
@@ -3749,7 +3750,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3794,7 +3795,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3859,7 +3860,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3902,7 +3903,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3986,8 +3987,8 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
-            var pen = paint.ToPen(GetCurrentStrokeScale());
+            var brush = paint.ToRetainedBrush();
+            var pen = paint.ToRetainedPen(GetCurrentStrokeScale());
 
             if (IsInverseFillType(path.FillType))
             {
@@ -5868,7 +5869,7 @@ public class SKCanvas : SKObject
             return;
         }
 
-        var brush = paint.ToBrush();
+        var brush = paint.ToRetainedBrush();
         if (brush == null)
         {
             return;

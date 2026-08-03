@@ -158,6 +158,58 @@ public sealed class SkCanvasCoreOperationCompatibilityTests
     }
 
     [Fact]
+    public void OrdinaryRectangleRecordingAllocatesNothingAfterWarmup()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 20f, 20f);
+        using var paint = new SKPaint { Color = SKColors.Red };
+        var rect = new SKRect(2f, 3f, 18f, 17f);
+
+        canvas.DrawRect(rect, paint);
+        context.Clear();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 100_000; index++)
+        {
+            canvas.DrawRect(rect, paint);
+            context.Clear();
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void RetainedSolidPaintResourcesReuseWithoutMutatingEarlierCommands()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 20f, 20f);
+        using var paint = new SKPaint
+        {
+            Color = SKColors.Red,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f
+        };
+
+        canvas.DrawRect(new SKRect(1f, 1f, 8f, 8f), paint);
+        canvas.DrawRect(new SKRect(2f, 2f, 9f, 9f), paint);
+        var first = context.Commands[0].Pen!;
+        Assert.Same(first, context.Commands[1].Pen);
+
+        paint.Color = SKColors.Blue;
+        canvas.DrawRect(new SKRect(3f, 3f, 10f, 10f), paint);
+        var changed = context.Commands[2].Pen!;
+        Assert.NotSame(first, changed);
+        Assert.Equal(
+            new Vector4(1f, 0f, 0f, 1f),
+            Assert.IsType<SolidColorBrush>(first.Brush).Color);
+        Assert.Equal(
+            new Vector4(0f, 0f, 1f, 1f),
+            Assert.IsType<SolidColorBrush>(changed.Brush).Color);
+
+        Assert.NotSame(paint.ToPen(), paint.ToPen());
+    }
+
+    [Fact]
     public void RetainedCanvasStateInitializationAvoidsDuplicateClipCommandStorage()
     {
         const int iterations = 128;
@@ -195,4 +247,5 @@ public sealed class SkCanvasCoreOperationCompatibilityTests
         using var picture = recorder.EndRecording();
         GC.KeepAlive(picture);
     }
+
 }
