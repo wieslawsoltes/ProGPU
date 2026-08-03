@@ -1,6 +1,7 @@
 #pragma warning disable CS0618 // The shim internally composes its official legacy SKPath contract.
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -160,7 +161,7 @@ public class SKCanvas : SKObject
 
         public int Count { get; private set; }
 
-        public ref readonly T this[int index] => ref _items![index];
+        public ref T this[int index] => ref _items![index];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Push(T item)
@@ -6174,7 +6175,60 @@ public class SKCanvas : SKObject
         using var surface = SKSurface.Create(_bitmap.Info, _bitmap.GetPixels(), _bitmap.RowBytes);
         surface.Canvas.DrawingContext.Append(_context);
         surface.Flush();
-        _context.Clear();
+        ResetBitmapContextAfterFlush(_context);
+    }
+
+    private void ResetBitmapContextAfterFlush(DrawingContext context)
+    {
+        var activeScopeCount = 0;
+        for (var index = 0; index < _pushedScopes.Count; index++)
+        {
+            ref readonly var scope = ref _pushedScopes[index];
+            if (ReferenceEquals(scope.Context, context) &&
+                scope.Kind is PushKind.RectClip or PushKind.GeometryClip)
+            {
+                activeScopeCount++;
+            }
+        }
+
+        if (activeScopeCount == 0)
+        {
+            context.Clear();
+            return;
+        }
+
+        var commands = ArrayPool<RenderCommand>.Shared.Rent(activeScopeCount);
+        try
+        {
+            var commandOffset = 0;
+            for (var index = 0; index < _pushedScopes.Count; index++)
+            {
+                ref readonly var scope = ref _pushedScopes[index];
+                if (ReferenceEquals(scope.Context, context) &&
+                    scope.Kind is PushKind.RectClip or PushKind.GeometryClip)
+                {
+                    commands[commandOffset++] = context.Commands[scope.CommandIndex];
+                }
+            }
+
+            context.Clear();
+            commandOffset = 0;
+            for (var index = 0; index < _pushedScopes.Count; index++)
+            {
+                ref var scope = ref _pushedScopes[index];
+                if (ReferenceEquals(scope.Context, context) &&
+                    scope.Kind is PushKind.RectClip or PushKind.GeometryClip)
+                {
+                    var commandIndex = context.Commands.Count;
+                    context.Commands.Add(commands[commandOffset++]);
+                    scope = new PushedScope(scope.Kind, context, commandIndex);
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<RenderCommand>.Shared.Return(commands, clearArray: true);
+        }
     }
 
     internal void ReleaseLayerTexturesAfterFlush()
