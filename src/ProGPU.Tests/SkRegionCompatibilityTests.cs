@@ -184,6 +184,45 @@ public sealed class SkRegionCompatibilityTests
         Assert.False(boundary.Contains(25f, 5f));
     }
 
+    [Fact]
+    public void WarmedDirtyRegionUnionAndQueriesAllocateNoManagedMemory()
+    {
+        using var region = new SKRegion();
+
+        static bool Update(SKRegion target)
+        {
+            var valid = true;
+            target.SetEmpty();
+            for (var index = 0; index < 24; index++)
+            {
+                var x = index * 3;
+                valid &= target.Op(
+                    x,
+                    index & 3,
+                    x + 12,
+                    (index & 3) + 10,
+                    SKRegionOperation.Union);
+            }
+
+            valid &= target.Bounds == new SKRectI(0, 0, 81, 13);
+            valid &= target.Contains(15, 5);
+            valid &= target.Intersects(new SKRectI(48, 2, 54, 8));
+            return valid;
+        }
+
+        Assert.True(Update(region));
+        var valid = true;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var iteration = 0; iteration < 1_000; iteration++)
+        {
+            valid &= Update(region);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(valid);
+        Assert.Equal(0, allocated);
+    }
+
     private static SKRectI[] ReadRects(SKRegion.RectIterator iterator)
     {
         var rects = new List<SKRectI>();
