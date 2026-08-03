@@ -73,6 +73,43 @@ public sealed class SkTextBlobTests
     }
 
     [Fact]
+    public void ReusedBuilderKeepsOneBoundedPositionedScratchRun()
+    {
+        using var builder = new SKTextBlobBuilder();
+        using var font = new SKFont(SKTypeface.Default, 12f);
+        var glyphs = new ushort[32];
+        var positions = new SKPoint[32];
+
+        _ = BuildPositionedBlob(builder, font, glyphs, positions, 1);
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var checksum = BuildPositionedBlob(builder, font, glyphs, positions, 100);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(100, checksum);
+        Assert.InRange(allocated / 100, 0, 720);
+    }
+
+    private static int BuildPositionedBlob(
+        SKTextBlobBuilder builder,
+        SKFont font,
+        ushort[] glyphs,
+        SKPoint[] positions,
+        int count)
+    {
+        var checksum = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var run = builder.AllocatePositionedRun(font, glyphs.Length);
+            run.SetGlyphs(glyphs);
+            run.SetPositions(positions);
+            using var blob = builder.Build();
+            checksum += blob is null ? 0 : 1;
+        }
+
+        return checksum;
+    }
+
+    [Fact]
     public void GetInterceptsPreservesPerGlyphIntervalsAndTruncatesShortSpans()
     {
         using var font = new SKFont(SKTypeface.Default, 40f);

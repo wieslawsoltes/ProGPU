@@ -43,17 +43,46 @@ internal sealed class SKTextBlobBuilderRun
         Clusters = Array.Empty<uint>();
     }
 
-    public SKFont Font { get; }
+    public SKFont Font { get; private set; }
     public ushort[] Glyphs { get; }
-    public SKTextBlobRunPlacement Placement { get; }
-    public float X { get; }
-    public float Y { get; }
+    public SKTextBlobRunPlacement Placement { get; private set; }
+    public float X { get; private set; }
+    public float Y { get; private set; }
     public byte[] Text { get; }
     public uint[] Clusters { get; }
     public float[]? HorizontalPositions { get; set; }
     public SKPoint[]? PositionedPositions { get; set; }
     public SKRotationScaleMatrix[]? RotationScalePositions { get; set; }
     public SKTextBlobRun? Completed { get; }
+
+    public bool TryResetPositioned(SKFont font, int count)
+    {
+        if (Completed.HasValue ||
+            Placement != SKTextBlobRunPlacement.Positioned ||
+            Glyphs.Length != count ||
+            Text.Length != 0 ||
+            Clusters.Length != count ||
+            PositionedPositions?.Length != count)
+        {
+            return false;
+        }
+
+        Font = font;
+        X = 0f;
+        Y = 0f;
+        Array.Clear(Glyphs);
+        Array.Clear(Clusters);
+        Array.Clear(PositionedPositions);
+        return true;
+    }
+
+    public bool CanCacheAsPositionedScratch(int maximumGlyphCount) =>
+        !Completed.HasValue &&
+        Placement == SKTextBlobRunPlacement.Positioned &&
+        Glyphs.Length <= maximumGlyphCount &&
+        Text.Length == 0 &&
+        Clusters.Length == Glyphs.Length &&
+        PositionedPositions?.Length == Glyphs.Length;
 
     internal static T[] AllocatePinned<T>(int length) =>
         length == 0 ? Array.Empty<T>() : GC.AllocateArray<T>(length, pinned: true);
@@ -272,7 +301,9 @@ public sealed class SKRotationScaleTextRunBuffer : SKTextRunBuffer
 
 public class SKTextBlobBuilder : SKObject
 {
+    private const int MaximumReusablePositionedGlyphs = 1_024;
     private readonly List<SKTextBlobBuilderRun> _runs = new();
+    private SKTextBlobBuilderRun? _positionedRunScratch;
 
     public SKTextBlobBuilder()
         : base(SKObjectHandle.Create(), owns: true)
@@ -542,7 +573,15 @@ public class SKTextBlobBuilder : SKObject
             snapshots[index] = _runs[index].Snapshot();
         }
 
+        var positionedScratch = _runs.Count == 1 &&
+            _runs[0].CanCacheAsPositionedScratch(MaximumReusablePositionedGlyphs)
+                ? _runs[0]
+                : null;
         _runs.Clear();
+        if (positionedScratch != null)
+        {
+            _positionedRunScratch = positionedScratch;
+        }
         return new SKTextBlob(snapshots);
     }
 
@@ -551,6 +590,7 @@ public class SKTextBlobBuilder : SKObject
         if (disposing)
         {
             _runs.Clear();
+            _positionedRunScratch = null;
         }
         base.Dispose(disposing);
     }
@@ -590,6 +630,15 @@ public class SKTextBlobBuilder : SKObject
         int textByteCount,
         SKRect? bounds)
     {
+        if (textByteCount == 0 &&
+            _positionedRunScratch is { } scratch &&
+            scratch.TryResetPositioned(font, count))
+        {
+            _positionedRunScratch = null;
+            _runs.Add(scratch);
+            return scratch;
+        }
+
         var run = CreateRun(font, count, SKTextBlobRunPlacement.Positioned, 0f, 0f, textByteCount, bounds);
         run.PositionedPositions = SKTextBlobBuilderRun.AllocatePinned<SKPoint>(count);
         return run;
