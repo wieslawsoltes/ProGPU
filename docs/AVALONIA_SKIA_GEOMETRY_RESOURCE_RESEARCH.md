@@ -49,8 +49,10 @@ reflection-based Avalonia adapters, and source-derived foreign control flow.
 - Stroke flattening performs adaptive subdivision to a maximum error of
   `0.25 / resScale` logical pixels and a fixed depth of eight. Average work follows
   visible curvature; worst-case work and temporary storage are `O(2^8)` per
-  curve. Join/cap triangles are emitted into fixed stack spans and appended to
-  packed path storage in one reserved batch, avoiding repeated capacity and
+  curve. Flatness additionally requires control-point projections to stay
+  inside and ordered along the chord, so collinear overshoot and reversal still
+  subdivide. Join/cap triangles are emitted into fixed stack spans and appended
+  to packed path storage in one reserved batch, avoiding repeated capacity and
   bounds bookkeeping. Retained thread-local command capacity is capped at 4,096
   commands.
 - A non-trivial boolean operation compiles `A + B` input segments, dispatches
@@ -80,7 +82,7 @@ Representative best stable medians on Apple Silicon during implementation:
 | Path-measure query | 26.790 ns | 22.511 ns | 0 / 0 B/op |
 | Packed copy plus translation | 403.812 ns | 136.904 ns | 88 / 80 B/op |
 | Dirty-region unions plus queries | 2,424.975 ns | 1,156.994 ns | 0 / 0 B/op |
-| Stroke expansion | 24,116.771 ns | 21,622.250 ns | 168 / 83 B/op |
+| Stroke expansion | 25,977.708 ns | 22,603.645 ns | 168 / 83 B/op |
 | Synchronous non-trivial path combine | 3,692.625 ns | 1,644,322.875 ns | 144 / 4,079 B/op |
 
 The boolean row is intentionally reported as an open latency boundary, not a
@@ -107,10 +109,11 @@ list state, with zero command-buffer errors, drawable waits, hangs, hang risks,
 or compiler spills.
 
 The final packed-stroke change was also captured from matched Release binaries:
-`2c1062c8` before batching and `d7a71fab` after batching. Time Profiler measured
-25,735.015 to 21,807.133 ns/op; the Allocations workload measured 25,716.550 to
-21,810.053 ns/op and preserved 80 managed B/op. Persistent native heap plus
-anonymous VM changed from 105,450,992 to 105,433,888 bytes, with anonymous VM
+`2c1062c8` before batching and `12c551a4` after batching plus reversal-safe
+flatness. Time Profiler measured 25,735.015 to 23,149.362 ns/op; the Allocations
+workload measured 25,716.550 to 22,634.872 ns/op and preserved 80 managed B/op.
+Persistent native heap plus anonymous VM changed from 105,450,992 to 105,274,672
+bytes, with anonymous VM
 unchanged at 101,793,792 bytes. The CPU-only workload submitted no Metal work.
 
 Raw `.nettrace`, `.trace`, `.ktrace`, Instruments scratch, and exported XML were
