@@ -9,9 +9,24 @@ namespace SkiaSharp;
 
 public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 {
+    private sealed class SurfaceRenderVisual : Visual, IOwnedRenderCommandCache
+    {
+        private readonly DrawingContext _commands;
+
+        public SurfaceRenderVisual(DrawingContext commands)
+        {
+            _commands = commands;
+        }
+
+        public bool HasRenderCommands => _commands.Commands.Count != 0;
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => _commands;
+    }
+
     private static readonly object s_compositorCacheScope = new();
     private readonly WgpuContext? _context;
     private readonly DrawingContext _drawingContext;
+    private readonly SurfaceRenderVisual _renderVisual;
     private GpuTexture? _gpuTexture;
     private IntPtr _pixels;
     private int _rowBytes;
@@ -94,6 +109,16 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
         _isNullSurface = isNullSurface;
 
         _drawingContext = new DrawingContext();
+        _renderVisual = new SurfaceRenderVisual(_drawingContext)
+        {
+            Size = new Vector2(width, height)
+        };
+        if (_origin == GRSurfaceOrigin.BottomLeft)
+        {
+            _renderVisual.Transform =
+                Matrix4x4.CreateScale(1f, -1f, 1f) *
+                Matrix4x4.CreateTranslation(0f, height, 0f);
+        }
         _invalidateSnapshotGeneration = OnSurfaceCommandAdded;
         _drawingContext.SubscribeCommandAdded(_invalidateSnapshotGeneration);
         Canvas = new SKCanvas(_drawingContext, width, height, context, Flush);
@@ -363,26 +388,18 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 
         var cpuReadbackRegions = Canvas.TakeCpuReadbackRegions();
 
-        var visual = new DrawingVisual();
-        visual.Size = new Vector2(_width, _height);
-        if (_origin == GRSurfaceOrigin.BottomLeft)
-        {
-            visual.Transform = Matrix4x4.CreateScale(1f, -1f, 1f) * Matrix4x4.CreateTranslation(0f, _height, 0f);
-        }
-
-        visual.Context.Append(_drawingContext);
-
         var compositor = GetCompositorForContext(_context!, _gpuTexture.Format);
         try
         {
-            try
-            {
-                compositor.RenderOffscreen(visual, (uint)_width, (uint)_height, _gpuTexture, 0f, 1f, null, _hasTextureContents);
-            }
-            finally
-            {
-                visual.Context.Clear();
-            }
+            compositor.RenderOffscreen(
+                _renderVisual,
+                (uint)_width,
+                (uint)_height,
+                _gpuTexture,
+                0f,
+                1f,
+                null,
+                _hasTextureContents);
 
             _hasTextureContents = true;
 
@@ -622,6 +639,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 
     private void OnSurfaceCommandAdded(int commandIndex)
     {
+        _renderVisual.Invalidate();
         var immutableGeneration = _immutableSnapshotGeneration;
         if (immutableGeneration is null)
         {
