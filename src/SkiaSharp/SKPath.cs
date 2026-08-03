@@ -54,6 +54,8 @@ public partial class SKPath : SKObject
     {
         _geometry = null;
         _packedPathData = packedPathData ?? throw new ArgumentNullException(nameof(packedPathData));
+        _currentPoint = packedPathData.CurrentPoint;
+        _contourStart = packedPathData.ContourStart;
         _fillType = fillType;
     }
 
@@ -64,8 +66,8 @@ public partial class SKPath : SKObject
         if (path._packedPathData is { } packed)
         {
             _packedPathData = packed.Clone();
-            _currentPoint = path._currentPoint;
-            _contourStart = path._contourStart;
+            _currentPoint = packed.CurrentPoint;
+            _contourStart = packed.ContourStart;
             _fillType = path._fillType;
             return;
         }

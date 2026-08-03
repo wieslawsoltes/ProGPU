@@ -131,12 +131,37 @@ public sealed class SkPathBuilderCompatibilityTests
         var transformedBounds = transformed.TightBounds;
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.InRange(allocated, 0, 96);
+        Assert.InRange(allocated, 0, 128);
         Assert.Equal(sourceBounds, source.TightBounds);
         Assert.Equal(sourceBounds.Left + 5f, transformedBounds.Left);
         Assert.Equal(sourceBounds.Top - 7f, transformedBounds.Top);
         Assert.Equal(sourceBounds.Right + 5f, transformedBounds.Right);
         Assert.Equal(sourceBounds.Bottom - 7f, transformedBounds.Bottom);
+    }
+
+    [Fact]
+    public void PackedCopyOnWriteTranslationSurvivesSourceMutationAndDisposal()
+    {
+        using var builder = new SKPathBuilder();
+        builder.MoveTo(1f, 2f);
+        builder.LineTo(5f, 6f);
+        var source = builder.Detach();
+        using var transformed = new SKPath(source);
+
+        transformed.Transform(SKMatrix.CreateTranslation(10f, -4f));
+        source.LineTo(9f, 10f);
+        source.Dispose();
+        transformed.RLineTo(2f, 3f);
+
+        Assert.Equal(
+            new[]
+            {
+                new SKPoint(11f, -2f),
+                new SKPoint(15f, 2f),
+                new SKPoint(17f, 5f),
+            },
+            transformed.Points);
+        Assert.Equal(new SKRect(11f, -2f, 17f, 5f), transformed.Bounds);
     }
 
     [Fact]

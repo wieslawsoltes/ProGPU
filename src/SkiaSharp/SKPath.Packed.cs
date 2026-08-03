@@ -240,7 +240,24 @@ internal sealed class PackedPathData : IDisposable
     private const int MaximumRetainedCommandCapacity = 1_024;
     [ThreadStatic]
     private static PackedPathData? s_threadCache;
-    private PackedPathCommand[]? _commands;
+    private sealed class CommandBuffer
+    {
+        private int _references = 1;
+
+        public CommandBuffer(PackedPathCommand[] commands)
+        {
+            Commands = commands;
+        }
+
+        public PackedPathCommand[] Commands { get; }
+        public bool IsShared => Volatile.Read(ref _references) != 1;
+
+        public void AddReference() => Interlocked.Increment(ref _references);
+
+        public bool Release() => Interlocked.Decrement(ref _references) == 0;
+    }
+
+    private CommandBuffer? _commandBuffer;
     private int _count;
     private Vector2 _currentPoint;
     private Vector2 _contourStart;
@@ -251,6 +268,7 @@ internal sealed class PackedPathData : IDisposable
     private bool _figureHasSegments;
     private bool _hasBounds;
     private bool _trackTightBounds;
+    private Vector2 _pendingTranslation;
     private int _isRented;
 
     private PackedPathData()
@@ -260,8 +278,15 @@ internal sealed class PackedPathData : IDisposable
     public int Count => _count;
     public bool IsEmpty => _count == 0;
     public Vector2 CurrentPoint => _currentPoint;
-    internal ReadOnlySpan<PackedPathCommand> CommandSpan =>
-        _count == 0 ? ReadOnlySpan<PackedPathCommand>.Empty : Commands.AsSpan(0, _count);
+    public Vector2 ContourStart => _contourStart;
+    internal ReadOnlySpan<PackedPathCommand> CommandSpan
+    {
+        get
+        {
+            ApplyPendingTranslation();
+            return _count == 0 ? ReadOnlySpan<PackedPathCommand>.Empty : Commands.AsSpan(0, _count);
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static PackedPathData Rent(bool trackTightBounds = true)
@@ -284,10 +309,12 @@ internal sealed class PackedPathData : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MoveTo(float x, float y)
     {
+        ApplyPendingTranslation();
         var point = new Vector2(x, y);
         if (_hasOpenFigure && !_figureHasSegments &&
             _count > 0 && Commands[_count - 1].Kind == PackedPathCommandKind.Move)
         {
+            EnsureWritableCommandStorage(_count);
             Commands[_count - 1] = new PackedPathCommand(PackedPathCommandKind.Move, point);
             RecalculateBounds();
         }
@@ -310,10 +337,12 @@ internal sealed class PackedPathData : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MoveToBoundsOnly(float x, float y)
     {
+        ApplyPendingTranslation();
         var point = new Vector2(x, y);
         if (_hasOpenFigure && !_figureHasSegments &&
             _count > 0 && Commands[_count - 1].Kind == PackedPathCommandKind.Move)
         {
+            EnsureWritableCommandStorage(_count);
             Commands[_count - 1] = new PackedPathCommand(PackedPathCommandKind.Move, point);
             RecalculateBounds();
         }
@@ -469,11 +498,13 @@ internal sealed class PackedPathData : IDisposable
         _hasOpenFigure = false;
         _figureHasSegments = false;
         _hasBounds = false;
+        _pendingTranslation = default;
     }
 
     public PackedPathData Clone()
     {
         var clone = Rent(_trackTightBounds);
+        clone.ReleaseCommandBuffer();
         clone._count = _count;
         clone._currentPoint = _currentPoint;
         clone._contourStart = _contourStart;
@@ -483,19 +514,11 @@ internal sealed class PackedPathData : IDisposable
         clone._hasOpenFigure = _hasOpenFigure;
         clone._figureHasSegments = _figureHasSegments;
         clone._hasBounds = _hasBounds;
-        if (_count != 0)
+        clone._pendingTranslation = _pendingTranslation;
+        if (_commandBuffer is { } commandBuffer)
         {
-            if (clone._commands is null || clone._commands.Length < _count)
-            {
-                if (clone._commands is { } undersized)
-                {
-                    ArrayPool<PackedPathCommand>.Shared.Return(undersized);
-                }
-
-                clone._commands = ArrayPool<PackedPathCommand>.Shared.Rent(
-                    Math.Max(InitialCommandCapacity, _count));
-            }
-            Commands.AsSpan(0, _count).CopyTo(clone._commands);
+            commandBuffer.AddReference();
+            clone._commandBuffer = commandBuffer;
         }
 
         return clone;
@@ -516,6 +539,9 @@ internal sealed class PackedPathData : IDisposable
             Translate(new Vector2(matrix.TransX, matrix.TransY));
             return;
         }
+
+        ApplyPendingTranslation();
+        EnsureWritableCommandStorage(_count);
 
         _hasBounds = false;
         _boundsMin = default;
@@ -598,25 +624,7 @@ internal sealed class PackedPathData : IDisposable
 
     private void Translate(Vector2 offset)
     {
-        for (var index = 0; index < _count; index++)
-        {
-            ref var command = ref Commands[index];
-            command = command.Kind switch
-            {
-                PackedPathCommandKind.Move or PackedPathCommandKind.Line =>
-                    new PackedPathCommand(command.Kind, command.Point0 + offset),
-                PackedPathCommandKind.Quadratic =>
-                    new PackedPathCommand(command.Kind, command.Point0 + offset, command.Point1 + offset),
-                PackedPathCommandKind.Cubic =>
-                    new PackedPathCommand(
-                        command.Kind,
-                        command.Point0 + offset,
-                        command.Point1 + offset,
-                        command.Point2 + offset),
-                _ => command,
-            };
-        }
-
+        _pendingTranslation += offset;
         if (_hasBounds)
         {
             _boundsMin += offset;
@@ -625,6 +633,25 @@ internal sealed class PackedPathData : IDisposable
         _tightBounds.Translate(offset);
         _currentPoint += offset;
         _contourStart += offset;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static PackedPathCommand TranslateCommand(PackedPathCommand command, Vector2 offset)
+    {
+        return command.Kind switch
+        {
+            PackedPathCommandKind.Move or PackedPathCommandKind.Line =>
+                new PackedPathCommand(command.Kind, command.Point0 + offset),
+            PackedPathCommandKind.Quadratic =>
+                new PackedPathCommand(command.Kind, command.Point0 + offset, command.Point1 + offset),
+            PackedPathCommandKind.Cubic =>
+                new PackedPathCommand(
+                    command.Kind,
+                    command.Point0 + offset,
+                    command.Point1 + offset,
+                    command.Point2 + offset),
+            _ => command,
+        };
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -649,6 +676,7 @@ internal sealed class PackedPathData : IDisposable
             return _tightBounds.ToRect();
         }
 
+        ApplyPendingTranslation();
         var bounds = new SKPathBoundsAccumulator();
         var current = Vector2.Zero;
         for (var index = 0; index < _count; index++)
@@ -688,6 +716,7 @@ internal sealed class PackedPathData : IDisposable
 
     public PathGeometry Materialize(SKPathFillType fillType)
     {
+        ApplyPendingTranslation();
         var geometry = new PathGeometry
         {
             FillRule = fillType is SKPathFillType.EvenOdd or SKPathFillType.InverseEvenOdd
@@ -736,10 +765,13 @@ internal sealed class PackedPathData : IDisposable
         }
 
         Reset();
-        if (_commands is { Length: > MaximumRetainedCommandCapacity } oversized)
+        if (_commandBuffer is { IsShared: true })
         {
-            _commands = null;
-            ArrayPool<PackedPathCommand>.Shared.Return(oversized);
+            ReleaseCommandBuffer();
+        }
+        else if (_commandBuffer is { Commands.Length: > MaximumRetainedCommandCapacity })
+        {
+            ReleaseCommandBuffer();
         }
 
         if (s_threadCache is null)
@@ -748,15 +780,11 @@ internal sealed class PackedPathData : IDisposable
             return;
         }
 
-        if (_commands is { } commands)
-        {
-            _commands = null;
-            ArrayPool<PackedPathCommand>.Shared.Return(commands);
-        }
+        ReleaseCommandBuffer();
     }
 
     private PackedPathCommand[] Commands =>
-        _commands ?? throw new InvalidOperationException("The packed path has no command storage.");
+        _commandBuffer?.Commands ?? throw new InvalidOperationException("The packed path has no command storage.");
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void EnsureFigure()
@@ -860,19 +888,68 @@ internal sealed class PackedPathData : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Append(PackedPathCommand command)
     {
-        if (_commands is null)
+        ApplyPendingTranslation();
+        EnsureWritableCommandStorage(checked(_count + 1));
+        Commands[_count++] = command;
+    }
+
+    private void ApplyPendingTranslation()
+    {
+        if (_pendingTranslation == default || _count == 0)
         {
-            _commands = ArrayPool<PackedPathCommand>.Shared.Rent(InitialCommandCapacity);
-        }
-        else if (_count == _commands.Length)
-        {
-            var expanded = ArrayPool<PackedPathCommand>.Shared.Rent(
-                checked(_commands.Length * 2));
-            _commands.AsSpan(0, _count).CopyTo(expanded);
-            ArrayPool<PackedPathCommand>.Shared.Return(_commands);
-            _commands = expanded;
+            _pendingTranslation = default;
+            return;
         }
 
-        _commands[_count++] = command;
+        var offset = _pendingTranslation;
+        EnsureWritableCommandStorage(_count);
+        for (var index = 0; index < _count; index++)
+        {
+            ref var command = ref Commands[index];
+            command = TranslateCommand(command, offset);
+        }
+        _pendingTranslation = default;
+    }
+
+    private void EnsureWritableCommandStorage(int requiredCapacity)
+    {
+        if (_commandBuffer is null)
+        {
+            _commandBuffer = new CommandBuffer(ArrayPool<PackedPathCommand>.Shared.Rent(
+                Math.Max(InitialCommandCapacity, requiredCapacity)));
+            return;
+        }
+
+        if (!_commandBuffer.IsShared && _commandBuffer.Commands.Length >= requiredCapacity)
+        {
+            return;
+        }
+
+        var previous = _commandBuffer;
+        var capacity = previous.Commands.Length >= requiredCapacity
+            ? previous.Commands.Length
+            : checked(previous.Commands.Length * 2);
+        var replacement = ArrayPool<PackedPathCommand>.Shared.Rent(
+            Math.Max(capacity, requiredCapacity));
+        previous.Commands.AsSpan(0, _count).CopyTo(replacement);
+        _commandBuffer = new CommandBuffer(replacement);
+        if (previous.Release())
+        {
+            ArrayPool<PackedPathCommand>.Shared.Return(previous.Commands);
+        }
+    }
+
+    private void ReleaseCommandBuffer()
+    {
+        if (_commandBuffer is not { } commandBuffer)
+        {
+            return;
+        }
+
+        _commandBuffer = null;
+        if (commandBuffer.Release())
+        {
+            ArrayPool<PackedPathCommand>.Shared.Return(commandBuffer.Commands);
+        }
     }
 }
