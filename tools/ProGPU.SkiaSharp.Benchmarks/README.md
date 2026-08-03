@@ -24,7 +24,10 @@ tracks the exact reusable-paint, positioned-text-blob, legacy stream-path, and
 `WriteableBitmapImpl.GetSnapshot()` CPU-framebuffer-to-immutable-image patterns
 used by Avalonia.Skia. A paired retained-picture workload records repeated draws
 of that immutable image and measures whether deferred rendering reuses its GPU
-resource. Shim optimization therefore follows real framework call sites rather
+resource. A mixed retained-picture workload combines saved transforms, clips,
+rectangles, paths, positioned text, and immutable images so command-storage
+changes are measured across the broader Avalonia.Skia recording shape rather
+than against a single command kind. Shim optimization therefore follows real framework call sites rather
 than metadata frequency alone. Canvas coverage decomposes retained
 save/restore, matrix, and clip routing so regressions can be attributed without
 changing the full framework-shaped workload. Each implemented API cluster adds
