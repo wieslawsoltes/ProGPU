@@ -428,6 +428,22 @@ public class ArcPathCompilerTests
     }
 
     [Fact]
+    public void PathOperationPipelineInitializationRollsBackPartialResources()
+    {
+        string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");
+        int resourcesIndex = source.IndexOf("private sealed class PathOpPipelineResources", StringComparison.Ordinal);
+        int resourcesEnd = source.IndexOf("private static void DisposePipelineResources", resourcesIndex, StringComparison.Ordinal);
+
+        Assert.True(resourcesIndex >= 0 && resourcesEnd > resourcesIndex);
+
+        string resources = source[resourcesIndex..resourcesEnd];
+        Assert.Contains("catch\n                {\n                    Dispose();\n                    throw;\n                }", resources, StringComparison.Ordinal);
+        Assert.Contains("if (GeometryBindGroupLayout != null)", resources, StringComparison.Ordinal);
+        Assert.Contains("if (FinalizerBindGroupLayout != null)", resources, StringComparison.Ordinal);
+        Assert.Contains("_cache.Dispose();", resources, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PathOperationSolverUsesAotSafeAsyncReadback()
     {
         string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");

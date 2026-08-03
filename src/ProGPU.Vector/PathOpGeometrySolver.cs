@@ -47,24 +47,32 @@ namespace ProGPU.Vector
             {
                 _context = context;
                 _cache = new RenderPipelineCache(context);
-                var geometryModule = _cache.GetOrCreateShader(
-                    "PathOpGeometry",
-                    Shaders.PathOpGeometryShader,
-                    "PathOpGeometryShader");
-                GeometryPipeline = _cache.GetOrCreateComputePipeline(
-                    "PathOpGeometry",
-                    geometryModule,
-                    "cs_main");
-                var finalizerModule = _cache.GetOrCreateShader(
-                    "PathOpRecordFinalizer",
-                    Shaders.PathOpRecordFinalizerShader,
-                    "PathOpRecordFinalizerShader");
-                FinalizerPipeline = _cache.GetOrCreateComputePipeline(
-                    "PathOpRecordFinalizer",
-                    finalizerModule,
-                    "cs_main");
-                GeometryBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(GeometryPipeline, 0);
-                FinalizerBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(FinalizerPipeline, 0);
+                try
+                {
+                    var geometryModule = _cache.GetOrCreateShader(
+                        "PathOpGeometry",
+                        Shaders.PathOpGeometryShader,
+                        "PathOpGeometryShader");
+                    GeometryPipeline = _cache.GetOrCreateComputePipeline(
+                        "PathOpGeometry",
+                        geometryModule,
+                        "cs_main");
+                    var finalizerModule = _cache.GetOrCreateShader(
+                        "PathOpRecordFinalizer",
+                        Shaders.PathOpRecordFinalizerShader,
+                        "PathOpRecordFinalizerShader");
+                    FinalizerPipeline = _cache.GetOrCreateComputePipeline(
+                        "PathOpRecordFinalizer",
+                        finalizerModule,
+                        "cs_main");
+                    GeometryBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(GeometryPipeline, 0);
+                    FinalizerBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(FinalizerPipeline, 0);
+                }
+                catch
+                {
+                    Dispose();
+                    throw;
+                }
             }
 
             public ComputePipeline* GeometryPipeline { get; }
@@ -74,8 +82,16 @@ namespace ProGPU.Vector
 
             public void Dispose()
             {
-                _context.Api.BindGroupLayoutRelease(GeometryBindGroupLayout);
-                _context.Api.BindGroupLayoutRelease(FinalizerBindGroupLayout);
+                if (GeometryBindGroupLayout != null)
+                {
+                    _context.Api.BindGroupLayoutRelease(GeometryBindGroupLayout);
+                }
+
+                if (FinalizerBindGroupLayout != null)
+                {
+                    _context.Api.BindGroupLayoutRelease(FinalizerBindGroupLayout);
+                }
+
                 _cache.Dispose();
             }
         }
