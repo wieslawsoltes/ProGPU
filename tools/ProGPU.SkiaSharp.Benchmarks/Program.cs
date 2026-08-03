@@ -138,6 +138,10 @@ internal static class ProgramEntry
                 "avalonia-writeable-bitmap-snapshot",
                 128,
                 RunAvaloniaWriteableBitmapSnapshot),
+            new BenchmarkCase(
+                "avalonia-immutable-image-recording",
+                1_000,
+                RunAvaloniaImmutableImageRecording),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -398,6 +402,52 @@ internal static class ProgramEntry
         }
 
         return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaImmutableImageRecording(int operations)
+    {
+        var info = new SKImageInfo(
+            16,
+            16,
+            SKImageInfo.PlatformColorType,
+            SKAlphaType.Premul);
+        fixed (byte* pixels = AvaloniaWriteableBitmapPixels)
+        {
+            using var image = SKImage.FromPixels(
+                info,
+                (IntPtr)pixels,
+                info.RowBytes);
+            using var recorder = new SKPictureRecorder();
+            var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+            using var paint = new SKPaint { IsAntialias = false };
+            var source = new SKRect(0f, 0f, 16f, 16f);
+            ulong checksum = 1469598103934665603UL;
+            for (var index = 0; index < operations; index++)
+            {
+                var offset = index & 7;
+                var destination = new SKRect(
+                    offset,
+                    offset,
+                    offset + 16f,
+                    offset + 16f);
+                canvas.DrawImage(
+                    image,
+                    source,
+                    destination,
+                    SKSamplingOptions.Default,
+                    paint);
+                checksum = Mix(checksum, unchecked((uint)offset));
+            }
+
+            using var picture = recorder.EndRecording();
+            checksum = Mix(
+                checksum,
+                BitConverter.SingleToUInt32Bits(picture.CullRect.Width));
+            checksum = Mix(
+                checksum,
+                BitConverter.SingleToUInt32Bits(picture.CullRect.Height));
+            return checksum;
+        }
     }
 
     private static ulong RunImageBoundedSubset(int operations)

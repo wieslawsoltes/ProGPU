@@ -22,8 +22,10 @@ premultiplied-color conversion, 64-element color-array conversion, OpenType tag
 value/formatting operations, and retained path construction/bounds. It also
 tracks the exact reusable-paint, positioned-text-blob, legacy stream-path, and
 `WriteableBitmapImpl.GetSnapshot()` CPU-framebuffer-to-immutable-image patterns
-used by Avalonia.Skia so shim optimization follows real framework call sites
-rather than metadata frequency alone. Canvas coverage decomposes retained
+used by Avalonia.Skia. A paired retained-picture workload records repeated draws
+of that immutable image and measures whether deferred rendering reuses its GPU
+resource. Shim optimization therefore follows real framework call sites rather
+than metadata frequency alone. Canvas coverage decomposes retained
 save/restore, matrix, and clip routing so regressions can be attributed without
 changing the full framework-shaped workload. Each implemented API cluster adds
 an equivalent workload
