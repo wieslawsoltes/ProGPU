@@ -36,3 +36,10 @@ or an explicit explanation that its behavior is already covered by a broader
 component/application benchmark. GPU/rendering clusters additionally require a
 deterministic final-frame workload, image-quality comparison, WebGPU timestamps,
 and the platform-native profiler specified by the repository performance policy.
+
+The Avalonia surface family mirrors its reusable render-target lifecycle: a
+surface is cleared and flushed for successive frames, one surface is composed
+into another through `SKSurface.Draw`, and the framebuffer conversion fallback
+snapshots a CPU-backed surface before reading it into the destination format.
+Each workload validates the final or per-frame pixels so asynchronous submission
+or retained-content optimizations cannot silently omit rendering work.
