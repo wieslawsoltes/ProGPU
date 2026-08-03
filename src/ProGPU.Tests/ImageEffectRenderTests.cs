@@ -11,7 +11,17 @@ namespace ProGPU.Tests;
 public sealed class ImageEffectRenderTests
 {
     [Fact]
-    public void DrawImageWithEffectRecordsInlineWithoutManagedAllocation()
+    public void OrdinaryRenderCommandDoesNotInlineImageEffectPayload()
+    {
+        Assert.True(
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576);
+        Assert.Equal(
+            248,
+            System.Runtime.CompilerServices.Unsafe.SizeOf<ImageEffectCommandData>());
+    }
+
+    [Fact]
+    public void DrawImageWithEffectUsesReusableTypedSideBufferWithoutManagedAllocation()
     {
         var context = new DrawingContext();
         using var texture = new GpuTexture(
@@ -29,18 +39,57 @@ public sealed class ImageEffectRenderTests
         context.Commands.Clear();
 
         long before = GC.GetAllocatedBytesForCurrentThread();
+        float lastInvert = 0f;
         for (int index = 0; index < 100; index++)
         {
             context.DrawImageWithEffect(
                 texture,
                 new Rect(0f, 0f, 1f, 1f),
-                invert: 1f);
+                invert: index & 1);
+            RenderCommand command = context.Commands[0];
+            lastInvert = context.GetImageEffect(in command).Invert;
             context.Commands.Clear();
         }
         long allocated =
             GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+        Assert.Equal(1f, lastInvert);
+    }
+
+    [Fact]
+    public void PictureOwnsBufferedImageEffectAfterRecorderReuse()
+    {
+        using var texture = new GpuTexture(
+            HeadlessWindow.Shared.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding,
+            "Retained image-effect command");
+        var recorder = new GpuPictureRecorder();
+        DrawingContext context = recorder.BeginRecording(
+            new Rect(0f, 0f, 1f, 1f));
+        context.DrawImageWithEffect(
+            texture,
+            new Rect(0f, 0f, 1f, 1f),
+            brightness: 0.25f,
+            contrast: 1.5f);
+
+        using GpuPicture picture = recorder.EndRecording();
+        DrawingContext reused = recorder.BeginRecording(
+            new Rect(0f, 0f, 1f, 1f));
+        reused.DrawImageWithEffect(
+            texture,
+            new Rect(0f, 0f, 1f, 1f),
+            brightness: -0.5f,
+            contrast: 0.5f);
+
+        RenderCommand retainedCommand = picture.Commands[0];
+        ImageEffectCommandData retained =
+            retainedCommand.ResolveImageEffect(picture);
+        Assert.Equal(0.25f, retained.Brightness);
+        Assert.Equal(1.5f, retained.Contrast);
     }
 
     [Fact]

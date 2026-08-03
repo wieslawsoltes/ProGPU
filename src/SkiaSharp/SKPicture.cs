@@ -138,6 +138,8 @@ public partial class SKPicture : SKObject
         bytes += (long)picture.DoubleBuffer.Length * sizeof(double);
         bytes += (long)picture.Line3DBuffer.Length * sizeof(float) * 6;
         bytes += (long)picture.FloatBuffer.Length * sizeof(float);
+        bytes += (long)picture.ImageEffectCount *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<ImageEffectCommandData>();
 
         foreach (var command in picture.Commands)
         {

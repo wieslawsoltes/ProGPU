@@ -239,9 +239,11 @@ public sealed class GdiBitmapTests
         Assert.True(command.HasImageEffect);
         Assert.Null(command.DataParam);
         Assert.Equal(new Rect(2f, 1f, 4f, 2f), command.SrcRect);
-        Assert.NotNull(command.ImageEffect.ColorMatrix);
+        ImageEffectCommandData effect =
+            graphics.DrawingContext.GetImageEffect(in command);
+        Assert.NotNull(effect.ColorMatrix);
         Assert.Equal(
             0.5f,
-            command.ImageEffect.ColorMatrix.Value.Alpha.W);
+            effect.ColorMatrix.Value.Alpha.W);
     }
 }

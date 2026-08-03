@@ -3500,12 +3500,7 @@ public class SKCanvas : SKObject
             return picture;
         }
 
-        var converted = new GpuPicture(
-            convertedCommands,
-            picture.PointBuffer,
-            picture.DoubleBuffer,
-            picture.Line3DBuffer,
-            picture.FloatBuffer);
+        var converted = picture.CloneWithCommands(convertedCommands);
         pictureCache[picture] = converted;
         return converted;
     }

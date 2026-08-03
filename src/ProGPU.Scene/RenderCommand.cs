@@ -391,6 +391,11 @@ public interface IRenderDataProvider
     ReadOnlySpan<float> GetFloats(int offset, int count);
 }
 
+internal interface IImageEffectDataProvider
+{
+    ImageEffectCommandData GetImageEffect(int index);
+}
+
 public sealed class RenderCommandGeometryCache
 {
     private int _dashedStrokeSignature;
@@ -609,7 +614,32 @@ public struct RenderCommand
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
     public bool HasImageEffect;
-    public ImageEffectCommandData ImageEffect;
+    private ImageEffectCommandDataBox? _imageEffect;
+    internal int ImageEffectBufferIndex;
+    internal bool HasBufferedImageEffect;
+
+    public ImageEffectCommandData ImageEffect
+    {
+        readonly get => _imageEffect?.Value ?? default;
+        set => _imageEffect = new ImageEffectCommandDataBox(value);
+    }
+
+    internal readonly ImageEffectCommandData ResolveImageEffect(
+        IRenderDataProvider? provider)
+    {
+        if (HasBufferedImageEffect)
+        {
+            if (provider is not IImageEffectDataProvider effectProvider)
+            {
+                throw new InvalidOperationException(
+                    "A buffered image-effect command requires its retained data provider.");
+            }
+
+            return effectProvider.GetImageEffect(ImageEffectBufferIndex);
+        }
+
+        return ImageEffect;
+    }
 
     // Vector render options
     public bool IsEdgeAliased;
@@ -700,6 +730,16 @@ public struct RenderCommand
     public object? DataParam;
 }
 
+internal sealed class ImageEffectCommandDataBox
+{
+    public ImageEffectCommandDataBox(in ImageEffectCommandData value)
+    {
+        Value = value;
+    }
+
+    public ImageEffectCommandData Value { get; }
+}
+
 internal sealed class RetainedResourceLease : IDisposable
 {
     private RetainedResourceOwner? _owner;
@@ -770,17 +810,22 @@ internal sealed class RetainedResourceLease : IDisposable
     }
 }
 
-public class GpuPicture : IRenderDataProvider, IDisposable
+public class GpuPicture :
+    IRenderDataProvider,
+    IImageEffectDataProvider,
+    IDisposable
 {
     public RenderCommand[] Commands { get; }
     public Vector2[] PointBuffer { get; }
     public double[] DoubleBuffer { get; }
     public Line3D[] Line3DBuffer { get; }
     public float[] FloatBuffer { get; }
+    private readonly ImageEffectCommandData[] _imageEffectBuffer;
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
 
     public int RetainedResourceCount => _retainedResources.Length;
+    internal int ImageEffectCount => _imageEffectBuffer.Length;
 
     public GpuPicture(
         RenderCommand[] commands,
@@ -793,6 +838,7 @@ public class GpuPicture : IRenderDataProvider, IDisposable
             doubleBuffer,
             line3dBuffer,
             floatBuffer,
+            Array.Empty<ImageEffectCommandData>(),
             Array.Empty<RetainedResourceLease>())
     {
     }
@@ -803,6 +849,7 @@ public class GpuPicture : IRenderDataProvider, IDisposable
         double[] doubleBuffer,
         Line3D[] line3dBuffer,
         float[] floatBuffer,
+        ImageEffectCommandData[] imageEffectBuffer,
         RetainedResourceLease[] retainedResources)
     {
         Commands = commands;
@@ -810,6 +857,7 @@ public class GpuPicture : IRenderDataProvider, IDisposable
         DoubleBuffer = doubleBuffer;
         Line3DBuffer = line3dBuffer;
         FloatBuffer = floatBuffer;
+        _imageEffectBuffer = imageEffectBuffer;
         _retainedResources = retainedResources;
     }
 
@@ -825,6 +873,9 @@ public class GpuPicture : IRenderDataProvider, IDisposable
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         new ReadOnlySpan<float>(FloatBuffer, offset, count);
 
+    ImageEffectCommandData IImageEffectDataProvider.GetImageEffect(int index) =>
+        _imageEffectBuffer[index];
+
     public GpuPicture Clone()
     {
         if (_disposed)
@@ -838,6 +889,25 @@ public class GpuPicture : IRenderDataProvider, IDisposable
             DoubleBuffer,
             Line3DBuffer,
             FloatBuffer,
+            _imageEffectBuffer,
+            CloneRetainedResources());
+    }
+
+    internal GpuPicture CloneWithCommands(RenderCommand[] commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        return new GpuPicture(
+            commands,
+            PointBuffer,
+            DoubleBuffer,
+            Line3DBuffer,
+            FloatBuffer,
+            _imageEffectBuffer,
             CloneRetainedResources());
     }
 
@@ -926,6 +996,7 @@ public class GpuPictureRecorder
             CopyList(_recordingContext.DoubleBuffer),
             CopyList(_recordingContext.Line3DBuffer),
             CopyList(_recordingContext.FloatBuffer),
+            _recordingContext.CopyImageEffects(),
             _recordingContext.CloneRetainedResources()
         );
         _recordingContext.Clear();
@@ -951,8 +1022,18 @@ public class GpuPictureRecorder
 
 public sealed class RenderCommandList : List<RenderCommand>
 {
+    private readonly DrawingContext? _owner;
     internal Func<int, bool>? CommandInterceptor;
     internal event Action<int>? CommandAdded;
+
+    public RenderCommandList()
+    {
+    }
+
+    internal RenderCommandList(DrawingContext owner)
+    {
+        _owner = owner;
+    }
 
     public new void Add(RenderCommand command)
     {
@@ -968,18 +1049,26 @@ public sealed class RenderCommandList : List<RenderCommand>
 
         CommandAdded?.Invoke(Count - 1);
     }
+
+    public new void Clear()
+    {
+        base.Clear();
+        _owner?.ClearCommandSideBuffers();
+    }
 }
 
 public class DrawingContext :
     IRenderDataProvider,
+    IImageEffectDataProvider,
     IProGpuDrawingContextSource
 {
-    public RenderCommandList Commands { get; } = new();
+    public RenderCommandList Commands { get; }
     private List<RetainedResourceLease>? _retainedResources;
     private List<Vector2>? _pointBuffer;
     private List<double>? _doubleBuffer;
     private List<Line3D>? _line3DBuffer;
     private List<float>? _floatBuffer;
+    private List<ImageEffectCommandData>? _imageEffectBuffer;
 
     // Reusable continuous pools to eliminate heap array allocations
     public List<Vector2> PointBuffer => _pointBuffer ??= new();
@@ -987,7 +1076,15 @@ public class DrawingContext :
     public List<Line3D> Line3DBuffer => _line3DBuffer ??= new();
     public List<float> FloatBuffer => _floatBuffer ??= new();
 
+    internal List<ImageEffectCommandData> ImageEffectBuffer =>
+        _imageEffectBuffer ??= new();
+
     public int RetainedResourceCount => _retainedResources?.Count ?? 0;
+
+    public DrawingContext()
+    {
+        Commands = new RenderCommandList(this);
+    }
 
     public bool TryGetProGpuDrawingContext(
         out ProGpuDrawingContextState state)
@@ -1261,6 +1358,38 @@ public class DrawingContext :
 
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         CollectionsMarshal.AsSpan(FloatBuffer).Slice(offset, count);
+
+    ImageEffectCommandData IImageEffectDataProvider.GetImageEffect(int index) =>
+        _imageEffectBuffer is { } values
+            ? values[index]
+            : throw new ArgumentOutOfRangeException(nameof(index));
+
+    internal ImageEffectCommandData GetImageEffect(
+        in RenderCommand command) =>
+        command.ResolveImageEffect(this);
+
+    internal void AddImageEffectCommand(
+        RenderCommand command,
+        in ImageEffectCommandData effect)
+    {
+        command.HasImageEffect = true;
+        command.HasBufferedImageEffect = true;
+        command.ImageEffectBufferIndex = ImageEffectBuffer.Count;
+        ImageEffectBuffer.Add(effect);
+        Commands.Add(command);
+    }
+
+    internal ImageEffectCommandData[] CopyImageEffects()
+    {
+        if (_imageEffectBuffer == null || _imageEffectBuffer.Count == 0)
+        {
+            return Array.Empty<ImageEffectCommandData>();
+        }
+
+        var result = new ImageEffectCommandData[_imageEffectBuffer.Count];
+        CollectionsMarshal.AsSpan(_imageEffectBuffer).CopyTo(result);
+        return result;
+    }
 
     public void DrawRectangle(Brush? brush, Pen? pen, Rect rect)
     {
@@ -2442,11 +2571,16 @@ public class DrawingContext :
         int doubleOffset = DoubleBuffer.Count;
         int line3dOffset = Line3DBuffer.Count;
         int floatOffset = FloatBuffer.Count;
+        int imageEffectOffset = _imageEffectBuffer?.Count ?? 0;
 
         AppendList(PointBuffer, other.PointBuffer);
         AppendList(DoubleBuffer, other.DoubleBuffer);
         AppendList(Line3DBuffer, other.Line3DBuffer);
         AppendList(FloatBuffer, other.FloatBuffer);
+        if (other._imageEffectBuffer is { Count: > 0 } otherImageEffects)
+        {
+            AppendList(ImageEffectBuffer, otherImageEffects);
+        }
 
         var otherCommands = other.Commands;
         int otherCommandCount = otherCommands.Count;
@@ -2464,6 +2598,8 @@ public class DrawingContext :
                 adjustedCmd.FloatBufferOffset += floatOffset;
             if (adjustedCmd.WeightBufferCount > 0)
                 adjustedCmd.WeightBufferOffset += doubleOffset;
+            if (adjustedCmd.HasBufferedImageEffect)
+                adjustedCmd.ImageEffectBufferIndex += imageEffectOffset;
 
             if (translation != Vector2.Zero)
             {
@@ -2603,6 +2739,15 @@ public class DrawingContext :
                 other.DoubleBuffer,
                 command.WeightBufferOffset,
                 command.WeightBufferCount);
+        }
+
+        if (command.HasBufferedImageEffect)
+        {
+            ImageEffectCommandData effect =
+                ((IImageEffectDataProvider)other).GetImageEffect(
+                    command.ImageEffectBufferIndex);
+            command.ImageEffectBufferIndex = ImageEffectBuffer.Count;
+            ImageEffectBuffer.Add(effect);
         }
 
         AppendRetainedResources(other.CloneRetainedResources());
@@ -2832,6 +2977,11 @@ public class DrawingContext :
         _line3DBuffer?.Clear();
         _floatBuffer?.Clear();
         DisposeRetainedResources();
+    }
+
+    internal void ClearCommandSideBuffers()
+    {
+        _imageEffectBuffer?.Clear();
     }
 
     private void DisposeRetainedResources()
