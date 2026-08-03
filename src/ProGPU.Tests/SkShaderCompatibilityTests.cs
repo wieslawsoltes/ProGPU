@@ -332,7 +332,7 @@ public sealed class SkShaderCompatibilityTests
                 positions,
                 SKShaderTileMode.Decal,
                 localMatrix);
-            return linear.Handle ^ radial.Handle ^ sweep.Handle ^ conical.Handle;
+            return linear.Handle | radial.Handle | sweep.Handle | conical.Handle;
         }
 
         for (var index = 0; index < 16; index++)
@@ -349,7 +349,7 @@ public sealed class SkShaderCompatibilityTests
         var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         for (var index = 0; index < iterations; index++)
         {
-            checksum ^= CreateFamily(
+            checksum |= CreateFamily(
                 colors,
                 positions,
                 colorSpace,
