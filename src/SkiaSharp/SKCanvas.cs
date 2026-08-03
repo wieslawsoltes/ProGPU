@@ -850,7 +850,10 @@ public class SKCanvas : SKObject
         {
             case SKImageFilter.FilterKind.Blur:
             {
-                var blur = (SKImageFilter.BlurData)filter.Parameters!;
+                if (!filter.TryGetBlurData(out var blur))
+                {
+                    return false;
+                }
                 var sigmaX = blur.SigmaX * xScale;
                 var sigmaY = blur.SigmaY * yScale;
                 if (!AreEquivalentEffectSigmas(sigmaX, sigmaY))
@@ -863,7 +866,10 @@ public class SKCanvas : SKObject
             }
             case SKImageFilter.FilterKind.DropShadow:
             {
-                var shadow = (SKImageFilter.DropShadowData)filter.Parameters!;
+                if (!filter.TryGetDropShadowData(out var shadow))
+                {
+                    return false;
+                }
                 var sigmaX = shadow.SigmaX * xScale;
                 var sigmaY = shadow.SigmaY * yScale;
                 if (shadow.ShadowOnly || !AreEquivalentEffectSigmas(sigmaX, sigmaY))
@@ -1218,7 +1224,10 @@ public class SKCanvas : SKObject
             case SKImageFilter.FilterKind.Blur:
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
-                var blur = (SKImageFilter.BlurData)filter.Parameters!;
+                if (!filter.TryGetBlurData(out var blur))
+                {
+                    throw new InvalidOperationException("Blur filter state is unavailable.");
+                }
                 result = RenderBlur(
                     input,
                     blur.SigmaX * GetAxisScale(filterTransform, Vector2.UnitX),
@@ -1245,9 +1254,13 @@ public class SKCanvas : SKObject
             case SKImageFilter.FilterKind.DropShadow:
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
+                if (!filter.TryGetDropShadowData(out var shadow))
+                {
+                    throw new InvalidOperationException("Drop-shadow filter state is unavailable.");
+                }
                 result = RenderDropShadow(
                     input,
-                    (SKImageFilter.DropShadowData)filter.Parameters!,
+                    shadow,
                     filterTransform);
                 break;
             }

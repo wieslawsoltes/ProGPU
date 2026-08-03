@@ -203,8 +203,9 @@ public partial class SKColorFilter
     public static SKColorFilter CreateTable(ReadOnlySpan<byte> table)
     {
         ValidateTableLength(table.Length, "table", "Table");
-        var snapshot = table.ToArray();
-        return new SKColorFilter(snapshot, snapshot, snapshot, snapshot);
+        return table.SequenceEqual(s_identityColorTable)
+            ? new SKColorFilter(colorTables: null, ColorTableLayout.Identity)
+            : new SKColorFilter(table.ToArray(), ColorTableLayout.Shared);
     }
 
     public static SKColorFilter CreateOverdraw(SKColor[] colors)
@@ -236,11 +237,41 @@ public partial class SKColorFilter
         ValidateTableLength(tableR.Length, nameof(tableR), "Table R");
         ValidateTableLength(tableG.Length, nameof(tableG), "Table G");
         ValidateTableLength(tableB.Length, nameof(tableB), "Table B");
-        return new SKColorFilter(
-            tableA.ToArray(),
-            tableR.ToArray(),
-            tableG.ToArray(),
-            tableB.ToArray());
+        var alphaIsIdentity = tableA.SequenceEqual(s_identityColorTable);
+        var redIsIdentity = tableR.SequenceEqual(s_identityColorTable);
+        var greenIsIdentity = tableG.SequenceEqual(s_identityColorTable);
+        var blueIsIdentity = tableB.SequenceEqual(s_identityColorTable);
+        if (alphaIsIdentity && redIsIdentity && greenIsIdentity && blueIsIdentity)
+        {
+            return new SKColorFilter(colorTables: null, ColorTableLayout.Identity);
+        }
+
+        if (tableA.SequenceEqual(tableR) &&
+            tableA.SequenceEqual(tableG) &&
+            tableA.SequenceEqual(tableB))
+        {
+            return new SKColorFilter(tableA.ToArray(), ColorTableLayout.Shared);
+        }
+
+        if (redIsIdentity && greenIsIdentity && blueIsIdentity)
+        {
+            return new SKColorFilter(tableA.ToArray(), ColorTableLayout.AlphaIdentityRgb);
+        }
+
+        if (tableR.SequenceEqual(tableG) && tableR.SequenceEqual(tableB))
+        {
+            var alphaAndRgb = new byte[512];
+            tableA.CopyTo(alphaAndRgb);
+            tableR.CopyTo(alphaAndRgb.AsSpan(256));
+            return new SKColorFilter(alphaAndRgb, ColorTableLayout.AlphaSharedRgb);
+        }
+
+        var packed = new byte[1024];
+        tableA.CopyTo(packed);
+        tableR.CopyTo(packed.AsSpan(256));
+        tableG.CopyTo(packed.AsSpan(512));
+        tableB.CopyTo(packed.AsSpan(768));
+        return new SKColorFilter(packed, ColorTableLayout.Packed);
     }
 
     public static SKColorFilter CreateHighContrast(SKHighContrastConfig config) =>
@@ -415,7 +446,10 @@ public partial class SKColorFilter
             table[index] = ToByte(transfer(index / 255f));
         }
 
-        var filter = new SKColorFilter(alpha, table, table, table);
+        var packed = new byte[TableMaxLength * 2];
+        alpha.CopyTo(packed, 0);
+        table.CopyTo(packed, TableMaxLength);
+        var filter = new SKColorFilter(packed, ColorTableLayout.AlphaSharedRgb);
         filter.PreventPublicDisposal();
         return filter;
     }

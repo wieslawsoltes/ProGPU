@@ -50,6 +50,19 @@ public sealed class SkColorFilterCompatibilityTests
         identity[80] = 0;
         Assert.Equal(new SKColor(80, 120, 160, 200), tableFilter.Apply(new SKColor(80, 120, 160, 200)));
 
+        var alpha = Enumerable.Range(0, 256).Select(static value => (byte)(value * 3 / 4)).ToArray();
+        var red = Enumerable.Range(0, 256).Select(static value => (byte)(255 - value)).ToArray();
+        var green = Enumerable.Range(0, 256).Select(static value => (byte)(value / 2)).ToArray();
+        var blue = Enumerable.Range(0, 256).Select(static value => (byte)value).ToArray();
+        using var packedTableFilter = SKColorFilter.CreateTable(alpha, red, green, blue);
+        alpha[200] = 0;
+        red[80] = 0;
+        green[120] = 0;
+        blue[160] = 0;
+        Assert.Equal(
+            new SKColor(175, 60, 160, 150),
+            packedTableFilter.Apply(new SKColor(80, 120, 160, 200)));
+
         Assert.Equal("matrix", Assert.Throws<ArgumentException>(
             () => SKColorFilter.CreateColorMatrix(new float[19])).ParamName);
         Assert.Equal("table", Assert.Throws<ArgumentException>(
