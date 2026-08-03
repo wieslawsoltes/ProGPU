@@ -396,7 +396,16 @@ internal static class ProgramEntry
                     info.RowBytes);
                 checksum = Mix(checksum, unchecked((uint)image.Width));
                 checksum = Mix(checksum, unchecked((uint)image.Height));
-                checksum = Mix(checksum, unchecked((uint)image.ColorType));
+                // Skia's native N32 channel order is selected by its build and
+                // can be BGRA where the WebGPU shim deliberately normalizes to
+                // RGBA. Both are the same four-channel Avalonia contract; keep
+                // the semantic checksum sensitive to that contract without
+                // requiring identical backend storage order.
+                checksum = Mix(
+                    checksum,
+                    image.ColorType is SKColorType.Rgba8888 or SKColorType.Bgra8888
+                        ? 4u
+                        : unchecked((uint)image.ColorType));
                 checksum = Mix(checksum, unchecked((uint)image.AlphaType));
             }
         }
