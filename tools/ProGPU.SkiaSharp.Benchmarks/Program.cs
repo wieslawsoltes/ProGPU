@@ -33,6 +33,8 @@ internal static class ProgramEntry
         new(0f, 0f, 1f, 1f)
     };
     private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
+    private static readonly ushort[] AvaloniaGlyphIndices = CreateAvaloniaGlyphIndices();
+    private static readonly SKPoint[] AvaloniaGlyphPositions = CreateAvaloniaGlyphPositions();
     private const string RuntimeEffectSource = """
         uniform float gain;
         uniform float2 offset;
@@ -116,6 +118,9 @@ internal static class ProgramEntry
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
+            new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
+            new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
+            new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
             // Keep each sample above the sub-millisecond timer-noise floor and
             // warm the gradient factories through their final dynamic-PGO tier.
             new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
@@ -398,6 +403,102 @@ internal static class ProgramEntry
         using var picture = recorder.EndRecording();
         checksum = Mix(checksum, picture is null ? 0u : 1u);
         return checksum;
+    }
+
+    private static ulong RunAvaloniaPaintReuse(int operations)
+    {
+        using var paint = new SKPaint();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            paint.IsAntialias = (index & 1) == 0;
+            paint.Color = new SKColor(
+                (byte)index,
+                (byte)(index >> 3),
+                (byte)(255 - index),
+                (byte)(192 + (index & 63)));
+            paint.IsStroke = true;
+            paint.StrokeWidth = 1f + (index & 7) * 0.25f;
+            paint.StrokeCap = SKStrokeCap.Square;
+            paint.StrokeJoin = SKStrokeJoin.Round;
+            paint.StrokeMiter = 4f + (index & 3);
+            paint.BlendMode = SKBlendMode.DstIn;
+
+            checksum = Mix(checksum, (uint)paint.Color);
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(paint.StrokeWidth));
+            checksum = Mix(checksum, (uint)paint.BlendMode);
+            paint.Reset();
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaPositionedTextBlob(int operations)
+    {
+        using var font = new SKFont(SKTypeface.Default, 16f);
+        using var builder = new SKTextBlobBuilder();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var run = builder.AllocatePositionedRun(font, AvaloniaGlyphIndices.Length);
+            run.SetPositions(AvaloniaGlyphPositions);
+            run.SetGlyphs(AvaloniaGlyphIndices);
+            using var blob = builder.Build() ??
+                throw new InvalidOperationException("A positioned glyph run must produce a text blob.");
+            checksum = Mix(checksum, blob.UniqueId == 0 ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+#pragma warning disable CS0618 // Avalonia.Skia 12 currently builds stream geometry through legacy SKPath mutation.
+    private static ulong RunAvaloniaStreamGeometry(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = (index & 15) * 0.125f;
+            using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+            path.MoveTo(offset, -offset);
+            for (var segment = 0; segment < 8; segment++)
+            {
+                var x = segment * 6f + offset;
+                var y = segment * 3f - offset;
+                path.LineTo(x + 1f, y + 2f);
+                path.QuadTo(x + 2f, y - 1f, x + 3f, y + 3f);
+                path.CubicTo(
+                    x + 3.5f,
+                    y + 4f,
+                    x + 4.5f,
+                    y - 2f,
+                    x + 5f,
+                    y + 1f);
+            }
+            path.Close();
+            var bounds = path.TightBounds;
+            checksum = Mix(
+                checksum,
+                Combine(bounds.Left + bounds.Right, bounds.Top + bounds.Bottom));
+        }
+
+        return checksum;
+    }
+#pragma warning restore CS0618
+
+    private static ushort[] CreateAvaloniaGlyphIndices()
+    {
+        var glyphs = new ushort[32];
+        for (var index = 0; index < glyphs.Length; index++)
+            glyphs[index] = (ushort)(index + 1);
+        return glyphs;
+    }
+
+    private static SKPoint[] CreateAvaloniaGlyphPositions()
+    {
+        var positions = new SKPoint[32];
+        for (var index = 0; index < positions.Length; index++)
+            positions[index] = new SKPoint(index * 7.5f, (index & 3) * 0.125f);
+        return positions;
     }
 
     private static ulong RunGrContextOptions(int operations)
