@@ -29,8 +29,8 @@ public enum WgpuBackendKind
 
 public unsafe class WgpuContext : IDisposable
 {
-    private const int QueuePollSubmissionInterval = 32;
-    private const int MaxDeferredQueueSubmissions = 1024;
+    private const int QueuePollSubmissionInterval = 2;
+    private const int MaxDeferredQueueSubmissions = 8;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;

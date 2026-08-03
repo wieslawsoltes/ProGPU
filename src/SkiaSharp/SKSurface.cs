@@ -922,6 +922,12 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
                     if (_context is { IsDisposed: false })
                     {
                         _context.CleanupPendingResources();
+                        // Surface disposal is a lifecycle boundary. Poll once
+                        // after dropping its final native references so already
+                        // completed command/resource generations are retired
+                        // without turning target teardown into a blocking queue
+                        // drain.
+                        _context.PollDevice(wait: false);
                     }
 
                     _surfaceProperties.Dispose();
