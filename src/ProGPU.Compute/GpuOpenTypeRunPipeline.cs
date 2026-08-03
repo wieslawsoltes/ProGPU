@@ -345,7 +345,7 @@ public unsafe sealed class GpuOpenTypeRunPipeline : IDisposable
             CommandBufferDescriptor commandDescriptor = default;
             CommandBuffer* command = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
             if (command == null) throw new InvalidOperationException("Failed to finish the OpenType shaping command buffer.");
-            try { _context.Api.QueueSubmit(_context.Queue, 1, &command); }
+            try { _context.Submit(1, &command); }
             finally { _context.Api.CommandBufferRelease(command); }
         }
         finally

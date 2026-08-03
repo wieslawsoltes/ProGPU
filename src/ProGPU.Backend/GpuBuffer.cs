@@ -232,7 +232,7 @@ public unsafe class GpuBuffer : IDisposable
             throw new InvalidOperationException("Failed to finish buffer readback command encoder.");
         }
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 

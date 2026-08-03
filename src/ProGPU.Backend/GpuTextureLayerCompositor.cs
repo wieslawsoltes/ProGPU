@@ -323,8 +323,7 @@ public sealed unsafe class GpuTextureLayerCompositor :
                 throw new InvalidOperationException(
                     "Failed to finish the texture-layer command buffer.");
             }
-            wgpu.QueueSubmit(
-                _context.Queue,
+            _context.Submit(
                 1,
                 &commandBuffer);
         }

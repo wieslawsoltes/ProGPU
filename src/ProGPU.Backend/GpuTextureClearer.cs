@@ -125,8 +125,7 @@ public static unsafe class GpuTextureClearer
                     "Failed to finish the GPU texture-clear command buffer.");
             }
 
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
         }

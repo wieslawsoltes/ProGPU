@@ -452,7 +452,7 @@ public unsafe class GpuTexture : IDisposable
                 throw new InvalidOperationException("Failed to finish command buffer for texture clear.");
             }
 
-            wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+            _context.Submit(1, &commandBuffer);
         }
         finally
         {
@@ -792,7 +792,7 @@ public unsafe class GpuTexture : IDisposable
             commandBuffer = wgpu.CommandEncoderFinish(encoder, &commandBufferDesc);
             if (commandBuffer != null)
             {
-                wgpu.QueueSubmit(_context.Queue, 1, &commandBuffer);
+                _context.Submit(1, &commandBuffer);
             }
         }
         finally
@@ -1250,7 +1250,7 @@ public unsafe class GpuTexture : IDisposable
 
         var commandBufferDesc = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandBufferDesc);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 
@@ -1331,7 +1331,7 @@ public unsafe class GpuTexture : IDisposable
         var commandBuffer = _context.Api.CommandEncoderFinish(
             encoder,
             &commandBufferDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 
@@ -1434,7 +1434,7 @@ public unsafe class GpuTexture : IDisposable
         var commandBuffer = _context.Api.CommandEncoderFinish(
             encoder,
             &commandBufferDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 

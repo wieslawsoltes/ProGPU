@@ -349,7 +349,7 @@ namespace ProGPU.Vector
                 _cmdBuffer = _context.Api.CommandEncoderFinish(_encoder, &cmdDesc);
                 SilkMarshal.Free((nint)cmdDesc.Label);
                 var submittedCommandBuffer = _cmdBuffer;
-                _context.Api.QueueSubmit(_context.Queue, 1, &submittedCommandBuffer);
+                _context.Submit(1, &submittedCommandBuffer);
                 _context.Api.CommandBufferRelease(_cmdBuffer);
                 _cmdBuffer = null;
                 _context.Api.CommandEncoderRelease(_encoder);

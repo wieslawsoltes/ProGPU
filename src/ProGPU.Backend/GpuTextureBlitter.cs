@@ -225,7 +225,7 @@ public static unsafe class GpuTextureBlitter
                 throw new InvalidOperationException("Failed to finish command buffer for GPU texture blit.");
             }
 
-            wgpu.QueueSubmit(context.Queue, 1, &commandBuffer);
+            context.Submit(1, &commandBuffer);
         }
         finally
         {

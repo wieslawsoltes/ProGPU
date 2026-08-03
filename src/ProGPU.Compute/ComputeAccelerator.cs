@@ -751,7 +751,7 @@ public unsafe class ComputeAccelerator : IDisposable
         var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
 
         // Release resources
         _context.Api.CommandBufferRelease(cmdBuffer);
@@ -832,7 +832,7 @@ public unsafe class ComputeAccelerator : IDisposable
         var commandDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Morphology Buffer") };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDesc);
         SilkMarshal.Free((nint)commandDesc.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
         ReleaseBindGroups(bindGroupsToRelease[..bindGroupToReleaseCount]);
@@ -920,7 +920,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1037,7 +1037,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1125,7 +1125,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1205,7 +1205,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1300,7 +1300,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1372,7 +1372,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1459,7 +1459,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1538,7 +1538,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1608,7 +1608,7 @@ public unsafe class ComputeAccelerator : IDisposable
         };
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
         SilkMarshal.Free((nint)commandDescriptor.Label);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
 
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1863,7 +1863,7 @@ public unsafe class ComputeAccelerator : IDisposable
         var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -1934,7 +1934,7 @@ public unsafe class ComputeAccelerator : IDisposable
         var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
         SilkMarshal.Free((nint)cmdDesc.Label);
 
-        _context.Api.QueueSubmit(_context.Queue, 1, &cmdBuffer);
+        _context.Submit(1, &cmdBuffer);
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
@@ -2028,7 +2028,7 @@ public unsafe class ComputeAccelerator : IDisposable
 
         var commandDescriptor = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
     }
@@ -2060,7 +2060,7 @@ public unsafe class ComputeAccelerator : IDisposable
         RunComputePass(encoder, _combinedBlurVertPipeline, verticalBinding, width, height);
         var commandDescriptor = new CommandBufferDescriptor();
         var commandBuffer = _context.Api.CommandEncoderFinish(encoder, &commandDescriptor);
-        _context.Api.QueueSubmit(_context.Queue, 1, &commandBuffer);
+        _context.Submit(1, &commandBuffer);
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
     }

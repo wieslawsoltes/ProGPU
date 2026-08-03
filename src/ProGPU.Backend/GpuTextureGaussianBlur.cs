@@ -417,8 +417,7 @@ public static unsafe class GpuTextureGaussianBlur
                     "Failed to finish the Gaussian command buffer.");
             }
 
-            wgpu.QueueSubmit(
-                context.Queue,
+            context.Submit(
                 1,
                 &commandBuffer);
             intermediate.MarkContentsDirty();

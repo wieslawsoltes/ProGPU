@@ -130,7 +130,7 @@ public sealed class WgpuContextTests
             BrowserWebGpuApi.QueueHandle,
             TextureFormat.Bgra8Unorm);
 
-        for (var index = 0; index < 8; index++)
+        for (var index = 0; index < 1024; index++)
         {
             using (var texture = new GpuTexture(
                        context,
@@ -141,10 +141,17 @@ public sealed class WgpuContextTests
             {
             }
 
+            var commandBuffer = (CommandBuffer*)1;
+            context.Submit(1, &commandBuffer);
             context.CleanupPendingResources();
+            if (index < 1023)
+            {
+                Assert.Equal(0, lifetime.WaitingPollCount);
+            }
         }
 
         Assert.Equal(1, lifetime.WaitingPollCount);
+        Assert.Equal(31, lifetime.NonBlockingPollCount);
     }
 
     [Fact]
