@@ -4082,6 +4082,16 @@ public class SKCanvas : SKObject
             return;
         }
 
+        DrawUniformRoundRect(rect.Rect, radiusX, radiusY, paint);
+    }
+
+    private void DrawUniformRoundRect(
+        SKRect rect,
+        float radiusX,
+        float radiusY,
+        SKPaint paint)
+    {
+
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
@@ -4090,7 +4100,7 @@ public class SKCanvas : SKObject
             _context.Commands.Add(new RenderCommand
             {
                 Type = RenderCommandType.DrawRoundedRect,
-                Rect = new Rect(rect.Rect.Left, rect.Rect.Top, rect.Rect.Width, rect.Rect.Height),
+                Rect = new Rect(rect.Left, rect.Top, rect.Width, rect.Height),
                 RadiusX = radiusX,
                 RadiusY = radiusY,
                 Brush = brush,
@@ -4108,7 +4118,18 @@ public class SKCanvas : SKObject
 
     public void DrawRoundRect(SKRect rect, float rx, float ry, SKPaint paint)
     {
-        DrawRoundRect(new SKRoundRect(rect, rx, ry), paint);
+        if (HasSpecialShader(paint.Shader) ||
+            !TryNormalizeUniformRoundRect(
+                ref rect,
+                ref rx,
+                ref ry))
+        {
+            using var roundRect = new SKRoundRect(rect, rx, ry);
+            DrawRoundRect(roundRect, paint);
+            return;
+        }
+
+        DrawUniformRoundRect(rect, rx, ry, paint);
     }
 
     public void DrawRoundRect(float x, float y, float w, float h, float rx, float ry, SKPaint paint) =>
@@ -4116,6 +4137,56 @@ public class SKCanvas : SKObject
 
     public void DrawRoundRect(SKRect rect, SKSize r, SKPaint paint) =>
         DrawRoundRect(rect, r.Width, r.Height, paint);
+
+    private static bool TryNormalizeUniformRoundRect(
+        ref SKRect rect,
+        ref float radiusX,
+        ref float radiusY)
+    {
+        if (!float.IsFinite(rect.Left) ||
+            !float.IsFinite(rect.Top) ||
+            !float.IsFinite(rect.Right) ||
+            !float.IsFinite(rect.Bottom))
+        {
+            return false;
+        }
+
+        rect = rect.Standardized;
+        if (rect.Width <= 0f || rect.Height <= 0f)
+        {
+            return false;
+        }
+
+        if (!float.IsFinite(radiusX) || !float.IsFinite(radiusY))
+        {
+            radiusX = 0f;
+            radiusY = 0f;
+        }
+
+        if (rect.Width < radiusX + radiusX ||
+            rect.Height < radiusY + radiusY)
+        {
+            var scale = MathF.Min(
+                rect.Width / (radiusX + radiusX),
+                rect.Height / (radiusY + radiusY));
+            radiusX *= scale;
+            radiusY *= scale;
+        }
+
+        if (radiusX <= 0f || radiusY <= 0f)
+        {
+            radiusX = 0f;
+            radiusY = 0f;
+        }
+        else if (radiusX >= rect.Width * 0.5f &&
+            radiusY >= rect.Height * 0.5f)
+        {
+            radiusX = rect.Width * 0.5f;
+            radiusY = rect.Height * 0.5f;
+        }
+
+        return true;
+    }
 
     private static bool TryGetUniformRadii(SKRoundRect rect, out float radiusX, out float radiusY)
     {
@@ -6600,6 +6671,7 @@ public class SKCanvas : SKObject
             layer.PreviousContext?.Clear();
             layer.Paint?.Dispose();
         }
+
     }
 
     protected override void Dispose(bool disposing)

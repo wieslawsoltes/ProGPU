@@ -24,6 +24,7 @@ sampling, transform, and presentation state.
 | --- | --- | --- |
 | [Skia `SkPicture`](https://api.skia.org/classSkPicture.html) and [`SkPictureRecorder`](https://api.skia.org/classSkPictureRecorder.html) | A picture is an immutable recording of ordered drawing, matrix, and clip operations. Finishing a recording invalidates the recording canvas for further recording. | Preserve exact command order and immutable replay. Use an original ProGPU token and typed-record layout; do not reproduce Skia opcodes, record structures, source organization, or implementation control flow. Clear picture-only image lookup state when recording finishes. |
 | [Skia `SkImage`](https://api.skia.org/classSkImage.html) | An image cannot be modified after creation. `kAllow_CachingHint` permits internally caching decoded/copied pixels; `kDisallow_CachingHint` forbids that cache. | Cache one immutable GPU readback only for `Allow`. For `Disallow`, copy a whole native-format texture directly into the caller's rows through the reusable WebGPU staging buffer, preserving row padding and avoiding a persistent copied-pixel cache. |
+| [Skia `SkRRect`](https://api.skia.org/classSkRRect.html) | Uniform rounded rectangles standardize bounds, scale oversized radii to fit, collapse invalid radii to rectangular corners, and clamp oval radii to half extents. | Apply the same public normalization directly in the scalar `DrawRoundRect(rect, rx, ry, paint)` fast path and record one analytic rounded-rectangle command. Complex corners and shader geometry continue through the existing retained-path fallback. |
 | [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist) and [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm) | A closed command list is an immutable device resource that can be drawn repeatedly; drawing state and resources remain associated with the device domain. | Retain typed resource references and shared transforms in the owning WebGPU context. Do not materialize a CPU bitmap or cross-device compatibility adapter during recording. |
 | [WebGPU command buffers](https://www.w3.org/TR/webgpu/#command-buffers) | Command buffers are immutable encodings submitted in order to a device queue. | Keep the CPU retained stream immutable and allocation-free to index, then expand it into the existing WebGPU compilation and submission path. CPU command packing does not replace GPU rasterization or composition. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | Retained display lists preserve ordered scene state while renderer-owned resources are reused across frames. | Separate compact scene intent from device resource ownership. Retain one texture lease per image/context and reuse it for consecutive picture draws instead of searching the retained-resource list per draw. |
@@ -104,6 +105,14 @@ from 1,080 to 424 B/op (-60.7%, or -73.9% from Preview.46), while median time
 moves from 3,533.693 to 3,511.312 ns/op (-0.6%). Exact glyph arrays, positions,
 font transform, rendering/hinting modes, presentation dependencies, transform,
 and pop ordering round-trip through the compact stream.
+
+The SaveLayer checkpoint adds at-most-80-byte analytic rounded-rectangle
+records and exact 16-byte retained-visual references. Its type-first classifier
+avoids rescanning those common wide commands. The three-process layer workload
+improves from 3,412.750 to 3,367.188 ns/op (-1.3%) and from 9,311 to 8,180 B/op
+(-12.1%, or -21.4% from Preview.46's 10,411 B/op). A canvas-local layer-context
+pool was measured and rejected: it increased allocation by 20 B/op and slowed
+the median, so no pooling code remains.
 
 ## Readback checkpoint measurement
 

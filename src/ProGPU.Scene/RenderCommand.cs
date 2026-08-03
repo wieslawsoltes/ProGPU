@@ -751,7 +751,9 @@ internal enum RetainedCommandDataKind : byte
     GeometryClip,
     NoData,
     SimpleGlyphRun,
-    ScalarState
+    ScalarState,
+    SimpleRoundedRectangle,
+    SimpleVisual
 }
 
 internal readonly struct RetainedTextCommandData
@@ -932,6 +934,46 @@ internal readonly struct RetainedRenderCommand
 
     public static RetainedCommandDataKind Classify(in RenderCommand command)
     {
+        switch (command.Type)
+        {
+            case RenderCommandType.DrawTexture:
+                if (IsSimpleTexture(
+                    in command,
+                    HasTextData(in command),
+                    HasOtherData(in command)))
+                {
+                    return RetainedCommandDataKind.SimpleTexture;
+                }
+                break;
+            case RenderCommandType.DrawGlyphRun:
+                if (IsSimpleGlyphRun(
+                    in command,
+                    HasTextureData(in command),
+                    HasOtherData(in command)))
+                {
+                    return RetainedCommandDataKind.SimpleGlyphRun;
+                }
+                break;
+            case RenderCommandType.DrawRoundedRect:
+                if (IsSimpleRoundedRectangle(
+                    in command,
+                    HasTextData(in command),
+                    HasTextureData(in command)))
+                {
+                    return RetainedCommandDataKind.SimpleRoundedRectangle;
+                }
+                break;
+            case RenderCommandType.DrawVisual:
+                if (IsSimpleVisual(
+                    in command,
+                    HasTextData(in command),
+                    HasTextureData(in command)))
+                {
+                    return RetainedCommandDataKind.SimpleVisual;
+                }
+                break;
+        }
+
         bool hasText = HasTextData(in command);
         bool hasTexture = HasTextureData(in command);
         bool hasOther = HasOtherData(in command);
@@ -959,16 +1001,6 @@ internal readonly struct RetainedRenderCommand
         if (IsGeometryClip(in command, hasText, hasTexture, hasOther))
         {
             return RetainedCommandDataKind.GeometryClip;
-        }
-
-        if (IsSimpleTexture(in command, hasText, hasOther))
-        {
-            return RetainedCommandDataKind.SimpleTexture;
-        }
-
-        if (IsSimpleGlyphRun(in command, hasTexture, hasOther))
-        {
-            return RetainedCommandDataKind.SimpleGlyphRun;
         }
 
         if (IsScalarState(in command, hasText, hasTexture, hasOther))
@@ -1154,45 +1186,33 @@ internal readonly struct RetainedRenderCommand
         command.GlyphRangeCount == 0;
 
     private static bool HasOnlyIntParamOtherData(in RenderCommand command) =>
-        command.Position2 == default &&
-        command.Position3 == default &&
-        command.Position4 == default &&
-        command.RadiusX == 0f &&
-        command.RadiusY == 0f &&
-        command.CornerRadius == 0f &&
-        command.PolylinePoints is null &&
-        !command.IsClosed &&
-        command.SplineKnots is null &&
-        command.SplineWeights is null &&
-        command.SplineDegree == 0 &&
-        command.Position3D1 == default &&
-        command.Position3D2 == default &&
-        command.Edges3D is null &&
-        command.StaticBuffer is null &&
-        command.GpuPoints is null &&
-        command.GpuPointsCount == 0 &&
-        !command.UseGpuTransforms &&
-        command.CameraView == default &&
-        command.Scale == default &&
-        command.Translate == default &&
-        command.PointBufferOffset == 0 &&
-        command.PointBufferCount == 0 &&
-        command.DoubleBufferOffset == 0 &&
-        command.DoubleBufferCount == 0 &&
-        command.Line3DBufferOffset == 0 &&
-        command.Line3DBufferCount == 0 &&
-        command.WeightBufferOffset == 0 &&
-        command.WeightBufferCount == 0 &&
-        command.FloatBufferOffset == 0 &&
-        command.FloatBufferCount == 0 &&
-        command.SeriesCacheKey is null &&
-        command.Picture is null &&
-        command.Visual is null &&
-        command.VertexMesh is null &&
-        command.VertexColorBlendMode == default &&
-        command.ExtensionId == 0 &&
-        command.FloatParam == 0f &&
-        command.DataParam is null;
+        !HasOtherData(in command, allowIntParam: true);
+
+    private static bool IsSimpleRoundedRectangle(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture) =>
+        command.Type == RenderCommandType.DrawRoundedRect &&
+        !hasText &&
+        !hasTexture &&
+        !HasOtherData(in command, allowRadii: true) &&
+        command.Path is null &&
+        command.GeometryCache is null;
+
+    private static bool IsSimpleVisual(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture) =>
+        command.Type == RenderCommandType.DrawVisual &&
+        !hasText &&
+        !hasTexture &&
+        !HasOtherData(in command, allowVisual: true) &&
+        command.Rect == default &&
+        HasDefaultCoreData(
+            in command,
+            allowBrush: false,
+            allowPen: false,
+            allowPath: false);
 
     private static bool HasDefaultCoreData(
         in RenderCommand command,
@@ -1246,12 +1266,16 @@ internal readonly struct RetainedRenderCommand
         command.ImageEffectBufferIndex != 0 ||
         command.HasBufferedImageEffect;
 
-    private static bool HasOtherData(in RenderCommand command) =>
+    private static bool HasOtherData(
+        in RenderCommand command,
+        bool allowRadii = false,
+        bool allowVisual = false,
+        bool allowIntParam = false) =>
         command.Position2 != default ||
         command.Position3 != default ||
         command.Position4 != default ||
-        command.RadiusX != 0f ||
-        command.RadiusY != 0f ||
+        (!allowRadii &&
+            (command.RadiusX != 0f || command.RadiusY != 0f)) ||
         command.CornerRadius != 0f ||
         command.PolylinePoints is not null ||
         command.IsClosed ||
@@ -1280,11 +1304,11 @@ internal readonly struct RetainedRenderCommand
         command.FloatBufferCount != 0 ||
         command.SeriesCacheKey is not null ||
         command.Picture is not null ||
-        command.Visual is not null ||
+        (!allowVisual && command.Visual is not null) ||
         command.VertexMesh is not null ||
         command.VertexColorBlendMode != default ||
         command.ExtensionId != 0 ||
-        command.IntParam != 0 ||
+        (!allowIntParam && command.IntParam != 0) ||
         command.FloatParam != 0f ||
         command.DataParam is not null;
 }
@@ -1628,6 +1652,80 @@ internal readonly struct RetainedScalarStateCommand
             };
 }
 
+internal readonly struct RetainedSimpleRoundedRectangleCommand
+{
+    private readonly Rect _rectangle;
+    private readonly Brush? _brush;
+    private readonly Pen? _pen;
+    private readonly float _radiusX;
+    private readonly float _radiusY;
+    private readonly int _hitTestId;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly bool _isEdgeAliased;
+    private readonly bool _isPenThicknessLocal;
+    private readonly uint _pathSampleGrid;
+    private readonly float _pathCoverageGamma;
+
+    public RetainedSimpleRoundedRectangleCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _rectangle = command.Rect;
+        _brush = command.Brush;
+        _pen = command.Pen;
+        _radiusX = command.RadiusX;
+        _radiusY = command.RadiusY;
+        _hitTestId = command.HitTestId;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _isEdgeAliased = command.IsEdgeAliased;
+        _isPenThicknessLocal = command.IsPenThicknessLocal;
+        _pathSampleGrid = command.PathSampleGrid;
+        _pathCoverageGamma = command.PathCoverageGamma;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawRoundedRect,
+            HitTestId = _hitTestId,
+            Rect = _rectangle,
+            Brush = _brush,
+            Pen = _pen,
+            RadiusX = _radiusX,
+            RadiusY = _radiusY,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            IsEdgeAliased = _isEdgeAliased,
+            IsPenThicknessLocal = _isPenThicknessLocal,
+            PathSampleGrid = _pathSampleGrid,
+            PathCoverageGamma = _pathCoverageGamma
+        };
+}
+
+internal readonly struct RetainedSimpleVisualCommand
+{
+    private readonly Visual? _visual;
+    private readonly int _transformIndex;
+
+    public RetainedSimpleVisualCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _visual = command.Visual;
+        _transformIndex = transformIndex;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawVisual,
+            Visual = _visual,
+            Transform = transforms[_transformIndex]
+        };
+}
+
 /// <summary>
 /// Immutable command snapshot with an ordered 32-bit token stream plus typed
 /// rectangle, path, clip, text, texture, transform, and uncommon-command
@@ -1652,6 +1750,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private readonly RetainedGeometryClipCommand[] _geometryClips;
     private readonly RetainedSimpleGlyphRunCommand[] _simpleGlyphRuns;
     private readonly RetainedScalarStateCommand[] _scalarStates;
+    private readonly RetainedSimpleRoundedRectangleCommand[] _simpleRoundedRectangles;
+    private readonly RetainedSimpleVisualCommand[] _simpleVisuals;
     private readonly Matrix4x4[] _transforms;
     private readonly Visual[] _embeddedVisuals;
 
@@ -1671,6 +1771,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _geometryClips = [];
             _simpleGlyphRuns = [];
             _scalarStates = [];
+            _simpleRoundedRectangles = [];
+            _simpleVisuals = [];
             _transforms = [];
             _embeddedVisuals = [];
             return;
@@ -1687,6 +1789,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         int geometryClipCount = 0;
         int simpleGlyphRunCount = 0;
         int scalarStateCount = 0;
+        int simpleRoundedRectangleCount = 0;
+        int simpleVisualCount = 0;
         int embeddedVisualCount = 0;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
@@ -1749,6 +1853,12 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     case RetainedCommandDataKind.ScalarState:
                         scalarStateCount++;
                         break;
+                    case RetainedCommandDataKind.SimpleRoundedRectangle:
+                        simpleRoundedRectangleCount++;
+                        break;
+                    case RetainedCommandDataKind.SimpleVisual:
+                        simpleVisualCount++;
+                        break;
                 }
                 if (commands[index].Type == RenderCommandType.DrawVisual &&
                     commands[index].Visual != null)
@@ -1791,6 +1901,12 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _scalarStates = scalarStateCount == 0
                 ? []
                 : new RetainedScalarStateCommand[scalarStateCount];
+            _simpleRoundedRectangles = simpleRoundedRectangleCount == 0
+                ? []
+                : new RetainedSimpleRoundedRectangleCommand[simpleRoundedRectangleCount];
+            _simpleVisuals = simpleVisualCount == 0
+                ? []
+                : new RetainedSimpleVisualCommand[simpleVisualCount];
             _transforms = new Matrix4x4[transformCount];
             _embeddedVisuals = embeddedVisualCount == 0
                 ? []
@@ -1807,6 +1923,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             int geometryClipIndex = 0;
             int simpleGlyphRunIndex = 0;
             int scalarStateIndex = 0;
+            int simpleRoundedRectangleIndex = 0;
+            int simpleVisualIndex = 0;
             int embeddedVisualIndex = 0;
             for (int index = 0; index < commands.Length; index++)
             {
@@ -1892,6 +2010,20 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                         _scalarStates[scalarStateIndex++] =
                             new RetainedScalarStateCommand(in command);
                         break;
+                    case RetainedCommandDataKind.SimpleRoundedRectangle:
+                        dataIndex = simpleRoundedRectangleIndex;
+                        _simpleRoundedRectangles[simpleRoundedRectangleIndex++] =
+                            new RetainedSimpleRoundedRectangleCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.SimpleVisual:
+                        dataIndex = simpleVisualIndex;
+                        _simpleVisuals[simpleVisualIndex++] =
+                            new RetainedSimpleVisualCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
                     case RetainedCommandDataKind.NoData:
                         dataIndex = (int)command.Type;
                         break;
@@ -1949,6 +2081,10 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     _simpleGlyphRuns[dataIndex].Expand(_transforms),
                 RetainedCommandDataKind.ScalarState =>
                     _scalarStates[dataIndex].Expand(),
+                RetainedCommandDataKind.SimpleRoundedRectangle =>
+                    _simpleRoundedRectangles[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.SimpleVisual =>
+                    _simpleVisuals[dataIndex].Expand(_transforms),
                 RetainedCommandDataKind.NoData => new RenderCommand
                 {
                     Type = (RenderCommandType)dataIndex
@@ -1983,6 +2119,10 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() +
         (long)_scalarStates.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedScalarStateCommand>() +
+        (long)_simpleRoundedRectangles.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleRoundedRectangleCommand>() +
+        (long)_simpleVisuals.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleVisualCommand>() +
         (long)_transforms.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>() +
         (long)_embeddedVisuals.Length * IntPtr.Size;

@@ -340,6 +340,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             new Vector2(2f, 3f),
             new Vector2(9f, 11f));
         var transform = Matrix4x4.CreateTranslation(4f, 5f, 0f);
+        var visual = new ContainerVisual();
         ushort[] glyphIndices = [7, 9];
         Vector2[] glyphPositions = [new(0f, 0f), new(8f, 0f)];
         RenderCommand[] source =
@@ -374,6 +375,24 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 IsEdgeAliased = true,
                 PathSampleGrid = 8,
                 PathCoverageGamma = 1.25f
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawRoundedRect,
+                HitTestId = 10,
+                Rect = new Rect(5f, 7f, 20f, 22f),
+                RadiusX = 4f,
+                RadiusY = 6f,
+                Brush = brush,
+                Transform = transform,
+                IsEdgeAliased = true,
+                IsPenThicknessLocal = true
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawVisual,
+                Visual = visual,
+                Transform = transform
             },
             new()
             {
@@ -433,6 +452,8 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(source, picture.RetainedCommands.Clone());
         Assert.True(Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() <= 96);
         Assert.Equal(8, Unsafe.SizeOf<RetainedScalarStateCommand>());
+        Assert.True(Unsafe.SizeOf<RetainedSimpleRoundedRectangleCommand>() <= 80);
+        Assert.Equal(16, Unsafe.SizeOf<RetainedSimpleVisualCommand>());
         Assert.True(
             picture.CommandStorageBytes < source.Length * 96L,
             $"Expected packed Avalonia command storage, actual={picture.CommandStorageBytes} bytes.");
