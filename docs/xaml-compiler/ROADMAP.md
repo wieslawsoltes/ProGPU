@@ -504,3 +504,31 @@ joint commit, and recovery; fine-grained namescope/resource/template/binding
 patching with safe fallback; cross-platform stress/performance/visual/
 accessibility/leak and collectible-context gates; and published-feed host and
 productization evidence before an MVP claim.
+
+## Preview.46 compiler handoff
+
+Preview.46 intentionally ships no new XAML compiler feature claim. It preserves
+the existing syntax, schema, semantic, lowering, structured Roslyn emission,
+source-generator/MSBuild/CLI/workspace packages, unchanged pinned Fluent
+corpus, transactional preview path, and changed-identity diagnostic-origin
+projection. The compiler remains pre-MVP.
+
+The next compiler work starts from the immutable Preview.46 tag and keeps the
+same five product blockers explicit:
+
+1. runtime capability adapters for every feature claimed by a compiler/profile;
+2. atomic metadata apply, XAML publication, joint commit, rollback, and
+   last-good recovery;
+3. namescope, resource, template, and binding fine-patch execution with a safe
+   root-replacement fallback;
+4. Windows/macOS/Linux stress, deterministic performance, visual,
+   accessibility, and collectible-context leak gates;
+5. published-feed source-generator/MSBuild/CLI/workspace/playground consumer
+   evidence, compatibility documentation, and release productization.
+
+After those blockers, the broader F1-F9 program remains: full WinUI runtime
+parity, XAML 2009 and writer completion, independent Avalonia/WPF/MAUI
+profiles, bidirectional language services, AOT/binary artifacts, the public
+extension SDK, and long-term corpus/fuzz/performance governance. Parsing or
+generating a corpus alone does not establish runtime, hot-reload, editing,
+accessibility, or framework conformance.

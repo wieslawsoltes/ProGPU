@@ -2014,3 +2014,36 @@ compact profiler summaries, research, and reproduction details are retained in
 `artifacts/performance/skiasharp-avalonia-hotpaths-final`. More than 3.4 GiB of
 raw Instruments/EventPipe data, XML exports, Xcode scratch, exploratory runs,
 and incomplete captures were deleted after extraction; no raw trace remains.
+
+## Preview.46 Avalonia canvas, path, image, paint, and effect tranche
+
+Preview.46 preserves the official 4,222/4,222 metadata match and prioritizes
+the call shapes used by source-built Avalonia.Skia 12.0.5. Path boolean results
+are retained as typed deferred geometry and evaluated by the WebGPU path
+rasterizer. Picture SaveLayer operations retain immutable commands and leases,
+then prepare their effect/layer textures before ordered replay so a nested
+offscreen submission cannot split or prematurely release the enclosing image
+stream. Common blur, shadow, table-filter, dash, rounded-rectangle, and
+retained-layer state is compacted without CPU raster fallback, reflection, or
+recording-time WebGPU initialization.
+
+The exact implementation head passed all 15 PR checks. Focused compositor and
+Skia compatibility coverage passes 380/380; the macOS CI lane passes
+3,236/3,236 core and 225/225 headless tests. The source-built Avalonia
+Composition workload measures 80.619 versus 78.305 frames/s and 6,466.76
+versus 7,485.97 managed bytes/frame for ProGPU versus official Skia.
+Allocations/VM Tracker reports 198,790,144 versus 205,265,120 persistent
+heap-plus-anonymous-VM bytes, with zero command-buffer errors, spills, hangs,
+or hang risks.
+
+The evidence is deliberately mixed. ProGPU P95 is 22.616 ms versus 17.021 ms;
+managed retained heap, first active physical footprint, native heap, and
+IOAccelerator VM are higher. The matched microbenchmark also keeps surface
+readback/composition, immutable-image and mixed-picture recording, path
+combination, and SaveLayer recording on the remaining optimization ledger.
+The compact matched evidence is under
+`artifacts/performance/skiasharp-avalonia-canvas-image-hotpaths-final`, and the
+clean-room architecture/research record is
+`docs/AVALONIA_SKIA_PAINT_EFFECT_RESEARCH.md`. All raw `.trace`, `.gcdump`,
+heap-dump, XML-export, and Xcode scratch artifacts were deleted after summary
+extraction.
