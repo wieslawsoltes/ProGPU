@@ -5771,6 +5771,25 @@ public class SKCanvas : SKObject
             : currentContext != null && !currentContext.IsDisposed
                 ? currentContext
                 : image.Texture.Context;
+
+        // Whole immutable images already own a texture in the target device.
+        // Retain that ownership through the drawing context instead of making
+        // a second GPU allocation and copy for every DrawImage recording.
+        // Subsets and mipmap generation still materialize a normalized texture
+        // below because their command-space coordinates or mip levels differ.
+        if (!generateMipmaps &&
+            image.IsWholeTexture &&
+            _context.TryRetainTexture(image, targetContext, out var leasedTexture))
+        {
+            if (image.ColorSpace is { } leasedColorSpace)
+            {
+                s_textureColorSpaces.AddOrUpdate(
+                    leasedTexture,
+                    new TextureColorSpace(leasedColorSpace));
+            }
+            return leasedTexture;
+        }
+
         var source = image.GetTextureRegionForContext(
             targetContext,
             out var sourceX,

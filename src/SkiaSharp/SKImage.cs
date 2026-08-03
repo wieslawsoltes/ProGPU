@@ -10,7 +10,7 @@ using Silk.NET.WebGPU;
 
 namespace SkiaSharp;
 
-public partial class SKImage : SKObject
+public partial class SKImage : SKObject, IProGpuContextTextureLeaseSource
 {
     private sealed class ImageOptionalState
     {
@@ -64,6 +64,12 @@ public partial class SKImage : SKObject
         public int PortableRowWidth { get; }
         public bool IsTextureBacked { get; }
 
+        public IProGpuTextureLease AcquireTextureLease()
+        {
+            AddReference();
+            return new ImageTextureLease(this, Texture);
+        }
+
         public void AddReference()
         {
             while (true)
@@ -100,8 +106,31 @@ public partial class SKImage : SKObject
         }
     }
 
+    private sealed class ImageTextureLease : IProGpuTextureLease
+    {
+        private TextureStorage? _storage;
+
+        public ImageTextureLease(TextureStorage storage, GpuTexture texture)
+        {
+            _storage = storage;
+            Texture = texture;
+        }
+
+        public GpuTexture Texture { get; }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _storage, null)?.ReleaseReference();
+        }
+    }
+
     private readonly TextureStorage _textureStorage;
     internal GpuTexture Texture => _textureStorage.Texture;
+    internal bool IsWholeTexture =>
+        _originX == 0 &&
+        _originY == 0 &&
+        Texture.Width == (uint)Width &&
+        Texture.Height == (uint)Height;
     private readonly int _width;
     private readonly int _height;
     private readonly int _originX;
@@ -117,9 +146,66 @@ public partial class SKImage : SKObject
     public bool IsLazyGenerated => false;
     public bool IsTextureBacked => _textureStorage.IsTextureBacked;
 
+    bool IProGpuTextureSource.TryGetGpuTexture(out GpuTexture texture) =>
+        TryGetWholeGpuTexture(Texture.Context, out texture);
+
+    bool IProGpuTextureLeaseSource.TryAcquireGpuTextureLease(
+        out IProGpuTextureLease lease) =>
+        TryAcquireWholeGpuTextureLease(Texture.Context, out lease);
+
+    bool IProGpuContextTextureLeaseSource.TryGetGpuTexture(
+        WgpuContext requiredContext,
+        out GpuTexture texture) =>
+        TryGetWholeGpuTexture(requiredContext, out texture);
+
+    bool IProGpuContextTextureLeaseSource.TryAcquireGpuTextureLease(
+        WgpuContext requiredContext,
+        out IProGpuTextureLease lease) =>
+        TryAcquireWholeGpuTextureLease(requiredContext, out lease);
+
     public SKData EncodedData => _optionalState?.EncodedBytes is not { } bytes
         ? null!
         : SKData.CreateCopy(bytes);
+
+    private bool TryGetWholeGpuTexture(
+        WgpuContext requiredContext,
+        out GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(requiredContext);
+        if (!IsDisposed &&
+            IsWholeTexture &&
+            ReferenceEquals(Texture.Context, requiredContext) &&
+            !Texture.IsDisposed)
+        {
+            texture = Texture;
+            return true;
+        }
+
+        texture = null!;
+        return false;
+    }
+
+    private bool TryAcquireWholeGpuTextureLease(
+        WgpuContext requiredContext,
+        out IProGpuTextureLease lease)
+    {
+        if (!TryGetWholeGpuTexture(requiredContext, out _))
+        {
+            lease = null!;
+            return false;
+        }
+
+        try
+        {
+            lease = _textureStorage.AcquireTextureLease();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            lease = null!;
+            return false;
+        }
+    }
 
     internal SKImage(GpuTexture texture)
         : this(texture, ownsTexture: false, CreateTextureInfo(texture), portableRgbaPixels: null)

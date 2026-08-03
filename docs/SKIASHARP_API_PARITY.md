@@ -979,6 +979,57 @@ main build and resolves the packaged RID-native WebGPU directory on Linux,
 macOS, and Windows. This fixes the prior Ubuntu `libwgpu_native` loader failure
 without skipping the GPU workload or relaxing comparison evidence.
 
+### Avalonia immutable-image upload and deferred-draw checkpoint
+
+The source-built Avalonia 12 `WriteableBitmapImpl` creates an immutable image
+with `SKImage.FromPixels(info, address, rowBytes)` whenever its writable pixel
+version changes, then reuses that image across draws. ProGPU now copies common
+RGBA, sRGBA, and BGRA rows directly into one tight immutable portable snapshot
+and uploads that same snapshot to WebGPU. The former temporary `SKBitmap`
+wrapper and its second row walk are gone; arbitrary supported formats keep the
+conservative conversion fallback. Snapshot work remains `O(P)` time and
+storage for `P` pixels because the public pointer is caller-owned and the image
+must remain immutable after the writable framebuffer changes.
+
+Whole images drawn in the same WebGPU device now cross the retained-command
+boundary through `IProGpuContextTextureLeaseSource`. The first draw records one
+bounded lifetime lease and every subsequent draw in that context reuses the
+same `GpuTexture`, texture view, and bindable identity. Disposal of the public
+`SKImage` releases its ownership but cannot destroy the texture while a
+deferred context or picture still holds a lease. Subsets, cross-device images,
+and mipmap generation retain their normalized materialization paths. This makes
+ordinary same-device recording `O(C)` command work for `C` draws with one GPU
+texture and one lease, rather than `O(C * P)` texture allocation and copy
+bandwidth.
+
+The clean-room design follows Skia's public
+[immutable image contract](https://api.skia.org/classSkImage.html), WebGPU's
+[texture ownership and copy model](https://www.w3.org/TR/webgpu/#textures),
+Direct2D's
+[device-context bitmap drawing contract](https://learn.microsoft.com/windows/win32/direct2d/id2d1devicecontext-drawbitmap-overload),
+Win2D's
+[CanvasBitmap contract](https://learn.microsoft.com/uwp/api/microsoft.graphics.canvas.canvasbitmap),
+WebRender's
+[external-image frame split](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+and Vello's
+[explicit wgpu scene-to-texture pipeline](https://github.com/linebender/vello).
+ProGPU adopts immutable CPU ownership at the public pointer boundary and typed
+same-device leases at the deferred GPU boundary; it rejects borrowed pointer
+lifetime assumptions, per-draw GPU copies, reflection, and backend-specific
+public handles. Text shaping remains unchanged at the reusable CPU-result
+boundary established by SkParagraph, DirectWrite, Parley, and HarfBuzz.
+
+On the Apple M3 Pro Release baseline, the 16-by-16 Avalonia snapshot workload
+improved from `13,356.445` to `10,934.730` ns/op and from `1,568` to `1,424`
+managed B/op with the exact native checksum. The new 1,000-draw retained-picture
+workload isolates reuse of that immutable image: replacing one GPU texture copy
+per draw with one lifetime lease reduced ProGPU from `69,164.500` to `608.354`
+ns/draw and from `2,831.500` to `2,486.000` managed B/draw. Native measured
+`48.479` ns/draw and `2` managed B/draw because its retained command storage is
+native and outside the managed counter. The remaining ProGPU command-storage
+and snapshot gaps are explicit optimization targets; these shared-machine
+figures establish the direction and do not claim final cross-platform parity.
+
 ### Retained canvas contract and empty-clip checkpoint
 
 `SKCanvas` now closes all 45 missing entries in its official 4.151.0 owner
