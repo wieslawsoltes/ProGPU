@@ -740,10 +740,16 @@ public struct RenderCommand
 
 internal enum RetainedCommandDataKind : byte
 {
-    None,
+    Basic,
     Auxiliary,
     Text,
-    Texture
+    Texture,
+    SimpleTexture,
+    SimpleRectangle,
+    SimplePath,
+    RectangleClip,
+    GeometryClip,
+    NoData
 }
 
 internal readonly struct RetainedTextCommandData
@@ -881,13 +887,9 @@ internal readonly struct RetainedRenderCommand
     private readonly bool _isPenThicknessLocal;
     private readonly uint _pathSampleGrid;
     private readonly float _pathCoverageGamma;
-    private readonly int _dataIndex;
-    private readonly RetainedCommandDataKind _dataKind;
 
     public RetainedRenderCommand(
         in RenderCommand command,
-        RetainedCommandDataKind dataKind,
-        int dataIndex,
         int transformIndex)
     {
         _type = command.Type;
@@ -903,21 +905,10 @@ internal readonly struct RetainedRenderCommand
         _isPenThicknessLocal = command.IsPenThicknessLocal;
         _pathSampleGrid = command.PathSampleGrid;
         _pathCoverageGamma = command.PathCoverageGamma;
-        _dataIndex = dataIndex;
-        _dataKind = dataKind;
     }
 
-    public RenderCommand Expand(
-        RenderCommand[] auxiliary,
-        RetainedTextCommandData[] text,
-        RetainedTextureCommandData[] texture,
-        Matrix4x4[] transforms)
+    public RenderCommand Expand(Matrix4x4[] transforms)
     {
-        if (_dataKind == RetainedCommandDataKind.Auxiliary)
-        {
-            return auxiliary[_dataIndex];
-        }
-
         var command = new RenderCommand
         {
             Type = _type,
@@ -934,16 +925,6 @@ internal readonly struct RetainedRenderCommand
             PathSampleGrid = _pathSampleGrid,
             PathCoverageGamma = _pathCoverageGamma
         };
-
-        if (_dataKind == RetainedCommandDataKind.Text)
-        {
-            text[_dataIndex].Apply(ref command);
-        }
-        else if (_dataKind == RetainedCommandDataKind.Texture)
-        {
-            texture[_dataIndex].Apply(ref command);
-        }
-
         return command;
     }
 
@@ -952,9 +933,40 @@ internal readonly struct RetainedRenderCommand
         bool hasText = HasTextData(in command);
         bool hasTexture = HasTextureData(in command);
         bool hasOther = HasOtherData(in command);
+
+        if (IsNoDataCommand(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.NoData;
+        }
+
+        if (IsSimpleRectangle(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.SimpleRectangle;
+        }
+
+        if (IsSimplePath(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.SimplePath;
+        }
+
+        if (IsRectangleClip(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.RectangleClip;
+        }
+
+        if (IsGeometryClip(in command, hasText, hasTexture, hasOther))
+        {
+            return RetainedCommandDataKind.GeometryClip;
+        }
+
+        if (IsSimpleTexture(in command, hasText, hasOther))
+        {
+            return RetainedCommandDataKind.SimpleTexture;
+        }
+
         if (!hasText && !hasTexture && !hasOther)
         {
-            return RetainedCommandDataKind.None;
+            return RetainedCommandDataKind.Basic;
         }
 
         if (hasText && !hasTexture && !hasOther &&
@@ -972,6 +984,106 @@ internal readonly struct RetainedRenderCommand
 
         return RetainedCommandDataKind.Auxiliary;
     }
+
+    private static bool IsNoDataCommand(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther) =>
+        (command.Type is RenderCommandType.PopClip or
+            RenderCommandType.PopOpacity or
+            RenderCommandType.PopGeometryClip or
+            RenderCommandType.PopOpacityMask or
+            RenderCommandType.PopBlendMode) &&
+        !hasText &&
+        !hasTexture &&
+        !hasOther &&
+        HasDefaultCoreData(in command, allowBrush: false, allowPen: false, allowPath: false) &&
+        command.Rect == default &&
+        command.Transform == default;
+
+    private static bool IsSimpleRectangle(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther) =>
+        command.Type == RenderCommandType.DrawRect &&
+        !hasText &&
+        !hasTexture &&
+        !hasOther &&
+        command.Path is null &&
+        command.GeometryCache is null;
+
+    private static bool IsSimplePath(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther) =>
+        command.Type == RenderCommandType.DrawPath &&
+        !hasText &&
+        !hasTexture &&
+        !hasOther &&
+        command.Rect == default;
+
+    private static bool IsRectangleClip(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther) =>
+        command.Type == RenderCommandType.PushClip &&
+        !hasText &&
+        !hasTexture &&
+        !hasOther &&
+        HasDefaultCoreData(in command, allowBrush: false, allowPen: false, allowPath: false);
+
+    private static bool IsGeometryClip(
+        in RenderCommand command,
+        bool hasText,
+        bool hasTexture,
+        bool hasOther) =>
+        command.Type == RenderCommandType.PushGeometryClip &&
+        !hasText &&
+        !hasTexture &&
+        !hasOther &&
+        command.Rect == default &&
+        HasDefaultCoreData(in command, allowBrush: false, allowPen: false, allowPath: true);
+
+    private static bool IsSimpleTexture(
+        in RenderCommand command,
+        bool hasText,
+        bool hasOther) =>
+        command.Type == RenderCommandType.DrawTexture &&
+        !hasText &&
+        !hasOther &&
+        command.Brush is null &&
+        command.Pen is null &&
+        command.Path is null &&
+        command.GeometryCache is null &&
+        command.TexturePatches is null &&
+        !command.HasTextureCubicCoefficients &&
+        !command.HasImageEffect &&
+        command.InlineImageEffectBox is null &&
+        command.ImageEffectBufferIndex == 0 &&
+        !command.HasBufferedImageEffect &&
+        !command.IsPenThicknessLocal &&
+        command.PathSampleGrid == 0 &&
+        command.PathCoverageGamma == 0f;
+
+    private static bool HasDefaultCoreData(
+        in RenderCommand command,
+        bool allowBrush,
+        bool allowPen,
+        bool allowPath) =>
+        (allowBrush || command.Brush is null) &&
+        (allowPen || command.Pen is null) &&
+        (allowPath || command.Path is null) &&
+        command.GeometryCache is null &&
+        command.HitTestId == 0 &&
+        command.PresentationDependencies == default &&
+        !command.IsEdgeAliased &&
+        !command.IsPenThicknessLocal &&
+        command.PathSampleGrid == 0 &&
+        command.PathCoverageGamma == 0f;
 
     private static bool HasTextData(in RenderCommand command) =>
         command.Text is not null ||
@@ -1052,18 +1164,255 @@ internal readonly struct RetainedRenderCommand
         command.DataParam is not null;
 }
 
+internal readonly struct RetainedTextRenderCommand
+{
+    private readonly RetainedRenderCommand _core;
+    private readonly RetainedTextCommandData _text;
+
+    public RetainedTextRenderCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _core = new RetainedRenderCommand(in command, transformIndex);
+        _text = new RetainedTextCommandData(in command);
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms)
+    {
+        RenderCommand command = _core.Expand(transforms);
+        _text.Apply(ref command);
+        return command;
+    }
+}
+
+internal readonly struct RetainedTextureRenderCommand
+{
+    private readonly RetainedRenderCommand _core;
+    private readonly RetainedTextureCommandData _texture;
+
+    public RetainedTextureRenderCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _core = new RetainedRenderCommand(in command, transformIndex);
+        _texture = new RetainedTextureCommandData(in command);
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms)
+    {
+        RenderCommand command = _core.Expand(transforms);
+        _texture.Apply(ref command);
+        return command;
+    }
+}
+
+internal readonly struct RetainedSimpleTextureCommand
+{
+    private readonly GpuTexture? _texture;
+    private readonly Rect _destination;
+    private readonly Rect _source;
+    private readonly int _hitTestId;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly byte _samplingMode;
+    private readonly byte _maxAnisotropy;
+    private readonly bool _snapToPixels;
+    private readonly bool _isEdgeAliased;
+
+    public RetainedSimpleTextureCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _texture = command.Texture;
+        _destination = command.Rect;
+        _source = command.SrcRect;
+        _hitTestId = command.HitTestId;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _samplingMode = checked((byte)command.TextureSamplingMode);
+        _maxAnisotropy = command.TextureMaxAnisotropy;
+        _snapToPixels = command.SnapTextureToPixels;
+        _isEdgeAliased = command.IsEdgeAliased;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawTexture,
+            HitTestId = _hitTestId,
+            Rect = _destination,
+            Texture = _texture,
+            SrcRect = _source,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            TextureSamplingMode = (TextureSamplingMode)_samplingMode,
+            TextureMaxAnisotropy = _maxAnisotropy,
+            SnapTextureToPixels = _snapToPixels,
+            IsEdgeAliased = _isEdgeAliased
+        };
+}
+
+internal readonly struct RetainedSimpleRectangleCommand
+{
+    private readonly int _hitTestId;
+    private readonly Rect _rectangle;
+    private readonly Brush? _brush;
+    private readonly Pen? _pen;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly bool _isEdgeAliased;
+    private readonly bool _isPenThicknessLocal;
+    private readonly uint _pathSampleGrid;
+    private readonly float _pathCoverageGamma;
+
+    public RetainedSimpleRectangleCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _hitTestId = command.HitTestId;
+        _rectangle = command.Rect;
+        _brush = command.Brush;
+        _pen = command.Pen;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _isEdgeAliased = command.IsEdgeAliased;
+        _isPenThicknessLocal = command.IsPenThicknessLocal;
+        _pathSampleGrid = command.PathSampleGrid;
+        _pathCoverageGamma = command.PathCoverageGamma;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawRect,
+            HitTestId = _hitTestId,
+            Rect = _rectangle,
+            Brush = _brush,
+            Pen = _pen,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            IsEdgeAliased = _isEdgeAliased,
+            IsPenThicknessLocal = _isPenThicknessLocal,
+            PathSampleGrid = _pathSampleGrid,
+            PathCoverageGamma = _pathCoverageGamma
+        };
+}
+
+internal readonly struct RetainedSimplePathCommand
+{
+    private readonly int _hitTestId;
+    private readonly Brush? _brush;
+    private readonly Pen? _pen;
+    private readonly PathGeometry? _path;
+    private readonly RenderCommandGeometryCache? _geometryCache;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly bool _isEdgeAliased;
+    private readonly bool _isPenThicknessLocal;
+    private readonly uint _pathSampleGrid;
+    private readonly float _pathCoverageGamma;
+
+    public RetainedSimplePathCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _hitTestId = command.HitTestId;
+        _brush = command.Brush;
+        _pen = command.Pen;
+        _path = command.Path;
+        _geometryCache = command.GeometryCache;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _isEdgeAliased = command.IsEdgeAliased;
+        _isPenThicknessLocal = command.IsPenThicknessLocal;
+        _pathSampleGrid = command.PathSampleGrid;
+        _pathCoverageGamma = command.PathCoverageGamma;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = _hitTestId,
+            Brush = _brush,
+            Pen = _pen,
+            Path = _path,
+            GeometryCache = _geometryCache,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            IsEdgeAliased = _isEdgeAliased,
+            IsPenThicknessLocal = _isPenThicknessLocal,
+            PathSampleGrid = _pathSampleGrid,
+            PathCoverageGamma = _pathCoverageGamma
+        };
+}
+
+internal readonly struct RetainedRectangleClipCommand
+{
+    private readonly Rect _rectangle;
+    private readonly int _transformIndex;
+
+    public RetainedRectangleClipCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _rectangle = command.Rect;
+        _transformIndex = transformIndex;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.PushClip,
+            Rect = _rectangle,
+            Transform = transforms[_transformIndex]
+        };
+}
+
+internal readonly struct RetainedGeometryClipCommand
+{
+    private readonly PathGeometry? _path;
+    private readonly int _transformIndex;
+
+    public RetainedGeometryClipCommand(
+        in RenderCommand command,
+        int transformIndex)
+    {
+        _path = command.Path;
+        _transformIndex = transformIndex;
+    }
+
+    public RenderCommand Expand(Matrix4x4[] transforms) =>
+        new()
+        {
+            Type = RenderCommandType.PushGeometryClip,
+            Path = _path,
+            Transform = transforms[_transformIndex]
+        };
+}
+
 /// <summary>
-/// Immutable command snapshot with compact core, text, texture, transform, and
-/// uncommon-command storage. Construction is O(C) average and O(C²) only for
+/// Immutable command snapshot with an ordered 32-bit token stream plus typed
+/// rectangle, path, clip, text, texture, transform, and uncommon-command
+/// storage. Construction is O(C) average and O(C²) only for
 /// adversarial transform-hash collisions, with O(C) bounded scratch and retained
 /// storage for C commands. Indexing and replay expansion are allocation-free O(1).
 /// </summary>
 internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
 {
-    private readonly RetainedRenderCommand[] _commands;
+    private const int TokenKindShift = 28;
+    private const uint TokenIndexMask = (1u << TokenKindShift) - 1u;
+
+    private readonly uint[] _order;
+    private readonly RetainedRenderCommand[] _basic;
     private readonly RenderCommand[] _auxiliary;
-    private readonly RetainedTextCommandData[] _text;
-    private readonly RetainedTextureCommandData[] _texture;
+    private readonly RetainedTextRenderCommand[] _text;
+    private readonly RetainedTextureRenderCommand[] _texture;
+    private readonly RetainedSimpleTextureCommand[] _simpleTextures;
+    private readonly RetainedSimpleRectangleCommand[] _simpleRectangles;
+    private readonly RetainedSimplePathCommand[] _simplePaths;
+    private readonly RetainedRectangleClipCommand[] _rectangleClips;
+    private readonly RetainedGeometryClipCommand[] _geometryClips;
     private readonly Matrix4x4[] _transforms;
     private readonly Visual[] _embeddedVisuals;
 
@@ -1071,18 +1420,30 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     {
         if (commands.IsEmpty)
         {
-            _commands = [];
+            _order = [];
+            _basic = [];
             _auxiliary = [];
             _text = [];
             _texture = [];
+            _simpleTextures = [];
+            _simpleRectangles = [];
+            _simplePaths = [];
+            _rectangleClips = [];
+            _geometryClips = [];
             _transforms = [];
             _embeddedVisuals = [];
             return;
         }
 
+        int basicCount = 0;
         int auxiliaryCount = 0;
         int textCount = 0;
         int textureCount = 0;
+        int simpleTextureCount = 0;
+        int simpleRectangleCount = 0;
+        int simplePathCount = 0;
+        int rectangleClipCount = 0;
+        int geometryClipCount = 0;
         int embeddedVisualCount = 0;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
@@ -1102,14 +1463,19 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 RetainedCommandDataKind dataKind =
                     RetainedRenderCommand.Classify(in commands[index]);
                 classifications[index] = (byte)dataKind;
-                transformIndices[index] = GetOrAddTransform(
-                    in commands[index].Transform,
-                    transformScratch,
-                    transformTable,
-                    transformTableCapacity - 1,
-                    ref transformCount);
+                transformIndices[index] = RequiresTransform(dataKind)
+                    ? GetOrAddTransform(
+                        in commands[index].Transform,
+                        transformScratch,
+                        transformTable,
+                        transformTableCapacity - 1,
+                        ref transformCount)
+                    : -1;
                 switch (dataKind)
                 {
+                    case RetainedCommandDataKind.Basic:
+                        basicCount++;
+                        break;
                     case RetainedCommandDataKind.Auxiliary:
                         auxiliaryCount++;
                         break;
@@ -1119,6 +1485,21 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     case RetainedCommandDataKind.Texture:
                         textureCount++;
                         break;
+                    case RetainedCommandDataKind.SimpleTexture:
+                        simpleTextureCount++;
+                        break;
+                    case RetainedCommandDataKind.SimpleRectangle:
+                        simpleRectangleCount++;
+                        break;
+                    case RetainedCommandDataKind.SimplePath:
+                        simplePathCount++;
+                        break;
+                    case RetainedCommandDataKind.RectangleClip:
+                        rectangleClipCount++;
+                        break;
+                    case RetainedCommandDataKind.GeometryClip:
+                        geometryClipCount++;
+                        break;
                 }
                 if (commands[index].Type == RenderCommandType.DrawVisual &&
                     commands[index].Visual != null)
@@ -1127,24 +1508,48 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 }
             }
 
-            _commands = new RetainedRenderCommand[commands.Length];
+            _order = new uint[commands.Length];
+            _basic = basicCount == 0
+                ? []
+                : new RetainedRenderCommand[basicCount];
             _auxiliary = auxiliaryCount == 0
                 ? []
                 : new RenderCommand[auxiliaryCount];
             _text = textCount == 0
                 ? []
-                : new RetainedTextCommandData[textCount];
+                : new RetainedTextRenderCommand[textCount];
             _texture = textureCount == 0
                 ? []
-                : new RetainedTextureCommandData[textureCount];
+                : new RetainedTextureRenderCommand[textureCount];
+            _simpleTextures = simpleTextureCount == 0
+                ? []
+                : new RetainedSimpleTextureCommand[simpleTextureCount];
+            _simpleRectangles = simpleRectangleCount == 0
+                ? []
+                : new RetainedSimpleRectangleCommand[simpleRectangleCount];
+            _simplePaths = simplePathCount == 0
+                ? []
+                : new RetainedSimplePathCommand[simplePathCount];
+            _rectangleClips = rectangleClipCount == 0
+                ? []
+                : new RetainedRectangleClipCommand[rectangleClipCount];
+            _geometryClips = geometryClipCount == 0
+                ? []
+                : new RetainedGeometryClipCommand[geometryClipCount];
             _transforms = new Matrix4x4[transformCount];
             _embeddedVisuals = embeddedVisualCount == 0
                 ? []
                 : new Visual[embeddedVisualCount];
             transformScratch.AsSpan(0, transformCount).CopyTo(_transforms);
+            int basicIndex = 0;
             int auxiliaryIndex = 0;
             int textIndex = 0;
             int textureIndex = 0;
+            int simpleTextureIndex = 0;
+            int simpleRectangleIndex = 0;
+            int simplePathIndex = 0;
+            int rectangleClipIndex = 0;
+            int geometryClipIndex = 0;
             int embeddedVisualIndex = 0;
             for (int index = 0; index < commands.Length; index++)
             {
@@ -1159,6 +1564,12 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 int dataIndex = -1;
                 switch (dataKind)
                 {
+                    case RetainedCommandDataKind.Basic:
+                        dataIndex = basicIndex;
+                        _basic[basicIndex++] = new RetainedRenderCommand(
+                            in command,
+                            transformIndices[index]);
+                        break;
                     case RetainedCommandDataKind.Auxiliary:
                         dataIndex = auxiliaryIndex;
                         _auxiliary[auxiliaryIndex++] = command;
@@ -1166,20 +1577,58 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     case RetainedCommandDataKind.Text:
                         dataIndex = textIndex;
                         _text[textIndex++] =
-                            new RetainedTextCommandData(in command);
+                            new RetainedTextRenderCommand(
+                                in command,
+                                transformIndices[index]);
                         break;
                     case RetainedCommandDataKind.Texture:
                         dataIndex = textureIndex;
                         _texture[textureIndex++] =
-                            new RetainedTextureCommandData(in command);
+                            new RetainedTextureRenderCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.SimpleTexture:
+                        dataIndex = simpleTextureIndex;
+                        _simpleTextures[simpleTextureIndex++] =
+                            new RetainedSimpleTextureCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.SimpleRectangle:
+                        dataIndex = simpleRectangleIndex;
+                        _simpleRectangles[simpleRectangleIndex++] =
+                            new RetainedSimpleRectangleCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.SimplePath:
+                        dataIndex = simplePathIndex;
+                        _simplePaths[simplePathIndex++] =
+                            new RetainedSimplePathCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.RectangleClip:
+                        dataIndex = rectangleClipIndex;
+                        _rectangleClips[rectangleClipIndex++] =
+                            new RetainedRectangleClipCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.GeometryClip:
+                        dataIndex = geometryClipIndex;
+                        _geometryClips[geometryClipIndex++] =
+                            new RetainedGeometryClipCommand(
+                                in command,
+                                transformIndices[index]);
+                        break;
+                    case RetainedCommandDataKind.NoData:
+                        dataIndex = (int)command.Type;
                         break;
                 }
 
-                _commands[index] = new RetainedRenderCommand(
-                    in command,
-                    dataKind,
-                    dataIndex,
-                    transformIndices[index]);
+                _order[index] = PackToken(dataKind, dataIndex);
             }
         }
         finally
@@ -1191,40 +1640,84 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         }
     }
 
-    public int Count => _commands.Length;
+    public int Count => _order.Length;
 
-    public int Length => _commands.Length;
+    public int Length => _order.Length;
 
     internal ReadOnlySpan<Visual> EmbeddedVisuals => _embeddedVisuals;
 
-    public RenderCommand this[int index] =>
-        _commands[index].Expand(
-            _auxiliary,
-            _text,
-            _texture,
-            _transforms);
+    public RenderCommand this[int index]
+    {
+        get
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+                (uint)index,
+                (uint)_order.Length,
+                nameof(index));
+            uint token = _order[index];
+            var dataKind = (RetainedCommandDataKind)(token >> TokenKindShift);
+            int dataIndex = (int)(token & TokenIndexMask);
+            return dataKind switch
+            {
+                RetainedCommandDataKind.Basic =>
+                    _basic[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.Auxiliary => _auxiliary[dataIndex],
+                RetainedCommandDataKind.Text =>
+                    _text[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.Texture =>
+                    _texture[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.SimpleTexture =>
+                    _simpleTextures[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.SimpleRectangle =>
+                    _simpleRectangles[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.SimplePath =>
+                    _simplePaths[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.RectangleClip =>
+                    _rectangleClips[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.GeometryClip =>
+                    _geometryClips[dataIndex].Expand(_transforms),
+                RetainedCommandDataKind.NoData => new RenderCommand
+                {
+                    Type = (RenderCommandType)dataIndex
+                },
+                _ => throw new InvalidOperationException(
+                    $"Unknown retained command data kind: {dataKind}.")
+            };
+        }
+    }
 
     internal long ApproximateStorageBytes =>
-        (long)_commands.Length *
+        (long)_order.Length * sizeof(uint) +
+        (long)_basic.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedRenderCommand>() +
         (long)_auxiliary.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() +
         (long)_text.Length *
-            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextCommandData>() +
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextRenderCommand>() +
         (long)_texture.Length *
-            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureCommandData>() +
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureRenderCommand>() +
+        (long)_simpleTextures.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleTextureCommand>() +
+        (long)_simpleRectangles.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimpleRectangleCommand>() +
+        (long)_simplePaths.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedSimplePathCommand>() +
+        (long)_rectangleClips.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedRectangleClipCommand>() +
+        (long)_geometryClips.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedGeometryClipCommand>() +
         (long)_transforms.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>() +
         (long)_embeddedVisuals.Length * IntPtr.Size;
 
     internal RenderCommand[] Clone()
     {
-        if (_commands.Length == 0)
+        if (_order.Length == 0)
         {
             return [];
         }
 
-        var result = new RenderCommand[_commands.Length];
+        var result = new RenderCommand[_order.Length];
         for (int index = 0; index < result.Length; index++)
         {
             result[index] = this[index];
@@ -1239,6 +1732,29 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private static uint PackToken(
+        RetainedCommandDataKind dataKind,
+        int dataIndex)
+    {
+        if ((uint)dataKind >= (1u << (32 - TokenKindShift)))
+        {
+            throw new InvalidOperationException(
+                $"Retained command data kind {dataKind} exceeds the token format.");
+        }
+        if ((uint)dataIndex > TokenIndexMask)
+        {
+            throw new InvalidOperationException(
+                "Retained command data exceeds the 28-bit token index capacity.");
+        }
+
+        return ((uint)dataKind << TokenKindShift) | (uint)dataIndex;
+    }
+
+    private static bool RequiresTransform(
+        RetainedCommandDataKind dataKind) =>
+        dataKind is not RetainedCommandDataKind.Auxiliary and
+            not RetainedCommandDataKind.NoData;
 
     private static int GetTransformTableCapacity(int commandCount)
     {

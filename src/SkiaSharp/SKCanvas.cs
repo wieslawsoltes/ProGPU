@@ -124,6 +124,9 @@ public class SKCanvas : SKObject
     private readonly Func<int, bool> _commandInterceptor;
     private SKSurface? _surface;
     private GRRecordingContext? _recordingContext;
+    private IProGpuContextTextureLeaseSource? _lastPictureTextureSource;
+    private WgpuContext? _lastPictureTextureContext;
+    private GpuTexture? _lastPictureTexture;
     private SKMatrix _currentMatrix = SKMatrix.Identity;
     private float _currentOpacity = 1f;
     private ClipState _clipState;
@@ -542,6 +545,13 @@ public class SKCanvas : SKObject
     internal void AttachRecordingContext(GRRecordingContext? recordingContext)
     {
         _recordingContext = recordingContext;
+    }
+
+    internal void CompletePictureRecording()
+    {
+        _lastPictureTextureSource = null;
+        _lastPictureTextureContext = null;
+        _lastPictureTexture = null;
     }
 
     internal void DetachSurface(SKSurface surface)
@@ -6054,12 +6064,24 @@ public class SKCanvas : SKObject
 
     private GpuTexture RetainImageTexture(SKImage image, bool generateMipmaps = false)
     {
+        ObjectDisposedException.ThrowIf(image.IsDisposed, image);
         var currentContext = WgpuContext.Current;
         var targetContext = _gpuContext != null && !_gpuContext.IsDisposed
             ? _gpuContext
             : currentContext != null && !currentContext.IsDisposed
                 ? currentContext
                 : image.Texture.Context;
+        IProGpuContextTextureLeaseSource textureSource =
+            image.TextureLeaseSource;
+
+        if (_isPictureRecording &&
+            !generateMipmaps &&
+            ReferenceEquals(textureSource, _lastPictureTextureSource) &&
+            ReferenceEquals(targetContext, _lastPictureTextureContext) &&
+            _lastPictureTexture is { IsDisposed: false } cachedTexture)
+        {
+            return cachedTexture;
+        }
 
         // Whole immutable images already own a texture in the target device.
         // Retain that ownership through the drawing context instead of making
@@ -6069,7 +6091,7 @@ public class SKCanvas : SKObject
         if (!generateMipmaps &&
             image.IsWholeTexture &&
             _context.TryRetainTexture(
-                image.TextureLeaseSource,
+                textureSource,
                 targetContext,
                 out var leasedTexture))
         {
@@ -6078,6 +6100,12 @@ public class SKCanvas : SKObject
                 s_textureColorSpaces.AddOrUpdate(
                     leasedTexture,
                     new TextureColorSpace(leasedColorSpace));
+            }
+            if (_isPictureRecording)
+            {
+                _lastPictureTextureSource = textureSource;
+                _lastPictureTextureContext = targetContext;
+                _lastPictureTexture = leasedTexture;
             }
             return leasedTexture;
         }
@@ -6588,6 +6616,7 @@ public class SKCanvas : SKObject
         }
         finally
         {
+            CompletePictureRecording();
             _context.ClearCommandInterceptor(_commandInterceptor);
             _bitmap?.DetachCanvas(this);
             ReleaseUnrestoredLayers();

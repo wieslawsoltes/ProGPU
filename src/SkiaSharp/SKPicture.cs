@@ -222,6 +222,7 @@ public class SKPictureRecorder : SKObject
     public SKPicture EndRecording()
     {
         var recorder = _recorder ?? throw new InvalidOperationException("No picture recording is active.");
+        _canvas?.CompletePictureRecording();
         var gpuPicture = recorder.EndRecording();
         var cullRect = gpuPicture.RetainedCommands.Length == 0 ? SKRect.Empty : _cullRect;
         var picture = new SKPicture(gpuPicture, cullRect);
