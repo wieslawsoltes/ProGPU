@@ -76,11 +76,11 @@ combined median and p95 rather than a selected process.
 
 Focused tests require exact `RenderCommand` round trips, the 64-byte texture
 record bound, retained image lease sharing without a GPU copy, picture state
-semantics, and compositor regression coverage. Final integration will repeat
-the representative Avalonia application workload and matched Xcode
-Allocations, Time Profiler, and Metal System Trace captures. Raw `.trace`,
-`.nettrace`, Xcode scratch, and exported XML are temporary and will be deleted
-after compact summaries are retained.
+semantics, and compositor regression coverage. Final integration repeats the
+representative Avalonia application workload and matched Xcode Allocations,
+Time Profiler, and Metal System Trace captures. Raw `.trace`, `.nettrace`,
+`.etlx`, Xcode scratch, and exported XML are temporary and are deleted after
+compact summaries are retained.
 
 ## First checkpoint measurement
 
@@ -144,3 +144,48 @@ faster for synchronous GPU-to-CPU reads because its compared surface is a CPU
 raster surface. ProGPU intentionally keeps rendering and composition on
 WebGPU; this checkpoint removes avoidable waiting and copying without adding a
 CPU renderer or violating `Disallow` caching semantics.
+
+## Final broad-distribution and integration validation
+
+The final complete benchmark matrix ran three fresh official and three fresh
+ProGPU processes with the same 32/24 warmup/sample protocol. All cases retained
+their exact semantic checksums. Representative final ProGPU medians are
+155,793 ns for repeated immutable-image `Disallow` readback, 441,181 ns for
+direct surface readback, 460,935 ns for conversion readback, 2,854 ns and
+424 B/op for mixed picture recording, 3,512 ns and 8,180 B/op for layer
+recording, and 254 ns and 89 B/op for positioned text. Complete-distribution
+timings vary more than isolated alternating runs, especially for submicrosecond
+text construction; therefore the focused paired distributions above remain the
+claim evidence and no universal native-performance superiority is asserted.
+
+The exact final source passed these integration gates:
+
+- official SkiaSharp 4.151.0 metadata: 4,222 of 4,222 entries matched, zero
+  missing;
+- 3,305 `ProGPU.Tests` and 225 headless tests;
+- 28 pinned Avalonia retained-compositor tests;
+- 274 upstream Avalonia.Skia text tests plus 13 focused text tests, with five
+  documented platform/profile skips;
+- the full patched Avalonia 12.0.5 ControlCatalog source build against the
+  ProGPU SkiaSharp shim, with zero warnings and zero errors.
+
+## Matched macOS Instruments qualification
+
+The same Release `avalonia-surface-compose` workload and checksum
+`10859766936728445827` were captured before and after with Xcode Allocations
+plus VM Tracker, Time Profiler, and Metal System Trace. Managed allocation
+remained exactly 992 B/op. The instrumented medians were 733,859/701,778 ns
+before/after under Allocations, 579,267/616,824 ns under Time Profiler, and
+713,420/710,813 ns under Metal. The mixed directions are within the
+instrumented-run spread and do not support a throughput-regression or
+throughput-improvement claim for composition itself.
+
+Allocations reported 159,348,000 B before and 159,378,672 B after for
+persistent heap plus anonymous VM, a 30,672 B (0.019%) difference. Both Metal
+captures reported zero drawable waits, compiler spills, potential hangs, hang
+risks, and command-buffer errors. The first candidate Metal finalization hit an
+Instruments rules-engine failure; its incomplete 85 MB trace and 186 MB Xcode
+scratch were deleted, and an independent successful capture supplied the final
+Metal evidence. All final raw traces, EventPipe traces, `.etlx` files, Xcode
+scratch, and XML exports were removed after compact JSON/Markdown summaries and
+target logs were retained.
