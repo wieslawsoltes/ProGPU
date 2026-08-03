@@ -70,6 +70,10 @@ Adopted:
 - Common blur/drop-shadow values are inline in specialized filter objects.
   Four-value dashes use inline storage. Color tables deduplicate identical and
   identity channels while preserving an immutable caller snapshot.
+- All four rounded-rectangle corner radii are retained inline. This makes a
+  round-rectangle object eight bytes larger than the former compressed common
+  case, but removes the separate 48-byte complex-radii object and makes
+  repeated complex-radius mutation allocation-free.
 - Text shaping, line breaking, bidi resolution, and glyph positions remain
   reusable CPU results. This slice changes only retained grouping and
   replay-time GPU raster/effect work.
@@ -106,7 +110,8 @@ Recording a layer is `O(C + R)` time and storage for `C` retained commands and
 owned object; table creation is `O(256)` validation/copy work and stores 0, 256,
 512, or 1024 bytes according to channel identity. Replay raster/effect work is
 `O(P * K)` for `P` affected pixels and the selected bounded WebGPU kernel
-footprint `K`; stable replay reuses compositor effect/layer textures.
+footprint `K`; stable replay reuses compositor effect/layer textures. Rounded-
+rectangle mutation and classification remain fixed `O(1)` work and storage.
 
 Preliminary macOS arm64 smoke measurements, before the final matched profiler
 run, show:
@@ -114,6 +119,10 @@ run, show:
 - blur plus drop-shadow factories: 216 to 184 managed bytes per operation;
 - Avalonia alpha/identity tables: 1256 to 392 managed bytes per operation;
 - short dash lifecycle: 344 cold managed bytes to 154 bytes per operation;
+- reused complex rounded-rectangle mutation: 19.066 ns/op versus 32.054 ns/op
+  for the official package, with the same exact checksum and zero managed
+  bytes per operation; retained ProGPU state falls from 120 to 80 bytes for
+  this complex case because there is no secondary radii object;
 - one recorded blur layer: about 609 microseconds before deferral and about
   14 microseconds after deferral in the one-operation smoke, with the same
   semantic checksum;

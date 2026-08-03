@@ -1232,6 +1232,11 @@ public class SKRoundRect : SKObject
     {
         var width = (double)_rect.Right - _rect.Left;
         var height = (double)_rect.Bottom - _rect.Top;
+        if (TryClassifyFittingRadii(width, height))
+        {
+            return;
+        }
+
         var scale = 1d;
         scale = ComputeMinimumScale(_radii[0].X, _radii[1].X, width, scale);
         scale = ComputeMinimumScale(_radii[1].Y, _radii[2].Y, height, scale);
@@ -1253,6 +1258,65 @@ public class SKRoundRect : SKObject
 
         ClampToZero();
         ComputeType();
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool TryClassifyFittingRadii(double width, double height)
+    {
+        var upperLeft = _radii[0];
+        var upperRight = _radii[1];
+        var lowerRight = _radii[2];
+        var lowerLeft = _radii[3];
+        if (upperLeft.X <= 0f || upperLeft.Y <= 0f ||
+            upperRight.X <= 0f || upperRight.Y <= 0f ||
+            lowerRight.X <= 0f || lowerRight.Y <= 0f ||
+            lowerLeft.X <= 0f || lowerLeft.Y <= 0f)
+        {
+            return false;
+        }
+
+        var top = upperLeft.X + upperRight.X;
+        var right = upperRight.Y + lowerRight.Y;
+        var bottom = lowerRight.X + lowerLeft.X;
+        var left = lowerLeft.Y + upperLeft.Y;
+        if (!(top != upperLeft.X && top != upperRight.X &&
+            right != upperRight.Y && right != lowerRight.Y &&
+            bottom != lowerRight.X && bottom != lowerLeft.X &&
+            left != lowerLeft.Y && left != upperLeft.Y &&
+            (double)upperLeft.X + upperRight.X <= width &&
+            (double)upperRight.Y + lowerRight.Y <= height &&
+            (double)lowerRight.X + lowerLeft.X <= width &&
+            (double)lowerLeft.Y + upperLeft.Y <= height))
+        {
+            return false;
+        }
+
+        if (upperLeft == upperRight &&
+            upperRight == lowerRight &&
+            lowerRight == lowerLeft)
+        {
+            if (upperLeft.X >= _rect.Width * 0.5f &&
+                upperLeft.Y >= _rect.Height * 0.5f)
+            {
+                FillRadii(new SKPoint(_rect.Width * 0.5f, _rect.Height * 0.5f));
+                _type = SKRoundRectType.Oval;
+            }
+            else
+            {
+                _type = SKRoundRectType.Simple;
+            }
+        }
+        else
+        {
+            _type = upperLeft.X == lowerLeft.X &&
+                upperLeft.Y == upperRight.Y &&
+                upperRight.X == lowerRight.X &&
+                lowerLeft.Y == lowerRight.Y
+                    ? SKRoundRectType.NinePatch
+                    : SKRoundRectType.Complex;
+        }
+
+        return true;
     }
 
     private void ComputeType()
@@ -1549,85 +1613,66 @@ public class SKRoundRect : SKObject
 
     private struct CornerRadiusBuffer
     {
-        private SKPoint _first;
-        private SKPoint _second;
-        private ComplexCornerRadii? _complex;
+        private SKPoint _radius0;
+        private SKPoint _radius1;
+        private SKPoint _radius2;
+        private SKPoint _radius3;
 
         public SKPoint this[int index]
         {
-            readonly get
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            readonly get => index switch
             {
-                if ((uint)index >= CornerCount)
-                {
-                    throw new IndexOutOfRangeException();
-                }
-
-                if (_complex is { } complex)
-                {
-                    return complex[index];
-                }
-
-                if (float.IsNaN(_second.X))
-                {
-                    return _first;
-                }
-
-                return index switch
-                {
-                    0 => _first,
-                    1 => new SKPoint(_second.X, _first.Y),
-                    2 => _second,
-                    _ => new SKPoint(_first.X, _second.Y),
-                };
-            }
+                0 => _radius0,
+                1 => _radius1,
+                2 => _radius2,
+                3 => _radius3,
+                _ => throw new IndexOutOfRangeException(),
+            };
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set
             {
-                EnsureComplex();
-                _complex![index] = value;
+                switch (index)
+                {
+                    case 0: _radius0 = value; break;
+                    case 1: _radius1 = value; break;
+                    case 2: _radius2 = value; break;
+                    case 3: _radius3 = value; break;
+                    default: throw new IndexOutOfRangeException();
+                }
             }
         }
 
         public void Clear()
         {
-            _first = default;
-            _second = new SKPoint(float.NaN, float.NaN);
-            _complex = null;
+            _radius0 = default;
+            _radius1 = default;
+            _radius2 = default;
+            _radius3 = default;
         }
 
         public void Fill(SKPoint radius)
         {
-            _first = radius;
-            _second = new SKPoint(float.NaN, float.NaN);
-            _complex = null;
+            _radius0 = radius;
+            _radius1 = radius;
+            _radius2 = radius;
+            _radius3 = radius;
         }
 
         public void SetNinePatch(float left, float top, float right, float bottom)
         {
-            _first = new SKPoint(left, top);
-            _second = new SKPoint(right, bottom);
-            _complex = null;
+            _radius0 = new SKPoint(left, top);
+            _radius1 = new SKPoint(right, top);
+            _radius2 = new SKPoint(right, bottom);
+            _radius3 = new SKPoint(left, bottom);
         }
 
         public void Set(ReadOnlySpan<SKPoint> radii)
         {
-            if (radii[0] == radii[1] && radii[1] == radii[2] && radii[2] == radii[3])
-            {
-                Fill(radii[0]);
-                return;
-            }
-
-            if (radii[0].X == radii[3].X &&
-                radii[0].Y == radii[1].Y &&
-                radii[1].X == radii[2].X &&
-                radii[3].Y == radii[2].Y)
-            {
-                SetNinePatch(radii[0].X, radii[0].Y, radii[1].X, radii[3].Y);
-                return;
-            }
-
-            _complex = new ComplexCornerRadii(radii);
-            _first = default;
-            _second = default;
+            _radius0 = radii[0];
+            _radius1 = radii[1];
+            _radius2 = radii[2];
+            _radius3 = radii[3];
         }
 
         public readonly void CopyTo(Span<SKPoint> destination)
@@ -1643,79 +1688,7 @@ public class SKRoundRect : SKObject
             }
         }
 
-        public readonly CornerRadiusBuffer Clone()
-        {
-            var clone = this;
-            if (_complex is not null)
-            {
-                clone._complex = _complex.Clone();
-            }
-
-            return clone;
-        }
-
-        private void EnsureComplex()
-        {
-            if (_complex is not null)
-            {
-                return;
-            }
-
-            Span<SKPoint> radii = stackalloc SKPoint[CornerCount];
-            CopyTo(radii);
-            _complex = new ComplexCornerRadii(radii);
-        }
-    }
-
-    private sealed class ComplexCornerRadii
-    {
-        private SKPoint _radius0;
-        private SKPoint _radius1;
-        private SKPoint _radius2;
-        private SKPoint _radius3;
-
-        public ComplexCornerRadii(ReadOnlySpan<SKPoint> radii)
-        {
-            _radius0 = radii[0];
-            _radius1 = radii[1];
-            _radius2 = radii[2];
-            _radius3 = radii[3];
-        }
-
-        public SKPoint this[int index]
-        {
-            get => index switch
-            {
-                0 => _radius0,
-                1 => _radius1,
-                2 => _radius2,
-                3 => _radius3,
-                _ => throw new IndexOutOfRangeException(),
-            };
-            set
-            {
-                switch (index)
-                {
-                    case 0: _radius0 = value; break;
-                    case 1: _radius1 = value; break;
-                    case 2: _radius2 = value; break;
-                    case 3: _radius3 = value; break;
-                    default: throw new IndexOutOfRangeException();
-                }
-            }
-        }
-
-        public ComplexCornerRadii Clone()
-        {
-            Span<SKPoint> radii = stackalloc SKPoint[CornerCount]
-            {
-                _radius0,
-                _radius1,
-                _radius2,
-                _radius3,
-            };
-            return new ComplexCornerRadii(radii);
-        }
+        public readonly CornerRadiusBuffer Clone() => this;
     }
 }
 

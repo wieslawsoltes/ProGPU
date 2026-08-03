@@ -61,6 +61,7 @@ public sealed class SkRoundRectCompatibilityTests
     public void ConstructionKeepsCornerRadiiInSingleManagedAllocation()
     {
         const int iterations = 10_000;
+        const int roundRectAllocationSize = 80;
         var rect = new SKRect(0f, 0f, 64f, 48f);
 
         using (var warmup = new SKRoundRect(rect, 8f, 4f))
@@ -79,8 +80,35 @@ public sealed class SkRoundRectCompatibilityTests
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.Equal(85_000f, checksum);
         Assert.True(
-            allocated <= 72L * iterations,
+            allocated <= roundRectAllocationSize * (long)iterations,
             $"Expected one bounded SKRoundRect allocation per construction, but measured {allocated / (double)iterations:F3} B/op.");
+    }
+
+    [Fact]
+    public void ReusedComplexRadiiMutationIsAllocationFree()
+    {
+        const int iterations = 100_000;
+        using var value = new SKRoundRect();
+        var rect = new SKRect(0f, 0f, 64f, 48f);
+        for (var index = 0; index < 128; index++)
+        {
+            value.SetRectRadii(rect, s_complexRadii);
+        }
+
+        var checksum = 0f;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            var offset = (index & 15) * 0.125f;
+            value.SetRectRadii(
+                new SKRect(offset, -offset, 64f + offset, 48f - offset),
+                s_complexRadii);
+            checksum += value.GetRadii(SKRoundRectCorner.LowerRight).X;
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(700_000f, checksum);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
