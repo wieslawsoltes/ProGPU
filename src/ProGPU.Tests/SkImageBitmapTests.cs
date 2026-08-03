@@ -148,6 +148,45 @@ public sealed class SkImageBitmapTests
     }
 
     [Fact]
+    public void ImmutableTextureDisallowReadbackPreservesDestinationRowPadding()
+    {
+        var info = new SKImageInfo(
+            2,
+            2,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        using var surface = SKSurface.Create(
+            info,
+            new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+        surface.Canvas.Clear(new SKColor(10, 20, 30, 255));
+        surface.Flush();
+        using var image = surface.Snapshot();
+        var destination = Marshal.AllocHGlobal(24);
+        try
+        {
+            WriteBytes(destination, Enumerable.Repeat((byte)99, 24).ToArray());
+
+            Assert.True(image.ReadPixels(
+                info,
+                destination,
+                dstRowBytes: 12,
+                srcX: 0,
+                srcY: 0,
+                SKImageCachingHint.Disallow));
+
+            Assert.Equal(new byte[]
+            {
+                10, 20, 30, 255, 10, 20, 30, 255, 99, 99, 99, 99,
+                10, 20, 30, 255, 10, 20, 30, 255, 99, 99, 99, 99
+            }, ReadBytes(destination, 24));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(destination);
+        }
+    }
+
+    [Fact]
     public void FromBitmapMarksUnpremultipliedUploadsAsStraightAlpha()
     {
         using var bitmap = new SKBitmap(new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Unpremul));

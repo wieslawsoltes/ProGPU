@@ -23,6 +23,7 @@ sampling, transform, and presentation state.
 | Engine or specification | Relevant public or architectural contract | ProGPU clean-room decision |
 | --- | --- | --- |
 | [Skia `SkPicture`](https://api.skia.org/classSkPicture.html) and [`SkPictureRecorder`](https://api.skia.org/classSkPictureRecorder.html) | A picture is an immutable recording of ordered drawing, matrix, and clip operations. Finishing a recording invalidates the recording canvas for further recording. | Preserve exact command order and immutable replay. Use an original ProGPU token and typed-record layout; do not reproduce Skia opcodes, record structures, source organization, or implementation control flow. Clear picture-only image lookup state when recording finishes. |
+| [Skia `SkImage`](https://api.skia.org/classSkImage.html) | An image cannot be modified after creation. `kAllow_CachingHint` permits internally caching decoded/copied pixels; `kDisallow_CachingHint` forbids that cache. | Cache one immutable GPU readback only for `Allow`. For `Disallow`, copy a whole native-format texture directly into the caller's rows through the reusable WebGPU staging buffer, preserving row padding and avoiding a persistent copied-pixel cache. |
 | [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist) and [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm) | A closed command list is an immutable device resource that can be drawn repeatedly; drawing state and resources remain associated with the device domain. | Retain typed resource references and shared transforms in the owning WebGPU context. Do not materialize a CPU bitmap or cross-device compatibility adapter during recording. |
 | [WebGPU command buffers](https://www.w3.org/TR/webgpu/#command-buffers) | Command buffers are immutable encodings submitted in order to a device queue. | Keep the CPU retained stream immutable and allocation-free to index, then expand it into the existing WebGPU compilation and submission path. CPU command packing does not replace GPU rasterization or composition. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | Retained display lists preserve ordered scene state while renderer-owned resources are reused across frames. | Separate compact scene intent from device resource ownership. Retain one texture lease per image/context and reuse it for consecutive picture draws instead of searching the retained-resource list per draw. |
@@ -51,6 +52,14 @@ operations, and unbounded per-draw resource lookup caches.
   image/context texture in `O(1)`. The recording context still owns the one
   actual lease; the three-reference lookup cache is cleared at recording
   completion and canvas disposal.
+- A native-format whole-image `ReadPixels` with `Disallow` performs one
+  `O(P)` GPU-to-staging transfer and copies mapped rows directly to caller
+  storage. `Allow` may reuse one `O(P)` immutable readback array. Both paths
+  reuse one staging buffer and preserve the caller's row padding.
+- Synchronous map completion performs non-blocking WebGPU device polls and
+  cooperative thread yields until completion or the existing 30-second
+  timeout. It does not impose a one-millisecond sleep after every incomplete
+  poll, so latency remains proportional to actual queue completion.
 - The focused storage gate permits at most 64 retained bytes per ordinary
   texture draw, plus one shared transform. Exact clone tests cover texture,
   rectangle, path, rectangle clip, geometry clip, and all pop-state records.
@@ -87,3 +96,24 @@ Official SkiaSharp remains faster in both microbenchmarks at this checkpoint;
 these results establish a material improvement and memory floor for the next
 typed text/glyph and immutable-image slices, not completion of the broader
 performance goal.
+
+## Readback checkpoint measurement
+
+The readback checkpoint uses the same Release runner and three fresh processes
+per backend. The previous ProGPU source endpoint and Preview.46 have identical
+surface/readback product code; only package versions and documentation changed
+between them. Every checksum matched.
+
+| Avalonia-shaped workload | Previous ProGPU median | Candidate median | Change | Previous allocation | Candidate allocation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Immutable-image repeated readback (`Disallow`) | 2,799,313 ns | 230,266 ns | -91.8% | 1,104 B/op | 640 B/op (-42.0%) |
+| Direct surface readback | 2,901,513 ns | 431,690 ns | -85.1% | 1,135 B/op | 1,136 B/op |
+| Framebuffer conversion readback | 3,169,493 ns | 447,761 ns | -85.9% | 14,088 B/op | 14,089 B/op |
+| Reusable surface composition | 658,568 ns | 606,675 ns | -7.9% | 991 B/op | 992 B/op |
+
+The small one-byte allocation differences are integer division artifacts in
+the per-operation runner, not retained objects. Official SkiaSharp remains
+faster for synchronous GPU-to-CPU reads because its compared surface is a CPU
+raster surface. ProGPU intentionally keeps rendering and composition on
+WebGPU; this checkpoint removes avoidable waiting and copying without adding a
+CPU renderer or violating `Disallow` caching semantics.
