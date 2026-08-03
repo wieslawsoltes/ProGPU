@@ -613,6 +613,20 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void SkiaRetainedLayersReserveExactCommonStorageAndAvoidEmptyResourceContexts()
+    {
+        string source = ReadSource("src", "SkiaSharp", "SKCanvas.cs");
+
+        Assert.Contains("private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();", source, StringComparison.Ordinal);
+        Assert.Contains("if (source.RetainedResourceCount != 0)\n            {\n                _resourceContext = new DrawingContext();", source, StringComparison.Ordinal);
+        Assert.Contains("_resourceContext ?? s_emptyRetainedLayerResourceContext;", source, StringComparison.Ordinal);
+        Assert.Contains("var activeClipPushes = SnapshotActiveClipPushes();", source, StringComparison.Ordinal);
+        Assert.Contains("var expectedCommandCount = checked(", source, StringComparison.Ordinal);
+        Assert.Contains("(IsFullCanvasLayerBounds(bounds) ? 0 : 2) +", source, StringComparison.Ordinal);
+        Assert.Contains("layerContext.EnsureCommandCapacity(expectedCommandCount);", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompositorTransientStateSnapshotsUseArrayPool()
     {
         string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");

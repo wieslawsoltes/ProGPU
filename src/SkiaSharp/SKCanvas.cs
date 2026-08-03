@@ -25,6 +25,7 @@ public class SKCanvas : SKObject
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
     private static readonly PathGeometry s_unitRectangleGeometry =
         CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
+    private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();
 
     private sealed class TextureColorSpace
     {
@@ -303,16 +304,21 @@ public class SKCanvas : SKObject
     private sealed class RetainedLayerVisual : Visual, IOwnedRenderCommandCache, IDisposable
     {
         private readonly GpuPictureCommandCollection _commands;
-        private readonly DrawingContext _resourceContext = new();
+        private readonly DrawingContext? _resourceContext;
         private bool _disposed;
 
         public RetainedLayerVisual(DrawingContext source)
         {
             _commands = new GpuPictureCommandCollection(source.Commands.AsSpan());
-            source.MoveRetainedResourcesTo(_resourceContext);
+            if (source.RetainedResourceCount != 0)
+            {
+                _resourceContext = new DrawingContext();
+                source.MoveRetainedResourcesTo(_resourceContext);
+            }
         }
 
-        public DrawingContext GetOrUpdateRenderCommandCache() => _resourceContext;
+        public DrawingContext GetOrUpdateRenderCommandCache() =>
+            _resourceContext ?? s_emptyRetainedLayerResourceContext;
 
         public int RenderCommandCount => _commands.Count;
 
@@ -332,7 +338,7 @@ public class SKCanvas : SKObject
 
             _disposed = true;
             Effect = null;
-            _resourceContext.Clear();
+            _resourceContext?.Clear();
         }
     }
 
@@ -670,6 +676,19 @@ public class SKCanvas : SKObject
 
         var parentContext = _context;
         var layerContext = new DrawingContext();
+        var activeClipPushes = SnapshotActiveClipPushes();
+        if (_isPictureRecording)
+        {
+            // A retained SaveLayer normally records at least one draw and may
+            // add the layer-bounds clip at restore. Reserve that exact common
+            // shape so the intentionally wide RenderCommand never pays the
+            // general four-command first-allocation cost.
+            var expectedCommandCount = checked(
+                activeClipPushes.Length +
+                (IsFullCanvasLayerBounds(bounds) ? 0 : 2) +
+                1);
+            layerContext.EnsureCommandCapacity(expectedCommandCount);
+        }
         layerContext.SetCommandInterceptor(_commandInterceptor);
         DrawingContext? previousContext = null;
         if (IsValidLayerBounds(bounds) &&
@@ -691,7 +710,7 @@ public class SKCanvas : SKObject
             _savedStateCount,
             bounds,
             _currentMatrix,
-            SnapshotActiveClipPushes()));
+            activeClipPushes));
         _context = layerContext;
 
         return restoreCount;

@@ -138,11 +138,14 @@ run, show:
 - one recorded blur layer: about 609 microseconds before deferral and about
   14 microseconds after deferral in the one-operation smoke, with the same
   semantic checksum;
-- 16 retained layers: about 4.75 microseconds and 11,089 managed bytes per
-  layer after compact command ownership. Official managed allocation counters
-  do not include Skia's native command/filter storage, so final memory claims
-  will correlate managed allocation, process footprint, EventPipe, Instruments,
-  wgpu-native resources, and Metal allocation data.
+- Exact 16-layer before/after runs on the same Release runner changed from
+  3.766 to 3.781 microseconds per layer (within run noise) while managed
+  allocation fell from 11,115 to 10,411 bytes per layer (-6.3%). The retained
+  layer reserves its common command shape exactly and creates a resource
+  context only when the subtree owns resources. Official managed allocation
+  counters do not include Skia's native command/filter storage, so final memory
+  claims correlate managed allocation, process footprint, EventPipe,
+  Instruments, wgpu-native resources, and Metal allocation data.
 
 Final acceptance requires matched Release binaries, exact semantic checksums,
 GPU pixel tests for blur/shadow/clip/opacity, official API metadata comparison,
