@@ -2,8 +2,12 @@
 
 ## Scope and algorithm
 
-Product commit `d22fcef3` is compared with exact Preview.44 merge
-`84a86f68`. The tranche covers the recording APIs exercised by the unchanged
+Measured product commit `d22fcef3` is compared with exact Preview.44 merge
+`84a86f68`; final integration commit `e75723db` additionally makes explicit
+`DrawingContext.EnsureCommandCapacity` reservations survive `Clear`, while
+organically grown large scratch arrays still return to `ArrayPool<T>`. The
+matched benchmark does not call that reservation API. The tranche covers the
+recording APIs exercised by the unchanged
 Avalonia.Skia 12.0.5 source build:
 
 - optional image-effect payloads use a typed side buffer, reducing the inline
@@ -110,7 +114,7 @@ DPI/atlas/effect/device validation.
 
 ## Validation and cleanup
 
-Core tests pass 3,267/3,267, headless tests 225/225, and Avalonia contract tests
+Core tests pass 3,268/3,268, headless tests 225/225, and Avalonia contract tests
 86/86. XAML compiler tests pass, the unchanged Avalonia.Skia 12.0.5 project
 builds with zero warnings/errors, and the official API gate remains
 `reference=4222`, `matching=4222`, `missing=0`, `extra=998`. Documentation and

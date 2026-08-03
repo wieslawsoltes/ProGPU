@@ -1974,6 +1974,13 @@ primary claim. Immutable-image picture recording separately fell from `2,486`
 to `146` managed B/op (`94.13%`), and the inline command value fell from `816`
 to `576` bytes before compact picture packing.
 
+Final integration commit `e75723db` also makes the existing explicit
+`DrawingContext.EnsureCommandCapacity` reservation contract persistent across
+`Clear`, while organically grown large transient command buffers remain pooled
+and bounded. The matched picture benchmark does not call that reservation API;
+the focused MotionMark allocation regression passes repeatedly with the final
+behavior.
+
 Official SkiaSharp 4.151.0 remains faster for the mixed wrapper workload at a
 pooled `396.078` ns/op median and `10` managed B/op with the same checksum.
 That counter excludes native Skia picture allocation, so it is neither a total
@@ -1998,7 +2005,7 @@ frames leave the candidate hot list; remaining samples center on GC polling,
 reference clearing, compact snapshot construction, and retained-array
 allocation.
 
-The complete core suite passes 3,267/3,267, headless passes 225/225, Avalonia
+The complete core suite passes 3,268/3,268, headless passes 225/225, Avalonia
 renderer contracts pass 86/86, and the XAML compiler suite passes. The unchanged
 Avalonia.Skia 12.0.5 source project builds with zero warnings and errors. The
 official API gate remains `reference=4222`, `matching=4222`, `missing=0`, and
