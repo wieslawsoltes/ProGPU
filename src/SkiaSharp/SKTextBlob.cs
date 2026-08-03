@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace SkiaSharp;
 
-internal sealed class SKTextBlobRun
+internal readonly struct SKTextBlobRun
 {
     public SKFont Font { get; }
     public ushort[] GlyphIndices { get; }
@@ -35,6 +35,7 @@ public partial class SKTextBlob : SKObject
 {
     private static int s_nextUniqueId;
     private SKRect? _bounds;
+    private SKTextBlobBuilderRun? _leasedBuilderRun;
 
     internal SKTextBlobRun[] Runs { get; }
     internal SKFont Font => Runs[0].Font;
@@ -50,6 +51,11 @@ public partial class SKTextBlob : SKObject
     }
 
     internal SKTextBlob(SKTextBlobRun[] runs)
+        : this(runs, leasedBuilderRun: null)
+    {
+    }
+
+    internal SKTextBlob(SKTextBlobRun[] runs, SKTextBlobBuilderRun? leasedBuilderRun)
         : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(runs);
@@ -59,6 +65,16 @@ public partial class SKTextBlob : SKObject
         }
 
         Runs = runs;
+        _leasedBuilderRun = leasedBuilderRun;
+        if (runs.Length == 1)
+        {
+            var run = runs[0];
+            GlyphIndices = run.GlyphIndices;
+            GlyphPositions = run.GlyphPositions;
+            HasEmboldenedRuns = run.Font.Embolden;
+            return;
+        }
+
         var glyphCount = 0;
         foreach (var run in runs)
         {
@@ -449,6 +465,13 @@ public partial class SKTextBlob : SKObject
 
     protected override void Dispose(bool disposing)
     {
+        if (disposing)
+        {
+            var leasedBuilderRun = _leasedBuilderRun;
+            _leasedBuilderRun = null;
+            leasedBuilderRun?.ReturnLease();
+        }
+
         base.Dispose(disposing);
     }
 

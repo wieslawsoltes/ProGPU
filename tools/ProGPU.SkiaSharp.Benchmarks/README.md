@@ -19,8 +19,16 @@ used as narrow timing gates; dedicated platform runs establish reviewed budgets.
 
 The CPU suite covers value arithmetic, matrix mapping, exhaustive scalar
 premultiplied-color conversion, 64-element color-array conversion, OpenType tag
-value/formatting operations, and retained path construction/bounds. Each
-implemented API cluster adds an equivalent workload
+value/formatting operations, and retained path construction/bounds. It also
+tracks the exact reusable-paint, positioned-text-blob, legacy stream-path, and
+`WriteableBitmapImpl.GetSnapshot()` CPU-framebuffer-to-immutable-image patterns
+used by Avalonia.Skia. A paired retained-picture workload records repeated draws
+of that immutable image and measures whether deferred rendering reuses its GPU
+resource. Shim optimization therefore follows real framework call sites rather
+than metadata frequency alone. Canvas coverage decomposes retained
+save/restore, matrix, and clip routing so regressions can be attributed without
+changing the full framework-shaped workload. Each implemented API cluster adds
+an equivalent workload
 or an explicit explanation that its behavior is already covered by a broader
 component/application benchmark. GPU/rendering clusters additionally require a
 deterministic final-frame workload, image-quality comparison, WebGPU timestamps,

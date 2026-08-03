@@ -571,6 +571,24 @@ public partial class SKImage
             throw new ArgumentException("The pixel buffer is smaller than the declared image storage.", nameof(pixels));
         }
 
+        if (info.ColorType is SKColorType.Rgba8888 or SKColorType.Srgba8888 or SKColorType.Bgra8888)
+        {
+            byte[] rgbaPixels = CopyCommonPixelsToTightRgba(info, pixels, rowBytes);
+            var context = SKContextHelper.GetContext();
+            var texture = CreateTextureFromRgbaPixels(
+                info,
+                rgbaPixels,
+                context,
+                generateMipmaps: false,
+                "SKImage Pixel Copy Texture");
+            return new SKImage(
+                texture,
+                ownsTexture: true,
+                info,
+                portableRgbaPixels: rgbaPixels,
+                isTextureBacked: false);
+        }
+
         unsafe
         {
             fixed (byte* pointer = pixels)
@@ -584,6 +602,43 @@ public partial class SKImage
                 return FromBitmap(bitmap);
             }
         }
+    }
+
+    private static byte[] CopyCommonPixelsToTightRgba(
+        SKImageInfo info,
+        ReadOnlySpan<byte> pixels,
+        int rowBytes)
+    {
+        int tightRowBytes = checked(info.Width * 4);
+        byte[] result = GC.AllocateUninitializedArray<byte>(
+            checked(tightRowBytes * info.Height));
+        for (var row = 0; row < info.Height; row++)
+        {
+            ReadOnlySpan<byte> sourceRow = pixels.Slice(
+                checked(row * rowBytes),
+                tightRowBytes);
+            Span<byte> destinationRow = result.AsSpan(
+                checked(row * tightRowBytes),
+                tightRowBytes);
+            if (info.ColorType == SKColorType.Bgra8888)
+            {
+                PixelChannelSwizzler.SwapRedBlue32(
+                    sourceRow,
+                    destinationRow,
+                    info.Width);
+            }
+            else
+            {
+                sourceRow.CopyTo(destinationRow);
+            }
+        }
+
+        if (info.AlphaType == SKAlphaType.Opaque)
+        {
+            ForceOpaqueAlpha(result);
+        }
+
+        return result;
     }
 
     private static int ValidatePixelStorage(SKImageInfo info, int rowBytes)

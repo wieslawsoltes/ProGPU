@@ -6,6 +6,70 @@ namespace ProGPU.Tests;
 public sealed class SkPathMutationCompatibilityTests
 {
     [Fact]
+    public void CommonLegacyVerbStreamKeepsTightBoundsAllocationBounded()
+    {
+        static float MeasureOnce()
+        {
+            using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+            path.MoveTo(0f, 0f);
+            for (var segment = 0; segment < 8; segment++)
+            {
+                var x = segment * 6f;
+                var y = segment * 3f;
+                path.LineTo(x + 1f, y + 2f);
+                path.QuadTo(x + 2f, y - 1f, x + 3f, y + 3f);
+                path.CubicTo(x + 3.5f, y + 4f, x + 4.5f, y - 2f, x + 5f, y + 1f);
+            }
+
+            path.Close();
+            var bounds = path.TightBounds;
+            return bounds.Left + bounds.Top + bounds.Right + bounds.Bottom;
+        }
+
+        _ = MeasureOnce();
+        const int iterations = 1_000;
+        var checksum = 0f;
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            checksum += MeasureOnce();
+        }
+
+        var allocatedPerPath =
+            (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / iterations;
+        Assert.True(float.IsFinite(checksum));
+        Assert.InRange(allocatedPerPath, 0, 128);
+    }
+
+    [Fact]
+    public void TightCurveBoundsPreserveFractionalTranslation()
+    {
+        static SKRect Build(float offset)
+        {
+            using var path = new SKPath();
+            path.MoveTo(offset, -offset);
+            path.QuadTo(2f + offset, -1f - offset, 3f + offset, 3f - offset);
+            path.CubicTo(
+                3.5f + offset,
+                4f - offset,
+                4.5f + offset,
+                -2f - offset,
+                5f + offset,
+                1f - offset);
+            return path.TightBounds;
+        }
+
+        const float offset = 0.125f;
+        var baseline = Build(0f);
+        var translated = Build(offset);
+
+        Assert.Equal(baseline.Left + offset, translated.Left);
+        Assert.Equal(baseline.Right + offset, translated.Right);
+        Assert.Equal(baseline.Top - offset, translated.Top);
+        Assert.Equal(baseline.Bottom - offset, translated.Bottom);
+    }
+
+    [Fact]
     public void RelativeCommandsUseOneNativeCurrentPointPerVerb()
     {
         using var path = new SKPath();

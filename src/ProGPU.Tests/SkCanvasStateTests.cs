@@ -1670,8 +1670,11 @@ public sealed class SkCanvasStateTests
 
             Assert.Empty(drawingContext.Commands);
             Assert.Equal(0, drawingContext.RetainedResourceCount);
-            Assert.True(retainedTextureDisposed);
+            Assert.False(retainedTextureDisposed);
             Assert.True(layerTextureDisposed);
+
+            image.Dispose();
+            Assert.True(retainedTextureDisposed);
         }
         finally
         {
@@ -1817,7 +1820,7 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void RestoreLayerReleasesRetainedImageTexturesAfterOffscreenRender()
+    public void RestoreLayerReleasesRetainedImageLeaseAfterOffscreenRender()
     {
         using var surface = SKSurface.Create(new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
         using var layerPaint = new SKPaint();
@@ -1849,7 +1852,7 @@ public sealed class SkCanvasStateTests
         {
             surface.Canvas.RestoreToCount(restoreCount);
 
-            Assert.True(retainedTextureDisposed);
+            Assert.False(retainedTextureDisposed);
             Assert.Empty(layerContext.Commands);
             Assert.Equal(0, layerContext.RetainedResourceCount);
             Assert.Equal(1, GetSurfaceDrawingContext(surface).RetainedResourceCount);
@@ -1862,7 +1865,7 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void RestoreLayerClearsRetainedImageTexturesWhenLayerBoundsAreSkipped()
+    public void RestoreLayerClearsRetainedImageLeaseWhenLayerBoundsAreSkipped()
     {
         using var surface = SKSurface.Create(new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
         using var layerPaint = new SKPaint();
@@ -1894,7 +1897,7 @@ public sealed class SkCanvasStateTests
         {
             surface.Canvas.RestoreToCount(restoreCount);
 
-            Assert.True(retainedTextureDisposed);
+            Assert.False(retainedTextureDisposed);
             Assert.Empty(layerContext.Commands);
             Assert.Equal(0, layerContext.RetainedResourceCount);
             Assert.Empty(GetOwnedLayerTextures(surface.Canvas));
@@ -2296,7 +2299,7 @@ public sealed class SkCanvasStateTests
             draw =>
             {
                 Assert.Equal(RenderCommandType.DrawTexture, draw.Type);
-                Assert.NotSame(image.Texture, draw.Texture);
+                Assert.Same(image.Texture, draw.Texture);
                 AssertNear(10f, draw.Rect.X);
                 AssertNear(20f, draw.Rect.Y);
                 AssertNear(20.5f, draw.Rect.Width);
@@ -2349,7 +2352,7 @@ public sealed class SkCanvasStateTests
 
         var command = GetDrawTextureCommand(context.Commands);
         var retainedTexture = command.Texture!;
-        Assert.NotSame(image.Texture, retainedTexture);
+        Assert.Same(image.Texture, retainedTexture);
         Assert.Equal(1, context.RetainedResourceCount);
 
         var retainedTextureDisposed = false;
@@ -2377,6 +2380,25 @@ public sealed class SkCanvasStateTests
         {
             GpuTexture.OnDisposedWithId -= OnTextureDisposed;
         }
+    }
+
+    [Fact]
+    public void RepeatedWholeImageDrawsShareOneTextureLeaseWithoutGpuCopies()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 16f, 16f);
+        using var bitmap = new SKBitmap(1, 1);
+        using var image = SKImage.FromBitmap(bitmap);
+
+        canvas.DrawImage(image, 0f, 0f);
+        canvas.DrawImage(image, 1f, 1f);
+
+        var draws = context.Commands
+            .Where(command => command.Type == RenderCommandType.DrawTexture)
+            .ToArray();
+        Assert.Equal(2, draws.Length);
+        Assert.All(draws, command => Assert.Same(image.Texture, command.Texture));
+        Assert.Equal(1, context.RetainedResourceCount);
     }
 
     [Fact]
@@ -2417,6 +2439,8 @@ public sealed class SkCanvasStateTests
 
             picture.Dispose();
 
+            Assert.False(retainedTextureDisposed);
+            image.Dispose();
             Assert.True(retainedTextureDisposed);
         }
         finally
@@ -2466,8 +2490,10 @@ public sealed class SkCanvasStateTests
 
             target.Clear();
 
-            Assert.True(retainedTextureDisposed);
+            Assert.False(retainedTextureDisposed);
             Assert.Equal(0, target.RetainedResourceCount);
+            image.Dispose();
+            Assert.True(retainedTextureDisposed);
         }
         finally
         {

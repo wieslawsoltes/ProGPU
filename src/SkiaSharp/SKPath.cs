@@ -44,6 +44,7 @@ public partial class SKPath : SKObject
     public SKPath()
         : base(SKObjectHandle.Create(), owns: true)
     {
+        _packedPathData = PackedPathData.Rent();
     }
 
     internal SKPath(PackedPathData packedPathData, SKPathFillType fillType)
@@ -114,67 +115,62 @@ public partial class SKPath : SKObject
     {
         get
         {
+            if (_packedPathData is { } packed)
+            {
+                return packed.CalculateTightBounds();
+            }
+
             if (Geometry.IsCombined)
             {
                 return Bounds;
             }
 
-            var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
-            var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-            var hasBounds = false;
-
-            void Include(Vector2 point)
-            {
-                if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
-                {
-                    return;
-                }
-
-                min = Vector2.Min(min, point);
-                max = Vector2.Max(max, point);
-                hasBounds = true;
-            }
+            var bounds = new SKPathBoundsAccumulator();
 
             foreach (var figure in Geometry.Figures)
             {
                 var current = figure.StartPoint;
-                Include(current);
+                bounds.Include(current);
 
                 foreach (var segment in figure.Segments)
                 {
                     switch (segment)
                     {
                         case LineSegment line:
-                            Include(line.Point);
+                            bounds.Include(line.Point);
                             current = line.Point;
                             break;
 
                         case QuadraticBezierSegment quadratic:
-                            IncludeQuadraticExtrema(current, quadratic.ControlPoint, quadratic.Point, Include);
-                            Include(quadratic.Point);
+                            SKPathTightBounds.IncludeQuadratic(
+                                ref bounds,
+                                current,
+                                quadratic.ControlPoint,
+                                quadratic.Point);
+                            bounds.Include(quadratic.Point);
                             current = quadratic.Point;
                             break;
 
                         case CubicBezierSegment cubic:
-                            IncludeCubicExtrema(
+                            SKPathTightBounds.IncludeCubic(
+                                ref bounds,
                                 current,
                                 cubic.ControlPoint1,
                                 cubic.ControlPoint2,
-                                cubic.Point,
-                                Include);
-                            Include(cubic.Point);
+                                cubic.Point);
+                            bounds.Include(cubic.Point);
                             current = cubic.Point;
                             break;
 
                         case ArcSegment arc:
                             if (ArcSegmentGeometry.TryGetArcBounds(current, arc, out var arcMin, out var arcMax))
                             {
-                                Include(arcMin);
-                                Include(arcMax);
+                                bounds.Include(arcMin);
+                                bounds.Include(arcMax);
                             }
                             else
                             {
-                                Include(arc.Point);
+                                bounds.Include(arc.Point);
                             }
 
                             current = arc.Point;
@@ -183,9 +179,7 @@ public partial class SKPath : SKObject
                 }
             }
 
-            return hasBounds
-                ? new SKRect(min.X, min.Y, max.X, max.Y)
-                : SKRect.Empty;
+            return bounds.ToRect();
         }
     }
 
@@ -218,124 +212,36 @@ public partial class SKPath : SKObject
         return _geometry;
     }
 
-    private static void IncludeQuadraticExtrema(
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Action<Vector2> include)
-    {
-        IncludeQuadraticAxisExtremum(p0.X, p1.X, p2.X, p0, p1, p2, include);
-        IncludeQuadraticAxisExtremum(p0.Y, p1.Y, p2.Y, p0, p1, p2, include);
-    }
-
-    private static void IncludeQuadraticAxisExtremum(
-        float v0,
-        float v1,
-        float v2,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Action<Vector2> include)
-    {
-        var denominator = v0 - 2f * v1 + v2;
-        if (MathF.Abs(denominator) <= 1e-6f)
-        {
-            return;
-        }
-
-        var t = (v0 - v1) / denominator;
-        if (t > 0f && t < 1f)
-        {
-            var oneMinusT = 1f - t;
-            include(oneMinusT * oneMinusT * p0 + 2f * oneMinusT * t * p1 + t * t * p2);
-        }
-    }
-
-    private static void IncludeCubicExtrema(
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        IncludeCubicAxisExtrema(p0.X, p1.X, p2.X, p3.X, p0, p1, p2, p3, include);
-        IncludeCubicAxisExtrema(p0.Y, p1.Y, p2.Y, p3.Y, p0, p1, p2, p3, include);
-    }
-
-    private static void IncludeCubicAxisExtrema(
-        float v0,
-        float v1,
-        float v2,
-        float v3,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        var a = -v0 + 3f * v1 - 3f * v2 + v3;
-        var b = 2f * (v0 - 2f * v1 + v2);
-        var c = v1 - v0;
-
-        if (MathF.Abs(a) <= 1e-6f)
-        {
-            if (MathF.Abs(b) > 1e-6f)
-            {
-                IncludeCubicAt(-c / b, p0, p1, p2, p3, include);
-            }
-
-            return;
-        }
-
-        var discriminant = b * b - 4f * a * c;
-        if (discriminant < 0f)
-        {
-            return;
-        }
-
-        var root = MathF.Sqrt(MathF.Max(0f, discriminant));
-        var denominator = 2f * a;
-        IncludeCubicAt((-b + root) / denominator, p0, p1, p2, p3, include);
-        if (root > 1e-6f)
-        {
-            IncludeCubicAt((-b - root) / denominator, p0, p1, p2, p3, include);
-        }
-    }
-
-    private static void IncludeCubicAt(
-        float t,
-        Vector2 p0,
-        Vector2 p1,
-        Vector2 p2,
-        Vector2 p3,
-        Action<Vector2> include)
-    {
-        if (t <= 0f || t >= 1f || !float.IsFinite(t))
-        {
-            return;
-        }
-
-        var oneMinusT = 1f - t;
-        include(
-            oneMinusT * oneMinusT * oneMinusT * p0 +
-            3f * oneMinusT * oneMinusT * t * p1 +
-            3f * oneMinusT * t * t * p2 +
-            t * t * t * p3);
-    }
-
     private void EnsureFigure()
     {
-        if (_currentFigure == null)
+        if (_currentFigure is not null)
         {
-            _currentFigure = new PathFigure(_currentPoint);
-            Geometry.Figures.Add(_currentFigure);
-            _contourStart = _currentPoint;
+            return;
         }
+
+        var geometry = Geometry;
+        if (_currentFigure is not null)
+        {
+            return;
+        }
+
+        _currentFigure = new PathFigure(_currentPoint);
+        geometry.Figures.Add(_currentFigure);
+        _contourStart = _currentPoint;
     }
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MoveTo(float x, float y)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.MoveTo(x, y);
+            _currentPoint = new Vector2(x, y);
+            _contourStart = _currentPoint;
+            return;
+        }
+
         var point = new Vector2(x, y);
         if (_currentFigure is { IsClosed: false, Segments.Count: 0 })
         {
@@ -355,8 +261,16 @@ public partial class SKPath : SKObject
     public void MoveTo(SKPoint point) => MoveTo(point.X, point.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void LineTo(float x, float y)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.LineTo(x, y);
+            _currentPoint = new Vector2(x, y);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x, y);
         _currentFigure!.Segments.Add(new LineSegment(point));
@@ -367,8 +281,16 @@ public partial class SKPath : SKObject
     public void LineTo(SKPoint point) => LineTo(point.X, point.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void QuadTo(float x0, float y0, float x1, float y1)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.QuadTo(x0, y0, x1, y1);
+            _currentPoint = new Vector2(x1, y1);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x1, y1);
         _currentFigure!.Segments.Add(new QuadraticBezierSegment(new Vector2(x0, y0), point));
@@ -380,8 +302,16 @@ public partial class SKPath : SKObject
         QuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.CubicTo(x0, y0, x1, y1, x2, y2);
+            _currentPoint = new Vector2(x2, y2);
+            return;
+        }
+
         EnsureFigure();
         var point = new Vector2(x2, y2);
         _currentFigure!.Segments.Add(new CubicBezierSegment(new Vector2(x0, y0), new Vector2(x1, y1), point));
@@ -409,8 +339,16 @@ public partial class SKPath : SKObject
     }
 
     [Obsolete(UsePathBuilderMessage)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Close()
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.Close();
+            _currentPoint = packed.CurrentPoint;
+            return;
+        }
+
         if (_currentFigure != null)
         {
             _currentFigure.IsClosed = true;
@@ -421,6 +359,14 @@ public partial class SKPath : SKObject
 
     public void Reset()
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.Reset();
+            ResetCurrentState();
+            FillType = SKPathFillType.Winding;
+            return;
+        }
+
         Geometry.Figures.Clear();
         ResetCurrentState();
         FillType = SKPathFillType.Winding;
@@ -738,13 +684,27 @@ public class SKRoundRect : SKObject
     private const float NearlyZero = 1f / (1 << 12);
     private CornerRadiusBuffer _radii;
     private SKRect _rect;
-    private SKRoundRectType _type;
+    private byte _typeValue;
 
-    private ReadOnlySpan<SKPoint> RadiiReadOnlySpan => _radii;
+    private SKRoundRectType _type
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => (SKRoundRectType)_typeValue;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set => _typeValue = (byte)value;
+    }
 
     public SKRect Rect => _rect;
 
-    public SKPoint[] Radii => RadiiReadOnlySpan.ToArray();
+    public SKPoint[] Radii
+    {
+        get
+        {
+            var radii = new SKPoint[CornerCount];
+            _radii.CopyTo(radii);
+            return radii;
+        }
+    }
 
     public SKRoundRectType Type => _type;
 
@@ -756,7 +716,7 @@ public class SKRoundRect : SKObject
 
     public bool AllCornersCircular => CheckAllCornersCircular(NearlyZero);
 
-    internal ReadOnlySpan<SKPoint> CornerRadii => RadiiReadOnlySpan;
+    internal void CopyCornerRadii(Span<SKPoint> destination) => _radii.CopyTo(destination);
 
     public SKRoundRect()
         : base(SKObjectHandle.Create(), owns: true)
@@ -786,7 +746,7 @@ public class SKRoundRect : SKObject
     {
         _rect = rrect._rect;
         _type = rrect._type;
-        _radii = rrect._radii;
+        _radii = rrect._radii.Clone();
     }
 
     public bool CheckAllCornersCircular(float tolerance)
@@ -944,10 +904,7 @@ public class SKRoundRect : SKObject
             _type = SKRoundRectType.NinePatch;
         }
 
-        _radii[0] = new SKPoint(leftRadius, topRadius);
-        _radii[1] = new SKPoint(rightRadius, topRadius);
-        _radii[2] = new SKPoint(rightRadius, bottomRadius);
-        _radii[3] = new SKPoint(leftRadius, bottomRadius);
+        _radii.SetNinePatch(leftRadius, topRadius, rightRadius, bottomRadius);
         if (ClampToZero())
         {
             SetRect(rect);
@@ -983,9 +940,9 @@ public class SKRoundRect : SKObject
                 SetRect(rect);
                 return;
             }
-
-            _radii[index] = radii[index];
         }
+
+        _radii.Set(radii);
 
         if (ClampToZero())
         {
@@ -1467,15 +1424,12 @@ public class SKRoundRect : SKObject
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ClearRadii() => _radii = default;
+    private void ClearRadii() => _radii.Clear();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void FillRadii(SKPoint radius)
     {
-        _radii[0] = radius;
-        _radii[1] = radius;
-        _radii[2] = radius;
-        _radii[3] = radius;
+        _radii.Fill(radius);
     }
 
     private static double ComputeMinimumScale(double first, double second, double limit, double current) =>
@@ -1510,10 +1464,175 @@ public class SKRoundRect : SKObject
         float.IsFinite(rect.Left) && float.IsFinite(rect.Top) &&
         float.IsFinite(rect.Right) && float.IsFinite(rect.Bottom);
 
-    [InlineArray(CornerCount)]
     private struct CornerRadiusBuffer
     {
-        private SKPoint _element0;
+        private SKPoint _first;
+        private SKPoint _second;
+        private ComplexCornerRadii? _complex;
+
+        public SKPoint this[int index]
+        {
+            readonly get
+            {
+                if ((uint)index >= CornerCount)
+                {
+                    throw new IndexOutOfRangeException();
+                }
+
+                if (_complex is { } complex)
+                {
+                    return complex[index];
+                }
+
+                if (float.IsNaN(_second.X))
+                {
+                    return _first;
+                }
+
+                return index switch
+                {
+                    0 => _first,
+                    1 => new SKPoint(_second.X, _first.Y),
+                    2 => _second,
+                    _ => new SKPoint(_first.X, _second.Y),
+                };
+            }
+            set
+            {
+                EnsureComplex();
+                _complex![index] = value;
+            }
+        }
+
+        public void Clear()
+        {
+            _first = default;
+            _second = new SKPoint(float.NaN, float.NaN);
+            _complex = null;
+        }
+
+        public void Fill(SKPoint radius)
+        {
+            _first = radius;
+            _second = new SKPoint(float.NaN, float.NaN);
+            _complex = null;
+        }
+
+        public void SetNinePatch(float left, float top, float right, float bottom)
+        {
+            _first = new SKPoint(left, top);
+            _second = new SKPoint(right, bottom);
+            _complex = null;
+        }
+
+        public void Set(ReadOnlySpan<SKPoint> radii)
+        {
+            if (radii[0] == radii[1] && radii[1] == radii[2] && radii[2] == radii[3])
+            {
+                Fill(radii[0]);
+                return;
+            }
+
+            if (radii[0].X == radii[3].X &&
+                radii[0].Y == radii[1].Y &&
+                radii[1].X == radii[2].X &&
+                radii[3].Y == radii[2].Y)
+            {
+                SetNinePatch(radii[0].X, radii[0].Y, radii[1].X, radii[3].Y);
+                return;
+            }
+
+            _complex = new ComplexCornerRadii(radii);
+            _first = default;
+            _second = default;
+        }
+
+        public readonly void CopyTo(Span<SKPoint> destination)
+        {
+            if (destination.Length < CornerCount)
+            {
+                throw new ArgumentException("Destination must hold four corner radii.", nameof(destination));
+            }
+
+            for (var index = 0; index < CornerCount; index++)
+            {
+                destination[index] = this[index];
+            }
+        }
+
+        public readonly CornerRadiusBuffer Clone()
+        {
+            var clone = this;
+            if (_complex is not null)
+            {
+                clone._complex = _complex.Clone();
+            }
+
+            return clone;
+        }
+
+        private void EnsureComplex()
+        {
+            if (_complex is not null)
+            {
+                return;
+            }
+
+            Span<SKPoint> radii = stackalloc SKPoint[CornerCount];
+            CopyTo(radii);
+            _complex = new ComplexCornerRadii(radii);
+        }
+    }
+
+    private sealed class ComplexCornerRadii
+    {
+        private SKPoint _radius0;
+        private SKPoint _radius1;
+        private SKPoint _radius2;
+        private SKPoint _radius3;
+
+        public ComplexCornerRadii(ReadOnlySpan<SKPoint> radii)
+        {
+            _radius0 = radii[0];
+            _radius1 = radii[1];
+            _radius2 = radii[2];
+            _radius3 = radii[3];
+        }
+
+        public SKPoint this[int index]
+        {
+            get => index switch
+            {
+                0 => _radius0,
+                1 => _radius1,
+                2 => _radius2,
+                3 => _radius3,
+                _ => throw new IndexOutOfRangeException(),
+            };
+            set
+            {
+                switch (index)
+                {
+                    case 0: _radius0 = value; break;
+                    case 1: _radius1 = value; break;
+                    case 2: _radius2 = value; break;
+                    case 3: _radius3 = value; break;
+                    default: throw new IndexOutOfRangeException();
+                }
+            }
+        }
+
+        public ComplexCornerRadii Clone()
+        {
+            Span<SKPoint> radii = stackalloc SKPoint[CornerCount]
+            {
+                _radius0,
+                _radius1,
+                _radius2,
+                _radius3,
+            };
+            return new ComplexCornerRadii(radii);
+        }
     }
 }
 

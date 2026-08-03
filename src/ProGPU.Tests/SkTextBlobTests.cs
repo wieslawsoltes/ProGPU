@@ -55,6 +55,61 @@ public sealed class SkTextBlobTests
     }
 
     [Fact]
+    public void SingleRunBlobReusesItsImmutableSnapshotAsAggregateStorage()
+    {
+        using var builder = new SKTextBlobBuilder();
+        using var font = new SKFont(SKTypeface.Default, 12f);
+
+        var run = builder.AllocatePositionedRun(font, 2);
+        run.SetGlyphs(new ushort[] { 42, 43 });
+        run.SetPositions(new[] { new SKPoint(7f, 8f), new SKPoint(9f, 10f) });
+
+        using var blob = builder.Build();
+
+        Assert.NotNull(blob);
+        var retainedRun = Assert.Single(blob.Runs);
+        Assert.Same(retainedRun.GlyphIndices, blob.GlyphIndices);
+        Assert.Same(retainedRun.GlyphPositions, blob.GlyphPositions);
+    }
+
+    [Fact]
+    public void ReusedBuilderKeepsOneBoundedPositionedScratchRun()
+    {
+        using var builder = new SKTextBlobBuilder();
+        using var font = new SKFont(SKTypeface.Default, 12f);
+        var glyphs = new ushort[32];
+        var positions = new SKPoint[32];
+
+        _ = BuildPositionedBlob(builder, font, glyphs, positions, 1);
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var checksum = BuildPositionedBlob(builder, font, glyphs, positions, 100);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(100, checksum);
+        Assert.InRange(allocated / 100, 0, 128);
+    }
+
+    private static int BuildPositionedBlob(
+        SKTextBlobBuilder builder,
+        SKFont font,
+        ushort[] glyphs,
+        SKPoint[] positions,
+        int count)
+    {
+        var checksum = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var run = builder.AllocatePositionedRun(font, glyphs.Length);
+            run.SetGlyphs(glyphs);
+            run.SetPositions(positions);
+            using var blob = builder.Build();
+            checksum += blob is null ? 0 : 1;
+        }
+
+        return checksum;
+    }
+
+    [Fact]
     public void GetInterceptsPreservesPerGlyphIntervalsAndTruncatesShortSpans()
     {
         using var font = new SKFont(SKTypeface.Default, 40f);

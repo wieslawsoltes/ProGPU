@@ -26,6 +26,8 @@ internal static class ProgramEntry
     private static long s_sink;
     private static SKTypeface? s_variableTypeface;
     private static readonly byte[] ImagePixels = CreateImagePixels();
+    private static readonly byte[] AvaloniaWriteableBitmapPixels =
+        CreateAvaloniaWriteableBitmapPixels();
     private static readonly SKColorF[] ShaderColors =
     {
         new(1f, 0f, 0f, 1f),
@@ -33,6 +35,8 @@ internal static class ProgramEntry
         new(0f, 0f, 1f, 1f)
     };
     private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
+    private static readonly ushort[] AvaloniaGlyphIndices = CreateAvaloniaGlyphIndices();
+    private static readonly SKPoint[] AvaloniaGlyphPositions = CreateAvaloniaGlyphPositions();
     private const string RuntimeEffectSource = """
         uniform float gain;
         uniform float2 offset;
@@ -116,6 +120,12 @@ internal static class ProgramEntry
             new BenchmarkCase("platform-lock-read", 100_000, RunPlatformLockRead),
             new BenchmarkCase("gr-context-options", 100_000, RunGrContextOptions),
             new BenchmarkCase("canvas-retained-state-routing", 10_000, RunCanvasRetainedStateRouting),
+            new BenchmarkCase("canvas-save-restore", 100_000, RunCanvasSaveRestore),
+            new BenchmarkCase("canvas-matrix-routing", 100_000, RunCanvasMatrixRouting),
+            new BenchmarkCase("canvas-clip-routing", 10_000, RunCanvasClipRouting),
+            new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
+            new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
+            new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
             // Keep each sample above the sub-millisecond timer-noise floor and
             // warm the gradient factories through their final dynamic-PGO tier.
             new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
@@ -124,6 +134,14 @@ internal static class ProgramEntry
             // allocation and reference-count path of each immutable subset view.
             new BenchmarkCase("image-bounded-subset", 10_000, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
+            new BenchmarkCase(
+                "avalonia-writeable-bitmap-snapshot",
+                128,
+                RunAvaloniaWriteableBitmapSnapshot),
+            new BenchmarkCase(
+                "avalonia-immutable-image-recording",
+                1_000,
+                RunAvaloniaImmutableImageRecording),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -360,6 +378,87 @@ internal static class ProgramEntry
         return checksum;
     }
 
+    private static unsafe ulong RunAvaloniaWriteableBitmapSnapshot(int operations)
+    {
+        var info = new SKImageInfo(
+            16,
+            16,
+            SKImageInfo.PlatformColorType,
+            SKAlphaType.Premul);
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* pixels = AvaloniaWriteableBitmapPixels)
+        {
+            for (var index = 0; index < operations; index++)
+            {
+                using var image = SKImage.FromPixels(
+                    info,
+                    (IntPtr)pixels,
+                    info.RowBytes);
+                checksum = Mix(checksum, unchecked((uint)image.Width));
+                checksum = Mix(checksum, unchecked((uint)image.Height));
+                // Skia's native N32 channel order is selected by its build and
+                // can be BGRA where the WebGPU shim deliberately normalizes to
+                // RGBA. Both are the same four-channel Avalonia contract; keep
+                // the semantic checksum sensitive to that contract without
+                // requiring identical backend storage order.
+                checksum = Mix(
+                    checksum,
+                    image.ColorType is SKColorType.Rgba8888 or SKColorType.Bgra8888
+                        ? 4u
+                        : unchecked((uint)image.ColorType));
+                checksum = Mix(checksum, unchecked((uint)image.AlphaType));
+            }
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaImmutableImageRecording(int operations)
+    {
+        var info = new SKImageInfo(
+            16,
+            16,
+            SKImageInfo.PlatformColorType,
+            SKAlphaType.Premul);
+        fixed (byte* pixels = AvaloniaWriteableBitmapPixels)
+        {
+            using var image = SKImage.FromPixels(
+                info,
+                (IntPtr)pixels,
+                info.RowBytes);
+            using var recorder = new SKPictureRecorder();
+            var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+            using var paint = new SKPaint { IsAntialias = false };
+            var source = new SKRect(0f, 0f, 16f, 16f);
+            ulong checksum = 1469598103934665603UL;
+            for (var index = 0; index < operations; index++)
+            {
+                var offset = index & 7;
+                var destination = new SKRect(
+                    offset,
+                    offset,
+                    offset + 16f,
+                    offset + 16f);
+                canvas.DrawImage(
+                    image,
+                    source,
+                    destination,
+                    SKSamplingOptions.Default,
+                    paint);
+                checksum = Mix(checksum, unchecked((uint)offset));
+            }
+
+            using var picture = recorder.EndRecording();
+            checksum = Mix(
+                checksum,
+                BitConverter.SingleToUInt32Bits(picture.CullRect.Width));
+            checksum = Mix(
+                checksum,
+                BitConverter.SingleToUInt32Bits(picture.CullRect.Height));
+            return checksum;
+        }
+    }
+
     private static ulong RunImageBoundedSubset(int operations)
     {
         using var image = SKImage.FromPixelCopy(
@@ -398,6 +497,153 @@ internal static class ProgramEntry
         using var picture = recorder.EndRecording();
         checksum = Mix(checksum, picture is null ? 0u : 1u);
         return checksum;
+    }
+
+    private static ulong RunCanvasSaveRestore(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var restoreCount = canvas.Save();
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
+    }
+
+    private static ulong RunCanvasMatrixRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            canvas.Scale(1.0001f);
+            var translation = SKMatrix.CreateTranslation(index & 3, index & 7);
+            canvas.Concat(in translation);
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(canvas.TotalMatrix.TransX));
+            canvas.ResetMatrix();
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
+    }
+
+    private static ulong RunCanvasClipRouting(int operations)
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 64f, 64f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var restoreCount = canvas.Save();
+            canvas.ClipRect(new SKRect(1f, 2f, 63f, 62f));
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+            canvas.RestoreToCount(restoreCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        return Mix(checksum, picture is null ? 0u : 1u);
+    }
+
+    private static ulong RunAvaloniaPaintReuse(int operations)
+    {
+        using var paint = new SKPaint();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            paint.IsAntialias = (index & 1) == 0;
+            paint.Color = new SKColor(
+                (byte)index,
+                (byte)(index >> 3),
+                (byte)(255 - index),
+                (byte)(192 + (index & 63)));
+            paint.IsStroke = true;
+            paint.StrokeWidth = 1f + (index & 7) * 0.25f;
+            paint.StrokeCap = SKStrokeCap.Square;
+            paint.StrokeJoin = SKStrokeJoin.Round;
+            paint.StrokeMiter = 4f + (index & 3);
+            paint.BlendMode = SKBlendMode.DstIn;
+
+            checksum = Mix(checksum, (uint)paint.Color);
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(paint.StrokeWidth));
+            checksum = Mix(checksum, (uint)paint.BlendMode);
+            paint.Reset();
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaPositionedTextBlob(int operations)
+    {
+        using var font = new SKFont(SKTypeface.Default, 16f);
+        using var builder = new SKTextBlobBuilder();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var run = builder.AllocatePositionedRun(font, AvaloniaGlyphIndices.Length);
+            run.SetPositions(AvaloniaGlyphPositions);
+            run.SetGlyphs(AvaloniaGlyphIndices);
+            using var blob = builder.Build() ??
+                throw new InvalidOperationException("A positioned glyph run must produce a text blob.");
+            checksum = Mix(checksum, blob.UniqueId == 0 ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+#pragma warning disable CS0618 // Avalonia.Skia 12 currently builds stream geometry through legacy SKPath mutation.
+    private static ulong RunAvaloniaStreamGeometry(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = (index & 15) * 0.125f;
+            using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+            path.MoveTo(offset, -offset);
+            for (var segment = 0; segment < 8; segment++)
+            {
+                var x = segment * 6f + offset;
+                var y = segment * 3f - offset;
+                path.LineTo(x + 1f, y + 2f);
+                path.QuadTo(x + 2f, y - 1f, x + 3f, y + 3f);
+                path.CubicTo(
+                    x + 3.5f,
+                    y + 4f,
+                    x + 4.5f,
+                    y - 2f,
+                    x + 5f,
+                    y + 1f);
+            }
+            path.Close();
+            var bounds = path.TightBounds;
+            checksum = Mix(
+                checksum,
+                Combine(bounds.Left + bounds.Right, bounds.Top + bounds.Bottom));
+        }
+
+        return checksum;
+    }
+#pragma warning restore CS0618
+
+    private static ushort[] CreateAvaloniaGlyphIndices()
+    {
+        var glyphs = new ushort[32];
+        for (var index = 0; index < glyphs.Length; index++)
+            glyphs[index] = (ushort)(index + 1);
+        return glyphs;
+    }
+
+    private static SKPoint[] CreateAvaloniaGlyphPositions()
+    {
+        var positions = new SKPoint[32];
+        for (var index = 0; index < positions.Length; index++)
+            positions[index] = new SKPoint(index * 7.5f, (index & 3) * 0.125f);
+        return positions;
     }
 
     private static ulong RunGrContextOptions(int operations)
@@ -1177,6 +1423,21 @@ internal static class ProgramEntry
         var pixels = new byte[4096];
         for (var index = 0; index < pixels.Length; index++)
             pixels[index] = (byte)(index * 37 + 11);
+        return pixels;
+    }
+
+    private static byte[] CreateAvaloniaWriteableBitmapPixels()
+    {
+        var pixels = new byte[16 * 16 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            var alpha = (byte)(64 + ((index >> 2) % 192));
+            pixels[index] = (byte)(index * 17 + 3);
+            pixels[index + 1] = (byte)(index * 29 + 7);
+            pixels[index + 2] = (byte)(index * 43 + 11);
+            pixels[index + 3] = alpha;
+        }
+
         return pixels;
     }
 

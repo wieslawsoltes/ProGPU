@@ -79,7 +79,7 @@ public sealed class SkRoundRectCompatibilityTests
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.Equal(85_000f, checksum);
         Assert.True(
-            allocated <= 96L * iterations,
+            allocated <= 72L * iterations,
             $"Expected one bounded SKRoundRect allocation per construction, but measured {allocated / (double)iterations:F3} B/op.");
     }
 
