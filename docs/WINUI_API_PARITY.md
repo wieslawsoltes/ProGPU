@@ -2162,3 +2162,34 @@ remains automatic and monotonic; behavior, accessibility, input, device loss,
 rendering quality, allocation, and performance remain independent completion
 gates. Rendering additions must remain typed, reflection-free WebGPU work and
 must not substitute metadata equality for runtime conformance.
+
+## Preview.46 handoff after Avalonia.Skia canvas/effect optimization
+
+Preview.46 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining and 6,652 ProGPU-only entries. This release changes the
+shared SkiaSharp canvas, path, picture, image, paint, and effect implementation
+used by Avalonia and other framework hosts. Path boolean coverage, retained
+SaveLayer isolation, blur, shadow, table filtering, and ordered picture replay
+continue to lower to typed WebGPU work; no CPU raster fallback or reflection
+was added.
+
+The next broad WinUI parity PR starts from the immutable Preview.46 tag and
+keeps `eng/progpu-winui-api-check.sh` plus `eng/winui-api-baseline.json` as
+automatic monotonic gates. Work remains ordered as follows:
+
+1. add official API-contract marker types and use the official `System.Type`
+   `ContractVersionAttribute` constructor wherever applicable;
+2. close retained WebGPU `Microsoft.UI.Composition` families, including
+   animations, interactions, brushes/effects, device loss, and bounded
+   resource ownership;
+3. reconcile `Microsoft.UI.Xaml` in behavior-complete dependency-property,
+   control, layout, input, automation, and accessibility clusters;
+4. remove or namespace-isolate accidental ProGPU-only declarations while
+   preserving intentional typed extension seams;
+5. ratchet the official metadata report only with focused behavior, rendering,
+   accessibility, cross-platform, package, and matched performance evidence.
+
+Metadata equality remains only one gate. Observable behavior, accessibility,
+input, threading, device-loss recovery, rendering quality, steady-state
+allocation, and performance must continue to pass independently.
