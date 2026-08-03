@@ -64,6 +64,16 @@ internal struct SKPathBoundsAccumulator
     public readonly SKRect ToRect() => _hasBounds
         ? new SKRect(_min.X, _min.Y, _max.X, _max.Y)
         : SKRect.Empty;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Translate(Vector2 offset)
+    {
+        if (_hasBounds)
+        {
+            _min += offset;
+            _max += offset;
+        }
+    }
 }
 
 internal static class SKPathTightBounds
@@ -493,6 +503,20 @@ internal sealed class PackedPathData : IDisposable
 
     public void Transform(SKMatrix matrix)
     {
+        if (matrix.IsIdentity)
+        {
+            return;
+        }
+
+        if (matrix.ScaleX == 1f && matrix.ScaleY == 1f &&
+            matrix.SkewX == 0f && matrix.SkewY == 0f &&
+            matrix.Persp0 == 0f && matrix.Persp1 == 0f && matrix.Persp2 == 1f &&
+            float.IsFinite(matrix.TransX) && float.IsFinite(matrix.TransY))
+        {
+            Translate(new Vector2(matrix.TransX, matrix.TransY));
+            return;
+        }
+
         _hasBounds = false;
         _boundsMin = default;
         _boundsMax = default;
@@ -570,6 +594,37 @@ internal sealed class PackedPathData : IDisposable
 
         _currentPoint = MapPoint(matrix, _currentPoint);
         _contourStart = MapPoint(matrix, _contourStart);
+    }
+
+    private void Translate(Vector2 offset)
+    {
+        for (var index = 0; index < _count; index++)
+        {
+            ref var command = ref Commands[index];
+            command = command.Kind switch
+            {
+                PackedPathCommandKind.Move or PackedPathCommandKind.Line =>
+                    new PackedPathCommand(command.Kind, command.Point0 + offset),
+                PackedPathCommandKind.Quadratic =>
+                    new PackedPathCommand(command.Kind, command.Point0 + offset, command.Point1 + offset),
+                PackedPathCommandKind.Cubic =>
+                    new PackedPathCommand(
+                        command.Kind,
+                        command.Point0 + offset,
+                        command.Point1 + offset,
+                        command.Point2 + offset),
+                _ => command,
+            };
+        }
+
+        if (_hasBounds)
+        {
+            _boundsMin += offset;
+            _boundsMax += offset;
+        }
+        _tightBounds.Translate(offset);
+        _currentPoint += offset;
+        _contourStart += offset;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -533,13 +533,30 @@ public partial class SKPath : SKObject
 
     public void Transform(SKMatrix matrix)
     {
+        if (matrix.IsIdentity)
+        {
+            return;
+        }
+
         if (_packedPathData is { } packed)
         {
             packed.Transform(matrix);
-            var current = matrix.MapPoint(_currentPoint.X, _currentPoint.Y);
-            var contourStart = matrix.MapPoint(_contourStart.X, _contourStart.Y);
-            _currentPoint = new Vector2(current.X, current.Y);
-            _contourStart = new Vector2(contourStart.X, contourStart.Y);
+            if (matrix.ScaleX == 1f && matrix.ScaleY == 1f &&
+                matrix.SkewX == 0f && matrix.SkewY == 0f &&
+                matrix.Persp0 == 0f && matrix.Persp1 == 0f && matrix.Persp2 == 1f &&
+                float.IsFinite(matrix.TransX) && float.IsFinite(matrix.TransY))
+            {
+                var offset = new Vector2(matrix.TransX, matrix.TransY);
+                _currentPoint += offset;
+                _contourStart += offset;
+            }
+            else
+            {
+                var current = matrix.MapPoint(_currentPoint.X, _currentPoint.Y);
+                var contourStart = matrix.MapPoint(_contourStart.X, _contourStart.Y);
+                _currentPoint = new Vector2(current.X, current.Y);
+                _contourStart = new Vector2(contourStart.X, contourStart.Y);
+            }
             return;
         }
 
