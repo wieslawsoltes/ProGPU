@@ -96,6 +96,57 @@ public sealed class SkPathBooleanCompatibilityTests
     }
 
     [Fact]
+    public void DeferredOperationDetachesLaterSourceMutation()
+    {
+        using var outer = new SKPath();
+        using var inner = new SKPath();
+        outer.AddRoundRect(new SKRect(0f, 0f, 80f, 48f), 8f, 8f);
+        inner.AddCircle(52f, 24f, 20f);
+        using var union = outer.Op(inner, SKPathOp.Union);
+
+        Assert.Equal(new SKRect(0f, 0f, 80f, 48f), union.Bounds);
+
+        outer.Reset();
+        outer.AddRect(new SKRect(100f, 100f, 120f, 120f));
+
+        Assert.Equal(new SKRect(0f, 0f, 80f, 48f), union.Bounds);
+        Assert.Single(union.Geometry.Figures);
+    }
+
+    [Fact]
+    public void ReusedDeferredOperationNodeStaysBelowOfficialWrapperAllocation()
+    {
+        const int iterations = 10_000;
+        using var outer = new SKPath();
+        using var inner = new SKPath();
+        outer.AddRoundRect(new SKRect(0f, 0f, 80f, 48f), 8f, 8f);
+        inner.AddCircle(52f, 24f, 20f);
+        for (var index = 0; index < 128; index++)
+        {
+            using var warmup = outer.Op(
+                inner,
+                (index & 1) == 0 ? SKPathOp.Union : SKPathOp.Intersect);
+            Assert.False(warmup.IsEmpty);
+        }
+
+        var checksum = 0f;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            using var result = outer.Op(
+                inner,
+                (index & 1) == 0 ? SKPathOp.Union : SKPathOp.Intersect);
+            checksum += result.Bounds.Width;
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(600_000f, checksum);
+        Assert.True(
+            allocated <= 88L * iterations,
+            $"Expected no more than the official managed wrapper allocation, but measured {allocated / (double)iterations:F3} B/op.");
+    }
+
+    [Fact]
     public void CurveFallbackPreservesExactSegmentsWithoutGpuInitialization()
     {
         using var source = new SKPath

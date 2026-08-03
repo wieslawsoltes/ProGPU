@@ -1,0 +1,5 @@
+[ControlCatalog] runtime backend: Windowing: Silk.NET/GLFW | Rendering: WebGPU/Dawn via Silk.NET | Compositor: ProGPU retained | Text: ProGPU OpenType
+[ControlCatalog] selected page=Composition index=18
+2026-08-03 18:31:46.420450+0200 dotnet[57737:40764846] [WindowTab] Cannot index window tabs due to missing main bundle identifier
+2026-08-03 18:31:46.627725+0200 dotnet[57737:40765183] [Common] Unable to obtain a task name port right for pid 481: (os/kern) failure (0x5)
+[ControlCatalog] actual presentation: WebGPU/Dawn via Silk.NET surface

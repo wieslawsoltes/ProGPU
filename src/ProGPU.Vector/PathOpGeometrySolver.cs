@@ -150,6 +150,8 @@ namespace ProGPU.Vector
 
         public static PathGeometry Combine(PathGeometry pathA, PathGeometry pathB, int op)
         {
+            pathA = ResolveDeferredOperand(pathA);
+            pathB = ResolveDeferredOperand(pathB);
             if (TryCreateImmediateResult(pathA, pathB, op, out var result))
             {
                 return result;
@@ -173,6 +175,8 @@ namespace ProGPU.Vector
         {
             try
             {
+                pathA = ResolveDeferredOperand(pathA);
+                pathB = ResolveDeferredOperand(pathB);
                 if (TryCreateImmediateResult(pathA, pathB, op, out var result))
                 {
                     return Task.FromResult(result);
@@ -209,9 +213,253 @@ namespace ProGPU.Vector
             }
         }
 
+        private static PathGeometry ResolveDeferredOperand(PathGeometry path)
+        {
+            while (path.IsCombined && path.PathA is { } pathA && path.PathB is { } pathB)
+            {
+                path = Combine(pathA, pathB, path.Op);
+            }
+
+            return path;
+        }
+
+        internal static PathGeometry CreateDeferred(
+            PathGeometry pathA,
+            PathGeometry pathB,
+            int op,
+            PathGeometry? reusableResult = null)
+        {
+            ArgumentNullException.ThrowIfNull(pathA);
+            ArgumentNullException.ThrowIfNull(pathB);
+            if ((uint)op > 4u)
+            {
+                throw new ArgumentOutOfRangeException(nameof(op));
+            }
+
+            pathA.MarkSharedSnapshot();
+            pathB.MarkSharedSnapshot();
+            var result = reusableResult ?? new PathGeometry();
+            result.InitializeDeferred(
+                pathA,
+                pathB,
+                op,
+                GetOutputFillRule(pathA, pathB, op));
+            ClassifyDeferredQueries(pathA, pathB, op, result);
+            return result;
+        }
+
+        private static void ClassifyDeferredQueries(
+            PathGeometry pathA,
+            PathGeometry pathB,
+            int op,
+            PathGeometry result)
+        {
+            bool emptyA = IsKnownEmpty(pathA);
+            bool emptyB = IsKnownEmpty(pathB);
+            bool hasBoundsA = pathA.TryGetBounds(out var minA, out var maxA);
+            bool hasBoundsB = pathB.TryGetBounds(out var minB, out var maxB);
+
+            if (emptyA && emptyB)
+            {
+                SetExactEmpty(result);
+                return;
+            }
+
+            switch (op)
+            {
+                case 0: // Difference.
+                    if (emptyA)
+                    {
+                        SetExactEmpty(result);
+                    }
+                    else if (emptyB)
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandA);
+                    }
+                    else if (hasBoundsA && hasBoundsB &&
+                        IsStrictlyContainedPrimitive(pathA, pathB, minA, maxA, minB, maxB))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.BoundsOperandA);
+                    }
+                    break;
+
+                case 1: // Intersect.
+                    if (emptyA || emptyB ||
+                        !hasBoundsA || !hasBoundsB ||
+                        !TryIntersectBounds(minA, maxA, minB, maxB, out _, out _))
+                    {
+                        SetExactEmpty(result);
+                    }
+                    else if (IsContainedPrimitive(pathA, pathB))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandB);
+                    }
+                    else if (IsContainedPrimitive(pathB, pathA))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandA);
+                    }
+                    break;
+
+                case 2: // Union.
+                    if (!hasBoundsA)
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandB);
+                    }
+                    else if (!hasBoundsB)
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandA);
+                    }
+                    else if (IsContainedPrimitive(pathA, pathB))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandA);
+                    }
+                    else if (IsContainedPrimitive(pathB, pathA))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandB);
+                    }
+                    else
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.UnionBounds);
+                    }
+                    break;
+
+                case 3: // Exclusive-or.
+                    if (emptyA)
+                    {
+                        if (emptyB)
+                        {
+                            SetExactEmpty(result);
+                        }
+                        else
+                        {
+                            SetExactOperand(result, CombinedPathQueryKind.ResultOperandB);
+                        }
+                    }
+                    else if (emptyB)
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandA);
+                    }
+                    else if (hasBoundsA && hasBoundsB &&
+                        !TryIntersectBounds(minA, maxA, minB, maxB, out _, out _))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.UnionBounds);
+                    }
+                    break;
+
+                case 4: // Reverse difference.
+                    if (emptyB)
+                    {
+                        SetExactEmpty(result);
+                    }
+                    else if (emptyA)
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.ResultOperandB);
+                    }
+                    else if (hasBoundsA && hasBoundsB &&
+                        IsStrictlyContainedPrimitive(pathB, pathA, minB, maxB, minA, maxA))
+                    {
+                        SetExactOperand(result, CombinedPathQueryKind.BoundsOperandB);
+                    }
+                    break;
+            }
+        }
+
+        private static bool IsContainedPrimitive(PathGeometry outer, PathGeometry inner)
+        {
+            if (IsContainedAxisAlignedRectangle(outer, inner) ||
+                IsContainedCanonicalRoundedRectangle(outer, inner))
+            {
+                return true;
+            }
+
+            return !outer.IsCombined &&
+                outer.Figures.Count == 1 &&
+                RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                    outer.Figures[0],
+                    out var outerContour) &&
+                inner.TryGetBounds(out var innerMin, out var innerMax) &&
+                RoundedRectanglePathGeometry.ContainsBounds(
+                    outerContour,
+                    innerMin,
+                    innerMax);
+        }
+
+        private static bool IsKnownEmpty(PathGeometry path) =>
+            path.IsCombined
+                ? path.CombinedIsEmpty == true
+                : path.Figures.Count == 0 || IsEmptyFigures(path.Figures);
+
+        private static bool IsStrictlyContainedPrimitive(
+            PathGeometry outer,
+            PathGeometry inner,
+            Vector2 outerMin,
+            Vector2 outerMax,
+            Vector2 innerMin,
+            Vector2 innerMax)
+        {
+            const float epsilon = 0.0001f;
+            return IsContainedPrimitive(outer, inner) &&
+                innerMin.X > outerMin.X + epsilon &&
+                innerMin.Y > outerMin.Y + epsilon &&
+                innerMax.X < outerMax.X - epsilon &&
+                innerMax.Y < outerMax.Y - epsilon;
+        }
+
+        private static bool TryIntersectBounds(
+            Vector2 minA,
+            Vector2 maxA,
+            Vector2 minB,
+            Vector2 maxB,
+            out Vector2 min,
+            out Vector2 max)
+        {
+            min = Vector2.Max(minA, minB);
+            max = Vector2.Min(maxA, maxB);
+            return max.X >= min.X && max.Y >= min.Y;
+        }
+
+        private static void SetExactEmpty(PathGeometry result)
+        {
+            result.SetCombinedQueryKind(CombinedPathQueryKind.Empty);
+        }
+
+        private static void SetExactOperand(
+            PathGeometry result,
+            CombinedPathQueryKind kind) => result.SetCombinedQueryKind(kind);
+
         private static bool TryCreateImmediateResult(PathGeometry pathA, PathGeometry pathB, int op, out PathGeometry result)
         {
             result = new PathGeometry { FillRule = GetOutputFillRule(pathA, pathB, op) };
+            if (op == 1)
+            {
+                if (IsContainedPrimitive(pathA, pathB))
+                {
+                    CopyFigures(pathB.Figures, result.Figures);
+                    return true;
+                }
+
+                if (IsContainedPrimitive(pathB, pathA))
+                {
+                    CopyFigures(pathA.Figures, result.Figures);
+                    return true;
+                }
+            }
+
+            if (op == 2)
+            {
+                if (IsContainedPrimitive(pathA, pathB))
+                {
+                    CopyFigures(pathA.Figures, result.Figures);
+                    return true;
+                }
+
+                if (IsContainedPrimitive(pathB, pathA))
+                {
+                    CopyFigures(pathB.Figures, result.Figures);
+                    return true;
+                }
+            }
+
             if (op == 0 &&
                 (IsContainedAxisAlignedRectangle(pathA, pathB) ||
                  IsContainedCanonicalRoundedRectangle(pathA, pathB)))

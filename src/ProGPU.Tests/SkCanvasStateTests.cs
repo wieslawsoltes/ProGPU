@@ -216,6 +216,242 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void PictureSaveLayerDefersIsotropicBlurToRetainedVisual()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        using var filter = SKImageFilter.CreateBlur(2f, 2f);
+        using var layerPaint = new SKPaint
+        {
+            Color = new SKColor(32, 64, 128, 192),
+            ImageFilter = filter,
+        };
+        using var fill = new SKPaint { Color = SKColors.Red };
+
+        var restoreCount = canvas.SaveLayer(
+            new SKRect(1f, 2f, 81f, 74f),
+            layerPaint);
+        layerPaint.ImageFilter = null;
+        layerPaint.Color = SKColors.White;
+        filter.Dispose();
+        canvas.DrawRect(new SKRect(4f, 6f, 52f, 38f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+
+        var command = Assert.Single(
+            picture.Picture.Commands,
+            static command => command.Type == RenderCommandType.DrawVisual);
+        var visual = Assert.IsAssignableFrom<Visual>(command.Visual);
+        var commandCache = Assert.IsAssignableFrom<IOwnedRenderCommandCache>(visual);
+        var blur = Assert.IsType<BlurEffect>(visual.Effect);
+        Assert.Equal(2f, blur.BlurRadius);
+        Assert.False(visual.CacheAsLayer);
+        Assert.Equal(new Vector2(96f, 96f), visual.Size);
+        Assert.Contains(
+            Enumerable.Range(0, commandCache.RenderCommandCount)
+                .Select(commandCache.GetRenderCommand),
+            static retained => retained.Type == RenderCommandType.DrawRect);
+        Assert.DoesNotContain(
+            picture.Picture.Commands,
+            static retained => retained.Type == RenderCommandType.DrawTexture);
+        var opacity = Assert.Single(
+            picture.Picture.Commands,
+            static retained => retained.Type == RenderCommandType.PushOpacity);
+        Assert.InRange(opacity.FontSize, (192f / 255f) - 0.0001f, (192f / 255f) + 0.0001f);
+        Assert.Equal(1, picture.Picture.RetainedResourceCount);
+    }
+
+    [Fact]
+    public void PictureSaveLayerBlurReplaysThroughWebGpuEffect()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 32f, 32f));
+        using var layerPaint = new SKPaint
+        {
+            ImageFilter = SKImageFilter.CreateBlur(2f, 2f),
+        };
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Red,
+            IsAntialias = false,
+        };
+
+        var restoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(14f, 14f, 18f, 18f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        using var surface = SKSurface.Create(
+            new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        var tailAlpha = pixels[(11 * 32 + 16) * 4 + 3];
+        var centerAlpha = pixels[(16 * 32 + 16) * 4 + 3];
+        Assert.InRange(tailAlpha, (byte)1, (byte)254);
+        Assert.True(centerAlpha > tailAlpha);
+    }
+
+    [Fact]
+    public void PictureSaveLayerDropShadowSurvivesAvaloniaPaintReset()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 32f, 24f));
+        using var filter = SKImageFilter.CreateDropShadow(
+            8f,
+            0f,
+            0f,
+            0f,
+            SKColors.Black);
+        using var layerPaint = new SKPaint { ImageFilter = filter };
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Red,
+            IsAntialias = false,
+        };
+
+        var restoreCount = canvas.SaveLayer(layerPaint);
+        layerPaint.ImageFilter = null;
+        filter.Dispose();
+        canvas.DrawRect(new SKRect(4f, 4f, 9f, 9f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+
+        var drawVisual = Assert.Single(
+            picture.Picture.Commands,
+            static command => command.Type == RenderCommandType.DrawVisual);
+        var shadow = Assert.IsType<DropShadowEffect>(drawVisual.Visual!.Effect);
+        Assert.Equal(new Vector2(8f, 0f), shadow.Offset);
+        Assert.Equal(new Vector4(0f, 0f, 0f, 1f), shadow.Color);
+
+        using var surface = SKSurface.Create(
+            new SKImageInfo(32, 24, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 32, 6, 6, SKColors.Red);
+        AssertPixel(pixels, 32, 14, 6, SKColors.Black);
+    }
+
+    [Fact]
+    public void PictureSaveLayerOpacityCompositesOverlapsOnce()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 24f, 24f));
+        using var layerPaint = new SKPaint
+        {
+            Color = new SKColor(0, 0, 0, 128),
+        };
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Red,
+            IsAntialias = false,
+        };
+
+        var restoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(2f, 2f, 12f, 12f), fill);
+        canvas.DrawRect(new SKRect(6f, 6f, 16f, 16f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        using var surface = SKSurface.Create(
+            new SKImageInfo(24, 24, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        var singleAlpha = pixels[(4 * 24 + 4) * 4 + 3];
+        var overlapAlpha = pixels[(8 * 24 + 8) * 4 + 3];
+        Assert.InRange(singleAlpha, (byte)127, (byte)129);
+        Assert.InRange(overlapAlpha, (byte)127, (byte)129);
+    }
+
+    [Fact]
+    public void PictureSaveLayerKeepsEarlierImageLeaseUntilMainFrameSubmission()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 24f, 24f));
+        using var bitmap = new SKBitmap(1, 1);
+        bitmap.SetPixel(0, 0, SKColors.Red);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var layerPaint = new SKPaint();
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Blue,
+            IsAntialias = false,
+        };
+
+        canvas.DrawImage(image, new SKRect(0f, 0f, 24f, 24f));
+        var restoreCount = canvas.SaveLayer(
+            new SKRect(4f, 4f, 20f, 20f),
+            layerPaint);
+        canvas.DrawRect(new SKRect(8f, 8f, 16f, 16f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        var retainedImageTexture = GetDrawTextureCommand(picture.Picture.Commands).Texture!;
+        Assert.False(retainedImageTexture.IsDisposed);
+        using var surface = SKSurface.Create(
+            new SKImageInfo(24, 24, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+        Assert.False(retainedImageTexture.IsDisposed);
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 24, 1, 1, SKColors.Red);
+        AssertPixel(pixels, 24, 12, 12, SKColors.Blue);
+    }
+
+    [Fact]
+    public void PictureSaveLayerEffectKeepsEarlierImageLeaseUntilMainFrameSubmission()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 32f, 24f));
+        using var bitmap = new SKBitmap(1, 1);
+        bitmap.SetPixel(0, 0, SKColors.Red);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var layerPaint = new SKPaint
+        {
+            ImageFilter = SKImageFilter.CreateBlur(1f, 1f),
+        };
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Blue,
+            IsAntialias = false,
+        };
+
+        canvas.DrawImage(image, new SKRect(0f, 0f, 32f, 24f));
+        var restoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(12f, 8f, 20f, 16f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        var retainedImageTexture = GetDrawTextureCommand(picture.Picture.Commands).Texture!;
+        Assert.False(retainedImageTexture.IsDisposed);
+        using var surface = SKSurface.Create(
+            new SKImageInfo(32, 24, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+        Assert.False(retainedImageTexture.IsDisposed);
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 32, 1, 1, SKColors.Red);
+        AssertPixel(pixels, 32, 16, 12, SKColors.Blue);
+    }
+
+    [Fact]
     public void RepeatedBlurLayersReuseCommandOrderedScratchAndSourceTextures()
     {
         var context = new DrawingContext();

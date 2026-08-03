@@ -33,10 +33,15 @@ public sealed class SkPathEffectCompatibilityTests
     [Fact]
     public void FactoriesSnapshotMutableInputsAndComposeIndependentGraphs()
     {
-        var intervals = new[] { 4f, 2f };
+        var intervals = new[] { 4f, 2f, 6f, 3f };
         using var dash = SKPathEffect.CreateDash(intervals, 1f);
         intervals[0] = 99f;
-        Assert.Equal(new[] { 4f, 2f }, dash.Intervals);
+        Assert.True(dash.Intervals.SequenceEqual(new[] { 4f, 2f, 6f, 3f }));
+
+        var overflowIntervals = new[] { 1f, 2f, 3f, 4f, 5f, 6f };
+        using var overflowDash = SKPathEffect.CreateDash(overflowIntervals, 0.5f);
+        overflowIntervals[5] = 99f;
+        Assert.True(overflowDash.Intervals.SequenceEqual(new[] { 1f, 2f, 3f, 4f, 5f, 6f }));
 
         using var stamp = new SKPath();
         stamp.AddRect(new SKRect(0f, 0f, 2f, 1f));

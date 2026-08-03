@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace SkiaSharp;
 
 public enum SKPath1DPathEffectStyle
@@ -15,6 +17,12 @@ public enum SKTrimPathEffectMode
 
 public partial class SKPathEffect : SKObject
 {
+    [InlineArray(4)]
+    private struct CommonDashIntervals
+    {
+        private float _element0;
+    }
+
     internal enum EffectKind
     {
         Dash,
@@ -44,16 +52,53 @@ public partial class SKPathEffect : SKObject
 
     internal sealed class DashData : EffectData
     {
-        public DashData(float[] intervals, float phase)
+        private CommonDashIntervals _commonIntervals;
+        private readonly float[]? _overflowIntervals;
+        private readonly int _intervalCount;
+
+        public DashData(ReadOnlySpan<float> intervals, float phase)
             : base(EffectKind.Dash)
         {
-            Intervals = intervals;
+            _intervalCount = intervals.Length;
+            if (intervals.Length <= 4)
+            {
+                intervals.CopyTo(_commonIntervals);
+            }
+            else
+            {
+                _overflowIntervals = intervals.ToArray();
+            }
             Phase = phase;
         }
 
-        public float[] Intervals { get; }
+        public ReadOnlySpan<float> Intervals => _overflowIntervals ?? _commonIntervals[.._intervalCount];
         public float Phase { get; }
-        public override EffectData Clone() => new DashData((float[])Intervals.Clone(), Phase);
+        public override EffectData Clone() => new DashData(Intervals, Phase);
+    }
+
+    private sealed class DashPathEffect : SKPathEffect
+    {
+        private CommonDashIntervals _commonIntervals;
+        private readonly float[]? _overflowIntervals;
+        private readonly int _intervalCount;
+
+        public DashPathEffect(ReadOnlySpan<float> intervals, float phase)
+            : base()
+        {
+            _intervalCount = intervals.Length;
+            if (intervals.Length <= 4)
+            {
+                intervals.CopyTo(_commonIntervals);
+            }
+            else
+            {
+                _overflowIntervals = intervals.ToArray();
+            }
+            StoredPhase = phase;
+        }
+
+        public ReadOnlySpan<float> StoredIntervals => _overflowIntervals ?? _commonIntervals[.._intervalCount];
+        public float StoredPhase { get; }
     }
 
     internal sealed class Path1DData : EffectData
@@ -168,7 +213,7 @@ public partial class SKPathEffect : SKObject
         public override EffectData Clone() => new TrimData(Start, Stop, Mode);
     }
 
-    private readonly EffectData _data;
+    private readonly EffectData? _data;
     private int _referenceCount = 1;
     private bool _dataReleased;
 
@@ -178,11 +223,20 @@ public partial class SKPathEffect : SKObject
         _data = data;
     }
 
-    internal EffectKind Kind => _data.Kind;
-    internal EffectData Data => _data;
-    internal float[] Intervals => _data is DashData dash ? dash.Intervals : Array.Empty<float>();
-    internal float Phase => _data is DashData dash ? dash.Phase : 0f;
-    internal bool IsDash => _data is DashData;
+    private SKPathEffect()
+        : base(SKObjectHandle.Create(), owns: true)
+    {
+    }
+
+    internal EffectKind Kind => IsDash ? EffectKind.Dash : _data!.Kind;
+    internal EffectData Data => _data ?? throw new InvalidOperationException("Inline dash state has no boxed effect data.");
+    internal ReadOnlySpan<float> Intervals => this is DashPathEffect dash ? dash.StoredIntervals : ReadOnlySpan<float>.Empty;
+    internal float Phase => this is DashPathEffect dash ? dash.StoredPhase : 0f;
+    internal bool IsDash => this is DashPathEffect;
+
+    private EffectData CloneEffectData() => IsDash
+        ? new DashData(Intervals, Phase)
+        : _data!.Clone();
 
     public static SKPathEffect Create1DPath(
         SKPath path,
@@ -207,7 +261,7 @@ public partial class SKPathEffect : SKObject
     {
         ArgumentNullException.ThrowIfNull(outer);
         ArgumentNullException.ThrowIfNull(inner);
-        return new SKPathEffect(new PairData(EffectKind.Compose, outer._data.Clone(), inner._data.Clone()));
+        return new SKPathEffect(new PairData(EffectKind.Compose, outer.CloneEffectData(), inner.CloneEffectData()));
     }
 
     public static SKPathEffect CreateCorner(float radius) => new(new CornerData(radius));
@@ -215,7 +269,7 @@ public partial class SKPathEffect : SKObject
     public static SKPathEffect CreateDash(float[] intervals, float phase)
     {
         ArgumentNullException.ThrowIfNull(intervals);
-        return new SKPathEffect(new DashData((float[])intervals.Clone(), phase));
+        return new DashPathEffect(intervals, phase);
     }
 
     public static SKPathEffect CreateDiscrete(float segLength, float deviation, uint seedAssist = 0) =>
@@ -225,7 +279,7 @@ public partial class SKPathEffect : SKObject
     {
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
-        return new SKPathEffect(new PairData(EffectKind.Sum, first._data.Clone(), second._data.Clone()));
+        return new SKPathEffect(new PairData(EffectKind.Sum, first.CloneEffectData(), second.CloneEffectData()));
     }
 
     public static SKPathEffect CreateTrim(float start, float stop) =>
@@ -258,7 +312,7 @@ public partial class SKPathEffect : SKObject
         if (_referenceCount == 0 && !_dataReleased)
         {
             _dataReleased = true;
-            _data.Dispose();
+            _data?.Dispose();
         }
     }
 

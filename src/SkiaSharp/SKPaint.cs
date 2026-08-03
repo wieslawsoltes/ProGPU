@@ -1123,7 +1123,7 @@ public partial class SKPaint : SKObject
     }
 
     private static void AdvanceDashPattern(
-        float[] intervals,
+        ReadOnlySpan<float> intervals,
         ref int patternIndex,
         ref float remainingInPattern)
     {
@@ -2790,12 +2790,22 @@ public partial class SKShader : SKObject
 
 public partial class SKColorFilter : SKObject
 {
+    private enum ColorTableLayout : byte
+    {
+        None,
+        Identity,
+        Shared,
+        AlphaIdentityRgb,
+        AlphaSharedRgb,
+        Packed,
+    }
+
+    private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
+
     internal SKColor Color { get; }
     internal SKBlendMode Mode { get; }
-    private readonly byte[]? _alphaTable;
-    private readonly byte[]? _redTable;
-    private readonly byte[]? _greenTable;
-    private readonly byte[]? _blueTable;
+    private readonly byte[]? _colorTables;
+    private readonly ColorTableLayout _colorTableLayout;
     private readonly float[]? _colorMatrix;
     private readonly bool _lumaColor;
     private readonly bool _isBlendColor;
@@ -2810,14 +2820,12 @@ public partial class SKColorFilter : SKObject
         _isBlendColor = true;
     }
 
-    private SKColorFilter(byte[] alpha, byte[] red, byte[] green, byte[] blue)
+    private SKColorFilter(byte[]? colorTables, ColorTableLayout colorTableLayout)
         : base(SKObjectHandle.Create(), owns: true)
     {
         _kind = ColorFilterKind.Table;
-        _alphaTable = alpha;
-        _redTable = red;
-        _greenTable = green;
-        _blueTable = blue;
+        _colorTables = colorTables;
+        _colorTableLayout = colorTableLayout;
     }
 
     private SKColorFilter(float[] colorMatrix)
@@ -2845,6 +2853,16 @@ public partial class SKColorFilter : SKObject
 
     internal static SKColorFilter CreateRuntime(SKRuntimeEffectInstance runtimeEffect) => new(runtimeEffect);
 
+    private static byte[] CreateIdentityColorTable()
+    {
+        var table = new byte[256];
+        for (var index = 0; index < table.Length; index++)
+        {
+            table[index] = (byte)index;
+        }
+        return table;
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
@@ -2866,14 +2884,41 @@ public partial class SKColorFilter : SKObject
         out ReadOnlyMemory<byte> green,
         out ReadOnlyMemory<byte> blue)
     {
-        if (_kind == ColorFilterKind.Table &&
-            _alphaTable != null && _redTable != null && _greenTable != null && _blueTable != null)
+        if (_kind == ColorFilterKind.Table)
         {
-            alpha = _alphaTable;
-            red = _redTable;
-            green = _greenTable;
-            blue = _blueTable;
-            return true;
+            switch (_colorTableLayout)
+            {
+                case ColorTableLayout.Identity:
+                    alpha = s_identityColorTable;
+                    red = s_identityColorTable;
+                    green = s_identityColorTable;
+                    blue = s_identityColorTable;
+                    return true;
+                case ColorTableLayout.Shared when _colorTables != null:
+                    alpha = _colorTables;
+                    red = _colorTables;
+                    green = _colorTables;
+                    blue = _colorTables;
+                    return true;
+                case ColorTableLayout.AlphaIdentityRgb when _colorTables != null:
+                    alpha = _colorTables;
+                    red = s_identityColorTable;
+                    green = s_identityColorTable;
+                    blue = s_identityColorTable;
+                    return true;
+                case ColorTableLayout.AlphaSharedRgb when _colorTables != null:
+                    alpha = _colorTables.AsMemory(0, 256);
+                    red = _colorTables.AsMemory(256, 256);
+                    green = red;
+                    blue = red;
+                    return true;
+                case ColorTableLayout.Packed when _colorTables != null:
+                    alpha = _colorTables.AsMemory(0, 256);
+                    red = _colorTables.AsMemory(256, 256);
+                    green = _colorTables.AsMemory(512, 256);
+                    blue = _colorTables.AsMemory(768, 256);
+                    return true;
+            }
         }
 
         alpha = default;
@@ -2981,13 +3026,17 @@ public partial class SKColorFilter : SKObject
             return new SKColor(0, 0, 0, luma);
         }
 
-        if (_alphaTable != null && _redTable != null && _greenTable != null && _blueTable != null)
+        if (TryGetColorTables(
+            out var tableAlpha,
+            out var tableRed,
+            out var tableGreen,
+            out var tableBlue))
         {
             return new SKColor(
-                _redTable[destination.R],
-                _greenTable[destination.G],
-                _blueTable[destination.B],
-                _alphaTable[destination.A]);
+                tableRed.Span[destination.R],
+                tableGreen.Span[destination.G],
+                tableBlue.Span[destination.B],
+                tableAlpha.Span[destination.A]);
         }
 
         var source = ToPremultiplied(Color);
@@ -3264,26 +3313,83 @@ public partial class SKImageFilter : SKObject
     internal SKImageFilter? Input { get; }
     internal SKRect? CropRect { get; }
 
+    private sealed class BlurImageFilter : SKImageFilter
+    {
+        public BlurImageFilter(
+            float sigmaX,
+            float sigmaY,
+            SKShaderTileMode tileMode,
+            SKImageFilter? input,
+            SKRect? cropRect)
+            : base(FilterKind.Blur, parameters: null, input, cropRect)
+        {
+            Data = new BlurData(sigmaX, sigmaY, tileMode);
+        }
+
+        public BlurData Data { get; }
+    }
+
+    private sealed class DropShadowImageFilter : SKImageFilter
+    {
+        public DropShadowImageFilter(
+            float dx,
+            float dy,
+            float sigmaX,
+            float sigmaY,
+            SKColor color,
+            bool shadowOnly,
+            SKImageFilter? input,
+            SKRect? cropRect)
+            : base(FilterKind.DropShadow, parameters: null, input, cropRect)
+        {
+            Data = new DropShadowData(dx, dy, sigmaX, sigmaY, color, shadowOnly);
+        }
+
+        public DropShadowData Data { get; }
+    }
+
+    internal bool TryGetBlurData(out BlurData data)
+    {
+        if (this is BlurImageFilter blur)
+        {
+            data = blur.Data;
+            return true;
+        }
+
+        data = default;
+        return false;
+    }
+
+    internal bool TryGetDropShadowData(out DropShadowData data)
+    {
+        if (this is DropShadowImageFilter shadow)
+        {
+            data = shadow.Data;
+            return true;
+        }
+
+        data = default;
+        return false;
+    }
+
     public bool IsBlur => Kind == FilterKind.Blur;
     public bool IsDropShadow => Kind == FilterKind.DropShadow;
-    public float SigmaX => Parameters switch
-    {
-        BlurData blur => blur.SigmaX,
-        DropShadowData shadow => shadow.SigmaX,
-        _ => 0f,
-    };
-    public float SigmaY => Parameters switch
-    {
-        BlurData blur => blur.SigmaY,
-        DropShadowData shadow => shadow.SigmaY,
-        _ => 0f,
-    };
-    public float Dx => Parameters is DropShadowData shadow ? shadow.Dx : 0f;
-    public float Dy => Parameters is DropShadowData shadow ? shadow.Dy : 0f;
-    public SKColor ShadowColor => Parameters is DropShadowData shadow ? shadow.Color : SKColor.Empty;
+    public float SigmaX => TryGetBlurData(out var blur)
+        ? blur.SigmaX
+        : TryGetDropShadowData(out var shadow)
+            ? shadow.SigmaX
+            : 0f;
+    public float SigmaY => TryGetBlurData(out var blur)
+        ? blur.SigmaY
+        : TryGetDropShadowData(out var shadow)
+            ? shadow.SigmaY
+            : 0f;
+    public float Dx => TryGetDropShadowData(out var shadow) ? shadow.Dx : 0f;
+    public float Dy => TryGetDropShadowData(out var shadow) ? shadow.Dy : 0f;
+    public SKColor ShadowColor => TryGetDropShadowData(out var shadow) ? shadow.Color : SKColor.Empty;
 
     public static SKImageFilter CreateBlur(float sigmaX, float sigmaY, SKImageFilter? input) =>
-        new(FilterKind.Blur, new BlurData(sigmaX, sigmaY, SKShaderTileMode.Decal), input, null);
+        new BlurImageFilter(sigmaX, sigmaY, SKShaderTileMode.Decal, input, cropRect: null);
 
     public static SKImageFilter CreateBlur(
         float sigmaX,
@@ -3291,7 +3397,7 @@ public partial class SKImageFilter : SKObject
         SKShaderTileMode tileMode,
         SKImageFilter? input = null,
         SKRect? cropRect = null) =>
-        new(FilterKind.Blur, new BlurData(sigmaX, sigmaY, tileMode), input, cropRect);
+        new BlurImageFilter(sigmaX, sigmaY, tileMode, input, cropRect);
 
     public static SKImageFilter CreateDropShadow(
         float dx,
@@ -3318,7 +3424,7 @@ public partial class SKImageFilter : SKObject
         SKColor color,
         SKImageFilter? input,
         SKRect? cropRect) =>
-        new(FilterKind.DropShadow, new DropShadowData(dx, dy, sigmaX, sigmaY, color, ShadowOnly: false), input, cropRect);
+        new DropShadowImageFilter(dx, dy, sigmaX, sigmaY, color, shadowOnly: false, input, cropRect);
 
     public static SKImageFilter CreateDropShadowOnly(
         float dx,
@@ -3345,7 +3451,7 @@ public partial class SKImageFilter : SKObject
         SKColor color,
         SKImageFilter? input,
         SKRect? cropRect) =>
-        new(FilterKind.DropShadow, new DropShadowData(dx, dy, sigmaX, sigmaY, color, ShadowOnly: true), input, cropRect);
+        new DropShadowImageFilter(dx, dy, sigmaX, sigmaY, color, shadowOnly: true, input, cropRect);
 
     public static SKImageFilter CreateArithmetic(
         float k1,
@@ -3551,9 +3657,9 @@ public partial class SKImageFilter : SKObject
         SKRect? cropRect) =>
         new(FilterKind.Merge, new SKImageFilter?[] { first, second }, null, cropRect);
 
-    internal sealed record BlurData(float SigmaX, float SigmaY, SKShaderTileMode TileMode);
+    internal readonly record struct BlurData(float SigmaX, float SigmaY, SKShaderTileMode TileMode);
     internal sealed record ComposeData(SKImageFilter Outer, SKImageFilter Inner);
-    internal sealed record DropShadowData(float Dx, float Dy, float SigmaX, float SigmaY, SKColor Color, bool ShadowOnly);
+    internal readonly record struct DropShadowData(float Dx, float Dy, float SigmaX, float SigmaY, SKColor Color, bool ShadowOnly);
     internal sealed record ArithmeticData(float K1, float K2, float K3, float K4, bool EnforcePremultipliedColor, SKImageFilter? Background, SKImageFilter? Foreground);
     internal sealed record BlendModeData(SKBlendMode? Mode, SKBlender? Blender, SKImageFilter? Background, SKImageFilter? Foreground);
     internal sealed record MorphologyData(float RadiusX, float RadiusY);

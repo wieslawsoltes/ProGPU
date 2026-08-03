@@ -33,7 +33,9 @@ public partial class SKPathEffect
     {
         ArgumentNullException.ThrowIfNull(source);
         var normalizedScale = float.IsFinite(resScale) && resScale > 0f ? resScale : 1f;
-        return TryApply(_data, source, normalizedScale, out result);
+        return IsDash
+            ? TryApplyDash(source, Intervals, Phase, normalizedScale, out result)
+            : TryApply(_data!, source, normalizedScale, out result);
     }
 
     internal bool TryApply(
@@ -43,7 +45,7 @@ public partial class SKPathEffect
         out PaintAdjustment paintAdjustment)
     {
         var applied = TryApply(source, resScale, out result);
-        paintAdjustment = GetPaintAdjustment(_data);
+        paintAdjustment = IsDash ? default : GetPaintAdjustment(_data!);
         return applied;
     }
 
@@ -52,7 +54,7 @@ public partial class SKPathEffect
         switch (data)
         {
             case DashData dash:
-                return TryApplyDash(source, dash, resScale, out result);
+                return TryApplyDash(source, dash.Intervals, dash.Phase, resScale, out result);
             case TrimData trim:
                 return TryApplyTrim(source, trim, resScale, out result);
             case PairData { Kind: EffectKind.Compose } compose:
@@ -107,12 +109,13 @@ public partial class SKPathEffect
 
     private static bool TryApplyDash(
         SKPath source,
-        DashData dash,
+        ReadOnlySpan<float> intervals,
+        float phase,
         float resScale,
         out SKPath result)
     {
         result = new SKPath { FillType = source.FillType };
-        if (!TryCreateDashState(dash, out var initialIndex, out var initialRemaining))
+        if (!TryCreateDashState(intervals, phase, out var initialIndex, out var initialRemaining))
         {
             return false;
         }
@@ -144,7 +147,7 @@ public partial class SKPathEffect
 
                 distance += step;
                 remaining -= step;
-                if (remaining <= EffectEpsilon && !AdvanceDash(dash.Intervals, ref patternIndex, ref remaining))
+                if (remaining <= EffectEpsilon && !AdvanceDash(intervals, ref patternIndex, ref remaining))
                 {
                     result.Dispose();
                     result = new SKPath(source);
@@ -164,12 +167,15 @@ public partial class SKPathEffect
         return true;
     }
 
-    private static bool TryCreateDashState(DashData dash, out int index, out float remaining)
+    private static bool TryCreateDashState(
+        ReadOnlySpan<float> intervals,
+        float phaseValue,
+        out int index,
+        out float remaining)
     {
         index = 0;
         remaining = 0f;
-        var intervals = dash.Intervals;
-        if (intervals.Length == 0 || (intervals.Length & 1) != 0 || !float.IsFinite(dash.Phase))
+        if (intervals.Length == 0 || (intervals.Length & 1) != 0 || !float.IsFinite(phaseValue))
         {
             return false;
         }
@@ -188,7 +194,7 @@ public partial class SKPathEffect
             return false;
         }
 
-        var phase = dash.Phase % patternLength;
+        var phase = phaseValue % patternLength;
         if (phase < 0f)
         {
             phase += patternLength;
@@ -211,14 +217,14 @@ public partial class SKPathEffect
         return remaining > EffectEpsilon;
     }
 
-    private static bool AdvanceDash(float[] intervals, ref int index, ref float remaining)
+    private static bool AdvanceDash(ReadOnlySpan<float> intervals, ref int index, ref float remaining)
     {
         index = (index + 1) % intervals.Length;
         remaining = intervals[index];
         return AdvancePastEmptyDashIntervals(intervals, ref index, ref remaining);
     }
 
-    private static bool AdvancePastEmptyDashIntervals(float[] intervals, ref int index, ref float remaining)
+    private static bool AdvancePastEmptyDashIntervals(ReadOnlySpan<float> intervals, ref int index, ref float remaining)
     {
         for (var skipped = 0; skipped < intervals.Length; skipped++)
         {

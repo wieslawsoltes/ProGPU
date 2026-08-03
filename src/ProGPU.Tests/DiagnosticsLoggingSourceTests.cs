@@ -613,6 +613,20 @@ public class DiagnosticsLoggingSourceTests
     }
 
     [Fact]
+    public void SkiaRetainedLayersReserveExactCommonStorageAndAvoidEmptyResourceContexts()
+    {
+        string source = ReadSource("src", "SkiaSharp", "SKCanvas.cs");
+
+        Assert.Contains("private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();", source, StringComparison.Ordinal);
+        Assert.Contains("if (source.RetainedResourceCount != 0)\n            {\n                _resourceContext = new DrawingContext();", source, StringComparison.Ordinal);
+        Assert.Contains("_resourceContext ?? s_emptyRetainedLayerResourceContext;", source, StringComparison.Ordinal);
+        Assert.Contains("var activeClipPushes = SnapshotActiveClipPushes();", source, StringComparison.Ordinal);
+        Assert.Contains("var expectedCommandCount = checked(", source, StringComparison.Ordinal);
+        Assert.Contains("(IsFullCanvasLayerBounds(bounds) ? 0 : 2) +", source, StringComparison.Ordinal);
+        Assert.Contains("layerContext.EnsureCommandCapacity(expectedCommandCount);", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompositorTransientStateSnapshotsUseArrayPool()
     {
         string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
@@ -673,7 +687,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("var cmd = diagnosticCommands[commandIndex];", source, StringComparison.Ordinal);
         Assert.Contains("var commands = ctx.Commands;", source, StringComparison.Ordinal);
         Assert.Contains("var commandCount = commands.Count;", source, StringComparison.Ordinal);
-        Assert.Contains("var commands = picture.RetainedCommands;\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("var commands = picture.RetainedCommands;\n        PreparePictureLayerCaches(commands);\n        for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)", source, StringComparison.Ordinal);
+        Assert.Contains("if (visual.Effect != null &&\n                !_elementsRenderingEffects.Contains(visual))\n            {\n                PrepareEffectTexture(visual);", source, StringComparison.Ordinal);
+        Assert.Contains("PrepareAndDrawEffect(fe, Matrix4x4.Identity, drawOnMain: false);", source, StringComparison.Ordinal);
         Assert.Contains("var commands = context.Commands;\n            var commandCount = commands.Count;", source, StringComparison.Ordinal);
         Assert.Contains("var textRecords = staticBuffer.TextRecords;\n            for (var recordIndex = 0; recordIndex < textRecords.Length; recordIndex++)", source, StringComparison.Ordinal);
         Assert.Contains("staticBuffer.UpdateTextBuffer(CollectionsMarshal.AsSpan(_textVerticesList));", source, StringComparison.Ordinal);

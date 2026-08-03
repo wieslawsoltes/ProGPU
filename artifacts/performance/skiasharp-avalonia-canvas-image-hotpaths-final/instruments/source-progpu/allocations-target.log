@@ -1,0 +1,51 @@
+[ControlCatalog] runtime backend: Windowing: Silk.NET/GLFW | Rendering: WebGPU/Dawn via Silk.NET | Compositor: ProGPU retained | Text: ProGPU OpenType
+[ControlCatalog] selected page=Composition index=18
+2026-08-03 18:31:06.359619+0200 dotnet[57611:40763244] [WindowTab] Cannot index window tabs due to missing main bundle identifier
+2026-08-03 18:31:06.739562+0200 dotnet[57611:40763637] [Common] Unable to obtain a task name port right for pid 481: (os/kern) failure (0x5)
+2026-08-03 18:31:07.223379+0200 dotnet[57611:40763244] [Metal Compiler Warning] Warning: Compilation succeeded with:
+
+program_source:302:31: warning: unused variable 'A' [-Wunused-variable]
+                metal::float2 A = seg.p0_;
+                              ^
+program_source:303:31: warning: unused variable 'B' [-Wunused-variable]
+                metal::float2 B = seg.p1_;
+                              ^
+program_source:322:35: warning: unused variable 'A_1' [-Wunused-variable]
+                    metal::float2 A_1 = seg.p0_;
+                                  ^
+program_source:323:35: warning: unused variable 'B_1' [-Wunused-variable]
+                    metal::float2 B_1 = seg.p1_;
+                                  ^
+program_source:324:35: warning: unused variable 'C' [-Wunused-variable]
+                    metal::float2 C = seg.p2_;
+                                  ^
+program_source:389:39: warning: unused variable 'A_2' [-Wunused-variable]
+                        metal::float2 A_2 = seg.p0_;
+                                      ^
+program_source:390:39: warning: unused variable 'B_2' [-Wunused-variable]
+                        metal::float2 B_2 = seg.p1_;
+                                      ^
+program_source:391:39: warning: unused variable 'C_1' [-Wunused-variable]
+                        metal::float2 C_1 = seg.p2_;
+                                      ^
+program_source:392:39: warning: unused variable 'D_pt' [-Wunused-variable]
+                        metal::float2 D_pt = seg.p3_;
+                                      ^
+program_source:457:43: warning: unused variable 'p0_' [-Wunused-variable]
+                            metal::float2 p0_ = seg.p0_;
+                                          ^
+program_source:458:43: warning: unused variable 'p1_' [-Wunused-variable]
+                            metal::float2 p1_ = seg.p1_;
+                                          ^
+program_source:460:43: warning: unused variable 'r_3' [-Wunused-variable]
+                            metal::float2 r_3 = seg.p3_;
+                                          ^
+2026-08-03 18:31:07.573115+0200 dotnet[57611:40763244] [Metal Compiler Warning] Warning: Compilation succeeded with:
+
+program_source:1339:35: warning: unused variable 'point_4' [-Wunused-variable]
+                    metal::float2 point_4 = input_24.texCoord;
+                                  ^
+program_source:1362:39: warning: unused variable 'point_5' [-Wunused-variable]
+                        metal::float2 point_5 = input_24.texCoord;
+                                      ^
+[ControlCatalog] actual presentation: WebGPU/Dawn via Silk.NET surface

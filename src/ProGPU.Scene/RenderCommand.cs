@@ -1065,6 +1065,7 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private readonly RetainedTextCommandData[] _text;
     private readonly RetainedTextureCommandData[] _texture;
     private readonly Matrix4x4[] _transforms;
+    private readonly Visual[] _embeddedVisuals;
 
     internal GpuPictureCommandCollection(ReadOnlySpan<RenderCommand> commands)
     {
@@ -1075,12 +1076,14 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             _text = [];
             _texture = [];
             _transforms = [];
+            _embeddedVisuals = [];
             return;
         }
 
         int auxiliaryCount = 0;
         int textCount = 0;
         int textureCount = 0;
+        int embeddedVisualCount = 0;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
         int[] transformIndices =
@@ -1117,6 +1120,11 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                         textureCount++;
                         break;
                 }
+                if (commands[index].Type == RenderCommandType.DrawVisual &&
+                    commands[index].Visual != null)
+                {
+                    embeddedVisualCount++;
+                }
             }
 
             _commands = new RetainedRenderCommand[commands.Length];
@@ -1130,13 +1138,22 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                 ? []
                 : new RetainedTextureCommandData[textureCount];
             _transforms = new Matrix4x4[transformCount];
+            _embeddedVisuals = embeddedVisualCount == 0
+                ? []
+                : new Visual[embeddedVisualCount];
             transformScratch.AsSpan(0, transformCount).CopyTo(_transforms);
             int auxiliaryIndex = 0;
             int textIndex = 0;
             int textureIndex = 0;
+            int embeddedVisualIndex = 0;
             for (int index = 0; index < commands.Length; index++)
             {
                 ref readonly RenderCommand command = ref commands[index];
+                if (command.Type == RenderCommandType.DrawVisual &&
+                    command.Visual != null)
+                {
+                    _embeddedVisuals[embeddedVisualIndex++] = command.Visual;
+                }
                 RetainedCommandDataKind dataKind =
                     (RetainedCommandDataKind)classifications[index];
                 int dataIndex = -1;
@@ -1178,6 +1195,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
 
     public int Length => _commands.Length;
 
+    internal ReadOnlySpan<Visual> EmbeddedVisuals => _embeddedVisuals;
+
     public RenderCommand this[int index] =>
         _commands[index].Expand(
             _auxiliary,
@@ -1195,7 +1214,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         (long)_texture.Length *
             System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureCommandData>() +
         (long)_transforms.Length *
-            System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>();
+            System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>() +
+        (long)_embeddedVisuals.Length * IntPtr.Size;
 
     internal RenderCommand[] Clone()
     {
@@ -2084,6 +2104,13 @@ public class DrawingContext :
         _imageEffectBuffer ??= new();
 
     public int RetainedResourceCount => _retainedResources?.Count ?? 0;
+
+    internal bool HasCommandSideBuffers =>
+        _pointBuffer is { Count: > 0 } ||
+        _doubleBuffer is { Count: > 0 } ||
+        _line3DBuffer is { Count: > 0 } ||
+        _floatBuffer is { Count: > 0 } ||
+        _imageEffectBuffer is { Count: > 0 };
 
     public DrawingContext()
     {
@@ -4040,6 +4067,19 @@ public class DrawingContext :
             }
         }
         _retainedResources.Clear();
+    }
+
+    internal void MoveRetainedResourcesTo(DrawingContext destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (_retainedResources == null || _retainedResources.Count == 0)
+        {
+            return;
+        }
+
+        MoveRetainedResourcesTo(
+            destination._retainedResources ??=
+                new List<RetainedResourceLease>(_retainedResources.Count));
     }
 
     private static bool ContainsRetainedResourceIdentity(

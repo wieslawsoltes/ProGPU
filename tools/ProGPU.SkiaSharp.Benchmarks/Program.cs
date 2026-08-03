@@ -37,6 +37,16 @@ internal static class ProgramEntry
     private static readonly float[] ShaderColorPositions = { 0f, 0.375f, 1f };
     private static readonly ushort[] AvaloniaGlyphIndices = CreateAvaloniaGlyphIndices();
     private static readonly SKPoint[] AvaloniaGlyphPositions = CreateAvaloniaGlyphPositions();
+    private static readonly float[] AvaloniaDashIntervals = { 2f, 1f, 4f, 1.5f };
+    private static readonly SKPoint[] AvaloniaRoundRectRadii =
+    {
+        new(4f, 6f),
+        new(8f, 5f),
+        new(6f, 7f),
+        new(3f, 4f)
+    };
+    private static readonly byte[] AvaloniaIdentityColorTable = CreateIdentityColorTable();
+    private static readonly byte[] AvaloniaAlphaColorTable = CreateAlphaColorTable();
     private const string RuntimeEffectSource = """
         uniform float gain;
         uniform float2 offset;
@@ -124,6 +134,11 @@ internal static class ProgramEntry
             new BenchmarkCase("canvas-matrix-routing", 100_000, RunCanvasMatrixRouting),
             new BenchmarkCase("canvas-clip-routing", 10_000, RunCanvasClipRouting),
             new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
+            new BenchmarkCase("avalonia-image-filter-factories", 10_000, RunAvaloniaImageFilterFactories),
+            new BenchmarkCase("avalonia-color-table-filter", 10_000, RunAvaloniaColorTableFilter),
+            new BenchmarkCase("avalonia-dash-effect-cycle", 10_000, RunAvaloniaDashEffectCycle),
+            new BenchmarkCase("avalonia-roundrect-reuse", 100_000, RunAvaloniaRoundRectReuse),
+            new BenchmarkCase("avalonia-layer-recording", 16, RunAvaloniaLayerRecording),
             new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
             new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
             new BenchmarkCase("avalonia-path-measure-create", 10_000, RunAvaloniaPathMeasureCreate),
@@ -891,6 +906,112 @@ internal static class ProgramEntry
         return checksum;
     }
 
+    private static ulong RunAvaloniaImageFilterFactories(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var sigma = 0.5f + (index & 7) * 0.25f;
+            using var blur = SKImageFilter.CreateBlur(sigma, sigma);
+            using var shadow = SKImageFilter.CreateDropShadow(
+                2f,
+                -1f,
+                sigma,
+                sigma + 0.25f,
+                new SKColor(24, 48, 96, 160));
+            GC.KeepAlive(blur);
+            GC.KeepAlive(shadow);
+            checksum = Mix(checksum, 1u);
+            checksum = Mix(checksum, 1u);
+            checksum = Mix(checksum, Combine(sigma + 2f, sigma - 0.75f));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaColorTableFilter(int operations)
+    {
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var filter = SKColorFilter.CreateTable(
+                AvaloniaAlphaColorTable,
+                AvaloniaIdentityColorTable,
+                AvaloniaIdentityColorTable,
+                AvaloniaIdentityColorTable);
+            GC.KeepAlive(filter);
+            checksum = Mix(checksum, 1u);
+            checksum = Mix(checksum, AvaloniaAlphaColorTable[index & 255]);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaDashEffectCycle(int operations)
+    {
+        using var paint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 2f };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var effect = SKPathEffect.CreateDash(AvaloniaDashIntervals, (index & 7) * 0.25f);
+            paint.PathEffect = effect;
+            checksum = Mix(checksum, paint.PathEffect is null ? 0u : 1u);
+            paint.PathEffect = null;
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaRoundRectReuse(int operations)
+    {
+        using var roundRect = new SKRoundRect();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = (index & 15) * 0.125f;
+            roundRect.SetRectRadii(
+                new SKRect(offset, -offset, 64f + offset, 48f - offset),
+                AvaloniaRoundRectRadii);
+            var radius = roundRect.GetRadii(SKRoundRectCorner.LowerRight);
+            checksum = Mix(checksum, (uint)roundRect.Type);
+            checksum = Mix(checksum, Combine(roundRect.Width + radius.X, roundRect.Height + radius.Y));
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaLayerRecording(int operations)
+    {
+        using var filter = SKImageFilter.CreateBlur(2f, 2f);
+        using var paint = new SKPaint
+        {
+            Color = new SKColor(32, 64, 128, 192),
+            ImageFilter = filter,
+            IsAntialias = true
+        };
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = (index & 7) * 0.25f;
+            var restoreCount = canvas.SaveLayer(
+                new SKRect(offset, offset, 80f + offset, 72f + offset),
+                paint);
+            canvas.DrawRoundRect(
+                new SKRect(4f, 6f, 52f, 38f),
+                6f,
+                8f,
+                paint);
+            canvas.RestoreToCount(restoreCount);
+            checksum = Mix(checksum, (uint)canvas.SaveCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(picture.CullRect.Width));
+        return Mix(checksum, BitConverter.SingleToUInt32Bits(picture.CullRect.Height));
+    }
+
     private static ulong RunAvaloniaPositionedTextBlob(int operations)
     {
         using var font = new SKFont(SKTypeface.Default, 16f);
@@ -1085,6 +1206,22 @@ internal static class ProgramEntry
         for (var index = 0; index < positions.Length; index++)
             positions[index] = new SKPoint(index * 7.5f, (index & 3) * 0.125f);
         return positions;
+    }
+
+    private static byte[] CreateIdentityColorTable()
+    {
+        var table = new byte[256];
+        for (var index = 0; index < table.Length; index++)
+            table[index] = (byte)index;
+        return table;
+    }
+
+    private static byte[] CreateAlphaColorTable()
+    {
+        var table = new byte[256];
+        for (var index = 0; index < table.Length; index++)
+            table[index] = (byte)(index * 3 / 4);
+        return table;
     }
 
     private static ulong RunGrContextOptions(int operations)

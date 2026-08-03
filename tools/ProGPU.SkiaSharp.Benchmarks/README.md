@@ -27,10 +27,13 @@ of that immutable image and measures whether deferred rendering reuses its GPU
 resource. A mixed retained-picture workload combines saved transforms, clips,
 rectangles, paths, positioned text, and immutable images so command-storage
 changes are measured across the broader Avalonia.Skia recording shape rather
-than against a single command kind. Shim optimization therefore follows real framework call sites rather
-than metadata frequency alone. Canvas coverage decomposes retained
-save/restore, matrix, and clip routing so regressions can be attributed without
-changing the full framework-shaped workload. Each implemented API cluster adds
+than against a single command kind. Shim optimization therefore follows real
+framework call sites rather than metadata frequency alone. Canvas coverage
+decomposes retained save/restore, matrix, and clip routing so regressions can be
+attributed without changing the full framework-shaped workload. The Avalonia
+paint/effect family also measures the exact reusable paint, blur/drop-shadow
+factory, alpha-table filter, dashed-pen, cached rounded-rectangle, and save-layer
+recording shapes used by `DrawingContextImpl`. Each implemented API cluster adds
 an equivalent workload
 or an explicit explanation that its behavior is already covered by a broader
 component/application benchmark. GPU/rendering clusters additionally require a

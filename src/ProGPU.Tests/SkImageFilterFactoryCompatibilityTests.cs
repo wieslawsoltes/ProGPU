@@ -34,10 +34,12 @@ public sealed class SkImageFilterFactoryCompatibilityTests
             input,
             crop);
 
-        Assert.Equal(SKShaderTileMode.Decal, Assert.IsType<SKImageFilter.BlurData>(defaultBlur.Parameters).TileMode);
+        Assert.True(defaultBlur.TryGetBlurData(out var defaultData));
+        Assert.Equal(SKShaderTileMode.Decal, defaultData.TileMode);
         Assert.Same(input, inputBlur.Input);
         Assert.Equal(crop, inputBlur.CropRect);
-        Assert.Equal(SKShaderTileMode.Mirror, Assert.IsType<SKImageFilter.BlurData>(tiledBlur.Parameters).TileMode);
+        Assert.True(tiledBlur.TryGetBlurData(out var tiledData));
+        Assert.Equal(SKShaderTileMode.Mirror, tiledData.TileMode);
     }
 
     [Fact]

@@ -25,6 +25,7 @@ public class SKCanvas : SKObject
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
     private static readonly PathGeometry s_unitRectangleGeometry =
         CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
+    private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();
 
     private sealed class TextureColorSpace
     {
@@ -249,6 +250,7 @@ public class SKCanvas : SKObject
             DrawingContext parentContext,
             DrawingContext layerContext,
             SKPaint? paint,
+            bool clonePaint,
             SKImageFilter? backdrop,
             SKCanvasSaveLayerRecFlags flags,
             DrawingContext? previousContext,
@@ -259,7 +261,13 @@ public class SKCanvas : SKObject
         {
             ParentContext = parentContext;
             LayerContext = layerContext;
-            Paint = paint;
+            Paint = clonePaint ? paint?.Clone() : null;
+            HasPaint = paint != null;
+            PaintAlpha = paint?.Color.A ?? byte.MaxValue;
+            PaintBlendMode = paint?.BlendMode ?? SKBlendMode.SrcOver;
+            PaintHasArithmeticBlender = paint?.HasArithmeticBlender == true;
+            ImageFilter = paint?.ImageFilter;
+            ColorFilter = paint?.ColorFilter;
             Backdrop = backdrop;
             Flags = flags;
             PreviousContext = previousContext;
@@ -272,6 +280,12 @@ public class SKCanvas : SKObject
         public DrawingContext ParentContext { get; }
         public DrawingContext LayerContext { get; }
         public SKPaint? Paint { get; }
+        public bool HasPaint { get; }
+        public byte PaintAlpha { get; }
+        public SKBlendMode PaintBlendMode { get; }
+        public bool PaintHasArithmeticBlender { get; }
+        public SKImageFilter? ImageFilter { get; }
+        public SKColorFilter? ColorFilter { get; }
         public SKImageFilter? Backdrop { get; }
         public SKCanvasSaveLayerRecFlags Flags { get; }
         public DrawingContext? PreviousContext { get; }
@@ -279,6 +293,70 @@ public class SKCanvas : SKObject
         public SKRect Bounds { get; }
         public SKMatrix BoundsMatrix { get; }
         public RenderCommand[] ActiveClipPushes { get; }
+    }
+
+    /// <summary>
+    /// Owns a recorded save-layer subtree until every picture/context lease has
+    /// released it. The compositor performs the actual WebGPU layer/effect work
+    /// when this visual is replayed; disposing the lease releases any resources
+    /// retained by commands in the subtree.
+    /// </summary>
+    private sealed class RetainedLayerVisual : Visual, IOwnedRenderCommandCache, IDisposable
+    {
+        private readonly GpuPictureCommandCollection _commands;
+        private readonly DrawingContext? _resourceContext;
+        private bool _disposed;
+
+        public RetainedLayerVisual(DrawingContext source)
+        {
+            _commands = new GpuPictureCommandCollection(source.Commands.AsSpan());
+            if (source.RetainedResourceCount != 0)
+            {
+                _resourceContext = new DrawingContext();
+                source.MoveRetainedResourcesTo(_resourceContext);
+            }
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() =>
+            _resourceContext ?? s_emptyRetainedLayerResourceContext;
+
+        public int RenderCommandCount => _commands.Count;
+
+        public RenderCommand GetRenderCommand(int index) => _commands[index];
+
+        public override void OnRender(DrawingContext context)
+        {
+            // IOwnedRenderCommandCache supplies the compact immutable stream.
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            Effect = null;
+            _resourceContext?.Clear();
+        }
+    }
+
+    private sealed class RetainedDrawingLayerVisual : DrawingVisual, IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            Effect = null;
+            Context.Clear();
+        }
     }
 
     public SKMatrix TotalMatrix => _currentMatrix;
@@ -427,6 +505,7 @@ public class SKCanvas : SKObject
             parentContext,
             layerContext,
             layerPaint,
+            clonePaint: true,
             backdrop: null,
             SKCanvasSaveLayerRecFlags.None,
             previousContext: null,
@@ -597,6 +676,19 @@ public class SKCanvas : SKObject
 
         var parentContext = _context;
         var layerContext = new DrawingContext();
+        var activeClipPushes = SnapshotActiveClipPushes();
+        if (_isPictureRecording)
+        {
+            // A retained SaveLayer normally records at least one draw and may
+            // add the layer-bounds clip at restore. Reserve that exact common
+            // shape so the intentionally wide RenderCommand never pays the
+            // general four-command first-allocation cost.
+            var expectedCommandCount = checked(
+                activeClipPushes.Length +
+                (IsFullCanvasLayerBounds(bounds) ? 0 : 2) +
+                1);
+            layerContext.EnsureCommandCapacity(expectedCommandCount);
+        }
         layerContext.SetCommandInterceptor(_commandInterceptor);
         DrawingContext? previousContext = null;
         if (IsValidLayerBounds(bounds) &&
@@ -610,14 +702,15 @@ public class SKCanvas : SKObject
         _layerStack.Push(new LayerFrame(
             parentContext,
             layerContext,
-            paint?.Clone(),
+            paint,
+            clonePaint: !_isPictureRecording,
             backdrop,
             flags,
             previousContext,
             _savedStateCount,
             bounds,
             _currentMatrix,
-            SnapshotActiveClipPushes()));
+            activeClipPushes));
         _context = layerContext;
 
         return restoreCount;
@@ -702,8 +795,8 @@ public class SKCanvas : SKObject
     private void RestoreLayerCore(LayerFrame layerFrame)
     {
         _context = layerFrame.ParentContext;
-        var hasSourceGeneratingFilter = layerFrame.Paint?.ImageFilter != null ||
-            layerFrame.Paint?.ColorFilter != null ||
+        var hasSourceGeneratingFilter = layerFrame.ImageFilter != null ||
+            layerFrame.ColorFilter != null ||
             layerFrame.PreviousContext != null;
         if ((!hasSourceGeneratingFilter && layerFrame.LayerContext.Commands.Count == 0) ||
             !IsValidLayerBounds(layerFrame.Bounds))
@@ -711,8 +804,10 @@ public class SKCanvas : SKObject
             return;
         }
 
-        var pushedBlendMode = PushPaintBlendMode(layerFrame.Paint);
-        var opacity = layerFrame.Paint?.Color.A / 255f ?? 1f;
+        var pushedBlendMode = PushPaintBlendMode(
+            layerFrame.PaintHasArithmeticBlender,
+            layerFrame.PaintBlendMode);
+        var opacity = layerFrame.HasPaint ? layerFrame.PaintAlpha / 255f : 1f;
 
         try
         {
@@ -728,7 +823,10 @@ public class SKCanvas : SKObject
                 var pushedLayerBoundsClip = PushLayerBoundsClip(_context, layerFrame);
                 try
                 {
-                    DrawRestoredLayerTexture(layerFrame, RenderLayerToTexture(layerFrame));
+                    if (!TryRecordRetainedLayer(layerFrame))
+                    {
+                        DrawRestoredLayerTexture(layerFrame, RenderLayerToTexture(layerFrame));
+                    }
                 }
                 finally
                 {
@@ -752,14 +850,171 @@ public class SKCanvas : SKObject
         }
     }
 
+    private bool TryRecordRetainedLayer(LayerFrame layerFrame)
+    {
+        if (!_isPictureRecording ||
+            layerFrame.Backdrop != null ||
+            layerFrame.PreviousContext != null ||
+            layerFrame.ColorFilter != null ||
+            layerFrame.Flags != SKCanvasSaveLayerRecFlags.None ||
+            !TryCreateRetainedLayerEffect(layerFrame, out var effect))
+        {
+            return false;
+        }
+
+        var transformedBounds = MapRectToBounds(
+            layerFrame.Bounds,
+            layerFrame.BoundsMatrix.ToMatrix4x4());
+        Visual visual;
+        IDisposable ownedVisual;
+        if (layerFrame.LayerContext.HasCommandSideBuffers)
+        {
+            var drawingVisual = new RetainedDrawingLayerVisual();
+            ReplayActiveClipPushes(drawingVisual.Context, layerFrame.ActiveClipPushes);
+            var pushedLayerBoundsClip = PushLayerBoundsClip(drawingVisual.Context, layerFrame);
+            drawingVisual.Context.Append(layerFrame.LayerContext);
+            if (pushedLayerBoundsClip)
+            {
+                drawingVisual.Context.PopClip();
+            }
+            PopReplayedClipPushes(drawingVisual.Context, layerFrame.ActiveClipPushes);
+            visual = drawingVisual;
+            ownedVisual = drawingVisual;
+        }
+        else
+        {
+            PrepareCompactLayerCommands(layerFrame);
+            var compactVisual = new RetainedLayerVisual(layerFrame.LayerContext);
+            visual = compactVisual;
+            ownedVisual = compactVisual;
+        }
+
+        visual.Size = new Vector2(
+            GetRequiredTextureExtent(_width, transformedBounds.Right),
+            GetRequiredTextureExtent(_height, transformedBounds.Bottom));
+        visual.Effect = effect;
+        visual.CacheAsLayer = effect == null;
+
+        var retained = false;
+        try
+        {
+            _context.RetainResource(ownedVisual);
+            retained = true;
+            _context.DrawVisual(visual);
+            return true;
+        }
+        finally
+        {
+            if (!retained)
+            {
+                ownedVisual.Dispose();
+            }
+        }
+    }
+
+    private void PrepareCompactLayerCommands(LayerFrame layerFrame)
+    {
+        var commands = layerFrame.LayerContext.Commands;
+        var clipPushes = layerFrame.ActiveClipPushes;
+        for (var index = clipPushes.Length - 1; index >= 0; index--)
+        {
+            commands.Insert(0, clipPushes[index]);
+        }
+
+        var pushedLayerBoundsClip = !IsFullCanvasLayerBounds(layerFrame.Bounds);
+        if (pushedLayerBoundsClip)
+        {
+            commands.Insert(
+                clipPushes.Length,
+                CreateLayerBoundsClipCommand(layerFrame));
+            layerFrame.LayerContext.PopClip();
+        }
+        PopReplayedClipPushes(layerFrame.LayerContext, clipPushes);
+    }
+
+    private static bool TryCreateRetainedLayerEffect(
+        LayerFrame layerFrame,
+        out EffectBase? effect)
+    {
+        effect = null;
+        if (layerFrame.ImageFilter is not { } filter)
+        {
+            return true;
+        }
+
+        if (filter.Input != null || filter.CropRect != null)
+        {
+            return false;
+        }
+
+        var transform = layerFrame.BoundsMatrix.ToMatrix4x4();
+        var xScale = GetAxisScale(transform, Vector2.UnitX);
+        var yScale = GetAxisScale(transform, Vector2.UnitY);
+        switch (filter.Kind)
+        {
+            case SKImageFilter.FilterKind.Blur:
+            {
+                if (!filter.TryGetBlurData(out var blur))
+                {
+                    return false;
+                }
+                var sigmaX = blur.SigmaX * xScale;
+                var sigmaY = blur.SigmaY * yScale;
+                if (!AreEquivalentEffectSigmas(sigmaX, sigmaY))
+                {
+                    return false;
+                }
+
+                effect = new BlurEffect(MathF.Max(0f, sigmaX));
+                return true;
+            }
+            case SKImageFilter.FilterKind.DropShadow:
+            {
+                if (!filter.TryGetDropShadowData(out var shadow))
+                {
+                    return false;
+                }
+                var sigmaX = shadow.SigmaX * xScale;
+                var sigmaY = shadow.SigmaY * yScale;
+                if (shadow.ShadowOnly || !AreEquivalentEffectSigmas(sigmaX, sigmaY))
+                {
+                    return false;
+                }
+
+                effect = new DropShadowEffect
+                {
+                    BlurRadius = MathF.Max(0f, sigmaX),
+                    Offset = TransformFilterVector(
+                        new Vector2(shadow.Dx, shadow.Dy),
+                        transform),
+                    Color = ToVector4(shadow.Color),
+                };
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static bool AreEquivalentEffectSigmas(float sigmaX, float sigmaY)
+    {
+        if (!float.IsFinite(sigmaX) || !float.IsFinite(sigmaY))
+        {
+            return false;
+        }
+
+        var tolerance = MathF.Max(0.0001f, MathF.Max(MathF.Abs(sigmaX), MathF.Abs(sigmaY)) * 0.0001f);
+        return MathF.Abs(sigmaX - sigmaY) <= tolerance;
+    }
+
     private void DrawRestoredLayerTexture(LayerFrame layerFrame, GpuTexture texture)
     {
-        if (layerFrame.Paint?.ImageFilter is { } imageFilter)
+        if (layerFrame.ImageFilter is { } imageFilter)
         {
             texture = RenderImageFilterGraph(texture, imageFilter, layerFrame.BoundsMatrix.ToMatrix4x4());
         }
 
-        if (layerFrame.Paint?.ColorFilter is { } colorFilter)
+        if (layerFrame.ColorFilter is { } colorFilter)
         {
             var filteredTexture = RenderColorFilter(texture, colorFilter, cropRect: null);
             if (!ReferenceEquals(filteredTexture, texture))
@@ -1073,7 +1328,10 @@ public class SKCanvas : SKObject
             case SKImageFilter.FilterKind.Blur:
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
-                var blur = (SKImageFilter.BlurData)filter.Parameters!;
+                if (!filter.TryGetBlurData(out var blur))
+                {
+                    throw new InvalidOperationException("Blur filter state is unavailable.");
+                }
                 result = RenderBlur(
                     input,
                     blur.SigmaX * GetAxisScale(filterTransform, Vector2.UnitX),
@@ -1100,9 +1358,13 @@ public class SKCanvas : SKObject
             case SKImageFilter.FilterKind.DropShadow:
             {
                 var input = EvaluateOptionalInput(sourceTexture, filter.Input, cache, filterTransform, preserveSourceColorSpace);
+                if (!filter.TryGetDropShadowData(out var shadow))
+                {
+                    throw new InvalidOperationException("Drop-shadow filter state is unavailable.");
+                }
                 result = RenderDropShadow(
                     input,
-                    (SKImageFilter.DropShadowData)filter.Parameters!,
+                    shadow,
                     filterTransform);
                 break;
             }
@@ -2697,7 +2959,12 @@ public class SKCanvas : SKObject
             return false;
         }
 
-        context.Commands.Add(new RenderCommand
+        context.Commands.Add(CreateLayerBoundsClipCommand(layerFrame));
+        return true;
+    }
+
+    private static RenderCommand CreateLayerBoundsClipCommand(LayerFrame layerFrame) =>
+        new()
         {
             Type = RenderCommandType.PushClip,
             Rect = new Rect(
@@ -2706,9 +2973,7 @@ public class SKCanvas : SKObject
                 layerFrame.Bounds.Width,
                 layerFrame.Bounds.Height),
             Transform = layerFrame.BoundsMatrix.ToMatrix4x4()
-        });
-        return true;
-    }
+        };
 
     private RenderCommand[] SnapshotActiveClipPushes()
     {
@@ -2783,6 +3048,10 @@ public class SKCanvas : SKObject
 
     private void PushGeometryClipScope(PathGeometry geometry, Matrix4x4 transform)
     {
+        if (geometry.IsCombined)
+        {
+            geometry.MarkSharedSnapshot();
+        }
         int commandIndex = _context.Commands.Count;
         var command = new RenderCommand
         {
@@ -2811,7 +3080,7 @@ public class SKCanvas : SKObject
     private void GetPathDeviceBounds(SKPath path, out SKRect bounds, out bool isRect)
     {
         var transform = _currentMatrix.ToMatrix4x4();
-        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.Geometry, out var rect))
+        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.RetainedGeometry, out var rect))
         {
             bounds = _currentMatrix.MapRect(rect);
             isRect = true;
@@ -3053,13 +3322,22 @@ public class SKCanvas : SKObject
 
     private bool PushPaintBlendMode(SKPaint? paint)
     {
-        if (paint?.HasArithmeticBlender == true)
+        return PushPaintBlendMode(
+            paint?.HasArithmeticBlender == true,
+            paint?.BlendMode ?? SKBlendMode.SrcOver);
+    }
+
+    private bool PushPaintBlendMode(
+        bool hasArithmeticBlender,
+        SKBlendMode paintBlendMode)
+    {
+        if (hasArithmeticBlender)
         {
             throw new NotSupportedException(
                 "Arithmetic SKBlender rendering requires destination-sampling compositor support.");
         }
 
-        var blendMode = MapBlendMode(paint?.BlendMode ?? SKBlendMode.SrcOver);
+        var blendMode = MapBlendMode(paintBlendMode);
         if (blendMode == GpuBlendMode.SrcOver)
         {
             return false;
@@ -3301,12 +3579,12 @@ public class SKCanvas : SKObject
             if (IsInverseFillType(path.FillType))
             {
                 UpdateClipForIntersection(deviceBounds, isDeviceRect);
-                PushGeometryClipScope(path.Geometry, _currentMatrix.ToMatrix4x4());
+                PushGeometryClipScope(path.RetainedGeometry, _currentMatrix.ToMatrix4x4());
             }
             else
             {
                 UpdateClipForDifference(deviceBounds, isDeviceRect);
-                var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+                var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
                 PushGeometryClipScope(CreateCanvasDifferenceGeometry(excluded), Matrix4x4.Identity);
             }
             return;
@@ -3315,13 +3593,13 @@ public class SKCanvas : SKObject
         if (IsInverseFillType(path.FillType))
         {
             UpdateClipForDifference(deviceBounds, isDeviceRect);
-            var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+            var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
             PushGeometryClipScope(CreateCanvasDifferenceGeometry(excluded), Matrix4x4.Identity);
             return;
         }
 
         var transform = _currentMatrix.ToMatrix4x4();
-        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.Geometry, out var rect))
+        if (IsAxisAligned2DTransform(transform) && TryGetRectGeometry(path.RetainedGeometry, out var rect))
         {
             UpdateClipForIntersection(deviceBounds, isDeviceRect);
             PushRectClipScope(rect, transform);
@@ -3329,7 +3607,7 @@ public class SKCanvas : SKObject
         }
 
         UpdateClipForIntersection(deviceBounds, isDeviceRect);
-        PushGeometryClipScope(path.Geometry, transform);
+        PushGeometryClipScope(path.RetainedGeometry, transform);
     }
 
     public void ClipRoundRect(
@@ -3780,7 +4058,7 @@ public class SKCanvas : SKObject
     {
             using var clipPath = new SKPath();
             clipPath.AddRoundRect(rect);
-            if (TryDrawSpecialShader(clipPath.Geometry, rect.Rect, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, rect.Rect, paint))
             {
                 return;
             }
@@ -3853,7 +4131,7 @@ public class SKCanvas : SKObject
         {
             using var clipPath = new SKPath();
             AddOvalPath(clipPath, rect);
-            if (TryDrawSpecialShader(clipPath.Geometry, rect, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, rect, paint))
             {
                 return;
             }
@@ -3896,7 +4174,7 @@ public class SKCanvas : SKObject
             using var clipPath = new SKPath();
             clipPath.AddCircle(cx, cy, radius);
             var bounds = new SKRect(cx - radius, cy - radius, cx + radius, cy + radius);
-            if (TryDrawSpecialShader(clipPath.Geometry, bounds, paint))
+            if (TryDrawSpecialShader(clipPath.RetainedGeometry, bounds, paint))
             {
                 return;
             }
@@ -3981,7 +4259,7 @@ public class SKCanvas : SKObject
             effectedPath.Dispose();
         }
 
-        if (TryDrawSpecialShader(path.Geometry, path.Bounds, paint))
+        if (TryDrawSpecialShader(path.RetainedGeometry, path.RetainedBounds, paint))
         {
             return;
         }
@@ -3996,7 +4274,7 @@ public class SKCanvas : SKObject
             {
                 if (brush != null)
                 {
-                    var excluded = path.Geometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
+                    var excluded = path.RetainedGeometry.CreateTransformed(_currentMatrix.ToMatrix4x4());
                     AddDrawPathCommand(
                         CreateCanvasDifferenceGeometry(excluded),
                         brush,
@@ -4009,7 +4287,7 @@ public class SKCanvas : SKObject
                 if (pen != null)
                 {
                     AddDrawPathCommand(
-                        path.Geometry,
+                        path.RetainedGeometry,
                         null,
                         pen,
                         _currentMatrix.ToMatrix4x4(),
@@ -4021,7 +4299,7 @@ public class SKCanvas : SKObject
             }
 
             AddDrawPathCommand(
-                path.Geometry,
+                path.RetainedGeometry,
                 brush,
                 pen,
                 _currentMatrix.ToMatrix4x4(),
@@ -4157,6 +4435,10 @@ public class SKCanvas : SKObject
         bool isEdgeAliased = false,
         TextPathRasterizationInfo? textRasterization = null)
     {
+        if (path.IsCombined)
+        {
+            path.MarkSharedSnapshot();
+        }
         var textInfo = textRasterization.GetValueOrDefault();
         _context.Commands.Add(new RenderCommand
         {
@@ -4369,7 +4651,7 @@ public class SKCanvas : SKObject
                 using var fillPath = paint.GetFillPath(sourcePath);
                 if (fillPath != null)
                 {
-                    DrawShaderLayer(shader!, fillPath.Geometry, fillPath.Bounds, paint, drawAsFill: true);
+                    DrawShaderLayer(shader!, fillPath.RetainedGeometry, fillPath.RetainedBounds, paint, drawAsFill: true);
                 }
             }
         }

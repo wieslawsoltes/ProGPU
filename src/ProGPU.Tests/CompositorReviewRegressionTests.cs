@@ -536,6 +536,40 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal((byte)255, pixels[GetPathAtlasPixelOffset(wide, 8, 1, 256)]);
     }
 
+    [Theory]
+    [InlineData(0, true, false, false)]
+    [InlineData(1, false, true, false)]
+    [InlineData(2, true, true, true)]
+    [InlineData(3, true, false, true)]
+    [InlineData(4, false, false, true)]
+    public void PathAtlasCombinesBinaryPathMembershipDirectlyOnGpu(
+        int pathOp,
+        bool expectedAOnly,
+        bool expectedOverlap,
+        bool expectedBOnly)
+    {
+        using var atlas = new PathAtlas(HeadlessWindow.Shared.Context, atlasSize: 256);
+        var combined = new PathGeometry
+        {
+            IsCombined = true,
+            Op = pathOp,
+            PathA = PrimitivePathGeometry.CreateRectangle(4f, 4f, 16f, 16f),
+            PathB = PrimitivePathGeometry.CreateRectangle(12f, 8f, 16f, 16f)
+        };
+        PathAtlas.PathInfo info = atlas.GetOrCreatePath(
+            combined,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        atlas.RasterizePendingPaths();
+
+        byte[] pixels = atlas.AtlasTexture.ReadPixels();
+        Assert.Equal(1, atlas.LastDirectBooleanRasterizationCount);
+        AssertAtlasMembership(pixels, info, worldX: 8, worldY: 12, expectedAOnly);
+        AssertAtlasMembership(pixels, info, worldX: 16, worldY: 12, expectedOverlap);
+        AssertAtlasMembership(pixels, info, worldX: 24, worldY: 12, expectedBOnly);
+    }
+
     [Fact]
     public void RepeatedVectorGlyphsReuseSinglePathAtlasEntry()
     {
@@ -898,6 +932,24 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         var localX = checked((uint)(worldX - (int)info.MinX));
         var localY = checked((uint)(worldY - (int)info.MinY));
         return checked((int)((info.Y + localY) * atlasWidth + info.X + localX));
+    }
+
+    private static void AssertAtlasMembership(
+        byte[] pixels,
+        PathAtlas.PathInfo info,
+        int worldX,
+        int worldY,
+        bool expectedInside)
+    {
+        byte coverage = pixels[GetPathAtlasPixelOffset(info, worldX, worldY, atlasWidth: 256)];
+        if (expectedInside)
+        {
+            Assert.InRange(coverage, (byte)252, byte.MaxValue);
+        }
+        else
+        {
+            Assert.InRange(coverage, byte.MinValue, (byte)3);
+        }
     }
 
     private static byte ReadGlyphAtlasCoverage(
