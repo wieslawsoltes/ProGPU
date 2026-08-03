@@ -3833,12 +3833,14 @@ public class SKCanvas : SKObject
 
     private static bool TryGetUniformRadii(SKRoundRect rect, out float radiusX, out float radiusY)
     {
-        radiusX = rect.CornerRadii[0].X;
-        radiusY = rect.CornerRadii[0].Y;
-        for (int i = 1; i < rect.CornerRadii.Length; i++)
+        var firstRadius = rect.GetRadii(SKRoundRectCorner.UpperLeft);
+        radiusX = firstRadius.X;
+        radiusY = firstRadius.Y;
+        for (int i = 1; i < 4; i++)
         {
-            if (MathF.Abs(rect.CornerRadii[i].X - radiusX) > 0.0001f ||
-                MathF.Abs(rect.CornerRadii[i].Y - radiusY) > 0.0001f)
+            var radius = rect.GetRadii((SKRoundRectCorner)i);
+            if (MathF.Abs(radius.X - radiusX) > 0.0001f ||
+                MathF.Abs(radius.Y - radiusY) > 0.0001f)
             {
                 return false;
             }

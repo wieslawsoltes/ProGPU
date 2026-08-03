@@ -169,7 +169,9 @@ public partial class SKPath
                 "Starting index must be in the range of 0..7 (inclusive).");
         }
 
-        AppendRoundRect(rect.Rect, rect.CornerRadii, direction, startIndex);
+        Span<SKPoint> radii = stackalloc SKPoint[4];
+        rect.CopyCornerRadii(radii);
+        AppendRoundRect(rect.Rect, radii, direction, startIndex);
     }
 
     [Obsolete(UsePathBuilderMessage)]
