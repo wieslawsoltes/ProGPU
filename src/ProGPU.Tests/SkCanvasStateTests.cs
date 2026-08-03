@@ -216,6 +216,76 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void PictureSaveLayerDefersIsotropicBlurToRetainedVisual()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        using var layerPaint = new SKPaint
+        {
+            Color = new SKColor(32, 64, 128, 192),
+            ImageFilter = SKImageFilter.CreateBlur(2f, 2f),
+        };
+        using var fill = new SKPaint { Color = SKColors.Red };
+
+        var restoreCount = canvas.SaveLayer(
+            new SKRect(1f, 2f, 81f, 74f),
+            layerPaint);
+        canvas.DrawRect(new SKRect(4f, 6f, 52f, 38f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+
+        var command = Assert.Single(
+            picture.Picture.Commands,
+            static command => command.Type == RenderCommandType.DrawVisual);
+        var visual = Assert.IsAssignableFrom<DrawingVisual>(command.Visual);
+        var blur = Assert.IsType<BlurEffect>(visual.Effect);
+        Assert.Equal(2f, blur.BlurRadius);
+        Assert.False(visual.CacheAsLayer);
+        Assert.Equal(new Vector2(96f, 96f), visual.Size);
+        Assert.Contains(
+            visual.Context.Commands,
+            static retained => retained.Type == RenderCommandType.DrawRect);
+        Assert.DoesNotContain(
+            picture.Picture.Commands,
+            static retained => retained.Type == RenderCommandType.DrawTexture);
+        Assert.Equal(1, picture.Picture.RetainedResourceCount);
+    }
+
+    [Fact]
+    public void PictureSaveLayerBlurReplaysThroughWebGpuEffect()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 32f, 32f));
+        using var layerPaint = new SKPaint
+        {
+            ImageFilter = SKImageFilter.CreateBlur(2f, 2f),
+        };
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Red,
+            IsAntialias = false,
+        };
+
+        var restoreCount = canvas.SaveLayer(layerPaint);
+        canvas.DrawRect(new SKRect(14f, 14f, 18f, 18f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        using var surface = SKSurface.Create(
+            new SKImageInfo(32, 32, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        var tailAlpha = pixels[(11 * 32 + 16) * 4 + 3];
+        var centerAlpha = pixels[(16 * 32 + 16) * 4 + 3];
+        Assert.InRange(tailAlpha, (byte)1, (byte)254);
+        Assert.True(centerAlpha > tailAlpha);
+    }
+
+    [Fact]
     public void RepeatedBlurLayersReuseCommandOrderedScratchAndSourceTextures()
     {
         var context = new DrawingContext();

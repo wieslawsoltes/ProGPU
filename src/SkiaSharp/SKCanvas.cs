@@ -281,6 +281,29 @@ public class SKCanvas : SKObject
         public RenderCommand[] ActiveClipPushes { get; }
     }
 
+    /// <summary>
+    /// Owns a recorded save-layer subtree until every picture/context lease has
+    /// released it. The compositor performs the actual WebGPU layer/effect work
+    /// when this visual is replayed; disposing the lease releases any resources
+    /// retained by commands in the subtree.
+    /// </summary>
+    private sealed class RetainedLayerVisual : DrawingVisual, IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            Effect = null;
+            Context.Clear();
+        }
+    }
+
     public SKMatrix TotalMatrix => _currentMatrix;
 
     public int SaveCount
@@ -728,7 +751,10 @@ public class SKCanvas : SKObject
                 var pushedLayerBoundsClip = PushLayerBoundsClip(_context, layerFrame);
                 try
                 {
-                    DrawRestoredLayerTexture(layerFrame, RenderLayerToTexture(layerFrame));
+                    if (!TryRecordRetainedLayer(layerFrame))
+                    {
+                        DrawRestoredLayerTexture(layerFrame, RenderLayerToTexture(layerFrame));
+                    }
                 }
                 finally
                 {
@@ -750,6 +776,125 @@ public class SKCanvas : SKObject
         {
             PopPaintBlendMode(pushedBlendMode);
         }
+    }
+
+    private bool TryRecordRetainedLayer(LayerFrame layerFrame)
+    {
+        if (!_isPictureRecording ||
+            layerFrame.Backdrop != null ||
+            layerFrame.PreviousContext != null ||
+            layerFrame.Paint?.ColorFilter != null ||
+            layerFrame.Flags != SKCanvasSaveLayerRecFlags.None ||
+            !TryCreateRetainedLayerEffect(layerFrame, out var effect))
+        {
+            return false;
+        }
+
+        var transformedBounds = MapRectToBounds(
+            layerFrame.Bounds,
+            layerFrame.BoundsMatrix.ToMatrix4x4());
+        var visual = new RetainedLayerVisual
+        {
+            Size = new Vector2(
+                GetRequiredTextureExtent(_width, transformedBounds.Right),
+                GetRequiredTextureExtent(_height, transformedBounds.Bottom)),
+            Effect = effect,
+            CacheAsLayer = effect == null,
+        };
+
+        var retained = false;
+        try
+        {
+            ReplayActiveClipPushes(visual.Context, layerFrame.ActiveClipPushes);
+            var pushedLayerBoundsClip = PushLayerBoundsClip(visual.Context, layerFrame);
+            visual.Context.Append(layerFrame.LayerContext);
+            if (pushedLayerBoundsClip)
+            {
+                visual.Context.PopClip();
+            }
+            PopReplayedClipPushes(visual.Context, layerFrame.ActiveClipPushes);
+
+            _context.RetainResource(visual);
+            retained = true;
+            _context.DrawVisual(visual);
+            return true;
+        }
+        finally
+        {
+            if (!retained)
+            {
+                visual.Dispose();
+            }
+        }
+    }
+
+    private static bool TryCreateRetainedLayerEffect(
+        LayerFrame layerFrame,
+        out EffectBase? effect)
+    {
+        effect = null;
+        if (layerFrame.Paint?.ImageFilter is not { } filter)
+        {
+            return true;
+        }
+
+        if (filter.Input != null || filter.CropRect != null)
+        {
+            return false;
+        }
+
+        var transform = layerFrame.BoundsMatrix.ToMatrix4x4();
+        var xScale = GetAxisScale(transform, Vector2.UnitX);
+        var yScale = GetAxisScale(transform, Vector2.UnitY);
+        switch (filter.Kind)
+        {
+            case SKImageFilter.FilterKind.Blur:
+            {
+                var blur = (SKImageFilter.BlurData)filter.Parameters!;
+                var sigmaX = blur.SigmaX * xScale;
+                var sigmaY = blur.SigmaY * yScale;
+                if (!AreEquivalentEffectSigmas(sigmaX, sigmaY))
+                {
+                    return false;
+                }
+
+                effect = new BlurEffect(MathF.Max(0f, sigmaX));
+                return true;
+            }
+            case SKImageFilter.FilterKind.DropShadow:
+            {
+                var shadow = (SKImageFilter.DropShadowData)filter.Parameters!;
+                var sigmaX = shadow.SigmaX * xScale;
+                var sigmaY = shadow.SigmaY * yScale;
+                if (shadow.ShadowOnly || !AreEquivalentEffectSigmas(sigmaX, sigmaY))
+                {
+                    return false;
+                }
+
+                effect = new DropShadowEffect
+                {
+                    BlurRadius = MathF.Max(0f, sigmaX),
+                    Offset = TransformFilterVector(
+                        new Vector2(shadow.Dx, shadow.Dy),
+                        transform),
+                    Color = ToVector4(shadow.Color),
+                };
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static bool AreEquivalentEffectSigmas(float sigmaX, float sigmaY)
+    {
+        if (!float.IsFinite(sigmaX) || !float.IsFinite(sigmaY))
+        {
+            return false;
+        }
+
+        var tolerance = MathF.Max(0.0001f, MathF.Max(MathF.Abs(sigmaX), MathF.Abs(sigmaY)) * 0.0001f);
+        return MathF.Abs(sigmaX - sigmaY) <= tolerance;
     }
 
     private void DrawRestoredLayerTexture(LayerFrame layerFrame, GpuTexture texture)
