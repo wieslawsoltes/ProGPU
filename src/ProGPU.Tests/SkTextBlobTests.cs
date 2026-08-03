@@ -86,7 +86,7 @@ public sealed class SkTextBlobTests
         var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
 
         Assert.Equal(100, checksum);
-        Assert.InRange(allocated / 100, 0, 720);
+        Assert.InRange(allocated / 100, 0, 128);
     }
 
     private static int BuildPositionedBlob(
