@@ -1867,8 +1867,7 @@ public class SKRegion : SKObject
     {
         if (!TryGetSingleAxisAlignedRect(path, out var rect))
         {
-            _rects.Clear();
-            _bounds = SKRectI.Empty;
+            SetEmpty();
             return false;
         }
 
@@ -1960,6 +1959,7 @@ public class SKRegion : SKObject
             previousRuns = currentRuns;
         }
 
+        _rectsNormalized = false;
         NormalizeRects();
         UpdateBounds();
         return !IsEmpty;
@@ -2258,6 +2258,7 @@ public class SKRegion : SKObject
         region.EnsureNormalized();
         using var leftSnapshot = new SKRegion(this);
         using var rightSnapshot = new SKRegion(region);
+        _rectsNormalized = false;
         switch (op)
         {
             case SKRegionOperation.Replace:
@@ -2412,10 +2413,11 @@ public class SKRegion : SKObject
     {
         if (!IsValid(rect))
         {
-            _rects.Clear();
+            SetEmpty();
             return;
         }
 
+        _rectsNormalized = false;
         for (int i = _rects.Count - 1; i >= 0; i--)
         {
             var intersection = Intersect(_rects[i], rect);
@@ -2445,6 +2447,7 @@ public class SKRegion : SKObject
 
         _rects.Clear();
         _rects.AddRange(result);
+        _rectsNormalized = false;
     }
 
     private void ReverseDifferenceWith(SKRectI rect)
@@ -2463,6 +2466,7 @@ public class SKRegion : SKObject
 
         _rects.Clear();
         _rects.AddRange(result);
+        _rectsNormalized = false;
     }
 
     private void XorWith(SKRectI rect)
@@ -2488,6 +2492,7 @@ public class SKRegion : SKObject
         _rects.Clear();
         _rects.AddRange(left);
         _rects.AddRange(right);
+        _rectsNormalized = false;
     }
 
     private static void AddDifference(List<SKRectI> result, SKRectI source, SKRectI cutter)

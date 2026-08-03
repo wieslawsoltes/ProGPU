@@ -185,6 +185,27 @@ public sealed class SkRegionCompatibilityTests
     }
 
     [Fact]
+    public void RegionAndIntersectMutationsRestoreCanonicalTopology()
+    {
+        using var adjacent = new SKRegion(new SKRectI(0, 0, 10, 10));
+        using var right = new SKRegion(new SKRectI(10, 0, 20, 10));
+
+        Assert.True(adjacent.Op(right, SKRegionOperation.Union));
+        Assert.True(adjacent.IsRect);
+        Assert.Equal(
+            new[] { new SKRectI(0, 0, 20, 10) },
+            ReadRects(adjacent.CreateRectIterator()));
+
+        using var clipped = new SKRegion(new SKRectI(0, 0, 10, 10));
+        clipped.Op(new SKRectI(5, 5, 15, 15), SKRegionOperation.Union);
+        Assert.True(clipped.Op(new SKRectI(5, 0, 10, 15), SKRegionOperation.Intersect));
+        Assert.True(clipped.IsRect);
+        Assert.Equal(
+            new[] { new SKRectI(5, 0, 10, 15) },
+            ReadRects(clipped.CreateRectIterator()));
+    }
+
+    [Fact]
     public void WarmedDirtyRegionUnionAndQueriesAllocateNoManagedMemory()
     {
         using var region = new SKRegion();

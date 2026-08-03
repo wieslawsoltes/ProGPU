@@ -1206,7 +1206,7 @@ public partial class SKPaint : SKObject
         int depthRemaining)
     {
         if (depthRemaining == 0 ||
-            DistanceToLineSquared(point1, point0, point2) <= toleranceSquared)
+            IsQuadraticFlat(point0, point1, point2, toleranceSquared))
         {
             destination.Add(point2);
             return;
@@ -1241,9 +1241,7 @@ public partial class SKPaint : SKObject
         int depthRemaining)
     {
         if (depthRemaining == 0 ||
-            MathF.Max(
-                DistanceToLineSquared(point1, point0, point3),
-                DistanceToLineSquared(point2, point0, point3)) <= toleranceSquared)
+            IsCubicFlat(point0, point1, point2, point3, toleranceSquared))
         {
             destination.Add(point3);
             return;
@@ -1274,18 +1272,61 @@ public partial class SKPaint : SKObject
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float DistanceToLineSquared(Vector2 point, Vector2 lineStart, Vector2 lineEnd)
+    private static bool IsQuadraticFlat(
+        Vector2 point0,
+        Vector2 point1,
+        Vector2 point2,
+        float toleranceSquared)
     {
-        var line = lineEnd - lineStart;
-        var lengthSquared = line.LengthSquared();
-        if (lengthSquared <= 0.0000001f)
+        var chordX = point2.X - point0.X;
+        var chordY = point2.Y - point0.Y;
+        var chordLengthSquared = chordX * chordX + chordY * chordY;
+        if (chordLengthSquared <= 0.0000001f)
         {
-            return Vector2.DistanceSquared(point, lineStart);
+            return Vector2.DistanceSquared(point1, point0) <= toleranceSquared;
         }
 
-        var cross = line.X * (lineStart.Y - point.Y) -
-                    (lineStart.X - point.X) * line.Y;
-        return cross * cross / lengthSquared;
+        var controlX = point1.X - point0.X;
+        var controlY = point1.Y - point0.Y;
+        var projection = controlX * chordX + controlY * chordY;
+        var cross = chordX * controlY - chordY * controlX;
+        return projection >= 0f &&
+               projection <= chordLengthSquared &&
+               cross * cross <= toleranceSquared * chordLengthSquared;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsCubicFlat(
+        Vector2 point0,
+        Vector2 point1,
+        Vector2 point2,
+        Vector2 point3,
+        float toleranceSquared)
+    {
+        var chordX = point3.X - point0.X;
+        var chordY = point3.Y - point0.Y;
+        var chordLengthSquared = chordX * chordX + chordY * chordY;
+        if (chordLengthSquared <= 0.0000001f)
+        {
+            return MathF.Max(
+                Vector2.DistanceSquared(point1, point0),
+                Vector2.DistanceSquared(point2, point0)) <= toleranceSquared;
+        }
+
+        var firstX = point1.X - point0.X;
+        var firstY = point1.Y - point0.Y;
+        var secondX = point2.X - point0.X;
+        var secondY = point2.Y - point0.Y;
+        var firstProjection = firstX * chordX + firstY * chordY;
+        var secondProjection = secondX * chordX + secondY * chordY;
+        var firstCross = chordX * firstY - chordY * firstX;
+        var secondCross = chordX * secondY - chordY * secondX;
+        var scaledTolerance = toleranceSquared * chordLengthSquared;
+        return firstProjection >= 0f &&
+               firstProjection <= secondProjection &&
+               secondProjection <= chordLengthSquared &&
+               firstCross * firstCross <= scaledTolerance &&
+               secondCross * secondCross <= scaledTolerance;
     }
 
     private static void ReturnStrokePoints(List<Vector2> points)
