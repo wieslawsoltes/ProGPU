@@ -20,9 +20,10 @@ used as narrow timing gates; dedicated platform runs establish reviewed budgets.
 The CPU suite covers value arithmetic, matrix mapping, exhaustive scalar
 premultiplied-color conversion, 64-element color-array conversion, OpenType tag
 value/formatting operations, and retained path construction/bounds. It also
-tracks the exact reusable-paint, positioned-text-blob, and legacy stream-path
-patterns used by Avalonia.Skia so shim optimization follows real framework call
-sites rather than metadata frequency alone. Canvas coverage decomposes retained
+tracks the exact reusable-paint, positioned-text-blob, legacy stream-path, and
+`WriteableBitmapImpl.GetSnapshot()` CPU-framebuffer-to-immutable-image patterns
+used by Avalonia.Skia so shim optimization follows real framework call sites
+rather than metadata frequency alone. Canvas coverage decomposes retained
 save/restore, matrix, and clip routing so regressions can be attributed without
 changing the full framework-shaped workload. Each implemented API cluster adds
 an equivalent workload

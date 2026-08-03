@@ -26,6 +26,8 @@ internal static class ProgramEntry
     private static long s_sink;
     private static SKTypeface? s_variableTypeface;
     private static readonly byte[] ImagePixels = CreateImagePixels();
+    private static readonly byte[] AvaloniaWriteableBitmapPixels =
+        CreateAvaloniaWriteableBitmapPixels();
     private static readonly SKColorF[] ShaderColors =
     {
         new(1f, 0f, 0f, 1f),
@@ -132,6 +134,10 @@ internal static class ProgramEntry
             // allocation and reference-count path of each immutable subset view.
             new BenchmarkCase("image-bounded-subset", 10_000, RunImageBoundedSubset),
             new BenchmarkCase("surface-bounded-snapshot", 10_000, RunSurfaceBoundedSnapshot),
+            new BenchmarkCase(
+                "avalonia-writeable-bitmap-snapshot",
+                128,
+                RunAvaloniaWriteableBitmapSnapshot),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -363,6 +369,32 @@ internal static class ProgramEntry
             using var snapshot = surface.Snapshot(new SKRectI(offset, offset, offset + 32, offset + 32));
             checksum = Mix(checksum, (uint)snapshot.Width);
             checksum = Mix(checksum, (uint)snapshot.Height);
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaWriteableBitmapSnapshot(int operations)
+    {
+        var info = new SKImageInfo(
+            16,
+            16,
+            SKImageInfo.PlatformColorType,
+            SKAlphaType.Premul);
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* pixels = AvaloniaWriteableBitmapPixels)
+        {
+            for (var index = 0; index < operations; index++)
+            {
+                using var image = SKImage.FromPixels(
+                    info,
+                    (IntPtr)pixels,
+                    info.RowBytes);
+                checksum = Mix(checksum, unchecked((uint)image.Width));
+                checksum = Mix(checksum, unchecked((uint)image.Height));
+                checksum = Mix(checksum, unchecked((uint)image.ColorType));
+                checksum = Mix(checksum, unchecked((uint)image.AlphaType));
+            }
         }
 
         return checksum;
@@ -1332,6 +1364,21 @@ internal static class ProgramEntry
         var pixels = new byte[4096];
         for (var index = 0; index < pixels.Length; index++)
             pixels[index] = (byte)(index * 37 + 11);
+        return pixels;
+    }
+
+    private static byte[] CreateAvaloniaWriteableBitmapPixels()
+    {
+        var pixels = new byte[16 * 16 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            var alpha = (byte)(64 + ((index >> 2) % 192));
+            pixels[index] = (byte)(index * 17 + 3);
+            pixels[index + 1] = (byte)(index * 29 + 7);
+            pixels[index + 2] = (byte)(index * 43 + 11);
+            pixels[index + 3] = alpha;
+        }
+
         return pixels;
     }
 
