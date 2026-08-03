@@ -5877,8 +5877,10 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            foreach (var run in textBlob.Runs)
+            var runs = textBlob.Runs;
+            for (int runIndex = 0; runIndex < runs.Length; runIndex++)
             {
+                ref var run = ref runs[runIndex];
                 if (run.RotationScaleMatrices is { } matrices)
                 {
                     for (var i = 0; i < run.GlyphIndices.Length; i++)
@@ -5903,15 +5905,9 @@ public class SKCanvas : SKObject
                     continue;
                 }
 
-                var positions = new Vector2[run.GlyphPositions.Length];
-                for (int i = 0; i < positions.Length; i++)
-                {
-                    positions[i] = new Vector2(run.GlyphPositions[i].X, run.GlyphPositions[i].Y);
-                }
-
                 _context.DrawTransformedGlyphRun(
                     run.GlyphIndices,
-                    positions,
+                    run.GetRetainedGlyphPositions(),
                     run.Font.Typeface.Font,
                     run.Font.Size,
                     brush,
