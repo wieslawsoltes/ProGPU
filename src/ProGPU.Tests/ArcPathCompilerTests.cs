@@ -414,9 +414,7 @@ public class ArcPathCompilerTests
         Assert.Contains("CommandBufferRelease(_cmdBuffer);", cleanup, StringComparison.Ordinal);
         Assert.Contains("CommandEncoderRelease(_encoder);", cleanup, StringComparison.Ordinal);
         Assert.Contains("BindGroupRelease(_bgGeom);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutGeom);", cleanup, StringComparison.Ordinal);
         Assert.Contains("BindGroupRelease(_bgFinal);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutFinal);", cleanup, StringComparison.Ordinal);
         Assert.Contains("_recordsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_segmentsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_recordsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
@@ -424,7 +422,9 @@ public class ArcPathCompilerTests
         Assert.Contains("_destRecordBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_destSegmentsBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_uniformBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("_cache?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(GeometryBindGroupLayout);", source, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(FinalizerBindGroupLayout);", source, StringComparison.Ordinal);
+        Assert.Contains("_cache.Dispose();", source, StringComparison.Ordinal);
     }
 
     [Fact]

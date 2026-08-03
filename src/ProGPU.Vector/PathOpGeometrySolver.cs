@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -14,6 +15,13 @@ namespace ProGPU.Vector
         public const uint MaxOutputSegmentsPerInputSegment = 15;
         public const uint MinimumOutputSegments = 64;
 
+        private static readonly ConditionalWeakTable<WgpuContext, PathOpPipelineResources> PipelineResources = new();
+
+        static PathOpGeometrySolver()
+        {
+            WgpuContext.Disposing += DisposePipelineResources;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct PathOpDispatchUniforms
         {
@@ -28,6 +36,57 @@ namespace ProGPU.Vector
             public readonly System.Threading.ManualResetEventSlim Signal = new(false);
             public BufferMapAsyncStatus Status = BufferMapAsyncStatus.ValidationError;
             public GCHandle Handle;
+        }
+
+        private sealed class PathOpPipelineResources : IDisposable
+        {
+            private readonly WgpuContext _context;
+            private readonly RenderPipelineCache _cache;
+
+            public PathOpPipelineResources(WgpuContext context)
+            {
+                _context = context;
+                _cache = new RenderPipelineCache(context);
+                var geometryModule = _cache.GetOrCreateShader(
+                    "PathOpGeometry",
+                    Shaders.PathOpGeometryShader,
+                    "PathOpGeometryShader");
+                GeometryPipeline = _cache.GetOrCreateComputePipeline(
+                    "PathOpGeometry",
+                    geometryModule,
+                    "cs_main");
+                var finalizerModule = _cache.GetOrCreateShader(
+                    "PathOpRecordFinalizer",
+                    Shaders.PathOpRecordFinalizerShader,
+                    "PathOpRecordFinalizerShader");
+                FinalizerPipeline = _cache.GetOrCreateComputePipeline(
+                    "PathOpRecordFinalizer",
+                    finalizerModule,
+                    "cs_main");
+                GeometryBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(GeometryPipeline, 0);
+                FinalizerBindGroupLayout = context.Api.ComputePipelineGetBindGroupLayout(FinalizerPipeline, 0);
+            }
+
+            public ComputePipeline* GeometryPipeline { get; }
+            public ComputePipeline* FinalizerPipeline { get; }
+            public BindGroupLayout* GeometryBindGroupLayout { get; }
+            public BindGroupLayout* FinalizerBindGroupLayout { get; }
+
+            public void Dispose()
+            {
+                _context.Api.BindGroupLayoutRelease(GeometryBindGroupLayout);
+                _context.Api.BindGroupLayoutRelease(FinalizerBindGroupLayout);
+                _cache.Dispose();
+            }
+        }
+
+        private static void DisposePipelineResources(WgpuContext context)
+        {
+            if (PipelineResources.TryGetValue(context, out var resources))
+            {
+                PipelineResources.Remove(context);
+                resources.Dispose();
+            }
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -249,10 +308,7 @@ namespace ProGPU.Vector
             private GpuBuffer? _destRecordBuffer;
             private GpuBuffer? _destSegmentsBuffer;
             private GpuBuffer? _uniformBuffer;
-            private RenderPipelineCache? _cache;
-            private BindGroupLayout* _bindGroupLayoutGeom;
             private BindGroup* _bgGeom;
-            private BindGroupLayout* _bindGroupLayoutFinal;
             private BindGroup* _bgFinal;
             private CommandEncoder* _encoder;
             private CommandBuffer* _cmdBuffer;
@@ -288,17 +344,16 @@ namespace ProGPU.Vector
                 uint zero = 0;
                 _context.Api.QueueWriteBuffer(_context.Queue, _destSegmentsBuffer.BufferPtr, 0, &zero, 4);
 
-                _cache = new RenderPipelineCache(_context);
-                var geometryModule = _cache.GetOrCreateShader("PathOpGeometry", Shaders.PathOpGeometryShader, "PathOpGeometryShader");
-                var geometryPipeline = _cache.GetOrCreateComputePipeline("PathOpGeometry", geometryModule, "cs_main");
-                var finalizerModule = _cache.GetOrCreateShader("PathOpRecordFinalizer", Shaders.PathOpRecordFinalizerShader, "PathOpRecordFinalizerShader");
-                var finalizerPipeline = _cache.GetOrCreateComputePipeline("PathOpRecordFinalizer", finalizerModule, "cs_main");
+                var pipelines = PipelineResources.GetValue(
+                    _context,
+                    static context => new PathOpPipelineResources(context));
+                var geometryPipeline = pipelines.GeometryPipeline;
+                var finalizerPipeline = pipelines.FinalizerPipeline;
 
                 var uniforms = new PathOpDispatchUniforms { Op = (uint)op, MaxDestSegments = _maxDestSegments };
                 _uniformBuffer = new GpuBuffer(_context, (uint)Unsafe.SizeOf<PathOpDispatchUniforms>(), BufferUsage.Uniform | BufferUsage.CopyDst, "Uniforms Buffer");
                 _uniformBuffer.Write(new ReadOnlySpan<PathOpDispatchUniforms>(&uniforms, 1));
 
-                _bindGroupLayoutGeom = _context.Api.ComputePipelineGetBindGroupLayout(geometryPipeline, 0);
                 var entriesGeom = stackalloc BindGroupEntry[7];
                 entriesGeom[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformBuffer.BufferPtr, Size = _uniformBuffer.Size };
                 entriesGeom[1] = new BindGroupEntry { Binding = 1, Buffer = _recordsBufferA.BufferPtr, Size = _recordsBufferA.Size };
@@ -307,17 +362,16 @@ namespace ProGPU.Vector
                 entriesGeom[4] = new BindGroupEntry { Binding = 4, Buffer = _segmentsBufferB.BufferPtr, Size = _segmentsBufferB.Size };
                 entriesGeom[5] = new BindGroupEntry { Binding = 5, Buffer = _destRecordBuffer.BufferPtr, Size = _destRecordBuffer.Size };
                 entriesGeom[6] = new BindGroupEntry { Binding = 6, Buffer = _destSegmentsBuffer.BufferPtr, Size = _destSegmentsBuffer.Size };
-                var bgDescGeom = new BindGroupDescriptor { Layout = _bindGroupLayoutGeom, EntryCount = 7, Entries = entriesGeom };
+                var bgDescGeom = new BindGroupDescriptor { Layout = pipelines.GeometryBindGroupLayout, EntryCount = 7, Entries = entriesGeom };
                 _bgGeom = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescGeom);
 
-                _bindGroupLayoutFinal = _context.Api.ComputePipelineGetBindGroupLayout(finalizerPipeline, 0);
                 var entriesFinal = stackalloc BindGroupEntry[5];
                 entriesFinal[0] = new BindGroupEntry { Binding = 0, Buffer = _uniformBuffer.BufferPtr, Size = _uniformBuffer.Size };
                 entriesFinal[1] = new BindGroupEntry { Binding = 1, Buffer = _recordsBufferA.BufferPtr, Size = _recordsBufferA.Size };
                 entriesFinal[2] = new BindGroupEntry { Binding = 2, Buffer = _recordsBufferB.BufferPtr, Size = _recordsBufferB.Size };
                 entriesFinal[3] = new BindGroupEntry { Binding = 3, Buffer = _destRecordBuffer.BufferPtr, Size = _destRecordBuffer.Size };
                 entriesFinal[4] = new BindGroupEntry { Binding = 4, Buffer = _destSegmentsBuffer.BufferPtr, Size = 16 };
-                var bgDescFinal = new BindGroupDescriptor { Layout = _bindGroupLayoutFinal, EntryCount = 5, Entries = entriesFinal };
+                var bgDescFinal = new BindGroupDescriptor { Layout = pipelines.FinalizerBindGroupLayout, EntryCount = 5, Entries = entriesFinal };
                 _bgFinal = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDescFinal);
 
                 var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Path Op Solver Geometry Encoder") };
@@ -385,7 +439,6 @@ namespace ProGPU.Vector
                 while (!mapState.Signal.IsSet)
                 {
                     _context.WaitIdle();
-                    System.Threading.Thread.Sleep(1);
                     if (swTimeout.ElapsedMilliseconds > 5000)
                     {
                         throw new TimeoutException("WebGPU BufferMapAsync timed out after 5 seconds during path op solver readback.");
@@ -408,9 +461,9 @@ namespace ProGPU.Vector
                     if (mappedPtr == null) return;
                     uint count = Math.Min(*(uint*)mappedPtr, _maxDestSegments);
                     var source = (GpuPathSegment*)((byte*)mappedPtr + 16);
-                    var output = new GpuPathSegment[count];
-                    for (uint index = 0; index < count; index++) output[index] = source[index];
-                    Result.Figures.AddRange(ReconstructFigures(output));
+                    AppendReconstructedFigures(
+                        new ReadOnlySpan<GpuPathSegment>(source, checked((int)count)),
+                        Result.Figures);
                 }
             }
 
@@ -443,9 +496,7 @@ namespace ProGPU.Vector
                 if (_cmdBuffer != null) _context.Api.CommandBufferRelease(_cmdBuffer);
                 if (_encoder != null) _context.Api.CommandEncoderRelease(_encoder);
                 if (_bgGeom != null) _context.Api.BindGroupRelease(_bgGeom);
-                if (_bindGroupLayoutGeom != null) _context.Api.BindGroupLayoutRelease(_bindGroupLayoutGeom);
                 if (_bgFinal != null) _context.Api.BindGroupRelease(_bgFinal);
-                if (_bindGroupLayoutFinal != null) _context.Api.BindGroupLayoutRelease(_bindGroupLayoutFinal);
                 _recordsBufferA?.Dispose();
                 _segmentsBufferA?.Dispose();
                 _recordsBufferB?.Dispose();
@@ -453,7 +504,6 @@ namespace ProGPU.Vector
                 _destRecordBuffer?.Dispose();
                 _destSegmentsBuffer?.Dispose();
                 _uniformBuffer?.Dispose();
-                _cache?.Dispose();
             }
         }
 
@@ -519,56 +569,94 @@ namespace ProGPU.Vector
 
         public static List<PathFigure> ReconstructFigures(GpuPathSegment[] segments)
         {
+            ArgumentNullException.ThrowIfNull(segments);
             var figures = new List<PathFigure>();
-            if (segments.Length == 0) return figures;
+            AppendReconstructedFigures(segments, figures);
+            return figures;
+        }
 
-            var unused = new List<GpuPathSegment>(segments);
-
-            while (unused.Count > 0)
+        private static void AppendReconstructedFigures(
+            ReadOnlySpan<GpuPathSegment> segments,
+            List<PathFigure> figures)
+        {
+            if (segments.IsEmpty)
             {
-                var currentSeg = unused[0];
-                unused.RemoveAt(0);
-
-                var figure = new PathFigure(currentSeg.P0, isClosed: false);
-                Vector2 currentPt = currentSeg.P0;
-                AddSegmentToFigure(figure, currentSeg, ref currentPt);
-
-                bool foundNext = true;
-                while (foundNext && unused.Count > 0)
-                {
-                    foundNext = false;
-                    for (int i = 0; i < unused.Count; i++)
-                    {
-                        var nextSeg = unused[i];
-                        if (Vector2.DistanceSquared(nextSeg.P0, currentPt) < 0.25f)
-                        {
-                            AddSegmentToFigure(figure, nextSeg, ref currentPt);
-                            unused.RemoveAt(i);
-                            foundNext = true;
-                            break;
-                        }
-
-                        if (Vector2.DistanceSquared(GetSegmentEndPoint(nextSeg), currentPt) < 0.25f)
-                        {
-                            nextSeg = ReverseSegment(nextSeg);
-                            AddSegmentToFigure(figure, nextSeg, ref currentPt);
-                            unused.RemoveAt(i);
-                            foundNext = true;
-                            break;
-                        }
-                    }
-
-                    if (Vector2.DistanceSquared(currentPt, figure.StartPoint) < 0.25f)
-                    {
-                        figure.IsClosed = true;
-                        break;
-                    }
-                }
-
-                figures.Add(figure);
+                return;
             }
 
-            return figures;
+            byte[]? rentedUsage = null;
+            Span<byte> used = segments.Length <= 256
+                ? stackalloc byte[segments.Length]
+                : (rentedUsage = ArrayPool<byte>.Shared.Rent(segments.Length)).AsSpan(0, segments.Length);
+            used.Clear();
+            try
+            {
+                var remaining = segments.Length;
+                while (remaining > 0)
+                {
+                    var firstUnused = 0;
+                    while (used[firstUnused] != 0)
+                    {
+                        firstUnused++;
+                    }
+
+                    var currentSeg = segments[firstUnused];
+                    used[firstUnused] = 1;
+                    remaining--;
+
+                    var figure = new PathFigure(currentSeg.P0, isClosed: false);
+                    Vector2 currentPt = currentSeg.P0;
+                    AddSegmentToFigure(figure, currentSeg, ref currentPt);
+
+                    bool foundNext = true;
+                    while (foundNext && remaining > 0)
+                    {
+                        foundNext = false;
+                        for (int index = 0; index < segments.Length; index++)
+                        {
+                            if (used[index] != 0)
+                            {
+                                continue;
+                            }
+
+                            var nextSeg = segments[index];
+                            if (Vector2.DistanceSquared(nextSeg.P0, currentPt) < 0.25f)
+                            {
+                                AddSegmentToFigure(figure, nextSeg, ref currentPt);
+                                used[index] = 1;
+                                remaining--;
+                                foundNext = true;
+                                break;
+                            }
+
+                            if (Vector2.DistanceSquared(GetSegmentEndPoint(nextSeg), currentPt) < 0.25f)
+                            {
+                                nextSeg = ReverseSegment(nextSeg);
+                                AddSegmentToFigure(figure, nextSeg, ref currentPt);
+                                used[index] = 1;
+                                remaining--;
+                                foundNext = true;
+                                break;
+                            }
+                        }
+
+                        if (Vector2.DistanceSquared(currentPt, figure.StartPoint) < 0.25f)
+                        {
+                            figure.IsClosed = true;
+                            break;
+                        }
+                    }
+
+                    figures.Add(figure);
+                }
+            }
+            finally
+            {
+                if (rentedUsage is not null)
+                {
+                    ArrayPool<byte>.Shared.Return(rentedUsage);
+                }
+            }
         }
 
         private static Vector2 GetSegmentEndPoint(GpuPathSegment segment)
