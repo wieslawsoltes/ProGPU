@@ -2047,3 +2047,38 @@ clean-room architecture/research record is
 `docs/AVALONIA_SKIA_PAINT_EFFECT_RESEARCH.md`. All raw `.trace`, `.gcdump`,
 heap-dump, XML-export, and Xcode scratch artifacts were deleted after summary
 extraction.
+
+## Preview.47 retained picture, image, layer, and text tranche
+
+Preview.47 preserves the official 4,222/4,222 metadata match and continues to
+prioritize public call shapes used by source-built Avalonia.Skia 12.0.5. An
+original ordered 32-bit token stream plus typed records compacts common
+picture operations while retaining exact full records for uncommon commands.
+Consecutive immutable-image draws reuse their context-owned texture;
+native-format `Disallow` readback copies directly from the reusable WebGPU
+staging buffer into caller rows; map polling no longer imposes a fixed
+one-millisecond sleep; and the common single-run text builder avoids list
+mutation. Rounded rectangles and retained visuals also use compact analytic
+records. No CPU renderer, eager CPU image mirror, reflection, external media
+dependency, or foreign command encoding was added.
+
+Against the preceding source-equivalent endpoint, repeated immutable-image
+readback improves 91.8%, direct surface readback 85.1%, and conversion readback
+85.9%. Mixed picture allocation falls from 1,627 to 424 B/op, common layer
+recording reaches 8,180 B/op, and focused positioned text measures 268.375
+ns/op and 89 B/op versus official SkiaSharp at 289.270 ns/op and 136 B/op.
+Official CPU-raster surfaces remain much faster for synchronous readback, so no
+universal performance-superiority claim is made.
+
+The exact PR #84 head passed all 15 CI checks, including three operating-system
+build/test lanes, portable/mobile packaging, official API metadata, native
+Dawn, source-built Avalonia contracts, SVG image parity, and matched benchmark
+lanes. Local final gates pass 3,305 core tests, 225 headless tests, 28 Avalonia
+compositor tests, 287 Avalonia text tests including the focused corpus, and the
+patched Avalonia 12.0.5 ControlCatalog source build. Matched Xcode Allocations,
+Time Profiler, and Metal System Trace retain the exact composition checksum and
+992 B/op; persistent heap plus anonymous VM changes by 0.019%, with zero waits,
+spills, hangs, or command-buffer errors. Raw trace, ETLX, XML-export, and Xcode
+scratch artifacts were deleted after compact evidence was retained. Full
+methods, complexity, research sources, distributions, and rejected experiments
+are in `docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.

@@ -5,26 +5,26 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.46 delivers the next broad Avalonia.Skia canvas, path, image, paint,
-and effect tranche on top of the successfully published preview.45 boundary.
-It retains the framework-neutral native media player, standalone editing
-packages, WebGPU effects, WinUI-shaped playback controls, and the reusable
-Avalonia, LibreWPF, and LibreWinForms presentation seams. Path boolean results
-are deferred as typed retained geometry and rasterized by WebGPU; picture save
-layers retain immutable commands and resource leases, then prepare their
-effect/layer textures before ordered replay. Blur, shadow, color-table, dash,
-rounded-rectangle, and common retained-layer state are compacted without CPU
-raster fallback or recording-time device initialization. Exact checksums,
-native comparisons, managed allocation counters, EventPipe/native-memory data,
-and matched macOS Instruments captures are recorded in
-`docs/AVALONIA_SKIA_PAINT_EFFECT_RESEARCH.md` and the compact qualification
-artifact. WinUI remains at 4,952 exact of 16,579 official declarations with
-11,627 remaining. These numbers are continuation ledgers; metadata equality
-alone is not a behavioral compatibility claim. Detailed work remaining is
+Preview.47 delivers the broad Avalonia.Skia retained picture, immutable-image,
+layer, and positioned-text tranche on top of the successfully published
+preview.46 boundary. Frequent picture operations now use an original ordered
+token stream with typed compact records; consecutive immutable-image draws
+reuse their context-owned texture; synchronous WebGPU readback no longer pays
+a fixed one-millisecond polling floor; and the common single-run text builder
+avoids list mutation. Rounded rectangles and retained visuals also use compact
+analytic records. Rendering, effects, and composition remain on the retained
+WebGPU path without a CPU renderer, reflection, or a foreign command encoding.
+The clean-room research, complexity, rejected experiments, benchmark
+distributions, and matched Instruments evidence are recorded in
+`docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.
+
+WinUI remains at 4,952 exact of 16,579 official declarations with 11,627
+remaining, and the XAML compiler remains pre-MVP. These are continuation
+ledgers rather than behavioral-completion claims. Detailed remaining work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.46 closure and continuation
+## Preview.47 closure and continuation
 
 The release boundary includes the reusable, framework-neutral media engine,
 native platform media/audio providers, WebGPU presentation and effects, the
@@ -33,7 +33,7 @@ The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
 LibreWinForms without making the editor API part of the official WinUI parity
 claim.
 
-The next WinUI parity branch starts from the immutable preview.46 tag. It must
+The next WinUI parity branch starts from the immutable preview.47 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -41,7 +41,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.46 retains automatic projection of
+The XAML compiler remains pre-MVP. Preview.47 retains automatic projection of
 changed stable XAML identities to detached Roslyn metadata diagnostic origins.
 The five remaining product blockers are runtime capability adapters; atomic
 metadata apply, XAML publication, joint commit, and recovery;
@@ -49,25 +49,29 @@ namescope/resource/template fine patching with safe fallback; cross-platform
 stress, performance, visual, accessibility, and collectible-context gates; and
 published-feed host and productization evidence.
 
-SkiaSharp's official metadata ledger remains closed at this boundary at
-4,222/4,222 with zero missing. The matched source-built Avalonia 12.0.5
-Composition workload measured 80.619 frames/s and 6,466.76 managed bytes/frame
-for ProGPU versus 78.305 frames/s and 7,485.97 bytes/frame for official Skia.
-Matched Instruments reported 198,790,144 versus 205,265,120 persistent
-heap-plus-anonymous-VM bytes. This is not a universal superiority claim:
-ProGPU P95 was 22.616 ms versus 17.021 ms, and managed retained heap, active
-physical footprint, native heap, and IOAccelerator VM remain higher targets.
-The common SaveLayer recording shape falls from 11,115 to 10,411 managed
-bytes/layer while retaining WebGPU effect execution and exact output.
+SkiaSharp's official metadata ledger remains closed at 4,222/4,222 with zero
+missing. Against the preceding source-equivalent endpoint, repeated immutable
+image `Disallow` readback improves 91.8%, direct surface readback 85.1%, and
+conversion readback 85.9%. Mixed picture recording falls from 1,627 to 424
+managed B/op; the common layer shape reaches 8,180 B/op; and the focused
+positioned-text workload measures 268.375 ns and 89 B/op versus official
+SkiaSharp at 289.270 ns and 136 B/op. Official CPU-raster surfaces remain much
+faster for synchronous readback, so this is not a universal superiority claim.
 
-The exact PR #82 head passed all 15 checks across Ubuntu, macOS, Windows,
+Matched Xcode Allocations, Time Profiler, and Metal System Trace retain the
+same composition checksum and 992 B/op. Persistent heap plus anonymous VM
+changes by only 0.019%, with zero drawable waits, compiler spills, hangs, or
+command-buffer errors. All raw trace, ETLX, XML-export, and Xcode scratch data
+was removed after compact evidence was retained.
+
+The exact PR #84 head passed all 15 checks across Ubuntu, macOS, Windows,
 portable and mobile packaging, source-built Avalonia, native Dawn, image
-parity, official metadata, and matched native/ProGPU benchmarks. The macOS
-lane passed 3,236/3,236 core tests and 225/225 headless tests. Remaining
-surface readback/composition, immutable-image and mixed-picture recording,
-path-combination, SaveLayer storage, P95 latency, and retained/native heap work
-is tracked explicitly in `docs/SKIASHARP_API_PARITY.md` and the preview.46
-research/evidence records.
+parity, official metadata, and matched native/ProGPU benchmarks. Local final
+gates pass 3,305 core tests, 225 headless tests, 28 Avalonia compositor tests,
+287 Avalonia text tests including the focused corpus, and the patched Avalonia
+12.0.5 ControlCatalog source build. Remaining path combination, full
+application P95, retained/native heap, and other Avalonia-used API work remains
+on the next broad-tranche ledger.
 
 ## NuGet Packages
 
@@ -115,19 +119,19 @@ research/evidence records.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.46`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.46`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.46`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.46`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.47`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.47`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.47`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.47`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.46` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.47` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.46 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.47 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -145,7 +149,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.46 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.47 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -163,7 +167,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.46`.
+for example `v0.1.0-preview.47`.
 
 ## NuGet Publishing
 
