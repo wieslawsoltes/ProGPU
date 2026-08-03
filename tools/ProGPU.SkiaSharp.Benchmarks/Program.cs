@@ -126,10 +126,10 @@ internal static class ProgramEntry
             new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
             new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
             new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
-            new BenchmarkCase("avalonia-path-measure-create", 1_000, RunAvaloniaPathMeasureCreate),
+            new BenchmarkCase("avalonia-path-measure-create", 10_000, RunAvaloniaPathMeasureCreate),
             new BenchmarkCase("avalonia-path-measure-query", 100_000, RunAvaloniaPathMeasureQuery),
-            new BenchmarkCase("avalonia-path-transform-copy", 1_000, RunAvaloniaPathTransformCopy),
-            new BenchmarkCase("avalonia-region-union-query", 1_000, RunAvaloniaRegionUnionQuery),
+            new BenchmarkCase("avalonia-path-transform-copy", 10_000, RunAvaloniaPathTransformCopy),
+            new BenchmarkCase("avalonia-region-union-query", 10_000, RunAvaloniaRegionUnionQuery),
             new BenchmarkCase("avalonia-stroke-expand", 1_000, RunAvaloniaStrokeExpand),
             new BenchmarkCase("avalonia-path-combine", 8, RunAvaloniaPathCombine),
             // Keep each sample above the sub-millisecond timer-noise floor and

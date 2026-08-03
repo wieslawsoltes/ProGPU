@@ -237,7 +237,7 @@ internal static class SKPathTightBounds
 internal sealed class PackedPathData : IDisposable
 {
     private const int InitialCommandCapacity = 64;
-    private const int MaximumRetainedCommandCapacity = 1_024;
+    private const int MaximumRetainedCommandCapacity = 4_096;
     [ThreadStatic]
     private static PackedPathData? s_threadCache;
     private sealed class CommandBuffer
@@ -249,7 +249,7 @@ internal sealed class PackedPathData : IDisposable
             Commands = commands;
         }
 
-        public PackedPathCommand[] Commands { get; }
+        public PackedPathCommand[] Commands { get; set; }
         public bool IsShared => Volatile.Read(ref _references) != 1;
 
         public void AddReference() => Interlocked.Increment(ref _references);
@@ -932,6 +932,14 @@ internal sealed class PackedPathData : IDisposable
         var replacement = ArrayPool<PackedPathCommand>.Shared.Rent(
             Math.Max(capacity, requiredCapacity));
         previous.Commands.AsSpan(0, _count).CopyTo(replacement);
+        if (!previous.IsShared)
+        {
+            var previousCommands = previous.Commands;
+            previous.Commands = replacement;
+            ArrayPool<PackedPathCommand>.Shared.Return(previousCommands);
+            return;
+        }
+
         _commandBuffer = new CommandBuffer(replacement);
         if (previous.Release())
         {
