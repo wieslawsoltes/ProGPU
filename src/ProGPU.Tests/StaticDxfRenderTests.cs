@@ -190,7 +190,7 @@ public sealed class StaticDxfRenderTests
         var window = HeadlessWindow.Shared;
         var context = CreateGlyphRunContext(font);
 
-        using var listBuffer = window.Compositor.CompileStaticDxf(context.Commands);
+        using var listBuffer = window.Compositor.CompileStaticDxf(context);
         AssertStaticGlyphRunCompiled(listBuffer);
 
         using var contextBuffer = window.Compositor.CompileStaticDxf(context);

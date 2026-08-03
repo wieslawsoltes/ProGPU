@@ -3049,9 +3049,10 @@ public sealed class MediaPlaybackEngineTests
         Assert.True(command.HasImageEffect);
         Assert.Null(command.DataParam);
         Assert.Equal(new Rect(1f, 0f, 2f, 2f), command.SrcRect);
-        Assert.Equal(0.1f, command.ImageEffect.Brightness);
-        Assert.Equal(1.2f, command.ImageEffect.Contrast);
-        Assert.Equal(1f, command.ImageEffect.Invert);
+        ImageEffectCommandData effect = context.GetImageEffect(in command);
+        Assert.Equal(0.1f, effect.Brightness);
+        Assert.Equal(1.2f, effect.Contrast);
+        Assert.Equal(1f, effect.Invert);
         Assert.Equal(1, context.RetainedResourceCount);
 
         context.Clear();
@@ -3079,11 +3080,12 @@ public sealed class MediaPlaybackEngineTests
         Assert.Same(
             frame.LumaTexture,
             command.Texture);
+        ImageEffectCommandData effect = context.GetImageEffect(in command);
         Assert.Same(
             frame.ChromaTexture,
-            command.ImageEffect.ChromaTexture);
+            effect.ChromaTexture);
         Assert.True(
-            command.ImageEffect.YuvConversion.HasValue);
+            effect.YuvConversion.HasValue);
         Assert.Equal(2, context.RetainedResourceCount);
 
         context.Clear();

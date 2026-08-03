@@ -2345,7 +2345,7 @@ internal sealed class AvaloniaRetainedCommandCache
         DrawingContext context,
         out bool contentChanged)
     {
-        List<RenderCommand> source = context.Commands;
+        RenderCommandList source = context.Commands;
         int count = source.Count;
         int previousCount = Count;
         contentChanged = true;
@@ -2481,7 +2481,7 @@ internal sealed class AvaloniaRetainedCommandCache
     }
 
     private static RenderCommandPresentationDependencies
-        GetPresentationDependencies(List<RenderCommand> commands)
+        GetPresentationDependencies(IReadOnlyList<RenderCommand> commands)
     {
         RenderCommandPresentationDependencies dependencies =
             RenderCommandPresentationDependencies.None;

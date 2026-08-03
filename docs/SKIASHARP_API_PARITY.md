@@ -1883,3 +1883,134 @@ Compact distributions and profiler summaries are retained under
 `artifacts/performance/skiasharp-canvas-state-routing`. Raw Instruments,
 EventPipe, Xcode scratch, preliminary captures, and the exact-baseline worktree
 were removed after extraction, reclaiming roughly 1.2 GiB of task-owned data.
+
+## Avalonia.Skia retained-picture hot paths after Preview.44
+
+The Avalonia.Skia-first recording tranche removes optional media-effect state
+from every `RenderCommand`, pools the mutable recorder's large command array,
+and stores immutable pictures as typed core, text, texture, uncommon-command,
+and deduplicated-transform arrays. The existing public `RenderCommand[]`
+inspection boundary remains available through one lazy immutable
+materialization; ordinary compositor, Skia playback, serialization, operation
+counting, and byte accounting consume the compact typed view directly. Large
+pooled scratch arrays are cleared and returned after a snapshot, while stable
+small retained contexts keep their exact trimmed capacity.
+
+Positioned `SKTextBlob` runs now convert their owned `SKPoint[]` positions to
+the renderer's `Vector2[]` representation lazily on the first retained draw.
+The converted array is atomically published on the owning run and reused by
+every later draw. Blob construction therefore keeps its previous allocation
+profile, while recording is no longer `O(G)` allocation per draw for `G`
+glyphs. Rotation/scale runs retain their separate per-glyph transform path.
+
+The Avalonia canvas path also reuses package-private solid brushes and pens
+while relevant `SKPaint` state is unchanged; public mutable conversion results
+remain independent, and a paint mutation publishes a new retained resource so
+earlier commands stay immutable. Ordinary rectangles no longer materialize a
+path merely to reject a special-shader route. Antialiased image draws reuse one
+immutable unit-rectangle edge clip and place it through the retained command
+transform instead of allocating a four-segment geometry per draw.
+
+Recorder growth is amortized `O(1)` per command and `O(C)` for a capacity
+change. Immutable snapshot construction is `O(C)` average with `O(C)` pooled
+scratch for `C` commands; its open-addressed transform table is kept below a
+0.5 load factor, with `O(C²)` only under adversarial matrix-hash collisions.
+Replay expansion is allocation-free `O(1)` per command. Retained storage is
+`O(C + A + T + X + U)` for compact commands, uncommon payloads, text payloads,
+texture payloads, and unique transforms. No raster quality, DPI/subpixel
+policy, scene invalidation, WebGPU submission, or resource-lifetime boundary
+changes in this CPU recording tranche. Solid-paint reuse, the ordinary
+rectangle shader check, and unit-clip placement are allocation-free `O(1)`.
+
+The clean-room design used these primary contracts and architecture records:
+
+- Skia [`SkPicture`](https://api.skia.org/classSkPicture.html) permits recorded
+  operation count to differ from canvas calls and defines approximate storage
+  without charging large referenced objects. ProGPU adopts immutable retained
+  playback and accurate owned-storage accounting, but not Skia's private op
+  encoding or implementation structure.
+- Direct2D
+  [`ID2D1CommandList`](https://learn.microsoft.com/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist)
+  records replayable commands, references bitmap resources, and stores drawing
+  state by value. Win2D's
+  [`CanvasCommandList`](https://learn.microsoft.com/windows/apps/develop/win2d/quick-start)
+  likewise separates recording from later drawing/effect use. ProGPU adapts
+  this ownership split to typed WebGPU resources and reference-counted leases.
+- DirectWrite's
+  [Direct2D text integration](https://learn.microsoft.com/windows/win32/direct2d/direct2d-and-directwrite)
+  explicitly identifies cached glyph positions in reusable text layouts as a
+  performance advantage. Skia's
+  [shaped-text model](https://docs.skia.org/docs/dev/design/text_shaper/),
+  HarfBuzz's
+  [shaping output](https://harfbuzz.github.io/shaping-and-shape-plans.html) and
+  [shape-plan caching](https://harfbuzz.github.io/shaping-plans-and-caching.html),
+  and Parley's
+  [shared layout/scratch contexts](https://docs.rs/parley/latest/parley/)
+  all keep shaping/layout results reusable. ProGPU therefore caches only the
+  representation conversion and never reshapes during drawing.
+- WebRender's
+  [retained display-list architecture](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst)
+  and Vello's [typed GPU scene](https://github.com/linebender/vello) inform the
+  separation between compact CPU scene encoding and later parallel GPU work.
+  The WebGPU
+  [render-bundle specification](https://gpuweb.github.io/gpuweb/#render-bundle-creation)
+  reinforces immutable replay, but bundles are rejected for this layer because
+  ProGPU commands still need current DPI, atlas-generation, effect, clip, and
+  device-loss validation before encoding a render pass.
+
+The implementation rejects copied foreign source/layout, reflection, boxed
+per-frame adapters, hiding retained allocations in native memory, eager glyph
+position conversion, unbounded exact-position caches, and moving Unicode or
+OpenType shaping onto the GPU.
+
+Three alternating Apple M3 Pro Release process pairs compared exact Preview.44
+`84a86f68` with product commit `d22fcef3`, using 64 warmups and 96 samples per
+process. Across 288 samples per side, the mixed Avalonia-shaped picture retained
+checksum `2454466986173768955`; median latency fell from `7,543.213` to
+`4,457.357` ns/op (`40.91%`), throughput rose `69.23%`, and managed allocation
+fell from `35,344` to `1,627` B/op (`95.40%`). Scheduler and GC interference
+dominate the tail, so P95 is recorded in the artifact but not used as the
+primary claim. Immutable-image picture recording separately fell from `2,486`
+to `146` managed B/op (`94.13%`), and the inline command value fell from `816`
+to `576` bytes before compact picture packing.
+
+Final integration commit `e75723db` also makes the existing explicit
+`DrawingContext.EnsureCommandCapacity` reservation contract persistent across
+`Clear`, while organically grown large transient command buffers remain pooled
+and bounded. The matched picture benchmark does not call that reservation API;
+the focused MotionMark allocation regression passes repeatedly with the final
+behavior.
+
+Official SkiaSharp 4.151.0 remains faster for the mixed wrapper workload at a
+pooled `396.078` ns/op median and `10` managed B/op with the same checksum.
+That counter excludes native Skia picture allocation, so it is neither a total
+memory comparison nor evidence that ProGPU has reached native latency.
+
+Matched macOS Allocations plus VM Tracker, Time Profiler, and Metal System
+Trace launches each completed the same four warmups plus eight 16,384-operation
+samples. Instrumented latency measured Preview.44/candidate at
+`19,748.180`/`3,428.551`, `19,587.496`/`3,421.159`, and
+`19,956.059`/`3,226.458` ns/op respectively; managed allocation was
+`35,281`/`1,537` B/op throughout. Allocations reported total
+heap-plus-anonymous-VM allocation falling from `2,441,702,816` to
+`327,050,480` bytes, while bounded pool retention raised persistent storage by
+`7.37` MB, so no persistent-footprint improvement is claimed. The Metal pair
+was resource-identical: 42 resources totaling `3,227,648` bytes, maximum
+`MTLDevice.currentAllocatedSize` `1,589,248` bytes, zero target submissions,
+and zero waits, errors, spills, or hangs.
+
+Matched EventPipe measured `23,176.839` versus `2,460.077` ns/op. Preview.44's
+exclusive command-list growth/copy, rectangle geometry, and paint-conversion
+frames leave the candidate hot list; remaining samples center on GC polling,
+reference clearing, compact snapshot construction, and retained-array
+allocation.
+
+The complete core suite passes 3,268/3,268, headless passes 225/225, Avalonia
+renderer contracts pass 86/86, and the XAML compiler suite passes. The unchanged
+Avalonia.Skia 12.0.5 source project builds with zero warnings and errors. The
+official API gate remains `reference=4222`, `matching=4222`, `missing=0`, and
+`extra=998`; documentation and package-manifest gates pass. Distributions,
+compact profiler summaries, research, and reproduction details are retained in
+`artifacts/performance/skiasharp-avalonia-hotpaths-final`. More than 3.4 GiB of
+raw Instruments/EventPipe data, XML exports, Xcode scratch, exploratory runs,
+and incomplete captures were deleted after extraction; no raw trace remains.

@@ -2402,6 +2402,34 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void AntialiasedImageDrawsReuseUnitEdgeClipGeometry()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 32f, 32f);
+        using var bitmap = new SKBitmap(1, 1);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var paint = new SKPaint { IsAntialias = true };
+        canvas.Translate(3f, 5f);
+
+        var destination = new SKRect(2f, 4f, 12f, 14f);
+        canvas.DrawImage(image, destination, paint);
+        canvas.DrawImage(image, destination, paint);
+
+        var clips = context.Commands
+            .Where(command => command.Type == RenderCommandType.PushGeometryClip)
+            .ToArray();
+        Assert.Equal(2, clips.Length);
+        Assert.Same(clips[0].Path, clips[1].Path);
+        Assert.True(clips[0].Path!.TryGetBounds(out var minimum, out var maximum));
+        Assert.Equal(Vector2.Zero, minimum);
+        Assert.Equal(Vector2.One, maximum);
+        Assert.Equal(new Vector3(5f, 9f, 0f), Vector3.Transform(Vector3.Zero, clips[0].Transform));
+        Assert.Equal(
+            new Vector3(15f, 19f, 0f),
+            Vector3.Transform(new Vector3(1f, 1f, 0f), clips[0].Transform));
+    }
+
+    [Fact]
     public void GpuPictureKeepsRetainedImageTextureAfterRecorderReuse()
     {
         var recorder = new GpuPictureRecorder();

@@ -23,6 +23,8 @@ public class SKCanvas : SKObject
     private static readonly ConditionalWeakTable<SKColorSpace, byte[]> s_toSrgbTables = new();
     private static readonly ConditionalWeakTable<GpuTexture, TextureColorSpace> s_textureColorSpaces = new();
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
+    private static readonly PathGeometry s_unitRectangleGeometry =
+        CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
 
     private sealed class TextureColorSpace
     {
@@ -934,7 +936,7 @@ public class SKCanvas : SKObject
         out SKColorSpace colorSpace)
     {
         SKColorSpace? candidate = null;
-        foreach (var command in picture.Commands)
+        foreach (var command in picture.RetainedCommands)
         {
             switch (command.Type)
             {
@@ -3459,7 +3461,7 @@ public class SKCanvas : SKObject
 
         pictureCache[picture] = picture;
         RenderCommand[]? convertedCommands = null;
-        var commands = picture.Commands;
+        var commands = picture.RetainedCommands;
         for (var index = 0; index < commands.Length; index++)
         {
             var command = commands[index];
@@ -3475,7 +3477,7 @@ public class SKCanvas : SKObject
 
                 if (!ReferenceEquals(convertedTexture, texture))
                 {
-                    convertedCommands ??= (RenderCommand[])commands.Clone();
+                    convertedCommands ??= commands.Clone();
                     command.Texture = convertedTexture;
                     convertedCommands[index] = command;
                 }
@@ -3488,7 +3490,7 @@ public class SKCanvas : SKObject
                     textureCache);
                 if (!ReferenceEquals(convertedPicture, nestedPicture))
                 {
-                    convertedCommands ??= (RenderCommand[])commands.Clone();
+                    convertedCommands ??= commands.Clone();
                     command.Picture = convertedPicture;
                     convertedCommands[index] = command;
                 }
@@ -3500,12 +3502,7 @@ public class SKCanvas : SKObject
             return picture;
         }
 
-        var converted = new GpuPicture(
-            convertedCommands,
-            picture.PointBuffer,
-            picture.DoubleBuffer,
-            picture.Line3DBuffer,
-            picture.FloatBuffer);
+        var converted = picture.CloneWithCommands(convertedCommands);
         pictureCache[picture] = converted;
         return converted;
     }
@@ -3746,7 +3743,8 @@ public class SKCanvas : SKObject
     public void DrawRect(float x, float y, float w, float h, SKPaint paint)
     {
         var rect = new SKRect(x, y, x + w, y + h);
-        if (TryDrawSpecialShader(CreateRectGeometry(rect), rect, paint))
+        if (HasSpecialShader(paint.Shader) &&
+            TryDrawSpecialShader(CreateRectGeometry(rect), rect, paint))
         {
             return;
         }
@@ -3754,7 +3752,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3799,7 +3797,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3864,7 +3862,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3907,7 +3905,7 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
+            var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
             _context.Commands.Add(new RenderCommand
             {
@@ -3991,8 +3989,8 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            var brush = paint.ToBrush();
-            var pen = paint.ToPen(GetCurrentStrokeScale());
+            var brush = paint.ToRetainedBrush();
+            var pen = paint.ToRetainedPen(GetCurrentStrokeScale());
 
             if (IsInverseFillType(path.FillType))
             {
@@ -5174,7 +5172,16 @@ public class SKCanvas : SKObject
 
             if (paint?.IsAntialias != false)
             {
-                _context.PushGeometryClip(CreateRectGeometry(dest), _currentMatrix.ToMatrix4x4());
+                // The destination edge clip is immutable geometry. Reuse one
+                // unit rectangle and place it with the command transform so
+                // repeated image draws stay O(1) and allocation-free here.
+                var clipTransform =
+                    Matrix4x4.CreateScale(dest.Width, dest.Height, 1f) *
+                    Matrix4x4.CreateTranslation(dest.Left, dest.Top, 0f) *
+                    _currentMatrix.ToMatrix4x4();
+                _context.PushGeometryClip(
+                    s_unitRectangleGeometry,
+                    clipTransform);
                 pushedEdgeClip = true;
             }
 
@@ -5873,7 +5880,7 @@ public class SKCanvas : SKObject
             return;
         }
 
-        var brush = paint.ToBrush();
+        var brush = paint.ToRetainedBrush();
         if (brush == null)
         {
             return;
@@ -5882,8 +5889,10 @@ public class SKCanvas : SKObject
         var pushedBlendMode = PushPaintBlendMode(paint);
         try
         {
-            foreach (var run in textBlob.Runs)
+            var runs = textBlob.Runs;
+            for (int runIndex = 0; runIndex < runs.Length; runIndex++)
             {
+                ref var run = ref runs[runIndex];
                 if (run.RotationScaleMatrices is { } matrices)
                 {
                     for (var i = 0; i < run.GlyphIndices.Length; i++)
@@ -5908,15 +5917,9 @@ public class SKCanvas : SKObject
                     continue;
                 }
 
-                var positions = new Vector2[run.GlyphPositions.Length];
-                for (int i = 0; i < positions.Length; i++)
-                {
-                    positions[i] = new Vector2(run.GlyphPositions[i].X, run.GlyphPositions[i].Y);
-                }
-
                 _context.DrawTransformedGlyphRun(
                     run.GlyphIndices,
-                    positions,
+                    run.GetRetainedGlyphPositions(),
                     run.Font.Typeface.Font,
                     run.Font.Size,
                     brush,

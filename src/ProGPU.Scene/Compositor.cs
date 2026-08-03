@@ -5354,7 +5354,7 @@ SceneStateUploadComplete:
             Texture = localCommand.Texture,
             TextureSamplingMode = localCommand.TextureSamplingMode,
             HasImageEffect = localCommand.HasImageEffect,
-            ImageEffect = localCommand.ImageEffect,
+            ImageEffect = localCommand.ResolveImageEffect(context),
             PointBufferOffset = (int)_pendingVectorStart,
             PointBufferCount =
                 (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
@@ -5469,7 +5469,7 @@ SceneStateUploadComplete:
     {
         if (picture == null) return;
         var pictureStrokeScale = TransformMetrics.GetStrokeScale(globalTransform);
-        var commands = picture.Commands;
+        var commands = picture.RetainedCommands;
         for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)
         {
             var cmd = commands[commandIndex];
@@ -5638,7 +5638,7 @@ SceneStateUploadComplete:
                                 Texture = localCmd.Texture,
                                 TextureSamplingMode = localCmd.TextureSamplingMode,
                                 HasImageEffect = localCmd.HasImageEffect,
-                                ImageEffect = localCmd.ImageEffect,
+                                ImageEffect = localCmd.ResolveImageEffect(picture),
                                 PointBufferOffset = (int)_pendingVectorStart,
                                 PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
                                 DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -15278,7 +15278,14 @@ SceneStateUploadComplete:
         }
     }
 
-    public DxfStaticBuffer CompileStaticDxf(List<RenderCommand> commands, float staticZoom = 1.0f)
+    public DxfStaticBuffer CompileStaticDxf(
+        List<RenderCommand> commands,
+        float staticZoom = 1.0f) =>
+        CompileStaticDxfCore(commands, staticZoom);
+
+    private DxfStaticBuffer CompileStaticDxfCore(
+        IReadOnlyList<RenderCommand> commands,
+        float staticZoom)
     {
         // Save current lists and states
         var dxfSavedVectorVertices = RentListSnapshot(_vectorVerticesList, out var dxfSavedVectorVerticesCount);
@@ -15567,7 +15574,7 @@ SceneStateUploadComplete:
                                     Texture = localCmd.Texture,
                                     TextureSamplingMode = localCmd.TextureSamplingMode,
                                     HasImageEffect = localCmd.HasImageEffect,
-                                    ImageEffect = localCmd.ImageEffect,
+                                    ImageEffect = localCmd.ResolveImageEffect(null),
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
@@ -16016,7 +16023,7 @@ SceneStateUploadComplete:
                                     Texture = localCmd.Texture,
                                     TextureSamplingMode = localCmd.TextureSamplingMode,
                                     HasImageEffect = localCmd.HasImageEffect,
-                                    ImageEffect = localCmd.ImageEffect,
+                                    ImageEffect = localCmd.ResolveImageEffect(context),
                                     PointBufferOffset = (int)pendingVectorStart,
                                     PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,

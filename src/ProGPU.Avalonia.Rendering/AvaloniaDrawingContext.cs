@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -938,8 +937,7 @@ internal partial class DrawingContextImpl :
             return;
         }
 
-        ref RenderCommand command =
-            ref CollectionsMarshal.AsSpan(DrawingContext.Commands)[^1];
+        ref RenderCommand command = ref DrawingContext.Commands.AsSpan()[^1];
         command.PresentationDependencies |= dependencies;
     }
 

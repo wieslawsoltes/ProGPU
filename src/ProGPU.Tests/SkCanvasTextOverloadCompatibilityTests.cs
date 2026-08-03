@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Numerics;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using SkiaSharp;
@@ -8,6 +9,32 @@ namespace ProGPU.Tests;
 
 public sealed class SkCanvasTextOverloadCompatibilityTests
 {
+    [Fact]
+    public void RepeatedTextBlobDrawsReuseConvertedGlyphPositions()
+    {
+        using var font = new SKFont(SKTypeface.Default, 16f);
+        SKPoint[] positions = Enumerable.Range(0, 256)
+            .Select(index => new SKPoint(index * 7f, (index & 3) * 0.125f))
+            .ToArray();
+        using var blob = SKTextBlob.CreatePositioned(
+            new string('A', positions.Length),
+            font,
+            positions) ?? throw new InvalidOperationException();
+        using var paint = new SKPaint { Color = SKColors.Black };
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 2048f, 64f);
+
+        canvas.DrawText(blob, 2f, 20f, paint);
+        Vector2[] first = Assert.Single(context.Commands).GlyphPositions!;
+        context.Clear();
+        canvas.DrawText(blob, 4f, 20f, paint);
+        Vector2[] second = Assert.Single(context.Commands).GlyphPositions!;
+
+        Assert.Same(first, second);
+        Assert.Equal(positions.Length, second.Length);
+        Assert.Equal(new Vector2(7f, 0.125f), second[1]);
+    }
+
     [Fact]
     public void PointTextOverloadUsesCanonicalAlignedGlyphRun()
     {

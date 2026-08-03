@@ -472,7 +472,7 @@ internal sealed class OffscreenTextureCache : IDisposable
 
         public void UpdateSnapshot()
         {
-            List<RenderCommand> commands = Commands.Commands;
+            RenderCommandList commands = Commands.Commands;
             int count = commands.Count;
             if (_snapshot.Length < count)
             {

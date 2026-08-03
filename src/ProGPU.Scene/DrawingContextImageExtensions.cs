@@ -28,7 +28,7 @@ namespace ProGPU.Scene
         {
             if (texture == null) return;
 
-            context.Commands.Add(new RenderCommand
+            var command = new RenderCommand
             {
                 Type = RenderCommandType.DrawExtension,
                 ExtensionId = CompositorBuiltInExtensions.ImageEffect,
@@ -36,22 +36,22 @@ namespace ProGPU.Scene
                 Rect = rect,
                 SrcRect = sourceRect ?? Rect.Empty,
                 TextureSamplingMode = samplingMode,
-                HasImageEffect = true,
-                ImageEffect = new ImageEffectCommandData(
-                    brightness,
-                    contrast,
-                    saturation,
-                    grayscale,
-                    sepia,
-                    invert,
-                    blurSigma,
-                    maskTexture,
-                    colorMatrix,
-                    luminanceToAlpha,
-                    sphericalProjection:
-                        sphericalProjection),
                 Transform = transform
-            });
+            };
+            var effect = new ImageEffectCommandData(
+                brightness,
+                contrast,
+                saturation,
+                grayscale,
+                sepia,
+                invert,
+                blurSigma,
+                maskTexture,
+                colorMatrix,
+                luminanceToAlpha,
+                sphericalProjection:
+                    sphericalProjection);
+            context.AddImageEffectCommand(command, in effect);
         }
 
         /// <summary>
@@ -86,7 +86,7 @@ namespace ProGPU.Scene
             ArgumentNullException.ThrowIfNull(lumaTexture);
             ArgumentNullException.ThrowIfNull(chromaTexture);
 
-            context.Commands.Add(new RenderCommand
+            var command = new RenderCommand
             {
                 Type = RenderCommandType.DrawExtension,
                 ExtensionId =
@@ -95,23 +95,23 @@ namespace ProGPU.Scene
                 Rect = rect,
                 SrcRect = sourceRect ?? Rect.Empty,
                 TextureSamplingMode = samplingMode,
-                HasImageEffect = true,
-                ImageEffect = new ImageEffectCommandData(
-                    brightness,
-                    contrast,
-                    saturation,
-                    grayscale,
-                    sepia,
-                    invert,
-                    blurSigma,
-                    maskTexture,
-                    colorMatrix,
-                    luminanceToAlpha,
-                    chromaTexture,
-                    conversion,
-                    sphericalProjection),
                 Transform = transform
-            });
+            };
+            var effect = new ImageEffectCommandData(
+                brightness,
+                contrast,
+                saturation,
+                grayscale,
+                sepia,
+                invert,
+                blurSigma,
+                maskTexture,
+                colorMatrix,
+                luminanceToAlpha,
+                chromaTexture,
+                conversion,
+                sphericalProjection);
+            context.AddImageEffectCommand(command, in effect);
         }
     }
 }

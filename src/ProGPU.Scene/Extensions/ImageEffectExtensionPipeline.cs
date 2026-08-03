@@ -331,6 +331,7 @@ namespace ProGPU.Scene.Extensions
         {
             if (!TryGetCommandState(
                     in cmd,
+                    provider,
                     out GpuTexture texture,
                     out Rect rect,
                     out Rect sourceRect,
@@ -987,6 +988,7 @@ namespace ProGPU.Scene.Extensions
 
         private static bool TryGetCommandState(
             in RenderCommand command,
+            IRenderDataProvider? provider,
             out GpuTexture texture,
             out Rect rect,
             out Rect sourceRect,
@@ -999,7 +1001,7 @@ namespace ProGPU.Scene.Extensions
                 texture = command.Texture;
                 rect = command.Rect;
                 sourceRect = command.SrcRect;
-                effect = command.ImageEffect;
+                effect = command.ResolveImageEffect(provider);
                 samplingMode = command.TextureSamplingMode;
                 legacyParameters = null;
                 return true;

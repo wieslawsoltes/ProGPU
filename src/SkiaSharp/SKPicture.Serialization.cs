@@ -247,8 +247,8 @@ internal static class PictureArchive
         WriteDoubleArray(writer, picture.DoubleBuffer);
         WriteLine3DArray(writer, picture.Line3DBuffer);
         WriteFloatArray(writer, picture.FloatBuffer);
-        WriteCount(writer, picture.Commands.Length, MaxCommands, "commands");
-        foreach (var command in picture.Commands)
+        WriteCount(writer, picture.RetainedCommands.Length, MaxCommands, "commands");
+        foreach (var command in picture.RetainedCommands)
         {
             WriteCommand(writer, command, depth);
         }

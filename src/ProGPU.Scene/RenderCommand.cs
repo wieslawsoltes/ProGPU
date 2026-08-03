@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -391,6 +393,11 @@ public interface IRenderDataProvider
     ReadOnlySpan<float> GetFloats(int offset, int count);
 }
 
+internal interface IImageEffectDataProvider
+{
+    ImageEffectCommandData GetImageEffect(int index);
+}
+
 public sealed class RenderCommandGeometryCache
 {
     private int _dashedStrokeSignature;
@@ -609,7 +616,38 @@ public struct RenderCommand
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
     public bool HasImageEffect;
-    public ImageEffectCommandData ImageEffect;
+    private ImageEffectCommandDataBox? _imageEffect;
+    internal int ImageEffectBufferIndex;
+    internal bool HasBufferedImageEffect;
+
+    public ImageEffectCommandData ImageEffect
+    {
+        readonly get => _imageEffect?.Value ?? default;
+        set => _imageEffect = new ImageEffectCommandDataBox(value);
+    }
+
+    internal readonly ImageEffectCommandData ResolveImageEffect(
+        IRenderDataProvider? provider)
+    {
+        if (HasBufferedImageEffect)
+        {
+            if (provider is not IImageEffectDataProvider effectProvider)
+            {
+                throw new InvalidOperationException(
+                    "A buffered image-effect command requires its retained data provider.");
+            }
+
+            return effectProvider.GetImageEffect(ImageEffectBufferIndex);
+        }
+
+        return ImageEffect;
+    }
+
+    internal ImageEffectCommandDataBox? InlineImageEffectBox
+    {
+        readonly get => _imageEffect;
+        set => _imageEffect = value;
+    }
 
     // Vector render options
     public bool IsEdgeAliased;
@@ -700,6 +738,579 @@ public struct RenderCommand
     public object? DataParam;
 }
 
+internal enum RetainedCommandDataKind : byte
+{
+    None,
+    Auxiliary,
+    Text,
+    Texture
+}
+
+internal readonly struct RetainedTextCommandData
+{
+    private readonly string? _text;
+    private readonly TtfFont? _font;
+    private readonly float _fontSize;
+    private readonly Vector2 _position;
+    private readonly bool _isBold;
+    private readonly bool _isItalic;
+    private readonly TextShapingOptions? _textShapingOptions;
+    private readonly TextAlignment _textAlignment;
+    private readonly Vector2 _fontTransform;
+    private readonly bool _hasFontTransform;
+    private readonly float _rotation;
+    private readonly TextRenderingMode _textRenderingMode;
+    private readonly TextHintingMode _textHintingMode;
+    private readonly bool _useVectorGlyphRendering;
+    private readonly bool _preferGlyphAtlas;
+    private readonly bool _useLogicalGlyphAtlasResolution;
+    private readonly ushort[]? _glyphIndices;
+    private readonly Vector2[]? _glyphPositions;
+    private readonly int _glyphRangeStart;
+    private readonly int _glyphRangeCount;
+
+    public RetainedTextCommandData(in RenderCommand command)
+    {
+        _text = command.Text;
+        _font = command.Font;
+        _fontSize = command.FontSize;
+        _position = command.Position;
+        _isBold = command.IsBold;
+        _isItalic = command.IsItalic;
+        _textShapingOptions = command.TextShapingOptions;
+        _textAlignment = command.TextAlignment;
+        _fontTransform = command.FontTransform;
+        _hasFontTransform = command.HasFontTransform;
+        _rotation = command.Rotation;
+        _textRenderingMode = command.TextRenderingMode;
+        _textHintingMode = command.TextHintingMode;
+        _useVectorGlyphRendering = command.UseVectorGlyphRendering;
+        _preferGlyphAtlas = command.PreferGlyphAtlas;
+        _useLogicalGlyphAtlasResolution = command.UseLogicalGlyphAtlasResolution;
+        _glyphIndices = command.GlyphIndices;
+        _glyphPositions = command.GlyphPositions;
+        _glyphRangeStart = command.GlyphRangeStart;
+        _glyphRangeCount = command.GlyphRangeCount;
+    }
+
+    public void Apply(ref RenderCommand command)
+    {
+        command.Text = _text;
+        command.Font = _font;
+        command.FontSize = _fontSize;
+        command.Position = _position;
+        command.IsBold = _isBold;
+        command.IsItalic = _isItalic;
+        command.TextShapingOptions = _textShapingOptions;
+        command.TextAlignment = _textAlignment;
+        command.FontTransform = _fontTransform;
+        command.HasFontTransform = _hasFontTransform;
+        command.Rotation = _rotation;
+        command.TextRenderingMode = _textRenderingMode;
+        command.TextHintingMode = _textHintingMode;
+        command.UseVectorGlyphRendering = _useVectorGlyphRendering;
+        command.PreferGlyphAtlas = _preferGlyphAtlas;
+        command.UseLogicalGlyphAtlasResolution = _useLogicalGlyphAtlasResolution;
+        command.GlyphIndices = _glyphIndices;
+        command.GlyphPositions = _glyphPositions;
+        command.GlyphRangeStart = _glyphRangeStart;
+        command.GlyphRangeCount = _glyphRangeCount;
+    }
+}
+
+internal readonly struct RetainedTextureCommandData
+{
+    private readonly GpuTexture? _texture;
+    private readonly Rect _sourceRect;
+    private readonly TexturePatch[]? _patches;
+    private readonly TextureSamplingMode _samplingMode;
+    private readonly byte _maxAnisotropy;
+    private readonly Vector2 _cubicCoefficients;
+    private readonly bool _hasCubicCoefficients;
+    private readonly bool _snapToPixels;
+    private readonly bool _hasImageEffect;
+    private readonly ImageEffectCommandDataBox? _inlineImageEffect;
+    private readonly int _imageEffectBufferIndex;
+    private readonly bool _hasBufferedImageEffect;
+
+    public RetainedTextureCommandData(in RenderCommand command)
+    {
+        _texture = command.Texture;
+        _sourceRect = command.SrcRect;
+        _patches = command.TexturePatches;
+        _samplingMode = command.TextureSamplingMode;
+        _maxAnisotropy = command.TextureMaxAnisotropy;
+        _cubicCoefficients = command.TextureCubicCoefficients;
+        _hasCubicCoefficients = command.HasTextureCubicCoefficients;
+        _snapToPixels = command.SnapTextureToPixels;
+        _hasImageEffect = command.HasImageEffect;
+        _inlineImageEffect = command.InlineImageEffectBox;
+        _imageEffectBufferIndex = command.ImageEffectBufferIndex;
+        _hasBufferedImageEffect = command.HasBufferedImageEffect;
+    }
+
+    public void Apply(ref RenderCommand command)
+    {
+        command.Texture = _texture;
+        command.SrcRect = _sourceRect;
+        command.TexturePatches = _patches;
+        command.TextureSamplingMode = _samplingMode;
+        command.TextureMaxAnisotropy = _maxAnisotropy;
+        command.TextureCubicCoefficients = _cubicCoefficients;
+        command.HasTextureCubicCoefficients = _hasCubicCoefficients;
+        command.SnapTextureToPixels = _snapToPixels;
+        command.HasImageEffect = _hasImageEffect;
+        command.InlineImageEffectBox = _inlineImageEffect;
+        command.ImageEffectBufferIndex = _imageEffectBufferIndex;
+        command.HasBufferedImageEffect = _hasBufferedImageEffect;
+    }
+}
+
+internal readonly struct RetainedRenderCommand
+{
+    private readonly RenderCommandType _type;
+    private readonly int _hitTestId;
+    private readonly Rect _rect;
+    private readonly Brush? _brush;
+    private readonly Pen? _pen;
+    private readonly PathGeometry? _path;
+    private readonly RenderCommandGeometryCache? _geometryCache;
+    private readonly int _transformIndex;
+    private readonly RenderCommandPresentationDependencies _presentationDependencies;
+    private readonly bool _isEdgeAliased;
+    private readonly bool _isPenThicknessLocal;
+    private readonly uint _pathSampleGrid;
+    private readonly float _pathCoverageGamma;
+    private readonly int _dataIndex;
+    private readonly RetainedCommandDataKind _dataKind;
+
+    public RetainedRenderCommand(
+        in RenderCommand command,
+        RetainedCommandDataKind dataKind,
+        int dataIndex,
+        int transformIndex)
+    {
+        _type = command.Type;
+        _hitTestId = command.HitTestId;
+        _rect = command.Rect;
+        _brush = command.Brush;
+        _pen = command.Pen;
+        _path = command.Path;
+        _geometryCache = command.GeometryCache;
+        _transformIndex = transformIndex;
+        _presentationDependencies = command.PresentationDependencies;
+        _isEdgeAliased = command.IsEdgeAliased;
+        _isPenThicknessLocal = command.IsPenThicknessLocal;
+        _pathSampleGrid = command.PathSampleGrid;
+        _pathCoverageGamma = command.PathCoverageGamma;
+        _dataIndex = dataIndex;
+        _dataKind = dataKind;
+    }
+
+    public RenderCommand Expand(
+        RenderCommand[] auxiliary,
+        RetainedTextCommandData[] text,
+        RetainedTextureCommandData[] texture,
+        Matrix4x4[] transforms)
+    {
+        if (_dataKind == RetainedCommandDataKind.Auxiliary)
+        {
+            return auxiliary[_dataIndex];
+        }
+
+        var command = new RenderCommand
+        {
+            Type = _type,
+            HitTestId = _hitTestId,
+            Rect = _rect,
+            Brush = _brush,
+            Pen = _pen,
+            Path = _path,
+            GeometryCache = _geometryCache,
+            Transform = transforms[_transformIndex],
+            PresentationDependencies = _presentationDependencies,
+            IsEdgeAliased = _isEdgeAliased,
+            IsPenThicknessLocal = _isPenThicknessLocal,
+            PathSampleGrid = _pathSampleGrid,
+            PathCoverageGamma = _pathCoverageGamma
+        };
+
+        if (_dataKind == RetainedCommandDataKind.Text)
+        {
+            text[_dataIndex].Apply(ref command);
+        }
+        else if (_dataKind == RetainedCommandDataKind.Texture)
+        {
+            texture[_dataIndex].Apply(ref command);
+        }
+
+        return command;
+    }
+
+    public static RetainedCommandDataKind Classify(in RenderCommand command)
+    {
+        bool hasText = HasTextData(in command);
+        bool hasTexture = HasTextureData(in command);
+        bool hasOther = HasOtherData(in command);
+        if (!hasText && !hasTexture && !hasOther)
+        {
+            return RetainedCommandDataKind.None;
+        }
+
+        if (hasText && !hasTexture && !hasOther &&
+            command.Type is RenderCommandType.DrawText or
+                RenderCommandType.DrawGlyphRun)
+        {
+            return RetainedCommandDataKind.Text;
+        }
+
+        if (hasTexture && !hasText && !hasOther &&
+            command.Type == RenderCommandType.DrawTexture)
+        {
+            return RetainedCommandDataKind.Texture;
+        }
+
+        return RetainedCommandDataKind.Auxiliary;
+    }
+
+    private static bool HasTextData(in RenderCommand command) =>
+        command.Text is not null ||
+        command.Font is not null ||
+        command.FontSize != 0f ||
+        command.Position != default ||
+        command.IsBold ||
+        command.IsItalic ||
+        command.TextShapingOptions is not null ||
+        command.TextAlignment != default ||
+        command.FontTransform != default ||
+        command.HasFontTransform ||
+        command.Rotation != 0f ||
+        command.TextRenderingMode != default ||
+        command.TextHintingMode != default ||
+        command.UseVectorGlyphRendering ||
+        command.PreferGlyphAtlas ||
+        command.UseLogicalGlyphAtlasResolution ||
+        command.GlyphIndices is not null ||
+        command.GlyphPositions is not null ||
+        command.GlyphRangeStart != 0 ||
+        command.GlyphRangeCount != 0;
+
+    private static bool HasTextureData(in RenderCommand command) =>
+        command.Texture is not null ||
+        command.SrcRect != default ||
+        command.TexturePatches is not null ||
+        command.TextureSamplingMode != default ||
+        command.TextureMaxAnisotropy != 0 ||
+        command.TextureCubicCoefficients != default ||
+        command.HasTextureCubicCoefficients ||
+        command.SnapTextureToPixels ||
+        command.HasImageEffect ||
+        command.InlineImageEffectBox is not null ||
+        command.ImageEffectBufferIndex != 0 ||
+        command.HasBufferedImageEffect;
+
+    private static bool HasOtherData(in RenderCommand command) =>
+        command.Position2 != default ||
+        command.Position3 != default ||
+        command.Position4 != default ||
+        command.RadiusX != 0f ||
+        command.RadiusY != 0f ||
+        command.CornerRadius != 0f ||
+        command.PolylinePoints is not null ||
+        command.IsClosed ||
+        command.SplineKnots is not null ||
+        command.SplineWeights is not null ||
+        command.SplineDegree != 0 ||
+        command.Position3D1 != default ||
+        command.Position3D2 != default ||
+        command.Edges3D is not null ||
+        command.StaticBuffer is not null ||
+        command.GpuPoints is not null ||
+        command.GpuPointsCount != 0 ||
+        command.UseGpuTransforms ||
+        command.CameraView != default ||
+        command.Scale != default ||
+        command.Translate != default ||
+        command.PointBufferOffset != 0 ||
+        command.PointBufferCount != 0 ||
+        command.DoubleBufferOffset != 0 ||
+        command.DoubleBufferCount != 0 ||
+        command.Line3DBufferOffset != 0 ||
+        command.Line3DBufferCount != 0 ||
+        command.WeightBufferOffset != 0 ||
+        command.WeightBufferCount != 0 ||
+        command.FloatBufferOffset != 0 ||
+        command.FloatBufferCount != 0 ||
+        command.SeriesCacheKey is not null ||
+        command.Picture is not null ||
+        command.Visual is not null ||
+        command.VertexMesh is not null ||
+        command.VertexColorBlendMode != default ||
+        command.ExtensionId != 0 ||
+        command.IntParam != 0 ||
+        command.FloatParam != 0f ||
+        command.DataParam is not null;
+}
+
+/// <summary>
+/// Immutable command snapshot with compact core, text, texture, transform, and
+/// uncommon-command storage. Construction is O(C) average and O(C²) only for
+/// adversarial transform-hash collisions, with O(C) bounded scratch and retained
+/// storage for C commands. Indexing and replay expansion are allocation-free O(1).
+/// </summary>
+internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
+{
+    private readonly RetainedRenderCommand[] _commands;
+    private readonly RenderCommand[] _auxiliary;
+    private readonly RetainedTextCommandData[] _text;
+    private readonly RetainedTextureCommandData[] _texture;
+    private readonly Matrix4x4[] _transforms;
+
+    internal GpuPictureCommandCollection(ReadOnlySpan<RenderCommand> commands)
+    {
+        if (commands.IsEmpty)
+        {
+            _commands = [];
+            _auxiliary = [];
+            _text = [];
+            _texture = [];
+            _transforms = [];
+            return;
+        }
+
+        int auxiliaryCount = 0;
+        int textCount = 0;
+        int textureCount = 0;
+        byte[] classifications =
+            ArrayPool<byte>.Shared.Rent(commands.Length);
+        int[] transformIndices =
+            ArrayPool<int>.Shared.Rent(commands.Length);
+        Matrix4x4[] transformScratch =
+            ArrayPool<Matrix4x4>.Shared.Rent(commands.Length);
+        int transformTableCapacity = GetTransformTableCapacity(commands.Length);
+        int[] transformTable =
+            ArrayPool<int>.Shared.Rent(transformTableCapacity);
+        Array.Clear(transformTable, 0, transformTableCapacity);
+        try
+        {
+            int transformCount = 0;
+            for (int index = 0; index < commands.Length; index++)
+            {
+                RetainedCommandDataKind dataKind =
+                    RetainedRenderCommand.Classify(in commands[index]);
+                classifications[index] = (byte)dataKind;
+                transformIndices[index] = GetOrAddTransform(
+                    in commands[index].Transform,
+                    transformScratch,
+                    transformTable,
+                    transformTableCapacity - 1,
+                    ref transformCount);
+                switch (dataKind)
+                {
+                    case RetainedCommandDataKind.Auxiliary:
+                        auxiliaryCount++;
+                        break;
+                    case RetainedCommandDataKind.Text:
+                        textCount++;
+                        break;
+                    case RetainedCommandDataKind.Texture:
+                        textureCount++;
+                        break;
+                }
+            }
+
+            _commands = new RetainedRenderCommand[commands.Length];
+            _auxiliary = auxiliaryCount == 0
+                ? []
+                : new RenderCommand[auxiliaryCount];
+            _text = textCount == 0
+                ? []
+                : new RetainedTextCommandData[textCount];
+            _texture = textureCount == 0
+                ? []
+                : new RetainedTextureCommandData[textureCount];
+            _transforms = new Matrix4x4[transformCount];
+            transformScratch.AsSpan(0, transformCount).CopyTo(_transforms);
+            int auxiliaryIndex = 0;
+            int textIndex = 0;
+            int textureIndex = 0;
+            for (int index = 0; index < commands.Length; index++)
+            {
+                ref readonly RenderCommand command = ref commands[index];
+                RetainedCommandDataKind dataKind =
+                    (RetainedCommandDataKind)classifications[index];
+                int dataIndex = -1;
+                switch (dataKind)
+                {
+                    case RetainedCommandDataKind.Auxiliary:
+                        dataIndex = auxiliaryIndex;
+                        _auxiliary[auxiliaryIndex++] = command;
+                        break;
+                    case RetainedCommandDataKind.Text:
+                        dataIndex = textIndex;
+                        _text[textIndex++] =
+                            new RetainedTextCommandData(in command);
+                        break;
+                    case RetainedCommandDataKind.Texture:
+                        dataIndex = textureIndex;
+                        _texture[textureIndex++] =
+                            new RetainedTextureCommandData(in command);
+                        break;
+                }
+
+                _commands[index] = new RetainedRenderCommand(
+                    in command,
+                    dataKind,
+                    dataIndex,
+                    transformIndices[index]);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(classifications);
+            ArrayPool<int>.Shared.Return(transformIndices);
+            ArrayPool<Matrix4x4>.Shared.Return(transformScratch);
+            ArrayPool<int>.Shared.Return(transformTable);
+        }
+    }
+
+    public int Count => _commands.Length;
+
+    public int Length => _commands.Length;
+
+    public RenderCommand this[int index] =>
+        _commands[index].Expand(
+            _auxiliary,
+            _text,
+            _texture,
+            _transforms);
+
+    internal long ApproximateStorageBytes =>
+        (long)_commands.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedRenderCommand>() +
+        (long)_auxiliary.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() +
+        (long)_text.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextCommandData>() +
+        (long)_texture.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RetainedTextureCommandData>() +
+        (long)_transforms.Length *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<Matrix4x4>();
+
+    internal RenderCommand[] Clone()
+    {
+        if (_commands.Length == 0)
+        {
+            return [];
+        }
+
+        var result = new RenderCommand[_commands.Length];
+        for (int index = 0; index < result.Length; index++)
+        {
+            result[index] = this[index];
+        }
+
+        return result;
+    }
+
+    public Enumerator GetEnumerator() => new(this);
+
+    IEnumerator<RenderCommand> IEnumerable<RenderCommand>.GetEnumerator() =>
+        GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private static int GetTransformTableCapacity(int commandCount)
+    {
+        int required = checked(commandCount * 2);
+        int capacity = 4;
+        while (capacity < required)
+        {
+            capacity = checked(capacity * 2);
+        }
+
+        return capacity;
+    }
+
+    private static int GetOrAddTransform(
+        in Matrix4x4 transform,
+        Matrix4x4[] transforms,
+        int[] table,
+        int tableMask,
+        ref int count)
+    {
+        if (count != 0 && transforms[count - 1].Equals(transform))
+        {
+            return count - 1;
+        }
+
+        int slot = (int)((uint)transform.GetHashCode() * 2654435761u) &
+            tableMask;
+        while (true)
+        {
+            int index = table[slot] - 1;
+            if (index < 0)
+            {
+                index = count++;
+                transforms[index] = transform;
+                table[slot] = index + 1;
+                return index;
+            }
+
+            if (transforms[index].Equals(transform))
+            {
+                return index;
+            }
+
+            slot = (slot + 1) & tableMask;
+        }
+    }
+
+    public struct Enumerator : IEnumerator<RenderCommand>
+    {
+        private readonly GpuPictureCommandCollection _commands;
+        private int _index;
+
+        internal Enumerator(GpuPictureCommandCollection commands)
+        {
+            _commands = commands;
+            _index = -1;
+        }
+
+        public RenderCommand Current => _commands[_index];
+
+        object IEnumerator.Current => Current;
+
+        public bool MoveNext()
+        {
+            int next = _index + 1;
+            if (next >= _commands.Count)
+            {
+                return false;
+            }
+
+            _index = next;
+            return true;
+        }
+
+        public void Reset() => _index = -1;
+
+        public void Dispose()
+        {
+        }
+    }
+}
+
+internal sealed class ImageEffectCommandDataBox
+{
+    public ImageEffectCommandDataBox(in ImageEffectCommandData value)
+    {
+        Value = value;
+    }
+
+    public ImageEffectCommandData Value { get; }
+}
+
 internal sealed class RetainedResourceLease : IDisposable
 {
     private RetainedResourceOwner? _owner;
@@ -770,17 +1381,29 @@ internal sealed class RetainedResourceLease : IDisposable
     }
 }
 
-public class GpuPicture : IRenderDataProvider, IDisposable
+public class GpuPicture :
+    IRenderDataProvider,
+    IImageEffectDataProvider,
+    IDisposable
 {
-    public RenderCommand[] Commands { get; }
+    private readonly GpuPictureCommandCollection _retainedCommands;
+    private RenderCommand[]? _materializedCommands;
+    public RenderCommand[] Commands =>
+        _materializedCommands ??= _retainedCommands.Clone();
     public Vector2[] PointBuffer { get; }
     public double[] DoubleBuffer { get; }
     public Line3D[] Line3DBuffer { get; }
     public float[] FloatBuffer { get; }
+    private readonly ImageEffectCommandData[] _imageEffectBuffer;
     private readonly RetainedResourceLease[] _retainedResources;
     private bool _disposed;
 
     public int RetainedResourceCount => _retainedResources.Length;
+    internal int ImageEffectCount => _imageEffectBuffer.Length;
+    internal GpuPictureCommandCollection RetainedCommands =>
+        _retainedCommands;
+    internal long CommandStorageBytes =>
+        _retainedCommands.ApproximateStorageBytes;
 
     public GpuPicture(
         RenderCommand[] commands,
@@ -788,28 +1411,49 @@ public class GpuPicture : IRenderDataProvider, IDisposable
         double[] doubleBuffer,
         Line3D[] line3dBuffer,
         float[] floatBuffer) : this(
-            commands,
+            new GpuPictureCommandCollection(commands),
             pointBuffer,
             doubleBuffer,
             line3dBuffer,
             floatBuffer,
+            Array.Empty<ImageEffectCommandData>(),
             Array.Empty<RetainedResourceLease>())
     {
     }
 
     internal GpuPicture(
-        RenderCommand[] commands,
+        ReadOnlySpan<RenderCommand> commands,
         Vector2[] pointBuffer,
         double[] doubleBuffer,
         Line3D[] line3dBuffer,
         float[] floatBuffer,
+        ImageEffectCommandData[] imageEffectBuffer,
         RetainedResourceLease[] retainedResources)
     {
-        Commands = commands;
+        _retainedCommands = new GpuPictureCommandCollection(commands);
         PointBuffer = pointBuffer;
         DoubleBuffer = doubleBuffer;
         Line3DBuffer = line3dBuffer;
         FloatBuffer = floatBuffer;
+        _imageEffectBuffer = imageEffectBuffer;
+        _retainedResources = retainedResources;
+    }
+
+    private GpuPicture(
+        GpuPictureCommandCollection commands,
+        Vector2[] pointBuffer,
+        double[] doubleBuffer,
+        Line3D[] line3dBuffer,
+        float[] floatBuffer,
+        ImageEffectCommandData[] imageEffectBuffer,
+        RetainedResourceLease[] retainedResources)
+    {
+        _retainedCommands = commands;
+        PointBuffer = pointBuffer;
+        DoubleBuffer = doubleBuffer;
+        Line3DBuffer = line3dBuffer;
+        FloatBuffer = floatBuffer;
+        _imageEffectBuffer = imageEffectBuffer;
         _retainedResources = retainedResources;
     }
 
@@ -825,6 +1469,9 @@ public class GpuPicture : IRenderDataProvider, IDisposable
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         new ReadOnlySpan<float>(FloatBuffer, offset, count);
 
+    ImageEffectCommandData IImageEffectDataProvider.GetImageEffect(int index) =>
+        _imageEffectBuffer[index];
+
     public GpuPicture Clone()
     {
         if (_disposed)
@@ -833,11 +1480,30 @@ public class GpuPicture : IRenderDataProvider, IDisposable
         }
 
         return new GpuPicture(
-            Commands,
+            _retainedCommands,
             PointBuffer,
             DoubleBuffer,
             Line3DBuffer,
             FloatBuffer,
+            _imageEffectBuffer,
+            CloneRetainedResources());
+    }
+
+    internal GpuPicture CloneWithCommands(RenderCommand[] commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(GpuPicture));
+        }
+
+        return new GpuPicture(
+            commands,
+            PointBuffer,
+            DoubleBuffer,
+            Line3DBuffer,
+            FloatBuffer,
+            _imageEffectBuffer,
             CloneRetainedResources());
     }
 
@@ -921,11 +1587,12 @@ public class GpuPictureRecorder
     public GpuPicture EndRecording()
     {
         var picture = new GpuPicture(
-            CopyList(_recordingContext.Commands),
+            _recordingContext.Commands.AsSpan(),
             CopyList(_recordingContext.PointBuffer),
             CopyList(_recordingContext.DoubleBuffer),
             CopyList(_recordingContext.Line3DBuffer),
             CopyList(_recordingContext.FloatBuffer),
+            _recordingContext.CopyImageEffects(),
             _recordingContext.CloneRetainedResources()
         );
         _recordingContext.Clear();
@@ -949,37 +1616,463 @@ public class GpuPictureRecorder
     }
 }
 
-public sealed class RenderCommandList : List<RenderCommand>
+public sealed class RenderCommandList :
+    IList<RenderCommand>,
+    IReadOnlyList<RenderCommand>
 {
+    private const int DefaultCapacity = 4;
+    private const int RetainedCapacityLimit = 256;
+    private RenderCommand[] _items = Array.Empty<RenderCommand>();
+    private int _count;
+    private bool _pooled;
+    private readonly DrawingContext? _owner;
     internal Func<int, bool>? CommandInterceptor;
     internal event Action<int>? CommandAdded;
 
-    public new void Add(RenderCommand command)
+    public RenderCommandList()
     {
-        base.Add(command);
+    }
+
+    internal RenderCommandList(DrawingContext owner)
+    {
+        _owner = owner;
+    }
+
+    public int Count => _count;
+
+    public bool IsReadOnly => false;
+
+    public int Capacity
+    {
+        get => _items.Length;
+        set
+        {
+            if (value < _count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            if (value == _items.Length)
+            {
+                return;
+            }
+
+            if (value == 0)
+            {
+                ReplaceStorage(Array.Empty<RenderCommand>(), pooled: false);
+                return;
+            }
+
+            var replacement = new RenderCommand[value];
+            AsSpan().CopyTo(replacement);
+            ReplaceStorage(replacement, pooled: false);
+        }
+    }
+
+    public RenderCommand this[int index]
+    {
+        get
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+                (uint)index,
+                (uint)_count,
+                nameof(index));
+            return _items[index];
+        }
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+                (uint)index,
+                (uint)_count,
+                nameof(index));
+            _items[index] = value;
+        }
+    }
+
+    public RenderCommand this[Index index]
+    {
+        get => this[index.GetOffset(_count)];
+        set => this[index.GetOffset(_count)] = value;
+    }
+
+    public void Add(RenderCommand command)
+    {
+        EnsureCapacity(checked(_count + 1));
+        int index = _count;
+        _items[index] = command;
+        _count = index + 1;
         var interceptor = CommandInterceptor;
         if (interceptor is not null &&
             (command.Brush is IRetainedCommandInterceptBrush ||
              command.Pen?.Brush is IRetainedCommandInterceptBrush) &&
-            interceptor(Count - 1))
+            interceptor(index))
         {
             return;
         }
 
-        CommandAdded?.Invoke(Count - 1);
+        CommandAdded?.Invoke(index);
+    }
+
+    public void AddRange(IEnumerable<RenderCommand> commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        if (commands is RenderCommandList commandList)
+        {
+            AddRange(commandList);
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            commands = ToArray();
+        }
+
+        if (commands is ICollection<RenderCommand> collection)
+        {
+            EnsureCapacity(checked(_count + collection.Count));
+        }
+
+        foreach (RenderCommand command in commands)
+        {
+            EnsureCapacity(checked(_count + 1));
+            _items[_count++] = command;
+        }
+    }
+
+    public void AddRange(RenderCommandList commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        if (commands._count == 0)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            RenderCommand[] snapshot = ToArray();
+            AddRange(snapshot);
+            return;
+        }
+
+        EnsureCapacity(checked(_count + commands._count));
+        commands.AsSpan().CopyTo(_items.AsSpan(_count));
+        _count += commands._count;
+    }
+
+    public void Clear()
+    {
+        if (_count != 0)
+        {
+            Array.Clear(_items, 0, _count);
+            _count = 0;
+        }
+
+        if (_pooled && _items.Length > RetainedCapacityLimit)
+        {
+            ReturnPooledStorage();
+        }
+
+        _owner?.ClearCommandSideBuffers();
+    }
+
+    public bool Contains(RenderCommand command) => IndexOf(command) >= 0;
+
+    public void CopyTo(RenderCommand[] array, int arrayIndex) =>
+        AsSpan().CopyTo(array.AsSpan(arrayIndex));
+
+    public bool Exists(Predicate<RenderCommand> match) =>
+        FindIndex(match) >= 0;
+
+    public int FindIndex(Predicate<RenderCommand> match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        for (int index = 0; index < _count; index++)
+        {
+            if (match(_items[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    public int IndexOf(RenderCommand command) =>
+        Array.IndexOf(_items, command, 0, _count);
+
+    public void Insert(int index, RenderCommand command)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        EnsureCapacity(checked(_count + 1));
+        if (index < _count)
+        {
+            Array.Copy(_items, index, _items, index + 1, _count - index);
+        }
+
+        _items[index] = command;
+        _count++;
+    }
+
+    public void InsertRange(int index, IEnumerable<RenderCommand> commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        if (commands is RenderCommandList commandList &&
+            !ReferenceEquals(commandList, this))
+        {
+            InsertRange(index, commandList);
+            return;
+        }
+
+        var insertionList = new List<RenderCommand>();
+        insertionList.AddRange(commands);
+        RenderCommand[] insertion = insertionList.ToArray();
+        if (insertion.Length == 0)
+        {
+            return;
+        }
+
+        EnsureCapacity(checked(_count + insertion.Length));
+        Array.Copy(
+            _items,
+            index,
+            _items,
+            index + insertion.Length,
+            _count - index);
+        insertion.CopyTo(_items, index);
+        _count += insertion.Length;
+    }
+
+    public void InsertRange(int index, RenderCommandList commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        if (commands._count == 0)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            InsertRange(index, (IEnumerable<RenderCommand>)ToArray());
+            return;
+        }
+
+        EnsureCapacity(checked(_count + commands._count));
+        Array.Copy(
+            _items,
+            index,
+            _items,
+            index + commands._count,
+            _count - index);
+        commands.AsSpan().CopyTo(_items.AsSpan(index));
+        _count += commands._count;
+    }
+
+    public bool Remove(RenderCommand command)
+    {
+        int index = IndexOf(command);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        RemoveAt(index);
+        return true;
+    }
+
+    public void RemoveAt(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        int moved = _count - index - 1;
+        if (moved != 0)
+        {
+            Array.Copy(_items, index + 1, _items, index, moved);
+        }
+
+        _count--;
+        _items[_count] = default;
+    }
+
+    public void RemoveRange(int index, int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (_count - index < count)
+        {
+            throw new ArgumentException("The range exceeds the command count.");
+        }
+
+        if (count == 0)
+        {
+            return;
+        }
+
+        int moved = _count - index - count;
+        if (moved != 0)
+        {
+            Array.Copy(_items, index + count, _items, index, moved);
+        }
+
+        Array.Clear(_items, _count - count, count);
+        _count -= count;
+    }
+
+    public int EnsureCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        if (_items.Length >= capacity)
+        {
+            return _items.Length;
+        }
+
+        int nextCapacity = _items.Length == 0
+            ? DefaultCapacity
+            : checked(_items.Length * 2);
+        if ((uint)nextCapacity > 0X7FEFFFFF)
+        {
+            nextCapacity = 0X7FEFFFFF;
+        }
+
+        if (nextCapacity < capacity)
+        {
+            nextCapacity = capacity;
+        }
+
+        // ArrayPool<T> rounds a first request up to its minimum bucket. Since
+        // RenderCommand is intentionally wide, renting for the overwhelmingly
+        // common one-to-four-command recording would retain substantially more
+        // storage than the commands themselves. Keep that first exact-sized
+        // array owned by the list; growth beyond it switches to pooled scratch
+        // storage and preserves the amortized O(1) append contract.
+        bool pooled = nextCapacity > DefaultCapacity;
+        RenderCommand[] replacement = pooled
+            ? ArrayPool<RenderCommand>.Shared.Rent(nextCapacity)
+            : new RenderCommand[nextCapacity];
+        AsSpan().CopyTo(replacement);
+        ReplaceStorage(replacement, pooled);
+        return _items.Length;
+    }
+
+    internal int EnsureRetainedCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        if (_items.Length >= capacity && !_pooled)
+        {
+            return _items.Length;
+        }
+
+        int retainedCapacity = Math.Max(capacity, _count);
+        var replacement = retainedCapacity == 0
+            ? Array.Empty<RenderCommand>()
+            : new RenderCommand[retainedCapacity];
+        AsSpan().CopyTo(replacement);
+        ReplaceStorage(replacement, pooled: false);
+        return _items.Length;
+    }
+
+    public Span<RenderCommand> AsSpan() => _items.AsSpan(0, _count);
+
+    public RenderCommand[] ToArray()
+    {
+        if (_count == 0)
+        {
+            return Array.Empty<RenderCommand>();
+        }
+
+        var result = new RenderCommand[_count];
+        AsSpan().CopyTo(result);
+        return result;
+    }
+
+    public Enumerator GetEnumerator() => new(_items, _count);
+
+    IEnumerator<RenderCommand> IEnumerable<RenderCommand>.GetEnumerator() =>
+        GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private void ReplaceStorage(RenderCommand[] replacement, bool pooled)
+    {
+        RenderCommand[] previous = _items;
+        bool previousPooled = _pooled;
+        _items = replacement;
+        _pooled = pooled;
+        if (previousPooled)
+        {
+            ArrayPool<RenderCommand>.Shared.Return(previous, clearArray: true);
+        }
+    }
+
+    private void ReturnPooledStorage()
+    {
+        RenderCommand[] previous = _items;
+        _items = Array.Empty<RenderCommand>();
+        _pooled = false;
+        ArrayPool<RenderCommand>.Shared.Return(previous, clearArray: true);
+    }
+
+    public struct Enumerator : IEnumerator<RenderCommand>
+    {
+        private readonly RenderCommand[] _items;
+        private readonly int _count;
+        private int _index;
+
+        internal Enumerator(RenderCommand[] items, int count)
+        {
+            _items = items;
+            _count = count;
+            _index = -1;
+        }
+
+        public RenderCommand Current => _items[_index];
+
+        object IEnumerator.Current => Current;
+
+        public bool MoveNext()
+        {
+            int next = _index + 1;
+            if (next >= _count)
+            {
+                return false;
+            }
+
+            _index = next;
+            return true;
+        }
+
+        public void Reset() => _index = -1;
+
+        public void Dispose()
+        {
+        }
     }
 }
 
 public class DrawingContext :
     IRenderDataProvider,
+    IImageEffectDataProvider,
     IProGpuDrawingContextSource
 {
-    public RenderCommandList Commands { get; } = new();
+    public RenderCommandList Commands { get; }
     private List<RetainedResourceLease>? _retainedResources;
     private List<Vector2>? _pointBuffer;
     private List<double>? _doubleBuffer;
     private List<Line3D>? _line3DBuffer;
     private List<float>? _floatBuffer;
+    private List<ImageEffectCommandData>? _imageEffectBuffer;
 
     // Reusable continuous pools to eliminate heap array allocations
     public List<Vector2> PointBuffer => _pointBuffer ??= new();
@@ -987,7 +2080,15 @@ public class DrawingContext :
     public List<Line3D> Line3DBuffer => _line3DBuffer ??= new();
     public List<float> FloatBuffer => _floatBuffer ??= new();
 
+    internal List<ImageEffectCommandData> ImageEffectBuffer =>
+        _imageEffectBuffer ??= new();
+
     public int RetainedResourceCount => _retainedResources?.Count ?? 0;
+
+    public DrawingContext()
+    {
+        Commands = new RenderCommandList(this);
+    }
 
     public bool TryGetProGpuDrawingContext(
         out ProGpuDrawingContextState state)
@@ -1006,7 +2107,7 @@ public class DrawingContext :
     public void EnsureCommandCapacity(int capacity)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(capacity);
-        Commands.EnsureCapacity(capacity);
+        Commands.EnsureRetainedCapacity(capacity);
     }
 
     /// <summary>
@@ -1261,6 +2362,38 @@ public class DrawingContext :
 
     public ReadOnlySpan<float> GetFloats(int offset, int count) => 
         CollectionsMarshal.AsSpan(FloatBuffer).Slice(offset, count);
+
+    ImageEffectCommandData IImageEffectDataProvider.GetImageEffect(int index) =>
+        _imageEffectBuffer is { } values
+            ? values[index]
+            : throw new ArgumentOutOfRangeException(nameof(index));
+
+    internal ImageEffectCommandData GetImageEffect(
+        in RenderCommand command) =>
+        command.ResolveImageEffect(this);
+
+    internal void AddImageEffectCommand(
+        RenderCommand command,
+        in ImageEffectCommandData effect)
+    {
+        command.HasImageEffect = true;
+        command.HasBufferedImageEffect = true;
+        command.ImageEffectBufferIndex = ImageEffectBuffer.Count;
+        ImageEffectBuffer.Add(effect);
+        Commands.Add(command);
+    }
+
+    internal ImageEffectCommandData[] CopyImageEffects()
+    {
+        if (_imageEffectBuffer == null || _imageEffectBuffer.Count == 0)
+        {
+            return Array.Empty<ImageEffectCommandData>();
+        }
+
+        var result = new ImageEffectCommandData[_imageEffectBuffer.Count];
+        CollectionsMarshal.AsSpan(_imageEffectBuffer).CopyTo(result);
+        return result;
+    }
 
     public void DrawRectangle(Brush? brush, Pen? pen, Rect rect)
     {
@@ -2442,11 +3575,16 @@ public class DrawingContext :
         int doubleOffset = DoubleBuffer.Count;
         int line3dOffset = Line3DBuffer.Count;
         int floatOffset = FloatBuffer.Count;
+        int imageEffectOffset = _imageEffectBuffer?.Count ?? 0;
 
         AppendList(PointBuffer, other.PointBuffer);
         AppendList(DoubleBuffer, other.DoubleBuffer);
         AppendList(Line3DBuffer, other.Line3DBuffer);
         AppendList(FloatBuffer, other.FloatBuffer);
+        if (other._imageEffectBuffer is { Count: > 0 } otherImageEffects)
+        {
+            AppendList(ImageEffectBuffer, otherImageEffects);
+        }
 
         var otherCommands = other.Commands;
         int otherCommandCount = otherCommands.Count;
@@ -2464,6 +3602,8 @@ public class DrawingContext :
                 adjustedCmd.FloatBufferOffset += floatOffset;
             if (adjustedCmd.WeightBufferCount > 0)
                 adjustedCmd.WeightBufferOffset += doubleOffset;
+            if (adjustedCmd.HasBufferedImageEffect)
+                adjustedCmd.ImageEffectBufferIndex += imageEffectOffset;
 
             if (translation != Vector2.Zero)
             {
@@ -2603,6 +3743,15 @@ public class DrawingContext :
                 other.DoubleBuffer,
                 command.WeightBufferOffset,
                 command.WeightBufferCount);
+        }
+
+        if (command.HasBufferedImageEffect)
+        {
+            ImageEffectCommandData effect =
+                ((IImageEffectDataProvider)other).GetImageEffect(
+                    command.ImageEffectBufferIndex);
+            command.ImageEffectBufferIndex = ImageEffectBuffer.Count;
+            ImageEffectBuffer.Add(effect);
         }
 
         AppendRetainedResources(other.CloneRetainedResources());
@@ -2832,6 +3981,11 @@ public class DrawingContext :
         _line3DBuffer?.Clear();
         _floatBuffer?.Clear();
         DisposeRetainedResources();
+    }
+
+    internal void ClearCommandSideBuffers()
+    {
+        _imageEffectBuffer?.Clear();
     }
 
     private void DisposeRetainedResources()

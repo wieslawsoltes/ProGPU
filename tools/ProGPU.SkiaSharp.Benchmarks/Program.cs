@@ -142,6 +142,10 @@ internal static class ProgramEntry
                 "avalonia-immutable-image-recording",
                 1_000,
                 RunAvaloniaImmutableImageRecording),
+            new BenchmarkCase(
+                "avalonia-mixed-picture-recording",
+                256,
+                RunAvaloniaMixedPictureRecording),
             new BenchmarkCase("string-encoding-roundtrip", 10_000, RunStringEncodingRoundtrip),
             new BenchmarkCase("unicode-character-code", 100_000, RunUnicodeCharacterCode),
             new BenchmarkCase("swizzle-in-place-4k", 10_000, RunSwizzleInPlace),
@@ -457,6 +461,67 @@ internal static class ProgramEntry
                 BitConverter.SingleToUInt32Bits(picture.CullRect.Height));
             return checksum;
         }
+    }
+
+    private static ulong RunAvaloniaMixedPictureRecording(int operations)
+    {
+        using var image = SKImage.FromPixelCopy(
+            new SKImageInfo(
+                64,
+                64,
+                SKColorType.Rgba8888,
+                SKAlphaType.Premul),
+            ImagePixels);
+        using var fillPaint = new SKPaint
+        {
+            Color = new SKColor(32, 96, 224, 208),
+            IsAntialias = true
+        };
+        using var strokePaint = new SKPaint
+        {
+            Color = new SKColor(240, 224, 48, 255),
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f
+        };
+        using var font = new SKFont(SKTypeface.Default, 14f);
+        using var text = SKTextBlob.Create("Avalonia", font) ??
+            throw new InvalidOperationException("Text must produce a retained blob.");
+        using var builder = new SKPathBuilder();
+        builder.MoveTo(2f, 3f);
+        builder.QuadTo(18f, 1f, 30f, 20f);
+        builder.CubicTo(38f, 31f, 47f, 4f, 60f, 28f);
+        builder.Close();
+        using var path = builder.Detach();
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var offset = (index & 7) * 0.25f;
+            canvas.Save();
+            canvas.Translate(offset, -offset);
+            canvas.ClipRect(new SKRect(0f, 0f, 92f, 92f));
+            canvas.DrawRect(new SKRect(1f, 2f, 31f, 25f), fillPaint);
+            canvas.DrawPath(path, strokePaint);
+            canvas.DrawText(text, 4f, 48f, fillPaint);
+            canvas.DrawImage(
+                image,
+                new SKRect(0f, 0f, 64f, 64f),
+                new SKRect(40f, 8f, 72f, 40f),
+                SKSamplingOptions.Default,
+                fillPaint);
+            canvas.Restore();
+            checksum = Mix(checksum, BitConverter.SingleToUInt32Bits(offset));
+        }
+
+        using var picture = recorder.EndRecording();
+        checksum = Mix(
+            checksum,
+            BitConverter.SingleToUInt32Bits(picture.CullRect.Width));
+        return Mix(
+            checksum,
+            BitConverter.SingleToUInt32Bits(picture.CullRect.Height));
     }
 
     private static ulong RunImageBoundedSubset(int operations)

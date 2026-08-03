@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "capturedUtc": "2026-08-03T08:47:32.381402+00:00",
+  "durationSeconds": 6,
+  "windowSeconds": null,
+  "targetMode": "launch",
+  "target": "/Users/wieslawsoltes/.dotnet/dotnet",
+  "arguments": [
+    "tools/ProGPU.SkiaSharp.Benchmarks/bin/Release/net10.0/ProGPU.SkiaSharp.Benchmarks.dll",
+    "run",
+    "--backend",
+    "ProGPU",
+    "--case",
+    "avalonia-mixed-picture-recording",
+    "--warmup",
+    "4",
+    "--samples",
+    "8",
+    "--operations",
+    "16384",
+    "--output",
+    "/private/tmp/progpu-candidate-time.json",
+    "--commit",
+    "d22fcef3",
+    "--dirty",
+    "clean"
+  ],
+  "environmentVariableNames": [],
+  "cleanupTraces": true,
+  "cleanupExports": true,
+  "allocationDetails": false,
+  "summary": {
+    "json": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/instruments-summary.json",
+    "markdown": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/instruments-summary.md",
+    "resourceCount": 0,
+    "maximumCurrentAllocatedBytes": 0,
+    "nativeHeapAndAnonymousVmPersistentBytes": 0
+  },
+  "captures": [
+    {
+      "Key": "time",
+      "Template": "Time Profiler",
+      "TracePath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time.trace",
+      "TableOfContentsPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-toc.xml",
+      "LogPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time.log",
+      "TargetOutputPath": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-target.log",
+      "RecordExitCode": 0,
+      "Exports": [
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-time-profile.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-time-sample.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-potential-hangs.xml",
+        "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/performance/skiasharp-avalonia-hotpaths-final/candidate-time/time-hang-risks.xml"
+      ],
+      "TraceRetained": false,
+      "DeletedTraceBytes": 6481813,
+      "ExportsRetained": false,
+      "DeletedExportBytes": 1515240,
+      "DeletedTemporaryBytes": 22046278
+    }
+  ]
+}

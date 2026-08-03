@@ -33,11 +33,11 @@ public partial class SKPicture : SKObject
         var picture = Picture;
         if (!includeNested)
         {
-            return picture.Commands.Length;
+            return picture.RetainedCommands.Length;
         }
 
         long count = 0;
-        foreach (var command in picture.Commands)
+        foreach (var command in picture.RetainedCommands)
         {
             count += command.Type == RenderCommandType.DrawPicture && command.Picture is { } nested
                 ? GetApproximateOperationCount(nested, includeNested: true)
@@ -112,11 +112,11 @@ public partial class SKPicture : SKObject
     {
         if (!includeNested)
         {
-            return picture.Commands.Length;
+            return picture.RetainedCommands.Length;
         }
 
         long count = 0;
-        foreach (var command in picture.Commands)
+        foreach (var command in picture.RetainedCommands)
         {
             count += command.Type == RenderCommandType.DrawPicture && command.Picture is { } nested
                 ? GetApproximateOperationCount(nested, includeNested: true)
@@ -133,13 +133,15 @@ public partial class SKPicture : SKObject
     private static int GetApproximateBytesUsed(GpuPicture picture)
     {
         long bytes = 24;
-        bytes += (long)picture.Commands.Length * System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>();
+        bytes += picture.CommandStorageBytes;
         bytes += (long)picture.PointBuffer.Length * sizeof(float) * 2;
         bytes += (long)picture.DoubleBuffer.Length * sizeof(double);
         bytes += (long)picture.Line3DBuffer.Length * sizeof(float) * 6;
         bytes += (long)picture.FloatBuffer.Length * sizeof(float);
+        bytes += (long)picture.ImageEffectCount *
+            System.Runtime.CompilerServices.Unsafe.SizeOf<ImageEffectCommandData>();
 
-        foreach (var command in picture.Commands)
+        foreach (var command in picture.RetainedCommands)
         {
             bytes += (long)(command.Text?.Length ?? 0) * sizeof(char);
             bytes += (long)(command.PolylinePoints?.Length ?? 0) * sizeof(float) * 2;
@@ -221,7 +223,7 @@ public class SKPictureRecorder : SKObject
     {
         var recorder = _recorder ?? throw new InvalidOperationException("No picture recording is active.");
         var gpuPicture = recorder.EndRecording();
-        var cullRect = gpuPicture.Commands.Length == 0 ? SKRect.Empty : _cullRect;
+        var cullRect = gpuPicture.RetainedCommands.Length == 0 ? SKRect.Empty : _cullRect;
         var picture = new SKPicture(gpuPicture, cullRect);
         _recorder = null;
         _canvas = null;

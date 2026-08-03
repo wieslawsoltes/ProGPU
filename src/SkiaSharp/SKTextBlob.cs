@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Threading;
 
 #nullable disable
@@ -6,8 +7,9 @@ using System.Threading;
 
 namespace SkiaSharp;
 
-internal readonly struct SKTextBlobRun
+internal struct SKTextBlobRun
 {
+    private Vector2[]? _retainedGlyphPositions;
     public SKFont Font { get; }
     public ushort[] GlyphIndices { get; }
     public SKPoint[] GlyphPositions { get; }
@@ -28,6 +30,36 @@ internal readonly struct SKTextBlobRun
         GlyphIndices = glyphIndices;
         GlyphPositions = glyphPositions;
         RotationScaleMatrices = rotationScaleMatrices;
+        _retainedGlyphPositions = null;
+    }
+
+    // The first retained draw converts O(G) positions once; subsequent draws
+    // reuse the exact array in O(1) time with no glyph-count-dependent allocation.
+    public Vector2[] GetRetainedGlyphPositions()
+    {
+        if (RotationScaleMatrices is not null || GlyphPositions.Length == 0)
+        {
+            return [];
+        }
+
+        Vector2[]? cached = Volatile.Read(ref _retainedGlyphPositions);
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var converted = new Vector2[GlyphPositions.Length];
+        for (int index = 0; index < converted.Length; index++)
+        {
+            converted[index] = new Vector2(
+                GlyphPositions[index].X,
+                GlyphPositions[index].Y);
+        }
+
+        return Interlocked.CompareExchange(
+            ref _retainedGlyphPositions,
+            converted,
+            null) ?? converted;
     }
 }
 
