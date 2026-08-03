@@ -68,6 +68,42 @@ public sealed class SkBlenderCompatibilityTests
     }
 
     [Fact]
+    public void ReusedPaintBlendModeStateIsAllocationFreeUntilBlenderIsObserved()
+    {
+        using var paint = new SKPaint();
+        _ = CycleBlendModeState(paint, 1);
+
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        var checksum = CycleBlendModeState(paint, 10_000);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.NotEqual(0u, checksum);
+        Assert.Equal(0, allocated);
+
+        paint.BlendMode = SKBlendMode.DstIn;
+        Assert.NotNull(paint.Blender);
+        Assert.Equal(SKBlendMode.DstIn, paint.BlendMode);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => paint.BlendMode = (SKBlendMode)(-1));
+    }
+
+    private static uint CycleBlendModeState(SKPaint paint, int count)
+    {
+        var checksum = 2166136261u;
+        for (var index = 0; index < count; index++)
+        {
+            paint.BlendMode = (index & 1) == 0
+                ? SKBlendMode.DstIn
+                : SKBlendMode.Src;
+            checksum = (checksum ^ (uint)paint.BlendMode) * 16777619u;
+            paint.Reset();
+            checksum = (checksum ^ (uint)paint.BlendMode) * 16777619u;
+        }
+
+        return checksum;
+    }
+
+    [Fact]
     public void BuiltInBlenderRecordsExistingGpuBlendScope()
     {
         using var recorder = new SKPictureRecorder();

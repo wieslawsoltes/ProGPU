@@ -3041,7 +3041,7 @@ public class SKCanvas : SKObject
 
     private bool PushPaintBlendMode(SKPaint? paint)
     {
-        if (paint?.Blender?.IsArithmetic == true)
+        if (paint?.HasArithmeticBlender == true)
         {
             throw new NotSupportedException(
                 "Arithmetic SKBlender rendering requires destination-sampling compositor support.");

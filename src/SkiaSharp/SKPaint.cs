@@ -21,6 +21,7 @@ public partial class SKPaint : SKObject
     private const float HairlineStrokeWidth = 1f;
     private SKShader? _shader;
     private SKBlender? _blender;
+    private SKBlendMode _blendMode = SKBlendMode.SrcOver;
     private SKPathEffect? _pathEffect;
     private float _strokeWidth;
 
@@ -82,18 +83,39 @@ public partial class SKPaint : SKObject
     }
     public SKBlender? Blender
     {
-        get => _blender;
-        set => _blender = value;
+        get
+        {
+            if (_blender == null && _blendMode != SKBlendMode.SrcOver)
+            {
+                _blender = SKBlender.CreateBlendMode(_blendMode);
+            }
+
+            return _blender;
+        }
+        set
+        {
+            _blender = value;
+            _blendMode = value != null && value.TryGetBlendMode(out var mode)
+                ? mode
+                : SKBlendMode.SrcOver;
+        }
     }
     public SKBlendMode BlendMode
     {
-        get => Blender != null && Blender.TryGetBlendMode(out var mode)
-            ? mode
-            : SKBlendMode.SrcOver;
-        set => Blender = value == SKBlendMode.SrcOver
-            ? null
-            : SKBlender.CreateBlendMode(value);
+        get => _blendMode;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            _blendMode = value;
+            _blender = null;
+        }
     }
+
+    internal bool HasArithmeticBlender => _blender?.IsArithmetic == true;
     public bool IsAntialias
     {
         get => _isAntialias;
@@ -130,11 +152,12 @@ public partial class SKPaint : SKObject
             ColorFilter = ColorFilter,
             ImageFilter = ImageFilter,
             PathEffect = PathEffect,
-            Blender = Blender,
             IsAntialias = IsAntialias,
             IsDither = IsDither,
             MaskFilter = MaskFilter,
         };
+        clone._blender = _blender;
+        clone._blendMode = _blendMode;
         clone.CopyLegacyTextStateFrom(this);
         return clone;
     }
