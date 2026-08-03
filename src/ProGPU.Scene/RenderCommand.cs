@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -1018,10 +1020,29 @@ public class GpuPictureRecorder
 
         return result;
     }
+
+    private static RenderCommand[] CopyList(RenderCommandList values)
+    {
+        if (values.Count == 0)
+        {
+            return Array.Empty<RenderCommand>();
+        }
+
+        var result = new RenderCommand[values.Count];
+        values.AsSpan().CopyTo(result);
+        return result;
+    }
 }
 
-public sealed class RenderCommandList : List<RenderCommand>
+public sealed class RenderCommandList :
+    IList<RenderCommand>,
+    IReadOnlyList<RenderCommand>
 {
+    private const int DefaultCapacity = 4;
+    private const int RetainedCapacityLimit = 256;
+    private RenderCommand[] _items = Array.Empty<RenderCommand>();
+    private int _count;
+    private bool _pooled;
     private readonly DrawingContext? _owner;
     internal Func<int, bool>? CommandInterceptor;
     internal event Action<int>? CommandAdded;
@@ -1035,25 +1056,401 @@ public sealed class RenderCommandList : List<RenderCommand>
         _owner = owner;
     }
 
-    public new void Add(RenderCommand command)
+    public int Count => _count;
+
+    public bool IsReadOnly => false;
+
+    public int Capacity
     {
-        base.Add(command);
+        get => _items.Length;
+        set
+        {
+            if (value < _count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            if (value == _items.Length)
+            {
+                return;
+            }
+
+            if (value == 0)
+            {
+                ReplaceStorage(Array.Empty<RenderCommand>(), pooled: false);
+                return;
+            }
+
+            var replacement = new RenderCommand[value];
+            AsSpan().CopyTo(replacement);
+            ReplaceStorage(replacement, pooled: false);
+        }
+    }
+
+    public RenderCommand this[int index]
+    {
+        get
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+                (uint)index,
+                (uint)_count,
+                nameof(index));
+            return _items[index];
+        }
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+                (uint)index,
+                (uint)_count,
+                nameof(index));
+            _items[index] = value;
+        }
+    }
+
+    public RenderCommand this[Index index]
+    {
+        get => this[index.GetOffset(_count)];
+        set => this[index.GetOffset(_count)] = value;
+    }
+
+    public void Add(RenderCommand command)
+    {
+        EnsureCapacity(checked(_count + 1));
+        int index = _count;
+        _items[index] = command;
+        _count = index + 1;
         var interceptor = CommandInterceptor;
         if (interceptor is not null &&
             (command.Brush is IRetainedCommandInterceptBrush ||
              command.Pen?.Brush is IRetainedCommandInterceptBrush) &&
-            interceptor(Count - 1))
+            interceptor(index))
         {
             return;
         }
 
-        CommandAdded?.Invoke(Count - 1);
+        CommandAdded?.Invoke(index);
     }
 
-    public new void Clear()
+    public void AddRange(IEnumerable<RenderCommand> commands)
     {
-        base.Clear();
+        ArgumentNullException.ThrowIfNull(commands);
+        if (commands is RenderCommandList commandList)
+        {
+            AddRange(commandList);
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            commands = ToArray();
+        }
+
+        if (commands is ICollection<RenderCommand> collection)
+        {
+            EnsureCapacity(checked(_count + collection.Count));
+        }
+
+        foreach (RenderCommand command in commands)
+        {
+            EnsureCapacity(checked(_count + 1));
+            _items[_count++] = command;
+        }
+    }
+
+    public void AddRange(RenderCommandList commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        if (commands._count == 0)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            RenderCommand[] snapshot = ToArray();
+            AddRange(snapshot);
+            return;
+        }
+
+        EnsureCapacity(checked(_count + commands._count));
+        commands.AsSpan().CopyTo(_items.AsSpan(_count));
+        _count += commands._count;
+    }
+
+    public void Clear()
+    {
+        if (_count != 0)
+        {
+            Array.Clear(_items, 0, _count);
+            _count = 0;
+        }
+
+        if (_pooled && _items.Length > RetainedCapacityLimit)
+        {
+            ReturnPooledStorage();
+        }
+
         _owner?.ClearCommandSideBuffers();
+    }
+
+    public bool Contains(RenderCommand command) => IndexOf(command) >= 0;
+
+    public void CopyTo(RenderCommand[] array, int arrayIndex) =>
+        AsSpan().CopyTo(array.AsSpan(arrayIndex));
+
+    public bool Exists(Predicate<RenderCommand> match) =>
+        FindIndex(match) >= 0;
+
+    public int FindIndex(Predicate<RenderCommand> match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        for (int index = 0; index < _count; index++)
+        {
+            if (match(_items[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    public int IndexOf(RenderCommand command) =>
+        Array.IndexOf(_items, command, 0, _count);
+
+    public void Insert(int index, RenderCommand command)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        EnsureCapacity(checked(_count + 1));
+        if (index < _count)
+        {
+            Array.Copy(_items, index, _items, index + 1, _count - index);
+        }
+
+        _items[index] = command;
+        _count++;
+    }
+
+    public void InsertRange(int index, IEnumerable<RenderCommand> commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        if (commands is RenderCommandList commandList &&
+            !ReferenceEquals(commandList, this))
+        {
+            InsertRange(index, commandList);
+            return;
+        }
+
+        var insertionList = new List<RenderCommand>();
+        insertionList.AddRange(commands);
+        RenderCommand[] insertion = insertionList.ToArray();
+        if (insertion.Length == 0)
+        {
+            return;
+        }
+
+        EnsureCapacity(checked(_count + insertion.Length));
+        Array.Copy(
+            _items,
+            index,
+            _items,
+            index + insertion.Length,
+            _count - index);
+        insertion.CopyTo(_items, index);
+        _count += insertion.Length;
+    }
+
+    public void InsertRange(int index, RenderCommandList commands)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        if (commands._count == 0)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(commands, this))
+        {
+            InsertRange(index, (IEnumerable<RenderCommand>)ToArray());
+            return;
+        }
+
+        EnsureCapacity(checked(_count + commands._count));
+        Array.Copy(
+            _items,
+            index,
+            _items,
+            index + commands._count,
+            _count - index);
+        commands.AsSpan().CopyTo(_items.AsSpan(index));
+        _count += commands._count;
+    }
+
+    public bool Remove(RenderCommand command)
+    {
+        int index = IndexOf(command);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        RemoveAt(index);
+        return true;
+    }
+
+    public void RemoveAt(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            (uint)index,
+            (uint)_count,
+            nameof(index));
+        int moved = _count - index - 1;
+        if (moved != 0)
+        {
+            Array.Copy(_items, index + 1, _items, index, moved);
+        }
+
+        _count--;
+        _items[_count] = default;
+    }
+
+    public void RemoveRange(int index, int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (_count - index < count)
+        {
+            throw new ArgumentException("The range exceeds the command count.");
+        }
+
+        if (count == 0)
+        {
+            return;
+        }
+
+        int moved = _count - index - count;
+        if (moved != 0)
+        {
+            Array.Copy(_items, index + count, _items, index, moved);
+        }
+
+        Array.Clear(_items, _count - count, count);
+        _count -= count;
+    }
+
+    public int EnsureCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        if (_items.Length >= capacity)
+        {
+            return _items.Length;
+        }
+
+        int nextCapacity = _items.Length == 0
+            ? DefaultCapacity
+            : checked(_items.Length * 2);
+        if ((uint)nextCapacity > 0X7FEFFFFF)
+        {
+            nextCapacity = 0X7FEFFFFF;
+        }
+
+        if (nextCapacity < capacity)
+        {
+            nextCapacity = capacity;
+        }
+
+        RenderCommand[] replacement =
+            ArrayPool<RenderCommand>.Shared.Rent(nextCapacity);
+        AsSpan().CopyTo(replacement);
+        ReplaceStorage(replacement, pooled: true);
+        return _items.Length;
+    }
+
+    public Span<RenderCommand> AsSpan() => _items.AsSpan(0, _count);
+
+    public RenderCommand[] ToArray()
+    {
+        if (_count == 0)
+        {
+            return Array.Empty<RenderCommand>();
+        }
+
+        var result = new RenderCommand[_count];
+        AsSpan().CopyTo(result);
+        return result;
+    }
+
+    public Enumerator GetEnumerator() => new(_items, _count);
+
+    IEnumerator<RenderCommand> IEnumerable<RenderCommand>.GetEnumerator() =>
+        GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private void ReplaceStorage(RenderCommand[] replacement, bool pooled)
+    {
+        RenderCommand[] previous = _items;
+        bool previousPooled = _pooled;
+        _items = replacement;
+        _pooled = pooled;
+        if (previousPooled)
+        {
+            ArrayPool<RenderCommand>.Shared.Return(previous, clearArray: true);
+        }
+    }
+
+    private void ReturnPooledStorage()
+    {
+        RenderCommand[] previous = _items;
+        _items = Array.Empty<RenderCommand>();
+        _pooled = false;
+        ArrayPool<RenderCommand>.Shared.Return(previous, clearArray: true);
+    }
+
+    public struct Enumerator : IEnumerator<RenderCommand>
+    {
+        private readonly RenderCommand[] _items;
+        private readonly int _count;
+        private int _index;
+
+        internal Enumerator(RenderCommand[] items, int count)
+        {
+            _items = items;
+            _count = count;
+            _index = -1;
+        }
+
+        public RenderCommand Current => _items[_index];
+
+        object IEnumerator.Current => Current;
+
+        public bool MoveNext()
+        {
+            int next = _index + 1;
+            if (next >= _count)
+            {
+                return false;
+            }
+
+            _index = next;
+            return true;
+        }
+
+        public void Reset() => _index = -1;
+
+        public void Dispose()
+        {
+        }
     }
 }
 

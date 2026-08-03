@@ -15278,7 +15278,14 @@ SceneStateUploadComplete:
         }
     }
 
-    public DxfStaticBuffer CompileStaticDxf(List<RenderCommand> commands, float staticZoom = 1.0f)
+    public DxfStaticBuffer CompileStaticDxf(
+        List<RenderCommand> commands,
+        float staticZoom = 1.0f) =>
+        CompileStaticDxfCore(commands, staticZoom);
+
+    private DxfStaticBuffer CompileStaticDxfCore(
+        IReadOnlyList<RenderCommand> commands,
+        float staticZoom)
     {
         // Save current lists and states
         var dxfSavedVectorVertices = RentListSnapshot(_vectorVerticesList, out var dxfSavedVectorVerticesCount);

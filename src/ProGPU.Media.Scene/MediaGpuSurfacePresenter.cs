@@ -312,7 +312,7 @@ public sealed class MediaGpuSurfacePresenter : IDisposable
             return true;
         }
 
-        List<RenderCommand> commands = context.Commands;
+        RenderCommandList commands = context.Commands;
         for (int index = startIndex;
              index < commands.Count;
              index++)

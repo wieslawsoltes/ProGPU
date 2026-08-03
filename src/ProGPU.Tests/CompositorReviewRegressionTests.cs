@@ -157,6 +157,50 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void LargeTransientCommandCapacityReturnsToPoolOnClear()
+    {
+        var context = new DrawingContext();
+        context.EnsureCommandCapacity(257);
+        for (int index = 0; index < 257; index++)
+        {
+            context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawRect,
+                Rect = new Rect(index, 0, 1, 1)
+            });
+        }
+
+        Assert.True(context.Commands.Capacity >= 257);
+        Assert.Equal(256f, context.Commands[^1].Rect.X);
+
+        context.Clear();
+
+        Assert.Empty(context.Commands);
+        Assert.Equal(0, context.Commands.Capacity);
+    }
+
+    [Fact]
+    public void CommandRangeOperationsPreserveOrderAndClearRemovedSlots()
+    {
+        var source = new RenderCommandList();
+        source.Add(new RenderCommand { Rect = new Rect(2, 0, 1, 1) });
+        source.Add(new RenderCommand { Rect = new Rect(3, 0, 1, 1) });
+
+        var commands = new RenderCommandList();
+        commands.Add(new RenderCommand { Rect = new Rect(1, 0, 1, 1) });
+        commands.AddRange(source);
+        commands.InsertRange(0, source);
+        commands.RemoveRange(1, 2);
+        commands.Insert(1, new RenderCommand { Rect = new Rect(4, 0, 1, 1) });
+        commands.RemoveAt(2);
+
+        Assert.Equal(3, commands.Count);
+        Assert.Equal([2f, 4f, 3f], commands.Select(command => command.Rect.X));
+        Assert.Equal(1, commands.FindIndex(command => command.Rect.X == 4f));
+        Assert.True(commands.Exists(command => command.Rect.X == 3f));
+    }
+
+    [Fact]
     public void SkRectUnionIncludesEmptyOriginInCoordinateEnvelope()
     {
         var bounds = SKRect.Empty;
