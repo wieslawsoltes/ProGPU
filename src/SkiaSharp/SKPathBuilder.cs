@@ -1,5 +1,7 @@
 #pragma warning disable CS0618 // The builder delegates to the shim's official legacy SKPath contract.
 
+using System.Runtime.CompilerServices;
+
 namespace SkiaSharp;
 
 public class SKPathBuilder : SKObject
@@ -11,7 +13,7 @@ public class SKPathBuilder : SKObject
     public SKPathBuilder()
         : base(SKObjectHandle.Create(), owns: true)
     {
-        _packedPath = PackedPathData.Rent();
+        _packedPath = PackedPathData.Rent(trackTightBounds: false);
     }
 
     public SKPathBuilder(SKPath path)
@@ -48,6 +50,7 @@ public class SKPathBuilder : SKObject
         previous?.Dispose();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public SKPath Detach()
     {
         SKPath path;
@@ -84,15 +87,20 @@ public class SKPathBuilder : SKObject
 
     public void MoveTo(SKPoint point) => MoveTo(point.X, point.Y);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void MoveTo(float x, float y)
     {
-        if (_path is not null)
+        if (_packedPath is { } packed)
         {
-            _path.MoveTo(x, y);
+            packed.MoveToBoundsOnly(x, y);
+        }
+        else if (_path is { } path)
+        {
+            path.MoveTo(x, y);
         }
         else
         {
-            EnsurePackedPath().MoveTo(x, y);
+            EnsurePackedPath().MoveToBoundsOnly(x, y);
         }
     }
 
@@ -112,15 +120,20 @@ public class SKPathBuilder : SKObject
 
     public void LineTo(SKPoint point) => LineTo(point.X, point.Y);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void LineTo(float x, float y)
     {
-        if (_path is not null)
+        if (_packedPath is { } packed)
         {
-            _path.LineTo(x, y);
+            packed.LineToBoundsOnly(x, y);
+        }
+        else if (_path is { } path)
+        {
+            path.LineTo(x, y);
         }
         else
         {
-            EnsurePackedPath().LineTo(x, y);
+            EnsurePackedPath().LineToBoundsOnly(x, y);
         }
     }
 
@@ -141,15 +154,20 @@ public class SKPathBuilder : SKObject
     public void QuadTo(SKPoint point0, SKPoint point1) =>
         QuadTo(point0.X, point0.Y, point1.X, point1.Y);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void QuadTo(float x0, float y0, float x1, float y1)
     {
-        if (_path is not null)
+        if (_packedPath is { } packed)
         {
-            _path.QuadTo(x0, y0, x1, y1);
+            packed.QuadToBoundsOnly(x0, y0, x1, y1);
+        }
+        else if (_path is { } path)
+        {
+            path.QuadTo(x0, y0, x1, y1);
         }
         else
         {
-            EnsurePackedPath().QuadTo(x0, y0, x1, y1);
+            EnsurePackedPath().QuadToBoundsOnly(x0, y0, x1, y1);
         }
     }
 
@@ -187,15 +205,20 @@ public class SKPathBuilder : SKObject
     public void CubicTo(SKPoint point0, SKPoint point1, SKPoint point2) =>
         CubicTo(point0.X, point0.Y, point1.X, point1.Y, point2.X, point2.Y);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void CubicTo(float x0, float y0, float x1, float y1, float x2, float y2)
     {
-        if (_path is not null)
+        if (_packedPath is { } packed)
         {
-            _path.CubicTo(x0, y0, x1, y1, x2, y2);
+            packed.CubicToBoundsOnly(x0, y0, x1, y1, x2, y2);
+        }
+        else if (_path is { } path)
+        {
+            path.CubicTo(x0, y0, x1, y1, x2, y2);
         }
         else
         {
-            EnsurePackedPath().CubicTo(x0, y0, x1, y1, x2, y2);
+            EnsurePackedPath().CubicToBoundsOnly(x0, y0, x1, y1, x2, y2);
         }
     }
 
@@ -255,11 +278,16 @@ public class SKPathBuilder : SKObject
         float y) =>
         GetMutablePath().RArcTo(rx, ry, xAxisRotate, largeArc, sweep, x, y);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Close()
     {
-        if (_path is not null)
+        if (_packedPath is { } packed)
         {
-            _path.Close();
+            packed.Close();
+        }
+        else if (_path is { } path)
+        {
+            path.Close();
         }
         else
         {
@@ -316,9 +344,11 @@ public class SKPathBuilder : SKObject
 
     public void ReverseAddPath(SKPath other) => GetMutablePath().AddPathReverse(other);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private PackedPathData EnsurePackedPath() =>
-        _packedPath ??= PackedPathData.Rent();
+        _packedPath ??= PackedPathData.Rent(trackTightBounds: false);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private PackedPathData TakePackedPath()
     {
         var packedPath = EnsurePackedPath();

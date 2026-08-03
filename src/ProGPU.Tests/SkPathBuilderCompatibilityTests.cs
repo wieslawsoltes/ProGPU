@@ -8,6 +8,19 @@ namespace ProGPU.Tests;
 public sealed class SkPathBuilderCompatibilityTests
 {
     [Fact]
+    public void DetachedPackedBuilderComputesTightBoundsOnlyWhenRequested()
+    {
+        using var builder = new SKPathBuilder();
+        builder.MoveTo(0f, 0f);
+        builder.QuadTo(10f, 100f, 20f, 0f);
+        using var path = builder.Detach();
+
+        Assert.Equal(new SKRect(0f, 0f, 20f, 100f), path.Bounds);
+        Assert.Equal(new SKRect(0f, 0f, 20f, 50f), path.TightBounds);
+        Assert.Equal(new SKRect(0f, 0f, 20f, 50f), path.TightBounds);
+    }
+
+    [Fact]
     public void PackedDetachAndBoundsStayBoundedIndependentOfSegmentCount()
     {
         static (long AllocatedBytes, SKRect Bounds) Measure(int segmentCount)

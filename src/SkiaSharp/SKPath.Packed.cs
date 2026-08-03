@@ -240,6 +240,7 @@ internal sealed class PackedPathData : IDisposable
     private bool _hasOpenFigure;
     private bool _figureHasSegments;
     private bool _hasBounds;
+    private bool _trackTightBounds;
     private int _isRented;
 
     private PackedPathData()
@@ -251,7 +252,7 @@ internal sealed class PackedPathData : IDisposable
     public Vector2 CurrentPoint => _currentPoint;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static PackedPathData Rent()
+    public static PackedPathData Rent(bool trackTightBounds = true)
     {
         var data = s_threadCache;
         if (data is null)
@@ -263,6 +264,7 @@ internal sealed class PackedPathData : IDisposable
             s_threadCache = null;
         }
 
+        data._trackTightBounds = trackTightBounds;
         Volatile.Write(ref data._isRented, 1);
         return data;
     }
@@ -287,7 +289,32 @@ internal sealed class PackedPathData : IDisposable
         _hasOpenFigure = true;
         _figureHasSegments = false;
         IncludeBounds(point);
-        _tightBounds.Include(point);
+        if (_trackTightBounds)
+        {
+            _tightBounds.Include(point);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void MoveToBoundsOnly(float x, float y)
+    {
+        var point = new Vector2(x, y);
+        if (_hasOpenFigure && !_figureHasSegments &&
+            _count > 0 && Commands[_count - 1].Kind == PackedPathCommandKind.Move)
+        {
+            Commands[_count - 1] = new PackedPathCommand(PackedPathCommandKind.Move, point);
+            RecalculateBounds();
+        }
+        else
+        {
+            Append(new PackedPathCommand(PackedPathCommandKind.Move, point));
+        }
+
+        _currentPoint = point;
+        _contourStart = point;
+        _hasOpenFigure = true;
+        _figureHasSegments = false;
+        IncludeBounds(point);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -299,7 +326,21 @@ internal sealed class PackedPathData : IDisposable
         _currentPoint = point;
         _figureHasSegments = true;
         IncludeBounds(point);
-        _tightBounds.Include(point);
+        if (_trackTightBounds)
+        {
+            _tightBounds.Include(point);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void LineToBoundsOnly(float x, float y)
+    {
+        EnsureFigureBoundsOnly();
+        var point = new Vector2(x, y);
+        Append(new PackedPathCommand(PackedPathCommandKind.Line, point));
+        _currentPoint = point;
+        _figureHasSegments = true;
+        IncludeBounds(point);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -311,16 +352,35 @@ internal sealed class PackedPathData : IDisposable
             PackedPathCommandKind.Quadratic,
             new Vector2(x0, y0),
             point));
-        SKPathTightBounds.IncludeQuadratic(
-            ref _tightBounds,
-            _currentPoint,
-            new Vector2(x0, y0),
-            point);
+        if (_trackTightBounds)
+        {
+            SKPathTightBounds.IncludeQuadratic(
+                ref _tightBounds,
+                _currentPoint,
+                new Vector2(x0, y0),
+                point);
+        }
         _currentPoint = point;
         _figureHasSegments = true;
         IncludeBounds(new Vector2(x0, y0));
         IncludeBounds(point);
-        _tightBounds.Include(point);
+        if (_trackTightBounds)
+        {
+            _tightBounds.Include(point);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void QuadToBoundsOnly(float x0, float y0, float x1, float y1)
+    {
+        EnsureFigureBoundsOnly();
+        var control = new Vector2(x0, y0);
+        var point = new Vector2(x1, y1);
+        Append(new PackedPathCommand(PackedPathCommandKind.Quadratic, control, point));
+        _currentPoint = point;
+        _figureHasSegments = true;
+        IncludeBounds(control);
+        IncludeBounds(point);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -333,18 +393,43 @@ internal sealed class PackedPathData : IDisposable
             new Vector2(x0, y0),
             new Vector2(x1, y1),
             point));
-        SKPathTightBounds.IncludeCubic(
-            ref _tightBounds,
-            _currentPoint,
-            new Vector2(x0, y0),
-            new Vector2(x1, y1),
-            point);
+        if (_trackTightBounds)
+        {
+            SKPathTightBounds.IncludeCubic(
+                ref _tightBounds,
+                _currentPoint,
+                new Vector2(x0, y0),
+                new Vector2(x1, y1),
+                point);
+        }
         _currentPoint = point;
         _figureHasSegments = true;
         IncludeBounds(new Vector2(x0, y0));
         IncludeBounds(new Vector2(x1, y1));
         IncludeBounds(point);
-        _tightBounds.Include(point);
+        if (_trackTightBounds)
+        {
+            _tightBounds.Include(point);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void CubicToBoundsOnly(float x0, float y0, float x1, float y1, float x2, float y2)
+    {
+        EnsureFigureBoundsOnly();
+        var firstControl = new Vector2(x0, y0);
+        var secondControl = new Vector2(x1, y1);
+        var point = new Vector2(x2, y2);
+        Append(new PackedPathCommand(
+            PackedPathCommandKind.Cubic,
+            firstControl,
+            secondControl,
+            point));
+        _currentPoint = point;
+        _figureHasSegments = true;
+        IncludeBounds(firstControl);
+        IncludeBounds(secondControl);
+        IncludeBounds(point);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -376,7 +461,7 @@ internal sealed class PackedPathData : IDisposable
 
     public PackedPathData Clone()
     {
-        var clone = Rent();
+        var clone = Rent(_trackTightBounds);
         clone._count = _count;
         clone._currentPoint = _currentPoint;
         clone._contourStart = _contourStart;
@@ -404,7 +489,49 @@ internal sealed class PackedPathData : IDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public SKRect CalculateTightBounds() => _tightBounds.ToRect();
+    public SKRect CalculateTightBounds()
+    {
+        if (_trackTightBounds)
+        {
+            return _tightBounds.ToRect();
+        }
+
+        var bounds = new SKPathBoundsAccumulator();
+        var current = Vector2.Zero;
+        for (var index = 0; index < _count; index++)
+        {
+            ref readonly var command = ref Commands[index];
+            switch (command.Kind)
+            {
+                case PackedPathCommandKind.Move:
+                case PackedPathCommandKind.Line:
+                    current = command.Point0;
+                    bounds.Include(current);
+                    break;
+                case PackedPathCommandKind.Quadratic:
+                    SKPathTightBounds.IncludeQuadratic(
+                        ref bounds,
+                        current,
+                        command.Point0,
+                        command.Point1);
+                    current = command.Point1;
+                    bounds.Include(current);
+                    break;
+                case PackedPathCommandKind.Cubic:
+                    SKPathTightBounds.IncludeCubic(
+                        ref bounds,
+                        current,
+                        command.Point0,
+                        command.Point1,
+                        command.Point2);
+                    current = command.Point2;
+                    bounds.Include(current);
+                    break;
+            }
+        }
+
+        return bounds.ToRect();
+    }
 
     public PathGeometry Materialize(SKPathFillType fillType)
     {
@@ -488,6 +615,15 @@ internal sealed class PackedPathData : IDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void EnsureFigureBoundsOnly()
+    {
+        if (!_hasOpenFigure)
+        {
+            MoveToBoundsOnly(_currentPoint.X, _currentPoint.Y);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void IncludeBounds(Vector2 point)
     {
         if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
@@ -523,31 +659,46 @@ internal sealed class PackedPathData : IDisposable
                 case PackedPathCommandKind.Line:
                     current = command.Point0;
                     IncludeBounds(command.Point0);
-                    _tightBounds.Include(command.Point0);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(command.Point0);
+                    }
                     break;
                 case PackedPathCommandKind.Quadratic:
-                    SKPathTightBounds.IncludeQuadratic(
-                        ref _tightBounds,
-                        current,
-                        command.Point0,
-                        command.Point1);
+                    if (_trackTightBounds)
+                    {
+                        SKPathTightBounds.IncludeQuadratic(
+                            ref _tightBounds,
+                            current,
+                            command.Point0,
+                            command.Point1);
+                    }
                     current = command.Point1;
                     IncludeBounds(command.Point0);
                     IncludeBounds(command.Point1);
-                    _tightBounds.Include(command.Point1);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(command.Point1);
+                    }
                     break;
                 case PackedPathCommandKind.Cubic:
-                    SKPathTightBounds.IncludeCubic(
-                        ref _tightBounds,
-                        current,
-                        command.Point0,
-                        command.Point1,
-                        command.Point2);
+                    if (_trackTightBounds)
+                    {
+                        SKPathTightBounds.IncludeCubic(
+                            ref _tightBounds,
+                            current,
+                            command.Point0,
+                            command.Point1,
+                            command.Point2);
+                    }
                     current = command.Point2;
                     IncludeBounds(command.Point0);
                     IncludeBounds(command.Point1);
                     IncludeBounds(command.Point2);
-                    _tightBounds.Include(command.Point2);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(command.Point2);
+                    }
                     break;
             }
         }
