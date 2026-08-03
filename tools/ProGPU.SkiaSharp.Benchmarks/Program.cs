@@ -147,6 +147,10 @@ internal static class ProgramEntry
                 32,
                 RunAvaloniaSurfaceConversionReadback),
             new BenchmarkCase(
+                "avalonia-surface-direct-readback",
+                32,
+                RunAvaloniaSurfaceDirectReadback),
+            new BenchmarkCase(
                 "avalonia-writeable-bitmap-snapshot",
                 128,
                 RunAvaloniaWriteableBitmapSnapshot),
@@ -517,6 +521,51 @@ internal static class ProgramEntry
                 {
                     throw new InvalidOperationException(
                         "The Avalonia conversion benchmark could not read its frame.");
+                }
+
+                checksum = Mix(checksum, destinationPixels[0]);
+                checksum = Mix(checksum, destinationPixels[1]);
+                checksum = Mix(checksum, destinationPixels[2]);
+                checksum = Mix(checksum, destinationPixels[3]);
+            }
+        }
+
+        return checksum;
+    }
+
+    private static unsafe ulong RunAvaloniaSurfaceDirectReadback(int operations)
+    {
+        const int width = 64;
+        const int height = 48;
+        var info = new SKImageInfo(
+            width,
+            height,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul);
+        var destinationPixels = new byte[checked(width * height * 4)];
+        ulong checksum = 1469598103934665603UL;
+        fixed (byte* destinationAddress = destinationPixels)
+        {
+            using var surface = SKSurface.Create(
+                info,
+                new SKSurfaceProperties(SKPixelGeometry.RgbHorizontal));
+            var canvas = surface.Canvas;
+            for (var index = 0; index < operations; index++)
+            {
+                canvas.Clear(new SKColor(
+                    (byte)(index * 13),
+                    (byte)(index * 7),
+                    (byte)(index * 5),
+                    255));
+                if (!surface.ReadPixels(
+                        info,
+                        (IntPtr)destinationAddress,
+                        info.RowBytes,
+                        0,
+                        0))
+                {
+                    throw new InvalidOperationException(
+                        "The direct surface-readback benchmark could not read its frame.");
                 }
 
                 checksum = Mix(checksum, destinationPixels[0]);

@@ -41,5 +41,7 @@ The Avalonia surface family mirrors its reusable render-target lifecycle: a
 surface is cleared and flushed for successive frames, one surface is composed
 into another through `SKSurface.Draw`, and the framebuffer conversion fallback
 snapshots a CPU-backed surface before reading it into the destination format.
+The family also measures repeated direct `SKSurface.ReadPixels` calls so staging
+buffer reuse is covered independently from snapshot ownership.
 Each workload validates the final or per-frame pixels so asynchronous submission
 or retained-content optimizations cannot silently omit rendering work.

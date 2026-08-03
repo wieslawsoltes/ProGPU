@@ -406,21 +406,9 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
             // If CPU-backed surface, read pixels back and copy to memory pointer
             if (copyToCpu && _pixels != IntPtr.Zero)
             {
-                int readbackByteCount = checked(_width * _height * 4);
-                if (_readbackPixels == null || _readbackPixels.Length != readbackByteCount)
-                {
-                    _readbackPixels = GC.AllocateUninitializedArray<byte>(readbackByteCount);
-                }
-                _readbackBuffer ??= new GpuTextureReadbackBuffer(_context!);
-                try
-                {
-                    _gpuTexture.ReadPixels(_readbackPixels, _readbackBuffer);
-                }
-                finally
-                {
-                    _context!.CleanupPendingResources();
-                }
-                CopyReadbackToCpu(_readbackPixels, cpuReadbackRegions);
+                CopyReadbackToCpu(
+                    ReadBackingTexturePixels(),
+                    cpuReadbackRegions);
             }
         }
         finally
@@ -429,6 +417,49 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
             _drawingContext.Clear();
             Canvas.ReleaseLayerTexturesAfterFlush();
         }
+    }
+
+    private byte[] ReadBackingTexturePixels()
+    {
+        var readbackByteCount = checked(_width * _height * 4);
+        if (_readbackPixels is null ||
+            _readbackPixels.Length != readbackByteCount)
+        {
+            _readbackPixels =
+                GC.AllocateUninitializedArray<byte>(readbackByteCount);
+        }
+
+        _readbackBuffer ??= new GpuTextureReadbackBuffer(_context!);
+        try
+        {
+            _gpuTexture!.ReadPixels(
+                _readbackPixels,
+                _readbackBuffer);
+        }
+        finally
+        {
+            _context!.CleanupPendingResources();
+        }
+
+        return _readbackPixels;
+    }
+
+    private SKImageInfo CreateBackingTextureReadbackInfo()
+    {
+        var colorType = _gpuTexture!.Format is
+            TextureFormat.Bgra8Unorm or TextureFormat.Bgra8UnormSrgb
+                ? SKColorType.Bgra8888
+                : SKColorType.Rgba8888;
+        var alphaType = _gpuTexture.AlphaMode ==
+            GpuTextureAlphaMode.Straight
+                ? SKAlphaType.Unpremul
+                : SKAlphaType.Premul;
+        return new SKImageInfo(
+            _width,
+            _height,
+            colorType,
+            alphaType,
+            _colorSpace);
     }
 
     void IGpuFramebufferPresenter.Present(WgpuContext context, IntPtr surfaceHandle)
