@@ -375,6 +375,44 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void PictureSaveLayerKeepsEarlierImageLeaseUntilMainFrameSubmission()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 24f, 24f));
+        using var bitmap = new SKBitmap(1, 1);
+        bitmap.SetPixel(0, 0, SKColors.Red);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var layerPaint = new SKPaint();
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Blue,
+            IsAntialias = false,
+        };
+
+        canvas.DrawImage(image, new SKRect(0f, 0f, 24f, 24f));
+        var restoreCount = canvas.SaveLayer(
+            new SKRect(4f, 4f, 20f, 20f),
+            layerPaint);
+        canvas.DrawRect(new SKRect(8f, 8f, 16f, 16f), fill);
+        canvas.RestoreToCount(restoreCount);
+        using var picture = recorder.EndRecording();
+        var retainedImageTexture = GetDrawTextureCommand(picture.Picture.Commands).Texture!;
+        Assert.False(retainedImageTexture.IsDisposed);
+        using var surface = SKSurface.Create(
+            new SKImageInfo(24, 24, SKColorType.Rgba8888, SKAlphaType.Premul));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.DrawPicture(picture);
+        surface.Flush();
+        Assert.False(retainedImageTexture.IsDisposed);
+
+        using var snapshot = surface.Snapshot();
+        var pixels = snapshot.Texture.ReadPixels();
+        AssertPixel(pixels, 24, 1, 1, SKColors.Red);
+        AssertPixel(pixels, 24, 12, 12, SKColors.Blue);
+    }
+
+    [Fact]
     public void RepeatedBlurLayersReuseCommandOrderedScratchAndSourceTextures()
     {
         var context = new DrawingContext();

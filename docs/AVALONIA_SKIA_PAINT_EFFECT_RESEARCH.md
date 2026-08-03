@@ -67,6 +67,15 @@ Adopted:
   clone or replay context is released. The common no-side-buffer path stores a
   compact command collection rather than a second general 560-byte command
   array.
+- Materializing an embedded cached layer during main-scene compilation remains
+  part of the enclosing frame transaction. The nested offscreen pass cannot
+  release picture image leases or advance frame-owned caches before the main
+  command buffer has submitted, preserving strict display-list ordering with
+  images recorded before `SaveLayer`.
+- Picture replay prepares retained layer render tasks before compiling ordered
+  draws. This keeps nested WebGPU submissions out of an already accumulated
+  texture stream while preserving the original image/layer composition order;
+  stable cached replay remains one texture draw per layer.
 - Common blur/drop-shadow values are inline in specialized filter objects.
   Four-value dashes use inline storage. Color tables deduplicate identical and
   identity channels while preserving an immutable caller snapshot.

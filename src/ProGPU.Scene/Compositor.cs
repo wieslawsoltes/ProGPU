@@ -5470,6 +5470,7 @@ SceneStateUploadComplete:
         if (picture == null) return;
         var pictureStrokeScale = TransformMetrics.GetStrokeScale(globalTransform);
         var commands = picture.RetainedCommands;
+        PreparePictureLayerCaches(commands);
         for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)
         {
             var cmd = commands[commandIndex];
@@ -5703,6 +5704,27 @@ SceneStateUploadComplete:
 
             _useGpuTransformsActive = savedUseGpuTransformsActive;
             _cameraViewMatrix = savedCameraViewMatrix;
+        }
+    }
+
+    private void PreparePictureLayerCaches(
+        GpuPictureCommandCollection commands)
+    {
+        // Retained layer textures are render tasks, not ordered display-list
+        // draws. Materialize them before accumulating picture geometry so a
+        // nested offscreen submission never splits the main texture stream.
+        ReadOnlySpan<Visual> embeddedVisuals = commands.EmbeddedVisuals;
+        for (var visualIndex = 0;
+             visualIndex < embeddedVisuals.Length;
+             visualIndex++)
+        {
+            Visual visual = embeddedVisuals[visualIndex];
+            if (visual.CacheAsLayer &&
+                IsCacheAsLayerEnabled &&
+                !_elementsRenderingLayers.Contains(visual))
+            {
+                EnsureLayerTexture(visual);
+            }
         }
     }
 
@@ -13747,7 +13769,44 @@ SceneStateUploadComplete:
 
     private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform)
     {
-        if (node.Size.X <= 0f || node.Size.Y <= 0f) return;
+        if (!EnsureLayerTexture(node)) return;
+
+        float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
+        var controlRect = new Rect(Vector2.Zero, node.Size);
+        var compositeTransform = node.GetLocalTransform() * parentTransform;
+        if (node.LayerCacheSnapsToDevicePixels)
+        {
+            Vector2 topLeft = Vector2.Transform(
+                Vector2.Zero,
+                compositeTransform);
+            float physicalX = topLeft.X * dpiScale;
+            float physicalY = topLeft.Y * dpiScale;
+            var snap = new Vector2(
+                (physicalX - MathF.Floor(physicalX)) / dpiScale,
+                (physicalY - MathF.Floor(physicalY)) / dpiScale);
+            compositeTransform *= Matrix4x4.CreateTranslation(
+                -snap.X,
+                -snap.Y,
+                0f);
+        }
+        var compositeScope = PushVisualCompositeScope(node, compositeTransform, parentTransform);
+        try
+        {
+            // Draw the cached layer texture onto the main swapchain.
+            DrawTextureOnMain(node.LayerTexture!, controlRect, compositeTransform, node.HitTestId);
+            AddDescendantVisualHitTestBounds(node, compositeTransform);
+        }
+        finally
+        {
+            PopVisualCompositeScope(node, compositeScope);
+        }
+
+        node.IsDirty = false;
+    }
+
+    private bool EnsureLayerTexture(Visual node)
+    {
+        if (node.Size.X <= 0f || node.Size.Y <= 0f) return false;
 
         // Compute high-DPI scaling factor dynamically from the compositor target context
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
@@ -13759,7 +13818,7 @@ SceneStateUploadComplete:
                 ReleaseLayerTexture(node, node.LayerTexture);
             }
             node.IsDirty = false;
-            return;
+            return false;
         }
         float rasterScale = dpiScale * layerScale;
 
@@ -13813,37 +13872,7 @@ SceneStateUploadComplete:
                 _elementsRenderingLayers.Remove(node);
             }
         }
-
-        var controlRect = new Rect(Vector2.Zero, node.Size);
-        var compositeTransform = node.GetLocalTransform() * parentTransform;
-        if (node.LayerCacheSnapsToDevicePixels)
-        {
-            Vector2 topLeft = Vector2.Transform(
-                Vector2.Zero,
-                compositeTransform);
-            float physicalX = topLeft.X * dpiScale;
-            float physicalY = topLeft.Y * dpiScale;
-            var snap = new Vector2(
-                (physicalX - MathF.Floor(physicalX)) / dpiScale,
-                (physicalY - MathF.Floor(physicalY)) / dpiScale);
-            compositeTransform *= Matrix4x4.CreateTranslation(
-                -snap.X,
-                -snap.Y,
-                0f);
-        }
-        var compositeScope = PushVisualCompositeScope(node, compositeTransform, parentTransform);
-        try
-        {
-            // Draw the cached layer texture onto the main swapchain.
-            DrawTextureOnMain(node.LayerTexture!, controlRect, compositeTransform, node.HitTestId);
-            AddDescendantVisualHitTestBounds(node, compositeTransform);
-        }
-        finally
-        {
-            PopVisualCompositeScope(node, compositeScope);
-        }
-
-        node.IsDirty = false;
+        return node.LayerTexture != null;
     }
 
     private void AddDescendantVisualHitTestBounds(Visual visual, Matrix4x4 globalTransform)
@@ -14378,7 +14407,14 @@ SceneStateUploadComplete:
         _compiledSceneReusable = false;
         lock (_offscreenRenderLock)
         {
-            var ownsOffscreenFrame = _offscreenRenderDepth++ == 0;
+            // A cached layer can be materialized while a main-scene command
+            // stream is still being compiled. That nested offscreen pass must
+            // not end the enclosing frame or release picture texture leases
+            // that its already-compiled draw calls still reference.
+            var ownsOffscreenFrame =
+                _offscreenRenderDepth == 0 &&
+                _visualCompilationDepth == 0;
+            _offscreenRenderDepth++;
             try
             {
                 if (ownsOffscreenFrame)
