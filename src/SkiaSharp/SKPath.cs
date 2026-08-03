@@ -25,6 +25,8 @@ public partial class SKPath : SKObject
     private PathGeometry? _geometry;
     private PackedPathData? _packedPathData;
 
+    internal PackedPathData? PackedPathData => _packedPathData;
+
     public PathGeometry Geometry => EnsureGeometry();
     public SKPathFillType FillType
     {
@@ -52,6 +54,8 @@ public partial class SKPath : SKObject
     {
         _geometry = null;
         _packedPathData = packedPathData ?? throw new ArgumentNullException(nameof(packedPathData));
+        _currentPoint = packedPathData.CurrentPoint;
+        _contourStart = packedPathData.ContourStart;
         _fillType = fillType;
     }
 
@@ -59,6 +63,15 @@ public partial class SKPath : SKObject
         : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(path);
+        if (path._packedPathData is { } packed)
+        {
+            _packedPathData = packed.Clone();
+            _currentPoint = packed.CurrentPoint;
+            _contourStart = packed.ContourStart;
+            _fillType = path._fillType;
+            return;
+        }
+
         PathFigure? copiedCurrentFigure = null;
         foreach (var figure in path.Geometry.Figures)
         {
@@ -212,6 +225,29 @@ public partial class SKPath : SKObject
         return _geometry;
     }
 
+    internal void ReplaceWithOwned(SKPath source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(this, source))
+        {
+            return;
+        }
+
+        _packedPathData?.Dispose();
+        _packedPathData = source._packedPathData;
+        _geometry = source._geometry;
+        _currentFigure = source._currentFigure;
+        _currentPoint = source._currentPoint;
+        _contourStart = source._contourStart;
+        _fillType = source._fillType;
+
+        source._packedPathData = null;
+        source._geometry = null;
+        source._currentFigure = null;
+        source.ResetCurrentState();
+        source._fillType = SKPathFillType.Winding;
+    }
+
     private void EnsureFigure()
     {
         if (_currentFigure is not null)
@@ -357,6 +393,26 @@ public partial class SKPath : SKObject
         }
     }
 
+    internal void AddTriangles(ReadOnlySpan<StrokeJoinTriangle> triangles)
+    {
+        if (_packedPathData is { } packed)
+        {
+            packed.AddTriangles(triangles);
+            _currentPoint = packed.CurrentPoint;
+            _contourStart = packed.ContourStart;
+            return;
+        }
+
+        for (var index = 0; index < triangles.Length; index++)
+        {
+            var triangle = triangles[index];
+            MoveTo(triangle.P0.X, triangle.P0.Y);
+            LineTo(triangle.P1.X, triangle.P1.Y);
+            LineTo(triangle.P2.X, triangle.P2.Y);
+            Close();
+        }
+    }
+
     public void Reset()
     {
         if (_packedPathData is { } packed)
@@ -499,6 +555,33 @@ public partial class SKPath : SKObject
 
     public void Transform(SKMatrix matrix)
     {
+        if (matrix.IsIdentity)
+        {
+            return;
+        }
+
+        if (_packedPathData is { } packed)
+        {
+            packed.Transform(matrix);
+            if (matrix.ScaleX == 1f && matrix.ScaleY == 1f &&
+                matrix.SkewX == 0f && matrix.SkewY == 0f &&
+                matrix.Persp0 == 0f && matrix.Persp1 == 0f && matrix.Persp2 == 1f &&
+                float.IsFinite(matrix.TransX) && float.IsFinite(matrix.TransY))
+            {
+                var offset = new Vector2(matrix.TransX, matrix.TransY);
+                _currentPoint += offset;
+                _contourStart += offset;
+            }
+            else
+            {
+                var current = matrix.MapPoint(_currentPoint.X, _currentPoint.Y);
+                var contourStart = matrix.MapPoint(_contourStart.X, _contourStart.Y);
+                _currentPoint = new Vector2(current.X, current.Y);
+                _contourStart = new Vector2(contourStart.X, contourStart.Y);
+            }
+            return;
+        }
+
         var m = matrix.ToMatrix4x4();
         foreach (var fig in Geometry.Figures)
         {
@@ -1638,14 +1721,35 @@ public class SKRoundRect : SKObject
 
 public class SKRegion : SKObject
 {
-    private readonly List<SKRectI> _rects = new();
+    [ThreadStatic]
+    private static RegionNormalizationStorage? s_threadNormalizationStorage;
+    [ThreadStatic]
+    private static List<SKRectI>? s_threadRectStorage;
+
+    private readonly List<SKRectI> _rects = RentRectStorage();
+    private RegionNormalizationStorage? _normalizationStorage;
     private SKRectI _bounds;
+    private bool _rectsNormalized = true;
 
     public bool IsEmpty => _rects.Count == 0;
 
-    public bool IsRect => _rects.Count == 1;
+    public bool IsRect
+    {
+        get
+        {
+            EnsureNormalized();
+            return _rects.Count == 1;
+        }
+    }
 
-    public bool IsComplex => _rects.Count > 1;
+    public bool IsComplex
+    {
+        get
+        {
+            EnsureNormalized();
+            return _rects.Count > 1;
+        }
+    }
 
     public SKRectI Bounds => _bounds;
 
@@ -1680,10 +1784,23 @@ public class SKRegion : SKObject
         SetPath(path, clip);
     }
 
-    internal IReadOnlyList<SKRectI> Rects => _rects;
+    internal IReadOnlyList<SKRectI> Rects
+    {
+        get
+        {
+            EnsureNormalized();
+            return _rects;
+        }
+    }
 
     public bool Contains(int x, int y)
     {
+        if (!Contains(_bounds, x, y))
+        {
+            return false;
+        }
+
+        EnsureNormalized();
         foreach (var rect in _rects)
         {
             if (Contains(rect, x, y))
@@ -1750,8 +1867,7 @@ public class SKRegion : SKObject
     {
         if (!TryGetSingleAxisAlignedRect(path, out var rect))
         {
-            _rects.Clear();
-            _bounds = SKRectI.Empty;
+            SetEmpty();
             return false;
         }
 
@@ -1843,6 +1959,7 @@ public class SKRegion : SKObject
             previousRuns = currentRuns;
         }
 
+        _rectsNormalized = false;
         NormalizeRects();
         UpdateBounds();
         return !IsEmpty;
@@ -2029,9 +2146,11 @@ public class SKRegion : SKObject
             return !IsEmpty;
         }
 
+        region.EnsureNormalized();
         _rects.Clear();
         _rects.AddRange(region._rects);
         _bounds = region._bounds;
+        _rectsNormalized = true;
         return !IsEmpty;
     }
 
@@ -2053,11 +2172,19 @@ public class SKRegion : SKObject
                 unchecked(rect.Bottom + y));
         }
 
-        UpdateBounds();
+        if (!IsEmpty)
+        {
+            _bounds = new SKRectI(
+                unchecked(_bounds.Left + x),
+                unchecked(_bounds.Top + y),
+                unchecked(_bounds.Right + x),
+                unchecked(_bounds.Bottom + y));
+        }
     }
 
     public SKPath GetBoundaryPath()
     {
+        EnsureNormalized();
         var path = new SKPath();
         foreach (var rect in _rects)
         {
@@ -2069,6 +2196,11 @@ public class SKRegion : SKObject
 
     public bool Op(SKRectI rect, SKRegionOperation op)
     {
+        if (op is not SKRegionOperation.Replace and not SKRegionOperation.Union)
+        {
+            EnsureNormalized();
+        }
+
         switch (op)
         {
             case SKRegionOperation.Replace:
@@ -2078,8 +2210,22 @@ public class SKRegion : SKObject
                 IntersectWith(rect);
                 break;
             case SKRegionOperation.Union:
+                if (!IsValid(rect))
+                {
+                    return !IsEmpty;
+                }
+
+                foreach (var existing in _rects)
+                {
+                    if (Contains(existing, rect))
+                    {
+                        return true;
+                    }
+                }
+
                 AddRect(rect);
-                break;
+                UnionBounds(rect);
+                return true;
             case SKRegionOperation.Difference:
                 DifferenceWith(rect);
                 break;
@@ -2108,8 +2254,11 @@ public class SKRegion : SKObject
     public bool Op(SKRegion region, SKRegionOperation op)
     {
         ArgumentNullException.ThrowIfNull(region);
+        EnsureNormalized();
+        region.EnsureNormalized();
         using var leftSnapshot = new SKRegion(this);
         using var rightSnapshot = new SKRegion(region);
+        _rectsNormalized = false;
         switch (op)
         {
             case SKRegionOperation.Replace:
@@ -2180,10 +2329,17 @@ public class SKRegion : SKObject
     {
         _rects.Clear();
         _bounds = SKRectI.Empty;
+        _rectsNormalized = true;
     }
 
     public bool Intersects(SKRectI rect)
     {
+        if (!IsValid(Intersect(_bounds, rect)))
+        {
+            return false;
+        }
+
+        EnsureNormalized();
         foreach (var existing in _rects)
         {
             if (IsValid(Intersect(existing, rect)))
@@ -2216,18 +2372,30 @@ public class SKRegion : SKObject
         return Intersects(region);
     }
 
-    public RectIterator CreateRectIterator() => new(_rects);
+    public RectIterator CreateRectIterator()
+    {
+        EnsureNormalized();
+        return new RectIterator(_rects);
+    }
 
-    public ClipIterator CreateClipIterator(SKRectI clip) => new(_rects, clip);
+    public ClipIterator CreateClipIterator(SKRectI clip)
+    {
+        EnsureNormalized();
+        return new ClipIterator(_rects, clip);
+    }
 
-    public SpanIterator CreateSpanIterator(int y, int left, int right) =>
-        new(_rects, y, left, right);
+    public SpanIterator CreateSpanIterator(int y, int left, int right)
+    {
+        EnsureNormalized();
+        return new SpanIterator(_rects, y, left, right);
+    }
 
     private void SetSingleRect(SKRectI rect)
     {
         _rects.Clear();
         AddRect(rect);
         UpdateBounds();
+        _rectsNormalized = true;
     }
 
     private void AddRect(SKRectI rect)
@@ -2238,16 +2406,18 @@ public class SKRegion : SKObject
         }
 
         _rects.Add(rect);
+        _rectsNormalized = false;
     }
 
     private void IntersectWith(SKRectI rect)
     {
         if (!IsValid(rect))
         {
-            _rects.Clear();
+            SetEmpty();
             return;
         }
 
+        _rectsNormalized = false;
         for (int i = _rects.Count - 1; i >= 0; i--)
         {
             var intersection = Intersect(_rects[i], rect);
@@ -2277,6 +2447,7 @@ public class SKRegion : SKObject
 
         _rects.Clear();
         _rects.AddRange(result);
+        _rectsNormalized = false;
     }
 
     private void ReverseDifferenceWith(SKRectI rect)
@@ -2295,6 +2466,7 @@ public class SKRegion : SKObject
 
         _rects.Clear();
         _rects.AddRange(result);
+        _rectsNormalized = false;
     }
 
     private void XorWith(SKRectI rect)
@@ -2320,6 +2492,7 @@ public class SKRegion : SKObject
         _rects.Clear();
         _rects.AddRange(left);
         _rects.AddRange(right);
+        _rectsNormalized = false;
     }
 
     private static void AddDifference(List<SKRectI> result, SKRectI source, SKRectI cutter)
@@ -2352,12 +2525,20 @@ public class SKRegion : SKObject
 
     private void NormalizeRects()
     {
-        if (_rects.Count <= 1)
+        if (_rectsNormalized)
         {
             return;
         }
 
-        var yCoordinates = new SortedSet<int>();
+        if (_rects.Count <= 1)
+        {
+            _rectsNormalized = true;
+            return;
+        }
+
+        var storage = _normalizationStorage ??= RentNormalizationStorage();
+        var yCoordinates = storage.YCoordinates;
+        yCoordinates.Clear();
         foreach (var rect in _rects)
         {
             if (IsValid(rect))
@@ -2366,26 +2547,43 @@ public class SKRegion : SKObject
                 yCoordinates.Add(rect.Bottom);
             }
         }
+        yCoordinates.Sort();
+        var uniqueCount = 0;
+        for (var index = 0; index < yCoordinates.Count; index++)
+        {
+            if (uniqueCount == 0 || yCoordinates[index] != yCoordinates[uniqueCount - 1])
+            {
+                yCoordinates[uniqueCount++] = yCoordinates[index];
+            }
+        }
+        if (uniqueCount < yCoordinates.Count)
+        {
+            yCoordinates.RemoveRange(uniqueCount, yCoordinates.Count - uniqueCount);
+        }
         if (yCoordinates.Count < 2)
         {
             _rects.Clear();
+            _rectsNormalized = true;
             return;
         }
 
-        var ys = new int[yCoordinates.Count];
-        yCoordinates.CopyTo(ys);
-        var normalized = new List<SKRectI>();
-        var previousBand = new Dictionary<(int Left, int Right), int>();
-        for (var yIndex = 0; yIndex + 1 < ys.Length; yIndex++)
+        var normalized = storage.Rects;
+        normalized.Clear();
+        var previousBand = storage.BandA;
+        var currentBand = storage.BandB;
+        previousBand.Clear();
+        currentBand.Clear();
+        for (var yIndex = 0; yIndex + 1 < yCoordinates.Count; yIndex++)
         {
-            var top = ys[yIndex];
-            var bottom = ys[yIndex + 1];
+            var top = yCoordinates[yIndex];
+            var bottom = yCoordinates[yIndex + 1];
             if (bottom <= top)
             {
                 continue;
             }
 
-            var intervals = new List<(int Left, int Right)>();
+            var intervals = storage.Intervals;
+            intervals.Clear();
             foreach (var rect in _rects)
             {
                 if (IsValid(rect) && rect.Top <= top && rect.Bottom >= bottom)
@@ -2405,7 +2603,8 @@ public class SKRegion : SKObject
                 return comparison != 0 ? comparison : left.Right.CompareTo(right.Right);
             });
 
-            var merged = new List<(int Left, int Right)>();
+            var merged = storage.MergedIntervals;
+            merged.Clear();
             var current = intervals[0];
             for (var intervalIndex = 1; intervalIndex < intervals.Count; intervalIndex++)
             {
@@ -2422,7 +2621,7 @@ public class SKRegion : SKObject
             }
             merged.Add(current);
 
-            var currentBand = new Dictionary<(int Left, int Right), int>();
+            currentBand.Clear();
             foreach (var interval in merged)
             {
                 if (previousBand.TryGetValue(interval, out var rectIndex) &&
@@ -2444,11 +2643,53 @@ public class SKRegion : SKObject
                 currentBand[interval] = rectIndex;
             }
 
-            previousBand = currentBand;
+            (previousBand, currentBand) = (currentBand, previousBand);
         }
 
         _rects.Clear();
         _rects.AddRange(normalized);
+        _rectsNormalized = true;
+    }
+
+    private void EnsureNormalized() => NormalizeRects();
+
+    private static RegionNormalizationStorage RentNormalizationStorage()
+    {
+        var storage = s_threadNormalizationStorage;
+        if (storage is null)
+        {
+            return new RegionNormalizationStorage();
+        }
+
+        s_threadNormalizationStorage = null;
+        return storage;
+    }
+
+    private static List<SKRectI> RentRectStorage()
+    {
+        var rects = s_threadRectStorage;
+        if (rects is null)
+        {
+            return new List<SKRectI>();
+        }
+
+        s_threadRectStorage = null;
+        return rects;
+    }
+
+    private void UnionBounds(SKRectI rect)
+    {
+        if (_rects.Count == 1)
+        {
+            _bounds = rect;
+            return;
+        }
+
+        _bounds = new SKRectI(
+            Math.Min(_bounds.Left, rect.Left),
+            Math.Min(_bounds.Top, rect.Top),
+            Math.Max(_bounds.Right, rect.Right),
+            Math.Max(_bounds.Bottom, rect.Bottom));
     }
 
     private void UpdateBounds()
@@ -2487,9 +2728,67 @@ public class SKRegion : SKObject
         return x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom;
     }
 
+    private static bool Contains(SKRectI outer, SKRectI inner)
+    {
+        return IsValid(inner) &&
+               outer.Left <= inner.Left &&
+               outer.Top <= inner.Top &&
+               outer.Right >= inner.Right &&
+               outer.Bottom >= inner.Bottom;
+    }
+
     private static bool IsValid(SKRectI rect)
     {
         return rect.Width > 0 && rect.Height > 0;
+    }
+
+    protected override void DisposeManaged()
+    {
+        _rects.Clear();
+        if (s_threadRectStorage is null && _rects.Capacity <= 1_024)
+        {
+            s_threadRectStorage = _rects;
+        }
+
+        if (_normalizationStorage is { } storage)
+        {
+            _normalizationStorage = null;
+            storage.Clear();
+            if (s_threadNormalizationStorage is null && storage.CanRetain)
+            {
+                s_threadNormalizationStorage = storage;
+            }
+        }
+
+        base.DisposeManaged();
+    }
+
+    private sealed class RegionNormalizationStorage
+    {
+        public List<int> YCoordinates { get; } = new();
+        public List<(int Left, int Right)> Intervals { get; } = new();
+        public List<(int Left, int Right)> MergedIntervals { get; } = new();
+        public List<SKRectI> Rects { get; } = new();
+        public Dictionary<(int Left, int Right), int> BandA { get; } = new();
+        public Dictionary<(int Left, int Right), int> BandB { get; } = new();
+
+        public bool CanRetain =>
+            YCoordinates.Capacity <= 512 &&
+            Intervals.Capacity <= 1_024 &&
+            MergedIntervals.Capacity <= 1_024 &&
+            Rects.Capacity <= 1_024 &&
+            BandA.EnsureCapacity(0) <= 2_048 &&
+            BandB.EnsureCapacity(0) <= 2_048;
+
+        public void Clear()
+        {
+            YCoordinates.Clear();
+            Intervals.Clear();
+            MergedIntervals.Clear();
+            Rects.Clear();
+            BandA.Clear();
+            BandB.Clear();
+        }
     }
 
     private static bool TryGetSingleAxisAlignedRect(SKPath path, out SKRectI rect)

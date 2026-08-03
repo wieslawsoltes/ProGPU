@@ -184,6 +184,66 @@ public sealed class SkRegionCompatibilityTests
         Assert.False(boundary.Contains(25f, 5f));
     }
 
+    [Fact]
+    public void RegionAndIntersectMutationsRestoreCanonicalTopology()
+    {
+        using var adjacent = new SKRegion(new SKRectI(0, 0, 10, 10));
+        using var right = new SKRegion(new SKRectI(10, 0, 20, 10));
+
+        Assert.True(adjacent.Op(right, SKRegionOperation.Union));
+        Assert.True(adjacent.IsRect);
+        Assert.Equal(
+            new[] { new SKRectI(0, 0, 20, 10) },
+            ReadRects(adjacent.CreateRectIterator()));
+
+        using var clipped = new SKRegion(new SKRectI(0, 0, 10, 10));
+        clipped.Op(new SKRectI(5, 5, 15, 15), SKRegionOperation.Union);
+        Assert.True(clipped.Op(new SKRectI(5, 0, 10, 15), SKRegionOperation.Intersect));
+        Assert.True(clipped.IsRect);
+        Assert.Equal(
+            new[] { new SKRectI(5, 0, 10, 15) },
+            ReadRects(clipped.CreateRectIterator()));
+    }
+
+    [Fact]
+    public void WarmedDirtyRegionUnionAndQueriesAllocateNoManagedMemory()
+    {
+        using var region = new SKRegion();
+
+        static bool Update(SKRegion target)
+        {
+            var valid = true;
+            target.SetEmpty();
+            for (var index = 0; index < 24; index++)
+            {
+                var x = index * 3;
+                valid &= target.Op(
+                    x,
+                    index & 3,
+                    x + 12,
+                    (index & 3) + 10,
+                    SKRegionOperation.Union);
+            }
+
+            valid &= target.Bounds == new SKRectI(0, 0, 81, 13);
+            valid &= target.Contains(15, 5);
+            valid &= target.Intersects(new SKRectI(48, 2, 54, 8));
+            return valid;
+        }
+
+        Assert.True(Update(region));
+        var valid = true;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var iteration = 0; iteration < 1_000; iteration++)
+        {
+            valid &= Update(region);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(valid);
+        Assert.Equal(0, allocated);
+    }
+
     private static SKRectI[] ReadRects(SKRegion.RectIterator iterator)
     {
         var rects = new List<SKRectI>();

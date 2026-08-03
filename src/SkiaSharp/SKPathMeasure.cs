@@ -14,10 +14,15 @@ public enum SKPathMeasureMatrixFlags
 public class SKPathMeasure : SKObject
 {
     private const float Epsilon = 0.00001f;
+    private const int MaximumRetainedContours = 64;
+    private const int MaximumRetainedSegments = 2_048;
+    private const int MaximumRetainedSamples = 8_192;
+
+    [ThreadStatic]
+    private static ContourStorage? s_threadStorage;
 
     private readonly int _curveSegmentCount;
-    private SKPath? _path;
-    private List<Contour> _contours = new();
+    private ContourStorage? _storage;
     private int _contourIndex;
     private Contour? _contour;
 
@@ -29,6 +34,7 @@ public class SKPathMeasure : SKObject
     public SKPathMeasure(SKPath? path, bool forceClosed = false, float resScale = 1f)
         : base(SKObjectHandle.Create(), owns: true)
     {
+        _storage = RentStorage();
         var normalizedScale = float.IsFinite(resScale) && resScale > 0f ? resScale : 1f;
         // Skia's precision grows sublinearly with resScale. The square-root schedule
         // tracks its contour lengths while bounding setup work for text-on-path use.
@@ -47,22 +53,27 @@ public class SKPathMeasure : SKObject
 
     public void SetPath(SKPath? path, bool forceClosed)
     {
-        _path?.Dispose();
-        _path = path is null ? null : new SKPath(path);
-        _contours = _path is null ? new List<Contour>() : BuildContours(_path, forceClosed);
+        var storage = _storage ?? throw new ObjectDisposedException(nameof(SKPathMeasure));
+        storage.Reset();
+        if (path is not null)
+        {
+            BuildContours(path, forceClosed, storage);
+        }
+
         _contourIndex = 0;
-        _contour = _contours.Count == 0 ? null : _contours[0];
+        _contour = storage.Count == 0 ? null : storage[0];
     }
 
     public bool NextContour()
     {
-        if (_contourIndex + 1 >= _contours.Count)
+        var storage = _storage;
+        if (storage is null || _contourIndex + 1 >= storage.Count)
         {
             _contour = null;
             return false;
         }
 
-        _contour = _contours[++_contourIndex];
+        _contour = storage[++_contourIndex];
         return true;
     }
 
@@ -244,11 +255,16 @@ public class SKPathMeasure : SKObject
         return tangent.LengthSquared() > Epsilon * Epsilon;
     }
 
-    private List<Contour> BuildContours(SKPath path, bool forceClosed)
+    private void BuildContours(SKPath path, bool forceClosed, ContourStorage storage)
     {
-        var contours = new List<Contour>();
+        if (path.PackedPathData is { } packed)
+        {
+            BuildPackedContours(packed.CommandSpan, forceClosed, storage);
+            return;
+        }
+
         using var iterator = path.CreateRawIterator();
-        var points = new SKPoint[4];
+        Span<SKPoint> points = stackalloc SKPoint[4];
         Contour? contour = null;
         SKPathVerb verb;
         while ((verb = iterator.Next(points)) != SKPathVerb.Done)
@@ -256,24 +272,24 @@ public class SKPathMeasure : SKObject
             switch (verb)
             {
                 case SKPathVerb.Move:
-                    FinalizeContour(contours, contour, forceClosed);
-                    contour = new Contour(ToVector(points[0]));
+                    FinalizeContour(contour, forceClosed);
+                    contour = storage.AddContour(ToVector(points[0]));
                     break;
 
                 case SKPathVerb.Line:
-                    contour ??= new Contour(ToVector(points[0]));
+                    contour ??= storage.AddContour(ToVector(points[0]));
                     contour.AddSegment(MeasuredSegment.Line(ToVector(points[0]), ToVector(points[1])), 1);
                     break;
 
                 case SKPathVerb.Quad:
-                    contour ??= new Contour(ToVector(points[0]));
+                    contour ??= storage.AddContour(ToVector(points[0]));
                     contour.AddSegment(
                         MeasuredSegment.Quad(ToVector(points[0]), ToVector(points[1]), ToVector(points[2])),
                         _curveSegmentCount);
                     break;
 
                 case SKPathVerb.Conic:
-                    contour ??= new Contour(ToVector(points[0]));
+                    contour ??= storage.AddContour(ToVector(points[0]));
                     contour.AddSegment(
                         MeasuredSegment.Conic(
                             ToVector(points[0]),
@@ -284,7 +300,7 @@ public class SKPathMeasure : SKObject
                     break;
 
                 case SKPathVerb.Cubic:
-                    contour ??= new Contour(ToVector(points[0]));
+                    contour ??= storage.AddContour(ToVector(points[0]));
                     contour.AddSegment(
                         MeasuredSegment.Cubic(
                             ToVector(points[0]),
@@ -303,11 +319,58 @@ public class SKPathMeasure : SKObject
             }
         }
 
-        FinalizeContour(contours, contour, forceClosed);
-        return contours;
+        FinalizeContour(contour, forceClosed);
     }
 
-    private static void FinalizeContour(List<Contour> contours, Contour? contour, bool forceClosed)
+    private void BuildPackedContours(
+        ReadOnlySpan<PackedPathCommand> commands,
+        bool forceClosed,
+        ContourStorage storage)
+    {
+        Contour? contour = null;
+        var current = Vector2.Zero;
+        foreach (ref readonly var command in commands)
+        {
+            switch (command.Kind)
+            {
+                case PackedPathCommandKind.Move:
+                    FinalizeContour(contour, forceClosed);
+                    current = command.Point0;
+                    contour = storage.AddContour(current);
+                    break;
+
+                case PackedPathCommandKind.Line:
+                    contour ??= storage.AddContour(current);
+                    contour.AddSegment(MeasuredSegment.Line(current, command.Point0), 1);
+                    current = command.Point0;
+                    break;
+
+                case PackedPathCommandKind.Quadratic:
+                    contour ??= storage.AddContour(current);
+                    contour.AddSegment(
+                        MeasuredSegment.Quad(current, command.Point0, command.Point1),
+                        _curveSegmentCount);
+                    current = command.Point1;
+                    break;
+
+                case PackedPathCommandKind.Cubic:
+                    contour ??= storage.AddContour(current);
+                    contour.AddSegment(
+                        MeasuredSegment.Cubic(current, command.Point0, command.Point1, command.Point2),
+                        _curveSegmentCount);
+                    current = command.Point2;
+                    break;
+
+                case PackedPathCommandKind.Close:
+                    contour?.Close();
+                    break;
+            }
+        }
+
+        FinalizeContour(contour, forceClosed);
+    }
+
+    private static void FinalizeContour(Contour? contour, bool forceClosed)
     {
         if (contour is null)
         {
@@ -319,15 +382,20 @@ public class SKPathMeasure : SKObject
             contour.Close();
         }
 
-        contours.Add(contour);
     }
 
     protected override void DisposeManaged()
     {
-        _path?.Dispose();
-        _path = null;
-        _contours.Clear();
         _contour = null;
+        if (_storage is { } storage)
+        {
+            _storage = null;
+            storage.Reset();
+            if (s_threadStorage is null && storage.CanRetain)
+            {
+                s_threadStorage = storage;
+            }
+        }
         base.DisposeManaged();
     }
 
@@ -345,6 +413,18 @@ public class SKPathMeasure : SKObject
 
     private static Vector2 ToVector(SKPoint value) => new(value.X, value.Y);
 
+    private static ContourStorage RentStorage()
+    {
+        var storage = s_threadStorage;
+        if (storage is null)
+        {
+            return new ContourStorage();
+        }
+
+        s_threadStorage = null;
+        return storage;
+    }
+
     private readonly record struct Sample(
         Vector2 Point,
         float Distance,
@@ -355,7 +435,7 @@ public class SKPathMeasure : SKObject
 
     private sealed class Contour
     {
-        private readonly Vector2 _start;
+        private Vector2 _start;
         private readonly List<Sample> _samples = new();
 
         public Contour(Vector2 start)
@@ -363,11 +443,23 @@ public class SKPathMeasure : SKObject
             _start = start;
         }
 
+        public int RetainedSegmentCapacity => Segments.Capacity;
+
+        public int RetainedSampleCapacity => _samples.Capacity;
+
         public List<MeasuredSegment> Segments { get; } = new();
 
         public bool IsClosed { get; private set; }
 
         public float Length => _samples.Count == 0 ? 0f : _samples[^1].Distance;
+
+        public void Reset(Vector2 start)
+        {
+            _start = start;
+            _samples.Clear();
+            Segments.Clear();
+            IsClosed = false;
+        }
 
         public void AddSegment(MeasuredSegment segment, int subdivisionCount)
         {
@@ -465,7 +557,66 @@ public class SKPathMeasure : SKObject
         }
     }
 
-    private sealed class MeasuredSegment
+    private sealed class ContourStorage
+    {
+        private readonly List<Contour> _contours = new(4);
+
+        public int Count { get; private set; }
+
+        public Contour this[int index] => _contours[index];
+
+        public bool CanRetain
+        {
+            get
+            {
+                if (_contours.Capacity > MaximumRetainedContours)
+                {
+                    return false;
+                }
+
+                var segments = 0;
+                var samples = 0;
+                foreach (var contour in _contours)
+                {
+                    segments += contour.RetainedSegmentCapacity;
+                    samples += contour.RetainedSampleCapacity;
+                }
+
+                return segments <= MaximumRetainedSegments &&
+                       samples <= MaximumRetainedSamples;
+            }
+        }
+
+        public Contour AddContour(Vector2 start)
+        {
+            Contour contour;
+            if (Count < _contours.Count)
+            {
+                contour = _contours[Count];
+                contour.Reset(start);
+            }
+            else
+            {
+                contour = new Contour(start);
+                _contours.Add(contour);
+            }
+
+            Count++;
+            return contour;
+        }
+
+        public void Reset()
+        {
+            for (var index = 0; index < Count; index++)
+            {
+                _contours[index].Reset(default);
+            }
+
+            Count = 0;
+        }
+    }
+
+    private readonly struct MeasuredSegment
     {
         private MeasuredSegment(
             SKPathVerb verb,

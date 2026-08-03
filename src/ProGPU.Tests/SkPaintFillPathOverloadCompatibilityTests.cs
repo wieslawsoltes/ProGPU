@@ -6,6 +6,30 @@ namespace ProGPU.Tests;
 public sealed class SkPaintFillPathOverloadCompatibilityTests
 {
     [Fact]
+    public void CollinearReversingCurvesRetainTheirStrokeExtrema()
+    {
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+        };
+        using var quadratic = new SKPath();
+        quadratic.MoveTo(0f, 0f);
+        quadratic.QuadTo(100f, 0f, 1f, 0f);
+        using var quadraticStroke = paint.GetFillPath(quadratic);
+        using var cubic = new SKPath();
+        cubic.MoveTo(0f, 0f);
+        cubic.CubicTo(100f, 0f, -100f, 0f, 1f, 0f);
+        using var cubicStroke = paint.GetFillPath(cubic);
+
+        Assert.NotNull(quadraticStroke);
+        Assert.True(quadraticStroke!.Bounds.Right > 50f);
+        Assert.NotNull(cubicStroke);
+        Assert.True(cubicStroke!.Bounds.Left < -20f);
+        Assert.True(cubicStroke.Bounds.Right > 20f);
+    }
+
+    [Fact]
     public void ReturnOverloadsTreatCullAsHintAndMatrixAsResolutionScale()
     {
         using var source = CreateCurve(SKPathFillType.EvenOdd);
@@ -142,6 +166,32 @@ public sealed class SkPaintFillPathOverloadCompatibilityTests
         using var result = paint.GetFillPath(source);
         Assert.NotNull(result);
         Assert.True(result.IsEmpty);
+    }
+
+    [Fact]
+    public void WarmedCallerOwnedStrokeDestinationKeepsManagedAllocationBounded()
+    {
+        using var source = CreateCurve();
+        using var destination = new SKPath();
+        using var paint = CreateStrokePaint();
+
+#pragma warning disable CS0618
+        for (var index = 0; index < 64; index++)
+        {
+            Assert.True(paint.GetFillPath(source, destination));
+        }
+
+        const int iterations = 256;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            paint.GetFillPath(source, destination);
+        }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+#pragma warning restore CS0618
+
+        Assert.True(allocated <= iterations * 128L, $"Allocated {allocated} bytes.");
+        Assert.False(destination.IsEmpty);
     }
 
     private static SKPath CreateCurve(SKPathFillType fillType = SKPathFillType.Winding)

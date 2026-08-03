@@ -2,6 +2,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.WinUI.Text;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Windows.Foundation.Metadata;
 using Xunit;
 
@@ -89,21 +90,29 @@ public sealed class TextContractParityTests
     public void FontWeightReadsRemainAllocationFree()
     {
         const int Count = 100_000;
-        _ = FontWeights.Bold.Weight;
+        _ = ReadFontWeightChecksum(Count);
         _ = GC.GetAllocatedBytesForCurrentThread();
         long before = GC.GetAllocatedBytesForCurrentThread();
+        ushort checksum = ReadFontWeightChecksum(Count);
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        GC.KeepAlive(checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+    private static ushort ReadFontWeightChecksum(int count)
+    {
         ushort checksum = 0;
-        for (int index = 0; index < Count; index++)
+        for (int index = 0; index < count; index++)
         {
             checksum ^= FontWeights.Thin.Weight;
             checksum ^= FontWeights.Normal.Weight;
             checksum ^= FontWeights.ExtraBlack.Weight;
         }
 
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        GC.KeepAlive(checksum);
-        Assert.Equal(0, allocated);
+        return checksum;
     }
 
     [Fact]

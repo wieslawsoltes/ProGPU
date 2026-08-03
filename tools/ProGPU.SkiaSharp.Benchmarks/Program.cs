@@ -126,6 +126,12 @@ internal static class ProgramEntry
             new BenchmarkCase("avalonia-paint-reuse", 100_000, RunAvaloniaPaintReuse),
             new BenchmarkCase("avalonia-positioned-text-blob", 1_000, RunAvaloniaPositionedTextBlob),
             new BenchmarkCase("avalonia-stream-geometry", 1_000, RunAvaloniaStreamGeometry),
+            new BenchmarkCase("avalonia-path-measure-create", 10_000, RunAvaloniaPathMeasureCreate),
+            new BenchmarkCase("avalonia-path-measure-query", 100_000, RunAvaloniaPathMeasureQuery),
+            new BenchmarkCase("avalonia-path-transform-copy", 10_000, RunAvaloniaPathTransformCopy),
+            new BenchmarkCase("avalonia-region-union-query", 10_000, RunAvaloniaRegionUnionQuery),
+            new BenchmarkCase("avalonia-stroke-expand", 1_000, RunAvaloniaStrokeExpand),
+            new BenchmarkCase("avalonia-path-combine", 8, RunAvaloniaPathCombine),
             // Keep each sample above the sub-millisecond timer-noise floor and
             // warm the gradient factories through their final dynamic-PGO tier.
             new BenchmarkCase("shader-gradient-factories", 16_000, RunShaderGradientFactories),
@@ -934,6 +940,134 @@ internal static class ProgramEntry
         }
 
         return checksum;
+    }
+#pragma warning restore CS0618
+
+#pragma warning disable CS0618 // Avalonia.Skia 12 consumes these official legacy geometry APIs.
+    private static ulong RunAvaloniaPathMeasureCreate(int operations)
+    {
+        using var path = CreateAvaloniaGeometryPath();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var measure = new SKPathMeasure(path, forceClosed: false, resScale: 1f);
+            checksum = Mix(checksum, measure.Length > 0f ? 1u : 0u);
+            checksum = Mix(checksum, measure.IsClosed ? 1u : 0u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaPathMeasureQuery(int operations)
+    {
+        using var path = CreateAvaloniaGeometryPath();
+        using var measure = new SKPathMeasure(path, forceClosed: false, resScale: 1f);
+        var length = measure.Length;
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            var distance = length * ((index & 255) / 255f);
+            var success = measure.GetPositionAndTangent(distance, out var point, out var tangent);
+            checksum = Mix(checksum, success ? 1u : 0u);
+            checksum = Mix(checksum, float.IsFinite(point.X + point.Y + tangent.X + tangent.Y) ? 1u : 0u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaPathTransformCopy(int operations)
+    {
+        using var source = CreateAvaloniaGeometryPath();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var transformed = new SKPath(source);
+            var matrix = SKMatrix.CreateTranslation((index & 15) * 0.25f, (index & 7) * -0.125f);
+            transformed.Transform(matrix);
+            var bounds = transformed.TightBounds;
+            checksum = Mix(checksum, bounds.Width > 0f && bounds.Height > 0f ? 1u : 0u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaRegionUnionQuery(int operations)
+    {
+        using var region = new SKRegion();
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            region.SetEmpty();
+            for (var rectIndex = 0; rectIndex < 24; rectIndex++)
+            {
+                var x = rectIndex * 3;
+                region.Op(x, rectIndex & 3, x + 12, (rectIndex & 3) + 10, SKRegionOperation.Union);
+            }
+
+            checksum = Mix(checksum, region.Contains(15, 5) ? 1u : 0u);
+            checksum = Mix(checksum, region.Intersects(new SKRectI(48, 2, 54, 8)) ? 1u : 0u);
+            checksum = Mix(checksum, (uint)region.Bounds.Width);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaStrokeExpand(int operations)
+    {
+        using var source = CreateAvaloniaGeometryPath();
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 3.5f,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round,
+            StrokeMiter = 4f,
+        };
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var destination = new SKPath();
+            var success = paint.GetFillPath(source, destination, 1f);
+            checksum = Mix(checksum, success ? 1u : 0u);
+            checksum = Mix(checksum, destination.IsEmpty ? 0u : 1u);
+        }
+
+        return checksum;
+    }
+
+    private static ulong RunAvaloniaPathCombine(int operations)
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(1, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var left = new SKPath();
+        using var right = new SKPath();
+        left.AddRoundRect(new SKRect(0f, 0f, 80f, 48f), 8f, 8f);
+        right.AddCircle(52f, 24f, 20f);
+        ulong checksum = 1469598103934665603UL;
+        for (var index = 0; index < operations; index++)
+        {
+            using var combined = left.Op(right, (index & 1) == 0 ? SKPathOp.Union : SKPathOp.Intersect);
+            checksum = Mix(checksum, combined.IsEmpty ? 0u : 1u);
+            checksum = Mix(checksum, combined.Bounds.Width > 0f ? 1u : 0u);
+        }
+
+        return checksum;
+    }
+
+    private static SKPath CreateAvaloniaGeometryPath()
+    {
+        var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+        path.MoveTo(2f, 3f);
+        for (var segment = 0; segment < 12; segment++)
+        {
+            var x = segment * 6f;
+            var y = (segment & 1) == 0 ? 4f : 18f;
+            path.LineTo(x + 4f, y);
+            path.QuadTo(x + 6f, y - 8f, x + 8f, y + 2f);
+            path.CubicTo(x + 9f, y + 9f, x + 11f, y - 7f, x + 13f, y + 1f);
+        }
+        path.Close();
+        return path;
     }
 #pragma warning restore CS0618
 

@@ -414,9 +414,7 @@ public class ArcPathCompilerTests
         Assert.Contains("CommandBufferRelease(_cmdBuffer);", cleanup, StringComparison.Ordinal);
         Assert.Contains("CommandEncoderRelease(_encoder);", cleanup, StringComparison.Ordinal);
         Assert.Contains("BindGroupRelease(_bgGeom);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutGeom);", cleanup, StringComparison.Ordinal);
         Assert.Contains("BindGroupRelease(_bgFinal);", cleanup, StringComparison.Ordinal);
-        Assert.Contains("BindGroupLayoutRelease(_bindGroupLayoutFinal);", cleanup, StringComparison.Ordinal);
         Assert.Contains("_recordsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_segmentsBufferA?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_recordsBufferB?.Dispose();", cleanup, StringComparison.Ordinal);
@@ -424,7 +422,25 @@ public class ArcPathCompilerTests
         Assert.Contains("_destRecordBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_destSegmentsBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
         Assert.Contains("_uniformBuffer?.Dispose();", cleanup, StringComparison.Ordinal);
-        Assert.Contains("_cache?.Dispose();", cleanup, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(GeometryBindGroupLayout);", source, StringComparison.Ordinal);
+        Assert.Contains("BindGroupLayoutRelease(FinalizerBindGroupLayout);", source, StringComparison.Ordinal);
+        Assert.Contains("_cache.Dispose();", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PathOperationPipelineInitializationRollsBackPartialResources()
+    {
+        string source = File.ReadAllText(FindPathOpGeometrySolverSource()).Replace("\r\n", "\n");
+        int resourcesIndex = source.IndexOf("private sealed class PathOpPipelineResources", StringComparison.Ordinal);
+        int resourcesEnd = source.IndexOf("private static void DisposePipelineResources", resourcesIndex, StringComparison.Ordinal);
+
+        Assert.True(resourcesIndex >= 0 && resourcesEnd > resourcesIndex);
+
+        string resources = source[resourcesIndex..resourcesEnd];
+        Assert.Contains("catch\n                {\n                    Dispose();\n                    throw;\n                }", resources, StringComparison.Ordinal);
+        Assert.Contains("if (GeometryBindGroupLayout != null)", resources, StringComparison.Ordinal);
+        Assert.Contains("if (FinalizerBindGroupLayout != null)", resources, StringComparison.Ordinal);
+        Assert.Contains("_cache.Dispose();", resources, StringComparison.Ordinal);
     }
 
     [Fact]
