@@ -1030,6 +1030,29 @@ native and outside the managed counter. The remaining ProGPU command-storage
 and snapshot gaps are explicit optimization targets; these shared-machine
 figures establish the direction and do not claim final cross-platform parity.
 
+Matched final-binary macOS profiling compared exact pre-lease commit
+`1c60239b` with exact candidate `79d86548` on the same Apple M3 Pro, macOS
+26.4.1, and .NET 10.0.5 workload. Time Profiler measured `327,088.874` versus
+`816.041` median ns/draw; Allocations plus VM Tracker measured `82,988.745`
+versus `929.165`; Metal System Trace measured `49,527.290` versus `797.290`;
+and EventPipe measured `60,615.875` versus `627.041`. EventPipe retained the
+exact checksum while managed allocation fell from `2,831` to `2,486` B/draw
+(`12.2%`). Profiler overhead perturbs the absolute latency, so the ordinary
+Release process numbers above remain the throughput result and these matched
+captures provide causal evidence.
+
+The Metal capture reduced target resource-allocation rows from `188` to `53`
+and target application command-buffer submission rows from `5,627` to zero.
+The baseline target stack contains WebGPU `copy_texture_to_texture`; the
+candidate target stack does not. Both captures reported zero Metal
+command-buffer errors, compiler spills, and hang risks. Completion and
+`currentAllocatedSize` row counts include process/device sampling and are not
+interpreted as bytes or per-draw totals. The Allocations template did not
+export a native retained-byte table on this Xcode version, so no unsupported
+native-memory claim is made. Compact results are recorded here; the 221 MiB of
+raw trace and EventPipe data, temporary publishes, packages, and exact-baseline
+worktree were removed after the audit.
+
 ### Retained canvas contract and empty-clip checkpoint
 
 `SKCanvas` now closes all 45 missing entries in its official 4.151.0 owner
