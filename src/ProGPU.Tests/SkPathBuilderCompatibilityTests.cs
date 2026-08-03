@@ -100,6 +100,46 @@ public sealed class SkPathBuilderCompatibilityTests
     }
 
     [Fact]
+    public void PackedCopyTransformUsesBoundedStorageAndDoesNotMutateSource()
+    {
+        using var builder = new SKPathBuilder();
+        builder.MoveTo(1f, 2f);
+        for (var index = 0; index < 32; index++)
+        {
+            builder.LineTo(index + 3f, index + 4f);
+            builder.QuadTo(index + 5f, index + 6f, index + 7f, index + 8f);
+            builder.CubicTo(
+                index + 9f,
+                index + 10f,
+                index + 11f,
+                index + 12f,
+                index + 13f,
+                index + 14f);
+        }
+        using var source = builder.Detach();
+        var sourceBounds = source.TightBounds;
+
+        using (var warmup = new SKPath(source))
+        {
+            warmup.Transform(SKMatrix.CreateTranslation(5f, -7f));
+            _ = warmup.TightBounds;
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        using var transformed = new SKPath(source);
+        transformed.Transform(SKMatrix.CreateTranslation(5f, -7f));
+        var transformedBounds = transformed.TightBounds;
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, 96);
+        Assert.Equal(sourceBounds, source.TightBounds);
+        Assert.Equal(sourceBounds.Left + 5f, transformedBounds.Left);
+        Assert.Equal(sourceBounds.Top - 7f, transformedBounds.Top);
+        Assert.Equal(sourceBounds.Right + 5f, transformedBounds.Right);
+        Assert.Equal(sourceBounds.Bottom - 7f, transformedBounds.Bottom);
+    }
+
+    [Fact]
     public void RelativeCommandsAndConicsRetainCurrentPointAcrossClose()
     {
         using var builder = new SKPathBuilder();

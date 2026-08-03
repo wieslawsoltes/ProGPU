@@ -250,6 +250,8 @@ internal sealed class PackedPathData : IDisposable
     public int Count => _count;
     public bool IsEmpty => _count == 0;
     public Vector2 CurrentPoint => _currentPoint;
+    internal ReadOnlySpan<PackedPathCommand> CommandSpan =>
+        _count == 0 ? ReadOnlySpan<PackedPathCommand>.Empty : Commands.AsSpan(0, _count);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static PackedPathData Rent(bool trackTightBounds = true)
@@ -473,12 +475,108 @@ internal sealed class PackedPathData : IDisposable
         clone._hasBounds = _hasBounds;
         if (_count != 0)
         {
-            clone._commands = ArrayPool<PackedPathCommand>.Shared.Rent(
-                Math.Max(InitialCommandCapacity, _count));
+            if (clone._commands is null || clone._commands.Length < _count)
+            {
+                if (clone._commands is { } undersized)
+                {
+                    ArrayPool<PackedPathCommand>.Shared.Return(undersized);
+                }
+
+                clone._commands = ArrayPool<PackedPathCommand>.Shared.Rent(
+                    Math.Max(InitialCommandCapacity, _count));
+            }
             Commands.AsSpan(0, _count).CopyTo(clone._commands);
         }
 
         return clone;
+    }
+
+    public void Transform(SKMatrix matrix)
+    {
+        _hasBounds = false;
+        _boundsMin = default;
+        _boundsMax = default;
+        _tightBounds = default;
+        var current = Vector2.Zero;
+        for (var index = 0; index < _count; index++)
+        {
+            ref var command = ref Commands[index];
+            switch (command.Kind)
+            {
+                case PackedPathCommandKind.Move:
+                case PackedPathCommandKind.Line:
+                {
+                    var point = MapPoint(matrix, command.Point0);
+                    command = new PackedPathCommand(command.Kind, point);
+                    current = point;
+                    IncludeBounds(point);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(point);
+                    }
+                    break;
+                }
+
+                case PackedPathCommandKind.Quadratic:
+                {
+                    var control = MapPoint(matrix, command.Point0);
+                    var point = MapPoint(matrix, command.Point1);
+                    command = new PackedPathCommand(command.Kind, control, point);
+                    if (_trackTightBounds)
+                    {
+                        SKPathTightBounds.IncludeQuadratic(
+                            ref _tightBounds,
+                            current,
+                            control,
+                            point);
+                    }
+                    current = point;
+                    IncludeBounds(control);
+                    IncludeBounds(point);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(point);
+                    }
+                    break;
+                }
+
+                case PackedPathCommandKind.Cubic:
+                {
+                    var firstControl = MapPoint(matrix, command.Point0);
+                    var secondControl = MapPoint(matrix, command.Point1);
+                    var point = MapPoint(matrix, command.Point2);
+                    command = new PackedPathCommand(command.Kind, firstControl, secondControl, point);
+                    if (_trackTightBounds)
+                    {
+                        SKPathTightBounds.IncludeCubic(
+                            ref _tightBounds,
+                            current,
+                            firstControl,
+                            secondControl,
+                            point);
+                    }
+                    current = point;
+                    IncludeBounds(firstControl);
+                    IncludeBounds(secondControl);
+                    IncludeBounds(point);
+                    if (_trackTightBounds)
+                    {
+                        _tightBounds.Include(point);
+                    }
+                    break;
+                }
+            }
+        }
+
+        _currentPoint = MapPoint(matrix, _currentPoint);
+        _contourStart = MapPoint(matrix, _contourStart);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector2 MapPoint(SKMatrix matrix, Vector2 point)
+    {
+        var mapped = matrix.MapPoint(point.X, point.Y);
+        return new Vector2(mapped.X, mapped.Y);
     }
 
     public SKRect CalculateBounds()

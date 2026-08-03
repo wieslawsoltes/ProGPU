@@ -25,6 +25,8 @@ public partial class SKPath : SKObject
     private PathGeometry? _geometry;
     private PackedPathData? _packedPathData;
 
+    internal PackedPathData? PackedPathData => _packedPathData;
+
     public PathGeometry Geometry => EnsureGeometry();
     public SKPathFillType FillType
     {
@@ -59,6 +61,15 @@ public partial class SKPath : SKObject
         : base(SKObjectHandle.Create(), owns: true)
     {
         ArgumentNullException.ThrowIfNull(path);
+        if (path._packedPathData is { } packed)
+        {
+            _packedPathData = packed.Clone();
+            _currentPoint = path._currentPoint;
+            _contourStart = path._contourStart;
+            _fillType = path._fillType;
+            return;
+        }
+
         PathFigure? copiedCurrentFigure = null;
         foreach (var figure in path.Geometry.Figures)
         {
@@ -499,6 +510,16 @@ public partial class SKPath : SKObject
 
     public void Transform(SKMatrix matrix)
     {
+        if (_packedPathData is { } packed)
+        {
+            packed.Transform(matrix);
+            var current = matrix.MapPoint(_currentPoint.X, _currentPoint.Y);
+            var contourStart = matrix.MapPoint(_contourStart.X, _contourStart.Y);
+            _currentPoint = new Vector2(current.X, current.Y);
+            _contourStart = new Vector2(contourStart.X, contourStart.Y);
+            return;
+        }
+
         var m = matrix.ToMatrix4x4();
         foreach (var fig in Geometry.Figures)
         {

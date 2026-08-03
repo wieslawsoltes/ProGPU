@@ -189,6 +189,31 @@ public sealed class SkPathMeasureCompatibilityTests
         Assert.InRange(MathF.Abs(preciseMeasure.Length - 133.7622f), 0f, 0.03f);
     }
 
+    [Fact]
+    public void WarmedPackedMeasuresRetainStorageAndRemainMutationIsolated()
+    {
+        using var path = CreateMeasuredPathWithoutConic();
+        using (var warmup = new SKPathMeasure(path))
+        {
+            Assert.True(warmup.Length > 0f);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        using var measure = new SKPathMeasure(path);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var originalLength = measure.Length;
+
+        path.LineTo(500f, 600f);
+
+        Assert.InRange(allocated, 0, 64);
+        Assert.Equal(originalLength, measure.Length);
+        Assert.True(measure.GetPositionAndTangent(
+            originalLength * 0.5f,
+            out var position,
+            out var tangent));
+        Assert.True(float.IsFinite(position.X + position.Y + tangent.X + tangent.Y));
+    }
+
     private static SKPath CreateMeasuredPath()
     {
         var path = new SKPath();
@@ -197,6 +222,16 @@ public sealed class SkPathMeasureCompatibilityTests
         path.QuadTo(60f, 20f, 60f, 40f);
         path.ConicTo(60f, 60f, 40f, 60f, 0.70710677f);
         path.CubicTo(20f, 60f, 10f, 50f, 10f, 40f);
+        return path;
+    }
+
+    private static SKPath CreateMeasuredPathWithoutConic()
+    {
+        var path = new SKPath();
+        path.MoveTo(10f, 20f);
+        path.LineTo(40f, 20f);
+        path.QuadTo(60f, 20f, 60f, 40f);
+        path.CubicTo(40f, 60f, 10f, 50f, 10f, 40f);
         return path;
     }
 
