@@ -187,7 +187,7 @@ internal sealed class SKTextBlobBuilderRun
         _leasedSnapshots = null;
         if (owner is not null && snapshots is not null)
         {
-            owner.ReturnPositionedRun(this, snapshots);
+            SKTextBlobBuilderScratch.ReturnPositionedRun(owner, this, snapshots);
         }
     }
 
@@ -300,10 +300,9 @@ public class SKRunBuffer
     internal SKRunBuffer(SKTextBlobBuilderRun run)
     {
         Run = run;
-        Size = run.Glyphs.Length;
     }
 
-    public int Size { get; private set; }
+    public int Size => Run.Glyphs.Length;
     public Span<ushort> Glyphs => Run.GetGlyphSpan();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -315,7 +314,6 @@ public class SKRunBuffer
     private protected void Reset(SKTextBlobBuilderRun run)
     {
         Run = run;
-        Size = run.Glyphs.Length;
     }
 }
 
@@ -418,13 +416,10 @@ public sealed class SKRotationScaleTextRunBuffer : SKTextRunBuffer
 
 public class SKTextBlobBuilder : SKObject
 {
-    private const int MaximumReusablePositionedGlyphs = 1_024;
+    internal const int MaximumReusablePositionedGlyphs = 1_024;
     private readonly List<SKTextBlobBuilderRun> _runs = new();
-    private SKTextBlobBuilderRun? _positionedRunScratch;
-    private SKTextBlobRun[]? _singleRunSnapshotScratch;
-    private SKPositionedRunBuffer? _positionedBufferScratch;
-    private SKTextBlobBuilderRun? _positionedBufferDetachedScratch;
-    private bool _isDisposed;
+    internal SKTextBlobBuilderScratch Scratch;
+    internal bool IsDisposedForScratch;
 
     public SKTextBlobBuilder()
         : base(SKObjectHandle.Create(), owns: true)
@@ -630,16 +625,16 @@ public class SKTextBlobBuilder : SKObject
             return new SKPositionedRunBuffer(run);
         }
 
-        if (_positionedBufferScratch is null)
+        if (Scratch.PositionedBuffer is null)
         {
-            _positionedBufferScratch = new SKPositionedRunBuffer(run);
+            Scratch.PositionedBuffer = new SKPositionedRunBuffer(run);
         }
         else
         {
-            _positionedBufferScratch.ResetRun(run);
+            Scratch.PositionedBuffer.ResetRun(run);
         }
 
-        return _positionedBufferScratch;
+        return Scratch.PositionedBuffer;
     }
 
     public SKRawRunBuffer<SKPoint> AllocateRawPositionedRun(
@@ -717,11 +712,11 @@ public class SKTextBlobBuilder : SKObject
             // their pinned storage to the immutable blob, redirect the public
             // wrapper to a bounded shadow, and reclaim both on blob disposal.
             var leasedRun = _runs[0];
-            var leasedSnapshots = _singleRunSnapshotScratch ?? new SKTextBlobRun[1];
-            _singleRunSnapshotScratch = null;
+            var leasedSnapshots = Scratch.SingleRunSnapshots ?? new SKTextBlobRun[1];
+            Scratch.SingleRunSnapshots = null;
             leasedSnapshots[0] = leasedRun.BorrowPositionedSnapshot();
             _runs.Clear();
-            DetachPositionedBuffer(leasedRun);
+            Scratch.DetachPositionedBuffer(leasedRun);
             leasedRun.LeaseTo(this, leasedSnapshots);
             return new SKTextBlob(leasedSnapshots, leasedRun);
         }
@@ -736,33 +731,13 @@ public class SKTextBlobBuilder : SKObject
         return new SKTextBlob(snapshots);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void ReturnPositionedRun(SKTextBlobBuilderRun run, SKTextBlobRun[] snapshots)
-    {
-        snapshots[0] = default;
-        if (_isDisposed)
-        {
-            return;
-        }
-
-        _singleRunSnapshotScratch ??= snapshots;
-        if (_positionedRunScratch is null &&
-            run.CanCacheAsPositionedScratch(MaximumReusablePositionedGlyphs))
-        {
-            _positionedRunScratch = run;
-        }
-    }
-
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            _isDisposed = true;
+            IsDisposedForScratch = true;
             _runs.Clear();
-            _positionedRunScratch = null;
-            _singleRunSnapshotScratch = null;
-            _positionedBufferScratch = null;
-            _positionedBufferDetachedScratch = null;
+            Scratch = default;
         }
         base.Dispose(disposing);
     }
@@ -804,10 +779,10 @@ public class SKTextBlobBuilder : SKObject
         SKRect? bounds)
     {
         if (textByteCount == 0 &&
-            _positionedRunScratch is { } scratch &&
+            Scratch.PositionedRun is { } scratch &&
             scratch.TryResetPositioned(font, count))
         {
-            _positionedRunScratch = null;
+            Scratch.PositionedRun = null;
             _runs.Add(scratch);
             return scratch;
         }
@@ -815,34 +790,6 @@ public class SKTextBlobBuilder : SKObject
         var run = CreateRun(font, count, SKTextBlobRunPlacement.Positioned, 0f, 0f, textByteCount, bounds);
         run.PositionedPositions = SKTextBlobBuilderRun.AllocatePinned<SKPoint>(count);
         return run;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void DetachPositionedBuffer(SKTextBlobBuilderRun leasedRun)
-    {
-        if (_positionedBufferScratch is null)
-        {
-            return;
-        }
-
-        var detached = _positionedBufferDetachedScratch;
-        if (detached is null ||
-            !detached.TryPrepareDetachedPositioned(leasedRun.Font, leasedRun.Glyphs.Length))
-        {
-            detached = new SKTextBlobBuilderRun(
-                leasedRun.Font,
-                leasedRun.Glyphs.Length,
-                SKTextBlobRunPlacement.Positioned,
-                0f,
-                0f,
-                textByteCount: 0)
-            {
-                PositionedPositions = SKTextBlobBuilderRun.AllocatePinned<SKPoint>(leasedRun.Glyphs.Length),
-            };
-            _positionedBufferDetachedScratch = detached;
-        }
-
-        _positionedBufferScratch.ResetRun(detached);
     }
 
     private SKTextBlobBuilderRun AllocateRotationScaleRunCore(

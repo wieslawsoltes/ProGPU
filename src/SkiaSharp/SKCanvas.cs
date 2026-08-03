@@ -5779,7 +5779,10 @@ public class SKCanvas : SKObject
         // below because their command-space coordinates or mip levels differ.
         if (!generateMipmaps &&
             image.IsWholeTexture &&
-            _context.TryRetainTexture(image, targetContext, out var leasedTexture))
+            _context.TryRetainTexture(
+                image.TextureLeaseSource,
+                targetContext,
+                out var leasedTexture))
         {
             if (image.ColorSpace is { } leasedColorSpace)
             {
