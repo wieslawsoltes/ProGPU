@@ -280,6 +280,89 @@ public sealed class SkShaderCompatibilityTests
     }
 
     [Fact]
+    public void ReusedGradientInputsAndTransformsStayBelowNativeWrapperAllocation()
+    {
+        var colors = new[]
+        {
+            new SKColorF(1f, 0f, 0f, 1f),
+            new SKColorF(0f, 1f, 0f, 1f),
+            new SKColorF(0f, 0f, 1f, 1f),
+        };
+        var positions = new[] { 0f, 0.375f, 1f };
+        using var colorSpace = SKColorSpace.CreateSrgb();
+
+        static nint CreateFamily(
+            SKColorF[] colors,
+            float[] positions,
+            SKColorSpace colorSpace,
+            SKMatrix localMatrix)
+        {
+            using var linear = SKShader.CreateLinearGradient(
+                SKPoint.Empty,
+                new SKPoint(64f, 32f),
+                colors,
+                colorSpace,
+                positions,
+                SKShaderTileMode.Mirror,
+                localMatrix);
+            using var radial = SKShader.CreateRadialGradient(
+                new SKPoint(32f, 32f),
+                24f,
+                colors,
+                colorSpace,
+                positions,
+                SKShaderTileMode.Repeat,
+                localMatrix);
+            using var sweep = SKShader.CreateSweepGradient(
+                new SKPoint(32f, 32f),
+                colors,
+                colorSpace,
+                positions,
+                SKShaderTileMode.Clamp,
+                -45f,
+                315f,
+                localMatrix);
+            using var conical = SKShader.CreateTwoPointConicalGradient(
+                new SKPoint(8f, 8f),
+                4f,
+                new SKPoint(48f, 40f),
+                28f,
+                colors,
+                colorSpace,
+                positions,
+                SKShaderTileMode.Decal,
+                localMatrix);
+            return linear.Handle ^ radial.Handle ^ sweep.Handle ^ conical.Handle;
+        }
+
+        for (var index = 0; index < 16; index++)
+        {
+            _ = CreateFamily(
+                colors,
+                positions,
+                colorSpace,
+                SKMatrix.CreateTranslation(index & 3, index & 7));
+        }
+
+        const int iterations = 1_000;
+        nint checksum = 0;
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < iterations; index++)
+        {
+            checksum ^= CreateFamily(
+                colors,
+                positions,
+                colorSpace,
+                SKMatrix.CreateTranslation(index & 3, index & 7));
+        }
+
+        var allocatedPerFamily =
+            (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / iterations;
+        Assert.NotEqual(0, checksum);
+        Assert.InRange(allocatedPerFamily, 0, 400);
+    }
+
+    [Fact]
     public void ShaderWrappersRetainDisposedSources()
     {
         var source = SKShader.CreateColor(SKColors.Cyan);

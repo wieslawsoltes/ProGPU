@@ -1190,14 +1190,16 @@ public partial class SKShader : SKObject
     private static float[]? s_lastGradientPositionsF;
     [ThreadStatic]
     private static GradientStopStorage? s_lastColorFGradientStops;
+    // UI themes commonly reuse a small transform palette across multiple gradient
+    // kinds. Share immutable inverse storage so each shader retains one reference
+    // instead of nine floats; the per-thread cache is strictly bounded.
+    private const int GradientTransformCacheCapacity = 8;
+    private static readonly GradientTransformStorage s_identityGradientTransform =
+        new(SKMatrix.Identity, SKMatrix.Identity);
     [ThreadStatic]
-    private static SKMatrix s_lastGradientLocalMatrix;
+    private static GradientTransformStorage?[]? s_gradientTransformCache;
     [ThreadStatic]
-    private static SKMatrix s_lastGradientCoordinateTransform;
-    [ThreadStatic]
-    private static bool s_hasLastGradientCoordinateTransform;
-    [ThreadStatic]
-    private static bool s_lastGradientMatrixWasInvertible;
+    private static int s_gradientTransformCacheCursor;
     private readonly object? _data;
     private readonly ShaderDataKind _dataKind;
     private int _referenceCount = 1;
@@ -1458,7 +1460,7 @@ public partial class SKShader : SKObject
             GetGradientStops(colors, colorPos),
             MapTileMode(mode),
             GradientColorInterpolationMode.SRgbLinearInterpolation,
-            SKMatrix.Identity);
+            s_identityGradientTransform);
 
     public static SKShader CreateLinearGradient(
         SKPoint start,
@@ -1531,7 +1533,7 @@ public partial class SKShader : SKObject
             GetGradientStops(colors, colorPos),
             MapTileMode(mode),
             GradientColorInterpolationMode.SRgbLinearInterpolation,
-            SKMatrix.Identity);
+            s_identityGradientTransform);
 
     public static SKShader CreateRadialGradient(
         SKPoint center,
@@ -1608,7 +1610,7 @@ public partial class SKShader : SKObject
             GetGradientStops(colors, colorPos),
             MapTileMode(mode),
             GradientColorInterpolationMode.SRgbLinearInterpolation,
-            SKMatrix.Identity);
+            s_identityGradientTransform);
 
     public static SKShader CreateTwoPointConicalGradient(
         SKPoint start,
@@ -2151,6 +2153,18 @@ public partial class SKShader : SKObject
             offset);
     }
 
+    private sealed class GradientTransformStorage
+    {
+        public GradientTransformStorage(SKMatrix localMatrix, SKMatrix coordinateTransform)
+        {
+            LocalMatrix = localMatrix;
+            CoordinateTransform = coordinateTransform;
+        }
+
+        public SKMatrix LocalMatrix { get; }
+        public SKMatrix CoordinateTransform { get; }
+    }
+
     // Most UI gradients contain two or three stops. The bounded per-thread lookup
     // shares immutable compact stop storage only while the caller's inputs remain
     // unchanged; larger gradients keep an owned overflow array. Typed descriptors
@@ -2159,14 +2173,14 @@ public partial class SKShader : SKObject
     private abstract class GradientShaderData : SKShader
     {
         private readonly GradientStopStorage _stops;
-        private readonly SKMatrix _coordinateTransform;
+        private readonly GradientTransformStorage _coordinateTransform;
         private readonly byte _options;
 
         protected GradientShaderData(
             GradientStopStorage stops,
             GradientSpreadMethod spreadMethod,
             GradientColorInterpolationMode interpolationMode,
-            SKMatrix coordinateTransform)
+            GradientTransformStorage coordinateTransform)
         {
             _options = PackOptions(spreadMethod, interpolationMode);
             _coordinateTransform = coordinateTransform;
@@ -2176,7 +2190,8 @@ public partial class SKShader : SKObject
         protected GradientSpreadMethod SpreadMethod => (GradientSpreadMethod)(_options & 0x3);
         protected GradientColorInterpolationMode InterpolationMode =>
             (GradientColorInterpolationMode)((_options >> 2) & 0x1);
-        protected Matrix4x4 CoordinateTransform => _coordinateTransform.ToMatrix4x4();
+        protected Matrix4x4 CoordinateTransform =>
+            _coordinateTransform.CoordinateTransform.ToMatrix4x4();
 
         public abstract Brush ToBrushCore();
 
@@ -2202,7 +2217,7 @@ public partial class SKShader : SKObject
             GradientStopStorage stops,
             GradientSpreadMethod spreadMethod,
             GradientColorInterpolationMode interpolationMode,
-            SKMatrix coordinateTransform)
+            GradientTransformStorage coordinateTransform)
             : base(stops, spreadMethod, interpolationMode, coordinateTransform)
         {
             _start = new Vector2(start.X, start.Y);
@@ -2228,7 +2243,7 @@ public partial class SKShader : SKObject
             GradientStopStorage stops,
             GradientSpreadMethod spreadMethod,
             GradientColorInterpolationMode interpolationMode,
-            SKMatrix coordinateTransform)
+            GradientTransformStorage coordinateTransform)
             : base(stops, spreadMethod, interpolationMode, coordinateTransform)
         {
             _center = new Vector2(center.X, center.Y);
@@ -2258,7 +2273,7 @@ public partial class SKShader : SKObject
             GradientStopStorage stops,
             GradientSpreadMethod spreadMethod,
             GradientColorInterpolationMode interpolationMode,
-            SKMatrix coordinateTransform)
+            GradientTransformStorage coordinateTransform)
             : base(stops, spreadMethod, interpolationMode, coordinateTransform)
         {
             _start = new Vector2(start.X, start.Y);
@@ -2291,7 +2306,7 @@ public partial class SKShader : SKObject
             GradientStopStorage stops,
             GradientSpreadMethod spreadMethod,
             GradientColorInterpolationMode interpolationMode,
-            SKMatrix coordinateTransform,
+            GradientTransformStorage coordinateTransform,
             float startAngle,
             float endAngle)
             : base(stops, spreadMethod, interpolationMode, coordinateTransform)
@@ -2444,20 +2459,40 @@ public partial class SKShader : SKObject
 
     private static bool TryGetShaderCoordinateTransform(
         SKMatrix localMatrix,
-        out SKMatrix coordinateTransform)
+        out GradientTransformStorage coordinateTransform)
     {
-        if (s_hasLastGradientCoordinateTransform && localMatrix == s_lastGradientLocalMatrix)
+        if (localMatrix.IsIdentity)
         {
-            coordinateTransform = s_lastGradientCoordinateTransform;
-            return s_lastGradientMatrixWasInvertible;
+            coordinateTransform = s_identityGradientTransform;
+            return true;
         }
 
-        var isInvertible = localMatrix.TryInvert(out coordinateTransform);
-        s_lastGradientLocalMatrix = localMatrix;
-        s_lastGradientCoordinateTransform = coordinateTransform;
-        s_lastGradientMatrixWasInvertible = isInvertible;
-        s_hasLastGradientCoordinateTransform = true;
-        return isInvertible;
+        var cache = s_gradientTransformCache;
+        if (cache is not null)
+        {
+            for (var index = 0; index < cache.Length; index++)
+            {
+                if (cache[index] is { } cached && cached.LocalMatrix == localMatrix)
+                {
+                    coordinateTransform = cached;
+                    return true;
+                }
+            }
+        }
+
+        if (!localMatrix.TryInvert(out var inverse))
+        {
+            coordinateTransform = s_identityGradientTransform;
+            return false;
+        }
+
+        coordinateTransform = new GradientTransformStorage(localMatrix, inverse);
+        cache ??= s_gradientTransformCache =
+            new GradientTransformStorage?[GradientTransformCacheCapacity];
+        cache[s_gradientTransformCacheCursor] = coordinateTransform;
+        s_gradientTransformCacheCursor =
+            (s_gradientTransformCacheCursor + 1) % GradientTransformCacheCapacity;
+        return true;
     }
 
     private static bool IsFinite(Matrix4x4 matrix) =>
