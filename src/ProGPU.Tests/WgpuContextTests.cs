@@ -69,6 +69,85 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void PendingWebGpuReferenceCleanupDoesNotWaitForTheQueue()
+    {
+        using var api = new BrowserWebGpuApi(_ => { });
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext();
+        context.InitializeExternalNativeDevice(
+            api,
+            lifetime,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            TextureFormat.Bgra8Unorm);
+        using (var texture = new GpuTexture(
+                   context,
+                   4,
+                   4,
+                   TextureFormat.Rgba8Unorm,
+                   TextureUsage.TextureBinding | TextureUsage.CopyDst))
+        {
+        }
+
+        context.CleanupPendingResources();
+
+        Assert.Equal(0, lifetime.WaitingPollCount);
+        Assert.Empty(context.PendingTextureViews);
+        Assert.Empty(context.PendingTextures);
+    }
+
+    [Fact]
+    public unsafe void ExternalTextureOwnerCleanupWaitsForTheQueue()
+    {
+        using var api = new BrowserWebGpuApi(_ => { });
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext();
+        context.InitializeExternalNativeDevice(
+            api,
+            lifetime,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            TextureFormat.Bgra8Unorm);
+        var owner = new RecordingDisposable();
+        context.QueueExternalTextureOwnerDisposal(owner);
+
+        context.CleanupPendingResources();
+
+        Assert.Equal(1, lifetime.WaitingPollCount);
+        Assert.True(owner.IsDisposed);
+    }
+
+    [Fact]
+    public unsafe void DeferredWebGpuReferenceCleanupDrainsAtABoundedInterval()
+    {
+        using var api = new BrowserWebGpuApi(_ => { });
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext();
+        context.InitializeExternalNativeDevice(
+            api,
+            lifetime,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            TextureFormat.Bgra8Unorm);
+
+        for (var index = 0; index < 8; index++)
+        {
+            using (var texture = new GpuTexture(
+                       context,
+                       4,
+                       4,
+                       TextureFormat.Rgba8Unorm,
+                       TextureUsage.TextureBinding | TextureUsage.CopyDst))
+            {
+            }
+
+            context.CleanupPendingResources();
+        }
+
+        Assert.Equal(1, lifetime.WaitingPollCount);
+    }
+
+    [Fact]
     public void Tier1TextureFormatsFailBeforeBackendAllocationWhenUnsupported()
     {
         using var context = new WgpuContext();

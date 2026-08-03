@@ -29,6 +29,7 @@ public enum WgpuBackendKind
 
 public unsafe class WgpuContext : IDisposable
 {
+    private const int DeferredReleaseDrainInterval = 8;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;
@@ -135,6 +136,7 @@ public unsafe class WgpuContext : IDisposable
     public readonly List<IDisposable> PendingExternalTextureOwners =
         new();
     private readonly HashSet<IntPtr> _pendingSnapshotSeen = new();
+    private int _deferredReleaseBatchCount;
 
     public void QueueBufferDisposal(IntPtr ptr)
     {
@@ -325,12 +327,24 @@ public unsafe class WgpuContext : IDisposable
                     }
                 }
 
-                if (views.Length > 0 || textures.Length > 0 || buffers.Length > 0 || bindGroups.Length > 0 ||
-                    layouts.Length > 0 || pipeLayouts.Length > 0 || renderPipes.Length > 0 ||
-                    computePipes.Length > 0 || samplers.Length > 0 || shaders.Length > 0 ||
-                    externalTextureOwners is not null)
+                // WebGPU command buffers retain ordinary referenced resources
+                // until submitted work completes, so dropping the application's
+                // native handle references must not serialize every frame on the
+                // device queue. Imported external storage is different: its
+                // platform owner sits outside WebGPU's reference graph and must
+                // remain alive until all previously submitted use has completed.
+                var hasWebGpuReferences =
+                    views.Length > 0 || textures.Length > 0 ||
+                    buffers.Length > 0 || bindGroups.Length > 0 ||
+                    layouts.Length > 0 || pipeLayouts.Length > 0 ||
+                    renderPipes.Length > 0 || computePipes.Length > 0 ||
+                    samplers.Length > 0 || shaders.Length > 0;
+                if (externalTextureOwners is not null ||
+                    (hasWebGpuReferences &&
+                     ++_deferredReleaseBatchCount >= DeferredReleaseDrainInterval))
                 {
                     WaitIdle();
+                    _deferredReleaseBatchCount = 0;
                 }
 
                 // Release dependants before their immutable ABI objects. This
