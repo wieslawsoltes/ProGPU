@@ -12,7 +12,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
     private static readonly object s_compositorCacheScope = new();
     private readonly WgpuContext? _context;
     private readonly DrawingContext _drawingContext;
-    private readonly GpuTexture? _gpuTexture;
+    private GpuTexture? _gpuTexture;
     private IntPtr _pixels;
     private int _rowBytes;
     private readonly int _width;
@@ -30,6 +30,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
     private GpuTextureReadbackBuffer? _readbackBuffer;
     private byte[]? _readbackPixels;
     private bool _hasTextureContents;
+    private bool _surfaceOwnsCurrentTexture;
     private bool _ownsCpuPixels;
     private int _releaseInvoked;
     private SKImage? _immutableSnapshotGeneration;
@@ -75,6 +76,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
         _height = height;
         _gpuTexture = texture;
         _ownsTexture = ownsTexture;
+        _surfaceOwnsCurrentTexture = ownsTexture;
         _pixels = pixels;
         _rowBytes = pixels != IntPtr.Zero
             ? ResolveCpuSurfaceRowBytes(width, height, rowBytes, colorType, nameof(rowBytes))
@@ -548,25 +550,6 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 
         if (_immutableSnapshotGeneration is null || !_ownsTexture)
         {
-            var snapshotTexture = new GpuTexture(
-                _context!,
-                (uint)_width,
-                (uint)_height,
-                _gpuTexture.Format,
-                TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
-                "SKSurface Immutable Snapshot Generation",
-                alphaMode: _gpuTexture.AlphaMode
-            );
-
-            snapshotTexture.CopyBaseLevelRegionFrom(
-                _gpuTexture,
-                0,
-                0,
-                0,
-                0,
-                (uint)_width,
-                (uint)_height);
-
             // A CPU-backed surface has already completed the required GPU
             // readback during Flush. Transfer that immutable generation to the
             // snapshot so ReadPixels and cross-context materialization do not
@@ -575,10 +558,51 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
             var portableRgbaPixels = _pixels != IntPtr.Zero
                 ? _readbackPixels
                 : null;
-            var generation = SKImage.FromOwnedTexture(
-                snapshotTexture,
-                new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace),
-                portableRgbaPixels);
+            SKImage generation;
+            if (_ownsTexture)
+            {
+                // The immutable generation temporarily owns the surface backing.
+                // A subsequent write either reclaims it in O(1) when no snapshot
+                // lease remains, or performs one copy-on-write when a consumer
+                // still retains the old pixels.
+                generation = SKImage.FromOwnedTexture(
+                    _gpuTexture,
+                    new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace),
+                    portableRgbaPixels);
+                _surfaceOwnsCurrentTexture = false;
+            }
+            else
+            {
+                var snapshotTexture = new GpuTexture(
+                    _context!,
+                    (uint)_width,
+                    (uint)_height,
+                    _gpuTexture.Format,
+                    TextureUsage.TextureBinding | TextureUsage.CopyDst | TextureUsage.CopySrc,
+                    "SKSurface Immutable Snapshot Generation",
+                    alphaMode: _gpuTexture.AlphaMode);
+                try
+                {
+                    snapshotTexture.CopyBaseLevelRegionFrom(
+                        _gpuTexture,
+                        0,
+                        0,
+                        0,
+                        0,
+                        (uint)_width,
+                        (uint)_height);
+                    generation = SKImage.FromOwnedTexture(
+                        snapshotTexture,
+                        new SKImageInfo(_width, _height, _colorType, _alphaType, _colorSpace),
+                        portableRgbaPixels);
+                }
+                catch
+                {
+                    snapshotTexture.Dispose();
+                    throw;
+                }
+            }
+
             if (portableRgbaPixels is not null)
             {
                 _readbackPixels = null;
@@ -598,7 +622,55 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
 
     private void OnSurfaceCommandAdded(int commandIndex)
     {
-        _immutableSnapshotGeneration?.Dispose();
+        var immutableGeneration = _immutableSnapshotGeneration;
+        if (immutableGeneration is null)
+        {
+            return;
+        }
+
+        if (_ownsTexture &&
+            immutableGeneration.TryRelinquishSoleTextureOwnership())
+        {
+            _surfaceOwnsCurrentTexture = true;
+            immutableGeneration.Dispose();
+            _immutableSnapshotGeneration = null;
+            return;
+        }
+
+        if (_ownsTexture)
+        {
+            var previousTexture = _gpuTexture!;
+            var writableTexture = new GpuTexture(
+                _context!,
+                (uint)_width,
+                (uint)_height,
+                previousTexture.Format,
+                TextureUsage.RenderAttachment | TextureUsage.CopySrc |
+                TextureUsage.CopyDst | TextureUsage.TextureBinding,
+                "SKSurface Copy-on-write Backing Texture",
+                alphaMode: previousTexture.AlphaMode);
+            try
+            {
+                writableTexture.CopyBaseLevelRegionFrom(
+                    previousTexture,
+                    0,
+                    0,
+                    0,
+                    0,
+                    (uint)_width,
+                    (uint)_height);
+            }
+            catch
+            {
+                writableTexture.Dispose();
+                throw;
+            }
+
+            _gpuTexture = writableTexture;
+            _surfaceOwnsCurrentTexture = true;
+        }
+
+        immutableGeneration.Dispose();
         _immutableSnapshotGeneration = null;
     }
 
@@ -765,8 +837,6 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
     protected override void DisposeManaged()
     {
         _drawingContext.UnsubscribeCommandAdded(_invalidateSnapshotGeneration);
-        _immutableSnapshotGeneration?.Dispose();
-        _immutableSnapshotGeneration = null;
         if (_pixels != IntPtr.Zero)
         {
             GpuFramebufferPresentationRegistry.Unregister(_pixels, this);
@@ -787,10 +857,13 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
             {
                 try
                 {
-                    if (_ownsTexture)
+                    if (_surfaceOwnsCurrentTexture)
                     {
                         _gpuTexture?.Dispose();
                     }
+
+                    _immutableSnapshotGeneration?.Dispose();
+                    _immutableSnapshotGeneration = null;
                 }
                 finally
                 {

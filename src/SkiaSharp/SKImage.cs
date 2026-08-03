@@ -31,7 +31,7 @@ public partial class SKImage : SKObject
     private sealed class TextureStorage : IProGpuContextTextureLeaseSource
     {
         private int _referenceCount = 1;
-        private readonly bool _ownsTexture;
+        private int _ownsTexture;
         private readonly SKImageTextureReleaseDelegate? _releaseProc;
         private readonly object? _releaseContext;
 
@@ -45,7 +45,7 @@ public partial class SKImage : SKObject
             object? releaseContext = null)
         {
             Texture = texture;
-            _ownsTexture = ownsTexture;
+            _ownsTexture = ownsTexture ? 1 : 0;
             ColorType = info.ColorType;
             AlphaType = info.AlphaType;
             ColorSpace = info.ColorSpace;
@@ -153,12 +153,25 @@ public partial class SKImage : SKObject
                 return;
             }
 
-            if (_ownsTexture)
+            if (Volatile.Read(ref _ownsTexture) != 0)
             {
                 Texture.Dispose();
             }
 
             _releaseProc?.Invoke(_releaseContext!);
+        }
+
+        public bool TryRelinquishSoleTextureOwnership()
+        {
+            if (Volatile.Read(ref _ownsTexture) == 0 ||
+                Interlocked.CompareExchange(ref _referenceCount, -1, 1) != 1)
+            {
+                return false;
+            }
+
+            Interlocked.Exchange(ref _ownsTexture, 0);
+            Volatile.Write(ref _referenceCount, 1);
+            return true;
         }
     }
 
@@ -517,6 +530,13 @@ public partial class SKImage : SKObject
             subset.Height,
             checked(_originX + subset.Left),
             checked(_originY + subset.Top));
+    }
+
+    internal bool TryRelinquishSoleTextureOwnership()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        return IsWholeTexture &&
+            _textureStorage.TryRelinquishSoleTextureOwnership();
     }
 
     private static uint CalculateMipLevelCount(uint width, uint height)

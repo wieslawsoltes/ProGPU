@@ -178,6 +178,60 @@ public sealed class SkSurfaceBackendRenderTargetTests
         AssertPixel(pixels, 8, 6, 1, 0, 0, 255, 255);
     }
 
+    [Fact]
+    public void ReleasedSnapshotGenerationReusesTheSurfaceBackingTexture()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+        using var first = surface.Snapshot();
+        var firstTexture = first.Texture;
+        first.Dispose();
+
+        surface.Canvas.Clear(SKColors.Blue);
+        surface.Flush();
+        using var second = surface.Snapshot();
+
+        Assert.Same(firstTexture, second.Texture);
+        AssertPixel(second.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+    }
+
+    [Fact]
+    public void RetainedSnapshotGenerationCopiesOnTheNextSurfaceWrite()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+        using var first = surface.Snapshot();
+
+        surface.Canvas.Clear(SKColors.Blue);
+        surface.Flush();
+        using var second = surface.Snapshot();
+
+        Assert.NotSame(first.Texture, second.Texture);
+        AssertPixel(first.Texture.ReadPixels(), 4, 2, 2, 255, 0, 0, 255);
+        AssertPixel(second.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+    }
+
+    [Fact]
+    public void DeferredSurfaceDrawKeepsTheRecordedSourceGenerationImmutable()
+    {
+        using var source = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var destination = SKSurface.Create(
+            new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Premul));
+        source.Canvas.Clear(SKColors.Red);
+        source.Draw(destination.Canvas, 0f, 0f, null);
+
+        source.Canvas.Clear(SKColors.Blue);
+        destination.Flush();
+
+        using var sourceSnapshot = source.Snapshot();
+        using var destinationSnapshot = destination.Snapshot();
+        AssertPixel(sourceSnapshot.Texture.ReadPixels(), 4, 2, 2, 0, 0, 255, 255);
+        AssertPixel(destinationSnapshot.Texture.ReadPixels(), 4, 2, 2, 255, 0, 0, 255);
+    }
+
     [Theory]
     [InlineData(SKBlendMode.Multiply)]
     [InlineData(SKBlendMode.Screen)]
