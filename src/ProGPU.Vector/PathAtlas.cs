@@ -24,8 +24,8 @@ public struct PathUniforms
     public uint Width;
     public uint Height;
     public uint SampleGrid;
-    public uint Pad1;
-    public uint Pad2;
+    public uint PathIndexB;
+    public uint PathOpKind;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -533,6 +533,7 @@ public unsafe class PathAtlas : IDisposable
         }
     }
     public uint LastRasterStagingBytes { get; private set; }
+    public int LastDirectBooleanRasterizationCount { get; private set; }
     public uint PeakRasterStagingBytes { get; private set; }
     public uint PeakRasterWidth { get; private set; }
     public uint PeakRasterHeight { get; private set; }
@@ -1145,6 +1146,96 @@ public unsafe class PathAtlas : IDisposable
         return segments.Length != 0;
     }
 
+    private bool TryGetRasterBounds(
+        PathGeometry path,
+        out float localMinX,
+        out float localMinY,
+        out float localMaxX,
+        out float localMaxY)
+    {
+        if (TryGetDirectBooleanOperands(path, out var pathA, out var pathB, out _) &&
+            TryGetCompiledFillPath(pathA, out var recordsA, out var segmentsA, out _, out _, out _, out _) &&
+            TryGetCompiledFillPath(pathB, out var recordsB, out var segmentsB, out _, out _, out _, out _) &&
+            recordsA.Length == 1 && segmentsA.Length != 0 &&
+            recordsB.Length == 1 && segmentsB.Length != 0 &&
+            path.TryGetBounds(out var min, out var max))
+        {
+            localMinX = min.X;
+            localMinY = min.Y;
+            localMaxX = max.X;
+            localMaxY = max.Y;
+            return true;
+        }
+
+        return TryGetCompiledFillPath(
+            path,
+            out _,
+            out var segments,
+            out localMinX,
+            out localMinY,
+            out localMaxX,
+            out localMaxY) && segments.Length != 0;
+    }
+
+    private bool TryGetRasterizationData(
+        PathGeometry path,
+        out GpuPathRecord[] recordsA,
+        out GpuPathSegment[] segmentsA,
+        out GpuPathRecord[] recordsB,
+        out GpuPathSegment[] segmentsB,
+        out uint pathOpKind)
+    {
+        if (TryGetDirectBooleanOperands(path, out var pathA, out var pathB, out var op) &&
+            TryGetCompiledFillPath(pathA, out recordsA, out segmentsA, out _, out _, out _, out _) &&
+            TryGetCompiledFillPath(pathB, out recordsB, out segmentsB, out _, out _, out _, out _) &&
+            recordsA.Length == 1 && segmentsA.Length != 0 &&
+            recordsB.Length == 1 && segmentsB.Length != 0)
+        {
+            pathOpKind = checked((uint)op + 1u);
+            return true;
+        }
+
+        recordsB = Array.Empty<GpuPathRecord>();
+        segmentsB = Array.Empty<GpuPathSegment>();
+        pathOpKind = 0;
+        return TryGetCompiledFillPath(
+            path,
+            out recordsA,
+            out segmentsA,
+            out _,
+            out _,
+            out _,
+            out _) &&
+            recordsA.Length != 0 &&
+            segmentsA.Length != 0;
+    }
+
+    private static bool TryGetDirectBooleanOperands(
+        PathGeometry path,
+        out PathGeometry pathA,
+        out PathGeometry pathB,
+        out int op)
+    {
+        if (path.IsCombined &&
+            path.CombinedQueryKind is not CombinedPathQueryKind.Empty and
+                not CombinedPathQueryKind.ResultOperandA and
+                not CombinedPathQueryKind.ResultOperandB &&
+            path.PathA is { IsCombined: false } first &&
+            path.PathB is { IsCombined: false } second &&
+            (uint)path.Op <= 4u)
+        {
+            pathA = first;
+            pathB = second;
+            op = path.Op;
+            return true;
+        }
+
+        pathA = null!;
+        pathB = null!;
+        op = 0;
+        return false;
+    }
+
     private bool TryGetCachedCompiledPath(
         Dictionary<int, CompiledPathCacheEntry> cache,
         int contentHash,
@@ -1243,10 +1334,15 @@ public unsafe class PathAtlas : IDisposable
 
     private readonly record struct PendingRasterization(
         PathInfo Info,
-        GpuPathRecord[] Records,
-        GpuPathSegment[] Segments,
-        int RecordOffset,
-        int SegmentOffset,
+        GpuPathRecord[] RecordsA,
+        GpuPathSegment[] SegmentsA,
+        GpuPathRecord[] RecordsB,
+        GpuPathSegment[] SegmentsB,
+        int RecordOffsetA,
+        int SegmentOffsetA,
+        int RecordOffsetB,
+        int SegmentOffsetB,
+        uint PathOpKind,
         int OutputByteOffset,
         uint OutputBytesPerRow);
 
@@ -2460,15 +2556,12 @@ public unsafe class PathAtlas : IDisposable
             return true;
         }
 
-        if (!TryGetCompiledFillPath(
+        if (!TryGetRasterBounds(
                 info.Geometry,
-                out _,
-                out GpuPathSegment[] segments,
                 out float unscaledMinX,
                 out float unscaledMinY,
                 out float unscaledMaxX,
-                out float unscaledMaxY) ||
-            segments.Length == 0)
+                out float unscaledMaxY))
         {
             xStart = 0;
             yStart = 0;
@@ -2927,15 +3020,12 @@ public unsafe class PathAtlas : IDisposable
         float unscaledMinX, unscaledMinY, unscaledMaxX, unscaledMaxY;
         int xStart, yStart, width, height;
 
-        if (!TryGetCompiledFillPath(
+        if (!TryGetRasterBounds(
                 path,
-                out _,
-                out var segments,
                 out unscaledMinX,
                 out unscaledMinY,
                 out unscaledMaxX,
-                out unscaledMaxY) ||
-            segments.Length == 0)
+                out unscaledMaxY))
         {
             info = new PathInfo
             {
@@ -3498,6 +3588,7 @@ public unsafe class PathAtlas : IDisposable
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(PathAtlas));
         LastRasterStagingBytes = 0;
+        LastDirectBooleanRasterizationCount = 0;
         if (_pendingPaths.Count == 0) return;
 
         PendingRasterization[]? rasterizations = null;
@@ -3527,30 +3618,40 @@ public unsafe class PathAtlas : IDisposable
                     continue;
                 }
 
-                if (!TryGetCompiledFillPath(
+                if (!TryGetRasterizationData(
                         info.Geometry,
-                        out var records,
-                        out var segments,
-                        out _,
-                        out _,
-                        out _,
-                        out _) ||
-                    records.Length == 0 ||
-                    segments.Length == 0)
+                        out var recordsA,
+                        out var segmentsA,
+                        out var recordsB,
+                        out var segmentsB,
+                        out var pathOpKind))
                 {
                     continue;
                 }
 
                 rasterizations[rasterizationCount++] = new PendingRasterization(
                     info,
-                    records,
-                    segments,
+                    recordsA,
+                    segmentsA,
+                    recordsB,
+                    segmentsB,
                     totalRecordCount,
                     totalSegmentCount,
+                    recordsB.Length == 0
+                        ? totalRecordCount
+                        : checked(totalRecordCount + recordsA.Length),
+                    checked(totalSegmentCount + segmentsA.Length),
+                    pathOpKind,
                     0,
                     0);
-                totalRecordCount = checked(totalRecordCount + records.Length);
-                totalSegmentCount = checked(totalSegmentCount + segments.Length);
+                if (pathOpKind != 0)
+                {
+                    LastDirectBooleanRasterizationCount++;
+                }
+                totalRecordCount = checked(
+                    totalRecordCount + recordsA.Length + recordsB.Length);
+                totalSegmentCount = checked(
+                    totalSegmentCount + segmentsA.Length + segmentsB.Length);
                 if (diagnosticsEnabled)
                 {
                     totalRasterPixels += (ulong)info.Width * info.Height;
@@ -3580,12 +3681,22 @@ public unsafe class PathAtlas : IDisposable
                     rasterization.Info.Width);
                 rasterizations[i] = rasterization with
                 {
-                    RecordOffset = totalRecordCount,
-                    SegmentOffset = totalSegmentCount,
+                    RecordOffsetA = totalRecordCount,
+                    SegmentOffsetA = totalSegmentCount,
+                    RecordOffsetB = rasterization.RecordsB.Length == 0
+                        ? totalRecordCount
+                        : checked(totalRecordCount + rasterization.RecordsA.Length),
+                    SegmentOffsetB = checked(totalSegmentCount + rasterization.SegmentsA.Length),
                     OutputBytesPerRow = outputBytesPerRow
                 };
-                totalRecordCount = checked(totalRecordCount + rasterization.Records.Length);
-                totalSegmentCount = checked(totalSegmentCount + rasterization.Segments.Length);
+                totalRecordCount = checked(
+                    totalRecordCount +
+                    rasterization.RecordsA.Length +
+                    rasterization.RecordsB.Length);
+                totalSegmentCount = checked(
+                    totalSegmentCount +
+                    rasterization.SegmentsA.Length +
+                    rasterization.SegmentsB.Length);
             }
 
             int uniformSize = Marshal.SizeOf<PathUniforms>();
@@ -3655,14 +3766,29 @@ public unsafe class PathAtlas : IDisposable
             for (int i = 0; i < rasterizationCount; i++)
             {
                 var rasterization = rasterizations[i];
-                rasterization.Segments.AsSpan().CopyTo(
-                    segmentData.AsSpan(rasterization.SegmentOffset, rasterization.Segments.Length));
+                rasterization.SegmentsA.AsSpan().CopyTo(
+                    segmentData.AsSpan(
+                        rasterization.SegmentOffsetA,
+                        rasterization.SegmentsA.Length));
+                rasterization.SegmentsB.AsSpan().CopyTo(
+                    segmentData.AsSpan(
+                        rasterization.SegmentOffsetB,
+                        rasterization.SegmentsB.Length));
 
-                for (int recordIndex = 0; recordIndex < rasterization.Records.Length; recordIndex++)
+                for (int recordIndex = 0; recordIndex < rasterization.RecordsA.Length; recordIndex++)
                 {
-                    var record = rasterization.Records[recordIndex];
-                    record.StartSegment = checked(record.StartSegment + (uint)rasterization.SegmentOffset);
-                    recordData[rasterization.RecordOffset + recordIndex] = record;
+                    var record = rasterization.RecordsA[recordIndex];
+                    record.StartSegment = checked(
+                        record.StartSegment + (uint)rasterization.SegmentOffsetA);
+                    recordData[rasterization.RecordOffsetA + recordIndex] = record;
+                }
+
+                for (int recordIndex = 0; recordIndex < rasterization.RecordsB.Length; recordIndex++)
+                {
+                    var record = rasterization.RecordsB[recordIndex];
+                    record.StartSegment = checked(
+                        record.StartSegment + (uint)rasterization.SegmentOffsetB);
+                    recordData[rasterization.RecordOffsetB + recordIndex] = record;
                 }
             }
 
@@ -3684,12 +3810,14 @@ public unsafe class PathAtlas : IDisposable
                         YStart = yStart - info.Key.SubpixelY,
                         ScaleX = scaleX,
                         ScaleY = scaleY,
-                        PathIndex = checked((uint)rasterization.RecordOffset),
+                        PathIndex = checked((uint)rasterization.RecordOffsetA),
                         OutputOffsetWords = checked((uint)rasterization.OutputByteOffset / 4),
                         OutputRowWords = rasterization.OutputBytesPerRow / 4,
                         Width = info.Width,
                         Height = info.Height,
-                        SampleGrid = info.Key.SampleGrid
+                        SampleGrid = info.Key.SampleGrid,
+                        PathIndexB = checked((uint)rasterization.RecordOffsetB),
+                        PathOpKind = rasterization.PathOpKind,
                     };
                     MemoryMarshal.Write(
                         uniformSpan.Slice(

@@ -56,6 +56,11 @@ Adopted:
   exact result. Contained union/intersection rendering selects the exact source
   operand and feeds its analytic segments directly to the existing WebGPU
   rasterizer, avoiding a path-operation readback.
+- General two-operand rendering packs both analytic segment streams into one
+  WebGPU dispatch. The shader keeps one membership bit per horizontal
+  supersample, applies the requested set operation to the two masks, and only
+  then averages coverage. This is sample-exact for the configured 8x8 lattice;
+  it does not approximate set membership by combining scalar coverage values.
 - One unescaped deferred node may be recycled per thread. Recording, clipping,
   chaining, or otherwise sharing the node permanently marks it non-recyclable;
   retained commands can never observe reused state.
@@ -77,11 +82,11 @@ Rejected:
   boolean node;
 - moving Unicode/OpenType shaping or line layout into this geometry slice.
 
-General non-contained operations still use the existing analytical WebGPU
-geometry solver when exact topology or atlas compilation requires it. Removing
-that remaining readback through a sample-exact multi-operand raster dispatch is
-the next path-operation sub-slice; this change does not disguise scalar
-coverage composition as exact boolean coverage.
+Nested boolean trees and callers that explicitly request exact contour topology
+still use the existing analytical WebGPU geometry solver and result mapping.
+Flattening nested render-only expressions into a bounded GPU operation program
+is the next path-operation sub-slice. No CPU bitmap mask, CPU rasterization, or
+scalar coverage composition is used.
 
 ## Cost model and measured evidence
 
@@ -89,7 +94,9 @@ Deferred creation and classified queries are `O(1)` after operand geometry is
 retained. First source materialization remains `O(S)` time/storage for `S`
 analytic segments. Exact general topology retains the existing GPU solver cost.
 Contained rendering compiles only the selected operand in `O(S)` CPU packing
-and `O(P * A * S)` WebGPU work for `P` atlas texels and `A` supersamples.
+and `O(P * A * S)` WebGPU work for `P` atlas texels and `A` supersamples. A
+direct binary render packs `S1 + S2` analytic segments and performs
+`O(P * A * (S1 + S2))` WebGPU work with `O(1)` shader-local membership storage.
 Storage is one bounded result object plus immutable operand references; the
 thread cache retains at most one deferred node.
 
@@ -113,7 +120,10 @@ setup and is not used for the steady API claim.
 
 Focused boolean/topology/render/arc compatibility passes 67/67. Additional
 regressions prove copy-on-write source mutation and an 88-byte steady allocation
-ceiling. Final acceptance still requires the full core/headless/Avalonia suite,
+ceiling. Shader-resource and GPU-render regressions pass 21/21, including all
+five binary operations at A-only, overlapping, and B-only sample locations; a
+dispatch diagnostic proves those cases used the direct boolean rasterizer.
+Final acceptance still requires the full core/headless/Avalonia suite,
 official API metadata, package gates, and matched macOS EventPipe plus
 Instruments Time Profiler, Allocations/VM Tracker, and Metal System Trace runs.
 Only compact process JSON is retained under

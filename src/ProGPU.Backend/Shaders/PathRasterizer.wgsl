@@ -1,6 +1,6 @@
-// Algorithm: Rasterize arbitrary path coverage by supersampling each atlas texel and applying analytic non-zero or even-odd winding tests.
-// Time complexity: O(A*S) per texel for A anti-aliasing samples and S path segments.
-// Space complexity: O(1) fixed vector-lane local storage plus O(S) read-only segment bandwidth and one packed u32 output write per four R8 texels; no dynamically indexed private arrays are used.
+// Algorithm: Rasterize ordinary or binary-boolean path coverage by supersampling each atlas texel, applying analytic winding tests, and combining per-sample membership before coverage averaging.
+// Time complexity: O(A*(S1+S2)) per boolean texel for A anti-aliasing samples and operand segment counts S1/S2; ordinary paths are O(A*S1).
+// Space complexity: O(1) fixed vector-lane local storage plus O(S1+S2) read-only segment bandwidth and one packed u32 output write per four R8 texels; no dynamically indexed private arrays are used.
 struct PathUniforms {
     xStart: f32,
     yStart: f32,
@@ -12,8 +12,8 @@ struct PathUniforms {
     width: u32,
     height: u32,
     sampleGrid: u32,
-    _pad1: u32,
-    _pad2: u32,
+    pathIndexB: u32,
+    pathOpKind: u32,
 };
 
 struct PathRecord {
@@ -244,7 +244,7 @@ fn path_sample_x(
     return (pixel_x + sample_offset_x) / scale_x;
 }
 
-fn count_row_coverage(
+fn row_coverage_mask(
     pixelX: f32,
     sampleY: f32,
     sampleGrid: u32,
@@ -442,44 +442,56 @@ fn count_row_coverage(
     }
 
     var covered = 0u;
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 0u,
         sampleGrid > 0u &&
             winding_is_inside(winding.low.x, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 1u,
         sampleGrid > 1u &&
             winding_is_inside(winding.low.y, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 2u,
         sampleGrid > 2u &&
             winding_is_inside(winding.low.z, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 3u,
         sampleGrid > 3u &&
             winding_is_inside(winding.low.w, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 4u,
         sampleGrid > 4u &&
             winding_is_inside(winding.high.x, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 5u,
         sampleGrid > 5u &&
             winding_is_inside(winding.high.y, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 6u,
         sampleGrid > 6u &&
             winding_is_inside(winding.high.z, record.fillRule));
-    covered = covered + select(
-        0u, 1u,
+    covered = covered | select(
+        0u, 1u << 7u,
         sampleGrid > 7u &&
             winding_is_inside(winding.high.w, record.fillRule));
     return covered;
 }
 
+fn combine_coverage_masks(maskA: u32, maskB: u32, pathOpKind: u32) -> u32 {
+    switch pathOpKind {
+        case 1u: { return maskA & ~maskB; }
+        case 2u: { return maskA & maskB; }
+        case 3u: { return maskA | maskB; }
+        case 4u: { return maskA ^ maskB; }
+        case 5u: { return maskB & ~maskA; }
+        default: { return maskA; }
+    }
+}
+
 fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     let pathIndex = uniforms.pathIndex;
     let record = pathRecords[pathIndex];
+    let recordB = pathRecords[uniforms.pathIndexB];
 
     let px = uniforms.xStart + f32(x);
     let py = uniforms.yStart + f32(y);
@@ -489,12 +501,27 @@ fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
     for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
         let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
-        coveredSamples = coveredSamples + count_row_coverage(
+        let maskA = row_coverage_mask(
             px,
             samplePositionY / uniforms.scaleY,
             sampleGrid,
             uniforms.scaleX,
             record);
+        var combinedMask = maskA;
+        if (uniforms.pathOpKind != 0u) {
+            let maskB = row_coverage_mask(
+                px,
+                samplePositionY / uniforms.scaleY,
+                sampleGrid,
+                uniforms.scaleX,
+                recordB);
+            combinedMask = combine_coverage_masks(
+                maskA,
+                maskB,
+                uniforms.pathOpKind);
+        }
+        let validMask = (1u << sampleGrid) - 1u;
+        coveredSamples = coveredSamples + countOneBits(combinedMask & validMask);
     }
     return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
 }
