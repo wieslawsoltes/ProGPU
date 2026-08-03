@@ -418,7 +418,9 @@ public class SKTextBlobBuilder : SKObject
 {
     internal const int MaximumReusablePositionedGlyphs = 1_024;
     private readonly List<SKTextBlobBuilderRun> _runs = new();
-    private SKTextBlobBuilderRun? _singleRun;
+#nullable disable
+    private SKTextBlobBuilderRun _singleRun;
+#nullable restore
     internal SKTextBlobBuilderScratch Scratch;
     internal bool IsDisposedForScratch;
 
