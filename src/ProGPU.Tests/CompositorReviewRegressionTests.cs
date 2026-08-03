@@ -333,6 +333,161 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RetainedPictureAvaloniaCommandStreamUsesTypedPackedRecords()
+    {
+        var brush = new SolidColorBrush(new Vector4(0.1f, 0.3f, 0.7f, 1f));
+        var path = RenderCommandGeometryCache.CreateLinePath(
+            new Vector2(2f, 3f),
+            new Vector2(9f, 11f));
+        var transform = Matrix4x4.CreateTranslation(4f, 5f, 0f);
+        var visual = new ContainerVisual();
+        ushort[] glyphIndices = [7, 9];
+        Vector2[] glyphPositions = [new(0f, 0f), new(8f, 0f)];
+        RenderCommand[] source =
+        [
+            new()
+            {
+                Type = RenderCommandType.DrawTexture,
+                Rect = new Rect(1f, 2f, 30f, 40f),
+                SrcRect = new Rect(3f, 4f, 10f, 12f),
+                Transform = transform,
+                TextureSamplingMode = TextureSamplingMode.Nearest,
+                TextureMaxAnisotropy = 4,
+                SnapTextureToPixels = true,
+                IsEdgeAliased = true
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawRect,
+                HitTestId = 7,
+                Rect = new Rect(6f, 8f, 12f, 16f),
+                Brush = brush,
+                Transform = transform,
+                IsPenThicknessLocal = true
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawPath,
+                HitTestId = 8,
+                Brush = brush,
+                Path = path,
+                Transform = transform,
+                IsEdgeAliased = true,
+                PathSampleGrid = 8,
+                PathCoverageGamma = 1.25f
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawRoundedRect,
+                HitTestId = 10,
+                Rect = new Rect(5f, 7f, 20f, 22f),
+                RadiusX = 4f,
+                RadiusY = 6f,
+                Brush = brush,
+                Transform = transform,
+                IsEdgeAliased = true,
+                IsPenThicknessLocal = true
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawVisual,
+                Visual = visual,
+                Transform = transform
+            },
+            new()
+            {
+                Type = RenderCommandType.PushClip,
+                Rect = new Rect(0f, 0f, 64f, 64f),
+                Transform = transform
+            },
+            new()
+            {
+                Type = RenderCommandType.PushGeometryClip,
+                Path = path,
+                Transform = transform
+            },
+            new()
+            {
+                Type = RenderCommandType.DrawGlyphRun,
+                HitTestId = 9,
+                Brush = brush,
+                FontSize = 14f,
+                Position = new Vector2(3f, 5f),
+                FontTransform = new Vector2(1.25f, 0.125f),
+                HasFontTransform = true,
+                Transform = transform,
+                PresentationDependencies =
+                    RenderCommandPresentationDependencies.TextRendering |
+                    RenderCommandPresentationDependencies.TextHinting,
+                IsBold = true,
+                TextRenderingMode = TextRenderingMode.ClearType,
+                TextHintingMode = TextHintingMode.Fixed,
+                UseVectorGlyphRendering = true,
+                PreferGlyphAtlas = true,
+                IsEdgeAliased = true,
+                GlyphIndices = glyphIndices,
+                GlyphPositions = glyphPositions,
+                GlyphRangeStart = 1,
+                GlyphRangeCount = 1
+            },
+            new()
+            {
+                Type = RenderCommandType.PushOpacity,
+                FontSize = 0.625f
+            },
+            new()
+            {
+                Type = RenderCommandType.PushBlendMode,
+                IntParam = (int)GpuBlendMode.Multiply
+            },
+            new() { Type = RenderCommandType.PopGeometryClip },
+            new() { Type = RenderCommandType.PopClip },
+            new() { Type = RenderCommandType.PopOpacity },
+            new() { Type = RenderCommandType.PopOpacityMask },
+            new() { Type = RenderCommandType.PopBlendMode }
+        ];
+
+        using var picture = new GpuPicture(source, [], [], [], []);
+
+        Assert.Equal(source, picture.RetainedCommands.Clone());
+        Assert.True(Unsafe.SizeOf<RetainedSimpleGlyphRunCommand>() <= 96);
+        Assert.Equal(8, Unsafe.SizeOf<RetainedScalarStateCommand>());
+        Assert.True(Unsafe.SizeOf<RetainedSimpleRoundedRectangleCommand>() <= 80);
+        Assert.Equal(16, Unsafe.SizeOf<RetainedSimpleVisualCommand>());
+        Assert.True(
+            picture.CommandStorageBytes < source.Length * 96L,
+            $"Expected packed Avalonia command storage, actual={picture.CommandStorageBytes} bytes.");
+    }
+
+    [Fact]
+    public void RetainedPictureSimpleTextureStorageStaysBelowSixtyFourBytesPerDraw()
+    {
+        const int commandCount = 1_024;
+        var commands = new RenderCommand[commandCount];
+        var transform = Matrix4x4.CreateScale(1.25f);
+        for (var index = 0; index < commands.Length; index++)
+        {
+            commands[index] = new RenderCommand
+            {
+                Type = RenderCommandType.DrawTexture,
+                Rect = new Rect(index & 7, index & 3, 16f, 16f),
+                SrcRect = new Rect(0f, 0f, 16f, 16f),
+                Transform = transform,
+                TextureSamplingMode = TextureSamplingMode.Linear,
+                TextureMaxAnisotropy = 1
+            };
+        }
+
+        using var picture = new GpuPicture(commands, [], [], [], []);
+
+        Assert.True(
+            picture.CommandStorageBytes <= commandCount * 64L +
+                Unsafe.SizeOf<Matrix4x4>(),
+            $"Expected at most 64 retained bytes per simple texture draw, actual={picture.CommandStorageBytes} bytes.");
+        Assert.Equal(commands, picture.RetainedCommands.Clone());
+    }
+
+    [Fact]
     public void SkRectUnionIncludesEmptyOriginInCoordinateEnvelope()
     {
         var bounds = SKRect.Empty;

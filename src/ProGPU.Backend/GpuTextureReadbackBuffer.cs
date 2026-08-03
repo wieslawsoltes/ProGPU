@@ -307,7 +307,10 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         while (!mapTask.IsCompleted)
         {
             _context.PollDevice(wait: false);
-            Thread.Sleep(1);
+            if (!mapTask.IsCompleted)
+            {
+                Thread.Yield();
+            }
             if (stopwatch.ElapsedMilliseconds > timeoutMilliseconds)
             {
                 LastMapTimedOut = true;
