@@ -121,7 +121,8 @@ public sealed class BackgroundAudioTrack
         CreateFromFileAsync(StorageFile file)
     {
         ArgumentNullException.ThrowIfNull(file);
-        Uri source = new(Path.GetFullPath(file.Path));
+        Uri source =
+            StoragePlatformServices.GetContentUri(file);
         try
         {
             MediaFileMetadata metadata =

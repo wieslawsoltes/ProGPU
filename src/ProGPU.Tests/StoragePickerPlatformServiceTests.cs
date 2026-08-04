@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Windows.Media.Core;
 using Windows.Storage;
 using Xunit;
 
@@ -13,6 +14,44 @@ public sealed class StoragePickerPlatformServiceCollection
 [Collection(StoragePickerPlatformServiceCollection.CollectionName)]
 public sealed class StoragePickerPlatformServiceTests
 {
+    [Fact]
+    public void StorageFileContentUriFeedsOfficialMediaSourceFactory()
+    {
+        var previousResolver =
+            StoragePlatformServices.ResolveContentUri;
+        try
+        {
+            StoragePlatformServices.ResolveContentUri = path =>
+                path == "/virtual/open-7/movie.mp4"
+                    ? new Uri(
+                        "progpu-browser-storage://open-7/movie.mp4")
+                    : null;
+
+            using MediaSource source =
+                MediaSource.CreateFromStorageFile(
+                    new StorageFile(
+                        "/virtual/open-7/movie.mp4"));
+
+            Assert.Equal(
+                "progpu-browser-storage://open-7/movie.mp4",
+                source.Uri?.AbsoluteUri);
+            Assert.Equal(
+                typeof(IStorageFile),
+                typeof(MediaSource)
+                    .GetMethod(
+                        nameof(
+                            MediaSource
+                                .CreateFromStorageFile))!
+                    .GetParameters()[0]
+                    .ParameterType);
+        }
+        finally
+        {
+            StoragePlatformServices.ResolveContentUri =
+                previousResolver;
+        }
+    }
+
     [Fact]
     public async Task PickerApisForwardModeFiltersAndSuggestedNameToHost()
     {

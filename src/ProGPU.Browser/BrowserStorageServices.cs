@@ -15,6 +15,8 @@ internal static partial class BrowserStorageServices
         StoragePlatformServices.PickPathAsync = PickPathAsync;
         StoragePlatformServices.WriteTextAsync = WriteTextAsync;
         StoragePlatformServices.WriteBytesAsync = WriteBytesAsync;
+        StoragePlatformServices.ResolveContentUri =
+            ResolveContentUri;
     }
 
     private static async Task<string?> PickPathAsync(int mode, IReadOnlyList<string>? fileTypes, string? defaultName)
@@ -44,6 +46,8 @@ internal static partial class BrowserStorageServices
 
         if (mode == 0)
         {
+            var selection = ParseHandleSelection(result);
+            if (selection == null) return null;
             int length = GetPickedStorageLength();
             if (length < 0) return null;
 
@@ -65,9 +69,13 @@ internal static partial class BrowserStorageServices
                     }
                 }
 
-                var name = Uri.UnescapeDataString(result);
-                Directory.CreateDirectory(OpenDirectory);
-                var path = Path.Combine(OpenDirectory, Path.GetFileName(name));
+                var directory = Path.Combine(
+                    OpenDirectory,
+                    selection.Value.Token);
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(
+                    directory,
+                    selection.Value.Name);
                 await File.WriteAllBytesAsync(path, bytes).ConfigureAwait(false);
                 return path;
             }
@@ -154,6 +162,52 @@ internal static partial class BrowserStorageServices
 
         var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 || parts.Any(part => part is "." or "..")) return false;
+        token = parts[0];
+        name = parts[1];
+        return true;
+    }
+
+    private static Uri? ResolveContentUri(string path)
+    {
+        if (!TryGetOpenSelection(
+                path,
+                out string token,
+                out string name))
+        {
+            return null;
+        }
+
+        return new Uri(
+            $"progpu-browser-storage://{token}/" +
+            Uri.EscapeDataString(name),
+            UriKind.Absolute);
+    }
+
+    internal static bool TryGetOpenSelection(
+        string path,
+        out string token,
+        out string name)
+    {
+        token = string.Empty;
+        name = string.Empty;
+        var relative = Path.GetRelativePath(
+            OpenDirectory,
+            path);
+        if (Path.IsPathRooted(relative) ||
+            relative.StartsWith("..", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parts = relative.Split(
+            Path.DirectorySeparatorChar,
+            StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2 ||
+            parts.Any(part => part is "." or ".."))
+        {
+            return false;
+        }
+
         token = parts[0];
         name = parts[1];
         return true;

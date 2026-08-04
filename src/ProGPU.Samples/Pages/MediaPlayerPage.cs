@@ -561,13 +561,14 @@ public static class MediaPlayerPage
                 }
             };
 
-        void LoadSource(Uri source)
+        void LoadSource(
+            MediaSource mediaSource,
+            string sourceDisplay,
+            string title)
         {
             try
             {
-                SetText(status, $"Opening {source} …");
-                MediaSource mediaSource =
-                    MediaSource.CreateFromUri(source);
+                SetText(status, $"Opening {sourceDisplay} …");
                 var applicationTrack =
                     new TimedMetadataTrack(
                         "progpu-sample-markers",
@@ -641,10 +642,7 @@ public static class MediaPlayerPage
                 MediaItemDisplayProperties display =
                     item.GetDisplayProperties();
                 display.Type = MediaPlaybackType.Video;
-                display.VideoProperties.Title =
-                    source.IsFile
-                        ? Path.GetFileName(source.LocalPath)
-                        : source.Host;
+                display.VideoProperties.Title = title;
                 display.VideoProperties.Subtitle =
                     "ProGPU WebGPU media";
                 item.ApplyDisplayProperties(display);
@@ -674,6 +672,14 @@ public static class MediaPlayerPage
             }
         }
 
+        void LoadUriSource(Uri source) =>
+            LoadSource(
+                MediaSource.CreateFromUri(source),
+                source.AbsoluteUri,
+                source.IsFile
+                    ? Path.GetFileName(source.LocalPath)
+                    : source.Host);
+
         load.Click += (_, _) =>
         {
             if (Uri.TryCreate(
@@ -681,7 +687,7 @@ public static class MediaPlayerPage
                     UriKind.Absolute,
                     out Uri? source))
             {
-                LoadSource(source);
+                LoadUriSource(source);
             }
             else
             {
@@ -704,8 +710,15 @@ public static class MediaPlayerPage
                     await picker.PickSingleFileAsync();
                 if (file is not null)
                 {
-                    uri.Text = new Uri(file.Path).AbsoluteUri;
-                    LoadSource(new Uri(file.Path));
+                    MediaSource mediaSource =
+                        MediaSource.CreateFromStorageFile(file);
+                    uri.Text =
+                        mediaSource.Uri?.AbsoluteUri ??
+                        file.Name;
+                    LoadSource(
+                        mediaSource,
+                        file.Name,
+                        file.Name);
                 }
             }
             catch (Exception exception)
@@ -878,7 +891,7 @@ public static class MediaPlayerPage
                 0);
             uri.Text = benchmarkMediaUri.AbsoluteUri;
             loop.IsOn = true;
-            LoadSource(benchmarkMediaUri);
+            LoadUriSource(benchmarkMediaUri);
         }
 
         var sourceRow = new StackPanel

@@ -30,6 +30,7 @@ const state = {
   clipboardHtml: '',
   pickedStorageBytes: null,
   nextStorageHandle: 1,
+  openFileHandles: new Map(),
   saveFileHandles: new Map(),
   directoryHandles: new Map(),
   mediaElements: new Map(),
@@ -780,8 +781,18 @@ function getClipboardHtml() {
 }
 
 async function stagePickedFile(file) {
-  state.pickedStorageBytes = new Uint8Array(await file.arrayBuffer());
-  return encodeURIComponent(file.name);
+  const token = rememberStorageHandle(
+    state.openFileHandles,
+    'open',
+    file);
+  try {
+    state.pickedStorageBytes =
+      new Uint8Array(await file.arrayBuffer());
+    return encodeStorageSelection(token, file.name);
+  } catch (error) {
+    state.openFileHandles.delete(token);
+    throw error;
+  }
 }
 
 async function stageBrowserMediaSource(stagingId, uri, maximumBytes) {
@@ -896,6 +907,29 @@ function waitForMediaEvent(element, eventName) {
   });
 }
 
+function resolveBrowserStorageMediaSource(uri) {
+  const parsed = new URL(uri, globalThis.location.href);
+  if (parsed.protocol !== 'progpu-browser-storage:') {
+    return { uri, objectUrl: null };
+  }
+
+  const token = decodeURIComponent(parsed.hostname);
+  const file = state.openFileHandles.get(token);
+  if (!file) {
+    throw new Error(
+      `Browser storage media handle '${token}' is no longer available.`);
+  }
+  const objectUrl = URL.createObjectURL(file);
+  return { uri: objectUrl, objectUrl };
+}
+
+function releaseBrowserStorageMediaSource(element) {
+  if (!element?.progpuBrowserStorageObjectUrl) return;
+  URL.revokeObjectURL(
+    element.progpuBrowserStorageObjectUrl);
+  element.progpuBrowserStorageObjectUrl = null;
+}
+
 async function createCompositionMediaElement(uri, audioOnly = false) {
   const element = document.createElement(audioOnly ? 'audio' : 'video');
   element.preload = 'auto';
@@ -903,11 +937,23 @@ async function createCompositionMediaElement(uri, audioOnly = false) {
   if (!audioOnly) element.playsInline = true;
   element.style.display = 'none';
   document.body.appendChild(element);
-  const metadata = waitForMediaEvent(element, 'loadedmetadata');
-  element.src = uri;
-  element.load();
-  await metadata;
-  return element;
+  try {
+    const source = resolveBrowserStorageMediaSource(uri);
+    element.progpuBrowserStorageObjectUrl =
+      source.objectUrl;
+    const metadata = waitForMediaEvent(
+      element,
+      'loadedmetadata');
+    element.src = source.uri;
+    element.load();
+    await metadata;
+    return element;
+  } catch (error) {
+    element.removeAttribute('src');
+    releaseBrowserStorageMediaSource(element);
+    element.remove();
+    throw error;
+  }
 }
 
 async function seekCompositionElement(
@@ -2399,6 +2445,7 @@ async function renderBrowserMediaComposition(
       try { entry.pause(); } catch { }
       entry.removeAttribute('src');
       try { entry.load(); } catch { }
+      releaseBrowserStorageMediaSource(entry);
       entry.remove();
     }
     for (const track of streamTracks) {
@@ -3039,7 +3086,8 @@ async function createBrowserMedia(id, uri) {
     nextTextTrackId: 1,
     nextCueId: 1,
     textTrackListeners: new Map(),
-    textTrackListChanged: null
+    textTrackListChanged: null,
+    objectUrl: null
   };
   state.mediaElements.set(id, entry);
 
@@ -3068,9 +3116,16 @@ async function createBrowserMedia(id, uri) {
     video.addEventListener('loadedmetadata', resolve, { once: true });
     video.addEventListener('error', () => reject(new Error(video.error?.message || 'The browser rejected the media source.')), { once: true });
   });
-  video.src = uri;
-  video.load();
-  await metadata;
+  try {
+    const source = resolveBrowserStorageMediaSource(uri);
+    entry.objectUrl = source.objectUrl;
+    video.src = source.uri;
+    video.load();
+    await metadata;
+  } catch (error) {
+    disposeBrowserMedia(id);
+    throw error;
+  }
   entry.textTrackListChanged = () =>
     onBrowserMediaTextTracksChanged(entry);
   video.textTracks.addEventListener(
@@ -3327,6 +3382,10 @@ function disposeBrowserMedia(id) {
   entry.video.removeAttribute('src');
   entry.video.load();
   entry.video.remove();
+  if (entry.objectUrl) {
+    URL.revokeObjectURL(entry.objectUrl);
+    entry.objectUrl = null;
+  }
   if (entry.audioSource) entry.audioSource.disconnect();
   if (entry.panner) entry.panner.disconnect();
   for (const effect of entry.audioEffects.values()) {

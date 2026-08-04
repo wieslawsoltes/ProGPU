@@ -2,6 +2,7 @@ using ProGPU.Media.Playback;
 using System.Collections.ObjectModel;
 using Windows.Foundation.Collections;
 using Windows.Media.Playback;
+using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace Windows.Media.Core;
@@ -102,6 +103,15 @@ public sealed class MediaSource : IMediaPlaybackSource, IDisposable,
 
     public static MediaSource CreateFromUri(Uri uri) =>
         new(MediaSourceDescriptor.FromUri(uri));
+
+    public static MediaSource CreateFromStorageFile(
+        IStorageFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        return new MediaSource(
+            MediaSourceDescriptor.FromUri(
+                StoragePlatformServices.GetContentUri(file)));
+    }
 
     public static MediaSource CreateFromStream(
         IRandomAccessStream stream,

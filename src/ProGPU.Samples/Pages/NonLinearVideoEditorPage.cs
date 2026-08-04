@@ -390,9 +390,9 @@ public static class NonLinearVideoEditorPage
                     await picker.PickSingleFileAsync();
                 if (file is not null)
                 {
-                    session.Add(
-                        new Uri(file.Path),
-                        file.Name);
+                    MediaClip clip =
+                        await MediaClip.CreateFromFileAsync(file);
+                    session.Add(clip, file.Name);
                 }
             }
             catch (Exception exception)
@@ -430,8 +430,11 @@ public static class NonLinearVideoEditorPage
                     await picker.PickSingleFileAsync();
                 if (file is not null)
                 {
+                    BackgroundAudioTrack track =
+                        await BackgroundAudioTrack
+                            .CreateFromFileAsync(file);
                     session.AddBackgroundAudio(
-                        new Uri(file.Path),
+                        track,
                         file.Name);
                 }
             }
@@ -1038,6 +1041,13 @@ public static class NonLinearVideoEditorPage
             MediaClip clip = MediaClip.CreateFromUri(
                 source,
                 TimeSpan.FromSeconds(10));
+            Add(clip, name);
+        }
+
+        public void Add(MediaClip clip, string name)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(clip);
             clip.UserData[NameKey] = name;
             _clips.Add(clip);
             Select(_clips.Count - 1, TimeSpan.Zero, false);
@@ -1077,6 +1087,15 @@ public static class NonLinearVideoEditorPage
                 BackgroundAudioTrack.CreateFromUri(
                     source,
                     TimeSpan.FromSeconds(10));
+            AddBackgroundAudio(track, name);
+        }
+
+        public void AddBackgroundAudio(
+            BackgroundAudioTrack track,
+            string name)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(track);
             track.UserData[NameKey] = name;
             _backgroundAudioTracks.Add(track);
             _backgroundPlayback.Add(

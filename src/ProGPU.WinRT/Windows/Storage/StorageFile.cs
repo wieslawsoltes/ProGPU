@@ -111,6 +111,13 @@ public static class StoragePlatformServices
     public static Func<string, Task<byte[]>>?
         ReadBytesAsync { get; set; }
 
+    /// <summary>
+    /// Resolves a host-backed storage path to an absolute content URI that
+    /// native media APIs can consume without assuming desktop file access.
+    /// </summary>
+    public static Func<string, Uri?>?
+        ResolveContentUri { get; set; }
+
     public static Func<string, string, Task<bool>>?
         WriteTextAsync { get; set; }
 
@@ -128,4 +135,25 @@ public static class StoragePlatformServices
 
     public static Func<string, string, Task<string>>?
         CreateFolderAsync { get; set; }
+
+    internal static Uri GetContentUri(IStorageFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        if (ResolveContentUri?.Invoke(file.Path) is
+            { IsAbsoluteUri: true } resolved)
+        {
+            return resolved;
+        }
+
+        if (Uri.TryCreate(
+                file.Path,
+                UriKind.Absolute,
+                out Uri? source) &&
+            !string.IsNullOrEmpty(source.Scheme))
+        {
+            return source;
+        }
+
+        return new Uri(Path.GetFullPath(file.Path));
+    }
 }

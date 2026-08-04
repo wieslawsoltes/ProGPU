@@ -420,12 +420,17 @@ public sealed class SampleProjectSplitTests
         Assert.Contains("globalThis.showSaveFilePicker", browserAsset, StringComparison.Ordinal);
         Assert.Contains("globalThis.showDirectoryPicker", browserAsset, StringComparison.Ordinal);
         Assert.Contains("input.webkitdirectory = true;", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("openFileHandles: new Map()", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("progpu-browser-storage:", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("URL.createObjectURL(file)", browserAsset, StringComparison.Ordinal);
+        Assert.Contains("URL.revokeObjectURL(entry.objectUrl)", browserAsset, StringComparison.Ordinal);
         Assert.Contains("handle.createWritable()", browserAsset, StringComparison.Ordinal);
         Assert.Contains("const bytes = heap.slice(source, source + length);", browserAsset, StringComparison.Ordinal);
         Assert.Contains("CopyPickedStorage((nint)destination, length)", storageServices, StringComparison.Ordinal);
         Assert.Contains("ClearPickedStorage();", storageServices, StringComparison.Ordinal);
         Assert.Contains("WritePickedStorageText(token, text)", storageServices, StringComparison.Ordinal);
         Assert.Contains("WritePickedStorageBytes(token, (nint)source, bytes.Length)", storageServices, StringComparison.Ordinal);
+        Assert.Contains("StoragePlatformServices.ResolveContentUri", storageServices, StringComparison.Ordinal);
     }
 
     [Fact]
