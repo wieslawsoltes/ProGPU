@@ -288,7 +288,8 @@ public static class NonLinearVideoEditorPage
         var uriInput = new TextBox
         {
             Text = SampleUri,
-            Width = 470f
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0f, 0f, 0f, 6f)
         };
         var colorInput = new TextBox
         {
@@ -568,73 +569,65 @@ public static class NonLinearVideoEditorPage
         thumbnails.Click += async (_, _) =>
             await session.RefreshTimelineThumbnailsAsync();
 
-        var importRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-        importRow.AddChild(uriInput);
-        importRow.AddChild(addUri);
-        importRow.AddChild(addFile);
+        var importActions =
+            SampleMediaResponsiveLayout.CreateActionPanel();
+        importActions.AddChild(addUri);
+        importActions.AddChild(addFile);
 
-        var colorRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
+        var colorRow =
+            SampleMediaResponsiveLayout.CreateActionPanel();
         colorRow.AddChild(Text("Color"));
         colorRow.AddChild(colorInput);
         colorRow.AddChild(Text("Duration"));
         colorRow.AddChild(colorDuration);
         colorRow.AddChild(addColor);
 
-        var editGrid = new Grid
-        {
-            Margin = new Thickness(0, 4, 0, 8)
-        };
-        for (int index = 0; index < 7; index++)
-        {
-            editGrid.ColumnDefinitions.Add(
-                GridLength.Auto);
-        }
-        for (int index = 0; index < 3; index++)
-        {
-            editGrid.RowDefinitions.Add(
-                GridLength.Auto);
-        }
-
-        AddCommand(editGrid, play, 0, 0);
-        AddCommand(editGrid, pause, 0, 1);
-        AddCommand(editGrid, split, 0, 2);
-        AddCommand(editGrid, remove, 0, 3);
-        AddCommand(editGrid, left, 0, 4);
-        AddCommand(editGrid, right, 0, 5);
-        AddCommand(editGrid, addBackgroundAudio, 1, 0);
-        AddCommand(editGrid, removeBackgroundAudio, 1, 1);
-        AddCommand(editGrid, addOverlay, 1, 2);
-        AddCommand(editGrid, removeOverlay, 1, 3);
-        AddCommand(editGrid, saveProject, 2, 0);
-        AddCommand(editGrid, loadProject, 2, 1);
-        AddCommand(editGrid, export, 2, 2);
-        AddCommand(editGrid, thumbnails, 2, 3);
+        var editCommands =
+            SampleMediaResponsiveLayout.CreateActionPanel();
+        editCommands.Margin = new Thickness(0f, 4f, 0f, 8f);
+        editCommands.AddChild(play);
+        editCommands.AddChild(pause);
+        editCommands.AddChild(split);
+        editCommands.AddChild(remove);
+        editCommands.AddChild(left);
+        editCommands.AddChild(right);
+        editCommands.AddChild(addBackgroundAudio);
+        editCommands.AddChild(removeBackgroundAudio);
+        editCommands.AddChild(addOverlay);
+        editCommands.AddChild(removeOverlay);
+        editCommands.AddChild(saveProject);
+        editCommands.AddChild(loadProject);
+        editCommands.AddChild(export);
+        editCommands.AddChild(thumbnails);
 
         var main = new StackPanel
         {
             Orientation = Orientation.Vertical,
             Margin = new Thickness(12)
         };
-        main.AddChild(Header("Non-linear video editor"));
-        main.AddChild(importRow);
+        var pageHeader = Header("Non-linear video editor");
+        main.AddChild(pageHeader);
+        main.AddChild(uriInput);
+        main.AddChild(importActions);
         main.AddChild(colorRow);
         main.AddChild(previewHost);
         main.AddChild(Text("Composed timeline"));
-        main.AddChild(timeline);
+        main.AddChild(
+            SampleMediaResponsiveLayout.CreateTimelineScroller(
+                timeline,
+                108f));
         main.AddChild(Text("Background audio"));
-        main.AddChild(backgroundTimeline);
+        main.AddChild(
+            SampleMediaResponsiveLayout.CreateTimelineScroller(
+                backgroundTimeline,
+                72f));
         main.AddChild(Text("Overlay layers"));
-        main.AddChild(overlayTimeline);
+        main.AddChild(
+            SampleMediaResponsiveLayout.CreateTimelineScroller(
+                overlayTimeline,
+                72f));
         main.AddChild(playhead);
-        main.AddChild(editGrid);
+        main.AddChild(editCommands);
         main.AddChild(status);
 
         var inspector = new StackPanel
@@ -708,9 +701,21 @@ public static class NonLinearVideoEditorPage
                     HorizontalAlignment.Stretch,
                 VerticalAlignment =
                     VerticalAlignment.Stretch,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility =
+                    ScrollBarVisibility.Disabled,
                 Content = main
             }
         };
+        SampleMediaResponsiveLayout.AttachPreviewStates(
+            root,
+            pageHeader,
+            compactHeight: 220f,
+            mediumHeight: 300f,
+            wideHeight: 390f,
+            colorPreview,
+            playerElement,
+            previewHost);
         root.Session = session;
         root.Unloaded += (_, _) => session.Dispose();
         session.Add(new Uri(SampleUri), "Flower sample");
@@ -824,18 +829,6 @@ public static class NonLinearVideoEditorPage
         return string.IsNullOrWhiteSpace(name)
             ? uri.Host
             : name;
-    }
-
-    private static void AddCommand(
-        Grid grid,
-        Button button,
-        int row,
-        int column)
-    {
-        button.Margin = new Thickness(0, 0, 6, 6);
-        grid.AddChild(button);
-        Grid.SetRow(button, row);
-        Grid.SetColumn(button, column);
     }
 
     private static RichTextBlock Header(string value)

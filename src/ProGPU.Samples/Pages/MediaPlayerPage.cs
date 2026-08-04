@@ -143,7 +143,8 @@ public static class MediaPlayerPage
         var uri = new TextBox
         {
             Text = DefaultMediaUri,
-            Width = 520f
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0f, 0f, 0f, 6f)
         };
         var load = new Button { Content = "Load URI" };
         var open = new Button { Content = "Open file" };
@@ -894,21 +895,15 @@ public static class MediaPlayerPage
             LoadUriSource(benchmarkMediaUri);
         }
 
-        var sourceRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-        sourceRow.AddChild(uri);
-        sourceRow.AddChild(load);
-        sourceRow.AddChild(open);
-        sourceRow.AddChild(addWebVtt);
+        var sourceActions =
+            SampleMediaResponsiveLayout.CreateActionPanel();
+        sourceActions.AddChild(load);
+        sourceActions.AddChild(open);
+        sourceActions.AddChild(addWebVtt);
 
-        var transportRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 8, 0, 8)
-        };
+        var transportRow =
+            SampleMediaResponsiveLayout.CreateActionPanel();
+        transportRow.Margin = new Thickness(0f, 8f, 0f, 8f);
         transportRow.AddChild(play);
         transportRow.AddChild(pause);
         transportRow.AddChild(previousFrame);
@@ -923,8 +918,10 @@ public static class MediaPlayerPage
             Orientation = Orientation.Vertical,
             Margin = new Thickness(12)
         };
-        preview.AddChild(Header("WinUI MediaPlayer + WebGPU"));
-        preview.AddChild(sourceRow);
+        var pageHeader = Header("WinUI MediaPlayer + WebGPU");
+        preview.AddChild(pageHeader);
+        preview.AddChild(uri);
+        preview.AddChild(sourceActions);
         preview.AddChild(videoHost);
         preview.AddChild(position);
         preview.AddChild(transportRow);
@@ -973,8 +970,25 @@ public static class MediaPlayerPage
         {
             OpenPaneLength = 320f,
             PaneContent = effects,
-            MainContent = preview
+            MainContent = new ScrollViewer
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility =
+                    ScrollBarVisibility.Disabled,
+                Content = preview
+            }
         };
+        SampleMediaResponsiveLayout.AttachPreviewStates(
+            root,
+            pageHeader,
+            compactHeight: 220f,
+            mediumHeight: 320f,
+            wideHeight: 430f,
+            playerElement,
+            mediaViewport,
+            videoHost);
         root.Unloaded += (_, _) =>
         {
             if (ReferenceEquals(s_benchmarkPlayer, player))
