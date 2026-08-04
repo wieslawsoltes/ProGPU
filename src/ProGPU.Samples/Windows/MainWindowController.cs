@@ -256,26 +256,11 @@ public static unsafe class MainWindowController
         headerGrid.AddChild(subtitleText);
         Microsoft.UI.Xaml.Controls.Grid.SetColumn(subtitleText, 4);
 
-        var headerStates = new VisualStateGroup { Name = "WindowWidthStates" };
-        var narrowHeader = new VisualState { Name = "Narrow" };
-        narrowHeader.StateTriggers.Add(new AdaptiveTrigger { MinWindowWidth = 0 });
-        narrowHeader.Setters.Add(new Setter("FamilySelector.Visibility", Visibility.Collapsed));
-        narrowHeader.Setters.Add(new Setter("ThemeSelector.Visibility", Visibility.Collapsed));
-        narrowHeader.Setters.Add(new Setter("GallerySubtitle.Visibility", Visibility.Collapsed));
-        var mediumHeader = new VisualState { Name = "Medium" };
-        mediumHeader.StateTriggers.Add(new AdaptiveTrigger { MinWindowWidth = 560 });
-        mediumHeader.Setters.Add(new Setter("FamilySelector.Visibility", Visibility.Collapsed));
-        mediumHeader.Setters.Add(new Setter("ThemeSelector.Visibility", Visibility.Visible));
-        mediumHeader.Setters.Add(new Setter("GallerySubtitle.Visibility", Visibility.Collapsed));
-        var wideHeader = new VisualState { Name = "Wide" };
-        wideHeader.StateTriggers.Add(new AdaptiveTrigger { MinWindowWidth = 900 });
-        wideHeader.Setters.Add(new Setter("FamilySelector.Visibility", Visibility.Visible));
-        wideHeader.Setters.Add(new Setter("ThemeSelector.Visibility", Visibility.Visible));
-        wideHeader.Setters.Add(new Setter("GallerySubtitle.Visibility", Visibility.Visible));
-        headerStates.States.Add(narrowHeader);
-        headerStates.States.Add(mediumHeader);
-        headerStates.States.Add(wideHeader);
-        VisualStateManager.GetVisualStateGroups(headerGrid).Add(headerStates);
+        AttachHeaderWidthStates(
+            headerGrid,
+            familyBtn,
+            themeBtn,
+            subtitleText);
 
         headerBar.Child = headerGrid;
         AppState._rootGrid.AddChild(headerBar);
@@ -597,6 +582,66 @@ public static unsafe class MainWindowController
             }
         };
         DevToolsService.StateChanged += AppState._devToolsStateChangedHandler;
+    }
+
+    internal static void AttachHeaderWidthStates(
+        FrameworkElement stateRoot,
+        UIElement familySelector,
+        UIElement themeSelector,
+        UIElement subtitle)
+    {
+        static Setter VisibilitySetter(
+            UIElement target,
+            Visibility visibility) =>
+            new()
+            {
+                Target = new TargetPropertyPath(
+                    UIElement.VisibilityProperty)
+                {
+                    Target = target
+                },
+                Value = visibility
+            };
+
+        var headerStates = new VisualStateGroup
+        {
+            Name = "WindowWidthStates"
+        };
+        var narrowHeader = new VisualState { Name = "Narrow" };
+        narrowHeader.StateTriggers.Add(
+            new AdaptiveTrigger { MinWindowWidth = 0 });
+        narrowHeader.Setters.Add(
+            VisibilitySetter(familySelector, Visibility.Collapsed));
+        narrowHeader.Setters.Add(
+            VisibilitySetter(themeSelector, Visibility.Collapsed));
+        narrowHeader.Setters.Add(
+            VisibilitySetter(subtitle, Visibility.Collapsed));
+
+        var mediumHeader = new VisualState { Name = "Medium" };
+        mediumHeader.StateTriggers.Add(
+            new AdaptiveTrigger { MinWindowWidth = 560 });
+        mediumHeader.Setters.Add(
+            VisibilitySetter(familySelector, Visibility.Collapsed));
+        mediumHeader.Setters.Add(
+            VisibilitySetter(themeSelector, Visibility.Visible));
+        mediumHeader.Setters.Add(
+            VisibilitySetter(subtitle, Visibility.Collapsed));
+
+        var wideHeader = new VisualState { Name = "Wide" };
+        wideHeader.StateTriggers.Add(
+            new AdaptiveTrigger { MinWindowWidth = 900 });
+        wideHeader.Setters.Add(
+            VisibilitySetter(familySelector, Visibility.Visible));
+        wideHeader.Setters.Add(
+            VisibilitySetter(themeSelector, Visibility.Visible));
+        wideHeader.Setters.Add(
+            VisibilitySetter(subtitle, Visibility.Visible));
+
+        headerStates.States.Add(narrowHeader);
+        headerStates.States.Add(mediumHeader);
+        headerStates.States.Add(wideHeader);
+        VisualStateManager.GetVisualStateGroups(stateRoot).Add(
+            headerStates);
     }
 
     private static void ReloadSceneGraph(Window window)
