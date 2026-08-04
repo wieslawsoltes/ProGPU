@@ -10,6 +10,65 @@ namespace ProGPU.Tests.Headless;
 public sealed class SampleShellResponsiveTests
 {
     [Fact]
+    public void HeaderKeepsTitleIntrinsicAndGivesRemainderToSubtitle()
+    {
+        var header = new Grid();
+
+        MainWindowController.ConfigureHeaderColumns(header);
+
+        Assert.Collection(
+            header.ColumnDefinitions,
+            column =>
+            {
+                Assert.Equal(GridUnitType.Absolute, column.Width.UnitType);
+                Assert.Equal(45f, column.Width.Value);
+            },
+            column => Assert.Equal(
+                GridUnitType.Auto,
+                column.Width.UnitType),
+            column => Assert.Equal(
+                GridUnitType.Auto,
+                column.Width.UnitType),
+            column => Assert.Equal(
+                GridUnitType.Auto,
+                column.Width.UnitType),
+            column => Assert.Equal(
+                GridUnitType.Star,
+                column.Width.UnitType));
+    }
+
+    [Fact]
+    public void BasicInputIsDefaultWhileExplicitSelectionsStillWin()
+    {
+        var basic = new NavigationViewItem("Basic Input", "A");
+        var mesh = new NavigationViewItem("3D Mesh Viewer", "B");
+        var media = new NavigationViewItem("GPU Media Player", "C");
+        NavigationViewItem[] pages = [basic, mesh, media];
+
+        Assert.Same(
+            basic,
+            MainWindowController.ResolveInitialPage(
+                pages,
+                basic,
+                selectedCategory: null,
+                requestedPage: null));
+        Assert.Same(
+            mesh,
+            MainWindowController.ResolveInitialPage(
+                pages,
+                basic,
+                selectedCategory: "3d mesh viewer",
+                requestedPage: null));
+        Assert.Same(
+            media,
+            MainWindowController.ResolveInitialPage(
+                pages,
+                basic,
+                selectedCategory: "3D Mesh Viewer",
+                requestedPage: "gpu media player"));
+    }
+
+    [Fact]
     public void HeaderAdaptiveStatesOnlyHideSecondaryContent()
     {
         var header = new Grid();

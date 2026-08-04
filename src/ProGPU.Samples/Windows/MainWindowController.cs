@@ -133,11 +133,7 @@ public static unsafe class MainWindowController
         };
 
         var headerGrid = new Microsoft.UI.Xaml.Controls.Grid();
-        headerGrid.ColumnDefinitions.Add(new GridLength(45f, GridUnitType.Absolute));  // Column 0: Hamburger Button
-        headerGrid.ColumnDefinitions.Add(new GridLength(1f, GridUnitType.Star));       // Column 1: Title Logo
-        headerGrid.ColumnDefinitions.Add(GridLength.Auto); // Column 2: Theme Family Selector
-        headerGrid.ColumnDefinitions.Add(GridLength.Auto); // Column 3: Theme Selector
-        headerGrid.ColumnDefinitions.Add(GridLength.Auto); // Column 4: Subtitle text
+        ConfigureHeaderColumns(headerGrid);
 
         var hamburgerBtn = new Button
         {
@@ -159,7 +155,15 @@ public static unsafe class MainWindowController
         headerGrid.AddChild(hamburgerBtn);
         Microsoft.UI.Xaml.Controls.Grid.SetColumn(hamburgerBtn, 0);
 
-        var titleText = new RichTextBlock { Name = "GalleryTitle", Font = AppState._font, FontSize = 20f, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+        var titleText = new RichTextBlock
+        {
+            Name = "GalleryTitle",
+            Font = AppState._font,
+            FontSize = 20f,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
         var logoRun = new Run("Pro") { Foreground = new ProGPU.Vector.ThemeResourceBrush("SystemAccentColor") };
         titleText.Inlines.Add(new Bold(logoRun));
         titleText.Inlines.Add(new Bold(new Run("GPU WinUI Gallery")));
@@ -249,6 +253,7 @@ public static unsafe class MainWindowController
             Name = "GallerySubtitle",
             Font = AppState._font,
             FontSize = 11f,
+            TextWrapping = TextWrapping.NoWrap,
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = Microsoft.UI.Xaml.TextAlignment.Right
         };
@@ -455,29 +460,11 @@ public static unsafe class MainWindowController
         }
 
         // Select default category or an environment-requested performance probe page.
-        var initialItem = mesh3DViewerItem;
-        if (!string.IsNullOrEmpty(selectedCategory))
-        {
-            foreach (var menuItem in AppState._navigationView.MenuItems)
-            {
-                if (string.Equals(menuItem.Text, selectedCategory, StringComparison.OrdinalIgnoreCase))
-                {
-                    initialItem = menuItem;
-                    break;
-                }
-            }
-        }
-        if (SamplePerformanceBenchmark.RequestedPage is { } requestedPage)
-        {
-            foreach (var menuItem in AppState._navigationView.MenuItems)
-            {
-                if (string.Equals(menuItem.Text, requestedPage, StringComparison.OrdinalIgnoreCase))
-                {
-                    initialItem = menuItem;
-                    break;
-                }
-            }
-        }
+        var initialItem = ResolveInitialPage(
+            AppState._navigationView.MenuItems,
+            basicInputItem,
+            selectedCategory,
+            SamplePerformanceBenchmark.RequestedPage);
 
         AppState._navigationView.SelectedItem = initialItem;
         SamplePerformanceBenchmark.StartRequestedWorkload(initialItem.Text);
@@ -642,6 +629,59 @@ public static unsafe class MainWindowController
         headerStates.States.Add(wideHeader);
         VisualStateManager.GetVisualStateGroups(stateRoot).Add(
             headerStates);
+    }
+
+    internal static void ConfigureHeaderColumns(Grid headerGrid)
+    {
+        ArgumentNullException.ThrowIfNull(headerGrid);
+        headerGrid.ColumnDefinitions.Clear();
+        headerGrid.ColumnDefinitions.Add(
+            new GridLength(45f, GridUnitType.Absolute));
+        headerGrid.ColumnDefinitions.Add(GridLength.Auto);
+        headerGrid.ColumnDefinitions.Add(GridLength.Auto);
+        headerGrid.ColumnDefinitions.Add(GridLength.Auto);
+        headerGrid.ColumnDefinitions.Add(
+            new GridLength(1f, GridUnitType.Star));
+    }
+
+    internal static NavigationViewItem ResolveInitialPage(
+        IReadOnlyList<NavigationViewItem> menuItems,
+        NavigationViewItem defaultItem,
+        string? selectedCategory,
+        string? requestedPage)
+    {
+        ArgumentNullException.ThrowIfNull(menuItems);
+        ArgumentNullException.ThrowIfNull(defaultItem);
+
+        NavigationViewItem selected = defaultItem;
+        TryFind(selectedCategory, ref selected);
+        TryFind(requestedPage, ref selected);
+        return selected;
+
+        void TryFind(
+            string? name,
+            ref NavigationViewItem current)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            for (int index = 0; index < menuItems.Count; index++)
+            {
+                NavigationViewItem item = menuItems[index];
+                if (!string.Equals(
+                        item.Text,
+                        name,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                current = item;
+                return;
+            }
+        }
     }
 
     private static void ReloadSceneGraph(Window window)
