@@ -9466,6 +9466,33 @@ SceneStateUploadComplete:
         }
     }
 
+    /// <summary>
+    /// Returns a stroked command's pen thickness in the same space as its transformed geometry.
+    /// </summary>
+    /// <remarks>
+    /// Thickness reaches the compositor already scaled by the command's own transform - the drawing
+    /// context bridges apply their current stroke scale when they emit the command - but not by the
+    /// visual-tree transform that gets composed into <paramref name="activeTransform"/> here. The
+    /// vertices below are emitted post-transform, so recovering just that missing factor keeps a
+    /// stroke proportional to its geometry under a Viewbox or RenderTransform while leaving a
+    /// DrawingContext PushTransform, which was already accounted for, untouched.
+    /// </remarks>
+    private static float ResolveDeviceStrokeThickness(in RenderCommand cmd, Matrix4x4 activeTransform)
+    {
+        var thickness = cmd.Pen!.Thickness;
+        var activeScale = TransformMetrics.GetStrokeScale(activeTransform);
+        var commandScale = cmd.Transform == default
+            ? 1f
+            : TransformMetrics.GetStrokeScale(cmd.Transform);
+
+        if (!float.IsFinite(activeScale) || !float.IsFinite(commandScale) || commandScale <= 0f)
+        {
+            return thickness;
+        }
+
+        return thickness * (activeScale / commandScale);
+    }
+
     private void CompileLineCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
@@ -9490,7 +9517,7 @@ SceneStateUploadComplete:
 
         var p0_pos = Vector2.Transform(cmd.Position, transform);
         var p1_pos = Vector2.Transform(cmd.Position2, transform);
-        float thickness = cmd.Pen.Thickness;
+        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
         var lineShapeType = EncodeShapeType(cmd, 3f);
 
         uint idxStart = (uint)startIndex;
@@ -9545,7 +9572,7 @@ SceneStateUploadComplete:
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-        float thickness = cmd.Pen.Thickness;
+        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
 
         var p0_trans = Vector2.Transform(cmd.Position, transform);
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
@@ -9602,7 +9629,7 @@ SceneStateUploadComplete:
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-        float thickness = cmd.Pen.Thickness;
+        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
 
         var p0_trans = Vector2.Transform(cmd.Position, transform);
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
