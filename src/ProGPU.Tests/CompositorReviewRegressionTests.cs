@@ -879,6 +879,35 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.InRange(window.Compositor.CachedTextLayoutGlyphCount, visibleRows * 2, 32_768);
     }
 
+    [Theory]
+    [InlineData(1f, 12f)]
+    [InlineData(0.5f, 6f)]
+    [InlineData(0.25f, 3f)]
+    public void VisualTransformScalesStrokeThicknessWithItsGeometry(float scale, float expectedDeviceThickness)
+    {
+        // A visual-tree transform is composed into the compositor's active transform rather than
+        // into the command's own transform, so the pen thickness that reaches CompileLineCommand is
+        // still in local units. Leaving it there kept strokes at their unscaled width while the
+        // geometry shrank, which made adjacent edges of a lopsided Border overlap into a solid block.
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new ScaledStrokeVisual(scale);
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        int paintedRows = 0;
+        for (var y = 0; y < 64; y++)
+        {
+            // The line is drawn across the middle of the window; sample a column inside its span.
+            if (pixels[(y * 64 + 32) * 4 + 2] > 128)
+            {
+                paintedRows++;
+            }
+        }
+
+        Assert.InRange(paintedRows, expectedDeviceThickness - 1.5f, expectedDeviceThickness + 1.5f);
+    }
+
     [Fact]
     public void SolidRectangleFillAndStrokeUseSpecializedBatchAndComposeOpacity()
     {
@@ -9271,6 +9300,29 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 null,
                 path,
                 Matrix4x4.Identity);
+        }
+    }
+
+    private sealed class ScaledStrokeVisual : FrameworkElement
+    {
+        private readonly float _scale;
+
+        public ScaledStrokeVisual(float scale)
+        {
+            _scale = scale;
+            Width = 64f;
+            Height = 64f;
+            // Scale about the window centre so the stroke stays in view at every scale factor.
+            Transform =
+                Matrix4x4.CreateTranslation(-32f, -32f, 0f) *
+                Matrix4x4.CreateScale(scale, scale, 1f) *
+                Matrix4x4.CreateTranslation(32f, 32f, 0f);
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var stroke = new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f));
+            context.DrawLine(new Pen(stroke, 12f), new Vector2(0f, 32f), new Vector2(64f, 32f));
         }
     }
 
