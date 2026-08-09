@@ -339,6 +339,33 @@ public readonly struct GpuHitTestPrimitive
         Matrix4x4 transform,
         float zIndex = 0f)
     {
+        return PathStroke(
+            id,
+            min,
+            max,
+            startSegment,
+            segmentCount,
+            strokeThickness,
+            tolerance,
+            LineGeometryCap.Round,
+            LineGeometryCap.Round,
+            transform,
+            zIndex);
+    }
+
+    public static GpuHitTestPrimitive PathStroke(
+        int id,
+        Vector2 min,
+        Vector2 max,
+        uint startSegment,
+        uint segmentCount,
+        float strokeThickness,
+        float tolerance,
+        LineGeometryCap startCap,
+        LineGeometryCap endCap,
+        Matrix4x4 transform,
+        float zIndex = 0f)
+    {
         float padding = MathF.Max(0f, (MathF.Abs(strokeThickness) * 0.5f) + MathF.Max(0f, tolerance));
         Vector2 paddedMin = min - new Vector2(padding);
         Vector2 paddedMax = max + new Vector2(padding);
@@ -349,7 +376,7 @@ public readonly struct GpuHitTestPrimitive
             TransformBoundsMax(paddedMin, paddedMax, transform),
             new Vector4(min.X, min.Y, max.X, max.Y),
             new Vector4(startSegment, segmentCount, strokeThickness, tolerance),
-            Vector4.Zero,
+            new Vector4((uint)startCap, (uint)endCap, 0f, 0f),
             CreateInverseTransformRow0(transform),
             CreateInverseTransformRow1(transform),
             zIndex);

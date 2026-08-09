@@ -339,6 +339,37 @@ public class Graphics :
         Math.Abs(CombinedTransform.M12) > 1e-5f
         || Math.Abs(CombinedTransform.M21) > 1e-5f;
 
+    private bool RequiresTransformedStrokePath
+    {
+        get
+        {
+            if (HasRotationOrShear)
+            {
+                return true;
+            }
+
+            var xAxisLengthSquared =
+                (CombinedTransform.M11 * CombinedTransform.M11) +
+                (CombinedTransform.M12 * CombinedTransform.M12);
+            var yAxisLengthSquared =
+                (CombinedTransform.M21 * CombinedTransform.M21) +
+                (CombinedTransform.M22 * CombinedTransform.M22);
+            if (!float.IsFinite(xAxisLengthSquared) ||
+                !float.IsFinite(yAxisLengthSquared) ||
+                xAxisLengthSquared <= 1e-10f ||
+                yAxisLengthSquared <= 1e-10f)
+            {
+                return true;
+            }
+
+            var comparisonScale = MathF.Max(
+                1f,
+                MathF.Max(xAxisLengthSquared, yAxisLengthSquared));
+            return MathF.Abs(xAxisLengthSquared - yAxisLengthSquared) >
+                (comparisonScale * 1e-5f);
+        }
+    }
+
     private Rect TxRect(RectangleF rect)
     {
         var p1 = Tx(rect.X, rect.Y);
@@ -360,33 +391,10 @@ public class Graphics :
             m32.M31, m32.M32, 0f, 1f);
     }
 
-    private ProGPU.Vector.Pen TransformPen(Pen pen, Vector2 localStart, Vector2 localEnd)
-    {
-        float widthScale = GetStrokeWidthScale(localStart, localEnd);
-        return pen.ToProGpuPen(pen.Width * widthScale);
-    }
-
     private ProGPU.Vector.Pen TransformPen(Pen pen)
     {
         float widthScale = GetFallbackStrokeWidthScale();
         return pen.ToProGpuPen(pen.Width * widthScale);
-    }
-
-    private float GetStrokeWidthScale(Vector2 localStart, Vector2 localEnd)
-    {
-        var delta = localEnd - localStart;
-        if (delta.LengthSquared() > 1e-10f)
-        {
-            var normal = Vector2.Normalize(new Vector2(-delta.Y, delta.X));
-            var transformedNormal = Vector2.TransformNormal(normal, CombinedTransform);
-            float scale = transformedNormal.Length();
-            if (float.IsFinite(scale) && scale > 1e-5f)
-            {
-                return scale;
-            }
-        }
-
-        return GetFallbackStrokeWidthScale();
     }
 
     private float GetFallbackStrokeWidthScale()
@@ -415,27 +423,32 @@ public class Graphics :
 
     public void DrawLine(Pen pen, float x1, float y1, float x2, float y2)
     {
+        ArgumentNullException.ThrowIfNull(pen);
         var localStart = new Vector2(x1, y1);
         var localEnd = new Vector2(x2, y2);
-        _context.DrawLine(TransformPen(pen, localStart, localEnd), Tx(localStart), Tx(localEnd));
+        _context.DrawLine(
+            pen.ToProGpuPen(pen.Width),
+            localStart,
+            localEnd,
+            CurrentTransform4x4());
     }
 
     public void DrawLines(Pen pen, PointF[] points)
     {
         if (points == null || points.Length < 2) return;
-        for (int i = 0; i < points.Length - 1; i++)
-        {
-            DrawLine(pen, points[i], points[i + 1]);
-        }
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddLines(points);
+        DrawTransformedPath(pen, path.Geometry);
     }
 
     public void DrawLines(Pen pen, Point[] points)
     {
         if (points == null || points.Length < 2) return;
-        for (int i = 0; i < points.Length - 1; i++)
-        {
-            DrawLine(pen, points[i], points[i + 1]);
-        }
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddLines(points);
+        DrawTransformedPath(pen, path.Geometry);
     }
 
     public void DrawCurve(Pen pen, PointF[] points) =>
@@ -474,7 +487,7 @@ public class Graphics :
                 new Vector2(next.X, next.Y)));
         }
 
-        _context.DrawPath(null, TransformPen(pen), geometry, CurrentTransform4x4());
+        DrawTransformedPath(pen, geometry);
     }
 
     public void DrawCurve(Pen pen, Point[] points) =>
@@ -510,7 +523,7 @@ public class Graphics :
                 new Vector2(next.X, next.Y)));
         }
 
-        _context.DrawPath(null, TransformPen(pen), geometry, CurrentTransform4x4());
+        DrawTransformedPath(pen, geometry);
     }
 
     private static int GetCurveSegmentCount<TPoint>(TPoint[]? points)
@@ -538,7 +551,7 @@ public class Graphics :
 
     public void DrawRectangle(Pen pen, float x, float y, float width, float height)
     {
-        if (HasRotationOrShear)
+        if (RequiresTransformedStrokePath)
         {
             using var path = new GraphicsPath();
             path.AddRectangle(new RectangleF(x, y, width, height));
@@ -673,7 +686,7 @@ public class Graphics :
 
     public void DrawEllipse(Pen pen, float x, float y, float width, float height)
     {
-        if (HasRotationOrShear)
+        if (RequiresTransformedStrokePath)
         {
             using var path = new GraphicsPath();
             path.AddEllipse(x, y, width, height);
@@ -752,7 +765,16 @@ public class Graphics :
     public void DrawPath(Pen pen, GraphicsPath path)
     {
         if (path == null) return;
-        _context.DrawPath(null, TransformPen(pen), path.Geometry, CurrentTransform4x4());
+        DrawTransformedPath(pen, path.Geometry);
+    }
+
+    private void DrawTransformedPath(Pen pen, PathGeometry geometry)
+    {
+        _context.DrawPath(
+            null,
+            pen.ToProGpuPen(pen.Width),
+            geometry,
+            CurrentTransform4x4());
     }
 
     public void FillPath(Brush brush, GraphicsPath path)

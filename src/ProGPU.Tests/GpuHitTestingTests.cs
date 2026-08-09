@@ -634,10 +634,13 @@ public sealed class GpuHitTestingTests
 
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
-        var primitive = Assert.Single(index.Primitives);
-        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
-        Assert.Equal(80, primitive.Id);
-        Assert.NotEmpty(index.PathSegments);
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, primitive.Kind);
+            Assert.Equal(80, primitive.Id);
+        });
+        Assert.Empty(index.PathSegments);
     }
 
     [Fact]
@@ -659,10 +662,14 @@ public sealed class GpuHitTestingTests
         builder.AddCommand(command, Matrix4x4.Identity, id: 88);
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
-        var primitive = Assert.Single(index.Primitives);
-        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
-        Assert.Equal(88, primitive.Id);
-        Assert.Equal(1, compiler.CallCount);
+        Assert.Equal(2, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, primitive.Kind);
+            Assert.Equal(88, primitive.Id);
+        });
+        Assert.Empty(index.PathSegments);
+        Assert.Equal(0, compiler.CallCount);
         Assert.Equal(0, compiler.CompileCount);
     }
 
@@ -742,7 +749,7 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void DrawingContextDefersSplineGeometryUntilGpuHitTesting()
+    public void DrawingContextRetainsSplineGeometryForRenderingAndGpuHitTesting()
     {
         var context = new DrawingContext();
         context.DrawSpline(
@@ -754,7 +761,7 @@ public sealed class GpuHitTestingTests
             [0d, 0d, 1d, 1d],
             degree: 1);
         var command = Assert.Single(context.Commands);
-        Assert.Null(command.GeometryCache);
+        Assert.NotNull(command.GeometryCache?.StrokePath);
 
         var compiler = new CountingPathHitTestCompilationCache();
         var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);
@@ -970,9 +977,12 @@ public sealed class GpuHitTestingTests
 
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
-        var primitive = Assert.Single(index.Primitives);
-        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
-        Assert.Equal(87, primitive.Id);
+        Assert.Equal(3, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+        {
+            Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
+            Assert.Equal(87, primitive.Id);
+        });
         Assert.NotEmpty(index.PathSegments);
     }
 
@@ -1299,9 +1309,10 @@ public sealed class GpuHitTestingTests
         }, Matrix4x4.Identity);
         var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
 
-        var primitive = Assert.Single(index.Primitives);
-        Assert.Equal(GpuHitTestPrimitiveKind.PathStroke, primitive.Kind);
-        Assert.True(index.PathSegments.Count > 1);
+        Assert.Equal(3, index.Primitives.Count);
+        Assert.All(index.Primitives, primitive =>
+            Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, primitive.Kind));
+        Assert.Empty(index.PathSegments);
 
         bool dashHit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(2f, 0f), out GpuHitTestResult dashResult);
         bool gapHit = GpuHitTestEngine.TryHitTestPoint(context, index, new Vector2(6f, 0f), out GpuHitTestResult gapResult);

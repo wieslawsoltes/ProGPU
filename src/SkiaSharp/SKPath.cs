@@ -639,7 +639,9 @@ public partial class SKPath : SKObject
     {
         var copy = new PathFigure(figure.StartPoint + offset, figure.IsClosed)
         {
-            IsFilled = figure.IsFilled
+            IsFilled = figure.IsFilled,
+            StrokeStartLineCap = figure.StrokeStartLineCap,
+            StrokeEndLineCap = figure.StrokeEndLineCap
         };
         foreach (var segment in figure.Segments)
         {

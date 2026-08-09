@@ -202,6 +202,16 @@ public enum PenLineCap
 
 public class Pen
 {
+    /// <summary>
+    /// Retained sentinel for an explicit one-device-pixel hairline.
+    /// </summary>
+    /// <remarks>
+    /// Ordinary zero or negative widths remain non-rendering. The negative
+    /// sentinel survives picture serialization without adding another mutable
+    /// command flag and is interpreted only by the stroke compiler.
+    /// </remarks>
+    public const float HairlineThickness = -1f;
+
     private double[]? _dashArray;
 
     public Brush Brush { get; set; }
@@ -211,12 +221,14 @@ public class Pen
     public PenLineCap StartLineCap { get; set; }
     public PenLineCap EndLineCap { get; set; }
     public PenLineCap DashCap { get; set; }
+    public bool IsHairline => Thickness == HairlineThickness;
     public bool HasDashPattern => _dashArray is { Length: > 0 };
     public double[]? DashArray
     {
         get => _dashArray is null ? null : (double[])_dashArray.Clone();
         set => _dashArray = value is null ? null : (double[])value.Clone();
     }
+    internal double[]? DashArrayStorage => _dashArray;
     public double DashOffset { get; set; }
 
     public Pen(

@@ -1,5 +1,5 @@
-// Algorithm: Expand and transform batched vector primitives and meshes, evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids, use exact single-evaluation box/rounded-box distance gradients for anti-aliasing, then shade fills, strokes, gradients, vertex-color blends, and edges; dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; the reserved Skia hairline sentinel derives an invariant one-framebuffer-pixel width from screen-space expansion or analytic-distance derivatives, while one fixed quad regenerates each cap or join from transformed centerline directions and evaluates its exterior analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and hairline bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, hairline caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, and non-conformal or analytic-hairline stroke fragments add fixed derivative/gradient arithmetic.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
 struct Brush {
     brushType: u32,
@@ -143,6 +143,8 @@ struct VertexOutput {
     @location(5) strokeThickness: f32,
     @location(6) shapeType: f32,
     @location(7) gridIndex: f32,
+    @location(8) @interpolate(flat) localStrokeMode: f32,
+    @location(9) brushCoord: vec2<f32>,
 };
 
 fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
@@ -506,6 +508,10 @@ fn safe_normalize(value: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(0.0, 0.0);
 }
 
+fn cross_2d(left: vec2<f32>, right: vec2<f32>) -> f32 {
+    return left.x * right.y - left.y * right.x;
+}
+
 fn nearest_ellipse_theta(point: vec2<f32>, center: vec2<f32>, axisX: vec2<f32>, axisY: vec2<f32>) -> f32 {
     let p = point - center;
     let det = axisX.x * axisY.y - axisX.y * axisY.x;
@@ -545,6 +551,93 @@ fn is_angle_inside_arc(theta: f32, theta1: f32, deltaTheta: f32) -> bool {
     return along <= span + 0.001;
 }
 
+fn arc_bounds_center(
+    center: vec2<f32>,
+    axisX: vec2<f32>,
+    axisY: vec2<f32>,
+    theta1: f32,
+    deltaTheta: f32) -> vec2<f32> {
+    let start = arc_eval(center, axisX, axisY, theta1);
+    let end = arc_eval(center, axisX, axisY, theta1 + deltaTheta);
+    var boundsMin = min(start, end);
+    var boundsMax = max(start, end);
+
+    let xMinimumTheta = atan2(axisY.x, axisX.x);
+    if (is_angle_inside_arc(xMinimumTheta, theta1, deltaTheta)) {
+        let point = arc_eval(center, axisX, axisY, xMinimumTheta);
+        boundsMin = min(boundsMin, point);
+        boundsMax = max(boundsMax, point);
+    }
+    let xMaximumTheta = xMinimumTheta + PROGPU_TWO_PI * 0.5;
+    if (is_angle_inside_arc(xMaximumTheta, theta1, deltaTheta)) {
+        let point = arc_eval(center, axisX, axisY, xMaximumTheta);
+        boundsMin = min(boundsMin, point);
+        boundsMax = max(boundsMax, point);
+    }
+
+    let yMinimumTheta = atan2(axisY.y, axisX.y);
+    if (is_angle_inside_arc(yMinimumTheta, theta1, deltaTheta)) {
+        let point = arc_eval(center, axisX, axisY, yMinimumTheta);
+        boundsMin = min(boundsMin, point);
+        boundsMax = max(boundsMax, point);
+    }
+    let yMaximumTheta = yMinimumTheta + PROGPU_TWO_PI * 0.5;
+    if (is_angle_inside_arc(yMaximumTheta, theta1, deltaTheta)) {
+        let point = arc_eval(center, axisX, axisY, yMaximumTheta);
+        boundsMin = min(boundsMin, point);
+        boundsMax = max(boundsMax, point);
+    }
+
+    return (boundsMin + boundsMax) * 0.5;
+}
+
+fn affine_stroke_scales(transform: mat4x4<f32>) -> vec2<f32> {
+    // Match TransformMetrics.TryGetStrokeScale for sigma_max and derive
+    // sigma_min from |determinant| / sigma_max. Matrix indexing returns columns
+    // in WGSL, matching the uploaded System.Numerics basis vectors.
+    let axisX = transform[0].xy;
+    let axisY = transform[1].xy;
+    let sum = dot(axisX, axisX) + dot(axisY, axisY);
+    let determinant = axisX.x * axisY.y - axisX.y * axisY.x;
+    let discriminant = max(
+        0.0,
+        sum * sum - 4.0 * determinant * determinant);
+    let maximumScale = sqrt(max(0.0, (sum + sqrt(discriminant)) * 0.5));
+    // NaN fails both comparisons. Infinity fails the upper bound. Invalid
+    // transforms fail closed through the zero pair.
+    if (!(maximumScale > 0.0 && maximumScale <= 3.402823e38)) {
+        return vec2<f32>(0.0);
+    }
+
+    let minimumScale = abs(determinant) / maximumScale;
+    if (!(minimumScale >= 0.0 && minimumScale <= 3.402823e38)) {
+        return vec2<f32>(maximumScale);
+    }
+    return vec2<f32>(maximumScale, minimumScale);
+}
+
+fn direct_2d_stroke_scales(isStatic: bool, useGpuTransforms: bool) -> vec2<f32> {
+    if (isStatic) {
+        // pad1.xy is precomputed by DxfStaticBuffer. Fall back to the matrix so
+        // buffers produced by older/custom writers preserve the same result.
+        let cachedScales = uniforms.pad1;
+        if (cachedScales.x > 0.0 && cachedScales.x <= 3.402823e38 &&
+            cachedScales.y > 0.0 && cachedScales.y <= cachedScales.x) {
+            return cachedScales;
+        }
+        return affine_stroke_scales(uniforms.mvp);
+    }
+    if (useGpuTransforms) {
+        return affine_stroke_scales(uniforms.view);
+    }
+    return vec2<f32>(1.0);
+}
+
+fn is_conformal_stroke_transform(scales: vec2<f32>) -> bool {
+    let tolerance = max(1.0, scales.x) * 0.0001;
+    return abs(scales.x - scales.y) <= tolerance;
+}
+
 @vertex
 fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
     var output: VertexOutput;
@@ -573,20 +666,155 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     var inShapeSize = input.shapeSize;
     var inColor = input.color;
 
+    // Rectangles/ellipses keep their stroke width in local SDF coordinates and
+    // therefore scale through interpolation. Hairlines intentionally stay one
+    // device pixel. Direct strokes retain the screen-space scalar fast path for
+    // conformal transforms and transform their expanded local outline exactly
+    // for anisotropic or sheared transforms.
+    let isAnalyticSdf = sType < 3u;
+    let isHairlineAdornment = sType == 22u || sType == 23u;
+    let isDirect2DStroke =
+        sType == 3u || sType == 5u || sType == 6u || sType == 12u ||
+        isHairlineAdornment;
+    let isLocalPolygonSdf = sType >= 13u && sType <= 17u;
+    // strokeThickness is overloaded as quadrilateral p3.y for types 14-17;
+    // only analytic/direct primitives own it as an actual stroke width.
+    let isHairlineStroke =
+        (isAnalyticSdf || isDirect2DStroke) &&
+        input.strokeThickness == -1.0;
+    let hasLateAffineTransform = isStatic || useGpuTransforms;
+    var directStrokeScales = vec2<f32>(1.0);
+    if ((isAnalyticSdf || isDirect2DStroke || isLocalPolygonSdf) && hasLateAffineTransform) {
+        directStrokeScales = direct_2d_stroke_scales(isStatic, useGpuTransforms);
+    }
+    let hasValidLateAffineTransform =
+        directStrokeScales.x > 0.000001 &&
+        directStrokeScales.y > 0.000001;
+    let discardLateAffineShape =
+        (isAnalyticSdf || isDirect2DStroke || isLocalPolygonSdf) &&
+        hasLateAffineTransform &&
+        !hasValidLateAffineTransform;
+    let useLocalStrokeOutline =
+        isDirect2DStroke &&
+        !isHairlineStroke &&
+        hasLateAffineTransform &&
+        hasValidLateAffineTransform &&
+        !is_conformal_stroke_transform(directStrokeScales);
+    var outputStrokeThickness = select(
+        input.strokeThickness,
+        1.0,
+        isHairlineStroke);
+    if (isDirect2DStroke &&
+        !isHairlineStroke &&
+        hasLateAffineTransform &&
+        hasValidLateAffineTransform &&
+        !useLocalStrokeOutline) {
+        outputStrokeThickness = outputStrokeThickness * directStrokeScales.x;
+    }
+    let strokeExpansionPadding = select(
+        1.5,
+        1.5 / max(directStrokeScales.y, 0.000001),
+        useLocalStrokeOutline);
+
+    if (isAnalyticSdf &&
+        isHairlineStroke &&
+        hasLateAffineTransform &&
+        hasValidLateAffineTransform) {
+        // CPU recording reserves a two-local-unit halo for a device hairline
+        // (half a pixel of stroke plus the 1.5-pixel AA fringe). A late
+        // downscale needs a larger local quad so that the same two framebuffer
+        // pixels remain covered after interpolation. The SDF itself derives
+        // its exact one-pixel width from fragment derivatives below.
+        let extraPadding = max(
+            0.0,
+            2.0 / directStrokeScales.y - 2.0);
+        let quadrant = select(
+            vec2<f32>(-1.0),
+            vec2<f32>(1.0),
+            input.texCoord >= vec2<f32>(0.0));
+        inPos = inPos + quadrant * extraPadding;
+        inTexCoord = inTexCoord + quadrant * extraPadding;
+    }
+
+    if (sType == 12u &&
+        isHairlineStroke &&
+        hasLateAffineTransform &&
+        hasValidLateAffineTransform) {
+        // Arc stroke quads are recorded with a two-local-unit halo. Enlarge
+        // that halo before applying a late affine transform so its support in
+        // every device-space direction remains at least two pixels:
+        // (0.5 hairline width + 1.5 antialias fringe). Since every vector is
+        // scaled by at least sigma_min, 2 / sigma_min is conservative under
+        // anisotropic scale and shear.
+        let extraPadding = max(
+            0.0,
+            2.0 / directStrokeScales.y - 2.0);
+        let boundsCenter = arc_bounds_center(
+            inColor.xy,
+            inTexCoord,
+            inShapeSize,
+            inColor.z,
+            inColor.w);
+        let quadrant = select(
+            vec2<f32>(-1.0),
+            vec2<f32>(1.0),
+            inPos >= boundsCenter);
+        inPos = inPos + quadrant * extraPadding;
+    }
+
+    if (isLocalPolygonSdf && hasLateAffineTransform && hasValidLateAffineTransform) {
+        // Polygon SDF payload stays in its pre-late-transform coordinate space;
+        // interpolation then provides the inverse affine map in the fragment.
+        // When Position and texCoord share that space (all quadrilateral stroke
+        // bodies and stroke triangles), conservatively enlarge their retained
+        // 1.5-unit raster pad for downscaled late transforms. Direct-fill
+        // triangles with a previously baked command transform intentionally do
+        // not satisfy this equality and retain their existing CPU-sized quad.
+        let sharedPositionCoordinates =
+            distance(input.position, input.texCoord) <= 0.0001;
+        if (sharedPositionCoordinates) {
+            let extraPadding = max(
+                0.0,
+                1.5 / directStrokeScales.y - 1.5);
+            var payloadMin = min(input.color.xy, input.color.zw);
+            var payloadMax = max(input.color.xy, input.color.zw);
+            payloadMin = min(payloadMin, input.shapeSize);
+            payloadMax = max(payloadMax, input.shapeSize);
+            if (sType >= 14u) {
+                let fourthPoint = vec2<f32>(
+                    input.cornerRadius,
+                    input.strokeThickness);
+                payloadMin = min(payloadMin, fourthPoint);
+                payloadMax = max(payloadMax, fourthPoint);
+            }
+            let payloadCenter = (payloadMin + payloadMax) * 0.5;
+            let quadrant = select(
+                vec2<f32>(-1.0),
+                vec2<f32>(1.0),
+                input.texCoord >= payloadCenter);
+            inPos = inPos + quadrant * extraPadding;
+            inTexCoord = inTexCoord + quadrant * extraPadding;
+        }
+    }
+
     if ((isStatic || useGpuTransforms) && sType != 8u) {
         if (useGpuTransforms) {
-            inPos = (uniforms.view * vec4<f32>(input.position, 0.0, 1.0)).xy;
-            if (sType == 12u) {
-                inTexCoord = (uniforms.view * vec4<f32>(input.texCoord, 0.0, 0.0)).xy;
-                inShapeSize = (uniforms.view * vec4<f32>(input.shapeSize, 0.0, 0.0)).xy;
-                inColor = vec4<f32>((uniforms.view * vec4<f32>(input.color.xy, 0.0, 1.0)).xy, input.color.z, input.color.w);
-            } else if (sType == 3u || sType == 5u || sType == 6u) {
-                inTexCoord = (uniforms.view * vec4<f32>(input.texCoord, 0.0, 1.0)).xy;
-                inShapeSize = (uniforms.view * vec4<f32>(input.shapeSize, 0.0, 1.0)).xy;
-                if (sType == 6u) {
-                    inColor = vec4<f32>((uniforms.view * vec4<f32>(input.color.rg, 0.0, 1.0)).xy, input.color.b, input.color.a);
+            if (!(useLocalStrokeOutline && isDirect2DStroke) &&
+                !isHairlineAdornment) {
+                inPos = (uniforms.view * vec4<f32>(inPos, 0.0, 1.0)).xy;
+                if (sType == 12u) {
+                    inTexCoord = (uniforms.view * vec4<f32>(input.texCoord, 0.0, 0.0)).xy;
+                    inShapeSize = (uniforms.view * vec4<f32>(input.shapeSize, 0.0, 0.0)).xy;
+                    inColor = vec4<f32>((uniforms.view * vec4<f32>(input.color.xy, 0.0, 1.0)).xy, input.color.z, input.color.w);
+                } else if (sType == 3u || sType == 5u || sType == 6u) {
+                    inTexCoord = (uniforms.view * vec4<f32>(input.texCoord, 0.0, 1.0)).xy;
+                    inShapeSize = (uniforms.view * vec4<f32>(input.shapeSize, 0.0, 1.0)).xy;
+                    if (sType == 6u) {
+                        inColor = vec4<f32>((uniforms.view * vec4<f32>(input.color.rg, 0.0, 1.0)).xy, input.color.b, input.color.a);
+                    }
                 }
-            } else if (sType < 3u || sType == 19u || sType == 20u) {
+            }
+            if (sType < 3u || sType == 19u || sType == 20u) {
                 let bIdx = u32(round(input.brushIndex));
                 let brush = brushes[bIdx];
                 if (brush.brushType > 0u) {
@@ -594,18 +822,22 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
                 }
             }
         } else {
-            inPos = (uniforms.mvp * vec4<f32>(input.position, 0.0, 1.0)).xy;
-            if (sType == 12u) {
-                inTexCoord = (uniforms.mvp * vec4<f32>(input.texCoord, 0.0, 0.0)).xy;
-                inShapeSize = (uniforms.mvp * vec4<f32>(input.shapeSize, 0.0, 0.0)).xy;
-                inColor = vec4<f32>((uniforms.mvp * vec4<f32>(input.color.xy, 0.0, 1.0)).xy, input.color.z, input.color.w);
-            } else if (sType == 3u || sType == 5u || sType == 6u) {
-                inTexCoord = (uniforms.mvp * vec4<f32>(input.texCoord, 0.0, 1.0)).xy;
-                inShapeSize = (uniforms.mvp * vec4<f32>(input.shapeSize, 0.0, 1.0)).xy;
-                if (sType == 6u) {
-                    inColor = vec4<f32>((uniforms.mvp * vec4<f32>(input.color.rg, 0.0, 1.0)).xy, input.color.b, input.color.a);
+            if (!(useLocalStrokeOutline && isDirect2DStroke) &&
+                !isHairlineAdornment) {
+                inPos = (uniforms.mvp * vec4<f32>(inPos, 0.0, 1.0)).xy;
+                if (sType == 12u) {
+                    inTexCoord = (uniforms.mvp * vec4<f32>(input.texCoord, 0.0, 0.0)).xy;
+                    inShapeSize = (uniforms.mvp * vec4<f32>(input.shapeSize, 0.0, 0.0)).xy;
+                    inColor = vec4<f32>((uniforms.mvp * vec4<f32>(input.color.xy, 0.0, 1.0)).xy, input.color.z, input.color.w);
+                } else if (sType == 3u || sType == 5u || sType == 6u) {
+                    inTexCoord = (uniforms.mvp * vec4<f32>(input.texCoord, 0.0, 1.0)).xy;
+                    inShapeSize = (uniforms.mvp * vec4<f32>(input.shapeSize, 0.0, 1.0)).xy;
+                    if (sType == 6u) {
+                        inColor = vec4<f32>((uniforms.mvp * vec4<f32>(input.color.rg, 0.0, 1.0)).xy, input.color.b, input.color.a);
+                    }
                 }
-            } else if (sType < 3u || sType == 19u || sType == 20u) {
+            }
+            if (sType < 3u || sType == 19u || sType == 20u) {
                 let bIdx = u32(round(input.brushIndex));
                 let brush = brushes[bIdx];
                 if (brush.brushType > 0u) {
@@ -620,8 +852,125 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     var gridIndex = 0.0;
     var outputCornerRadius = input.cornerRadius;
     var outputShapeType = sType;
+    var discardGeneratedHairlineAdornment = false;
 
-    if (sType == 19u || sType == 20u) {
+    if (sType == 22u) {
+        // A cap descriptor stores a centerline endpoint and direction. Apply
+        // any retained late transform to those values first, normalize in
+        // framebuffer space, then expand one fixed quad around the exact
+        // one-pixel cap. color.x is PenLineCap, color.y isStart, color.z is a
+        // full-cap flag for degenerate paths, and shapeSize.x is vertex start.
+        var center = inPos;
+        var direction = inTexCoord;
+        if (useGpuTransforms) {
+            center = (uniforms.view * vec4<f32>(center, 0.0, 1.0)).xy;
+            direction = (uniforms.view * vec4<f32>(direction, 0.0, 0.0)).xy;
+        } else if (isStatic) {
+            center = (uniforms.mvp * vec4<f32>(center, 0.0, 1.0)).xy;
+            direction = (uniforms.mvp * vec4<f32>(direction, 0.0, 0.0)).xy;
+        }
+        direction = safe_normalize(direction);
+        if (length(direction) <= 0.0001) {
+            discardGeneratedHairlineAdornment = true;
+        }
+
+        let isStart = input.color.y > 0.5;
+        let outward = select(direction, -direction, isStart);
+        let normal = vec2<f32>(-direction.y, direction.x);
+        let localIndex = vertexIndex - u32(round(input.shapeSize.x));
+        var capCoordinate = vec2<f32>(-2.0, -2.0);
+        if (localIndex == 1u) {
+            capCoordinate = vec2<f32>(2.0, -2.0);
+        } else if (localIndex == 2u) {
+            capCoordinate = vec2<f32>(2.0, 2.0);
+        } else if (localIndex == 3u) {
+            capCoordinate = vec2<f32>(-2.0, 2.0);
+        }
+        worldPos = center + outward * capCoordinate.x +
+            normal * capCoordinate.y;
+        texCoord = capCoordinate;
+        inShapeSize = vec2<f32>(0.0);
+        outputCornerRadius = input.color.x;
+        outputStrokeThickness = input.color.z;
+        outputShapeType = 22u;
+        gridIndex = 0.0;
+    } else if (sType == 23u) {
+        // A join descriptor stores the center and its two centerline
+        // directions. Resolve the outer side, transformed angle, and miter
+        // limit in framebuffer space. One AABB quad then evaluates the bevel,
+        // miter, or round exterior analytically in the fragment shader.
+        var center = inPos;
+        var incoming = inTexCoord;
+        var outgoing = inShapeSize;
+        if (useGpuTransforms) {
+            center = (uniforms.view * vec4<f32>(center, 0.0, 1.0)).xy;
+            incoming = (uniforms.view * vec4<f32>(incoming, 0.0, 0.0)).xy;
+            outgoing = (uniforms.view * vec4<f32>(outgoing, 0.0, 0.0)).xy;
+        } else if (isStatic) {
+            center = (uniforms.mvp * vec4<f32>(center, 0.0, 1.0)).xy;
+            incoming = (uniforms.mvp * vec4<f32>(incoming, 0.0, 0.0)).xy;
+            outgoing = (uniforms.mvp * vec4<f32>(outgoing, 0.0, 0.0)).xy;
+        }
+        incoming = safe_normalize(incoming);
+        outgoing = safe_normalize(outgoing);
+        let turn = cross_2d(incoming, outgoing);
+        if (length(incoming) <= 0.0001 ||
+            length(outgoing) <= 0.0001 ||
+            abs(turn) <= 0.0001) {
+            discardGeneratedHairlineAdornment = true;
+        }
+
+        let outerSign = select(1.0, -1.0, turn > 0.0);
+        let previousOuter =
+            vec2<f32>(-incoming.y, incoming.x) * outerSign * 0.5;
+        let nextOuter =
+            vec2<f32>(-outgoing.y, outgoing.x) * outerSign * 0.5;
+        let denominator = cross_2d(incoming, outgoing);
+        var miterPoint = vec2<f32>(0.0);
+        var hasMiter = false;
+        if (abs(denominator) > 0.0001) {
+            let intersectionDistance =
+                cross_2d(nextOuter - previousOuter, outgoing) /
+                denominator;
+            let candidate = previousOuter + incoming * intersectionDistance;
+            let miterLimit = max(input.color.y, 1.0);
+            if (length(candidate) <= 0.5 * miterLimit + 0.0001) {
+                miterPoint = candidate;
+                hasMiter = true;
+            }
+        }
+
+        let joinKind = u32(round(input.color.x));
+        var boundsMin = min(vec2<f32>(0.0), min(previousOuter, nextOuter));
+        var boundsMax = max(vec2<f32>(0.0), max(previousOuter, nextOuter));
+        if (joinKind == 2u) {
+            boundsMin = vec2<f32>(-0.5);
+            boundsMax = vec2<f32>(0.5);
+        } else if (joinKind == 0u && hasMiter) {
+            boundsMin = min(boundsMin, miterPoint);
+            boundsMax = max(boundsMax, miterPoint);
+        }
+        boundsMin = boundsMin - vec2<f32>(1.5);
+        boundsMax = boundsMax + vec2<f32>(1.5);
+
+        let localIndex = vertexIndex - u32(round(input.color.z));
+        var joinCoordinate = boundsMin;
+        if (localIndex == 1u) {
+            joinCoordinate = vec2<f32>(boundsMax.x, boundsMin.y);
+        } else if (localIndex == 2u) {
+            joinCoordinate = boundsMax;
+        } else if (localIndex == 3u) {
+            joinCoordinate = vec2<f32>(boundsMin.x, boundsMax.y);
+        }
+        worldPos = center + joinCoordinate;
+        texCoord = joinCoordinate;
+        inColor = vec4<f32>(previousOuter, nextOuter);
+        inShapeSize = miterPoint;
+        outputCornerRadius = input.color.x;
+        outputStrokeThickness = select(0.0, 1.0, hasMiter);
+        outputShapeType = 23u;
+        gridIndex = select(-1.0, 1.0, turn > 0.0);
+    } else if (sType == 19u || sType == 20u) {
         // Algorithm: expand a retained point center by the encoded corner offset
         // after static/GPU transforms so a zero-width Skia hairline stays one
         // device pixel. Time and local-space complexity are O(1) per vertex.
@@ -662,8 +1011,8 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
             miterN = normalize(n1 + n2);
             miterScale = clamp(1.0 / max(dot(miterN, n1), 0.0001), 0.5, 4.0);
         }
-        let halfThickness = input.strokeThickness * 0.5;
-        let expandedDistance = halfThickness * miterScale + 1.5;
+        let halfThickness = outputStrokeThickness * 0.5;
+        let expandedDistance = halfThickness * miterScale + strokeExpansionPadding;
         let signVal = select(-1.0, 1.0, input.cornerRadius > 0.0);
         let offset = miterN * expandedDistance * signVal;
         worldPos = worldPos + offset;
@@ -692,8 +1041,8 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         if (len > 0.0001) {
             normal = vec2<f32>(-tangent.y, tangent.x) / len;
         }
-        let halfThickness = input.strokeThickness * 0.5;
-        let expandedDistance = halfThickness + 1.5;
+        let halfThickness = outputStrokeThickness * 0.5;
+        let expandedDistance = halfThickness + strokeExpansionPadding;
         let offset = normal * expandedDistance * signVal;
         worldPos = pos + offset;
         texCoord = pos;
@@ -733,22 +1082,45 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         if (len > 0.0001) {
             normal = vec2<f32>(-tangent.y, tangent.x) / len;
         }
-        let halfThickness = input.strokeThickness * 0.5;
-        let expandedDistance = halfThickness + 1.5;
+        let halfThickness = outputStrokeThickness * 0.5;
+        let expandedDistance = halfThickness + strokeExpansionPadding;
         let offset = normal * expandedDistance * signVal;
         worldPos = pos + offset;
         texCoord = pos;
         gridIndex = signVal * expandedDistance;
     } else if (sType == 12u) {
         // Fixed-quad native arc stroke. The fragment shader evaluates the
-        // transformed ellipse and WPF/SVG sweep directly, so the CPU does not
-        // tessellate valid arcs into a line strip.
+        // transformed ellipse for conformal transforms and the original local
+        // ellipse for non-conformal transforms, so the CPU does not tessellate
+        // valid arcs into a line strip.
         worldPos = inPos;
+        if (useLocalStrokeOutline) {
+            // The retained quad includes two local units of padding. Derive the
+            // tight partial-arc bounds from four fixed analytic extrema before
+            // extending its corners, rather than comparing against the ellipse
+            // center (a partial arc can lie wholly within one quadrant).
+            let extraPadding = max(0.0, strokeExpansionPadding - 2.0);
+            let boundsCenter = arc_bounds_center(
+                inColor.xy,
+                inTexCoord,
+                inShapeSize,
+                inColor.z,
+                inColor.w);
+            let quadrant = select(
+                vec2<f32>(-1.0),
+                vec2<f32>(1.0),
+                worldPos >= boundsCenter);
+            worldPos = worldPos + quadrant * extraPadding;
+        }
         texCoord = worldPos;
         outputCornerRadius = inTexCoord.x;
         gridIndex = inTexCoord.y;
     }
 
+    var brushCoord = texCoord;
+    if (isHairlineAdornment) {
+        brushCoord = worldPos;
+    }
     if (sType == 8u) {
         let local3D = vec3<f32>(inPos, inTexCoord.x);
         var pos3D = local3D;
@@ -760,24 +1132,41 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         output.position = uniforms.projection * vec4<f32>(pos3D, 1.0);
     } else {
         var pos = worldPos;
-        if (useGpuTransforms) {
-            // Since we pre-transformed inPos/inTexCoord/inShapeSize by uniforms.view,
-            // worldPos is already in screen-space. Do not transform it again!
-            pos = worldPos;
+        if (useLocalStrokeOutline) {
+            if (useGpuTransforms) {
+                pos = (uniforms.view * vec4<f32>(worldPos, 0.0, 1.0)).xy;
+                brushCoord = (uniforms.view * vec4<f32>(texCoord, 0.0, 1.0)).xy;
+            } else {
+                pos = (uniforms.mvp * vec4<f32>(worldPos, 0.0, 1.0)).xy;
+                brushCoord = (uniforms.mvp * vec4<f32>(texCoord, 0.0, 1.0)).xy;
+            }
         }
         output.position = uniforms.projection * vec4<f32>(pos, 0.0, 1.0);
+    }
+    if (discardLateAffineShape || discardGeneratedHairlineAdornment) {
+        // Collapse invalid/singular late-transformed primitives outside clip
+        // space. The fragment sentinel below is a second fail-closed guard.
+        output.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
     }
     output.color = inColor;
     output.texCoord = texCoord;
     output.brushIndex = input.brushIndex;
     output.shapeSize = inShapeSize;
     output.cornerRadius = outputCornerRadius;
-    output.strokeThickness = input.strokeThickness;
+    output.strokeThickness = outputStrokeThickness;
     output.shapeType = select(
         f32(outputShapeType),
         f32(outputShapeType) + 1000.0,
         aliasedEdge);
     output.gridIndex = gridIndex;
+    output.localStrokeMode = select(
+        select(
+            select(0.0, 1.0, useLocalStrokeOutline),
+            2.0,
+            isHairlineStroke),
+        -1.0,
+        discardLateAffineShape || discardGeneratedHairlineAdornment);
+    output.brushCoord = brushCoord;
     return output;
 }
 
@@ -810,6 +1199,8 @@ fn vs_solid_rect(input: VertexInput) -> VertexOutput {
     output.strokeThickness = input.strokeThickness;
     output.shapeType = select(0.0, 1000.0, aliasedEdge);
     output.gridIndex = 0.0;
+    output.localStrokeMode = 0.0;
+    output.brushCoord = input.texCoord;
     return output;
 }
 
@@ -933,6 +1324,8 @@ fn vs_solid_rounded(input: VertexInput) -> VertexOutput {
     output.strokeThickness = input.strokeThickness;
     output.shapeType = select(2.0, 1002.0, aliasedEdge);
     output.gridIndex = 0.0;
+    output.localStrokeMode = 0.0;
+    output.brushCoord = input.texCoord;
     return output;
 }
 
@@ -1249,6 +1642,8 @@ fn box_distance_gradient(
 fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
+    let strokeDistanceDx = dpdx(input.gridIndex);
+    let strokeDistanceDy = dpdy(input.gridIndex);
     var encodedShapeType = input.shapeType;
     let aliasedEdge = encodedShapeType >= 1000.0;
     if (aliasedEdge) {
@@ -1257,7 +1652,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
     let sType = u32(round(encodedShapeType));
 
-    var evalCoord = input.texCoord;
+    if (input.localStrokeMode < -0.5) {
+        discard;
+    }
+
+    var evalCoord = input.brushCoord;
     if (sType < 3u) {
         evalCoord = input.color.xy + input.texCoord;
     } else if (sType == 4u) {
@@ -1323,6 +1722,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                         input.shapeSize,
                         input.cornerRadius)) / (2.0 * gradientStep);
         }
+        // Transform the local SDF gradient with derivatives obtained before
+        // non-uniform branching. Device hairlines use exactly one framebuffer
+        // pixel of width expressed in these local-distance units.
+        let fw = max(
+            abs(dot(gradient, atlasCoordDx)) + abs(dot(gradient, atlasCoordDy)),
+            0.0001);
+        let isHairline = input.localStrokeMode > 1.5;
         var d_shape: f32 = 0.0;
         if (input.strokeThickness > 0.0) {
             var strokeDistance = d;
@@ -1333,23 +1739,30 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                 0.0,
                 0.0625,
                 !aliasedEdge && input.strokeThickness <= 1.0001);
-            d_shape = abs(strokeDistance) -
-                max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
+            let ordinaryHalfWidth = max(
+                input.strokeThickness * 0.5 - thinStrokeInset,
+                0.0);
+            let hairlineHalfWidth = max(
+                fw * select(0.5, 0.4375, !aliasedEdge),
+                0.0);
+            d_shape = abs(strokeDistance) - select(
+                ordinaryHalfWidth,
+                hairlineHalfWidth,
+                isHairline);
         } else {
             d_shape = d;
         }
-        // Transform the local SDF gradient with derivatives obtained before
-        // non-uniform branching.
-        let fw = max(
-            abs(dot(gradient, atlasCoordDx)) + abs(dot(gradient, atlasCoordDy)),
-            0.0001);
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 12u) {
-        // Fixed-quad elliptical arc stroke SDF. color.xy carries the center,
-        // color.zw carries theta1/deltaTheta, cornerRadius/gridIndex carries
-        // axisX, shapeSize carries axisY, and texCoord is the pixel position.
+        // Fixed-quad elliptical arc stroke SDF. Under non-conformal transforms
+        // every value remains in command-local coordinates and only the quad
+        // positions are transformed. The distance gradient and interpolated
+        // local-coordinate derivatives convert AA back to framebuffer pixels.
+        // Conformal transforms retain the equivalent screen-space fast path.
+        // color.xy carries the center, color.zw theta1/deltaTheta,
+        // cornerRadius/gridIndex axisX, shapeSize axisY, and texCoord the point.
         let center = input.color.xy;
         let theta1 = input.color.z;
         let deltaTheta = input.color.w;
@@ -1358,23 +1771,43 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let point = input.texCoord;
         let theta = nearest_ellipse_theta(point, center, axisX, axisY);
         let nearest = arc_eval(center, axisX, axisY, theta);
+        var distanceGradient = safe_normalize(point - nearest);
+        let initialDerivativeWidth = max(
+            abs(dot(distanceGradient, atlasCoordDx)) +
+                abs(dot(distanceGradient, atlasCoordDy)),
+            0.0001);
+        let initialFilterWidth = select(
+            1.0,
+            initialDerivativeWidth,
+            input.localStrokeMode > 0.5);
+        let effectiveStrokeThickness = select(
+            input.strokeThickness,
+            initialFilterWidth,
+            input.localStrokeMode > 1.5);
+        let deviceStrokeThickness =
+            effectiveStrokeThickness / initialFilterWidth;
         let thinStrokeInset = select(
             0.0,
-            0.0625,
-            !aliasedEdge && input.strokeThickness <= 1.0001);
+            0.0625 * initialFilterWidth,
+            !aliasedEdge && deviceStrokeThickness <= 1.0001);
         let effectiveHalfWidth = max(
-            input.strokeThickness * 0.5 - thinStrokeInset,
+            effectiveStrokeThickness * 0.5 - thinStrokeInset,
             0.0);
         var d_shape = length(point - nearest) - effectiveHalfWidth;
         let radiusX = length(axisX);
         let radiusY = length(axisY);
         if (abs(radiusX - radiusY) <= 0.0001) {
             let signedDistance = length(point - center) - radiusX;
+            let radialGradient = safe_normalize(point - center);
             if (aliasedEdge) {
                 d_shape = abs(signedDistance + 0.08) -
-                    input.strokeThickness * 0.5;
+                    effectiveStrokeThickness * 0.5;
+                distanceGradient = radialGradient *
+                    select(-1.0, 1.0, signedDistance + 0.08 >= 0.0);
             } else {
                 d_shape = abs(signedDistance) - effectiveHalfWidth;
+                distanceGradient = radialGradient *
+                    select(-1.0, 1.0, signedDistance >= 0.0);
             }
         }
 
@@ -1386,18 +1819,32 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             let startCap = -dot(point - startPoint, startTangent);
             let endCap = dot(point - endPoint, endTangent);
             let capDistance = max(startCap, endCap);
+            let capGradient = select(
+                -startTangent,
+                endTangent,
+                endCap >= startCap);
             let insideSweep = is_angle_inside_arc(theta, theta1, deltaTheta);
-            d_shape = select(max(d_shape, capDistance), d_shape, insideSweep);
+            if (!insideSweep && capDistance > d_shape) {
+                d_shape = capDistance;
+                distanceGradient = capGradient;
+            }
         }
 
-        // Arc distance is evaluated in framebuffer pixels and has unit gradient.
-        let fw = 1.0;
+        let derivativeWidth = max(
+            abs(dot(distanceGradient, atlasCoordDx)) +
+                abs(dot(distanceGradient, atlasCoordDy)),
+            0.0001);
+        let fw = select(
+            1.0,
+            derivativeWidth,
+            input.localStrokeMode > 0.5);
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 13u) {
         // Antialiased stroke join/cap triangle. color.xy/color.zw/shapeSize
-        // carry its three screen-space points and texCoord carries the pixel.
+        // carry its three pre-late-transform points and texCoord carries the
+        // point in that same coordinate space.
         let p0 = input.color.xy;
         let p1 = input.color.zw;
         let p2 = input.shapeSize;
@@ -1416,6 +1863,24 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let distance2 = -orientation *
             (edge2.x * (point.y - p2.y) - edge2.y * (point.x - p2.x)) /
             max(length(edge2), 0.0001);
+        let gradient0 = orientation *
+            vec2<f32>(edge0.y, -edge0.x) / max(length(edge0), 0.0001);
+        let gradient1 = orientation *
+            vec2<f32>(edge1.y, -edge1.x) / max(length(edge1), 0.0001);
+        let gradient2 = orientation *
+            vec2<f32>(edge2.y, -edge2.x) / max(length(edge2), 0.0001);
+        let width0 = max(
+            abs(dot(gradient0, atlasCoordDx)) +
+                abs(dot(gradient0, atlasCoordDy)),
+            0.0001);
+        let width1 = max(
+            abs(dot(gradient1, atlasCoordDx)) +
+                abs(dot(gradient1, atlasCoordDy)),
+            0.0001);
+        let width2 = max(
+            abs(dot(gradient2, atlasCoordDx)) +
+                abs(dot(gradient2, atlasCoordDy)),
+            0.0001);
         let allDistance = max(distance0, max(distance1, distance2));
         let edgeMask = u32(round(input.cornerRadius));
         let ownedInternalEdgeMask = u32(round(input.strokeThickness));
@@ -1433,14 +1898,20 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                 select(distance2 < -internalEdgeTolerance, distance2 <= internalEdgeTolerance, (ownedInternalEdgeMask & 4u) != 0u),
                 true,
                 (edgeMask & 4u) != 0u);
-        let exteriorDistance = max(
-            select(-1000000.0, distance0, (edgeMask & 1u) != 0u),
-            max(
-                select(-1000000.0, distance1, (edgeMask & 2u) != 0u),
-                select(-1000000.0, distance2, (edgeMask & 4u) != 0u)));
-        // The edge equations and fragment position are both in framebuffer pixels,
-        // so a one-pixel filter width is exact and avoids branch-local derivatives.
-        let fw = 1.0;
+        var exteriorDistance = -1000000.0;
+        var fw = 1.0;
+        if ((edgeMask & 1u) != 0u && distance0 > exteriorDistance) {
+            exteriorDistance = distance0;
+            fw = width0;
+        }
+        if ((edgeMask & 2u) != 0u && distance1 > exteriorDistance) {
+            exteriorDistance = distance1;
+            fw = width1;
+        }
+        if ((edgeMask & 4u) != 0u && distance2 > exteriorDistance) {
+            exteriorDistance = distance2;
+            fw = width2;
+        }
         let antialiasedAlpha = select(
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
@@ -1449,7 +1920,8 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType >= 14u && sType <= 17u) {
         // Antialiased affine stroke segment. color.xy/color.zw/shapeSize and
-        // cornerRadius/strokeThickness carry its four screen-space corners.
+        // cornerRadius/strokeThickness carry its four pre-late-transform
+        // corners; texCoord remains in the same space.
         // Types 15-17 keep shared curve cross-sections hard-owned so adjacent
         // sections do not introduce antialiased seams.
         let p0 = input.color.xy;
@@ -1475,6 +1947,30 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let distance3 = -orientation *
             (edge3.x * (point.y - p3.y) - edge3.y * (point.x - p3.x)) /
             max(length(edge3), 0.0001);
+        let gradient0 = orientation *
+            vec2<f32>(edge0.y, -edge0.x) / max(length(edge0), 0.0001);
+        let gradient1 = orientation *
+            vec2<f32>(edge1.y, -edge1.x) / max(length(edge1), 0.0001);
+        let gradient2 = orientation *
+            vec2<f32>(edge2.y, -edge2.x) / max(length(edge2), 0.0001);
+        let gradient3 = orientation *
+            vec2<f32>(edge3.y, -edge3.x) / max(length(edge3), 0.0001);
+        let width0 = max(
+            abs(dot(gradient0, atlasCoordDx)) +
+                abs(dot(gradient0, atlasCoordDy)),
+            0.0001);
+        let width1 = max(
+            abs(dot(gradient1, atlasCoordDx)) +
+                abs(dot(gradient1, atlasCoordDy)),
+            0.0001);
+        let width2 = max(
+            abs(dot(gradient2, atlasCoordDx)) +
+                abs(dot(gradient2, atlasCoordDy)),
+            0.0001);
+        let width3 = max(
+            abs(dot(gradient3, atlasCoordDx)) +
+                abs(dot(gradient3, atlasCoordDy)),
+            0.0001);
         let allDistance = max(max(distance0, distance1), max(distance2, distance3));
         var exteriorEdgeMask = 15u;
         if (sType == 15u) {
@@ -1489,16 +1985,24 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             ((exteriorEdgeMask & 2u) != 0u || distance1 <= 0.0) &&
             ((exteriorEdgeMask & 4u) != 0u || distance2 <= 0.0) &&
             ((exteriorEdgeMask & 8u) != 0u || distance3 <= 0.0);
-        let exteriorDistance = max(
-            max(
-                select(-1000000.0, distance0, (exteriorEdgeMask & 1u) != 0u),
-                select(-1000000.0, distance1, (exteriorEdgeMask & 2u) != 0u)),
-            max(
-                select(-1000000.0, distance2, (exteriorEdgeMask & 4u) != 0u),
-                select(-1000000.0, distance3, (exteriorEdgeMask & 8u) != 0u)));
-        // The edge equations and fragment position are both in framebuffer pixels,
-        // so a one-pixel filter width is exact and avoids branch-local derivatives.
-        let fw = 1.0;
+        var exteriorDistance = -1000000.0;
+        var fw = 1.0;
+        if ((exteriorEdgeMask & 1u) != 0u && distance0 > exteriorDistance) {
+            exteriorDistance = distance0;
+            fw = width0;
+        }
+        if ((exteriorEdgeMask & 2u) != 0u && distance1 > exteriorDistance) {
+            exteriorDistance = distance1;
+            fw = width1;
+        }
+        if ((exteriorEdgeMask & 4u) != 0u && distance2 > exteriorDistance) {
+            exteriorDistance = distance2;
+            fw = width2;
+        }
+        if ((exteriorEdgeMask & 8u) != 0u && distance3 > exteriorDistance) {
+            exteriorDistance = distance3;
+            fw = width3;
+        }
         let antialiasedAlpha = select(
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
@@ -1506,15 +2010,25 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let aliasedAlpha = select(0.0, 1.0, allDistance <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 3u || sType == 5u || sType == 6u) {
-        // Line, Quadratic, and Cubic Bezier stroke anti-aliasing via signed pixel distance
-        let d_pixels = abs(input.gridIndex);
+        // Conformal strokes use signed pixel distance. Non-conformal strokes
+        // interpolate signed local distance across the transformed outline and
+        // use derivatives to express the AA ramp in framebuffer pixels.
+        let derivativeWidth = max(
+            abs(strokeDistanceDx) + abs(strokeDistanceDy),
+            0.0001);
+        let filterWidth = select(
+            1.0,
+            derivativeWidth,
+            input.localStrokeMode > 0.5);
+        let deviceStrokeThickness = input.strokeThickness / filterWidth;
+        let d_stroke = abs(input.gridIndex);
         let thinStrokeInset = select(
             0.0,
-            0.0625,
-            !aliasedEdge && input.strokeThickness <= 1.0001);
-        let d_shape = d_pixels -
+            0.0625 * filterWidth,
+            !aliasedEdge && deviceStrokeThickness <= 1.0001);
+        let d_shape = d_stroke -
             max(input.strokeThickness * 0.5 - thinStrokeInset, 0.0);
-        let antialiasHalfWidth = 0.5;
+        let antialiasHalfWidth = 0.5 * filterWidth;
         let linearAntialiasedAlpha = 1.0 - smoothstep(
             -antialiasHalfWidth,
             antialiasHalfWidth,
@@ -1569,6 +2083,196 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0001);
         shapeAlpha = 1.0 -
             smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
+    } else if (sType == 22u) {
+        // Analytic one-device-pixel path cap. The cap/body interface is a
+        // hard-owned internal seam; only the round, square, or triangular
+        // exterior contributes antialias coverage. Work and storage are O(1).
+        let point = input.texCoord;
+        let capKind = u32(round(input.cornerRadius));
+        let isFullCap = input.strokeThickness > 0.5;
+        var exteriorDistance = 0.0;
+        var exteriorGradient = vec2<f32>(1.0, 0.0);
+        var internalInside = true;
+        var allDistance = 0.0;
+        if (capKind == 2u) {
+            exteriorDistance = length(point) - 0.5;
+            exteriorGradient = safe_normalize(point);
+            internalInside = isFullCap || point.x >= -0.001;
+            allDistance = exteriorDistance;
+        } else if (capKind == 1u) {
+            if (isFullCap) {
+                let distanceGradient = box_distance_gradient(
+                    point,
+                    vec2<f32>(0.5),
+                    0.0);
+                exteriorDistance = distanceGradient.x;
+                exteriorGradient = distanceGradient.yz;
+                allDistance = exteriorDistance;
+            } else {
+                let forwardDistance = point.x - 0.5;
+                let sideDistance = abs(point.y) - 0.5;
+                exteriorDistance = max(forwardDistance, sideDistance);
+                exteriorGradient = select(
+                    vec2<f32>(0.0, select(-1.0, 1.0, point.y >= 0.0)),
+                    vec2<f32>(1.0, 0.0),
+                    forwardDistance >= sideDistance);
+                internalInside = point.x >= -0.001;
+                allDistance = max(exteriorDistance, -point.x);
+            }
+        } else {
+            let p0 = vec2<f32>(0.0, -0.5);
+            let p1 = vec2<f32>(0.5, 0.0);
+            let p2 = vec2<f32>(0.0, 0.5);
+            let edge0 = p1 - p0;
+            let edge1 = p2 - p1;
+            let edge2 = p0 - p2;
+            let distance0 = -cross_2d(edge0, point - p0) /
+                max(length(edge0), 0.0001);
+            let distance1 = -cross_2d(edge1, point - p1) /
+                max(length(edge1), 0.0001);
+            let distance2 = -cross_2d(edge2, point - p2) /
+                max(length(edge2), 0.0001);
+            let gradient0 = vec2<f32>(edge0.y, -edge0.x) /
+                max(length(edge0), 0.0001);
+            let gradient1 = vec2<f32>(edge1.y, -edge1.x) /
+                max(length(edge1), 0.0001);
+            exteriorDistance = max(distance0, distance1);
+            exteriorGradient = select(
+                gradient1,
+                gradient0,
+                distance0 >= distance1);
+            internalInside = distance2 <= 0.001;
+            allDistance = max(exteriorDistance, distance2);
+        }
+
+        let filterWidth = max(
+            abs(dot(exteriorGradient, atlasCoordDx)) +
+                abs(dot(exteriorGradient, atlasCoordDy)),
+            0.0001);
+        let antialiasedAlpha = select(
+            0.0,
+            1.0 - smoothstep(
+                -0.5 * filterWidth,
+                0.5 * filterWidth,
+                exteriorDistance),
+            internalInside);
+        let aliasedAlpha = select(
+            0.0,
+            1.0,
+            internalInside && allDistance <= 0.0);
+        shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+    } else if (sType == 23u) {
+        // Analytic one-device-pixel path join. color stores the two outer
+        // offsets, shapeSize stores a valid miter intersection, cornerRadius
+        // selects miter/bevel/round, and gridIndex preserves turn direction.
+        // Body-facing radial edges are hard-owned to prevent overlap seams.
+        let point = input.texCoord;
+        let previousOuter = input.color.xy;
+        let nextOuter = input.color.zw;
+        let miterPoint = input.shapeSize;
+        let joinKind = u32(round(input.cornerRadius));
+        var exteriorDistance = 0.0;
+        var exteriorGradient = vec2<f32>(1.0, 0.0);
+        var internalInside = true;
+        var allDistance = 0.0;
+
+        if (joinKind == 2u) {
+            let startAngle = atan2(previousOuter.y, previousOuter.x);
+            let endAngle = atan2(nextOuter.y, nextOuter.x);
+            var sweep = endAngle - startAngle;
+            if (input.gridIndex > 0.0 && sweep < 0.0) {
+                sweep = sweep + PROGPU_TWO_PI;
+            } else if (input.gridIndex < 0.0 && sweep > 0.0) {
+                sweep = sweep - PROGPU_TWO_PI;
+            }
+            let pointAngle = atan2(point.y, point.x);
+            internalInside = is_angle_inside_arc(
+                pointAngle,
+                startAngle,
+                sweep);
+            exteriorDistance = length(point) - 0.5;
+            exteriorGradient = safe_normalize(point);
+            allDistance = exteriorDistance;
+        } else if (joinKind == 0u && input.strokeThickness > 0.5) {
+            // Convex miter polygon order: previous outer, intersection, next
+            // outer, center. Only the first two edges are exterior.
+            let p0 = previousOuter;
+            let p1 = miterPoint;
+            let p2 = nextOuter;
+            let p3 = vec2<f32>(0.0);
+            let edge0 = p1 - p0;
+            let edge1 = p2 - p1;
+            let edge2 = p3 - p2;
+            let edge3 = p0 - p3;
+            let orientation = select(
+                -1.0,
+                1.0,
+                cross_2d(edge0, p2 - p0) >= 0.0);
+            let distance0 = -orientation * cross_2d(edge0, point - p0) /
+                max(length(edge0), 0.0001);
+            let distance1 = -orientation * cross_2d(edge1, point - p1) /
+                max(length(edge1), 0.0001);
+            let distance2 = -orientation * cross_2d(edge2, point - p2) /
+                max(length(edge2), 0.0001);
+            let distance3 = -orientation * cross_2d(edge3, point - p3) /
+                max(length(edge3), 0.0001);
+            let gradient0 = orientation *
+                vec2<f32>(edge0.y, -edge0.x) /
+                max(length(edge0), 0.0001);
+            let gradient1 = orientation *
+                vec2<f32>(edge1.y, -edge1.x) /
+                max(length(edge1), 0.0001);
+            exteriorDistance = max(distance0, distance1);
+            exteriorGradient = select(
+                gradient1,
+                gradient0,
+                distance0 >= distance1);
+            internalInside = distance2 <= 0.001 && distance3 <= 0.001;
+            allDistance = max(
+                max(distance0, distance1),
+                max(distance2, distance3));
+        } else {
+            // Bevel, including a miter that exceeds its transformed limit.
+            let p0 = previousOuter;
+            let p1 = vec2<f32>(0.0);
+            let p2 = nextOuter;
+            let edge0 = p1 - p0;
+            let edge1 = p2 - p1;
+            let edge2 = p0 - p2;
+            let orientation = select(
+                -1.0,
+                1.0,
+                cross_2d(edge0, p2 - p0) >= 0.0);
+            let distance0 = -orientation * cross_2d(edge0, point - p0) /
+                max(length(edge0), 0.0001);
+            let distance1 = -orientation * cross_2d(edge1, point - p1) /
+                max(length(edge1), 0.0001);
+            let distance2 = -orientation * cross_2d(edge2, point - p2) /
+                max(length(edge2), 0.0001);
+            exteriorGradient = orientation *
+                vec2<f32>(edge2.y, -edge2.x) /
+                max(length(edge2), 0.0001);
+            exteriorDistance = distance2;
+            internalInside = distance0 <= 0.001 && distance1 <= 0.001;
+            allDistance = max(distance2, max(distance0, distance1));
+        }
+
+        let filterWidth = max(
+            abs(dot(exteriorGradient, atlasCoordDx)) +
+                abs(dot(exteriorGradient, atlasCoordDy)),
+            0.0001);
+        let antialiasedAlpha = select(
+            0.0,
+            1.0 - smoothstep(
+                -0.5 * filterWidth,
+                0.5 * filterWidth,
+                exteriorDistance),
+            internalInside);
+        let aliasedAlpha = select(
+            0.0,
+            1.0,
+            internalInside && allDistance <= 0.0);
+        shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     }
 
     if (shapeAlpha <= 0.0) {
@@ -1581,7 +2285,9 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
     var finalColor = input.color;
     if (brush.brushType == 0u) {
-        if (sType == 5u || sType == 6u || (sType >= 12u && sType <= 18u)) {
+        if (sType == 5u || sType == 6u ||
+            (sType >= 12u && sType <= 18u) ||
+            sType == 22u || sType == 23u) {
             finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
         } else {
             finalColor = vec4<f32>(input.color.rgb, input.color.a * brush.opacity);

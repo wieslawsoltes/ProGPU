@@ -2262,7 +2262,7 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void DrawPathScalesStrokeWidthWithSetMatrix()
+    public void DrawPathKeepsStrokeWidthInLocalCoordinatesWithSetMatrix()
     {
         var context = new DrawingContext();
         using var canvas = new SKCanvas(context, 100f, 100f);
@@ -2287,8 +2287,47 @@ public sealed class SkCanvasStateTests
         var command = Assert.Single(context.Commands);
         Assert.Equal(RenderCommandType.DrawPath, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(7.5f, command.Pen!.Thickness);
+        AssertNear(1.5f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(matrix.ToMatrix4x4(), command.Transform);
+    }
+
+    [Fact]
+    public void DrawDashedPathRetainsAndReusesItsGeometryCache()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var path = new SKPath();
+        using var dash = SKPathEffect.CreateDash([6f, 3f], 1f);
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+            PathEffect = dash
+        };
+
+        path.MoveTo(4f, 8f);
+        path.LineTo(80f, 8f);
+        canvas.DrawPath(path, paint);
+
+        var command = Assert.Single(context.Commands);
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Assert.NotNull(command.Path);
+        Assert.NotNull(command.Pen);
+        Assert.NotNull(command.GeometryCache);
+        Assert.Same(command.Path, command.GeometryCache!.StrokePath);
+        Assert.Same(command.Path, command.GeometryCache.FillPath);
+
+        Assert.True(command.GeometryCache.TryGetDashedStrokePath(
+            command.Pen!,
+            out var firstPath,
+            out var firstPen));
+        Assert.True(command.GeometryCache.TryGetDashedStrokePath(
+            command.Pen!,
+            out var secondPath,
+            out var secondPen));
+        Assert.Same(firstPath, secondPath);
+        Assert.Same(firstPen, secondPen);
     }
 
     [Fact]
@@ -2308,7 +2347,8 @@ public sealed class SkCanvasStateTests
         var command = Assert.Single(context.Commands);
         Assert.Equal(RenderCommandType.DrawRect, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(0.25f, command.Pen!.Thickness);
+        Assert.True(command.Pen!.IsHairline);
+        Assert.Equal(Pen.HairlineThickness, command.Pen.Thickness);
         Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(Matrix4x4.CreateScale(4f, 4f, 1f), command.Transform);
     }

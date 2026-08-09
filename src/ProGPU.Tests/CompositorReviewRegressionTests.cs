@@ -6706,6 +6706,70 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void AppendComposesTranslationForOpaqueAndNestedPayloadCommands()
+    {
+        var translation = new Vector2(20f, 30f);
+        var expectedTransform = Matrix4x4.CreateTranslation(20f, 30f, 0f);
+        var path = RenderCommandGeometryCache.CreateLinePath(
+            new Vector2(2f, 3f),
+            new Vector2(12f, 3f));
+        var brush = new SolidColorBrush(Vector4.One);
+        var pen = new Pen(brush, 2f);
+        var visual = new Visual();
+        var staticBuffer = new object();
+        using var picture = new GpuPicture([], [], [], [], []);
+        var source = new DrawingContext();
+        source.DrawPicture(picture);
+        source.DrawVisual(visual);
+        source.DrawHatch(brush, path);
+        source.DrawDotGrid(brush, new Rect(1f, 2f, 10f, 12f), 4f, 1f, new Vector2(0.5f));
+        source.DrawLine3D(pen, new Vector3(1f, 2f, 3f), new Vector3(4f, 5f, 6f));
+        Line3D[] acisEdges =
+        [
+            new(new Vector3(2f, 4f, 6f), new Vector3(8f, 10f, 12f))
+        ];
+        source.DrawAcisSolid(
+            pen,
+            acisEdges.AsSpan(),
+            Matrix4x4.Identity);
+        source.DrawStaticDxf(staticBuffer);
+
+        var target = new DrawingContext();
+        target.Append(source, translation);
+
+        Assert.Equal(7, target.Commands.Count);
+        Assert.All(target.Commands, command =>
+            Assert.Equal(expectedTransform, command.Transform));
+        Assert.Same(picture, target.Commands[0].Picture);
+        Assert.Same(visual, target.Commands[1].Visual);
+        Assert.Same(path, target.Commands[2].Path);
+        Assert.Equal(new Rect(1f, 2f, 10f, 12f), target.Commands[3].Rect);
+        Assert.Equal(new Vector2(0.5f), target.Commands[3].Position2);
+        Assert.Equal(source.FloatBuffer, target.FloatBuffer);
+        Assert.Equal(source.Line3DBuffer, target.Line3DBuffer);
+        Assert.Same(staticBuffer, target.Commands[6].DataParam);
+    }
+
+    [Theory]
+    [InlineData(RenderCommandType.DrawHatch)]
+    [InlineData(RenderCommandType.DrawLine3D)]
+    [InlineData(RenderCommandType.DrawAcisSolid)]
+    [InlineData(RenderCommandType.DrawStaticDxf)]
+    public void AppendComposesTranslationForLegacyOpaquePayloadCommands(
+        RenderCommandType commandType)
+    {
+        var source = new DrawingContext();
+        source.Commands.Add(new RenderCommand { Type = commandType });
+
+        var target = new DrawingContext();
+        target.Append(source, new Vector2(20f, 30f));
+
+        Assert.Equal(
+            Matrix4x4.CreateTranslation(20f, 30f, 0f),
+            Assert.Single(target.Commands).Transform);
+    }
+
+    [Fact]
     public void AppendTranslatesPictureOpacityMaskContent()
     {
         var recorder = new GpuPictureRecorder();
@@ -6727,6 +6791,39 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Same(picture, target.Commands[0].Picture);
         Assert.Equal(20f, target.Commands[0].Transform.M41);
         Assert.Equal(30f, target.Commands[0].Transform.M42);
+        Assert.Equal(RenderCommandType.PopOpacityMask, target.Commands[1].Type);
+    }
+
+    [Fact]
+    public void AppendTranslatesPathOpacityMaskByComposingItsTransform()
+    {
+        var source = new DrawingContext();
+        var path = RenderCommandGeometryCache.CreateLinePath(
+            new Vector2(2f, 3f),
+            new Vector2(12f, 3f));
+        var pen = new Pen(
+            new SolidColorBrush(Vector4.One),
+            thickness: 2f,
+            startLineCap: PenLineCap.Round,
+            endLineCap: PenLineCap.Triangle);
+        var bounds = new Rect(0f, 0f, 16f, 8f);
+        source.PushOpacityMask(path, pen, bounds, Matrix4x4.Identity);
+        source.PopOpacityMask();
+        var sourceCache = source.Commands[0].GeometryCache;
+
+        var target = new DrawingContext();
+        target.Append(source, new Vector2(20f, 30f));
+
+        Assert.Equal(2, target.Commands.Count);
+        var command = target.Commands[0];
+        Assert.Same(path, command.Path);
+        Assert.Same(pen, command.Pen);
+        Assert.Same(sourceCache, command.GeometryCache);
+        Assert.Equal(bounds, command.Rect);
+        Assert.True(command.IsPenThicknessLocal);
+        Assert.Equal(
+            Matrix4x4.CreateTranslation(20f, 30f, 0f),
+            command.Transform);
         Assert.Equal(RenderCommandType.PopOpacityMask, target.Commands[1].Type);
     }
 
@@ -6781,6 +6878,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Same(path, target.Commands[0].Path);
         Assert.Same(brush, target.Commands[0].Brush);
         Assert.Same(pen, target.Commands[0].Pen);
+        Assert.Same(source.Commands[0].GeometryCache, target.Commands[0].GeometryCache);
         Assert.Equal(Matrix4x4.CreateTranslation(20f, 30f, 0f), target.Commands[0].Transform);
     }
 

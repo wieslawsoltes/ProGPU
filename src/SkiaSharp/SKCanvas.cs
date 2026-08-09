@@ -4349,7 +4349,7 @@ public class SKCanvas : SKObject
         try
         {
             var brush = paint.ToRetainedBrush();
-            var pen = paint.ToRetainedPen(GetCurrentStrokeScale());
+            var pen = paint.ToLocalPen(GetCurrentStrokeScale());
 
             if (IsInverseFillType(path.FillType))
             {
@@ -4529,6 +4529,8 @@ public class SKCanvas : SKObject
             Pen = pen,
             Transform = transform,
             IsEdgeAliased = isEdgeAliased,
+            IsPenThicknessLocal = pen is not null,
+            GeometryCache = RenderCommandGeometryCache.ForPath(path),
             UseVectorGlyphRendering = textRasterization.HasValue,
             FontSize = textInfo.FontSize,
             FontTransform = textInfo.FontTransform,
@@ -4834,7 +4836,7 @@ public class SKCanvas : SKObject
                 var conicalFill = style == SKPaintStyle.Stroke ? null : conicalBrush;
                 var conicalPen = style == SKPaintStyle.Fill
                     ? null
-                    : paint.ToPen(conicalBrush, GetCurrentStrokeScale());
+                    : paint.ToLocalPen(conicalBrush, GetCurrentStrokeScale());
                 AddDrawPathCommand(
                     clipGeometry,
                     conicalFill,
@@ -4901,7 +4903,7 @@ public class SKCanvas : SKObject
         var fill = shaderStyle == SKPaintStyle.Stroke ? null : brush;
         var pen = shaderStyle == SKPaintStyle.Fill
             ? null
-            : paint.ToPen(brush, GetCurrentStrokeScale());
+            : paint.ToLocalPen(brush, GetCurrentStrokeScale());
         AddDrawPathCommand(
             clipGeometry,
             fill,

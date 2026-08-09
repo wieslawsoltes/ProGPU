@@ -934,7 +934,12 @@ public partial class SKPath
             current = GetSegmentEnd(source.Segments[index]);
         }
 
-        var reversed = new PathFigure(current, source.IsClosed) { IsFilled = source.IsFilled };
+        var reversed = new PathFigure(current, source.IsClosed)
+        {
+            IsFilled = source.IsFilled,
+            StrokeStartLineCap = source.StrokeEndLineCap,
+            StrokeEndLineCap = source.StrokeStartLineCap
+        };
         for (var index = source.Segments.Count - 1; index >= 0; index--)
         {
             if (TryFindConicGroup(source.Segments, index, out var conicStart, out var conic))

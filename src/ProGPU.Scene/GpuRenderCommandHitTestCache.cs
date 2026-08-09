@@ -65,14 +65,8 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
         switch (command.Type)
         {
-            case RenderCommandType.PushClip:
-                PushClip(command.Rect, activeTransform);
-                return;
             case RenderCommandType.PopClip:
                 PopClip();
-                return;
-            case RenderCommandType.PushGeometryClip:
-                PushGeometryClip(command, activeTransform);
                 return;
             case RenderCommandType.PopGeometryClip:
                 PopClip();
@@ -82,6 +76,36 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 return;
             case RenderCommandType.PopOpacity:
                 PopOpacity();
+                return;
+            case RenderCommandType.PushOpacityMask:
+            case RenderCommandType.PopOpacityMask:
+                // Opacity masks are compositor state, not independently
+                // hittable geometry. Precise alpha-mask sampling is outside
+                // the retained geometric hit-test contract; preserve the
+                // enclosed primitives without adding a phantom bounds hit.
+                return;
+        }
+
+        if (!IsFiniteInvertibleAffine2D(activeTransform))
+        {
+            // Preserve clip-stack balance while making an invalid clip reject
+            // all descendants. Precise rendering also fails closed for these
+            // transforms; substituting Identity here creates ghost hits.
+            if (command.Type is RenderCommandType.PushClip or
+                RenderCommandType.PushGeometryClip)
+            {
+                _clipStack.Push(ClipState.Empty);
+            }
+            return;
+        }
+
+        switch (command.Type)
+        {
+            case RenderCommandType.PushClip:
+                PushClip(command.Rect, activeTransform);
+                return;
+            case RenderCommandType.PushGeometryClip:
+                PushGeometryClip(command, activeTransform);
                 return;
         }
 
@@ -122,7 +146,6 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddPath(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawTexture:
-            case RenderCommandType.PushOpacityMask:
                 AddBounds(command.Rect, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawText:
@@ -209,9 +232,27 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             zIndex += 0.25f;
         }
 
-        if (command.Pen is { Thickness: > 0f } pen)
+        if (Compositor.IsRenderableStroke(command.Pen) &&
+            Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, Vector2.Zero, pen.Thickness, 0f, transform, zIndex));
+            if (command.Pen!.IsHairline)
+            {
+                TryAddDeviceHairlinePathStrokePrimitive(
+                    command.GeometryCache?.StrokePath ??
+                        PrimitivePathGeometry.CreateRectangle(
+                            command.Rect.X,
+                            command.Rect.Y,
+                            command.Rect.Width,
+                            command.Rect.Height),
+                    transform,
+                    id,
+                    zIndex,
+                    command.Pen!);
+            }
+            else
+            {
+                AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, Vector2.Zero, localThickness, 0f, transform, zIndex));
+            }
         }
     }
 
@@ -225,9 +266,29 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             zIndex += 0.25f;
         }
 
-        if (command.Pen is { Thickness: > 0f } pen)
+        if (Compositor.IsRenderableStroke(command.Pen) &&
+            Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, radius, pen.Thickness, 0f, transform, zIndex));
+            if (command.Pen!.IsHairline)
+            {
+                TryAddDeviceHairlinePathStrokePrimitive(
+                    command.GeometryCache?.StrokePath ??
+                        PrimitivePathGeometry.CreateRoundedRectangle(
+                            command.Rect.X,
+                            command.Rect.Y,
+                            command.Rect.Width,
+                            command.Rect.Height,
+                            command.RadiusX,
+                            command.RadiusY),
+                    transform,
+                    id,
+                    zIndex,
+                    command.Pen!);
+            }
+            else
+            {
+                AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, radius, localThickness, 0f, transform, zIndex));
+            }
         }
     }
 
@@ -242,9 +303,26 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             zIndex += 0.25f;
         }
 
-        if (command.Pen is { Thickness: > 0f } pen)
+        if (Compositor.IsRenderableStroke(command.Pen) &&
+            Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            AddPrimitive(GpuHitTestPrimitive.EllipseStroke(id, min, max, pen.Thickness, 0f, transform, zIndex));
+            if (command.Pen!.IsHairline)
+            {
+                TryAddDeviceHairlinePathStrokePrimitive(
+                    command.GeometryCache?.StrokePath ??
+                        PrimitivePathGeometry.CreateEllipse(
+                            center,
+                            command.RadiusX,
+                            command.RadiusY),
+                    transform,
+                    id,
+                    zIndex,
+                    command.Pen!);
+            }
+            else
+            {
+                AddPrimitive(GpuHitTestPrimitive.EllipseStroke(id, min, max, localThickness, 0f, transform, zIndex));
+            }
         }
     }
 
@@ -256,7 +334,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     private void AddLine(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
     {
-        if (command.Pen is not { Thickness: > 0f } pen)
+        if (!Compositor.IsRenderableStroke(command.Pen))
+        {
+            return;
+        }
+        var pen = command.Pen!;
+        if (!Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
             return;
         }
@@ -266,29 +349,48 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             var linePath = command.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreateLinePath(command.Position, command.Position2);
 
-            if (TryGetDashedStrokePath(command, linePath, pen, out var strokePath, out var strokePen))
+            if (TryGetDashedStrokePath(command, linePath, pen, localThickness, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                if (pen.IsHairline)
+                {
+                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                }
+                else
+                {
+                    TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
+                }
             }
 
             return;
         }
 
+        var lineTransform = pen.IsHairline ? Matrix4x4.Identity : transform;
+        var lineStart = pen.IsHairline
+            ? Vector2.Transform(command.Position, transform)
+            : command.Position;
+        var lineEnd = pen.IsHairline
+            ? Vector2.Transform(command.Position2, transform)
+            : command.Position2;
         AddPrimitive(GpuHitTestPrimitive.LineStroke(
             id,
-            command.Position,
-            command.Position2,
-            pen.Thickness,
+            lineStart,
+            lineEnd,
+            pen.IsHairline ? 1f : localThickness,
             ToLineGeometryCap(pen.StartLineCap),
             ToLineGeometryCap(pen.EndLineCap),
             0f,
-            transform,
+            lineTransform,
             zIndex));
     }
 
     private void AddQuadraticBezier(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
     {
-        if (command.Pen is not { Thickness: > 0f } pen)
+        if (!Compositor.IsRenderableStroke(command.Pen))
+        {
+            return;
+        }
+        var pen = command.Pen!;
+        if (!Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
             return;
         }
@@ -297,6 +399,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             command.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreateQuadraticBezierPath(command.Position, command.Position2, command.Position3),
             pen,
+            localThickness,
             command.GeometryCache,
             transform,
             id,
@@ -305,7 +408,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     private void AddCubicBezier(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
     {
-        if (command.Pen is not { Thickness: > 0f } pen)
+        if (!Compositor.IsRenderableStroke(command.Pen))
+        {
+            return;
+        }
+        var pen = command.Pen!;
+        if (!Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
             return;
         }
@@ -314,6 +422,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             command.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreateCubicBezierPath(command.Position, command.Position2, command.Position3, command.Position4),
             pen,
+            localThickness,
             command.GeometryCache,
             transform,
             id,
@@ -323,6 +432,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private void AddBezierPathStroke(
         PathGeometry path,
         Pen pen,
+        float localThickness,
         RenderCommandGeometryCache? geometryCache,
         Matrix4x4 transform,
         int id,
@@ -330,15 +440,29 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     {
         if (pen.HasDashPattern)
         {
-            if (TryGetDashedStrokePath(geometryCache, path, pen, out var strokePath, out var strokePen))
+            if (TryGetDashedStrokePath(geometryCache, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                if (pen.IsHairline)
+                {
+                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                }
+                else
+                {
+                    TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
+                }
             }
 
             return;
         }
 
-        TryAddPathStrokePrimitive(path, transform, id, zIndex, pen);
+        if (pen.IsHairline)
+        {
+            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+        }
+        else
+        {
+            TryAddPathStrokePrimitive(path, transform, id, zIndex, pen, localThickness);
+        }
     }
 
     private void AddPath(RenderCommand command, Matrix4x4 activeTransform, int id, float zIndex)
@@ -352,24 +476,54 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Matrix4x4 transform = command.Transform == default
             ? activeTransform
             : command.Transform * activeTransform;
+        if (!IsFiniteInvertibleAffine2D(transform))
+        {
+            return;
+        }
 
-        Pen? pen = command.Pen is { Thickness: > 0f } activePen ? activePen : null;
+        Pen? pen = Compositor.IsRenderableStroke(command.Pen)
+            ? command.Pen
+            : null;
+        var localThickness = 0f;
+        var hasLocalStroke = pen != null &&
+            Compositor.TryResolveLocalStrokeThickness(command, out localThickness);
         if (pen?.HasDashPattern != true)
         {
-            if (!TryCompileHitTestPath(command.GeometryCache?.FillPath ?? commandPath, out var path))
+            var fillSource = command.GeometryCache?.FillPath ?? commandPath;
+            CompiledHitTestPath? solidFillPath = null;
+            if (command.Brush != null &&
+                TryCompileHitTestPath(fillSource, out var compiledFillPath))
             {
-                return;
-            }
-
-            if (command.Brush != null)
-            {
-                AddPathFillPrimitive(path, transform, id, zIndex);
+                solidFillPath = compiledFillPath;
+                AddPathFillPrimitive(compiledFillPath, transform, id, zIndex);
                 zIndex += 0.25f;
             }
 
-            if (pen != null)
+            if (hasLocalStroke)
             {
-                AddPathStrokePrimitive(path, transform, id, zIndex, pen);
+                var strokeSource = command.GeometryCache?.StrokePath ?? commandPath;
+                if (pen!.IsHairline)
+                {
+                    TryAddDeviceHairlinePathStrokePrimitive(
+                        strokeSource,
+                        transform,
+                        id,
+                        zIndex,
+                        pen);
+                }
+                else
+                {
+                    TryAddPathStrokePrimitive(
+                        strokeSource,
+                        transform,
+                        id,
+                        zIndex,
+                        pen,
+                        localThickness,
+                        solidFillPath.HasValue && ReferenceEquals(strokeSource, fillSource)
+                            ? solidFillPath
+                            : null);
+                }
             }
 
             return;
@@ -382,43 +536,67 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             zIndex += 0.25f;
         }
 
-        if (!TryGetDashedStrokePath(command, commandPath, pen, out var strokePath, out var strokePen))
+        if (!hasLocalStroke ||
+            !TryGetDashedStrokePath(command, commandPath, pen, localThickness, out var strokePath, out var strokePen))
         {
             return;
         }
 
-        TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+        if (pen.IsHairline)
+        {
+            TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+        }
+        else
+        {
+            TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
+        }
     }
 
     private static bool TryGetDashedStrokePath(
         in RenderCommand command,
         PathGeometry fallbackPath,
         Pen pen,
+        float localThickness,
         out PathGeometry strokePath,
         out Pen strokePen)
     {
-        return TryGetDashedStrokePath(command.GeometryCache, fallbackPath, pen, out strokePath, out strokePen);
+        return TryGetDashedStrokePath(
+            command.GeometryCache,
+            fallbackPath,
+            pen,
+            localThickness,
+            out strokePath,
+            out strokePen);
     }
 
     private static bool TryGetDashedStrokePath(
         RenderCommandGeometryCache? geometryCache,
         PathGeometry fallbackPath,
         Pen pen,
+        float localThickness,
         out PathGeometry strokePath,
         out Pen strokePen)
     {
-        if (geometryCache?.TryGetDashedStrokePath(pen, out strokePath, out strokePen) == true)
+        if (geometryCache?.TryGetDashedStrokePath(
+                pen,
+                localThickness,
+                out strokePath,
+                out strokePen) == true)
         {
             return true;
         }
 
-        if (!Compositor.TryCreateDashedStrokePath(fallbackPath, pen, out strokePath))
+        if (!Compositor.TryCreateDashedStrokePath(
+                fallbackPath,
+                pen,
+                localThickness,
+                out strokePath))
         {
             strokePen = null!;
             return false;
         }
 
-        strokePen = Compositor.CreateUndashedPen(pen);
+        strokePen = Compositor.CreateUndashedPen(pen, localThickness);
         return true;
     }
 
@@ -514,14 +692,316 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Matrix4x4 transform,
         int id,
         float zIndex,
-        Pen pen)
+        Pen pen,
+        float localThickness,
+        CompiledHitTestPath? precompiledPath = null)
+    {
+        if (!pen.IsHairline &&
+            (HasStrokeCapOverride(path) ||
+             pen.StartLineCap != PenLineCap.Round ||
+             pen.EndLineCap != PenLineCap.Round))
+        {
+            if (TryAddLoweredLineStrokePrimitives(path, transform, id, zIndex, pen, localThickness) ||
+                TryAddLoweredPathStrokePrimitives(
+                    path,
+                    transform,
+                    id,
+                    zIndex,
+                    pen,
+                    localThickness,
+                    precompiledPath))
+            {
+                return true;
+            }
+        }
+
+        if (precompiledPath.HasValue)
+        {
+            AddPathStrokePrimitive(
+                precompiledPath.Value,
+                transform,
+                id,
+                zIndex,
+                localThickness);
+            return true;
+        }
+
+        return TryAddPathStrokePrimitive(path, transform, id, zIndex, localThickness);
+    }
+
+    private static bool HasStrokeCapOverride(PathGeometry path)
+    {
+        var figures = path.Figures;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            if (figure.StrokeStartLineCap.HasValue || figure.StrokeEndLineCap.HasValue)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryAddLoweredLineStrokePrimitives(
+        PathGeometry path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        Pen pen,
+        float localThickness)
+    {
+        var figures = path.Figures;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            if (figure.IsClosed ||
+                figure.Segments.Count != 1 ||
+                figure.Segments[0] is not LineSegment { IsStroked: true })
+            {
+                return false;
+            }
+
+        }
+
+        if (figures.Count == 0)
+        {
+            return false;
+        }
+
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            var line = (LineSegment)figure.Segments[0];
+            AddPrimitive(GpuHitTestPrimitive.LineStroke(
+                id,
+                figure.StartPoint,
+                line.Point,
+                localThickness,
+                ToLineGeometryCap(figure.StrokeStartLineCap ?? pen.StartLineCap),
+                ToLineGeometryCap(figure.StrokeEndLineCap ?? pen.EndLineCap),
+                tolerance: 0f,
+                transform: transform,
+                zIndex: zIndex));
+        }
+
+        return true;
+    }
+
+    private bool TryAddLoweredPathStrokePrimitives(
+        PathGeometry path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        Pen pen,
+        float localThickness,
+        CompiledHitTestPath? precompiledPath)
+    {
+        var figures = path.Figures;
+        var expectedSegmentCount = 0;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            expectedSegmentCount += CountCompiledFigureSegments(figures[figureIndex]);
+        }
+
+        if (expectedSegmentCount == 0)
+        {
+            return false;
+        }
+
+        CompiledHitTestPath compiledPath;
+        if (precompiledPath.HasValue)
+        {
+            compiledPath = precompiledPath.Value;
+        }
+        else if (!TryCompileHitTestPath(path, out compiledPath))
+        {
+            return false;
+        }
+
+        if (compiledPath.SegmentCount != (uint)expectedSegmentCount)
+        {
+            return false;
+        }
+
+        uint figureStartSegment = compiledPath.StartSegment;
+        for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            var figureSegmentCount = CountCompiledFigureSegments(figure);
+            if (figureSegmentCount == 0)
+            {
+                continue;
+            }
+
+            if (!TryGetCompiledFigureBounds(figure, out var figureMin, out var figureMax))
+            {
+                return false;
+            }
+
+            var figurePath = new CompiledHitTestPath(
+                figureMin,
+                figureMax,
+                figureStartSegment,
+                checked((uint)figureSegmentCount),
+                compiledPath.FillRule);
+            AddPathStrokePrimitive(
+                figurePath,
+                transform,
+                id,
+                zIndex,
+                localThickness,
+                figure.IsClosed
+                    ? LineGeometryCap.Round
+                    : ToLineGeometryCap(figure.StrokeStartLineCap ?? pen.StartLineCap),
+                figure.IsClosed
+                    ? LineGeometryCap.Round
+                    : ToLineGeometryCap(figure.StrokeEndLineCap ?? pen.EndLineCap));
+            figureStartSegment += checked((uint)figureSegmentCount);
+        }
+
+        return true;
+    }
+
+    private static int CountCompiledFigureSegments(PathFigure figure)
+    {
+        var count = 0;
+        var currentPoint = figure.StartPoint;
+        var segments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+        {
+            switch (segments[segmentIndex])
+            {
+                case LineSegment line:
+                    count++;
+                    currentPoint = line.Point;
+                    break;
+                case QuadraticBezierSegment quadratic:
+                    count++;
+                    currentPoint = quadratic.Point;
+                    break;
+                case CubicBezierSegment cubic:
+                    count++;
+                    currentPoint = cubic.Point;
+                    break;
+                case ArcSegment arc:
+                    if (ArcSegmentGeometry.TryGetArcCenter(
+                            currentPoint,
+                            arc.Point,
+                            arc.Size,
+                            arc.RotationAngle,
+                            arc.IsLargeArc,
+                            arc.SweepDirection,
+                            out _,
+                            out _,
+                            out _,
+                            out _,
+                            out _) ||
+                        currentPoint != arc.Point)
+                    {
+                        count++;
+                    }
+
+                    currentPoint = arc.Point;
+                    break;
+            }
+        }
+
+        if (figure.IsClosed && currentPoint != figure.StartPoint)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    private static bool TryGetCompiledFigureBounds(
+        PathFigure figure,
+        out Vector2 min,
+        out Vector2 max)
+    {
+        var minValue = new Vector2(float.MaxValue);
+        var maxValue = new Vector2(float.MinValue);
+        var hasBounds = false;
+
+        void Update(Vector2 point)
+        {
+            if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
+            {
+                return;
+            }
+
+            minValue = Vector2.Min(minValue, point);
+            maxValue = Vector2.Max(maxValue, point);
+            hasBounds = true;
+        }
+
+        var currentPoint = figure.StartPoint;
+        Update(currentPoint);
+        var segments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+        {
+            switch (segments[segmentIndex])
+            {
+                case LineSegment line:
+                    Update(line.Point);
+                    currentPoint = line.Point;
+                    break;
+                case QuadraticBezierSegment quadratic:
+                    Update(quadratic.ControlPoint);
+                    Update(quadratic.Point);
+                    currentPoint = quadratic.Point;
+                    break;
+                case CubicBezierSegment cubic:
+                    Update(cubic.ControlPoint1);
+                    Update(cubic.ControlPoint2);
+                    Update(cubic.Point);
+                    currentPoint = cubic.Point;
+                    break;
+                case ArcSegment arc:
+                    if (ArcSegmentGeometry.TryGetArcBounds(
+                            currentPoint,
+                            arc,
+                            out var arcMin,
+                            out var arcMax))
+                    {
+                        Update(arcMin);
+                        Update(arcMax);
+                    }
+                    else
+                    {
+                        Update(arc.Point);
+                    }
+
+                    currentPoint = arc.Point;
+                    break;
+            }
+        }
+
+        if (figure.IsClosed)
+        {
+            Update(figure.StartPoint);
+        }
+
+        min = hasBounds ? minValue : default;
+        max = hasBounds ? maxValue : default;
+        return hasBounds;
+    }
+
+    private bool TryAddPathStrokePrimitive(
+        PathGeometry path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        float localThickness)
     {
         if (!TryCompileHitTestPath(path, out var strokePath))
         {
             return false;
         }
 
-        AddPathStrokePrimitive(strokePath, transform, id, zIndex, pen);
+        AddPathStrokePrimitive(strokePath, transform, id, zIndex, localThickness);
         return true;
     }
 
@@ -530,7 +1010,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Matrix4x4 transform,
         int id,
         float zIndex,
-        Pen pen)
+        float localThickness)
     {
         AddPrimitive(GpuHitTestPrimitive.PathStroke(
             id,
@@ -538,10 +1018,258 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             path.Max,
             path.StartSegment,
             path.SegmentCount,
-            pen.Thickness,
+            localThickness,
             0f,
             transform,
             zIndex));
+    }
+
+    private void AddPathStrokePrimitive(
+        CompiledHitTestPath path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        float localThickness,
+        LineGeometryCap startCap,
+        LineGeometryCap endCap)
+    {
+        AddPrimitive(GpuHitTestPrimitive.PathStroke(
+            id,
+            path.Min,
+            path.Max,
+            path.StartSegment,
+            path.SegmentCount,
+            localThickness,
+            0f,
+            startCap,
+            endCap,
+            transform,
+            zIndex));
+    }
+
+    /// <summary>
+    /// Compiles a retained path into framebuffer coordinates for a Skia
+    /// device hairline. This keeps the precise GPU hit-test primitive at one
+    /// pixel under anisotropic scale and shear instead of approximating it
+    /// with one inverse-scaled local width.
+    /// </summary>
+    private bool TryAddDeviceHairlinePathStrokePrimitive(
+        PathGeometry path,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        Pen pen)
+    {
+        var segmentCheckpoint = _pathSegments.Count;
+        var primitiveCheckpoint = _primitives.Count;
+        if (!TryCompileHitTestPath(path, out var localPath))
+        {
+            return false;
+        }
+
+        var localStart = checked((int)localPath.StartSegment);
+        var localEnd = checked(localStart + (int)localPath.SegmentCount);
+        var expectedSegmentCount = 0;
+        var figures = path.Figures;
+        for (var figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            expectedSegmentCount += CountCompiledFigureSegments(figures[figureIndex]);
+        }
+
+        if (localStart != segmentCheckpoint ||
+            localEnd != _pathSegments.Count ||
+            expectedSegmentCount != (int)localPath.SegmentCount)
+        {
+            Rollback();
+            return false;
+        }
+
+        var transformedStart = _pathSegments.Count;
+        var localFigureStart = localStart;
+        for (var figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            var localFigureCount = CountCompiledFigureSegments(figure);
+            if (localFigureCount == 0)
+            {
+                continue;
+            }
+
+            var figureTransformedStart = _pathSegments.Count;
+            var transformedMin = new Vector2(float.PositiveInfinity);
+            var transformedMax = new Vector2(float.NegativeInfinity);
+            var localFigureEnd = localFigureStart + localFigureCount;
+            for (var segmentIndex = localFigureStart; segmentIndex < localFigureEnd; segmentIndex++)
+            {
+                var segment = _pathSegments[segmentIndex];
+                switch (segment.SegmentType)
+                {
+                    case 0u:
+                        AppendTransformedHairlineSegment(
+                            segment,
+                            transform,
+                            pointCount: 2,
+                            ref transformedMin,
+                            ref transformedMax);
+                        break;
+                    case 1u:
+                        AppendTransformedHairlineSegment(
+                            segment,
+                            transform,
+                            pointCount: 3,
+                            ref transformedMin,
+                            ref transformedMax);
+                        break;
+                    case 2u:
+                        AppendTransformedHairlineSegment(
+                            segment,
+                            transform,
+                            pointCount: 4,
+                            ref transformedMin,
+                            ref transformedMax);
+                        break;
+                    case 3u:
+                        AppendTransformedHairlineArc(
+                            segment,
+                            transform,
+                            ref transformedMin,
+                            ref transformedMax);
+                        break;
+                }
+            }
+
+            var figureTransformedCount = _pathSegments.Count - figureTransformedStart;
+            if (figureTransformedCount <= 0 ||
+                !float.IsFinite(transformedMin.X) ||
+                !float.IsFinite(transformedMin.Y) ||
+                !float.IsFinite(transformedMax.X) ||
+                !float.IsFinite(transformedMax.Y))
+            {
+                Rollback();
+                return false;
+            }
+
+            var finalFigureStart = localStart + (figureTransformedStart - transformedStart);
+            AddPathStrokePrimitive(
+                new CompiledHitTestPath(
+                    transformedMin,
+                    transformedMax,
+                    checked((uint)finalFigureStart),
+                    checked((uint)figureTransformedCount),
+                    localPath.FillRule),
+                Matrix4x4.Identity,
+                id,
+                zIndex,
+                localThickness: 1f,
+                figure.IsClosed
+                    ? LineGeometryCap.Round
+                    : ToLineGeometryCap(figure.StrokeStartLineCap ?? pen.StartLineCap),
+                figure.IsClosed
+                    ? LineGeometryCap.Round
+                    : ToLineGeometryCap(figure.StrokeEndLineCap ?? pen.EndLineCap));
+            localFigureStart = localFigureEnd;
+        }
+
+        // The compiler appends local-space source segments before the framebuffer
+        // copies. Remove that now-unused range; the precomputed primitive offsets
+        // above already target the compacted framebuffer-space segment indices.
+        _pathSegments.RemoveRange(localStart, localEnd - localStart);
+        return true;
+
+        void Rollback()
+        {
+            if (_pathSegments.Count > segmentCheckpoint)
+            {
+                _pathSegments.RemoveRange(
+                    segmentCheckpoint,
+                    _pathSegments.Count - segmentCheckpoint);
+            }
+
+            if (_primitives.Count > primitiveCheckpoint)
+            {
+                _primitives.RemoveRange(
+                    primitiveCheckpoint,
+                    _primitives.Count - primitiveCheckpoint);
+            }
+        }
+    }
+
+    private void AppendTransformedHairlineSegment(
+        GpuPathSegment segment,
+        Matrix4x4 transform,
+        int pointCount,
+        ref Vector2 min,
+        ref Vector2 max)
+    {
+        segment.P0 = TransformHairlinePoint(segment.P0, transform, ref min, ref max);
+        segment.P1 = TransformHairlinePoint(segment.P1, transform, ref min, ref max);
+        if (pointCount >= 3)
+        {
+            segment.P2 = TransformHairlinePoint(segment.P2, transform, ref min, ref max);
+        }
+        if (pointCount >= 4)
+        {
+            segment.P3 = TransformHairlinePoint(segment.P3, transform, ref min, ref max);
+        }
+        _pathSegments.Add(segment);
+    }
+
+    private void AppendTransformedHairlineArc(
+        GpuPathSegment segment,
+        Matrix4x4 transform,
+        ref Vector2 min,
+        ref Vector2 max)
+    {
+        const int ArcSubdivisionCount = 32;
+        var thetaStart = BitConverter.UInt32BitsToSingle(segment.Pad0);
+        var deltaTheta = BitConverter.UInt32BitsToSingle(segment.Pad1);
+        var rotation = BitConverter.UInt32BitsToSingle(segment.Pad2);
+        var cosine = MathF.Cos(rotation);
+        var sine = MathF.Sin(rotation);
+        var previous = TransformHairlinePoint(
+            EvaluateArc(thetaStart),
+            transform,
+            ref min,
+            ref max);
+        for (var subdivision = 1; subdivision <= ArcSubdivisionCount; subdivision++)
+        {
+            var theta = thetaStart +
+                deltaTheta * (subdivision / (float)ArcSubdivisionCount);
+            var next = TransformHairlinePoint(
+                EvaluateArc(theta),
+                transform,
+                ref min,
+                ref max);
+            _pathSegments.Add(new GpuPathSegment
+            {
+                P0 = previous,
+                P1 = next,
+                SegmentType = 0u
+            });
+            previous = next;
+        }
+
+        Vector2 EvaluateArc(float theta)
+        {
+            var local = new Vector2(
+                MathF.Cos(theta) * segment.P3.X,
+                MathF.Sin(theta) * segment.P3.Y);
+            return segment.P2 + new Vector2(
+                local.X * cosine - local.Y * sine,
+                local.X * sine + local.Y * cosine);
+        }
+    }
+
+    private static Vector2 TransformHairlinePoint(
+        Vector2 point,
+        Matrix4x4 transform,
+        ref Vector2 min,
+        ref Vector2 max)
+    {
+        var transformed = Vector2.Transform(point, transform);
+        min = Vector2.Min(min, transformed);
+        max = Vector2.Max(max, transformed);
+        return transformed;
     }
 
     private readonly record struct CompiledHitTestPath(
@@ -744,7 +1472,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         IRenderDataProvider? provider)
     {
         ReadOnlySpan<Vector2> points = GetPolylinePoints(command, provider);
-        if (points.Length < 2 || command.Pen is not { Thickness: > 0f } pen)
+        if (points.Length < 2 || !Compositor.IsRenderableStroke(command.Pen))
+        {
+            return;
+        }
+        var pen = command.Pen!;
+        if (!Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
             return;
         }
@@ -753,15 +1486,29 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             RenderCommandGeometryCache.CreatePolylinePath(points, command.IsClosed);
         if (pen.HasDashPattern)
         {
-            if (TryGetDashedStrokePath(command, path, pen, out var strokePath, out var strokePen))
+            if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                if (pen.IsHairline)
+                {
+                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                }
+                else
+                {
+                    TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
+                }
             }
 
             return;
         }
 
-        TryAddPathStrokePrimitive(path, transform, id, zIndex, pen);
+        if (pen.IsHairline)
+        {
+            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+        }
+        else
+        {
+            TryAddPathStrokePrimitive(path, transform, id, zIndex, pen, localThickness);
+        }
     }
 
     private void AddExtension(
@@ -792,7 +1539,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         float zIndex,
         IRenderDataProvider? provider)
     {
-        if (command.Pen is not { Thickness: > 0f } pen)
+        if (!Compositor.IsRenderableStroke(command.Pen))
+        {
+            return;
+        }
+        var pen = command.Pen!;
+        if (!Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
             return;
         }
@@ -821,15 +1573,29 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
         if (pen.HasDashPattern)
         {
-            if (TryGetDashedStrokePath(command, path, pen, out var strokePath, out var strokePen))
+            if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                if (pen.IsHairline)
+                {
+                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                }
+                else
+                {
+                    TryAddPathStrokePrimitive(strokePath, transform, id, zIndex, strokePen, localThickness);
+                }
             }
 
             return;
         }
 
-        TryAddPathStrokePrimitive(path, transform, id, zIndex, pen);
+        if (pen.IsHairline)
+        {
+            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+        }
+        else
+        {
+            TryAddPathStrokePrimitive(path, transform, id, zIndex, pen, localThickness);
+        }
     }
 
     private void AddGpuLineSeries(
@@ -850,6 +1616,10 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Vector2 scale = NormalizeSeriesScale(command.Scale);
         Vector2 translate = command.Translate;
         Matrix4x4 seriesTransform = GetCommandTransform(command, transform);
+        if (!IsFiniteInvertibleAffine2D(seriesTransform))
+        {
+            return;
+        }
 
         PathGeometry? path = null;
         PathFigure? figure = null;
@@ -904,7 +1674,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 return;
             }
 
-            TryAddPathStrokePrimitive(path, seriesTransform, id, zIndex + chunkIndex * 0.0001f, pen);
+            TryAddPathStrokePrimitive(
+                path,
+                seriesTransform,
+                id,
+                zIndex + chunkIndex * 0.0001f,
+                pen.Thickness);
             chunkIndex++;
             path = null;
             figure = null;
@@ -934,6 +1709,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Vector2 scale = NormalizeSeriesScale(command.Scale);
         Vector2 translate = command.Translate;
         Matrix4x4 seriesTransform = GetCommandTransform(command, transform);
+        if (!IsFiniteInvertibleAffine2D(seriesTransform))
+        {
+            return;
+        }
+
         float defaultRadius = command.RadiusX;
         for (int i = 0; i < pointsCount; i++)
         {
@@ -965,10 +1745,10 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
     private static ReadOnlySpan<Vector2> GetPointBuffer(RenderCommand command, IRenderDataProvider? provider)
     {
-        return provider != null && command.PointBufferCount > 0
-            ? provider.GetPoints(command.PointBufferOffset, command.PointBufferCount)
-            : command.PolylinePoints is { Length: > 0 } points
-                ? points
+        return command.PolylinePoints is { Length: > 0 } points
+            ? points
+            : provider != null && command.PointBufferCount > 0
+                ? provider.GetPoints(command.PointBufferOffset, command.PointBufferCount)
                 : ReadOnlySpan<Vector2>.Empty;
     }
 
@@ -1188,6 +1968,32 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         return transform == default ? Matrix4x4.Identity : transform;
     }
 
+    private static bool IsFiniteInvertibleAffine2D(Matrix4x4 transform)
+    {
+        const float epsilon = 0.0001f;
+        if (!float.IsFinite(transform.M11) ||
+            !float.IsFinite(transform.M12) ||
+            !float.IsFinite(transform.M21) ||
+            !float.IsFinite(transform.M22) ||
+            !float.IsFinite(transform.M41) ||
+            !float.IsFinite(transform.M42) ||
+            MathF.Abs(transform.M13) > epsilon ||
+            MathF.Abs(transform.M14) > epsilon ||
+            MathF.Abs(transform.M23) > epsilon ||
+            MathF.Abs(transform.M24) > epsilon ||
+            MathF.Abs(transform.M31) > epsilon ||
+            MathF.Abs(transform.M32) > epsilon ||
+            MathF.Abs(transform.M34) > epsilon ||
+            MathF.Abs(transform.M44 - 1f) > epsilon)
+        {
+            return false;
+        }
+
+        var determinant = transform.M11 * transform.M22 -
+            transform.M12 * transform.M21;
+        return float.IsFinite(determinant) && determinant != 0f;
+    }
+
     private static bool IsFinite(Vector2 value)
     {
         return float.IsFinite(value.X) && float.IsFinite(value.Y);
@@ -1340,6 +2146,10 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         PathGeometry? Path = null,
         bool HasPath = false)
     {
+        public static ClipState Empty { get; } = new(
+            Vector2.One,
+            Vector2.Zero);
+
         public static ClipState Unbounded { get; } = new(
             new Vector2(float.NegativeInfinity, float.NegativeInfinity),
             new Vector2(float.PositiveInfinity, float.PositiveInfinity));

@@ -321,13 +321,10 @@ public partial class SKPaint : SKObject
     {
         if (Style == SKPaintStyle.Fill) return null;
 
-        var localStrokeWidth = StrokeWidth;
-        if (localStrokeWidth == 0f)
-        {
-            localStrokeWidth = float.IsFinite(strokeScale) && strokeScale > 0f
-                ? HairlineStrokeWidth / strokeScale
-                : HairlineStrokeWidth;
-        }
+        var isHairline = StrokeWidth == 0f;
+        var localStrokeWidth = isHairline
+            ? Pen.HairlineThickness
+            : StrokeWidth;
 
         if (TryGetRetainedSolidBrush(out var retainedBrush))
         {
@@ -354,7 +351,9 @@ public partial class SKPaint : SKObject
                 color.A / 255.0f));
         }
 
-        var (dashArray, dashOffset) = MapDashEffect(PathEffect, localStrokeWidth);
+        var (dashArray, dashOffset) = MapDashEffect(
+            PathEffect,
+            isHairline ? HairlineStrokeWidth : localStrokeWidth);
         penBrush = ApplyMaskFilter(penBrush);
         return new Pen(
             penBrush,
@@ -431,6 +430,28 @@ public partial class SKPaint : SKObject
         return new Pen(
             ApplyMaskFilter(brush),
             scaledStrokeWidth,
+            MapStrokeJoin(StrokeJoin),
+            StrokeMiter,
+            MapStrokeCap(StrokeCap),
+            MapStrokeCap(StrokeCap),
+            MapStrokeCap(StrokeCap),
+            dashArray,
+            dashOffset);
+    }
+
+    internal Pen ToLocalPen(Brush brush, float strokeScale)
+    {
+        var isHairline = StrokeWidth == 0f;
+        var localStrokeWidth = isHairline
+            ? Pen.HairlineThickness
+            : StrokeWidth;
+
+        var (dashArray, dashOffset) = MapDashEffect(
+            PathEffect,
+            isHairline ? HairlineStrokeWidth : localStrokeWidth);
+        return new Pen(
+            ApplyMaskFilter(brush),
+            localStrokeWidth,
             MapStrokeJoin(StrokeJoin),
             StrokeMiter,
             MapStrokeCap(StrokeCap),
@@ -796,7 +817,9 @@ public partial class SKPaint : SKObject
 
         var reversed = new PathFigure(current, source.IsClosed)
         {
-            IsFilled = source.IsFilled
+            IsFilled = source.IsFilled,
+            StrokeStartLineCap = source.StrokeEndLineCap,
+            StrokeEndLineCap = source.StrokeStartLineCap
         };
         for (var index = segments.Count - 1; index >= 0; index--)
         {

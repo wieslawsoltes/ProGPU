@@ -371,6 +371,8 @@ public unsafe partial class Compositor : IDisposable
     private GpuBuffer? _wavefrontQuadIndexBuffer;
     private BindGroup* _wavefrontTextureBindGroup;
     private uint _wavefrontTextureBindGroupGeneration;
+    private bool _wavefrontFrameEnabled;
+    private int _wavefrontFramePathCount;
 
     public VectorRenderingEngine VectorEngine
     {
@@ -393,6 +395,16 @@ public unsafe partial class Compositor : IDisposable
 
         private PathAtlasCapacityExceededException()
             : base("PathAtlas compilation transaction requires a bounded retry.")
+        {
+        }
+    }
+
+    private sealed class WavefrontFrameFallbackException : InvalidOperationException
+    {
+        public static WavefrontFrameFallbackException Instance { get; } = new();
+
+        private WavefrontFrameFallbackException()
+            : base("The experimental Wavefront engine requires an Atlas frame fallback for this command stream.")
         {
         }
     }
@@ -429,10 +441,13 @@ public unsafe partial class Compositor : IDisposable
     private const float SquarePointHairlineShapeType = 19f;
     private const float RoundPointHairlineShapeType = 20f;
     private const float DotGridShapeType = 21f;
+    private const float HairlineCapShapeType = 22f;
+    private const float HairlineJoinShapeType = 23f;
     private const int DirectRoundedMinimumCornerSegmentCount = 8;
     private const int DirectRoundedMaximumCornerSegmentCount = 128;
     private const float DirectRoundedMaximumDeviceChordError = 0.25f;
     private const float AffineStrokeArcMaxAngleRadians = MathF.PI / 24f;
+    private const float AnalyticPrimitiveAntialiasPaddingPixels = 1.5f;
     // Matches Skia grayscale edge weight for axis-aligned vector glyphs rasterized at 8x8 coverage.
     private const float SmallTextPathCoverageGamma = 0.72f;
     private const float LargeTextPathCoverageGamma = 0.5f;
@@ -452,6 +467,33 @@ public unsafe partial class Compositor : IDisposable
     {
         public float Width => Right - Left;
         public float Height => Bottom - Top;
+    }
+
+    private readonly record struct StrokeCompileState(
+        float LocalThickness,
+        float LocalGeometryThickness,
+        float LocalBoundsThickness,
+        float DeviceThickness,
+        bool RequiresAffineGeometry,
+        bool IsHairline)
+    {
+        public float EncodedThickness => IsHairline
+            ? Pen.HairlineThickness
+            : DeviceThickness;
+
+        public float RetainedThickness => IsHairline
+            ? Pen.HairlineThickness
+            : LocalThickness;
+
+        public bool IsValid =>
+            float.IsFinite(LocalThickness) &&
+            LocalThickness > 0f &&
+            float.IsFinite(LocalGeometryThickness) &&
+            LocalGeometryThickness > 0f &&
+            float.IsFinite(LocalBoundsThickness) &&
+            LocalBoundsThickness > 0f &&
+            float.IsFinite(DeviceThickness) &&
+            DeviceThickness > 0f;
     }
 
     private readonly record struct VectorGlyphPathCacheKey(
@@ -753,6 +795,12 @@ public unsafe partial class Compositor : IDisposable
             return;
         }
 
+        // The compositor has already folded CameraView and the enclosing
+        // visual/picture transform into the hit-test transform. Clear only the
+        // late-render routing marker so the cache builder accepts the resolved
+        // command without attempting to interpret GPU state a second time.
+        command.UseGpuTransforms = false;
+        command.CameraView = default;
         _hitTestCacheBuilder.AddCommand(command, transform);
     }
 
@@ -765,6 +813,8 @@ public unsafe partial class Compositor : IDisposable
             return;
         }
 
+        command.UseGpuTransforms = false;
+        command.CameraView = default;
         _hitTestCacheBuilder.AddCommand(command, transform);
     }
 
@@ -777,6 +827,8 @@ public unsafe partial class Compositor : IDisposable
             return;
         }
 
+        command.UseGpuTransforms = false;
+        command.CameraView = default;
         _hitTestCacheBuilder.AddCommand(command, transform, provider);
     }
 
@@ -788,7 +840,9 @@ public unsafe partial class Compositor : IDisposable
             RenderCommandType.PushGeometryClip or
             RenderCommandType.PopGeometryClip or
             RenderCommandType.PushOpacity or
-            RenderCommandType.PopOpacity;
+            RenderCommandType.PopOpacity or
+            RenderCommandType.PushOpacityMask or
+            RenderCommandType.PopOpacityMask;
     }
 
     private void EnsurePathHitTestCompilation(PathGeometry path)
@@ -1596,6 +1650,52 @@ public unsafe partial class Compositor : IDisposable
     internal ulong FrameNumber => _frameNumber;
 
     internal void CompilePolyline(IRenderDataProvider? provider, RenderCommand cmd, in Matrix4x4 transform) => CompilePolylineCommand(provider, cmd, transform);
+
+    internal void CompileSpline(IRenderDataProvider? provider, RenderCommand cmd, in Matrix4x4 transform)
+    {
+        if (!IsRenderableStroke(cmd.Pen))
+        {
+            return;
+        }
+
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        if (!stroke.IsValid)
+        {
+            return;
+        }
+
+        if (cmd.GeometryCache?.StrokePath is { } retainedPath)
+        {
+            CompileRetainedStrokePath(cmd, retainedPath, stroke, transform);
+            return;
+        }
+
+        ReadOnlySpan<Vector2> controlPoints = provider != null
+            ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
+            : cmd.PolylinePoints;
+        ReadOnlySpan<double> knots = provider != null
+            ? provider.GetDoubles(cmd.DoubleBufferOffset, cmd.DoubleBufferCount)
+            : cmd.SplineKnots;
+        ReadOnlySpan<double> weights = provider != null && cmd.WeightBufferCount > 0
+            ? provider.GetDoubles(cmd.WeightBufferOffset, cmd.WeightBufferCount)
+            : cmd.SplineWeights;
+
+        if (controlPoints.Length < 2 || knots.IsEmpty)
+        {
+            return;
+        }
+
+        // Legacy/archive commands may predate the retained geometry cache. Build
+        // the same local centerline as the recorder so caps, joins, dashes, and
+        // affine transforms still share the exact path-stroke implementation.
+        var fallbackPath = SplineGeometry.CreatePath(
+            controlPoints,
+            knots,
+            weights,
+            cmd.SplineDegree,
+            cmd.IsClosed);
+        CompileRetainedStrokePath(cmd, fallbackPath, stroke, transform);
+    }
     public int VectorIndexCount => _vectorIndicesList.Count;
     public int TextVertexCount => _textVerticesList.Count * 6;
     public int TextIndexCount => _textVerticesList.Count * 6;
@@ -2649,12 +2749,30 @@ public unsafe partial class Compositor : IDisposable
     public void RenderScene(Visual root, uint width, uint height, TextureView* targetView)
     {
         var retriedAfterPathAtlasReset = false;
+        var retriedWithAtlas = false;
         while (true)
         {
+            _wavefrontFrameEnabled =
+                VectorEngine == VectorRenderingEngine.Wavefront &&
+                !retriedWithAtlas;
             try
             {
                 RenderSceneCore(root, width, height, targetView);
                 return;
+            }
+            catch (WavefrontFrameFallbackException)
+            {
+                if (retriedWithAtlas)
+                {
+                    throw;
+                }
+
+                retriedWithAtlas = true;
+                retriedAfterPathAtlasReset = false;
+                _compiledSceneReusable = false;
+                ReturnPendingMaskTexturesToPool();
+                ProGpuSceneDiagnostics.WriteLine(
+                    "[Compositor] Retrying the experimental Wavefront frame with the ordered Atlas renderer because the scene uses unsupported or mixed content.");
             }
             catch (PathAtlasCapacityExceededException)
             {
@@ -2672,6 +2790,7 @@ public unsafe partial class Compositor : IDisposable
             }
             finally
             {
+                _wavefrontFrameEnabled = false;
                 ReleaseFrameRetainedResources();
             }
         }
@@ -2696,9 +2815,10 @@ public unsafe partial class Compositor : IDisposable
 
         _context.CleanupPendingResources();
 
-        var wavefrontEnabled = VectorEngine == VectorRenderingEngine.Wavefront;
+        var wavefrontEnabled = _wavefrontFrameEnabled;
         if (wavefrontEnabled)
         {
+            _wavefrontFramePathCount = 0;
             (_wavefrontEngine ??= new WavefrontVectorEngine(_context)).BeginFrame();
         }
 
@@ -2930,7 +3050,13 @@ public unsafe partial class Compositor : IDisposable
                 for (var commandIndex = 0; commandIndex < diagnosticCommandCount; commandIndex++)
                 {
                     var cmd = diagnosticCommands[commandIndex];
-                    var activeTransform = Matrix4x4.Identity;
+                    // Match normal visual compilation: path compilation composes its
+                    // recorded transform internally, while every other command expects
+                    // the complete active transform from its caller.
+                    var activeTransform = cmd.Type != RenderCommandType.DrawPath &&
+                        cmd.Transform != default
+                            ? cmd.Transform
+                            : Matrix4x4.Identity;
                     switch (cmd.Type)
                     {
                         case RenderCommandType.DrawRect:
@@ -3050,6 +3176,21 @@ SceneCompilationComplete:
         {
             glyphBatchActive = false;
             _atlas.EndBatch();
+        }
+
+        // Wavefront currently composites one frame-wide compute layer after the
+        // ordered Atlas pass. Mixing the two would reorder content. Retry the
+        // complete frame transaction through Atlas whenever compilation emitted
+        // any ordinary draw or mask work; pure supported Wavefront fills keep the
+        // experimental fast path.
+        if (wavefrontEnabled &&
+            (_vectorIndicesList.Count > 0 ||
+             _textVerticesList.Count > 0 ||
+             _textureIndicesList.Count > 0 ||
+             _drawCalls.Count > 0 ||
+             _maskRenderPasses.Count > 0))
+        {
+            throw WavefrontFrameFallbackException.Instance;
         }
 
         if (_pathAtlas.CapacityExceeded ||
@@ -3461,6 +3602,18 @@ SceneStateUploadComplete:
                             {
                                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                             }
+                            _context.Api.RenderPassEncoderSetVertexBuffer(
+                                pass,
+                                0,
+                                _vectorVertexBuffer.BufferPtr,
+                                0,
+                                _vectorVertexBuffer.Size);
+                            _context.Api.RenderPassEncoderSetIndexBuffer(
+                                pass,
+                                _vectorIndexBuffer.BufferPtr,
+                                IndexFormat.Uint32,
+                                0,
+                                _vectorIndexBuffer.Size);
                             currentType = DrawCallType.Vector;
                             currentBlendMode = dc.BlendMode;
                             currentPipelineHasMask = hasMask;
@@ -5109,6 +5262,10 @@ SceneStateUploadComplete:
                 ? activeTransform
                 : command.Transform * activeTransform;
         }
+        Matrix4x4 hitTestTransform = ResolveHitTestTransform(
+            command,
+            globalTransform,
+            activeTransform);
 
         bool savedUseGpuTransformsActive = _useGpuTransformsActive;
         Matrix4x4 savedCameraViewMatrix = _cameraViewMatrix;
@@ -5122,7 +5279,7 @@ SceneStateUploadComplete:
                 _gpuTransformsCameraView = command.CameraView * globalTransform;
             }
 
-            AddHitTestStateCommand(command, activeTransform);
+            AddHitTestStateCommand(command, hitTestTransform);
 
             switch (command.Type)
             {
@@ -5168,7 +5325,10 @@ SceneStateUploadComplete:
                             command.Path,
                             command.Pen,
                             command.Rect,
-                            activeTransform);
+                            activeTransform,
+                            command.IsPenThicknessLocal,
+                            command.Transform,
+                            command.GeometryCache);
                     }
                     else if (command.Brush != null)
                     {
@@ -5282,7 +5442,10 @@ SceneStateUploadComplete:
                         activeTransform);
                     break;
                 case RenderCommandType.DrawPicture:
-                    CompilePicture(command.Picture, activeTransform);
+                    CompilePicture(
+                        command.Picture,
+                        activeTransform,
+                        hitTestTransform);
                     break;
                 case RenderCommandType.DrawVisual:
                     CompileEmbeddedVisual(command.Visual, activeTransform);
@@ -5292,7 +5455,7 @@ SceneStateUploadComplete:
                     break;
             }
 
-            AddHitTestDrawCommand(command, activeTransform, context);
+            AddHitTestDrawCommand(command, hitTestTransform, context);
 
             if (command.UseGpuTransforms)
             {
@@ -5323,6 +5486,23 @@ SceneStateUploadComplete:
         }
     }
 
+    private static Matrix4x4 ResolveHitTestTransform(
+        in RenderCommand command,
+        in Matrix4x4 globalTransform,
+        in Matrix4x4 activeTransform)
+    {
+        if (!command.UseGpuTransforms)
+        {
+            return activeTransform;
+        }
+
+        var lateTransform = command.CameraView * globalTransform;
+        return command.Type != RenderCommandType.DrawPath &&
+            command.Transform != default
+                ? command.Transform * lateTransform
+                : lateTransform;
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void CompileExtensionCommand(
         DrawingContext context,
@@ -5340,10 +5520,6 @@ SceneStateUploadComplete:
             context,
             activeTransform,
             ref localCommand);
-        Matrix4x4 commandTransform = localCommand.Transform;
-        if (commandTransform == default)
-            commandTransform = Matrix4x4.Identity;
-
         _drawCalls.Add(new CompositorDrawCall
         {
             Type = DrawCallType.Extension,
@@ -5368,7 +5544,10 @@ SceneStateUploadComplete:
             Brush = localCommand.Brush,
             Pen = localCommand.Pen,
             Path = localCommand.Path,
-            Transform = activeTransform * commandTransform,
+            // The command transform was already composed into activeTransform
+            // before the extension compiled. Retaining it again here would make
+            // transform-consuming render pipelines (notably StaticDxf) apply it twice.
+            Transform = activeTransform,
             LineThicknessOrRadius = localCommand.RadiusX,
             Scale = localCommand.Scale,
             Translate = localCommand.Translate,
@@ -5436,6 +5615,36 @@ SceneStateUploadComplete:
                MathF.Abs(transform.M44 - 1f) <= epsilon;
     }
 
+    private static bool IsFiniteInvertibleAffine2D(Matrix4x4 transform)
+    {
+        if (!IsFiniteAffine2D(transform))
+        {
+            return false;
+        }
+
+        var determinant = transform.M11 * transform.M22 -
+            transform.M12 * transform.M21;
+        return float.IsFinite(determinant) && determinant != 0f;
+    }
+
+    private static float GetAnalyticPrimitiveLocalAntialiasPadding(Matrix4x4 transform)
+    {
+        if (!TransformMetrics.TryGetStrokeScales(
+                transform,
+                out _,
+                out var minimumScale))
+        {
+            // Retain the established fill behavior for invalid or collapsed
+            // transforms. Stroke validation remains independently fail-closed.
+            return AnalyticPrimitiveAntialiasPaddingPixels;
+        }
+
+        var localPadding = AnalyticPrimitiveAntialiasPaddingPixels / minimumScale;
+        return float.IsFinite(localPadding) && localPadding > 0f
+            ? localPadding
+            : AnalyticPrimitiveAntialiasPaddingPixels;
+    }
+
     private static bool IsFiniteRect(Rect rect) =>
         float.IsFinite(rect.X) &&
         float.IsFinite(rect.Y) &&
@@ -5465,10 +5674,13 @@ SceneStateUploadComplete:
             node.HitTestId);
     }
 
-    private void CompilePicture(GpuPicture? picture, Matrix4x4 globalTransform)
+    private void CompilePicture(
+        GpuPicture? picture,
+        Matrix4x4 globalTransform,
+        Matrix4x4? hitTestGlobalTransform = null)
     {
         if (picture == null) return;
-        var pictureStrokeScale = TransformMetrics.GetStrokeScale(globalTransform);
+        var retainedHitTestTransform = hitTestGlobalTransform ?? globalTransform;
         var commands = picture.RetainedCommands;
         PreparePictureLayerCaches(commands);
         for (var commandIndex = 0; commandIndex < commands.Length; commandIndex++)
@@ -5476,22 +5688,32 @@ SceneStateUploadComplete:
             var cmd = commands[commandIndex];
             int vectorStart = _vectorVerticesList.Count;
             int textStart = _textVerticesList.Count;
-            var activeTransform = cmd.UseGpuTransforms ? Matrix4x4.Identity : globalTransform;
+            var activeTransform = cmd.UseGpuTransforms
+                ? Matrix4x4.Identity
+                : globalTransform;
             if (cmd.Type != RenderCommandType.DrawPath)
             {
                 activeTransform = (cmd.Transform == default) ? activeTransform : cmd.Transform * activeTransform;
             }
+            var hitTestTransform = cmd.UseGpuTransforms
+                ? ResolveHitTestTransform(
+                    cmd,
+                    globalTransform,
+                    activeTransform)
+                : cmd.Type != RenderCommandType.DrawPath &&
+                    cmd.Transform != default
+                        ? cmd.Transform * retainedHitTestTransform
+                        : retainedHitTestTransform;
 
             var brushTransform = cmd.Type == RenderCommandType.DrawPath && cmd.Transform != default
                 ? cmd.Transform * activeTransform
                 : activeTransform;
             if (!UsesLocalBrushCoordinates(cmd.Type))
             {
-                TransformCommandBrushes(ref cmd, brushTransform, pictureStrokeScale);
+                TransformCommandBrushes(ref cmd, brushTransform);
             }
             else
             {
-                ScaleCommandPen(ref cmd, pictureStrokeScale);
                 if (cmd.Type == RenderCommandType.DrawPath)
                 {
                     TransformCommandPenBrush(ref cmd, brushTransform);
@@ -5509,7 +5731,7 @@ SceneStateUploadComplete:
                 _gpuTransformsCameraView = cmd.CameraView * globalTransform;
             }
 
-            AddHitTestStateCommand(cmd, activeTransform);
+            AddHitTestStateCommand(cmd, hitTestTransform);
 
             switch (cmd.Type)
             {
@@ -5545,7 +5767,10 @@ SceneStateUploadComplete:
                             cmd.Path,
                             cmd.Pen,
                             cmd.Rect,
-                            activeTransform);
+                            activeTransform,
+                            cmd.IsPenThicknessLocal,
+                            cmd.Transform,
+                            cmd.GeometryCache);
                     else if (cmd.Brush != null)
                         PushOpacityMaskValue(cmd.Brush, cmd.Rect, activeTransform);
                     break;
@@ -5624,11 +5849,6 @@ SceneStateUploadComplete:
                             CommitPendingDrawCalls();
                             var localCmd = cmd;
                             pipeline.Compile(this, picture, activeTransform, ref localCmd);
-                            var cmdTransform = localCmd.Transform;
-                            if (cmdTransform == default || cmdTransform == new Matrix4x4())
-                            {
-                                cmdTransform = Matrix4x4.Identity;
-                            }
                             _drawCalls.Add(new CompositorDrawCall
                             {
                                 Type = DrawCallType.Extension,
@@ -5652,7 +5872,8 @@ SceneStateUploadComplete:
                                 Brush = localCmd.Brush,
                                 Pen = localCmd.Pen,
                                 Path = localCmd.Path,
-                                Transform = activeTransform * cmdTransform,
+                                // activeTransform already includes cmd.Transform.
+                                Transform = activeTransform,
                                 LineThicknessOrRadius = localCmd.RadiusX,
                                 Scale = localCmd.Scale,
                                 Translate = localCmd.Translate,
@@ -5674,7 +5895,10 @@ SceneStateUploadComplete:
                     CompileGpuScatterSeriesCommand(picture, cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawPicture:
-                    CompilePicture(cmd.Picture, activeTransform);
+                    CompilePicture(
+                        cmd.Picture,
+                        activeTransform,
+                        hitTestTransform);
                     break;
                 case RenderCommandType.DrawVisual:
                     CompileEmbeddedVisual(cmd.Visual, activeTransform);
@@ -5684,7 +5908,7 @@ SceneStateUploadComplete:
                     break;
             }
 
-            AddHitTestDrawCommand(cmd, activeTransform, picture);
+            AddHitTestDrawCommand(cmd, hitTestTransform, picture);
 
             if (cmd.UseGpuTransforms)
             {
@@ -5777,8 +6001,7 @@ SceneStateUploadComplete:
 
     private static void TransformCommandBrushes(
         ref RenderCommand command,
-        Matrix4x4 commandTransform,
-        float strokeScale)
+        Matrix4x4 commandTransform)
     {
         if (!Matrix4x4.Invert(commandTransform, out var inverseCommandTransform))
         {
@@ -5788,18 +6011,22 @@ SceneStateUploadComplete:
         command.Brush = TransformCommandBrush(command.Brush, inverseCommandTransform);
         if (command.Pen != null)
         {
-            var penScale = command.IsPenThicknessLocal ? 1f : strokeScale;
-            var penThickness = command.Pen.Thickness * penScale;
+            var transformedPenBrush = TransformCommandBrush(command.Pen.Brush, inverseCommandTransform);
+            if (ReferenceEquals(transformedPenBrush, command.Pen.Brush))
+            {
+                return;
+            }
+
             command.Pen = new Pen(
-                TransformCommandBrush(command.Pen.Brush, inverseCommandTransform)!,
-                penThickness,
+                transformedPenBrush!,
+                command.Pen.Thickness,
                 command.Pen.LineJoin,
                 command.Pen.MiterLimit,
                 command.Pen.StartLineCap,
                 command.Pen.EndLineCap,
                 command.Pen.DashCap,
-                ScaleRelativeDashArray(command.Pen.DashArray, penScale),
-                command.Pen.DashOffset / penScale);
+                command.Pen.DashArray,
+                command.Pen.DashOffset);
         }
     }
 
@@ -5815,40 +6042,6 @@ SceneStateUploadComplete:
             RenderCommandType.DrawPointBatch;
     }
 
-    private static void ScaleCommandPen(ref RenderCommand command, float strokeScale)
-    {
-        if (command.Pen == null || command.IsPenThicknessLocal)
-        {
-            return;
-        }
-
-        command.Pen = new Pen(
-            command.Pen.Brush,
-            command.Pen.Thickness * strokeScale,
-            command.Pen.LineJoin,
-            command.Pen.MiterLimit,
-            command.Pen.StartLineCap,
-            command.Pen.EndLineCap,
-            command.Pen.DashCap,
-            ScaleRelativeDashArray(command.Pen.DashArray, strokeScale),
-            command.Pen.DashOffset / strokeScale);
-    }
-
-    private static double[]? ScaleRelativeDashArray(double[]? dashArray, float strokeScale)
-    {
-        if (dashArray == null || strokeScale == 1f)
-        {
-            return dashArray;
-        }
-
-        for (var i = 0; i < dashArray.Length; i++)
-        {
-            dashArray[i] /= strokeScale;
-        }
-
-        return dashArray;
-    }
-
     private static void TransformCommandPenBrush(ref RenderCommand command, Matrix4x4 commandTransform)
     {
         if (command.Pen == null || !Matrix4x4.Invert(commandTransform, out var inverseCommandTransform))
@@ -5856,8 +6049,14 @@ SceneStateUploadComplete:
             return;
         }
 
+        var transformedPenBrush = TransformCommandBrush(command.Pen.Brush, inverseCommandTransform);
+        if (ReferenceEquals(transformedPenBrush, command.Pen.Brush))
+        {
+            return;
+        }
+
         command.Pen = new Pen(
-            TransformCommandBrush(command.Pen.Brush, inverseCommandTransform)!,
+            transformedPenBrush!,
             command.Pen.Thickness,
             command.Pen.LineJoin,
             command.Pen.MiterLimit,
@@ -5931,16 +6130,18 @@ SceneStateUploadComplete:
         if (cmd.Brush is GpuTextureBrush textureBrush)
         {
             CompileTextureBrushRectangle(textureBrush, cmd.Rect, transform);
-            if (cmd.Pen is null || cmd.Pen.Thickness <= 0f)
+            if (!IsRenderableStroke(cmd.Pen))
                 return;
             cmd.Brush = null;
         }
 
         bool hasFill = cmd.Brush != null;
-        bool hasStroke = cmd.Pen != null && cmd.Pen.Thickness > 0f;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        bool hasStroke = stroke.IsValid;
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
-            (!hasStroke || cmd.Pen!.Brush is SolidColorBrush);
+            (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
+            !stroke.IsHairline;
         SwitchBatch(useSolidRectPipeline ? BatchType.SolidRect : BatchType.Vector);
         int startIndex = _vectorVerticesList.Count;
         var r = cmd.Rect;
@@ -5948,10 +6149,11 @@ SceneStateUploadComplete:
         float hHalf = r.Height / 2f;
         var shapeSize = new Vector2(r.Width, r.Height);
         var rectShapeType = EncodeShapeType(cmd, 0f);
+        var antialiasPadding = GetAnalyticPrimitiveLocalAntialiasPadding(transform);
 
         if (cmd.Brush != null)
         {
-            float pad = 1.5f;
+            float pad = antialiasPadding;
             var f0_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y - pad), transform);
             var f1_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y - pad), transform);
             var f2_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y + r.Height + pad), transform);
@@ -5987,19 +6189,20 @@ SceneStateUploadComplete:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (cmd.Pen != null && cmd.Pen.Thickness > 0f)
+        if (hasStroke)
         {
-            float pad = cmd.Pen.Thickness / 2f + 1.5f;
+            var pen = cmd.Pen!;
+            float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
             var p0_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y - pad), transform);
             var p1_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y - pad), transform);
             var p2_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y + r.Height + pad), transform);
             var p3_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y + r.Height + pad), transform);
 
-            float penBrushIdx = useSolidRectPipeline ? 0f : RegisterBrush(cmd.Pen.Brush);
-            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(r.X + wHalf, r.Y + hHalf, 0f, 0f);
+            float penBrushIdx = useSolidRectPipeline ? 0f : RegisterBrush(pen.Brush);
+            var penSolidColor = (pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(r.X + wHalf, r.Y + hHalf, 0f, 0f);
             if (useSolidRectPipeline)
             {
-                penSolidColor.W *= cmd.Pen.Brush.Opacity * _activeOpacity;
+                penSolidColor.W *= pen.Brush.Opacity * _activeOpacity;
             }
 
             uint idxStart = (uint)_vectorVerticesList.Count;
@@ -6008,10 +6211,10 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, rectShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, rectShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, rectShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, rectShapeType);
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -6949,13 +7152,26 @@ SceneStateUploadComplete:
         SwitchBatch(BatchType.Vector);
         if (cmd.Path == null) return;
 
-        if (VectorEngine == VectorRenderingEngine.Wavefront)
+        if (_wavefrontFrameEnabled)
         {
             var activeTransform = cmd.Transform == default ? transform : cmd.Transform * transform;
+            if (!CanCompileWavefrontPath(cmd, activeTransform))
+            {
+                throw WavefrontFrameFallbackException.Instance;
+            }
+
+            // The current compute grid stores at most 64 instances per cell.
+            // A frame-wide instance bound guarantees no cell can silently drop
+            // an otherwise eligible path; larger scenes use the Atlas retry.
+            if (++_wavefrontFramePathCount > 64)
+            {
+                throw WavefrontFrameFallbackException.Instance;
+            }
+
             (_wavefrontEngine ??= new WavefrontVectorEngine(_context)).DrawPath(
                 cmd.Path,
                 activeTransform,
-                cmd.Brush ?? new SolidColorBrush(Vector4.One));
+                cmd.Brush!);
             return;
         }
 
@@ -7088,20 +7304,34 @@ SceneStateUploadComplete:
             }
         }
 
-        if (cmd.Pen != null && cmd.Pen.Thickness > 0f)
+        if (IsRenderableStroke(cmd.Pen))
         {
-            if (cmd.Pen.HasDashPattern)
+            var stroke = ResolveStrokeCompileState(cmd, transform);
+            if (!stroke.IsValid)
+            {
+                return;
+            }
+
+            if (cmd.Pen!.HasDashPattern)
             {
                 PathGeometry dashedPath;
                 Pen undashedPen;
-                if (cmd.GeometryCache?.TryGetDashedStrokePath(cmd.Pen, out dashedPath, out undashedPen) != true)
+                if (cmd.GeometryCache?.TryGetDashedStrokePath(
+                        cmd.Pen,
+                        stroke.LocalThickness,
+                        out dashedPath,
+                        out undashedPen) != true)
                 {
-                    if (!TryCreateDashedStrokePath(cmd.Path, cmd.Pen, out dashedPath))
+                    if (!TryCreateDashedStrokePath(
+                            cmd.Path,
+                            cmd.Pen,
+                            stroke.LocalThickness,
+                            out dashedPath))
                     {
                         throw new NotSupportedException("Dashed strokes are not supported for this path geometry.");
                     }
 
-                    undashedPen = CreateUndashedPen(cmd.Pen);
+                    undashedPen = CreateUndashedPen(cmd.Pen, stroke.LocalThickness);
                 }
 
                 var dashedCmd = cmd;
@@ -7109,6 +7339,7 @@ SceneStateUploadComplete:
                 dashedCmd.Path = dashedPath;
                 dashedCmd.Pen = undashedPen;
                 dashedCmd.Transform = default;
+                dashedCmd.IsPenThicknessLocal = true;
                 if (_activeClipRect.HasValue)
                 {
                     var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
@@ -7131,11 +7362,9 @@ SceneStateUploadComplete:
 
             float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
             var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-            float thickness = cmd.Pen.Thickness;
-            var useAffineStrokeGeometry = RequiresAffineStrokeGeometry(transform);
-            var localAffineThickness = useAffineStrokeGeometry
-                ? thickness / TransformMetrics.GetStrokeScale(transform)
-                : thickness;
+            float thickness = stroke.EncodedThickness;
+            var useAffineStrokeGeometry = stroke.RequiresAffineGeometry;
+            var localAffineThickness = stroke.LocalGeometryThickness;
 
             int maxVertices = 0;
             int maxIndices = 0;
@@ -7143,11 +7372,13 @@ SceneStateUploadComplete:
             for (int figureIndex = 0; figureIndex < pathFigures.Count; figureIndex++)
             {
                 var figure = pathFigures[figureIndex];
+                var startLineCap = figure.StrokeStartLineCap ?? cmd.Pen.StartLineCap;
+                var endLineCap = figure.StrokeEndLineCap ?? cmd.Pen.EndLineCap;
                 int maxJoinTriangles = CountStrokeSegmentJoinTriangleBudget(figure);
                 maxVertices += maxJoinTriangles * 4;
                 maxIndices += maxJoinTriangles * 6;
 
-                int maxCapTriangles = CountStrokeSegmentCapTriangleBudget(figure, cmd.Pen.StartLineCap, cmd.Pen.EndLineCap);
+                int maxCapTriangles = CountStrokeSegmentCapTriangleBudget(figure, startLineCap, endLineCap);
                 maxVertices += maxCapTriangles * 4;
                 maxIndices += maxCapTriangles * 6;
 
@@ -7229,6 +7460,8 @@ SceneStateUploadComplete:
             for (int figureIndex = 0; figureIndex < pathFigures.Count; figureIndex++)
             {
                 var figure = pathFigures[figureIndex];
+                var startLineCap = figure.StrokeStartLineCap ?? cmd.Pen.StartLineCap;
+                var endLineCap = figure.StrokeEndLineCap ?? cmd.Pen.EndLineCap;
                 var currentPoint = figure.StartPoint;
                 var firstSegmentStartDirection = default(Vector2);
                 var previousSegmentEndDirection = default(Vector2);
@@ -7256,7 +7489,6 @@ SceneStateUploadComplete:
                                 indicesSpan,
                                 ref currentVertexCount,
                                 ref currentIndexCount,
-                                cmd.Pen,
                                 penSolidColor,
                                 penBrushIdx,
                                 localAffineThickness,
@@ -7264,8 +7496,10 @@ SceneStateUploadComplete:
                                 lastCapDirection,
                                 transform,
                                 useAffineStrokeGeometry,
+                                stroke.IsHairline,
                                 cmd.IsEdgeAliased,
-                                isStart: false);
+                                isStart: false,
+                                lineCap: endLineCap);
                         }
                         else if (!figure.IsClosed && hasDegenerateStrokeCandidate)
                         {
@@ -7277,7 +7511,7 @@ SceneStateUploadComplete:
                                 cmd.Pen,
                                 penSolidColor,
                                 penBrushIdx,
-                                thickness,
+                                stroke.DeviceThickness,
                                 degenerateStrokeCenter,
                                 transform,
                                 cmd.IsEdgeAliased);
@@ -7336,7 +7570,6 @@ SceneStateUploadComplete:
                             indicesSpan,
                             ref currentVertexCount,
                             ref currentIndexCount,
-                            cmd.Pen,
                             penSolidColor,
                             penBrushIdx,
                             localAffineThickness,
@@ -7344,8 +7577,10 @@ SceneStateUploadComplete:
                             segmentStartDirection,
                             transform,
                             useAffineStrokeGeometry,
+                            stroke.IsHairline,
                             cmd.IsEdgeAliased,
-                            isStart: true);
+                            isStart: true,
+                            lineCap: startLineCap);
                     }
 
                     if (!isFirstSegment &&
@@ -7425,7 +7660,8 @@ SceneStateUploadComplete:
                                 penBrushIdx,
                                 localAffineThickness,
                                 segmentStart,
-                                quad,
+                                quad.ControlPoint,
+                                quad.Point,
                                 transform,
                                 cmd.IsEdgeAliased);
                         }
@@ -7480,7 +7716,9 @@ SceneStateUploadComplete:
                                 penBrushIdx,
                                 localAffineThickness,
                                 segmentStart,
-                                cubic,
+                                cubic.ControlPoint1,
+                                cubic.ControlPoint2,
+                                cubic.Point,
                                 transform,
                                 cmd.IsEdgeAliased);
                         }
@@ -7617,7 +7855,6 @@ SceneStateUploadComplete:
                         indicesSpan,
                         ref currentVertexCount,
                         ref currentIndexCount,
-                        cmd.Pen,
                         penSolidColor,
                         penBrushIdx,
                         localAffineThickness,
@@ -7625,8 +7862,10 @@ SceneStateUploadComplete:
                         lastCapDirection,
                         transform,
                         useAffineStrokeGeometry,
+                        stroke.IsHairline,
                         cmd.IsEdgeAliased,
-                        isStart: false);
+                        isStart: false,
+                        lineCap: endLineCap);
                 }
                 else if (!figure.IsClosed && hasDegenerateStrokeCandidate)
                 {
@@ -7638,7 +7877,7 @@ SceneStateUploadComplete:
                         cmd.Pen,
                         penSolidColor,
                         penBrushIdx,
-                        thickness,
+                        stroke.DeviceThickness,
                         degenerateStrokeCenter,
                         transform,
                         cmd.IsEdgeAliased);
@@ -7759,7 +7998,80 @@ SceneStateUploadComplete:
         }
     }
 
+    private bool CanCompileWavefrontPath(
+        in RenderCommand cmd,
+        in Matrix4x4 activeTransform)
+    {
+        if (cmd.Path == null ||
+            cmd.Path.IsCombined ||
+            cmd.Path.FillRule != FillRule.Nonzero ||
+            cmd.Brush is not SolidColorBrush solid ||
+            IsRenderableStroke(cmd.Pen) ||
+            cmd.UseVectorGlyphRendering ||
+            cmd.IsEdgeAliased ||
+            solid.Opacity != 1f ||
+            solid.Color.W != 1f ||
+            !IsFiniteVector4(solid.Color) ||
+            _activeOpacity != 1f ||
+            _activeClipRect.HasValue ||
+            _maskStack.Count != 0 ||
+            _activeBlendMode != GpuBlendMode.SrcOver ||
+            _offscreenRenderDepth != 0 ||
+            _suspendHitTestCacheWrites ||
+            _useGpuTransformsActive ||
+            !IsFiniteInvertibleAffine2D(activeTransform) ||
+            RequiresAffineStrokeGeometry(activeTransform))
+        {
+            return false;
+        }
+
+        var hasSegment = false;
+        var figures = cmd.Path.Figures;
+        for (var figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+        {
+            var figure = figures[figureIndex];
+            if (!figure.IsFilled || !figure.IsClosed)
+            {
+                return false;
+            }
+
+            var segments = figure.Segments;
+            for (var segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+            {
+                if (segments[segmentIndex] is not LineSegment and
+                    not QuadraticBezierSegment and
+                    not CubicBezierSegment)
+                {
+                    return false;
+                }
+
+                hasSegment = true;
+            }
+        }
+
+        return hasSegment;
+    }
+
+    private static bool IsFiniteVector4(in Vector4 value) =>
+        float.IsFinite(value.X) &&
+        float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) &&
+        float.IsFinite(value.W);
+
     internal static bool TryCreateDashedStrokePath(PathGeometry source, Pen pen, out PathGeometry dashedPath)
+    {
+        return TryCreateDashedStrokePath(
+            source,
+            pen,
+            pen.IsHairline ? 1f : pen.Thickness,
+            out dashedPath);
+    }
+
+    internal static bool TryCreateDashedStrokePath(
+        PathGeometry source,
+        Pen pen,
+        float localThickness,
+        out PathGeometry dashedPath)
     {
         dashedPath = new PathGeometry
         {
@@ -7772,8 +8084,9 @@ SceneStateUploadComplete:
         }
 
         var dashArray = pen.DashArray;
+        var dashThickness = pen.IsHairline ? 1f : localThickness;
         if (dashArray is not { Length: > 0 } ||
-            !DashPattern.TryCreate(dashArray, pen.DashOffset, pen.Thickness, out var pattern))
+            !DashPattern.TryCreate(dashArray, pen.DashOffset, dashThickness, out var pattern))
         {
             return false;
         }
@@ -7782,6 +8095,7 @@ SceneStateUploadComplete:
         for (int figureIndex = 0; figureIndex < sourceFigures.Count; figureIndex++)
         {
             var figure = sourceFigures[figureIndex];
+            var dashedFigureStartIndex = dashedPath.Figures.Count;
             var patternIndex = pattern.InitialIndex;
             var distanceInPattern = pattern.InitialDistance;
             PathFigure? activeDashFigure = null;
@@ -7917,9 +8231,110 @@ SceneStateUploadComplete:
                     ref activeDashFigure,
                     ref activeDashEnd);
             }
+
+            if (figure.IsClosed)
+            {
+                MergeClosedDashSeam(dashedPath, dashedFigureStartIndex, figure.StartPoint);
+            }
+            else
+            {
+                ApplyOpenDashEndpointCaps(
+                    dashedPath,
+                    dashedFigureStartIndex,
+                    figure.StartPoint,
+                    currentPoint,
+                    pen.StartLineCap,
+                    pen.EndLineCap,
+                    pen.DashCap);
+            }
         }
 
         return true;
+    }
+
+    private static void ApplyOpenDashEndpointCaps(
+        PathGeometry dashedPath,
+        int firstFigureIndex,
+        Vector2 sourceStart,
+        Vector2 sourceEnd,
+        PenLineCap startLineCap,
+        PenLineCap endLineCap,
+        PenLineCap dashCap)
+    {
+        var figures = dashedPath.Figures;
+        if ((uint)firstFigureIndex >= (uint)figures.Count)
+        {
+            return;
+        }
+
+        var firstFigure = figures[firstFigureIndex];
+        if (startLineCap != dashCap &&
+            Vector2.DistanceSquared(firstFigure.StartPoint, sourceStart) <= StrokeEpsilon * StrokeEpsilon)
+        {
+            firstFigure.StrokeStartLineCap = startLineCap;
+        }
+
+        var lastFigure = figures[^1];
+        if (endLineCap != dashCap &&
+            TryGetPathFigureEndPoint(lastFigure, out var lastEnd) &&
+            Vector2.DistanceSquared(lastEnd, sourceEnd) <= StrokeEpsilon * StrokeEpsilon)
+        {
+            lastFigure.StrokeEndLineCap = endLineCap;
+        }
+    }
+
+    private static void MergeClosedDashSeam(
+        PathGeometry dashedPath,
+        int firstFigureIndex,
+        Vector2 seam)
+    {
+        var figures = dashedPath.Figures;
+        if ((uint)firstFigureIndex >= (uint)figures.Count)
+        {
+            return;
+        }
+
+        var firstFigure = figures[firstFigureIndex];
+        var lastFigure = figures[^1];
+        if (Vector2.DistanceSquared(firstFigure.StartPoint, seam) > StrokeEpsilon * StrokeEpsilon ||
+            !TryGetPathFigureEndPoint(lastFigure, out var lastEnd) ||
+            Vector2.DistanceSquared(lastEnd, seam) > StrokeEpsilon * StrokeEpsilon)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(firstFigure, lastFigure))
+        {
+            // The drawn interval covers the complete contour. Closing the retained figure
+            // produces the source seam join without synthesizing two coincident dash caps.
+            firstFigure.IsClosed = true;
+            firstFigure.StrokeStartLineCap = null;
+            firstFigure.StrokeEndLineCap = null;
+            return;
+        }
+
+        // The final and initial drawn intervals are one cyclic run. Reuse both retained
+        // segment lists and move the initial span behind the final span, preserving O(S)
+        // construction while keeping cache hits allocation- and traversal-free.
+        lastFigure.Segments.AddRange(firstFigure.Segments);
+        lastFigure.StrokeStartLineCap = null;
+        lastFigure.StrokeEndLineCap = null;
+        figures.RemoveAt(firstFigureIndex);
+    }
+
+    private static bool TryGetPathFigureEndPoint(PathFigure figure, out Vector2 endPoint)
+    {
+        endPoint = figure.StartPoint;
+        var segments = figure.Segments;
+        for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+        {
+            if (TryGetPathSegmentEndPoint(segments[segmentIndex], out var segmentEnd))
+            {
+                endPoint = segmentEnd;
+            }
+        }
+
+        return segments.Count > 0;
     }
 
     private static void AddDashedLineFigures(
@@ -8014,14 +8429,33 @@ SceneStateUploadComplete:
 
     internal static Pen CreateUndashedPen(Pen pen)
     {
+        return CreateUndashedPen(pen, pen.Thickness);
+    }
+
+    internal static Pen CreateUndashedPen(Pen pen, float localThickness)
+    {
         return new Pen(
             pen.Brush,
-            pen.Thickness,
+            pen.IsHairline ? Pen.HairlineThickness : localThickness,
+            pen.LineJoin,
+            pen.MiterLimit,
+            pen.DashCap,
+            pen.DashCap,
+            pen.DashCap);
+    }
+
+    private static Pen CreatePenWithThickness(Pen pen, float localThickness)
+    {
+        return new Pen(
+            pen.Brush,
+            localThickness,
             pen.LineJoin,
             pen.MiterLimit,
             pen.StartLineCap,
             pen.EndLineCap,
-            pen.DashCap);
+            pen.DashCap,
+            pen.DashArray,
+            pen.DashOffset);
     }
 
     private static int CountStrokeSegmentJoinTriangleBudget(PathFigure figure)
@@ -8290,19 +8724,20 @@ SceneStateUploadComplete:
         float penBrushIdx,
         float localThickness,
         Vector2 start,
-        QuadraticBezierSegment segment,
+        Vector2 control,
+        Vector2 end,
         Matrix4x4 transform,
         bool isEdgeAliased)
     {
         const int segmentCount = 24;
         var previousPoint = start;
-        var previousTangent = GetQuadraticTangent(start, segment.ControlPoint, segment.Point, 0f);
+        var previousTangent = GetQuadraticTangent(start, control, end, 0f);
 
         for (var i = 1; i <= segmentCount; i++)
         {
             var t = (float)i / segmentCount;
-            var point = BezierSegmentGeometry.EvaluateQuadratic(start, segment.ControlPoint, segment.Point, t);
-            var tangent = GetQuadraticTangent(start, segment.ControlPoint, segment.Point, t);
+            var point = BezierSegmentGeometry.EvaluateQuadratic(start, control, end, t);
+            var tangent = GetQuadraticTangent(start, control, end, t);
             AppendAffineStrokeCurveSection(
                 verticesSpan,
                 indicesSpan,
@@ -8331,19 +8766,21 @@ SceneStateUploadComplete:
         float penBrushIdx,
         float localThickness,
         Vector2 start,
-        CubicBezierSegment segment,
+        Vector2 control1,
+        Vector2 control2,
+        Vector2 end,
         Matrix4x4 transform,
         bool isEdgeAliased)
     {
         const int segmentCount = 24;
         var previousPoint = start;
-        var previousTangent = GetCubicTangent(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, 0f);
+        var previousTangent = GetCubicTangent(start, control1, control2, end, 0f);
 
         for (var i = 1; i <= segmentCount; i++)
         {
             var t = (float)i / segmentCount;
-            var point = BezierSegmentGeometry.EvaluateCubic(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, t);
-            var tangent = GetCubicTangent(start, segment.ControlPoint1, segment.ControlPoint2, segment.Point, t);
+            var point = BezierSegmentGeometry.EvaluateCubic(start, control1, control2, end, t);
+            var tangent = GetCubicTangent(start, control1, control2, end, t);
             AppendAffineStrokeCurveSection(
                 verticesSpan,
                 indicesSpan,
@@ -8636,7 +9073,14 @@ SceneStateUploadComplete:
             return false;
         }
 
-        float pad = thickness * 0.5f + 2.0f;
+        // A Skia zero-width stroke is encoded as a negative sentinel, but its
+        // raster footprint is one framebuffer pixel. Keep the retained arc
+        // quad large enough for half that pixel plus the calibrated 1.5-pixel
+        // antialias fringe. Late affine transforms conservatively enlarge this
+        // two-unit local halo in Vector.wgsl using sigma_min.
+        float pad = thickness == Pen.HairlineThickness
+            ? 2.0f
+            : thickness * 0.5f + 2.0f;
         if (!TryGetTransformedArcBounds(segmentStart, arc, transform, pad, out Vector2 min, out Vector2 max))
         {
             Vector2 extent = new(
@@ -8765,6 +9209,25 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isSmoothJoin)
     {
+        if (pen.IsHairline)
+        {
+            AppendHairlineJoinVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                pen.LineJoin,
+                pen.MiterLimit,
+                localJoinPoint,
+                localIncomingDirection,
+                localOutgoingDirection,
+                transform,
+                isEdgeAliased,
+                isSmoothJoin);
+            return;
+        }
+
         if (useAffineStrokeGeometry)
         {
             AppendAffineStrokeSegmentJoinTriangles(
@@ -8790,6 +9253,7 @@ SceneStateUploadComplete:
             ref currentVertexCount,
             ref currentIndexCount,
             pen,
+            localThickness * TransformMetrics.GetStrokeScale(transform),
             penSolidColor,
             penBrushIdx,
             Vector2.Transform(localJoinPoint, transform),
@@ -8849,7 +9313,6 @@ SceneStateUploadComplete:
         Span<uint> indicesSpan,
         ref int currentVertexCount,
         ref int currentIndexCount,
-        Pen pen,
         Vector4 penSolidColor,
         float penBrushIdx,
         float localThickness,
@@ -8857,9 +9320,29 @@ SceneStateUploadComplete:
         Vector2 localDirectionAlongPath,
         Matrix4x4 transform,
         bool useAffineStrokeGeometry,
+        bool isHairline,
         bool isEdgeAliased,
-        bool isStart)
+        bool isStart,
+        PenLineCap lineCap)
     {
+        if (isHairline)
+        {
+            AppendHairlineCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                lineCap,
+                localCenter,
+                localDirectionAlongPath,
+                transform,
+                isEdgeAliased,
+                isStart,
+                isFullCap: false);
+            return;
+        }
+
         if (useAffineStrokeGeometry)
         {
             AppendAffineStrokeSegmentCapTriangles(
@@ -8867,7 +9350,7 @@ SceneStateUploadComplete:
                 indicesSpan,
                 ref currentVertexCount,
                 ref currentIndexCount,
-                pen,
+                lineCap,
                 penBrushIdx,
                 localThickness,
                 localCenter,
@@ -8883,7 +9366,8 @@ SceneStateUploadComplete:
             indicesSpan,
             ref currentVertexCount,
             ref currentIndexCount,
-            pen,
+            lineCap,
+            localThickness * TransformMetrics.GetStrokeScale(transform),
             penSolidColor,
             penBrushIdx,
             Vector2.Transform(localCenter, transform),
@@ -8892,12 +9376,141 @@ SceneStateUploadComplete:
             isStart);
     }
 
+    private static void AppendHairlineCapVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        PenLineCap lineCap,
+        Vector2 localCenter,
+        Vector2 localDirectionAlongPath,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isStart,
+        bool isFullCap)
+    {
+        if (lineCap is not (
+            PenLineCap.Square or
+            PenLineCap.Round or
+            PenLineCap.Triangle))
+        {
+            return;
+        }
+
+        var center = Vector2.Transform(localCenter, transform);
+        var direction = TransformDirection(localDirectionAlongPath, transform);
+        if (!IsFinite(center) ||
+            !IsFinite(direction) ||
+            direction.LengthSquared() <= StrokeEpsilon * StrokeEpsilon)
+        {
+            return;
+        }
+
+        var index = (uint)currentVertexCount;
+        var descriptor = new VectorVertex(
+            center,
+            new Vector4(
+                (float)lineCap,
+                isStart ? 1f : 0f,
+                isFullCap ? 1f : 0f,
+                0f),
+            direction,
+            penBrushIdx,
+            new Vector2(index, 0f),
+            0f,
+            Pen.HairlineThickness,
+            EncodeShapeType(isEdgeAliased, HairlineCapShapeType));
+        verticesSpan.Slice(currentVertexCount, 4).Fill(descriptor);
+        currentVertexCount += 4;
+        AppendHairlineAdornmentIndices(
+            indicesSpan,
+            ref currentIndexCount,
+            index);
+    }
+
+    private static void AppendHairlineJoinVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        PenLineJoin lineJoin,
+        float miterLimit,
+        Vector2 localJoinPoint,
+        Vector2 localIncomingDirection,
+        Vector2 localOutgoingDirection,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isSmoothJoin)
+    {
+        if (isSmoothJoin)
+        {
+            return;
+        }
+
+        var joinPoint = Vector2.Transform(localJoinPoint, transform);
+        var incomingDirection = TransformDirection(localIncomingDirection, transform);
+        var outgoingDirection = TransformDirection(localOutgoingDirection, transform);
+        if (!IsFinite(joinPoint) ||
+            !IsFinite(incomingDirection) ||
+            !IsFinite(outgoingDirection) ||
+            incomingDirection.LengthSquared() <= StrokeEpsilon * StrokeEpsilon ||
+            outgoingDirection.LengthSquared() <= StrokeEpsilon * StrokeEpsilon)
+        {
+            return;
+        }
+
+        var index = (uint)currentVertexCount;
+        var resolvedJoin = lineJoin switch
+        {
+            PenLineJoin.Bevel => PenLineJoin.Bevel,
+            PenLineJoin.Round => PenLineJoin.Round,
+            _ => PenLineJoin.Miter
+        };
+        var resolvedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f
+            ? miterLimit
+            : 1f;
+        var descriptor = new VectorVertex(
+            joinPoint,
+            new Vector4(
+                (float)resolvedJoin,
+                resolvedMiterLimit,
+                index,
+                0f),
+            incomingDirection,
+            penBrushIdx,
+            outgoingDirection,
+            0f,
+            Pen.HairlineThickness,
+            EncodeShapeType(isEdgeAliased, HairlineJoinShapeType));
+        verticesSpan.Slice(currentVertexCount, 4).Fill(descriptor);
+        currentVertexCount += 4;
+        AppendHairlineAdornmentIndices(
+            indicesSpan,
+            ref currentIndexCount,
+            index);
+    }
+
+    private static void AppendHairlineAdornmentIndices(
+        Span<uint> indicesSpan,
+        ref int currentIndexCount,
+        uint index)
+    {
+        indicesSpan[currentIndexCount++] = index;
+        indicesSpan[currentIndexCount++] = index + 1;
+        indicesSpan[currentIndexCount++] = index + 2;
+        indicesSpan[currentIndexCount++] = index;
+        indicesSpan[currentIndexCount++] = index + 2;
+        indicesSpan[currentIndexCount++] = index + 3;
+    }
+
     private static void AppendAffineStrokeSegmentCapTriangles(
         Span<VectorVertex> verticesSpan,
         Span<uint> indicesSpan,
         ref int currentVertexCount,
         ref int currentIndexCount,
-        Pen pen,
+        PenLineCap lineCap,
         float penBrushIdx,
         float localThickness,
         Vector2 localCenter,
@@ -8913,7 +9526,7 @@ SceneStateUploadComplete:
         }
 
         var localTriangles = StrokeCapGeometry.CreateDirectionalCap(
-            isStart ? pen.StartLineCap : pen.EndLineCap,
+            lineCap,
             localThickness,
             localCenter,
             localDirectionAlongPath,
@@ -8951,6 +9564,7 @@ SceneStateUploadComplete:
         ref int currentVertexCount,
         ref int currentIndexCount,
         Pen pen,
+        float thickness,
         Vector4 penSolidColor,
         float penBrushIdx,
         Vector2 joinPoint,
@@ -8961,7 +9575,7 @@ SceneStateUploadComplete:
     {
         var triangles = StrokeJoinGeometry.CreateDirectionalJoin(
             pen.LineJoin,
-            pen.Thickness,
+            thickness,
             pen.MiterLimit,
             joinPoint,
             incomingDirection,
@@ -8990,6 +9604,36 @@ SceneStateUploadComplete:
         ref int currentVertexCount,
         ref int currentIndexCount,
         Pen pen,
+        float thickness,
+        Vector4 penSolidColor,
+        float penBrushIdx,
+        Vector2 center,
+        Vector2 directionAlongPath,
+        bool isEdgeAliased,
+        bool isStart)
+    {
+        AppendStrokeSegmentCapTriangles(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            isStart ? pen.StartLineCap : pen.EndLineCap,
+            thickness,
+            penSolidColor,
+            penBrushIdx,
+            center,
+            directionAlongPath,
+            isEdgeAliased,
+            isStart);
+    }
+
+    private static void AppendStrokeSegmentCapTriangles(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        PenLineCap lineCap,
+        float thickness,
         Vector4 penSolidColor,
         float penBrushIdx,
         Vector2 center,
@@ -8998,8 +9642,8 @@ SceneStateUploadComplete:
         bool isStart)
     {
         var triangles = StrokeCapGeometry.CreateDirectionalCap(
-            isStart ? pen.StartLineCap : pen.EndLineCap,
-            pen.Thickness,
+            lineCap,
+            thickness,
             center,
             directionAlongPath,
             isStart);
@@ -9195,6 +9839,56 @@ SceneStateUploadComplete:
             return;
         }
 
+        if (pen.IsHairline)
+        {
+            if (pen.StartLineCap == pen.EndLineCap &&
+                pen.StartLineCap is PenLineCap.Round or PenLineCap.Square)
+            {
+                AppendHairlineCapVertices(
+                    verticesSpan,
+                    indicesSpan,
+                    ref currentVertexCount,
+                    ref currentIndexCount,
+                    penBrushIdx,
+                    pen.StartLineCap,
+                    localCenter,
+                    Vector2.UnitX,
+                    transform,
+                    isEdgeAliased,
+                    isStart: false,
+                    isFullCap: true);
+                return;
+            }
+
+            AppendHairlineCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                pen.StartLineCap,
+                localCenter,
+                Vector2.UnitX,
+                transform,
+                isEdgeAliased,
+                isStart: true,
+                isFullCap: false);
+            AppendHairlineCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                pen.EndLineCap,
+                localCenter,
+                Vector2.UnitX,
+                transform,
+                isEdgeAliased,
+                isStart: false,
+                isFullCap: false);
+            return;
+        }
+
         if (pen.StartLineCap == pen.EndLineCap && pen.StartLineCap is PenLineCap.Round or PenLineCap.Square)
         {
             var strokeScale = TransformMetrics.GetStrokeScale(transform);
@@ -9255,6 +9949,7 @@ SceneStateUploadComplete:
             ref currentVertexCount,
             ref currentIndexCount,
             pen,
+            thickness,
             penSolidColor,
             penBrushIdx,
             centerPoint,
@@ -9267,6 +9962,7 @@ SceneStateUploadComplete:
             ref currentVertexCount,
             ref currentIndexCount,
             pen,
+            thickness,
             penSolidColor,
             penBrushIdx,
             centerPoint,
@@ -9467,47 +10163,184 @@ SceneStateUploadComplete:
     }
 
     /// <summary>
-    /// Returns a stroked command's pen thickness in the same space as its transformed geometry.
+    /// Resolves the local and device-space widths for a retained stroke without allocating.
     /// </summary>
     /// <remarks>
-    /// Thickness reaches the compositor already scaled by the command's own transform - the drawing
-    /// context bridges apply their current stroke scale when they emit the command - but not by the
-    /// visual-tree transform that gets composed into <paramref name="activeTransform"/> here. The
-    /// vertices below are emitted post-transform, so recovering just that missing factor keeps a
-    /// stroke proportional to its geometry under a Viewbox or RenderTransform while leaving a
-    /// DrawingContext PushTransform, which was already accounted for, untouched.
+    /// New commands retain their source-space width and set <see cref="RenderCommand.IsPenThicknessLocal"/>.
+    /// Older bridge commands may store a width pre-scaled by <see cref="RenderCommand.Transform"/>;
+    /// dividing by that command scale recovers the source width before the complete visual transform is
+    /// applied. A conformal transform can use the scalar device width directly. A non-conformal affine
+    /// transform must instead expand the source outline and transform that geometry, preserving directional
+    /// width under anisotropic scale and shear.
     /// </remarks>
-    private static float ResolveDeviceStrokeThickness(in RenderCommand cmd, Matrix4x4 activeTransform)
+    private static StrokeCompileState ResolveStrokeCompileState(
+        in RenderCommand cmd,
+        Matrix4x4 fullTransform)
     {
-        var thickness = cmd.Pen!.Thickness;
-        var activeScale = TransformMetrics.GetStrokeScale(activeTransform);
-        var commandScale = cmd.Transform == default
-            ? 1f
-            : TransformMetrics.GetStrokeScale(cmd.Transform);
-
-        if (!float.IsFinite(activeScale) || !float.IsFinite(commandScale) || commandScale <= 0f)
+        if (!IsFiniteInvertibleAffine2D(fullTransform) ||
+            !TryResolveLocalStrokeThickness(cmd, out var localThickness) ||
+            !TransformMetrics.TryGetStrokeScales(
+                fullTransform,
+                out var maximumScale,
+                out var minimumScale))
         {
-            return thickness;
+            return default;
         }
 
-        return thickness * (activeScale / commandScale);
+        var isHairline = cmd.Pen!.IsHairline;
+        if (isHairline)
+        {
+            // The retained sentinel means "one framebuffer pixel", not zero
+            // local units. Centerline geometry is transformed normally while
+            // direct stroke expansion remains in device space. Separate
+            // conservative local widths keep CPU-generated caps/joins and SDF
+            // raster bounds valid without changing dash distances (basis 1).
+            return new StrokeCompileState(
+                localThickness,
+                1f / maximumScale,
+                1f / minimumScale,
+                1f,
+                RequiresAffineGeometry: false,
+                IsHairline: true);
+        }
+
+        return new StrokeCompileState(
+            localThickness,
+            localThickness,
+            localThickness,
+            localThickness * maximumScale,
+            RequiresAffineStrokeGeometry(fullTransform),
+            IsHairline: false);
     }
+
+    internal static bool IsRenderableStroke(Pen? pen)
+    {
+        return pen != null &&
+            float.IsFinite(pen.Thickness) &&
+            (pen.IsHairline || pen.Thickness > 0f);
+    }
+
+    internal static bool TryResolveLocalStrokeThickness(
+        in RenderCommand cmd,
+        out float localThickness)
+    {
+        var pen = cmd.Pen;
+        if (!IsRenderableStroke(pen))
+        {
+            localThickness = 0f;
+            return false;
+        }
+
+        if (pen!.IsHairline)
+        {
+            // Dash values on a Skia hairline use the documented logical
+            // one-unit basis. The sentinel itself remains on the Pen so
+            // compilation and replay can still distinguish device hairlines
+            // from ordinary one-unit strokes.
+            localThickness = 1f;
+            return true;
+        }
+
+        localThickness = pen.Thickness;
+        if (!cmd.IsPenThicknessLocal && cmd.Transform != default)
+        {
+            if (!IsFiniteInvertibleAffine2D(cmd.Transform) ||
+                !TransformMetrics.TryGetStrokeScale(cmd.Transform, out var recordedScale))
+            {
+                localThickness = 0f;
+                return false;
+            }
+            localThickness /= recordedScale;
+        }
+
+        return float.IsFinite(localThickness) && localThickness > 0f;
+    }
+
+    private void CompileDashedStrokePath(
+        in RenderCommand cmd,
+        PathGeometry sourcePath,
+        in StrokeCompileState stroke,
+        Matrix4x4 transform)
+    {
+        var pen = cmd.Pen!;
+        PathGeometry dashedPath;
+        Pen undashedPen;
+        if (cmd.GeometryCache?.TryGetDashedStrokePath(
+                pen,
+                stroke.LocalThickness,
+                out dashedPath,
+                out undashedPen) != true)
+        {
+            if (!TryCreateDashedStrokePath(
+                    sourcePath,
+                    pen,
+                    stroke.LocalThickness,
+                    out dashedPath))
+            {
+                throw new NotSupportedException(
+                    "Dashed strokes are not supported for this geometry.");
+            }
+
+            undashedPen = CreateUndashedPen(pen, stroke.LocalThickness);
+        }
+
+        var pathCommand = cmd;
+        pathCommand.Type = RenderCommandType.DrawPath;
+        pathCommand.Path = dashedPath;
+        pathCommand.Brush = null;
+        pathCommand.Pen = undashedPen;
+        pathCommand.Transform = default;
+        pathCommand.IsPenThicknessLocal = true;
+        CompilePathCommand(pathCommand, transform);
+    }
+
+    private void CompileRetainedStrokePath(
+        in RenderCommand cmd,
+        PathGeometry sourcePath,
+        in StrokeCompileState stroke,
+        Matrix4x4 transform)
+    {
+        if (cmd.Pen!.HasDashPattern)
+        {
+            CompileDashedStrokePath(cmd, sourcePath, stroke, transform);
+            return;
+        }
+
+        var pathCommand = cmd;
+        pathCommand.Type = RenderCommandType.DrawPath;
+        pathCommand.Path = sourcePath;
+        pathCommand.Brush = null;
+        pathCommand.Transform = default;
+        pathCommand.IsPenThicknessLocal = true;
+
+        // Current recorders already retain source-space thickness, so the common
+        // path preserves pen identity. Only legacy pre-scaled commands need a
+        // one-time compatibility pen carrying the recovered local width.
+        if (!cmd.IsPenThicknessLocal && !cmd.Pen.IsHairline)
+        {
+            pathCommand.Pen = CreatePenWithThickness(
+                cmd.Pen,
+                stroke.RetainedThickness);
+        }
+
+        CompilePathCommand(pathCommand, transform);
+    }
+
+    private static bool RequiresEndpointCapGeometry(Pen pen) =>
+        pen.StartLineCap != PenLineCap.Flat ||
+        pen.EndLineCap != PenLineCap.Flat;
 
     private void CompileLineCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
-        if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
-        if (cmd.Pen.HasDashPattern)
+        if (!IsRenderableStroke(cmd.Pen)) return;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        if (!stroke.IsValid) return;
+        if (cmd.Pen!.HasDashPattern || RequiresEndpointCapGeometry(cmd.Pen))
         {
             var path = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreateLinePath(cmd.Position, cmd.Position2);
-
-            var pathCmd = cmd;
-            pathCmd.Type = RenderCommandType.DrawPath;
-            pathCmd.Path = path;
-            pathCmd.Brush = null;
-            pathCmd.Transform = default;
-            CompilePathCommand(pathCmd, transform);
+            CompileRetainedStrokePath(cmd, path, stroke, transform);
             return;
         }
 
@@ -9515,9 +10348,37 @@ SceneStateUploadComplete:
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
 
+        if (stroke.RequiresAffineGeometry)
+        {
+            var vertexStart = _vectorVerticesList.Count;
+            var indexStart = _vectorIndicesList.Count;
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + 4);
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + 6);
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            var indices = CollectionsMarshal.AsSpan(_vectorIndicesList);
+            var vertexCount = vertexStart;
+            var indexCount = indexStart;
+            AppendAffineStrokeLineVertices(
+                vertices,
+                indices,
+                ref vertexCount,
+                ref indexCount,
+                penSolidColor,
+                penBrushIdx,
+                stroke.LocalGeometryThickness,
+                cmd.Position,
+                cmd.Position2,
+                transform,
+                cmd.IsEdgeAliased);
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexCount);
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexCount);
+            ClampVectorVerticesToActiveClip(startIndex);
+            return;
+        }
+
         var p0_pos = Vector2.Transform(cmd.Position, transform);
         var p1_pos = Vector2.Transform(cmd.Position2, transform);
-        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
+        float thickness = stroke.EncodedThickness;
         var lineShapeType = EncodeShapeType(cmd, 3f);
 
         uint idxStart = (uint)startIndex;
@@ -9542,16 +10403,7 @@ SceneStateUploadComplete:
         indexSpan[4] = idxStart + 3;
         indexSpan[5] = idxStart + 2;
 
-        if (_activeClipRect.HasValue)
-        {
-            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
-            for (int i = startIndex; i < vertices.Length; i++)
-            {
-                var v = vertices[i];
-                v.Position = ClampToClip(v.Position);
-                vertices[i] = v;
-            }
-        }
+        ClampVectorVerticesToActiveClip(startIndex);
     }
 
     private void CompileLine3DCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -9568,11 +10420,52 @@ SceneStateUploadComplete:
     private void CompileBezierCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
-        if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
+        if (!IsRenderableStroke(cmd.Pen)) return;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        if (!stroke.IsValid) return;
+        if (cmd.Pen!.HasDashPattern || RequiresEndpointCapGeometry(cmd.Pen))
+        {
+            var path = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateQuadraticBezierPath(
+                    cmd.Position,
+                    cmd.Position2,
+                    cmd.Position3);
+            CompileRetainedStrokePath(cmd, path, stroke, transform);
+            return;
+        }
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
+        float thickness = stroke.EncodedThickness;
+
+        if (stroke.RequiresAffineGeometry)
+        {
+            const int affineSegmentCount = 24;
+            var vertexStart = _vectorVerticesList.Count;
+            var indexStart = _vectorIndicesList.Count;
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + (4 * affineSegmentCount));
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + (6 * affineSegmentCount));
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            var indices = CollectionsMarshal.AsSpan(_vectorIndicesList);
+            var vertexCount = vertexStart;
+            var indexCount = indexStart;
+            AppendAffineStrokeQuadraticVertices(
+                vertices,
+                indices,
+                ref vertexCount,
+                ref indexCount,
+                penBrushIdx,
+                stroke.LocalGeometryThickness,
+                cmd.Position,
+                cmd.Position2,
+                cmd.Position3,
+                transform,
+                cmd.IsEdgeAliased);
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexCount);
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexCount);
+            ClampVectorVerticesToActiveClip(startIndex);
+            return;
+        }
 
         var p0_trans = Vector2.Transform(cmd.Position, transform);
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
@@ -9610,26 +10503,60 @@ SceneStateUploadComplete:
             indexSpan[baseIdx + 5] = nextLeft;
         }
 
-        if (_activeClipRect.HasValue)
-        {
-            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
-            for (int i = startIndex; i < vertices.Length; i++)
-            {
-                var v = vertices[i];
-                v.Position = ClampToClip(v.Position);
-                vertices[i] = v;
-            }
-        }
+        ClampVectorVerticesToActiveClip(startIndex);
     }
 
     private void CompileCubicBezierCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
-        if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
+        if (!IsRenderableStroke(cmd.Pen)) return;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        if (!stroke.IsValid) return;
+        if (cmd.Pen!.HasDashPattern || RequiresEndpointCapGeometry(cmd.Pen))
+        {
+            var path = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreateCubicBezierPath(
+                    cmd.Position,
+                    cmd.Position2,
+                    cmd.Position3,
+                    cmd.Position4);
+            CompileRetainedStrokePath(cmd, path, stroke, transform);
+            return;
+        }
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-        float thickness = ResolveDeviceStrokeThickness(cmd, transform);
+        float thickness = stroke.EncodedThickness;
+
+        if (stroke.RequiresAffineGeometry)
+        {
+            const int affineSegmentCount = 24;
+            var vertexStart = _vectorVerticesList.Count;
+            var indexStart = _vectorIndicesList.Count;
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + (4 * affineSegmentCount));
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + (6 * affineSegmentCount));
+            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            var indices = CollectionsMarshal.AsSpan(_vectorIndicesList);
+            var vertexCount = vertexStart;
+            var indexCount = indexStart;
+            AppendAffineStrokeCubicVertices(
+                vertices,
+                indices,
+                ref vertexCount,
+                ref indexCount,
+                penBrushIdx,
+                stroke.LocalGeometryThickness,
+                cmd.Position,
+                cmd.Position2,
+                cmd.Position3,
+                cmd.Position4,
+                transform,
+                cmd.IsEdgeAliased);
+            CollectionsMarshal.SetCount(_vectorVerticesList, vertexCount);
+            CollectionsMarshal.SetCount(_vectorIndicesList, indexCount);
+            ClampVectorVerticesToActiveClip(startIndex);
+            return;
+        }
 
         var p0_trans = Vector2.Transform(cmd.Position, transform);
         var p1_trans = Vector2.Transform(cmd.Position2, transform);
@@ -9668,45 +10595,54 @@ SceneStateUploadComplete:
             indexSpan[baseIdx + 5] = nextLeft;
         }
 
-        if (_activeClipRect.HasValue)
-        {
-            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
-            for (int i = startIndex; i < vertices.Length; i++)
-            {
-                var v = vertices[i];
-                v.Position = ClampToClip(v.Position);
-                vertices[i] = v;
-            }
-        }
+        ClampVectorVerticesToActiveClip(startIndex);
     }
 
     private void CompilePolylineCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
     {
-        SwitchBatch(BatchType.Vector);
-        if (cmd.Pen == null || cmd.Pen.Thickness <= 0f) return;
+        ReadOnlySpan<Vector2> pointsSpan = cmd.PolylinePoints is { Length: > 0 } inlinePoints
+            ? inlinePoints
+            : provider != null && cmd.PointBufferCount > 0
+                ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
+                : ReadOnlySpan<Vector2>.Empty;
 
-        ReadOnlySpan<Vector2> pointsSpan = provider != null ?
-            provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount) :
-            cmd.PolylinePoints;
+        CompilePolylinePoints(pointsSpan, cmd, transform);
+    }
+
+    private void CompilePolylinePoints(
+        ReadOnlySpan<Vector2> pointsSpan,
+        RenderCommand cmd,
+        Matrix4x4 transform)
+    {
+        SwitchBatch(BatchType.Vector);
+        if (!IsRenderableStroke(cmd.Pen)) return;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
+        if (!stroke.IsValid) return;
 
         int count = pointsSpan.Length;
         if (count < 2) return;
 
+        if (cmd.Pen!.HasDashPattern ||
+            cmd.IsClosed ||
+            count > 2 ||
+            RequiresEndpointCapGeometry(cmd.Pen))
+        {
+            var path = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreatePolylinePath(
+                    pointsSpan,
+                    cmd.IsClosed);
+            CompileRetainedStrokePath(cmd, path, stroke, transform);
+            return;
+        }
+
         int startIndex = _vectorVerticesList.Count;
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
-        float thickness = cmd.Pen.Thickness;
+        float thickness = stroke.EncodedThickness;
         var lineShapeType = EncodeShapeType(cmd, 3f);
 
         int segmentCount = count - 1;
         if (cmd.IsClosed) segmentCount++;
-
-        // Pre-transform all points to screen space in one batch
-        Span<Vector2> transformed = count <= 512 ? stackalloc Vector2[count] : new Vector2[count];
-        for (int i = 0; i < count; i++)
-        {
-            transformed[i] = Vector2.Transform(pointsSpan[i], transform);
-        }
 
         // We will append 4 vertices and 6 indices for each segment
         int totalVerticesToAdd = segmentCount * 4;
@@ -9720,10 +10656,38 @@ SceneStateUploadComplete:
         CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + totalIndicesToAdd);
         var indexSpan = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(originalIndexCount, totalIndicesToAdd);
 
+        if (stroke.RequiresAffineGeometry)
+        {
+            var affineVertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+            var affineIndices = CollectionsMarshal.AsSpan(_vectorIndicesList);
+            var currentVertexCount = originalVertexCount;
+            var currentIndexCount = originalIndexCount;
+            for (var segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++)
+            {
+                AppendAffineStrokeLineVertices(
+                    affineVertices,
+                    affineIndices,
+                    ref currentVertexCount,
+                    ref currentIndexCount,
+                    penSolidColor,
+                    penBrushIdx,
+                    stroke.LocalGeometryThickness,
+                    pointsSpan[segmentIndex % count],
+                    pointsSpan[(segmentIndex + 1) % count],
+                    transform,
+                    cmd.IsEdgeAliased);
+            }
+
+            CollectionsMarshal.SetCount(_vectorVerticesList, currentVertexCount);
+            CollectionsMarshal.SetCount(_vectorIndicesList, currentIndexCount);
+            ClampVectorVerticesToActiveClip(startIndex);
+            return;
+        }
+
         for (int i = 0; i < segmentCount; i++)
         {
-            var p0_pos = transformed[i % count];
-            var p1_pos = transformed[(i + 1) % count];
+            var p0_pos = Vector2.Transform(pointsSpan[i % count], transform);
+            var p1_pos = Vector2.Transform(pointsSpan[(i + 1) % count], transform);
 
             uint idxStart = (uint)(originalVertexCount + i * 4);
 
@@ -9742,16 +10706,7 @@ SceneStateUploadComplete:
             indexSpan[iIdx + 5] = idxStart + 2;
         }
 
-        if (_activeClipRect.HasValue)
-        {
-            var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
-            for (int i = startIndex; i < vertices.Length; i++)
-            {
-                var v = vertices[i];
-                v.Position = ClampToClip(v.Position);
-                vertices[i] = v;
-            }
-        }
+        ClampVectorVerticesToActiveClip(startIndex);
     }
 
     private void CompileSplineCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
@@ -10097,16 +11052,18 @@ SceneStateUploadComplete:
     private void CompileEllipseCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         SwitchBatch(BatchType.Vector);
+        var stroke = ResolveStrokeCompileState(cmd, transform);
         int startIndex = _vectorVerticesList.Count;
         var center = cmd.Position2;
         var rx = cmd.RadiusX;
         var ry = cmd.RadiusY;
         var shapeSize = new Vector2(2f * rx, 2f * ry);
         var ellipseShapeType = EncodeShapeType(cmd, 1f);
+        var antialiasPadding = GetAnalyticPrimitiveLocalAntialiasPadding(transform);
 
         if (cmd.Brush != null)
         {
-            float pad = 1.5f;
+            float pad = antialiasPadding;
             var f0_pos = Vector2.Transform(new Vector2(center.X - rx - pad, center.Y - ry - pad), transform);
             var f1_pos = Vector2.Transform(new Vector2(center.X + rx + pad, center.Y - ry - pad), transform);
             var f2_pos = Vector2.Transform(new Vector2(center.X + rx + pad, center.Y + ry + pad), transform);
@@ -10138,16 +11095,17 @@ SceneStateUploadComplete:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (cmd.Pen != null && cmd.Pen.Thickness > 0f)
+        if (stroke.IsValid)
         {
-            float pad = cmd.Pen.Thickness / 2f + 1.5f;
+            var pen = cmd.Pen!;
+            float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
             var p0_pos = Vector2.Transform(new Vector2(center.X - rx - pad, center.Y - ry - pad), transform);
             var p1_pos = Vector2.Transform(new Vector2(center.X + rx + pad, center.Y - ry - pad), transform);
             var p2_pos = Vector2.Transform(new Vector2(center.X + rx + pad, center.Y + ry + pad), transform);
             var p3_pos = Vector2.Transform(new Vector2(center.X - rx - pad, center.Y + ry + pad), transform);
 
-            float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
-            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(center.X, center.Y, 0f, 0f);
+            float penBrushIdx = RegisterBrush(pen.Brush);
+            var penSolidColor = (pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(center.X, center.Y, 0f, 0f);
 
             uint idxStart = (uint)_vectorVerticesList.Count;
 
@@ -10155,10 +11113,10 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-rx - pad, -ry - pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, ellipseShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(rx + pad, -ry - pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, ellipseShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(rx + pad, ry + pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, ellipseShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-rx - pad, ry + pad), penBrushIdx, shapeSize, 0f, cmd.Pen.Thickness, ellipseShapeType);
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-rx - pad, -ry - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(rx + pad, -ry - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(rx + pad, ry + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-rx - pad, ry + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -10193,6 +11151,7 @@ SceneStateUploadComplete:
     private void CompileRoundedRectCommand(RenderCommand cmd, Matrix4x4 transform)
     {
         var r = cmd.Rect;
+        var stroke = ResolveStrokeCompileState(cmd, transform);
         var radiusX = Math.Min(MathF.Abs(cmd.RadiusX), r.Width / 2f);
         var radiusY = Math.Min(MathF.Abs(cmd.RadiusY), r.Height / 2f);
 
@@ -10208,16 +11167,22 @@ SceneStateUploadComplete:
             pathCommand.Type = RenderCommandType.DrawPath;
             pathCommand.Path = GetOrCreateRoundedRectanglePath(r, radiusX, radiusY);
             pathCommand.Transform = default;
+            if (stroke.IsValid)
+            {
+                pathCommand.Pen = CreatePenWithThickness(cmd.Pen!, stroke.RetainedThickness);
+                pathCommand.IsPenThicknessLocal = true;
+            }
             CompilePathCommand(pathCommand, transform);
             return;
         }
 
         bool hasFill = cmd.Brush != null;
-        bool hasStroke = cmd.Pen != null && cmd.Pen.Thickness > 0f;
+        bool hasStroke = stroke.IsValid;
         bool isSolidRoundedCandidate = ActiveCompilationContext == null &&
             (hasFill || hasStroke) &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
-            (!hasStroke || cmd.Pen!.Brush is SolidColorBrush);
+            (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
+            !stroke.IsHairline;
         if (isSolidRoundedCandidate)
         {
             _currentSolidRoundedPrimitiveCount++;
@@ -10232,10 +11197,11 @@ SceneStateUploadComplete:
         float hHalf = r.Height / 2f;
         var shapeSize = new Vector2(r.Width, r.Height);
         var roundedRectShapeType = EncodeShapeType(cmd, 2f);
+        var antialiasPadding = GetAnalyticPrimitiveLocalAntialiasPadding(transform);
 
         if (cmd.Brush != null)
         {
-            float pad = 1.5f;
+            float pad = antialiasPadding;
             var f0_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y - pad), transform);
             var f1_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y - pad), transform);
             var f2_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y + r.Height + pad), transform);
@@ -10271,19 +11237,20 @@ SceneStateUploadComplete:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (cmd.Pen != null && cmd.Pen.Thickness > 0f)
+        if (hasStroke)
         {
-            float pad = cmd.Pen.Thickness / 2f + 1.5f;
+            var pen = cmd.Pen!;
+            float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
             var p0_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y - pad), transform);
             var p1_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y - pad), transform);
             var p2_pos = Vector2.Transform(new Vector2(r.X + r.Width + pad, r.Y + r.Height + pad), transform);
             var p3_pos = Vector2.Transform(new Vector2(r.X - pad, r.Y + r.Height + pad), transform);
 
-            float penBrushIdx = useSolidRoundedPipeline ? 0f : RegisterBrush(cmd.Pen.Brush);
-            var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(r.X + wHalf, r.Y + hHalf, 0f, 0f);
+            float penBrushIdx = useSolidRoundedPipeline ? 0f : RegisterBrush(pen.Brush);
+            var penSolidColor = (pen.Brush is SolidColorBrush solidPen) ? solidPen.Color : new Vector4(r.X + wHalf, r.Y + hHalf, 0f, 0f);
             if (useSolidRoundedPipeline)
             {
-                penSolidColor.W *= cmd.Pen.Brush.Opacity * _activeOpacity;
+                penSolidColor.W *= pen.Brush.Opacity * _activeOpacity;
             }
 
             uint idxStart = (uint)_vectorVerticesList.Count;
@@ -10292,10 +11259,10 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, radius, cmd.Pen.Thickness, roundedRectShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, radius, cmd.Pen.Thickness, roundedRectShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, radius, cmd.Pen.Thickness, roundedRectShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, radius, cmd.Pen.Thickness, roundedRectShapeType);
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -11058,22 +12025,13 @@ SceneStateUploadComplete:
             float baseCursorX = runGlyph.Position.X - runGlyph.Glyph.BearX;
             float baseCursorY = runGlyph.Position.Y - runGlyph.Glyph.BearY;
 
-            if (VectorEngine == VectorRenderingEngine.Wavefront)
+            if (_wavefrontFrameEnabled)
             {
-                var glyphBaselinePosition = new Vector2(
-                    baseCursorX + cmd.Position.X,
-                    baseCursorY + cmd.Position.Y);
-                var glyphTransform = Matrix4x4.CreateTranslation(
-                    glyphBaselinePosition.X,
-                    glyphBaselinePosition.Y,
-                    0f) * activeTransform;
-                (_wavefrontEngine ??= new WavefrontVectorEngine(_context)).DrawGlyph(
-                    glyphFont,
-                    glyphIdx,
-                    cmd.FontSize,
-                    glyphTransform,
-                    cmd.Brush ?? new SolidColorBrush(Vector4.One));
-                continue;
+                // The current Wavefront text instance does not retain shaping
+                // presentation state (opacity, font transform, color layers,
+                // masks, or ordered mixing with Atlas primitives). Preserve the
+                // complete text contract by retrying the whole frame in Atlas.
+                throw WavefrontFrameFallbackException.Instance;
             }
 
             var hasBitmapGlyph = glyphFont.HasBitmapGlyphs &&
@@ -11767,7 +12725,9 @@ SceneStateUploadComplete:
             var figure = figures[figureIndex];
             var transformedFigure = new PathFigure(TransformPoint(figure.StartPoint), figure.IsClosed)
             {
-                IsFilled = figure.IsFilled
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap
             };
             var segments = figure.Segments;
             for (var segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
@@ -13399,6 +14359,22 @@ SceneStateUploadComplete:
     internal Vector2 ClampToClip(Vector2 p)
     {
         return p;
+    }
+
+    private void ClampVectorVerticesToActiveClip(int startIndex)
+    {
+        if (!_activeClipRect.HasValue)
+        {
+            return;
+        }
+
+        var vertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
+        for (var index = startIndex; index < vertices.Length; index++)
+        {
+            var vertex = vertices[index];
+            vertex.Position = ClampToClip(vertex.Position);
+            vertices[index] = vertex;
+        }
     }
 
     private unsafe bool ApplyDrawCallScissor(
@@ -15062,6 +16038,18 @@ SceneStateUploadComplete:
                             {
                                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, *pPathAtlas, 0, null);
                             }
+                            _context.Api.RenderPassEncoderSetVertexBuffer(
+                                pass,
+                                0,
+                                _vectorVertexBuffer.BufferPtr,
+                                0,
+                                _vectorVertexBuffer.Size);
+                            _context.Api.RenderPassEncoderSetIndexBuffer(
+                                pass,
+                                _vectorIndexBuffer.BufferPtr,
+                                IndexFormat.Uint32,
+                                0,
+                                _vectorIndexBuffer.Size);
                             currentType = DrawCallType.Vector;
                             currentBlendMode = dc.BlendMode;
                             currentPipelineHasMask = hasMask;
@@ -15499,6 +16487,10 @@ SceneStateUploadComplete:
             for (var commandIndex = 0; commandIndex < commandCount; commandIndex++)
             {
                 var cmd = commands[commandIndex];
+                var activeTransform = cmd.Type != RenderCommandType.DrawPath &&
+                    cmd.Transform != default
+                        ? cmd.Transform
+                        : Matrix4x4.Identity;
                 bool savedUseGpuTransformsActive = _useGpuTransformsActive;
                 if (cmd.UseGpuTransforms)
                 {
@@ -15508,7 +16500,7 @@ SceneStateUploadComplete:
                 switch (cmd.Type)
                 {
                     case RenderCommandType.DrawRect:
-                        CompileRectCommand(cmd, Matrix4x4.Identity);
+                        CompileRectCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPath:
                         CompilePathCommand(cmd, Matrix4x4.Identity);
@@ -15520,7 +16512,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, null, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, null, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -15558,22 +16550,22 @@ SceneStateUploadComplete:
                         pendingTextStart = (uint)_textVerticesList.Count;
                         break;
                     case RenderCommandType.DrawText:
-                        CompileTextCommand(cmd, null, Matrix4x4.Identity);
+                        CompileTextCommand(cmd, null, activeTransform);
                         break;
                     case RenderCommandType.DrawGlyphRun:
-                        CompileGlyphRunCommand(cmd, Matrix4x4.Identity);
+                        CompileGlyphRunCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawTexture:
-                        CompileTextureCommand(cmd, Matrix4x4.Identity);
+                        CompileTextureCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.PushClip:
-                        PushClipRect(cmd.Rect, Matrix4x4.Identity);
+                        PushClipRect(cmd.Rect, activeTransform);
                         break;
                     case RenderCommandType.PopClip:
                         PopClipRect();
                         break;
                     case RenderCommandType.DrawLine:
-                        CompileLineCommand(cmd, Matrix4x4.Identity);
+                        CompileLineCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawLine3D:
                         CommitStaticDrawCalls();
@@ -15582,7 +16574,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, null, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, null, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -15597,25 +16589,25 @@ SceneStateUploadComplete:
                         pendingTextStart = (uint)_textVerticesList.Count;
                         break;
                     case RenderCommandType.DrawEllipse:
-                        CompileEllipseCommand(cmd, Matrix4x4.Identity);
+                        CompileEllipseCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawDotGrid:
-                        CompileDotGridCommand(cmd, Matrix4x4.Identity);
+                        CompileDotGridCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawCircle:
-                        CompileCircleCommand(cmd, Matrix4x4.Identity);
+                        CompileCircleCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawRoundedRect:
-                        CompileRoundedRectCommand(cmd, Matrix4x4.Identity);
+                        CompileRoundedRectCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawBezier:
-                        CompileBezierCommand(cmd, Matrix4x4.Identity);
+                        CompileBezierCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawCubicBezier:
-                        CompileCubicBezierCommand(cmd, Matrix4x4.Identity);
+                        CompileCubicBezierCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPolyline:
-                        CompilePolylineCommand(null, cmd, Matrix4x4.Identity);
+                        CompilePolylineCommand(null, cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawSpline:
                         CommitStaticDrawCalls();
@@ -15624,7 +16616,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, null, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, null, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -15645,9 +16637,14 @@ SceneStateUploadComplete:
                             {
                                 CommitStaticDrawCalls();
                                 var localCmd = cmd;
-                                var compileTransform = localCmd.ExtensionId == CompositorBuiltInExtensions.AcisSolid
-                                    ? localCmd.Transform
-                                    : Matrix4x4.Identity;
+                                var compileTransform = localCmd.ExtensionId switch
+                                {
+                                    CompositorBuiltInExtensions.AcisSolid => localCmd.Transform,
+                                    CompositorBuiltInExtensions.Spline or
+                                    CompositorBuiltInExtensions.Hatch or
+                                    CompositorBuiltInExtensions.Line3D => activeTransform,
+                                    _ => Matrix4x4.Identity
+                                };
                                 pipeline.Compile(this, null, compileTransform, ref localCmd);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
@@ -15693,16 +16690,16 @@ SceneStateUploadComplete:
                         }
                         break;
                     case RenderCommandType.FillTriangle:
-                        CompileFillTriangleCommand(cmd, Matrix4x4.Identity);
+                        CompileFillTriangleCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawVertexMesh:
-                        CompileVertexMeshCommand(cmd, Matrix4x4.Identity);
+                        CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, Matrix4x4.Identity);
+                        CompilePointBatchCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
-                        CompileFillQuadCommand(cmd, Matrix4x4.Identity);
+                        CompileFillQuadCommand(cmd, activeTransform);
                         break;
                 }
 
@@ -15948,6 +16945,10 @@ SceneStateUploadComplete:
             for (var commandIndex = 0; commandIndex < commandCount; commandIndex++)
             {
                 var cmd = commands[commandIndex];
+                var activeTransform = cmd.Type != RenderCommandType.DrawPath &&
+                    cmd.Transform != default
+                        ? cmd.Transform
+                        : Matrix4x4.Identity;
                 bool savedUseGpuTransformsActive = _useGpuTransformsActive;
                 if (cmd.UseGpuTransforms)
                 {
@@ -15957,7 +16958,7 @@ SceneStateUploadComplete:
                 switch (cmd.Type)
                 {
                     case RenderCommandType.DrawRect:
-                        CompileRectCommand(cmd, Matrix4x4.Identity);
+                        CompileRectCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPath:
                         CompilePathCommand(cmd, Matrix4x4.Identity);
@@ -15969,7 +16970,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, context, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, context, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -16007,22 +17008,22 @@ SceneStateUploadComplete:
                         pendingTextStart = (uint)_textVerticesList.Count;
                         break;
                     case RenderCommandType.DrawText:
-                        CompileTextCommand(cmd, null, Matrix4x4.Identity);
+                        CompileTextCommand(cmd, null, activeTransform);
                         break;
                     case RenderCommandType.DrawGlyphRun:
-                        CompileGlyphRunCommand(cmd, Matrix4x4.Identity);
+                        CompileGlyphRunCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawTexture:
-                        CompileTextureCommand(cmd, Matrix4x4.Identity);
+                        CompileTextureCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.PushClip:
-                        PushClipRect(cmd.Rect, Matrix4x4.Identity);
+                        PushClipRect(cmd.Rect, activeTransform);
                         break;
                     case RenderCommandType.PopClip:
                         PopClipRect();
                         break;
                     case RenderCommandType.DrawLine:
-                        CompileLineCommand(cmd, Matrix4x4.Identity);
+                        CompileLineCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawLine3D:
                         CommitStaticDrawCalls();
@@ -16031,7 +17032,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, context, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, context, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -16046,25 +17047,25 @@ SceneStateUploadComplete:
                         pendingTextStart = (uint)_textVerticesList.Count;
                         break;
                     case RenderCommandType.DrawEllipse:
-                        CompileEllipseCommand(cmd, Matrix4x4.Identity);
+                        CompileEllipseCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawDotGrid:
-                        CompileDotGridCommand(cmd, Matrix4x4.Identity);
+                        CompileDotGridCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawCircle:
-                        CompileCircleCommand(cmd, Matrix4x4.Identity);
+                        CompileCircleCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawRoundedRect:
-                        CompileRoundedRectCommand(cmd, Matrix4x4.Identity);
+                        CompileRoundedRectCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawBezier:
-                        CompileBezierCommand(cmd, Matrix4x4.Identity);
+                        CompileBezierCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawCubicBezier:
-                        CompileCubicBezierCommand(cmd, Matrix4x4.Identity);
+                        CompileCubicBezierCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPolyline:
-                        CompilePolylineCommand(context, cmd, Matrix4x4.Identity);
+                        CompilePolylineCommand(context, cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawSpline:
                         CommitStaticDrawCalls();
@@ -16073,7 +17074,7 @@ SceneStateUploadComplete:
                             if (pipeline != null)
                             {
                                 var localCmd = cmd;
-                                pipeline.Compile(this, context, Matrix4x4.Identity, ref localCmd);
+                                pipeline.Compile(this, context, activeTransform, ref localCmd);
                                 staticDrawCallList.Add(new CompositorDrawCall
                                 {
                                     Type = DrawCallType.Extension,
@@ -16094,9 +17095,14 @@ SceneStateUploadComplete:
                             {
                                 CommitStaticDrawCalls();
                                 var localCmd = cmd;
-                                var compileTransform = localCmd.ExtensionId == CompositorBuiltInExtensions.AcisSolid
-                                    ? localCmd.Transform
-                                    : Matrix4x4.Identity;
+                                var compileTransform = localCmd.ExtensionId switch
+                                {
+                                    CompositorBuiltInExtensions.AcisSolid => localCmd.Transform,
+                                    CompositorBuiltInExtensions.Spline or
+                                    CompositorBuiltInExtensions.Hatch or
+                                    CompositorBuiltInExtensions.Line3D => activeTransform,
+                                    _ => Matrix4x4.Identity
+                                };
                                 pipeline.Compile(this, context, compileTransform, ref localCmd);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
@@ -16142,16 +17148,16 @@ SceneStateUploadComplete:
                         }
                         break;
                     case RenderCommandType.FillTriangle:
-                        CompileFillTriangleCommand(cmd, Matrix4x4.Identity);
+                        CompileFillTriangleCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawVertexMesh:
-                        CompileVertexMeshCommand(cmd, Matrix4x4.Identity);
+                        CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, Matrix4x4.Identity);
+                        CompilePointBatchCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
-                        CompileFillQuadCommand(cmd, Matrix4x4.Identity);
+                        CompileFillQuadCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawGpuLineSeries:
                         CommitStaticDrawCalls();
@@ -16220,7 +17226,7 @@ SceneStateUploadComplete:
                         pendingTextStart = (uint)_textVerticesList.Count;
                         break;
                     case RenderCommandType.DrawPicture:
-                        CompilePicture(cmd.Picture, Matrix4x4.Identity);
+                        CompilePicture(cmd.Picture, activeTransform);
                         break;
                 }
 
@@ -18421,7 +19427,10 @@ SceneStateUploadComplete:
         PathGeometry path,
         Pen pen,
         Rect bounds,
-        Matrix4x4 transform)
+        Matrix4x4 transform,
+        bool isPenThicknessLocal,
+        Matrix4x4 recordedTransform,
+        RenderCommandGeometryCache? geometryCache)
     {
         _currentFrameOpacityMaskDemand++;
         _peakOpacityMaskDemand = Math.Max(
@@ -18433,14 +19442,30 @@ SceneStateUploadComplete:
 
         try
         {
-            CompilePathCommand(
-                new RenderCommand
-                {
-                    Type = RenderCommandType.DrawPath,
-                    Path = path,
-                    Pen = pen
-                },
-                transform);
+            var sourceCommand = new RenderCommand
+            {
+                Pen = pen,
+                Transform = recordedTransform,
+                IsPenThicknessLocal = isPenThicknessLocal,
+                GeometryCache = geometryCache
+            };
+            var stroke = ResolveStrokeCompileState(sourceCommand, transform);
+            if (stroke.IsValid)
+            {
+                var retainedPen = stroke.RetainedThickness == pen.Thickness
+                    ? pen
+                    : CreatePenWithThickness(pen, stroke.RetainedThickness);
+                CompilePathCommand(
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.DrawPath,
+                        Path = path,
+                        Pen = retainedPen,
+                        IsPenThicknessLocal = true,
+                        GeometryCache = geometryCache
+                    },
+                    transform);
+            }
             CommitPendingDrawCalls();
         }
         finally
