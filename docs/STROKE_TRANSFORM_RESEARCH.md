@@ -21,7 +21,7 @@ or adapted.
 | Engine or specification | Public or architectural contract examined | ProGPU decision |
 | --- | --- | --- |
 | [Skia `SkCanvas`](https://api.skia.org/classSkCanvas.html) and [`SkPaint`](https://api.skia.org/classSkPaint.html) | Canvas draw calls apply the current matrix to geometry and use paint for stroke width. A zero-width Skia stroke is an explicit one-device-pixel hairline whose width does not scale. | Retain ordinary width in the command's source coordinate space and compose it with the complete transform exactly once. Keep hairline behavior separate; do not infer a non-scaling stroke from an ordinary positive width. |
-| [Direct2D transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview) and [`D2D1_STROKE_TRANSFORM_TYPE`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | A render-target world transform generally affects both fill and stroke. Geometry transforms happen before stroking, while fixed and hairline transform types are explicit exceptions. | Preserve whether retained width is local or was already changed by a legacy recorder. Normal visual transforms scale the pen; a future fixed-width feature must be an explicit mode, not an inverse-scale accident. |
+| [Direct2D transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview) and [`D2D1_STROKE_TRANSFORM_TYPE`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | A render-target world transform generally affects both fill and stroke. Geometry transforms happen before stroking, while fixed and hairline transform types are explicit exceptions. | Preserve whether retained width is local or was already changed by a legacy recorder. Normal visual transforms scale the pen; WinUI's fixed-width contract is lowered explicitly in device space, not simulated by an inverse scalar. |
 | [Win2D `CanvasDrawingSession`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasDrawingSession.htm) and [`DrawLine`](https://microsoft.github.io/Win2D/WinUI2/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawLine_2.htm) | A drawing session applies its `Transform` to subsequent operations, while each draw supplies an independent stroke width and style. | Keep transform and pen as separate typed retained state. Bridges record provenance rather than destructively rewriting the width during picture replay. |
 | [WebRender rendering overview](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst) | A retained display list becomes a scene and then a culled frame. A spatial tree preserves local-to-world and world-to-device transforms, and non-simple transforms form distinct coordinate systems. | Retain one source command and compose coordinate transforms at compilation. Do not create scale-specific picture copies or make width identity depend on replay position. |
 | [Vello](https://github.com/linebender/vello) and its [`Scene`](https://github.com/linebender/vello/blob/main/vello/src/scene.rs) | A retained scene records path, stroke style, brush, and affine state, then performs parallel vector work on a WebGPU-capable renderer. | Preserve the same separation at ProGPU's typed boundary and use GPU expansion only where it is mathematically equivalent. ProGPU's provenance flag and affine outline path are original designs rather than ports of Vello encoding. |
@@ -30,6 +30,7 @@ or adapted.
 | [Parley](https://docs.rs/parley/latest/parley/) | Shared font and layout contexts produce reusable positioned glyph runs; rendering is a later concern. | Rejected for stroke implementation. Its separation reinforces that a primitive-stroke correction must not invalidate or rebuild text layout. |
 | [HarfBuzz glyph rendering boundary](https://harfbuzz.github.io/glyphs-and-rendering.html) | HarfBuzz primarily returns positioned glyphs; outline extraction and rasterization follow shaping. | Rejected for stroke implementation. Unicode/OpenType shaping, fallback, glyph IDs, and variation state remain unchanged. |
 | [SVG 2 painting and vector effects](https://www.w3.org/TR/SVG2/painting.html#VectorEffects) | Normal positive-width strokes participate in transforms. `non-scaling-stroke` is a distinct opt-in vector effect. | Ordinary ProGPU pens scale with their visual. A non-scaling pen must become an explicit public contract; it must not be simulated by ambiguously pre-scaling every retained width. |
+| [WinUI `CompositionSpriteShape.IsStrokeNonScaling`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.composition.compositionspriteshape.isstrokenonscaling) | Enabling the property keeps the shape outline from scaling with the shape transform. | Lower the retained centerline through the complete Composition transform once, cache that transformed path, and apply the original width, dash distances, caps, and joins in device space. A scalar inverse is rejected because it cannot be exact for anisotropic scale or shear. |
 | [WGSL derivative built-ins](https://www.w3.org/TR/WGSL/#derivative-builtin-functions) | Screen-space derivatives, including the Manhattan-width `fwidth`, are defined only in fragment stages and must be evaluated in uniform control flow. | Late affine stroke modes compute coordinate derivatives at fragment entry, then select the winning edge or distance gradient without placing derivative calls in divergent primitive branches. |
 
 ## Retained provenance contract
@@ -136,6 +137,23 @@ stroke bodies own their shared seams. This preserves exact one-device-pixel
 behavior under scale, reflection, anisotropy, and shear without a CPU-baked
 classifier or per-frame outline allocation.
 
+WinUI's explicit positive-width non-scaling stroke is lowered at the retained
+Composition boundary. The source centerline is transformed once and cached by
+source-path identity and the complete affine matrix; the unchanged positive
+width is then stroked with an identity command transform. This makes width,
+dash arc length, caps, joins, visible rendering, opacity masks, and GPU hit
+testing share one exact device-space representation. Geometry or transform
+changes replace the bounded cache; steady replay performs no path conversion.
+This is deliberately separate from Skia's zero-width hairline sentinel.
+
+Special Skia picture, image, composed, and color-filter shader strokes use the
+same retained hairline contract. A zero-width Stroke records a typed path
+opacity mask carrying the complete canvas transform, cap/join state, and dash
+state, then shades a tightly bounded fill through that mask. StrokeAndFill
+records its fill and its one-device-pixel outline as two ordered operations.
+Materializing a local fill outline is rejected because a device hairline has no
+transform-independent local outline.
+
 The experimental Wavefront engine currently supports only a narrow subset of
 opaque, nonzero-winding, closed solid fills. Because it composites one compute
 layer after the ordered Atlas pass, mixing a Wavefront instance with a stroke,
@@ -164,9 +182,12 @@ inverse-transpose/Jacobian rather than a scalar approximation.
   pooled and must not allocate per source segment after warmup.
 - Picture replay is `O(C)` for retained commands `C`. Stable solid-color replay
   does not clone pens or dash arrays and does not create variants keyed by
-  visual scale. Append translation and portable picture deserialization rebuild
-  direct-primitive centerline caches once; unchanged replay and composed
-  transforms retain cache identity. Opaque transform-backed payloads (pictures,
+  visual scale. Span-based polyline and spline recording, append translation,
+  and portable picture deserialization do not materialize managed path graphs.
+  Connected solid polylines compile directly into pre-reserved bounded vertex
+  and index spans. Splines use a transform-adaptive 10/25/50/100-segment stack
+  sample at compilation rather than an unconditional 100-segment retained
+  graph. Opaque transform-backed payloads (pictures,
   visuals, hatches, dot grids, 3D lines, ACIS, and static DXF) compose the
   translation without rewriting shared retained geometry or GPU buffers.
   Extension compilation receives that already-composed transform exactly once;
@@ -193,6 +214,11 @@ inverse-transpose/Jacobian rather than a scalar approximation.
   through Atlas and never interleaves incorrectly ordered engine output.
 - Width provenance is scalar typed state on `RenderCommand`; it introduces no
   reflection, object dictionary, native dependency, or per-frame adapter.
+- A WinUI non-scaling shape path is rebuilt in `O(S)` time and storage for `S`
+  source segments only when its source geometry or complete transform changes;
+  steady recording and replay reuse the cached transformed path. Special-shader
+  hairlines add one bounded opacity-mask pass and retain one-device-pixel width
+  under every finite invertible affine transform.
 
 Correctness is not traded for a lower command count. An optimization that
 restores the old width by skipping visual invalidation, dropping caps or dashes,
@@ -219,6 +245,8 @@ The focused tests and existing rendering suites jointly exercise:
   emits no invalid vertices or ghost hit while an independent fill survives;
 - fixed `GpuUniforms` layout, scoped vector-shader use, retained-scene reuse,
   and zero managed allocation in the warmed provenance/solid-picture hot path.
+- WinUI positive non-scaling strokes under anisotropic scale and Skia special-
+  shader hairlines under non-uniform transforms, including StrokeAndFill.
 
 Release qualification runs the focused pixel and provenance tests, the full
 Release core and headless suites, Avalonia contract tests, static/GPU rendering

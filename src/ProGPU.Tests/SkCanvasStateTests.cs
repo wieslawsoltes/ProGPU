@@ -1697,6 +1697,50 @@ public sealed class SkCanvasStateTests
         Assert.Equal((byte)0, pixels[(60 * 64 + 37) * 4 + 3]);
     }
 
+    [Theory]
+    [InlineData(SKPaintStyle.Stroke)]
+    [InlineData(SKPaintStyle.StrokeAndFill)]
+    public void SpecialShaderPreservesTransformedHairlineStroke(
+        SKPaintStyle style)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(
+            80,
+            80,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul));
+        using var colorShader = SKShader.CreateColor(SKColors.Red);
+        using var colorFilter = SKColorFilter.CreateLumaColor();
+        using var shader = colorShader.WithColorFilter(colorFilter);
+        using var paint = new SKPaint
+        {
+            Shader = shader,
+            Style = style,
+            StrokeWidth = 0f,
+            StrokeCap = SKStrokeCap.Butt,
+            IsAntialias = false
+        };
+        using var path = new SKPath();
+        path.AddRect(new SKRect(8f, 8f, 24f, 24f));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.SetMatrix(SKMatrix.CreateScale(2f, 3f));
+        surface.Canvas.DrawPath(path, paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        byte[] pixels = snapshot.Texture.ReadPixels();
+        Assert.True(pixels[(24 * 80 + 24) * 4 + 3] > 0);
+        Assert.Equal((byte)0, pixels[(22 * 80 + 24) * 4 + 3]);
+        if (style == SKPaintStyle.StrokeAndFill)
+        {
+            Assert.True(pixels[(40 * 80 + 32) * 4 + 3] > 0);
+        }
+        else
+        {
+            Assert.Equal((byte)0, pixels[(40 * 80 + 32) * 4 + 3]);
+        }
+    }
+
     [Fact]
     public void DrawTextWithStrokePaintRendersGlyphOutlines()
     {

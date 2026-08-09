@@ -95,9 +95,9 @@ public sealed class CompositionPathGeometry : CompositionGeometry
             _trimmedPath = _path.Data.CreateTrimmed(
                 TrimOrigin,
                 TrimLength);
-            _trimmedCache = RenderCommandGeometryCache.ForPath(
-                _trimmedPath);
         }
+        _trimmedCache ??= RenderCommandGeometryCache.ForPath(
+            _trimmedPath);
         context.DrawPath(
             fill,
             stroke,
@@ -219,9 +219,9 @@ public sealed class CompositionRoundedRectangleGeometry : CompositionGeometry
             _trimmedPath = _pathData!.CreateTrimmed(
                 TrimOrigin,
                 TrimLength);
-            _trimmedCache = RenderCommandGeometryCache.ForPath(
-                _trimmedPath);
         }
+        _trimmedCache ??= RenderCommandGeometryCache.ForPath(
+            _trimmedPath);
         context.DrawPath(
             fill,
             stroke,

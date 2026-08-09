@@ -25,6 +25,8 @@ public class SKCanvas : SKObject
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
     private static readonly PathGeometry s_unitRectangleGeometry =
         CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
+    private static readonly SolidColorBrush s_opaqueStrokeMaskBrush =
+        new(Vector4.One);
     private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();
 
     private sealed class TextureColorSpace
@@ -4725,12 +4727,36 @@ public class SKCanvas : SKObject
                 pushedOpacity = true;
             }
 
+            bool hasHairlineStroke =
+                paint.Style != SKPaintStyle.Fill &&
+                paint.StrokeWidth == 0f;
             if (paint.Style == SKPaintStyle.Fill)
             {
                 DrawShaderLayer(shader!, clipGeometry, targetBounds, paint, drawAsFill: false);
             }
             else
             {
+                if (paint.Style == SKPaintStyle.StrokeAndFill &&
+                    hasHairlineStroke)
+                {
+                    DrawShaderLayer(
+                        shader!,
+                        clipGeometry,
+                        targetBounds,
+                        paint,
+                        drawAsFill: true);
+                }
+
+                if (hasHairlineStroke)
+                {
+                    DrawSpecialShaderHairline(
+                        shader!,
+                        clipGeometry,
+                        targetBounds,
+                        paint);
+                    return true;
+                }
+
                 using var sourcePath = new SKPath();
                 sourcePath.Geometry.FillRule = clipGeometry.FillRule;
                 foreach (var figure in clipGeometry.Figures)
@@ -4756,6 +4782,54 @@ public class SKCanvas : SKObject
         }
 
         return true;
+    }
+
+    private void DrawSpecialShaderHairline(
+        SKShader shader,
+        PathGeometry strokePath,
+        SKRect targetBounds,
+        SKPaint paint)
+    {
+        Matrix4x4 transform = _currentMatrix.ToMatrix4x4();
+        float localPadding = 1f;
+        if (TransformMetrics.TryGetStrokeScales(
+                transform,
+                out _,
+                out float minimumScale))
+        {
+            localPadding = 2f / minimumScale;
+        }
+
+        var coverageBounds = SKRect.Inflate(
+            targetBounds,
+            localPadding,
+            localPadding);
+        var coverageGeometry = CreateRectGeometry(coverageBounds);
+        Pen maskPen = paint.ToLocalPen(
+            s_opaqueStrokeMaskBrush,
+            GetCurrentStrokeScale());
+        _context.PushOpacityMask(
+            strokePath,
+            maskPen,
+            new Rect(
+                coverageBounds.Left,
+                coverageBounds.Top,
+                coverageBounds.Width,
+                coverageBounds.Height),
+            transform);
+        try
+        {
+            DrawShaderLayer(
+                shader,
+                coverageGeometry,
+                coverageBounds,
+                paint,
+                drawAsFill: true);
+        }
+        finally
+        {
+            _context.PopOpacityMask();
+        }
     }
 
     private static bool HasSpecialShader(SKShader? shader)
