@@ -4387,16 +4387,7 @@ public class DrawingContext :
             PointBufferOffset = offset,
             PointBufferCount = count,
             IsClosed = isClosed,
-            IsPenThicknessLocal = true,
-            GeometryCache = pen.HasDashPattern ||
-                isClosed ||
-                count > 2 ||
-                RequiresEndpointCapGeometry(pen)
-                ? RenderCommandGeometryCache.ForStrokePath(
-                    RenderCommandGeometryCache.CreatePolylinePath(
-                        points,
-                        isClosed))
-                : null
+            IsPenThicknessLocal = true
         });
     }
 
@@ -4449,17 +4440,7 @@ public class DrawingContext :
             WeightBufferCount = weightCount,
             SplineDegree = degree,
             IsClosed = isClosed,
-            IsPenThicknessLocal = true,
-            // Retain the sampled centerline once so connected spline segments use
-            // the pen's join/cap contract and stable replay does not allocate or
-            // resample the spline on every frame.
-            GeometryCache = RenderCommandGeometryCache.ForStrokePath(
-                SplineGeometry.CreatePath(
-                    controlPoints,
-                    knots,
-                    weights,
-                    degree,
-                    isClosed))
+            IsPenThicknessLocal = true
         });
     }
 
@@ -5025,44 +5006,6 @@ public class DrawingContext :
                     command.Position4),
             _ => null
         };
-
-        if (command.Type == RenderCommandType.DrawPolyline)
-        {
-            var points = command.PolylinePoints is { Length: > 0 } inlinePoints
-                ? inlinePoints.AsSpan()
-                : GetPoints(command.PointBufferOffset, command.PointBufferCount);
-            if (pen.HasDashPattern ||
-                command.IsClosed ||
-                points.Length > 2 ||
-                RequiresEndpointCapGeometry(pen))
-            {
-                strokePath = RenderCommandGeometryCache.CreatePolylinePath(
-                    points,
-                    command.IsClosed);
-            }
-        }
-        else if (command.Type == RenderCommandType.DrawSpline ||
-            (command.Type == RenderCommandType.DrawExtension &&
-             command.ExtensionId == CompositorBuiltInExtensions.Spline))
-        {
-            var points = command.PolylinePoints is { Length: > 0 } inlinePoints
-                ? inlinePoints.AsSpan()
-                : GetPoints(command.PointBufferOffset, command.PointBufferCount);
-            var knots = command.SplineKnots is { Length: > 0 } inlineKnots
-                ? inlineKnots.AsSpan()
-                : GetDoubles(command.DoubleBufferOffset, command.DoubleBufferCount);
-            var weights = command.SplineWeights is { Length: > 0 } inlineWeights
-                ? inlineWeights.AsSpan()
-                : command.WeightBufferCount > 0
-                    ? GetDoubles(command.WeightBufferOffset, command.WeightBufferCount)
-                    : ReadOnlySpan<double>.Empty;
-            strokePath = RenderCommandGeometryCache.CreateSplinePath(
-                points,
-                knots,
-                weights,
-                command.SplineDegree,
-                command.IsClosed);
-        }
 
         command.GeometryCache = strokePath == null
             ? null

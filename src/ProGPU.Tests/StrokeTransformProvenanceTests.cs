@@ -80,7 +80,7 @@ public sealed class StrokeTransformProvenanceTests
     }
 
     [Fact]
-    public void DashedCurveAndIndexedStrokeRecordersRetainGeometryCaches()
+    public void DashedCurvesRetainCachesWhileIndexedRecordersStayCacheFree()
     {
         var context = new DrawingContext();
         var pen = new Pen(
@@ -109,9 +109,49 @@ public sealed class StrokeTransformProvenanceTests
             degree: 1);
 
         Assert.Equal(4, context.Commands.Count);
-        Assert.All(
-            context.Commands,
-            static command => Assert.NotNull(command.GeometryCache?.StrokePath));
+        Assert.NotNull(context.Commands[0].GeometryCache?.StrokePath);
+        Assert.NotNull(context.Commands[1].GeometryCache?.StrokePath);
+        Assert.Null(context.Commands[2].GeometryCache);
+        Assert.Null(context.Commands[3].GeometryCache);
+    }
+
+    [Fact]
+    public void IndexedStrokeRecordingIsAllocationFreeAfterWarmup()
+    {
+        var context = new DrawingContext();
+        var pen = new Pen(
+            new SolidColorBrush(Vector4.One),
+            thickness: 2f,
+            lineJoin: PenLineJoin.Round,
+            startLineCap: PenLineCap.Round,
+            endLineCap: PenLineCap.Triangle);
+        Vector2[] polylinePoints =
+        [
+            Vector2.Zero,
+            new Vector2(4f, 8f),
+            new Vector2(12f, 2f)
+        ];
+        Vector2[] splinePoints =
+        [
+            Vector2.Zero,
+            new Vector2(4f, 8f),
+            new Vector2(8f, -2f),
+            new Vector2(12f, 2f)
+        ];
+        double[] knots = [0d, 0d, 0d, 1d, 2d, 2d, 2d];
+
+        RecordIndexedStrokes(context, pen, polylinePoints, splinePoints, knots);
+        context.Clear();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 256; iteration++)
+        {
+            RecordIndexedStrokes(context, pen, polylinePoints, splinePoints, knots);
+            context.Clear();
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -285,6 +325,17 @@ public sealed class StrokeTransformProvenanceTests
         Assert.Equal(PenLineJoin.Bevel, command.Pen.LineJoin);
         Assert.Equal(3f, command.Pen.Thickness);
         Assert.True(command.IsPenThicknessLocal);
+    }
+
+    private static void RecordIndexedStrokes(
+        DrawingContext context,
+        Pen pen,
+        Vector2[] polylinePoints,
+        Vector2[] splinePoints,
+        double[] knots)
+    {
+        context.DrawPolyline(pen, polylinePoints);
+        context.DrawSpline(pen, splinePoints, knots, degree: 2);
     }
 
     private static PathGeometry CreatePath()

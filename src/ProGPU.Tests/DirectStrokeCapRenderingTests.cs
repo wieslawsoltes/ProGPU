@@ -126,7 +126,7 @@ public sealed class DirectStrokeCapRenderingTests
             IsPenThicknessLocal = true
         };
 
-        Assert.NotNull(direct.GeometryCache?.StrokePath);
+        Assert.Null(direct.GeometryCache);
         Assert.Equal(Render(expected), Render(direct));
     }
 
@@ -168,7 +168,7 @@ public sealed class DirectStrokeCapRenderingTests
             IsPenThicknessLocal = true
         };
 
-        Assert.NotNull(direct.GeometryCache?.StrokePath);
+        Assert.Null(direct.GeometryCache);
         Assert.Equal(Render(expected), Render(direct));
     }
 
@@ -179,7 +179,7 @@ public sealed class DirectStrokeCapRenderingTests
     [InlineData(PenLineJoin.Bevel, true)]
     [InlineData(PenLineJoin.Round, false)]
     [InlineData(PenLineJoin.Round, true)]
-    public void SplineCapsAndJoinsMatchItsRetainedCenterline(
+    public void SplineCapsAndJoinsMatchItsAdaptiveCenterline(
         PenLineJoin lineJoin,
         bool useAffineTransform)
     {
@@ -206,8 +206,27 @@ public sealed class DirectStrokeCapRenderingTests
         var spline = Assert.Single(context.Commands);
         spline.Transform = transform;
         spline.IsPenThicknessLocal = true;
-        var retainedPath = Assert.IsType<PathGeometry>(
-            spline.GeometryCache?.StrokePath);
+        spline.PolylinePoints = controlPoints;
+        spline.SplineKnots = knots;
+        spline.PointBufferOffset = 0;
+        spline.PointBufferCount = 0;
+        spline.DoubleBufferOffset = 0;
+        spline.DoubleBufferCount = 0;
+        Assert.Null(spline.GeometryCache);
+        int segmentCount = SplineGeometry.GetScreenSegmentCount(
+            controlPoints,
+            transform);
+        var sampledPoints = new Vector2[segmentCount + 1];
+        Assert.True(SplineGeometry.TryEvaluatePoints(
+            2,
+            controlPoints,
+            knots,
+            ReadOnlySpan<double>.Empty,
+            Matrix4x4.Identity,
+            sampledPoints));
+        var retainedPath = RenderCommandGeometryCache.CreatePolylinePath(
+            sampledPoints,
+            isClosed: false);
 
         var expected = new RenderCommand
         {
@@ -223,7 +242,7 @@ public sealed class DirectStrokeCapRenderingTests
     }
 
     [Fact]
-    public void AppendTranslationRebuildsConnectedPolylineCacheOnce()
+    public void AppendTranslationKeepsConnectedPolylineCacheFree()
     {
         Vector2[] points =
         [
@@ -239,24 +258,22 @@ public sealed class DirectStrokeCapRenderingTests
             endLineCap: PenLineCap.Triangle);
         var source = new DrawingContext();
         source.DrawPolyline(pen, points);
-        var sourceCache = Assert.IsType<RenderCommandGeometryCache>(
-            source.Commands[0].GeometryCache);
+        Assert.Null(source.Commands[0].GeometryCache);
 
         var target = new DrawingContext();
         target.Append(source, new Vector2(20f, 30f));
 
         var command = Assert.Single(target.Commands);
-        var translatedCache = Assert.IsType<RenderCommandGeometryCache>(
-            command.GeometryCache);
-        Assert.NotSame(sourceCache, translatedCache);
-        var figure = Assert.Single(translatedCache.StrokePath!.Figures);
-        Assert.Equal(new Vector2(22f, 34f), figure.StartPoint);
+        Assert.Null(command.GeometryCache);
+        Assert.Equal(
+            new Vector2(22f, 34f),
+            target.PointBuffer[command.PointBufferOffset]);
         Assert.Equal(
             new Vector2(28f, 32f),
-            Assert.IsType<LineSegment>(figure.Segments[0]).Point);
+            target.PointBuffer[command.PointBufferOffset + 1]);
         Assert.Equal(
             new Vector2(34f, 36f),
-            Assert.IsType<LineSegment>(figure.Segments[1]).Point);
+            target.PointBuffer[command.PointBufferOffset + 2]);
     }
 
     [Fact]

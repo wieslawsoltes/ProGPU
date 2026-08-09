@@ -288,15 +288,12 @@ internal static class PictureArchive
         for (var index = 0; index < commands.Length; index++)
         {
             commands[index] = ReadCommand(reader, depth, version);
-            RestoreGeometryCache(ref commands[index], points, doubles);
+            RestoreGeometryCache(ref commands[index]);
         }
         return new GpuPicture(commands, points, doubles, lines, floats);
     }
 
-    private static void RestoreGeometryCache(
-        ref RenderCommand command,
-        Vector2[] points,
-        double[] doubles)
+    private static void RestoreGeometryCache(ref RenderCommand command)
     {
         if (command.Type == RenderCommandType.DrawPath && command.Path != null)
         {
@@ -340,42 +337,6 @@ internal static class PictureArchive
             _ => null
         };
 
-        if (command.Type == RenderCommandType.DrawPolyline)
-        {
-            var polylinePoints = GetArchivePoints(command, points);
-            if (pen.HasDashPattern ||
-                command.IsClosed ||
-                polylinePoints.Length > 2 ||
-                RequiresStrokePath(pen))
-            {
-                strokePath = RenderCommandGeometryCache.CreatePolylinePath(
-                    polylinePoints,
-                    command.IsClosed);
-            }
-        }
-        else if (command.Type == RenderCommandType.DrawSpline ||
-            (command.Type == RenderCommandType.DrawExtension &&
-             command.ExtensionId == CompositorBuiltInExtensions.Spline))
-        {
-            var splinePoints = GetArchivePoints(command, points);
-            var knots = GetArchiveDoubles(
-                command.DoubleBufferOffset,
-                command.DoubleBufferCount,
-                command.SplineKnots,
-                doubles);
-            var weights = GetArchiveDoubles(
-                command.WeightBufferOffset,
-                command.WeightBufferCount,
-                command.SplineWeights,
-                doubles);
-            strokePath = RenderCommandGeometryCache.CreateSplinePath(
-                splinePoints,
-                knots,
-                weights,
-                command.SplineDegree,
-                command.IsClosed);
-        }
-
         if (strokePath != null)
         {
             command.GeometryCache = RenderCommandGeometryCache.ForStrokePath(strokePath);
@@ -386,26 +347,6 @@ internal static class PictureArchive
         pen.HasDashPattern ||
         pen.StartLineCap != PenLineCap.Flat ||
         pen.EndLineCap != PenLineCap.Flat;
-
-    private static ReadOnlySpan<Vector2> GetArchivePoints(
-        in RenderCommand command,
-        Vector2[] points) =>
-        command.PolylinePoints is { Length: > 0 } inlinePoints
-            ? inlinePoints
-            : points.AsSpan(
-                command.PointBufferOffset,
-                command.PointBufferCount);
-
-    private static ReadOnlySpan<double> GetArchiveDoubles(
-        int offset,
-        int count,
-        double[]? inlineValues,
-        double[] values) =>
-        inlineValues is { Length: > 0 }
-            ? inlineValues
-            : count > 0
-                ? values.AsSpan(offset, count)
-                : ReadOnlySpan<double>.Empty;
 
     private static void WriteCommand(
         BinaryWriter writer,

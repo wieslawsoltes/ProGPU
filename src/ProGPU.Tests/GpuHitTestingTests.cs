@@ -749,7 +749,7 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
-    public void DrawingContextRetainsSplineGeometryForRenderingAndGpuHitTesting()
+    public void DrawingContextKeepsSplineRecordingCacheFreeForGpuHitTesting()
     {
         var context = new DrawingContext();
         context.DrawSpline(
@@ -761,7 +761,7 @@ public sealed class GpuHitTestingTests
             [0d, 0d, 1d, 1d],
             degree: 1);
         var command = Assert.Single(context.Commands);
-        Assert.NotNull(command.GeometryCache?.StrokePath);
+        Assert.Null(command.GeometryCache);
 
         var compiler = new CountingPathHitTestCompilationCache();
         var builder = new GpuRenderCommandHitTestCacheBuilder(compiler);

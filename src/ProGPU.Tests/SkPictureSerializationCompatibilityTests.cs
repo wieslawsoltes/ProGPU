@@ -9,7 +9,7 @@ namespace ProGPU.Tests;
 public sealed class SkPictureSerializationCompatibilityTests
 {
     [Fact]
-    public void ArchiveRebuildsRetainedStrokeGeometryCachesOnce()
+    public void ArchiveRebuildsOnlyIntrinsicStrokeGeometryCaches()
     {
         var recorder = new GpuPictureRecorder();
         var context = recorder.BeginRecording(new Rect(0f, 0f, 64f, 64f));
@@ -62,12 +62,12 @@ public sealed class SkPictureSerializationCompatibilityTests
         Assert.NotNull(commands[0].GeometryCache?.StrokePath);
         Assert.NotNull(commands[1].GeometryCache?.StrokePath);
         Assert.NotNull(commands[2].GeometryCache?.StrokePath);
-        Assert.NotNull(commands[3].GeometryCache?.StrokePath);
-        Assert.NotNull(commands[4].GeometryCache?.StrokePath);
+        Assert.Null(commands[3].GeometryCache);
+        Assert.Null(commands[4].GeometryCache);
         Assert.NotNull(commands[5].GeometryCache?.StrokePath);
         Assert.Same(commands[5].Path, commands[5].GeometryCache?.StrokePath);
 
-        for (var index = 0; index < 6; index++)
+        foreach (var index in new[] { 0, 1, 2, 5 })
         {
             var cache = Assert.IsType<RenderCommandGeometryCache>(commands[index].GeometryCache);
             Assert.True(cache.TryGetDashedStrokePath(

@@ -1658,43 +1658,62 @@ public unsafe partial class Compositor : IDisposable
             return;
         }
 
-        var stroke = ResolveStrokeCompileState(cmd, transform);
-        if (!stroke.IsValid)
-        {
-            return;
-        }
-
-        if (cmd.GeometryCache?.StrokePath is { } retainedPath)
-        {
-            CompileRetainedStrokePath(cmd, retainedPath, stroke, transform);
-            return;
-        }
-
-        ReadOnlySpan<Vector2> controlPoints = provider != null
-            ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
-            : cmd.PolylinePoints;
-        ReadOnlySpan<double> knots = provider != null
-            ? provider.GetDoubles(cmd.DoubleBufferOffset, cmd.DoubleBufferCount)
-            : cmd.SplineKnots;
-        ReadOnlySpan<double> weights = provider != null && cmd.WeightBufferCount > 0
-            ? provider.GetDoubles(cmd.WeightBufferOffset, cmd.WeightBufferCount)
-            : cmd.SplineWeights;
+        ReadOnlySpan<Vector2> controlPoints =
+            cmd.PolylinePoints is { Length: > 0 } inlinePoints
+                ? inlinePoints
+                : provider != null && cmd.PointBufferCount > 0
+                    ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
+                    : ReadOnlySpan<Vector2>.Empty;
+        ReadOnlySpan<double> knots =
+            cmd.SplineKnots is { Length: > 0 } inlineKnots
+                ? inlineKnots
+                : provider != null && cmd.DoubleBufferCount > 0
+                    ? provider.GetDoubles(cmd.DoubleBufferOffset, cmd.DoubleBufferCount)
+                    : ReadOnlySpan<double>.Empty;
+        ReadOnlySpan<double> weights =
+            cmd.SplineWeights is { Length: > 0 } inlineWeights
+                ? inlineWeights
+                : provider != null && cmd.WeightBufferCount > 0
+                    ? provider.GetDoubles(cmd.WeightBufferOffset, cmd.WeightBufferCount)
+                    : ReadOnlySpan<double>.Empty;
 
         if (controlPoints.Length < 2 || knots.IsEmpty)
         {
             return;
         }
 
-        // Legacy/archive commands may predate the retained geometry cache. Build
-        // the same local centerline as the recorder so caps, joins, dashes, and
-        // affine transforms still share the exact path-stroke implementation.
-        var fallbackPath = SplineGeometry.CreatePath(
+        if (!SplineGeometry.TryGetDomain(
+                controlPoints,
+                knots,
+                cmd.SplineDegree,
+                out _,
+                out _))
+        {
+            CompilePolylinePoints(controlPoints, cmd, transform);
+            return;
+        }
+
+        int segmentCount = SplineGeometry.GetScreenSegmentCount(
             controlPoints,
-            knots,
-            weights,
-            cmd.SplineDegree,
-            cmd.IsClosed);
-        CompileRetainedStrokePath(cmd, fallbackPath, stroke, transform);
+            transform);
+        if (segmentCount == 0)
+        {
+            return;
+        }
+
+        Span<Vector2> sampledPoints = stackalloc Vector2[segmentCount + 1];
+        if (!SplineGeometry.TryEvaluatePoints(
+                cmd.SplineDegree,
+                controlPoints,
+                knots,
+                weights,
+                Matrix4x4.Identity,
+                sampledPoints))
+        {
+            return;
+        }
+
+        CompilePolylinePoints(sampledPoints, cmd, transform);
     }
     public int VectorIndexCount => _vectorIndicesList.Count;
     public int TextVertexCount => _textVerticesList.Count * 6;
@@ -9299,23 +9318,27 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isSmoothJoin)
     {
-        var localTriangles = StrokeJoinGeometry.CreateDirectionalJoin(
+        Span<StrokeJoinTriangle> localTriangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+        int localTriangleCount = StrokeJoinGeometry.WriteLineJoin(
+            localTriangles,
             pen.LineJoin,
             localThickness,
             pen.MiterLimit,
+            localJoinPoint - localIncomingDirection,
             localJoinPoint,
-            localIncomingDirection,
-            localOutgoingDirection,
+            localJoinPoint + localOutgoingDirection,
             isSmoothJoin);
 
-        for (var triangleIndex = 0; triangleIndex < localTriangles.Length; triangleIndex++)
+        var generatedTriangles = localTriangles[..localTriangleCount];
+        for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
-            var localTriangle = localTriangles[triangleIndex];
+            var localTriangle = generatedTriangles[triangleIndex];
             var transformedTriangle = new StrokeJoinTriangle(
                 Vector2.Transform(localTriangle.P0, transform),
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
-            var edgeMasks = GetStrokeTriangleEdgeMasks(localTriangles, triangleIndex);
+            var edgeMasks = GetStrokeTriangleEdgeMasks(generatedTriangles, triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
@@ -9546,23 +9569,33 @@ SceneStateUploadComplete:
             return;
         }
 
-        var localTriangles = StrokeCapGeometry.CreateDirectionalCap(
+        Span<StrokeJoinTriangle> localTriangles =
+            stackalloc StrokeJoinTriangle[StrokeCapGeometry.MaxTrianglesPerCap];
+        Vector2 lineStart = isStart
+            ? localCenter
+            : localCenter - localDirectionAlongPath;
+        Vector2 lineEnd = isStart
+            ? localCenter + localDirectionAlongPath
+            : localCenter;
+        int localTriangleCount = StrokeCapGeometry.WriteLineCap(
+            localTriangles,
             lineCap,
             localThickness,
-            localCenter,
-            localDirectionAlongPath,
+            lineStart,
+            lineEnd,
             isStart);
         var normalizedLocalDirection = localDirectionAlongPath / directionLength;
 
-        for (var triangleIndex = 0; triangleIndex < localTriangles.Length; triangleIndex++)
+        var generatedTriangles = localTriangles[..localTriangleCount];
+        for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
-            var localTriangle = localTriangles[triangleIndex];
+            var localTriangle = generatedTriangles[triangleIndex];
             var transformedTriangle = new StrokeJoinTriangle(
                 Vector2.Transform(localTriangle.P0, transform),
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
             var edgeMasks = GetStrokeCapTriangleEdgeMasks(
-                localTriangles,
+                generatedTriangles,
                 triangleIndex,
                 localCenter,
                 normalizedLocalDirection);
@@ -9594,25 +9627,29 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isSmoothJoin)
     {
-        var triangles = StrokeJoinGeometry.CreateDirectionalJoin(
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+        int triangleCount = StrokeJoinGeometry.WriteLineJoin(
+            triangles,
             pen.LineJoin,
             thickness,
             pen.MiterLimit,
+            joinPoint - incomingDirection,
             joinPoint,
-            incomingDirection,
-            outgoingDirection,
+            joinPoint + outgoingDirection,
             isSmoothJoin);
 
-        for (var triangleIndex = 0; triangleIndex < triangles.Length; triangleIndex++)
+        var generatedTriangles = triangles[..triangleCount];
+        for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
-            var edgeMasks = GetStrokeTriangleEdgeMasks(triangles, triangleIndex);
+            var edgeMasks = GetStrokeTriangleEdgeMasks(generatedTriangles, triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
                 ref currentVertexCount,
                 ref currentIndexCount,
                 penBrushIdx,
-                triangles[triangleIndex],
+                generatedTriangles[triangleIndex],
                 edgeMasks.Exterior,
                 edgeMasks.OwnedInternal,
                 isEdgeAliased);
@@ -9662,18 +9699,28 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isStart)
     {
-        var triangles = StrokeCapGeometry.CreateDirectionalCap(
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeCapGeometry.MaxTrianglesPerCap];
+        Vector2 lineStart = isStart
+            ? center
+            : center - directionAlongPath;
+        Vector2 lineEnd = isStart
+            ? center + directionAlongPath
+            : center;
+        int triangleCount = StrokeCapGeometry.WriteLineCap(
+            triangles,
             lineCap,
             thickness,
-            center,
-            directionAlongPath,
+            lineStart,
+            lineEnd,
             isStart);
         var normalizedDirection = Vector2.Normalize(directionAlongPath);
 
-        for (var triangleIndex = 0; triangleIndex < triangles.Length; triangleIndex++)
+        var generatedTriangles = triangles[..triangleCount];
+        for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
             var edgeMasks = GetStrokeCapTriangleEdgeMasks(
-                triangles,
+                generatedTriangles,
                 triangleIndex,
                 center,
                 normalizedDirection);
@@ -9683,7 +9730,7 @@ SceneStateUploadComplete:
                 ref currentVertexCount,
                 ref currentIndexCount,
                 penBrushIdx,
-                triangles[triangleIndex],
+                generatedTriangles[triangleIndex],
                 edgeMasks.Exterior,
                 edgeMasks.OwnedInternal,
                 isEdgeAliased);
@@ -9691,7 +9738,7 @@ SceneStateUploadComplete:
     }
 
     private static (uint Exterior, uint OwnedInternal) GetStrokeCapTriangleEdgeMasks(
-        StrokeJoinTriangle[] triangles,
+        ReadOnlySpan<StrokeJoinTriangle> triangles,
         int triangleIndex,
         Vector2 capCenter,
         Vector2 directionAlongPath)
@@ -9715,7 +9762,7 @@ SceneStateUploadComplete:
     }
 
     private static (uint Exterior, uint OwnedInternal) GetStrokeTriangleEdgeMasks(
-        StrokeJoinTriangle[] triangles,
+        ReadOnlySpan<StrokeJoinTriangle> triangles,
         int triangleIndex,
         bool hasCapBodyInterface = false,
         Vector2 capCenter = default,
@@ -9724,38 +9771,78 @@ SceneStateUploadComplete:
         var triangle = triangles[triangleIndex];
         uint exteriorMask = 0;
         uint ownedInternalMask = 0;
-        ClassifyStrokeTriangleEdge(triangle.P0, triangle.P1, 1u);
-        ClassifyStrokeTriangleEdge(triangle.P1, triangle.P2, 2u);
-        ClassifyStrokeTriangleEdge(triangle.P2, triangle.P0, 4u);
+        ClassifyStrokeTriangleEdge(
+            triangles,
+            triangleIndex,
+            triangle.P0,
+            triangle.P1,
+            1u,
+            hasCapBodyInterface,
+            capCenter,
+            capDirection,
+            ref exteriorMask,
+            ref ownedInternalMask);
+        ClassifyStrokeTriangleEdge(
+            triangles,
+            triangleIndex,
+            triangle.P1,
+            triangle.P2,
+            2u,
+            hasCapBodyInterface,
+            capCenter,
+            capDirection,
+            ref exteriorMask,
+            ref ownedInternalMask);
+        ClassifyStrokeTriangleEdge(
+            triangles,
+            triangleIndex,
+            triangle.P2,
+            triangle.P0,
+            4u,
+            hasCapBodyInterface,
+            capCenter,
+            capDirection,
+            ref exteriorMask,
+            ref ownedInternalMask);
         return (exteriorMask, ownedInternalMask);
+    }
 
-        void ClassifyStrokeTriangleEdge(Vector2 edgeStart, Vector2 edgeEnd, uint bit)
+    private static void ClassifyStrokeTriangleEdge(
+        ReadOnlySpan<StrokeJoinTriangle> triangles,
+        int triangleIndex,
+        Vector2 edgeStart,
+        Vector2 edgeEnd,
+        uint bit,
+        bool hasCapBodyInterface,
+        Vector2 capCenter,
+        Vector2 capDirection,
+        ref uint exteriorMask,
+        ref uint ownedInternalMask)
+    {
+        if (hasCapBodyInterface &&
+            IsPointOnStrokeCapBodyInterface(edgeStart, capCenter, capDirection) &&
+            IsPointOnStrokeCapBodyInterface(edgeEnd, capCenter, capDirection))
         {
-            if (hasCapBodyInterface &&
-                IsPointOnStrokeCapBodyInterface(edgeStart, capCenter, capDirection) &&
-                IsPointOnStrokeCapBodyInterface(edgeEnd, capCenter, capDirection))
-            {
-                return;
-            }
+            return;
+        }
 
-            var sharedTriangleIndex = FindSharedStrokeTriangleEdge(
-                triangles,
-                triangleIndex,
-                edgeStart,
-                edgeEnd);
-            if (sharedTriangleIndex < 0)
-            {
-                exteriorMask |= bit;
-            }
-            else if (triangleIndex < sharedTriangleIndex)
-            {
-                ownedInternalMask |= bit;
-            }
+        var sharedTriangleIndex = FindSharedStrokeTriangleEdge(
+            triangles,
+            triangleIndex,
+            edgeStart,
+            edgeEnd);
+        if (sharedTriangleIndex < 0)
+        {
+            exteriorMask |= bit;
+        }
+        else if (triangleIndex < sharedTriangleIndex)
+        {
+            ownedInternalMask |= bit;
         }
     }
 
     private static int FindSharedStrokeTriangleEdge(
-        StrokeJoinTriangle[] triangles,
+        ReadOnlySpan<StrokeJoinTriangle> triangles,
         int triangleIndex,
         Vector2 edgeStart,
         Vector2 edgeEnd)
@@ -10643,10 +10730,7 @@ SceneStateUploadComplete:
         int count = pointsSpan.Length;
         if (count < 2) return;
 
-        if (cmd.Pen!.HasDashPattern ||
-            cmd.IsClosed ||
-            count > 2 ||
-            RequiresEndpointCapGeometry(cmd.Pen))
+        if (cmd.Pen!.HasDashPattern)
         {
             var path = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePolylinePath(
@@ -10660,74 +10744,301 @@ SceneStateUploadComplete:
         float penBrushIdx = RegisterBrush(cmd.Pen.Brush);
         var penSolidColor = (cmd.Pen.Brush is SolidColorBrush solid) ? solid.Color : new Vector4(1f, 1f, 1f, 1f);
         float thickness = stroke.EncodedThickness;
-        var lineShapeType = EncodeShapeType(cmd, 3f);
+        bool useAffineStrokeGeometry = stroke.RequiresAffineGeometry;
+        int segmentBudget = cmd.IsClosed ? count : count - 1;
+        int joinBudget = cmd.IsClosed ? count : Math.Max(0, count - 2);
+        int capBudget = cmd.IsClosed ? 0 : 2;
+        int maxAdornmentTriangles = checked(
+            joinBudget * StrokeJoinGeometry.MaxTrianglesPerJoin +
+            capBudget * StrokeCapGeometry.MaxTrianglesPerCap);
+        int maxVertices = checked(segmentBudget * 4 + maxAdornmentTriangles * 4);
+        int maxIndices = checked(segmentBudget * 6 + maxAdornmentTriangles * 6);
 
-        int segmentCount = count - 1;
-        if (cmd.IsClosed) segmentCount++;
+        int vertexStart = _vectorVerticesList.Count;
+        int indexStart = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(
+            _vectorVerticesList,
+            checked(vertexStart + maxVertices));
+        CollectionsMarshal.SetCount(
+            _vectorIndicesList,
+            checked(indexStart + maxIndices));
 
-        // We will append 4 vertices and 6 indices for each segment
-        int totalVerticesToAdd = segmentCount * 4;
-        int totalIndicesToAdd = segmentCount * 6;
+        var verticesSpan = CollectionsMarshal.AsSpan(_vectorVerticesList);
+        var indicesSpan = CollectionsMarshal.AsSpan(_vectorIndicesList);
+        int currentVertexCount = vertexStart;
+        int currentIndexCount = indexStart;
+        var firstSegmentStartDirection = default(Vector2);
+        var previousSegmentEndDirection = default(Vector2);
+        var lastCapCenter = default(Vector2);
+        var lastCapDirection = default(Vector2);
+        var degenerateStrokeCenter = pointsSpan[0];
+        bool hasFirstSegmentStartDirection = false;
+        bool hasPreviousSegmentEndDirection = false;
+        bool hasLastCapCandidate = false;
+        bool hasDegenerateStrokeCandidate = false;
+        bool isFirstSegment = true;
 
-        int originalVertexCount = _vectorVerticesList.Count;
-        CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + totalVerticesToAdd);
-        var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, totalVerticesToAdd);
-
-        int originalIndexCount = _vectorIndicesList.Count;
-        CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + totalIndicesToAdd);
-        var indexSpan = CollectionsMarshal.AsSpan(_vectorIndicesList).Slice(originalIndexCount, totalIndicesToAdd);
-
-        if (stroke.RequiresAffineGeometry)
+        for (int segmentIndex = 0; segmentIndex < count - 1; segmentIndex++)
         {
-            var affineVertices = CollectionsMarshal.AsSpan(_vectorVerticesList);
-            var affineIndices = CollectionsMarshal.AsSpan(_vectorIndicesList);
-            var currentVertexCount = originalVertexCount;
-            var currentIndexCount = originalIndexCount;
-            for (var segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++)
+            var segmentStart = pointsSpan[segmentIndex];
+            var segmentEnd = pointsSpan[segmentIndex + 1];
+            var directionCandidate = segmentEnd - segmentStart;
+            bool hasDirection = TrySelectDirection(
+                out var direction,
+                directionCandidate);
+            if (!hasDirection)
             {
-                AppendAffineStrokeLineVertices(
-                    affineVertices,
-                    affineIndices,
+                if (Vector2.DistanceSquared(segmentStart, segmentEnd) <=
+                    StrokeEpsilon * StrokeEpsilon)
+                {
+                    if (isFirstSegment)
+                    {
+                        hasDegenerateStrokeCandidate = true;
+                        degenerateStrokeCenter = segmentEnd;
+                    }
+
+                    continue;
+                }
+
+                hasDegenerateStrokeCandidate = false;
+                hasPreviousSegmentEndDirection = false;
+                hasLastCapCandidate = false;
+                isFirstSegment = false;
+                continue;
+            }
+
+            hasDegenerateStrokeCandidate = false;
+            if (isFirstSegment)
+            {
+                firstSegmentStartDirection = direction;
+                hasFirstSegmentStartDirection = true;
+                if (!cmd.IsClosed)
+                {
+                    AppendPathStrokeSegmentCapTriangles(
+                        verticesSpan,
+                        indicesSpan,
+                        ref currentVertexCount,
+                        ref currentIndexCount,
+                        penSolidColor,
+                        penBrushIdx,
+                        stroke.LocalGeometryThickness,
+                        segmentStart,
+                        direction,
+                        transform,
+                        useAffineStrokeGeometry,
+                        stroke.IsHairline,
+                        cmd.IsEdgeAliased,
+                        isStart: true,
+                        lineCap: cmd.Pen.StartLineCap);
+                }
+            }
+            else if (hasPreviousSegmentEndDirection)
+            {
+                AppendPathStrokeSegmentJoinTriangles(
+                    verticesSpan,
+                    indicesSpan,
                     ref currentVertexCount,
                     ref currentIndexCount,
+                    cmd.Pen,
                     penSolidColor,
                     penBrushIdx,
                     stroke.LocalGeometryThickness,
-                    pointsSpan[segmentIndex % count],
-                    pointsSpan[(segmentIndex + 1) % count],
+                    segmentStart,
+                    previousSegmentEndDirection,
+                    direction,
                     transform,
-                    cmd.IsEdgeAliased);
+                    useAffineStrokeGeometry,
+                    cmd.IsEdgeAliased,
+                    isSmoothJoin: false);
             }
 
-            CollectionsMarshal.SetCount(_vectorVerticesList, currentVertexCount);
-            CollectionsMarshal.SetCount(_vectorIndicesList, currentIndexCount);
-            ClampVectorVerticesToActiveClip(startIndex);
+            AppendPolylineStrokeLine(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penSolidColor,
+                penBrushIdx,
+                thickness,
+                stroke.LocalGeometryThickness,
+                segmentStart,
+                segmentEnd,
+                transform,
+                useAffineStrokeGeometry,
+                cmd.IsEdgeAliased);
+
+            previousSegmentEndDirection = direction;
+            hasPreviousSegmentEndDirection = true;
+            lastCapCenter = segmentEnd;
+            lastCapDirection = direction;
+            hasLastCapCandidate = true;
+            isFirstSegment = false;
+        }
+
+        if (!cmd.IsClosed && hasLastCapCandidate)
+        {
+            AppendPathStrokeSegmentCapTriangles(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penSolidColor,
+                penBrushIdx,
+                stroke.LocalGeometryThickness,
+                lastCapCenter,
+                lastCapDirection,
+                transform,
+                useAffineStrokeGeometry,
+                stroke.IsHairline,
+                cmd.IsEdgeAliased,
+                isStart: false,
+                lineCap: cmd.Pen.EndLineCap);
+        }
+        else if (!cmd.IsClosed && hasDegenerateStrokeCandidate)
+        {
+            AppendDegenerateStrokeCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                cmd.Pen,
+                penSolidColor,
+                penBrushIdx,
+                stroke.DeviceThickness,
+                degenerateStrokeCenter,
+                transform,
+                cmd.IsEdgeAliased);
+        }
+        else if (cmd.IsClosed && pointsSpan[^1] != pointsSpan[0])
+        {
+            var closeLineStart = pointsSpan[^1];
+            var closeLineEnd = pointsSpan[0];
+            var closeLineDirection = closeLineEnd - closeLineStart;
+            if (hasPreviousSegmentEndDirection)
+            {
+                AppendPathStrokeSegmentJoinTriangles(
+                    verticesSpan,
+                    indicesSpan,
+                    ref currentVertexCount,
+                    ref currentIndexCount,
+                    cmd.Pen,
+                    penSolidColor,
+                    penBrushIdx,
+                    stroke.LocalGeometryThickness,
+                    closeLineStart,
+                    previousSegmentEndDirection,
+                    closeLineDirection,
+                    transform,
+                    useAffineStrokeGeometry,
+                    cmd.IsEdgeAliased,
+                    isSmoothJoin: false);
+            }
+
+            AppendPolylineStrokeLine(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penSolidColor,
+                penBrushIdx,
+                thickness,
+                stroke.LocalGeometryThickness,
+                closeLineStart,
+                closeLineEnd,
+                transform,
+                useAffineStrokeGeometry,
+                cmd.IsEdgeAliased);
+
+            if (hasFirstSegmentStartDirection)
+            {
+                AppendPathStrokeSegmentJoinTriangles(
+                    verticesSpan,
+                    indicesSpan,
+                    ref currentVertexCount,
+                    ref currentIndexCount,
+                    cmd.Pen,
+                    penSolidColor,
+                    penBrushIdx,
+                    stroke.LocalGeometryThickness,
+                    closeLineEnd,
+                    closeLineDirection,
+                    firstSegmentStartDirection,
+                    transform,
+                    useAffineStrokeGeometry,
+                    cmd.IsEdgeAliased,
+                    isSmoothJoin: false);
+            }
+        }
+        else if (cmd.IsClosed &&
+                 hasPreviousSegmentEndDirection &&
+                 hasFirstSegmentStartDirection)
+        {
+            AppendPathStrokeSegmentJoinTriangles(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                cmd.Pen,
+                penSolidColor,
+                penBrushIdx,
+                stroke.LocalGeometryThickness,
+                pointsSpan[0],
+                previousSegmentEndDirection,
+                firstSegmentStartDirection,
+                transform,
+                useAffineStrokeGeometry,
+                cmd.IsEdgeAliased,
+                isSmoothJoin: false);
+        }
+
+        CollectionsMarshal.SetCount(_vectorVerticesList, currentVertexCount);
+        CollectionsMarshal.SetCount(_vectorIndicesList, currentIndexCount);
+        ClampVectorVerticesToActiveClip(startIndex);
+    }
+
+    private static void AppendPolylineStrokeLine(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        Vector4 penSolidColor,
+        float penBrushIdx,
+        float thickness,
+        float localThickness,
+        Vector2 localStart,
+        Vector2 localEnd,
+        Matrix4x4 transform,
+        bool useAffineStrokeGeometry,
+        bool isEdgeAliased)
+    {
+        if (useAffineStrokeGeometry)
+        {
+            AppendAffineStrokeLineVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penSolidColor,
+                penBrushIdx,
+                localThickness,
+                localStart,
+                localEnd,
+                transform,
+                isEdgeAliased);
             return;
         }
 
-        for (int i = 0; i < segmentCount; i++)
-        {
-            var p0_pos = Vector2.Transform(pointsSpan[i % count], transform);
-            var p1_pos = Vector2.Transform(pointsSpan[(i + 1) % count], transform);
-
-            uint idxStart = (uint)(originalVertexCount + i * 4);
-
-            int vIdx = i * 4;
-            vertexSpan[vIdx] = new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 1f, thickness, lineShapeType);
-            vertexSpan[vIdx + 1] = new VectorVertex(p0_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -1f, thickness, lineShapeType);
-            vertexSpan[vIdx + 2] = new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, 2f, thickness, lineShapeType);
-            vertexSpan[vIdx + 3] = new VectorVertex(p1_pos, penSolidColor, p0_pos, penBrushIdx, p1_pos, -2f, thickness, lineShapeType);
-
-            int iIdx = i * 6;
-            indexSpan[iIdx] = idxStart;
-            indexSpan[iIdx + 1] = idxStart + 1;
-            indexSpan[iIdx + 2] = idxStart + 2;
-            indexSpan[iIdx + 3] = idxStart + 1;
-            indexSpan[iIdx + 4] = idxStart + 3;
-            indexSpan[iIdx + 5] = idxStart + 2;
-        }
-
-        ClampVectorVerticesToActiveClip(startIndex);
+        AppendStrokeLineVertices(
+            verticesSpan,
+            indicesSpan,
+            ref currentVertexCount,
+            ref currentIndexCount,
+            penSolidColor,
+            penBrushIdx,
+            thickness,
+            Vector2.Transform(localStart, transform),
+            Vector2.Transform(localEnd, transform),
+            isEdgeAliased);
     }
 
     private void CompileSplineCommand(IRenderDataProvider? provider, RenderCommand cmd, Matrix4x4 transform)
