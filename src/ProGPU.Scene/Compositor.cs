@@ -447,6 +447,9 @@ public unsafe partial class Compositor : IDisposable
     private const int DirectRoundedMaximumCornerSegmentCount = 128;
     private const float DirectRoundedMaximumDeviceChordError = 0.25f;
     private const float AffineStrokeArcMaxAngleRadians = MathF.PI / 24f;
+    private const int MinimumAffineBezierSegments = 24;
+    private const int MaximumAffineBezierSegments = 1024;
+    private const double AffineBezierMaxDeviceError = 0.25;
     private const float AnalyticPrimitiveAntialiasPaddingPixels = 1.5f;
     // Matches Skia grayscale edge weight for axis-aligned vector glyphs rasterized at 8x8 coverage.
     private const float SmallTextPathCoverageGamma = 0.72f;
@@ -7445,13 +7448,27 @@ SceneStateUploadComplete:
                     }
                     else if (segment is QuadraticBezierSegment)
                     {
-                        const int N = 24;
+                        int N = useAffineStrokeGeometry
+                            ? GetAffineQuadraticSegmentCount(
+                                segmentStart,
+                                ((QuadraticBezierSegment)segment).ControlPoint,
+                                ((QuadraticBezierSegment)segment).Point,
+                                transform)
+                            : 24;
                         maxVertices += useAffineStrokeGeometry ? 4 * N : 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
                     else if (segment is CubicBezierSegment)
                     {
-                        const int N = 24;
+                        var cubic = (CubicBezierSegment)segment;
+                        int N = useAffineStrokeGeometry
+                            ? GetAffineCubicSegmentCount(
+                                segmentStart,
+                                cubic.ControlPoint1,
+                                cubic.ControlPoint2,
+                                cubic.Point,
+                                transform)
+                            : 24;
                         maxVertices += useAffineStrokeGeometry ? 4 * N : 2 * (N + 1);
                         maxIndices += 6 * N;
                     }
@@ -7703,7 +7720,12 @@ SceneStateUploadComplete:
                                 quad.ControlPoint,
                                 quad.Point,
                                 transform,
-                                cmd.IsEdgeAliased);
+                                cmd.IsEdgeAliased,
+                                GetAffineQuadraticSegmentCount(
+                                    segmentStart,
+                                    quad.ControlPoint,
+                                    quad.Point,
+                                    transform));
                         }
                         else
                         {
@@ -7760,7 +7782,13 @@ SceneStateUploadComplete:
                                 cubic.ControlPoint2,
                                 cubic.Point,
                                 transform,
-                                cmd.IsEdgeAliased);
+                                cmd.IsEdgeAliased,
+                                GetAffineCubicSegmentCount(
+                                    segmentStart,
+                                    cubic.ControlPoint1,
+                                    cubic.ControlPoint2,
+                                    cubic.Point,
+                                    transform));
                         }
                         else
                         {
@@ -8767,9 +8795,9 @@ SceneStateUploadComplete:
         Vector2 control,
         Vector2 end,
         Matrix4x4 transform,
-        bool isEdgeAliased)
+        bool isEdgeAliased,
+        int segmentCount)
     {
-        const int segmentCount = 24;
         var previousPoint = start;
         var previousTangent = GetQuadraticTangent(start, control, end, 0f);
 
@@ -8798,6 +8826,59 @@ SceneStateUploadComplete:
         }
     }
 
+    internal static int GetAffineQuadraticSegmentCount(
+        Vector2 start,
+        Vector2 control,
+        Vector2 end,
+        Matrix4x4 transform)
+    {
+        Vector2 p0 = Vector2.Transform(start, transform);
+        Vector2 p1 = Vector2.Transform(control, transform);
+        Vector2 p2 = Vector2.Transform(end, transform);
+        double curvature = Length(
+            (double)p0.X - (2d * p1.X) + p2.X,
+            (double)p0.Y - (2d * p1.Y) + p2.Y);
+        return ResolveAffineBezierSegmentCount(
+            curvature / (4d * AffineBezierMaxDeviceError));
+    }
+
+    internal static int GetAffineCubicSegmentCount(
+        Vector2 start,
+        Vector2 control1,
+        Vector2 control2,
+        Vector2 end,
+        Matrix4x4 transform)
+    {
+        Vector2 p0 = Vector2.Transform(start, transform);
+        Vector2 p1 = Vector2.Transform(control1, transform);
+        Vector2 p2 = Vector2.Transform(control2, transform);
+        Vector2 p3 = Vector2.Transform(end, transform);
+        double firstCurvature = Length(
+            (double)p0.X - (2d * p1.X) + p2.X,
+            (double)p0.Y - (2d * p1.Y) + p2.Y);
+        double secondCurvature = Length(
+            (double)p1.X - (2d * p2.X) + p3.X,
+            (double)p1.Y - (2d * p2.Y) + p3.Y);
+        double curvature = Math.Max(firstCurvature, secondCurvature);
+        return ResolveAffineBezierSegmentCount(
+            (0.75d * curvature) / AffineBezierMaxDeviceError);
+    }
+
+    private static int ResolveAffineBezierSegmentCount(double squaredCount)
+    {
+        if (!double.IsFinite(squaredCount))
+            return MaximumAffineBezierSegments;
+        if (squaredCount <= MinimumAffineBezierSegments * MinimumAffineBezierSegments)
+            return MinimumAffineBezierSegments;
+        if (squaredCount >= MaximumAffineBezierSegments * MaximumAffineBezierSegments)
+            return MaximumAffineBezierSegments;
+
+        return (int)Math.Ceiling(Math.Sqrt(squaredCount));
+    }
+
+    private static double Length(double x, double y) =>
+        Math.Sqrt((x * x) + (y * y));
+
     private static void AppendAffineStrokeCubicVertices(
         Span<VectorVertex> verticesSpan,
         Span<uint> indicesSpan,
@@ -8810,9 +8891,9 @@ SceneStateUploadComplete:
         Vector2 control2,
         Vector2 end,
         Matrix4x4 transform,
-        bool isEdgeAliased)
+        bool isEdgeAliased,
+        int segmentCount)
     {
-        const int segmentCount = 24;
         var previousPoint = start;
         var previousTangent = GetCubicTangent(start, control1, control2, end, 0f);
 
@@ -10548,7 +10629,11 @@ SceneStateUploadComplete:
 
         if (stroke.RequiresAffineGeometry)
         {
-            const int affineSegmentCount = 24;
+            int affineSegmentCount = GetAffineQuadraticSegmentCount(
+                cmd.Position,
+                cmd.Position2,
+                cmd.Position3,
+                transform);
             var vertexStart = _vectorVerticesList.Count;
             var indexStart = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + (4 * affineSegmentCount));
@@ -10568,7 +10653,8 @@ SceneStateUploadComplete:
                 cmd.Position2,
                 cmd.Position3,
                 transform,
-                cmd.IsEdgeAliased);
+                cmd.IsEdgeAliased,
+                affineSegmentCount);
             CollectionsMarshal.SetCount(_vectorVerticesList, vertexCount);
             CollectionsMarshal.SetCount(_vectorIndicesList, indexCount);
             ClampVectorVerticesToActiveClip(startIndex);
@@ -10638,7 +10724,12 @@ SceneStateUploadComplete:
 
         if (stroke.RequiresAffineGeometry)
         {
-            const int affineSegmentCount = 24;
+            int affineSegmentCount = GetAffineCubicSegmentCount(
+                cmd.Position,
+                cmd.Position2,
+                cmd.Position3,
+                cmd.Position4,
+                transform);
             var vertexStart = _vectorVerticesList.Count;
             var indexStart = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + (4 * affineSegmentCount));
@@ -10659,7 +10750,8 @@ SceneStateUploadComplete:
                 cmd.Position3,
                 cmd.Position4,
                 transform,
-                cmd.IsEdgeAliased);
+                cmd.IsEdgeAliased,
+                affineSegmentCount);
             CollectionsMarshal.SetCount(_vectorVerticesList, vertexCount);
             CollectionsMarshal.SetCount(_vectorIndicesList, indexCount);
             ClampVectorVerticesToActiveClip(startIndex);

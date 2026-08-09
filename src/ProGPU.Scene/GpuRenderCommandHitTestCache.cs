@@ -12,6 +12,9 @@ namespace ProGPU.Scene;
 public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 {
     private const int MaxLineSeriesSegmentsPerPathPrimitive = 128;
+    private const int MinimumHairlineArcSubdivisions = 32;
+    private const int MaximumHairlineArcSubdivisions = 4096;
+    private const double HairlineArcMaxDeviceError = 0.25;
     private const int IntersectPathOperation = 1;
     private const float OpacityEpsilon = 0.0001f;
 
@@ -1290,7 +1293,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         ref Vector2 min,
         ref Vector2 max)
     {
-        const int ArcSubdivisionCount = 32;
+        int arcSubdivisionCount = GetHairlineArcSubdivisionCount(
+            segment,
+            transform);
         var thetaStart = BitConverter.UInt32BitsToSingle(segment.Pad0);
         var deltaTheta = BitConverter.UInt32BitsToSingle(segment.Pad1);
         var rotation = BitConverter.UInt32BitsToSingle(segment.Pad2);
@@ -1301,10 +1306,10 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             transform,
             ref min,
             ref max);
-        for (var subdivision = 1; subdivision <= ArcSubdivisionCount; subdivision++)
+        for (var subdivision = 1; subdivision <= arcSubdivisionCount; subdivision++)
         {
             var theta = thetaStart +
-                deltaTheta * (subdivision / (float)ArcSubdivisionCount);
+                deltaTheta * (subdivision / (float)arcSubdivisionCount);
             var next = TransformHairlinePoint(
                 EvaluateArc(theta),
                 transform,
@@ -1328,6 +1333,57 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 local.X * cosine - local.Y * sine,
                 local.X * sine + local.Y * cosine);
         }
+    }
+
+    internal static int GetHairlineArcSubdivisionCount(
+        in GpuPathSegment segment,
+        Matrix4x4 transform)
+    {
+        float deltaTheta = BitConverter.UInt32BitsToSingle(segment.Pad1);
+        float rotation = BitConverter.UInt32BitsToSingle(segment.Pad2);
+        float cosine = MathF.Cos(rotation);
+        float sine = MathF.Sin(rotation);
+        Vector2 cosineBasis = Vector2.TransformNormal(
+            new Vector2(segment.P3.X * cosine, segment.P3.X * sine),
+            transform);
+        Vector2 sineBasis = Vector2.TransformNormal(
+            new Vector2(-segment.P3.Y * sine, segment.P3.Y * cosine),
+            transform);
+        var ellipseTransform = new Matrix4x4(
+            cosineBasis.X, cosineBasis.Y, 0f, 0f,
+            sineBasis.X, sineBasis.Y, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, 0f, 1f);
+        if (!float.IsFinite(deltaTheta) ||
+            !TransformMetrics.TryGetStrokeScale(
+                ellipseTransform,
+                out float maximumRadius))
+        {
+            return MinimumHairlineArcSubdivisions;
+        }
+
+        double sweep = Math.Abs((double)deltaTheta);
+        if (sweep == 0d || maximumRadius <= HairlineArcMaxDeviceError)
+            return MinimumHairlineArcSubdivisions;
+
+        double cosineLimit = Math.Clamp(
+            1d - (HairlineArcMaxDeviceError / maximumRadius),
+            -1d,
+            1d);
+        double maximumAngle = 2d * Math.Acos(cosineLimit);
+        if (!double.IsFinite(maximumAngle) || maximumAngle <= 0d)
+            return MaximumHairlineArcSubdivisions;
+
+        double required = Math.Ceiling(sweep / maximumAngle);
+        if (!double.IsFinite(required) ||
+            required >= MaximumHairlineArcSubdivisions)
+        {
+            return MaximumHairlineArcSubdivisions;
+        }
+
+        return Math.Max(
+            MinimumHairlineArcSubdivisions,
+            (int)required);
     }
 
     private static Vector2 TransformHairlinePoint(

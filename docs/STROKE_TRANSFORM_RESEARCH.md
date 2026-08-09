@@ -124,10 +124,11 @@ as normal scene compilation. It must either transform source-space outline
 offsets in the GPU path or materialize the local outline before the late-bound
 draw. A singular-value-only shader fallback for anisotropic scale or shear is
 not acceptable. Static and dynamic GPU paths are required to match the CPU
-path's orientation-sensitive result. For quadratic and cubic commands,
-"exact" here means the exact affine transform of ProGPU's existing bounded
-24-section ribbon approximation; it does not claim an analytic nearest-distance
-solution for an arbitrary cubic curve.
+path's orientation-sensitive result. For quadratic and cubic commands, the
+affine ribbon uses at least 24 sections and increases the bounded section count
+from transformed second-difference curvature until its conservative chord
+error is at most 0.25 device pixel (capped at 1,024 sections). It does not claim
+an analytic nearest-distance solution for an arbitrary cubic curve.
 
 Retained hairline caps and joins use fixed vector ABI shape types `22` and
 `23`, with one quad per adornment. The vertex stage reconstructs transformed
@@ -180,6 +181,11 @@ inverse-transpose/Jacobian rather than a scalar approximation.
 - Affine outline construction is `O(S + D)` time and storage for generated
   stroke segments `S` and dash boundaries `D`. Scratch buffers are reserved or
   pooled and must not allocate per source segment after warmup.
+- Device-hairline arc hit geometry selects its chord count from transformed
+  ellipse radius and sweep with at most 0.25-pixel sagitta error, retaining a
+  32-section floor and a 4,096-section safety bound. The bound covers radii far
+  beyond supported framebuffer dimensions without allowing adversarial paths
+  to request unbounded CPU memory.
 - Picture replay is `O(C)` for retained commands `C`. Stable solid-color replay
   does not clone pens or dash arrays and does not create variants keyed by
   visual scale. Span-based polyline and spline recording, append translation,

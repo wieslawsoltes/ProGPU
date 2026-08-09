@@ -155,6 +155,47 @@ public sealed class StrokeTransformProvenanceTests
     }
 
     [Fact]
+    public void AffineBezierSubdivisionAdaptsToDeviceSpaceCurvature()
+    {
+        var quadraticStart = Vector2.Zero;
+        var quadraticControl = new Vector2(1f, 100f);
+        var quadraticEnd = new Vector2(2f, 0f);
+        var cubicControl1 = new Vector2(1f, 100f);
+        var cubicControl2 = new Vector2(2f, -100f);
+        var cubicEnd = new Vector2(3f, 0f);
+
+        int quadraticBase = Compositor.GetAffineQuadraticSegmentCount(
+            quadraticStart,
+            quadraticControl,
+            quadraticEnd,
+            Matrix4x4.Identity);
+        int quadraticMagnified = Compositor.GetAffineQuadraticSegmentCount(
+            quadraticStart,
+            quadraticControl,
+            quadraticEnd,
+            Matrix4x4.CreateScale(1f, 100f, 1f));
+        int cubicBase = Compositor.GetAffineCubicSegmentCount(
+            quadraticStart,
+            cubicControl1,
+            cubicControl2,
+            cubicEnd,
+            Matrix4x4.Identity);
+        int cubicMagnified = Compositor.GetAffineCubicSegmentCount(
+            quadraticStart,
+            cubicControl1,
+            cubicControl2,
+            cubicEnd,
+            Matrix4x4.CreateScale(1f, 100f, 1f));
+
+        Assert.InRange(quadraticBase, 24, 1024);
+        Assert.InRange(cubicBase, 24, 1024);
+        Assert.True(quadraticMagnified > quadraticBase);
+        Assert.True(cubicMagnified > cubicBase);
+        Assert.InRange(quadraticMagnified, 25, 1024);
+        Assert.InRange(cubicMagnified, 25, 1024);
+    }
+
+    [Fact]
     public void WpfGeometryKeepsRawPenAcrossComposedTransforms()
     {
         var nativeContext = new DrawingContext();

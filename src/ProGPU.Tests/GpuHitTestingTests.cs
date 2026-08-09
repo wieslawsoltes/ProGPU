@@ -548,6 +548,38 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void HairlineArcHitGeometryAdaptsToFramebufferRadius()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(1000f, 0f));
+        figure.Segments.Add(new ArcSegment(
+            new Vector2(-1000f, 0f),
+            new Vector2(1000f, 1000f),
+            rotationAngle: 0f,
+            isLargeArc: false,
+            SweepDirection.Clockwise));
+        path.Figures.Add(figure);
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = path,
+            Pen = new Pen(
+                new SolidColorBrush(Vector4.One),
+                Pen.HairlineThickness),
+            GeometryCache = RenderCommandGeometryCache.ForPath(path),
+            IsPenThicknessLocal = true
+        }, Matrix4x4.Identity, id: 4324);
+
+        var index = builder.BuildIndex(
+            maxDepth: 2,
+            maxPrimitivesPerNode: 1);
+
+        Assert.Single(index.Primitives);
+        Assert.True(index.PathSegments.Count > 32);
+    }
+
+    [Fact]
     public void RenderCommandCacheBuildsPathPrimitiveSegments()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();
