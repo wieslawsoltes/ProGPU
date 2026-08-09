@@ -172,10 +172,18 @@ inverse-transpose/Jacobian rather than a scalar approximation.
   Extension compilation receives that already-composed transform exactly once;
   static hatch/3D-line vertices bake it, while transform-consuming retained DXF
   draw calls carry it to rendering without a second multiplication.
+  Static image, ShaderToy, WPF shader-effect, and backdrop quads likewise bake
+  their active transform once; deferred-transform extensions keep their
+  render-time transform contract.
 - A warmed dashed-stroke cache compares the bounded dash interval list in
   `O(D)` time and performs no geometry or paint allocation. Geometry identity
   includes width, offset, interval values, and all endpoint/dash caps; derived
   paint identity additionally includes brush reference, join, and miter state.
+  Rectangles, ellipses, circles, and rounded rectangles retain their analytic
+  fill quad, but route a dashed outline through the same cached path for visible
+  rendering and GPU hit testing. Replay, append, and picture archives preserve
+  or rebuild that source path once; solid analytic primitives keep the compact
+  allocation-free recorder path.
 - Static conformal scale is computed once per viewport-uniform update, not once
   per command. Late-bound affine expansion remains linear in emitted outline
   vertices and does not require CPU readback.

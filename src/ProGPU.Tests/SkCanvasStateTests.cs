@@ -2331,6 +2331,42 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void DashedAnalyticPrimitivesRetainSourceStrokePaths()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var dash = SKPathEffect.CreateDash([6f, 3f], 1f);
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+            PathEffect = dash
+        };
+
+        canvas.DrawRect(new SKRect(4f, 6f, 40f, 30f), paint);
+        canvas.DrawRoundRect(new SKRect(8f, 10f, 52f, 42f), 7f, 5f, paint);
+        canvas.DrawOval(new SKRect(12f, 14f, 60f, 48f), paint);
+        canvas.DrawCircle(38f, 36f, 18f, paint);
+
+        Assert.Collection(
+            context.Commands,
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawRect),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawRoundedRect),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawEllipse),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawCircle));
+    }
+
+    private static void AssertDashedPrimitiveCache(
+        RenderCommand command,
+        RenderCommandType expectedType)
+    {
+        Assert.Equal(expectedType, command.Type);
+        Assert.True(command.Pen?.HasDashPattern);
+        Assert.NotNull(command.GeometryCache?.StrokePath);
+        Assert.NotEmpty(command.GeometryCache!.StrokePath!.Figures);
+    }
+
+    [Fact]
     public void DrawRectMapsZeroStrokeWidthToRenderableHairline()
     {
         var context = new DrawingContext();

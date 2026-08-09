@@ -682,7 +682,7 @@ public class GdiShimTests
     }
 
     [Fact]
-    public void DrawLineScalesPenWidthByWorldTransform()
+    public void DrawLineRetainsLocalPenWidthAndCompilesWorldTransform()
     {
         using var graphics = Graphics.FromHwnd(IntPtr.Zero);
         using var pen = new Pen(Color.Red, 2f);
@@ -692,9 +692,20 @@ public class GdiShimTests
 
         var command = Assert.Single(graphics.DrawingContext.Commands);
         Assert.Equal(RenderCommandType.DrawLine, command.Type);
-        Assert.Equal(6f, command.Pen!.Thickness);
-        Assert.Equal(new Vector2(3f, 6f), command.Position);
-        Assert.Equal(new Vector2(15f, 6f), command.Position2);
+        Assert.Equal(2f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
+        Assert.Equal(new Vector2(1f, 2f), command.Position);
+        Assert.Equal(new Vector2(5f, 2f), command.Position2);
+        Assert.Equal(Matrix4x4.CreateScale(3f, 3f, 1f), command.Transform);
+
+        using var buffer = HeadlessWindow.Shared.Compositor.CompileStaticDxf(
+            graphics.DrawingContext);
+        Assert.Equal(4, buffer.VectorVertices.Length);
+        Assert.All(
+            buffer.VectorVertices,
+            static vertex => Assert.Equal(6f, vertex.StrokeThickness));
+        Assert.Equal(new Vector2(3f, 6f), buffer.VectorVertices[0].Position);
+        Assert.Equal(new Vector2(15f, 6f), buffer.VectorVertices[2].Position);
     }
 
     [Fact]
@@ -726,7 +737,7 @@ public class GdiShimTests
     }
 
     [Fact]
-    public void DrawLinePreservesNormalizedDashPatternAndOffsetWhenScalingPenWidth()
+    public void DrawLinePreservesNormalizedDashPatternAndOffsetWithLocalPenProvenance()
     {
         using var graphics = Graphics.FromHwnd(IntPtr.Zero);
         using var pen = new Pen(Color.Black, 2f)
@@ -739,9 +750,22 @@ public class GdiShimTests
         graphics.DrawLine(pen, 0f, 0f, 10f, 0f);
 
         var command = Assert.Single(graphics.DrawingContext.Commands);
-        Assert.Equal(6f, command.Pen!.Thickness);
+        Assert.Equal(RenderCommandType.DrawLine, command.Type);
+        Assert.Equal(2f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         Assert.Equal(new[] { 1.0, 1.0 }, command.Pen.DashArray);
         Assert.Equal(0.5, command.Pen.DashOffset);
+        Assert.Equal(new Vector2(0f, 0f), command.Position);
+        Assert.Equal(new Vector2(10f, 0f), command.Position2);
+        Assert.Equal(Matrix4x4.CreateScale(3f, 3f, 1f), command.Transform);
+        Assert.NotNull(command.GeometryCache?.StrokePath);
+
+        using var buffer = HeadlessWindow.Shared.Compositor.CompileStaticDxf(
+            graphics.DrawingContext);
+        Assert.NotEmpty(buffer.VectorVertices);
+        Assert.All(
+            buffer.VectorVertices,
+            static vertex => Assert.Equal(6f, vertex.StrokeThickness));
     }
 
     [Fact]
@@ -795,7 +819,7 @@ public class GdiShimTests
     }
 
     [Fact]
-    public void DrawPathScalesPenWidthByWorldTransform()
+    public void DrawPathRetainsLocalPenWidthAndCompilesWorldTransform()
     {
         using var graphics = Graphics.FromHwnd(IntPtr.Zero);
         using var pen = new Pen(Color.Red, 2f);
@@ -807,7 +831,22 @@ public class GdiShimTests
 
         var command = Assert.Single(graphics.DrawingContext.Commands);
         Assert.Equal(RenderCommandType.DrawPath, command.Type);
-        Assert.Equal(6f, command.Pen!.Thickness);
+        Assert.Equal(2f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
+        Assert.Equal(Matrix4x4.CreateScale(3f, 3f, 1f), command.Transform);
+
+        using var buffer = HeadlessWindow.Shared.Compositor.CompileStaticDxf(
+            graphics.DrawingContext);
+        Assert.NotEmpty(buffer.VectorVertices);
+        Assert.All(
+            buffer.VectorVertices,
+            static vertex => Assert.Equal(6f, vertex.StrokeThickness));
+        Assert.Contains(
+            buffer.VectorVertices,
+            static vertex => vertex.Position == new Vector2(3f, 6f));
+        Assert.Contains(
+            buffer.VectorVertices,
+            static vertex => vertex.Position == new Vector2(15f, 6f));
     }
 
     [Fact]

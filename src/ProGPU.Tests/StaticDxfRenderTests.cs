@@ -186,6 +186,27 @@ public sealed class StaticDxfRenderTests
     }
 
     [Fact]
+    public void CompileStaticDxfBakesExplicitTransformForQuadExtensions()
+    {
+        var context = new DrawingContext();
+        context.DrawExtension(
+            CompositorBuiltInExtensions.ShaderToy,
+            dataParam: new ProGPU.Scene.Extensions.ShaderToyParams
+            {
+                Rect = new Rect(2f, 4f, 10f, 12f)
+            },
+            transform: Matrix4x4.CreateTranslation(20f, 30f, 0f));
+
+        using var buffer = HeadlessWindow.Shared.Compositor.CompileStaticDxf(context);
+
+        Assert.NotEmpty(buffer.VectorVertices);
+        Assert.Equal(22f, buffer.VectorVertices.Min(vertex => vertex.Position.X));
+        Assert.Equal(32f, buffer.VectorVertices.Max(vertex => vertex.Position.X));
+        Assert.Equal(34f, buffer.VectorVertices.Min(vertex => vertex.Position.Y));
+        Assert.Equal(46f, buffer.VectorVertices.Max(vertex => vertex.Position.Y));
+    }
+
+    [Fact]
     public void DrawStaticDxfSplineHonorsActiveBlendMode()
     {
         var window = HeadlessWindow.Shared;

@@ -235,7 +235,16 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         if (Compositor.IsRenderableStroke(command.Pen) &&
             Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            if (command.Pen!.IsHairline)
+            if (command.Pen!.HasDashPattern)
+            {
+                AddDashedPrimitiveStroke(
+                    command,
+                    transform,
+                    id,
+                    zIndex,
+                    localThickness);
+            }
+            else if (command.Pen.IsHairline)
             {
                 TryAddDeviceHairlinePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
@@ -269,7 +278,16 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         if (Compositor.IsRenderableStroke(command.Pen) &&
             Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            if (command.Pen!.IsHairline)
+            if (command.Pen!.HasDashPattern)
+            {
+                AddDashedPrimitiveStroke(
+                    command,
+                    transform,
+                    id,
+                    zIndex,
+                    localThickness);
+            }
+            else if (command.Pen.IsHairline)
             {
                 TryAddDeviceHairlinePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
@@ -306,7 +324,16 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         if (Compositor.IsRenderableStroke(command.Pen) &&
             Compositor.TryResolveLocalStrokeThickness(command, out var localThickness))
         {
-            if (command.Pen!.IsHairline)
+            if (command.Pen!.HasDashPattern)
+            {
+                AddDashedPrimitiveStroke(
+                    command,
+                    transform,
+                    id,
+                    zIndex,
+                    localThickness);
+            }
+            else if (command.Pen.IsHairline)
             {
                 TryAddDeviceHairlinePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
@@ -323,6 +350,49 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             {
                 AddPrimitive(GpuHitTestPrimitive.EllipseStroke(id, min, max, localThickness, 0f, transform, zIndex));
             }
+        }
+    }
+
+    private void AddDashedPrimitiveStroke(
+        in RenderCommand command,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        float localThickness)
+    {
+        var sourcePath = command.GeometryCache?.StrokePath ??
+            RenderCommandGeometryCache.CreatePrimitiveStrokePath(command);
+        var pen = command.Pen!;
+        if (sourcePath == null ||
+            !TryGetDashedStrokePath(
+                command,
+                sourcePath,
+                pen,
+                localThickness,
+                out var strokePath,
+                out var strokePen))
+        {
+            return;
+        }
+
+        if (pen.IsHairline)
+        {
+            TryAddDeviceHairlinePathStrokePrimitive(
+                strokePath,
+                transform,
+                id,
+                zIndex,
+                strokePen);
+        }
+        else
+        {
+            TryAddPathStrokePrimitive(
+                strokePath,
+                transform,
+                id,
+                zIndex,
+                strokePen,
+                localThickness);
         }
     }
 

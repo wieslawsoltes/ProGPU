@@ -4028,6 +4028,13 @@ public class SKCanvas : SKObject
         DrawPoint(x, y, paint);
     }
 
+    private void AddAnalyticPrimitiveCommand(RenderCommand command)
+    {
+        command.GeometryCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        _context.Commands.Add(command);
+    }
+
     public void DrawRect(float x, float y, float w, float h, SKPaint paint)
     {
         var rect = new SKRect(x, y, x + w, y + h);
@@ -4042,7 +4049,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawRect,
                 Rect = new Rect(x, y, w, h),
@@ -4097,7 +4104,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawRoundedRect,
                 Rect = new Rect(rect.Left, rect.Top, rect.Width, rect.Height),
@@ -4223,7 +4230,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawEllipse,
                 Position2 = new Vector2(rect.MidX, rect.MidY),
@@ -4266,7 +4273,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawCircle,
                 Position2 = new Vector2(cx, cy),

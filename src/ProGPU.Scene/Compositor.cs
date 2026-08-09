@@ -6137,11 +6137,12 @@ SceneStateUploadComplete:
 
         bool hasFill = cmd.Brush != null;
         var stroke = ResolveStrokeCompileState(cmd, transform);
-        bool hasStroke = stroke.IsValid;
+        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
+        bool hasStroke = stroke.IsValid && !hasDashedStroke;
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
-            !stroke.IsHairline;
+            (!hasStroke || !stroke.IsHairline);
         SwitchBatch(useSolidRectPipeline ? BatchType.SolidRect : BatchType.Vector);
         int startIndex = _vectorVerticesList.Count;
         var r = cmd.Rect;
@@ -6238,6 +6239,16 @@ SceneStateUploadComplete:
                 vertices[i] = v;
             }
         }
+
+        if (hasDashedStroke)
+        {
+            var strokePath = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
+            if (strokePath != null)
+            {
+                CompileRetainedStrokePath(cmd, strokePath, stroke, transform);
+            }
+        }
     }
 
     private void CompileTextureBrushRectangle(
@@ -6327,6 +6338,7 @@ SceneStateUploadComplete:
             // picture-shader pixels. Reuse the quad only when it is the final
             // coverage evaluation, avoiding atlas residency for ordinary UI.
             RenderCommand rectangleCommand = command;
+            rectangleCommand.Pen = null;
             rectangleCommand.Rect = new Rect(
                 outer.Left,
                 outer.Top,
@@ -7306,6 +7318,15 @@ SceneStateUploadComplete:
 
         if (IsRenderableStroke(cmd.Pen))
         {
+            // A canonical sharp-rectangle fill may have been emitted through
+            // the specialized SolidRect pipeline. Path strokes use the vector
+            // vertex contract, so restore that batch before appending their
+            // geometry instead of associating it with the fill pipeline.
+            if (compiledDirectRoundedFill)
+            {
+                SwitchBatch(BatchType.Vector);
+            }
+
             var stroke = ResolveStrokeCompileState(cmd, transform);
             if (!stroke.IsValid)
             {
@@ -11053,6 +11074,7 @@ SceneStateUploadComplete:
     {
         SwitchBatch(BatchType.Vector);
         var stroke = ResolveStrokeCompileState(cmd, transform);
+        var hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
         int startIndex = _vectorVerticesList.Count;
         var center = cmd.Position2;
         var rx = cmd.RadiusX;
@@ -11095,7 +11117,7 @@ SceneStateUploadComplete:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (stroke.IsValid)
+        if (stroke.IsValid && !hasDashedStroke)
         {
             var pen = cmd.Pen!;
             float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
@@ -11140,6 +11162,16 @@ SceneStateUploadComplete:
                 vertices[i] = v;
             }
         }
+
+        if (hasDashedStroke)
+        {
+            var strokePath = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
+            if (strokePath != null)
+            {
+                CompileRetainedStrokePath(cmd, strokePath, stroke, transform);
+            }
+        }
     }
 
     private void CompileCircleCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -11165,7 +11197,8 @@ SceneStateUploadComplete:
         {
             var pathCommand = cmd;
             pathCommand.Type = RenderCommandType.DrawPath;
-            pathCommand.Path = GetOrCreateRoundedRectanglePath(r, radiusX, radiusY);
+            pathCommand.Path = cmd.GeometryCache?.StrokePath ??
+                GetOrCreateRoundedRectanglePath(r, radiusX, radiusY);
             pathCommand.Transform = default;
             if (stroke.IsValid)
             {
@@ -11177,12 +11210,13 @@ SceneStateUploadComplete:
         }
 
         bool hasFill = cmd.Brush != null;
-        bool hasStroke = stroke.IsValid;
+        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
+        bool hasStroke = stroke.IsValid && !hasDashedStroke;
         bool isSolidRoundedCandidate = ActiveCompilationContext == null &&
             (hasFill || hasStroke) &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
-            !stroke.IsHairline;
+            (!hasStroke || !stroke.IsHairline);
         if (isSolidRoundedCandidate)
         {
             _currentSolidRoundedPrimitiveCount++;
@@ -11284,6 +11318,16 @@ SceneStateUploadComplete:
                 var v = vertices[i];
                 v.Position = ClampToClip(v.Position);
                 vertices[i] = v;
+            }
+        }
+
+        if (hasDashedStroke)
+        {
+            var strokePath = cmd.GeometryCache?.StrokePath ??
+                RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
+            if (strokePath != null)
+            {
+                CompileRetainedStrokePath(cmd, strokePath, stroke, transform);
             }
         }
     }
@@ -16637,14 +16681,10 @@ SceneStateUploadComplete:
                             {
                                 CommitStaticDrawCalls();
                                 var localCmd = cmd;
-                                var compileTransform = localCmd.ExtensionId switch
-                                {
-                                    CompositorBuiltInExtensions.AcisSolid => localCmd.Transform,
-                                    CompositorBuiltInExtensions.Spline or
-                                    CompositorBuiltInExtensions.Hatch or
-                                    CompositorBuiltInExtensions.Line3D => activeTransform,
-                                    _ => Matrix4x4.Identity
-                                };
+                                var compileTransform = ResolveStaticExtensionCompileTransform(
+                                    localCmd.ExtensionId,
+                                    activeTransform,
+                                    localCmd.Transform);
                                 pipeline.Compile(this, null, compileTransform, ref localCmd);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
@@ -17095,14 +17135,10 @@ SceneStateUploadComplete:
                             {
                                 CommitStaticDrawCalls();
                                 var localCmd = cmd;
-                                var compileTransform = localCmd.ExtensionId switch
-                                {
-                                    CompositorBuiltInExtensions.AcisSolid => localCmd.Transform,
-                                    CompositorBuiltInExtensions.Spline or
-                                    CompositorBuiltInExtensions.Hatch or
-                                    CompositorBuiltInExtensions.Line3D => activeTransform,
-                                    _ => Matrix4x4.Identity
-                                };
+                                var compileTransform = ResolveStaticExtensionCompileTransform(
+                                    localCmd.ExtensionId,
+                                    activeTransform,
+                                    localCmd.Transform);
                                 pipeline.Compile(this, context, compileTransform, ref localCmd);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
@@ -17395,6 +17431,32 @@ SceneStateUploadComplete:
             ReturnListSnapshot(savedTextVertices, savedTextVerticesCount);
             ReturnListSnapshot(savedDrawCalls, savedDrawCallsCount);
         }
+    }
+
+    private static Matrix4x4 ResolveStaticExtensionCompileTransform(
+        int extensionId,
+        in Matrix4x4 activeTransform,
+        in Matrix4x4 commandTransform)
+    {
+        return extensionId switch
+        {
+            // ACIS owns a model transform as part of its typed payload.
+            CompositorBuiltInExtensions.AcisSolid => commandTransform == default
+                ? Matrix4x4.Identity
+                : commandTransform,
+            // These pipelines bake the supplied transform into generated vertices;
+            // their render methods do not consume CompositorDrawCall.Transform.
+            CompositorBuiltInExtensions.Spline or
+            CompositorBuiltInExtensions.Hatch or
+            CompositorBuiltInExtensions.Line3D or
+            CompositorBuiltInExtensions.ImageEffect or
+            CompositorBuiltInExtensions.ShaderToy or
+            CompositorBuiltInExtensions.WpfShaderEffect or
+            CompositorBuiltInExtensions.BackdropMaterial => activeTransform,
+            // StaticDxf and GPU series defer transforms to rendering. Unknown
+            // extensions retain the established identity compile contract.
+            _ => Matrix4x4.Identity
+        };
     }
 
     internal unsafe void DrawStaticDxfBuffer(

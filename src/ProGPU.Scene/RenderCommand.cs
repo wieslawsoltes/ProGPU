@@ -455,6 +455,51 @@ public sealed class RenderCommandGeometryCache
         return new RenderCommandGeometryCache(null, primaryPath, secondaryPath);
     }
 
+    internal static RenderCommandGeometryCache? CreateForDashedPrimitive(
+        in RenderCommand command)
+    {
+        if (command.Pen?.HasDashPattern != true)
+        {
+            return null;
+        }
+
+        var strokePath = CreatePrimitiveStrokePath(command);
+        return strokePath == null ? null : ForStrokePath(strokePath);
+    }
+
+    internal static PathGeometry? CreatePrimitiveStrokePath(
+        in RenderCommand command)
+    {
+        return command.Type switch
+        {
+            RenderCommandType.DrawRect =>
+                PrimitivePathGeometry.CreateRectangle(
+                    command.Rect.X,
+                    command.Rect.Y,
+                    command.Rect.Width,
+                    command.Rect.Height),
+            RenderCommandType.DrawRoundedRect =>
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    command.Rect.X,
+                    command.Rect.Y,
+                    command.Rect.Width,
+                    command.Rect.Height,
+                    command.RadiusX,
+                    command.RadiusY),
+            RenderCommandType.DrawEllipse =>
+                PrimitivePathGeometry.CreateEllipse(
+                    command.Position2,
+                    command.RadiusX,
+                    command.RadiusY),
+            RenderCommandType.DrawCircle =>
+                PrimitivePathGeometry.CreateEllipse(
+                    command.Position2,
+                    command.RadiusX,
+                    command.RadiusX),
+            _ => null
+        };
+    }
+
     public bool TryGetDashedStrokePath(Pen pen, out PathGeometry dashedStrokePath, out Pen undashedStrokePen)
     {
         ArgumentNullException.ThrowIfNull(pen);
@@ -3420,6 +3465,13 @@ public class DrawingContext :
         return result;
     }
 
+    private void AddAnalyticPrimitiveCommand(RenderCommand command)
+    {
+        command.GeometryCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        Commands.Add(command);
+    }
+
     public void DrawRectangle(Brush? brush, Pen? pen, Rect rect)
     {
         if (brush is BackdropMaterialBrush backdropMaterial)
@@ -3433,7 +3485,7 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRect,
             Rect = rect,
@@ -3456,7 +3508,7 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRect,
             Rect = rect,
@@ -4047,7 +4099,7 @@ public class DrawingContext :
 
     public void DrawEllipse(Brush? brush, Pen? pen, Vector2 center, float radiusX, float radiusY)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawEllipse,
             Brush = brush,
@@ -4067,7 +4119,7 @@ public class DrawingContext :
         float radiusY,
         Matrix4x4 transform)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawEllipse,
             Brush = brush,
@@ -4087,7 +4139,7 @@ public class DrawingContext :
 
     public void DrawCircle(Brush? brush, Pen? pen, Vector2 center, float radius)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawCircle,
             Brush = brush,
@@ -4148,7 +4200,7 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Brush = brush,
@@ -4184,7 +4236,7 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Brush = brush,
@@ -4951,6 +5003,11 @@ public class DrawingContext :
 
         PathGeometry? strokePath = command.Type switch
         {
+            RenderCommandType.DrawRect or
+            RenderCommandType.DrawRoundedRect or
+            RenderCommandType.DrawEllipse or
+            RenderCommandType.DrawCircle when pen.HasDashPattern =>
+                RenderCommandGeometryCache.CreatePrimitiveStrokePath(command),
             RenderCommandType.DrawLine when RequiresEndpointCapGeometry(pen) =>
                 RenderCommandGeometryCache.CreateLinePath(
                     command.Position,
@@ -5041,6 +5098,8 @@ public class DrawingContext :
         else
         {
             command.Rect = TranslateRect(command.Rect, translation);
+            command.GeometryCache =
+                RenderCommandGeometryCache.CreateForDashedPrimitive(command);
         }
     }
 

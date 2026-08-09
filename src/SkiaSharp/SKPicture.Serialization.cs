@@ -310,6 +310,14 @@ internal static class PictureArchive
             return;
         }
 
+        var primitiveCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        if (primitiveCache != null)
+        {
+            command.GeometryCache = primitiveCache;
+            return;
+        }
+
         PathGeometry? strokePath = command.Type switch
         {
             RenderCommandType.DrawLine when RequiresStrokePath(pen) =>
