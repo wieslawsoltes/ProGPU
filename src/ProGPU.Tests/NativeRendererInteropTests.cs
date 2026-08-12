@@ -38,6 +38,9 @@ public class NativeRendererInteropTests
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
         Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
+        Assert.Equal(88, Unsafe.SizeOf<NativeGeometryPrimitive>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -52,8 +55,37 @@ public class NativeRendererInteropTests
         Assert.Equal(4UL, (ulong)NativeRendererCapabilities.ExternalTarget);
         Assert.Equal(8UL, (ulong)NativeRendererCapabilities.IndexedAnalyticBatch);
         Assert.Equal(16UL, (ulong)NativeRendererCapabilities.Affine2D);
+        Assert.Equal(32UL, (ulong)NativeRendererCapabilities.IndexedGeometryBatch);
+        Assert.Equal(64UL, (ulong)NativeRendererCapabilities.DeviceStrokes);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
+    }
+
+    [Fact]
+    public void GeometryPrimitiveMatchesNativeAffinePodLayout()
+    {
+        Assert.Equal(0, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.Kind)));
+        Assert.Equal(4, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.Flags)));
+        Assert.Equal(8, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.P0)));
+        Assert.Equal(16, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.P1)));
+        Assert.Equal(24, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.P2)));
+        Assert.Equal(32, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.P3)));
+        Assert.Equal(40, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.StrokeThickness)));
+        Assert.Equal(48, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.Color)));
+        Assert.Equal(64, OffsetOf<NativeGeometryPrimitive>(nameof(NativeGeometryPrimitive.Transform)));
+
+        var primitive = new NativeGeometryPrimitive(
+            NativeGeometryPrimitiveKind.Line,
+            new Vector2(1, 2),
+            new Vector2(3, 4),
+            Vector4.One,
+            Matrix3x2.Identity,
+            strokeThickness: 2,
+            flags: NativeGeometryPrimitiveFlags.FixedDeviceStroke);
+        Assert.Equal(2, primitive.StrokeThickness);
+        Assert.Equal(
+            NativeGeometryPrimitiveFlags.FixedDeviceStroke,
+            primitive.Flags);
     }
 
     [Fact]

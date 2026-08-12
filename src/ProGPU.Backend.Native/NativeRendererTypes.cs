@@ -29,11 +29,27 @@ public enum NativeAnalyticPrimitiveKind : uint
     RoundedRectangle = 2
 }
 
+public enum NativeGeometryPrimitiveKind : uint
+{
+    Line = 0,
+    Triangle = 1,
+    Quadrilateral = 2
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
     None = 0,
     EdgeAliased = 1U << 0
+}
+
+[Flags]
+public enum NativeGeometryPrimitiveFlags : uint
+{
+    None = 0,
+    EdgeAliased = 1U << 0,
+    Hairline = 1U << 1,
+    FixedDeviceStroke = 1U << 2
 }
 
 [Flags]
@@ -44,7 +60,9 @@ public enum NativeRendererCapabilities : ulong
     SharedVectorShader = 1UL << 1,
     ExternalTarget = 1UL << 2,
     IndexedAnalyticBatch = 1UL << 3,
-    Affine2D = 1UL << 4
+    Affine2D = 1UL << 4,
+    IndexedGeometryBatch = 1UL << 5,
+    DeviceStrokes = 1UL << 6
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -110,6 +128,44 @@ public readonly struct NativeAnalyticPrimitive
     public readonly Matrix3x2 Transform;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeGeometryPrimitive
+{
+    public NativeGeometryPrimitive(
+        NativeGeometryPrimitiveKind kind,
+        Vector2 p0,
+        Vector2 p1,
+        Vector4 color,
+        Matrix3x2 transform,
+        Vector2 p2 = default,
+        Vector2 p3 = default,
+        float strokeThickness = 0f,
+        NativeGeometryPrimitiveFlags flags = NativeGeometryPrimitiveFlags.None)
+    {
+        Kind = kind;
+        Flags = flags;
+        P0 = p0;
+        P1 = p1;
+        P2 = p2;
+        P3 = p3;
+        StrokeThickness = strokeThickness;
+        Reserved = 0f;
+        Color = color;
+        Transform = transform;
+    }
+
+    public readonly NativeGeometryPrimitiveKind Kind;
+    public readonly NativeGeometryPrimitiveFlags Flags;
+    public readonly Vector2 P0;
+    public readonly Vector2 P1;
+    public readonly Vector2 P2;
+    public readonly Vector2 P3;
+    public readonly float StrokeThickness;
+    private readonly float Reserved;
+    public readonly Vector4 Color;
+    public readonly Matrix3x2 Transform;
+}
+
 public readonly record struct NativeFrameMetrics(
     uint DrawCallCount,
     uint VertexCount,
@@ -123,6 +179,16 @@ public readonly record struct NativeAnalyticFrameMetrics(
     uint IndexCount,
     ulong VertexUploadBytes,
     ulong IndexUploadBytes,
+    ulong UniformUploadBytes,
+    ulong SubmissionCount);
+
+public readonly record struct NativeGeometryFrameMetrics(
+    uint DrawCallCount,
+    uint VertexCount,
+    uint IndexCount,
+    ulong VertexUploadBytes,
+    ulong IndexUploadBytes,
+    ulong BrushUploadBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount);
 

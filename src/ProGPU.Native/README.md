@@ -65,6 +65,21 @@ channel, and the original rectangle fast path remains byte-exact.
 Add `--dpi 2` to render a 480 by 270 logical scene into the 960 by 540 physical
 target and exercise Retina projection and analytic derivative coverage.
 
+Exercise the indexed geometry batch with flat-cap lines, transformed fills,
+hairlines, fixed-device strokes, and exact non-conformal stroke outlines:
+
+```sh
+DYLD_LIBRARY_PATH="$PWD/artifacts/progpu-native/build:$PWD/artifacts/progpu-native/runtime" \
+  dotnet run --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj -c Release -- \
+  --geometry --rectangles 512 --warmup 60 --iterations 5000 --write-images
+```
+
+Use `--geometry-kind 0 --geometry-line-mode 0|1|2` to isolate hairline,
+fixed-device, or ordinary transformed lines. `--sync` includes an individual
+device-completion wait inside each renderer's measured interval. Generated
+native, managed, and absolute-difference images are written under
+`artifacts/progpu-native/differential/`.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -74,14 +89,19 @@ Current native parity:
 - exact `VectorVertex` layout and the shared solid-rectangle shader path;
 - indexed mixed analytic rectangle/ellipse/circular-rounded-rectangle fill and
   stroke batches with per-primitive affine transforms;
+- indexed flat-cap line, triangle, and quadrilateral batches, including
+  one-device-pixel hairlines, positive fixed-device strokes, conformal scalar
+  expansion, and transformed local outlines under anisotropic scale/shear;
+- compact reusable per-frame solid-brush tables only for geometry whose shader
+  payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
   lazily initialized reusable resources, and no per-primitive WebGPU resource
   allocation;
 - reusable uniform/vertex resources with geometric buffer growth;
 - headless hardware-WebGPU image verification.
 - a typed zero-copy .NET host sharing device, queue, and render target;
-- an interactive desktop page toggling reusable 1–4,096 rectangle and mixed
-  analytic batches;
+- an interactive desktop page cycling reusable 1–4,096 rectangle, mixed
+  analytic, and mixed geometry batches;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in

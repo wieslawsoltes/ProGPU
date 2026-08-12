@@ -297,16 +297,42 @@ At DPI 2, the 4,096-primitive mixed gate remains within the same contract
 while the rectangle fast path and general analytic-only paths remain within
 1/255 per channel.
 
+The second Tranche A increment implements one 88-byte geometry record for a
+flat-cap line, filled triangle, or filled quadrilateral. Each record carries
+four inline points, a solid color, and an independent affine transform. Lines
+support ordinary source-space width, the explicit one-device-pixel hairline,
+and positive fixed-device width. Ordinary conformal lines use the direct-line
+shader with the exact maximum singular-value scale; anisotropic and sheared
+lines transform their four-point local outline and use the existing
+quadrilateral SDF. Hairline and fixed strokes transform the centerline first
+and expand in device space. All records compile into the shared indexed vector
+batch and one submission.
+
+For `G` geometry records, validation and compilation are `O(G)`. Triangle
+storage is three vertices/indices; lines and quadrilaterals use four vertices
+and at most six indices. A persistent brush table grows geometrically and
+uploads one 256-byte default record plus one record per affine-line payload;
+direct fills and direct lines retain color inline. The owner crosses the C ABI
+once per frame and creates no per-primitive WebGPU resource.
+
+The deterministic 512-record, 4,096-record, and DPI-2 mixed geometry scenes
+are byte-exact against the managed compositor. The 96-record CI layout has one
+triangle boundary-ownership pixel above 3/255 (maximum 204/255, mean absolute
+channel difference 0.000179); the gate permits exactly that one deterministic
+tie and rejects any wider drift. Normal anisotropic/sheared line, hairline,
+and fixed-device line isolates are byte-exact.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
 - indexed analytic quad batching for rectangle, ellipse, and circular rounded
-  rectangle is implemented; line, triangle, quad, curves, polyline, and spline
-  remain;
+  rectangle plus flat-cap line, triangle, and quadrilateral geometry is
+  implemented; curves, polyline, and spline remain;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
-  the current analytic subset; caps, joins, dashes, fixed-device stroke, and
-  the remaining primitives are pending;
+  the current analytic subset; line hairline/fixed-device width is implemented;
+  caps, joins, dashes, curve device strokes, and the remaining primitives are
+  pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

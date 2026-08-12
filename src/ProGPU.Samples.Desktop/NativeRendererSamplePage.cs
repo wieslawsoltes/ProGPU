@@ -96,13 +96,15 @@ internal static class NativeRendererSamplePage
             new NativeSolidRectangle[MaximumRectangles];
         private readonly NativeAnalyticPrimitive[] _analyticPrimitives =
             new NativeAnalyticPrimitive[MaximumRectangles];
+        private readonly NativeGeometryPrimitive[] _geometryPrimitives =
+            new NativeGeometryPrimitive[MaximumRectangles];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
         private Run? _metricsRun;
         private int _rectangleCount = 384;
         private int _palette;
-        private bool _useAnalytic = true;
+        private NativeBatchMode _mode = NativeBatchMode.Analytic;
         private int _disposeState;
 
         public NativeRendererSampleSession(WgpuContext context)
@@ -145,9 +147,9 @@ internal static class NativeRendererSamplePage
                 bold: true));
             heading.AddChild(CreateText(
                 $"{_info.Name}. One stable C ABI call records one GPU " +
-                "submission. Toggle between the indexed mixed analytic batch " +
-                "and solid-rectangle fast path; both reuse the production " +
-                "Vector.wgsl module.",
+                "submission. Cycle indexed analytic primitives, lines and " +
+                "polygon geometry, or the rectangle fast path. Every mode " +
+                "reuses the production Vector.wgsl module.",
                 12f));
             root.AddChild(heading);
             Grid.SetRow(heading, 0);
@@ -198,7 +200,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _useAnalytic = !_useAnalytic;
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 3);
                 UpdateCountText();
                 RenderFrame();
             };
@@ -259,20 +261,24 @@ internal static class NativeRendererSamplePage
                 return;
             }
 
-            if (_useAnalytic)
+            switch (_mode)
             {
-                FillAnalyticPrimitives(_rectangleCount, _palette);
-            }
-            else
-            {
-                FillRectangles(_rectangleCount, _palette);
+                case NativeBatchMode.Analytic:
+                    FillAnalyticPrimitives(_rectangleCount, _palette);
+                    break;
+                case NativeBatchMode.Geometry:
+                    FillGeometryPrimitives(_rectangleCount, _palette);
+                    break;
+                default:
+                    FillRectangles(_rectangleCount, _palette);
+                    break;
             }
             long allocationStart = GC.GetAllocatedBytesForCurrentThread();
             long timestamp = Stopwatch.GetTimestamp();
             uint drawCallCount;
             uint vertexCount;
             ulong uploadBytes;
-            if (_useAnalytic)
+            if (_mode == NativeBatchMode.Analytic)
             {
                 NativeAnalyticFrameMetrics metrics = _compositor.RenderAnalytic(
                     _target,
@@ -282,6 +288,18 @@ internal static class NativeRendererSamplePage
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.VertexUploadBytes + metrics.IndexUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Geometry)
+            {
+                NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
+                    _target,
+                    dpiScale: 1f,
+                    _geometryPrimitives.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes +
+                    metrics.IndexUploadBytes + metrics.BrushUploadBytes;
             }
             else
             {
@@ -387,6 +405,83 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillGeometryPrimitives(int count, int palette)
+        {
+            const float inset = 24f;
+            float usableWidth = TargetWidth - inset * 2f;
+            float usableHeight = TargetHeight - inset * 2f;
+            int columns = Math.Max(
+                1,
+                (int)MathF.Ceiling(MathF.Sqrt(
+                    count * usableWidth / usableHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = usableWidth / columns;
+            float cellHeight = usableHeight / rows;
+
+            for (int index = 0; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                float phase = (index * 0.61803398875f + palette * 0.23f) % 1f;
+                float itemWidth = Math.Max(2f, cellWidth * 0.58f);
+                float itemHeight = Math.Max(2f, cellHeight * 0.52f);
+                Vector4 color = Palette(phase, palette);
+                color.W = 0.68f + 0.3f * Wave(phase + 0.17f);
+                Matrix3x2 transform =
+                    Matrix3x2.CreateScale(
+                        0.82f + 0.36f * Wave(phase + 0.21f),
+                        0.76f + 0.48f * Wave(phase + 0.49f)) *
+                    Matrix3x2.CreateSkew(
+                        (Wave(phase + 0.77f) - 0.5f) * 0.24f,
+                        (Wave(phase + 0.43f) - 0.5f) * 0.12f) *
+                    Matrix3x2.CreateRotation(
+                        (Wave(phase + 0.91f) - 0.5f) * 0.32f) *
+                    Matrix3x2.CreateTranslation(
+                        inset + (column + 0.5f) * cellWidth,
+                        inset + (row + 0.5f) * cellHeight);
+                switch (index % 3)
+                {
+                    case 0:
+                        NativeGeometryPrimitiveFlags flags = (index % 9) switch
+                        {
+                            0 => NativeGeometryPrimitiveFlags.Hairline,
+                            3 => NativeGeometryPrimitiveFlags.FixedDeviceStroke,
+                            _ => NativeGeometryPrimitiveFlags.None
+                        };
+                        _geometryPrimitives[index] = new NativeGeometryPrimitive(
+                            NativeGeometryPrimitiveKind.Line,
+                            new Vector2(-itemWidth * 0.5f, -itemHeight * 0.22f),
+                            new Vector2(itemWidth * 0.5f, itemHeight * 0.22f),
+                            color,
+                            transform,
+                            strokeThickness: flags == NativeGeometryPrimitiveFlags.Hairline
+                                ? 0f
+                                : 1f + index % 4,
+                            flags: flags);
+                        break;
+                    case 1:
+                        _geometryPrimitives[index] = new NativeGeometryPrimitive(
+                            NativeGeometryPrimitiveKind.Triangle,
+                            new Vector2(-itemWidth * 0.5f, itemHeight * 0.45f),
+                            new Vector2(0f, -itemHeight * 0.5f),
+                            color,
+                            transform,
+                            p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.45f));
+                        break;
+                    default:
+                        _geometryPrimitives[index] = new NativeGeometryPrimitive(
+                            NativeGeometryPrimitiveKind.Quadrilateral,
+                            new Vector2(-itemWidth * 0.5f, -itemHeight * 0.35f),
+                            new Vector2(itemWidth * 0.35f, -itemHeight * 0.5f),
+                            color,
+                            transform,
+                            p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.35f),
+                            p3: new Vector2(-itemWidth * 0.35f, itemHeight * 0.5f));
+                        break;
+                }
+            }
+        }
+
         private static float Wave(float phase) =>
             0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
 
@@ -407,10 +502,20 @@ internal static class NativeRendererSamplePage
         {
             if (_countRun is not null)
             {
-                _countRun.Text = _useAnalytic
-                    ? $"Primitives: {_rectangleCount:N0}"
-                    : $"Rectangles: {_rectangleCount:N0}";
+                _countRun.Text = _mode switch
+                {
+                    NativeBatchMode.Analytic => $"Analytic: {_rectangleCount:N0}",
+                    NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
+                    _ => $"Rectangles: {_rectangleCount:N0}"
+                };
             }
+        }
+
+        private enum NativeBatchMode
+        {
+            Analytic,
+            Geometry,
+            Rectangles
         }
 
         private static Button CreateButton(string text, float width)

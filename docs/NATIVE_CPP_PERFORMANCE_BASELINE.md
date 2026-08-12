@@ -161,3 +161,57 @@ Additional ignored evidence:
 - `native-managed-analytic-time-profiler.trace` and `.json`
 - `native-managed-analytic-allocations.trace` and `.json`
 - `native-managed-analytic-metal-short.trace` and `.json`
+
+## Indexed geometry Tranche A supplement
+
+The next native increment adds flat-cap lines, filled triangles and
+quadrilaterals to the same general-vector pipeline. It includes ordinary
+source-space strokes under exact affine outline transformation, one-device-
+pixel hairlines, and positive fixed-device strokes. The representative scene
+contains 512 deterministic mixed records and submits one indexed draw.
+
+The clean 5,000-iteration Release run on the same Apple M3 Pro/Metal device
+reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU encode/upload/submit | 0.1229 ms | 1.1416 ms |
+| p50 CPU encode/upload/submit | 0.1010 ms | 0.8724 ms |
+| p95 CPU encode/upload/submit | 0.2443 ms | 2.2348 ms |
+| Worst observed submission | 4.2316 ms | 12.4438 ms |
+| Managed allocation total | 12,720 bytes | 11,640,000 bytes |
+| Managed allocation / frame | 2.544 bytes | 2,328 bytes |
+
+This is about 9.3 times lower mean CPU submission time and 9.1 times lower p95
+for this slice. A separate corrected 1,000-iteration `--sync` run places an
+individual device-completion wait inside each renderer's timed interval:
+native/managed mean was 1.4140/2.1932 ms and p95 was 1.4622/2.4186 ms. Native
+therefore remains about 1.55 times faster by mean and 1.65 times faster by p95
+after draining each render independently. This synchronized measurement still
+does not include window presentation.
+
+The 512-record readbacks are byte-identical (`7CB04E83AC4674B8` for both).
+The 4,096-record and DPI-2 mixed scenes are also byte-identical. The short
+96-record CI layout differs at exactly one triangle edge-ownership pixel:
+maximum 204/255, one pixel above 3/255, and mean absolute channel difference
+0.000179. Hairline, fixed-device, and ordinary anisotropic/sheared line
+isolates are byte-exact.
+
+Matched Instruments captures used the same Release workload and .NET 10.0.5.
+The 5,000-frame Time Profiler run reported native/managed mean 0.0890/0.9904 ms
+and p95 0.1087/2.0990 ms. The 2,000-frame Allocations run reported
+7.752/2,328 bytes of managed allocation per frame; its timing is profiler-
+perturbed. The 200-frame synchronized Metal System Trace identifies both
+`ProGPU native indexed geometry pass` and `Offscreen Compositor Encoder`, has
+no command-buffer error row, and reports a combined-process peak Metal
+`currentAllocatedSize` of 13.047 MiB. That memory number is not separable by
+renderer.
+
+Additional ignored evidence:
+
+- `native-managed-geometry-time-profiler.trace` and exported TOC;
+- `native-managed-geometry-allocations.trace` and exported TOC;
+- `native-managed-geometry-metal.trace`, exported TOC, labels, command-buffer
+  errors, and allocation-size table;
+- native, managed, and absolute-difference PPM/PNG images under
+  `artifacts/progpu-native/differential/`.

@@ -28,7 +28,21 @@ bool useAnalyticScene = Array.Exists(
         value,
         "--analytic",
         StringComparison.OrdinalIgnoreCase));
+bool useGeometryScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--geometry",
+        StringComparison.OrdinalIgnoreCase));
+bool writeImages = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--write-images",
+        StringComparison.OrdinalIgnoreCase));
 int analyticKind = ReadArgument("--analytic-kind", -1);
+int geometryKind = ReadArgument("--geometry-kind", -1);
+int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
 
 NativeSolidRectangle[] rectangles = CreateRectangles(
     rectangleCount,
@@ -38,6 +52,14 @@ NativeAnalyticPrimitive[] analyticPrimitives = useAnalyticScene
     ? CreateAnalyticPrimitives(
         rectangleCount,
         analyticKind,
+        logicalWidth,
+        logicalHeight)
+    : [];
+NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
+    ? CreateGeometryPrimitives(
+        rectangleCount,
+        geometryKind,
+        geometryLineMode,
         logicalWidth,
         logicalHeight)
     : [];
@@ -57,12 +79,17 @@ using var managed = new Compositor(
         EnableGpuHitTesting = false,
         PrimarySampleCount = 1
     });
-DrawingVisual managedVisual = useAnalyticScene
-    ? CreateManagedAnalyticVisual(
+DrawingVisual managedVisual = useGeometryScene
+    ? CreateManagedGeometryVisual(
+        geometryPrimitives,
+        logicalWidth,
+        logicalHeight)
+    : useAnalyticScene
+        ? CreateManagedAnalyticVisual(
         analyticPrimitives,
         logicalWidth,
         logicalHeight)
-    : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
+        : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
 
 // Compile both shader/pipeline paths before correctness or timing evidence.
 RenderNative();
@@ -71,21 +98,44 @@ context.PollDevice(wait: true);
 
 byte[] nativePixels = nativeTarget.ReadPixels();
 byte[] managedPixels = managedTarget.ReadPixels();
+if (writeImages)
+{
+    Directory.CreateDirectory("artifacts/progpu-native/differential");
+    WritePpm(
+        "artifacts/progpu-native/differential/native.ppm",
+        nativePixels,
+        width,
+        height);
+    WritePpm(
+        "artifacts/progpu-native/differential/managed.ppm",
+        managedPixels,
+        width,
+        height);
+    WriteDifferencePpm(
+        "artifacts/progpu-native/differential/difference.ppm",
+        nativePixels,
+        managedPixels,
+        width,
+        height);
+}
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
-bool requiresExactPixels = !useAnalyticScene && dpiScale == 1f;
+bool requiresExactPixels = !useAnalyticScene && !useGeometryScene && dpiScale == 1f;
+bool usesGeometryDifferential = useGeometryScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
-    (!useAnalyticScene && !requiresExactPixels);
+    (!useAnalyticScene && !useGeometryScene && !requiresExactPixels);
 int maximumAllowedDifference = requiresExactPixels
     ? 0
-    : usesTightDifferential ? 3 : 96;
+    : usesGeometryDifferential ? 204 : usesTightDifferential ? 3 : 96;
 int maximumAllowedPixelsOverTolerance =
-    requiresExactPixels || usesTightDifferential
+    usesGeometryDifferential
+        ? 1
+        : requiresExactPixels || usesTightDifferential
         ? 0
         : comparison.PixelCount / 40;
 double maximumAllowedMeanAbsoluteDifference = requiresExactPixels
     ? 0.0
-    : usesTightDifferential ? 0.001 : 0.15;
+    : usesGeometryDifferential || usesTightDifferential ? 0.001 : 0.15;
 if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
     comparison.PixelsOverTolerance > maximumAllowedPixelsOverTolerance ||
     comparison.MeanAbsoluteChannelDifference >
@@ -105,14 +155,17 @@ for (int index = 0; index < warmupCount; index++)
     if ((index & 1) == 0)
     {
         RenderNative();
+        SynchronizeIfRequested();
         RenderManaged();
+        SynchronizeIfRequested();
     }
     else
     {
         RenderManaged();
+        SynchronizeIfRequested();
         RenderNative();
+        SynchronizeIfRequested();
     }
-    SynchronizeIfRequested();
 }
 context.PollDevice(wait: true);
 
@@ -137,7 +190,6 @@ for (int index = 0; index < iterationCount; index++)
         nativeTimes[index] = MeasureNative(out allocated);
         nativeAllocatedBytes += allocated;
     }
-    SynchronizeIfRequested();
 }
 context.PollDevice(wait: true);
 GC.KeepAlive(nativeAllocationStart);
@@ -149,9 +201,13 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
+    Scene: useGeometryScene
+        ? "IndexedGeometry"
+        : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: requiresExactPixels
         ? "Exact"
+        : usesGeometryDifferential
+            ? "Near-exact; bounded raster edge ownership ties"
         : usesTightDifferential
             ? "Near-exact pipeline (at most 3/255 per channel)"
             : "Bounded against managed solid-rectangle specialization",
@@ -173,7 +229,15 @@ Console.WriteLine(JsonSerializer.Serialize(
 
 void RenderNative()
 {
-    if (useAnalyticScene)
+    if (useGeometryScene)
+    {
+        native.RenderGeometry(
+            nativeTarget,
+            dpiScale,
+            geometryPrimitives,
+            clearColor);
+    }
+    else if (useAnalyticScene)
     {
         native.RenderAnalytic(
             nativeTarget,
@@ -216,6 +280,7 @@ double MeasureNative(out long allocatedBytes)
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderNative();
+    SynchronizeIfRequested();
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
     return milliseconds;
@@ -226,6 +291,7 @@ double MeasureManaged(out long allocatedBytes)
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderManaged();
+    SynchronizeIfRequested();
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
     return milliseconds;
@@ -470,6 +536,160 @@ static DrawingVisual CreateManagedAnalyticVisual(
     return visual;
 }
 
+static NativeGeometryPrimitive[] CreateGeometryPrimitives(
+    int count,
+    int forcedKind,
+    int forcedLineMode,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var result = new NativeGeometryPrimitive[count];
+    const float inset = 24f;
+    float usableWidth = logicalWidth - inset * 2f;
+    float usableHeight = logicalHeight - inset * 2f;
+    int columns = Math.Max(
+        1,
+        (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = usableWidth / columns;
+    float cellHeight = usableHeight / rows;
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float phase = index * 0.61803398875f % 1f;
+        float itemWidth = Math.Max(2f, cellWidth * 0.58f);
+        float itemHeight = Math.Max(2f, cellHeight * 0.52f);
+        Vector2 center = new(
+            inset + (column + 0.5f) * cellWidth,
+            inset + (row + 0.5f) * cellHeight);
+        Vector4 color = new(
+            0.16f + 0.68f * Wave(phase),
+            0.2f + 0.72f * Wave(phase + 0.333f),
+            0.25f + 0.7f * Wave(phase + 0.666f),
+            0.6f + 0.35f * Wave(phase + 0.17f));
+        Matrix3x2 transform =
+            Matrix3x2.CreateScale(
+                0.82f + 0.36f * Wave(phase + 0.21f),
+                0.76f + 0.48f * Wave(phase + 0.49f)) *
+            Matrix3x2.CreateSkew(
+                (Wave(phase + 0.77f) - 0.5f) * 0.24f,
+                (Wave(phase + 0.43f) - 0.5f) * 0.12f) *
+            Matrix3x2.CreateRotation(
+                (Wave(phase + 0.91f) - 0.5f) * 0.32f) *
+            Matrix3x2.CreateTranslation(center);
+        int kind = forcedKind is >= 0 and <= 2 ? forcedKind : index % 3;
+        switch (kind)
+        {
+            case 0:
+                int lineMode = forcedLineMode is >= 0 and <= 2
+                    ? forcedLineMode
+                    : index % 9 / 3;
+                NativeGeometryPrimitiveFlags flags = lineMode switch
+                {
+                    0 => NativeGeometryPrimitiveFlags.Hairline,
+                    1 => NativeGeometryPrimitiveFlags.FixedDeviceStroke,
+                    _ => NativeGeometryPrimitiveFlags.None
+                };
+                result[index] = new NativeGeometryPrimitive(
+                    NativeGeometryPrimitiveKind.Line,
+                    new Vector2(-itemWidth * 0.5f, -itemHeight * 0.22f),
+                    new Vector2(itemWidth * 0.5f, itemHeight * 0.22f),
+                    color,
+                    transform,
+                    strokeThickness: flags == NativeGeometryPrimitiveFlags.Hairline
+                        ? 0f
+                        : 1f + index % 4,
+                    flags: flags);
+                break;
+            case 1:
+                result[index] = new NativeGeometryPrimitive(
+                    NativeGeometryPrimitiveKind.Triangle,
+                    new Vector2(-itemWidth * 0.5f, itemHeight * 0.45f),
+                    new Vector2(0f, -itemHeight * 0.5f),
+                    color,
+                    transform,
+                    p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.45f));
+                break;
+            default:
+                result[index] = new NativeGeometryPrimitive(
+                    NativeGeometryPrimitiveKind.Quadrilateral,
+                    new Vector2(-itemWidth * 0.5f, -itemHeight * 0.35f),
+                    new Vector2(itemWidth * 0.35f, -itemHeight * 0.5f),
+                    color,
+                    transform,
+                    p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.35f),
+                    p3: new Vector2(-itemWidth * 0.35f, itemHeight * 0.5f));
+                break;
+        }
+    }
+    return result;
+
+    static float Wave(float phase) =>
+        0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
+}
+
+static DrawingVisual CreateManagedGeometryVisual(
+    ReadOnlySpan<NativeGeometryPrimitive> primitives,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var visual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    foreach (ref readonly NativeGeometryPrimitive primitive in primitives)
+    {
+        var brush = new SolidColorBrush(primitive.Color);
+        Matrix3x2 affine = primitive.Transform;
+        var transform = new Matrix4x4(
+            affine.M11, affine.M12, 0f, 0f,
+            affine.M21, affine.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            affine.M31, affine.M32, 0f, 1f);
+        switch (primitive.Kind)
+        {
+            case NativeGeometryPrimitiveKind.Line:
+                var mode = (primitive.Flags &
+                    NativeGeometryPrimitiveFlags.FixedDeviceStroke) != 0
+                    ? PenStrokeTransformMode.Fixed
+                    : PenStrokeTransformMode.Normal;
+                float thickness = (primitive.Flags &
+                    NativeGeometryPrimitiveFlags.Hairline) != 0
+                    ? Pen.HairlineThickness
+                    : primitive.StrokeThickness;
+                visual.Context.DrawLine(
+                    new Pen(
+                        brush,
+                        thickness,
+                        strokeTransformMode: mode),
+                    primitive.P0,
+                    primitive.P1,
+                    transform);
+                break;
+            case NativeGeometryPrimitiveKind.Triangle:
+                visual.Context.FillTriangle(
+                    brush,
+                    Vector2.Transform(primitive.P0, affine),
+                    Vector2.Transform(primitive.P1, affine),
+                    Vector2.Transform(primitive.P2, affine));
+                break;
+            case NativeGeometryPrimitiveKind.Quadrilateral:
+                visual.Context.FillQuad(
+                    brush,
+                    Vector2.Transform(primitive.P0, affine),
+                    Vector2.Transform(primitive.P1, affine),
+                    Vector2.Transform(primitive.P2, affine),
+                    Vector2.Transform(primitive.P3, affine));
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported geometry primitive {primitive.Kind}.");
+        }
+    }
+    return visual;
+}
+
 static PixelComparison ComparePixels(
     ReadOnlySpan<byte> native,
     ReadOnlySpan<byte> managed)
@@ -508,6 +728,43 @@ static PixelComparison ComparePixels(
         totalAbsoluteDifference / (double)native.Length,
         nativeHash.ToString("X16"),
         managedHash.ToString("X16"));
+}
+
+static void WritePpm(
+    string path,
+    ReadOnlySpan<byte> rgba,
+    uint imageWidth,
+    uint imageHeight)
+{
+    using var stream = File.Create(path);
+    using var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+    writer.Write(System.Text.Encoding.ASCII.GetBytes(
+        $"P6\n{imageWidth} {imageHeight}\n255\n"));
+    for (int offset = 0; offset < rgba.Length; offset += 4)
+    {
+        writer.Write(rgba[offset]);
+        writer.Write(rgba[offset + 1]);
+        writer.Write(rgba[offset + 2]);
+    }
+}
+
+static void WriteDifferencePpm(
+    string path,
+    ReadOnlySpan<byte> left,
+    ReadOnlySpan<byte> right,
+    uint imageWidth,
+    uint imageHeight)
+{
+    using var stream = File.Create(path);
+    using var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+    writer.Write(System.Text.Encoding.ASCII.GetBytes(
+        $"P6\n{imageWidth} {imageHeight}\n255\n"));
+    for (int offset = 0; offset < left.Length; offset += 4)
+    {
+        writer.Write((byte)Math.Abs(left[offset] - right[offset]));
+        writer.Write((byte)Math.Abs(left[offset + 1] - right[offset + 1]));
+        writer.Write((byte)Math.Abs(left[offset + 2] - right[offset + 2]));
+    }
 }
 
 static TimingSummary Summarize(double[] samples, long allocatedBytes)

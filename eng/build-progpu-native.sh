@@ -109,6 +109,22 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --analytic --dpi 2 --rectangles 96 --warmup 1 --iterations 2
+  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --rectangles 96 --warmup 4 --iterations 8
+  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --geometry-kind 0 --geometry-line-mode 2 \
+      --rectangles 96 --warmup 1 --iterations 2
+  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --dpi 2 --rectangles 96 --warmup 1 --iterations 2
 else
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
@@ -135,6 +151,22 @@ else
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --analytic --dpi 2 --rectangles 96 --warmup 1 --iterations 2
+  LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --rectangles 96 --warmup 4 --iterations 8
+  LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --geometry-kind 0 --geometry-line-mode 2 \
+      --rectangles 96 --warmup 1 --iterations 2
+  LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --geometry --dpi 2 --rectangles 96 --warmup 1 --iterations 2
 fi
 
 echo "ProGPU native renderer built from ${actual_commit}."

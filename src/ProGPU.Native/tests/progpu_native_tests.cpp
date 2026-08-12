@@ -47,7 +47,146 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_INDEXED_ANALYTIC_BATCH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
+}
+
+void geometry_batch_encodes_direct_and_affine_lines() {
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    progpu_native_geometry_primitive direct{
+        PROGPU_NATIVE_GEOMETRY_LINE,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED,
+        {1.0F, 2.0F},
+        {5.0F, 2.0F},
+        {},
+        {},
+        3.0F,
+        0.0F,
+        {0.1F, 0.2F, 0.3F, 0.4F},
+        {0.0F, 2.0F, -2.0F, 0.0F, 5.0F, 7.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        direct,
+        2.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(indices[3] == 1U && indices[4] == 3U && indices[5] == 2U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 1.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 9.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 6.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1003.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].brush_index, 2.0F));
+
+    vertices.clear();
+    indices.clear();
+    direct.flags = 0U;
+    direct.transform = {2.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    direct.stroke_thickness = 4.0F;
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        direct,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(indices[3] == 0U && indices[4] == 2U && indices[5] == 3U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 0.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], -1.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[0], 2.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[1], 4.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[2], 10.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[3], 4.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[0], 10.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[1], 0.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, 2.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 0.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 14.0F));
+}
+
+void geometry_batch_encodes_device_strokes_and_fills() {
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    progpu_native_geometry_primitive hairline{
+        PROGPU_NATIVE_GEOMETRY_LINE,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE,
+        {1.0F, 2.0F},
+        {5.0F, 6.0F},
+        {},
+        {},
+        0.0F,
+        0.0F,
+        {1.0F, 0.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        hairline,
+        0.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, -1.0F));
+
+    vertices.clear();
+    indices.clear();
+    hairline.flags = PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+    hairline.stroke_thickness = 2.5F;
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        hairline,
+        0.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, -3.5F));
+
+    vertices.clear();
+    indices.clear();
+    progpu_native_geometry_primitive triangle{
+        PROGPU_NATIVE_GEOMETRY_TRIANGLE,
+        0U,
+        {1.0F, 2.0F},
+        {5.0F, 2.0F},
+        {3.0F, 7.0F},
+        {},
+        0.0F,
+        0.0F,
+        {0.0F, 1.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 4.0F, 8.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        triangle,
+        4.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 3U && indices.size() == 3U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 5.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 10.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 7.0F));
+}
+
+void invalid_geometry_flags_fail_without_partial_append() {
+    progpu_native_geometry_primitive primitive{
+        PROGPU_NATIVE_GEOMETRY_LINE,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+            PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE,
+        {0.0F, 0.0F},
+        {1.0F, 1.0F},
+        {},
+        {},
+        1.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(!progpu::native::append_geometry_primitive(
+        primitive,
+        0.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
 void indexed_analytic_batch_preserves_affine_local_coordinates() {
@@ -150,6 +289,9 @@ int main() {
     rectangle_batch_matches_vector_vertex_abi();
     indexed_analytic_batch_preserves_affine_local_coordinates();
     singular_analytic_transform_fails_closed();
+    geometry_batch_encodes_direct_and_affine_lines();
+    geometry_batch_encodes_device_strokes_and_fills();
+    invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();
     std::cout << "ProGPU native CPU/ABI tests passed.\n";
     return 0;

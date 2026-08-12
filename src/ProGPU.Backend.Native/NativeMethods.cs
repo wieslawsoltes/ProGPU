@@ -81,6 +81,33 @@ internal static unsafe partial class NativeMethods
         internal ulong SubmissionCount;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GeometryFrame
+    {
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal NativeColor ClearColor;
+        internal NativeGeometryPrimitive* Primitives;
+        internal nuint PrimitiveCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GeometryFrameMetrics
+    {
+        internal uint StructSize;
+        internal uint DrawCallCount;
+        internal uint VertexCount;
+        internal uint IndexCount;
+        internal ulong VertexUploadBytes;
+        internal ulong IndexUploadBytes;
+        internal ulong BrushUploadBytes;
+        internal ulong UniformUploadBytes;
+        internal ulong SubmissionCount;
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal unsafe struct EngineInfo
     {
@@ -123,6 +150,13 @@ internal static unsafe partial class NativeMethods
         nint engine,
         AnalyticFrame* frame,
         AnalyticFrameMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus RenderGeometry(
+        nint engine,
+        GeometryFrame* frame,
+        GeometryFrameMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

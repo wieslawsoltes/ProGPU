@@ -18,6 +18,8 @@ namespace {
 
 constexpr std::uint64_t initial_vertex_buffer_size = 64U * 1024U;
 constexpr std::uint64_t initial_index_buffer_size = 16U * 1024U;
+constexpr std::uint64_t initial_brush_buffer_size = 64U * 256U;
+constexpr std::uint64_t gpu_brush_size = 256U;
 constexpr float antialias_padding_pixels = 1.5F;
 
 struct gpu_uniforms {
@@ -95,6 +97,7 @@ struct progpu_native_engine {
     WGPUBindGroup uniform_bind_group = nullptr;
     WGPUBuffer analytic_uniform_buffer = nullptr;
     WGPUBuffer analytic_brush_buffer = nullptr;
+    std::uint64_t analytic_brush_buffer_size = 0;
     WGPUBuffer analytic_gradient_buffer = nullptr;
     WGPUBindGroup analytic_uniform_bind_group = nullptr;
     WGPUBindGroup analytic_atlas_bind_group = nullptr;
@@ -107,6 +110,8 @@ struct progpu_native_engine {
     std::uint64_t index_buffer_size = 0;
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
+    std::vector<std::uint32_t> primitive_brush_indices;
+    std::vector<std::byte> brush_bytes;
     std::string last_error;
     std::uint64_t submission_count = 0;
 
@@ -365,6 +370,76 @@ bool create_pipeline(progpu_native_engine& engine) {
     return engine.uniform_bind_group != nullptr;
 }
 
+WGPUBindGroup create_analytic_uniform_bind_group(
+    progpu_native_engine& engine,
+    WGPUBuffer brush_buffer,
+    std::uint64_t brush_buffer_size) {
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, engine.analytic_uniform_buffer, 0U, sizeof(gpu_uniforms),
+            nullptr, nullptr},
+        {nullptr, 1U, brush_buffer, 0U, brush_buffer_size,
+            nullptr, nullptr},
+        {nullptr, 2U, engine.analytic_gradient_buffer, 0U, 32U,
+            nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = "ProGPU native analytic bind group";
+    descriptor.layout = engine.analytic_uniform_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+bool ensure_analytic_brush_buffer(
+    progpu_native_engine& engine,
+    std::uint64_t required_size) {
+    if (required_size <= engine.analytic_brush_buffer_size &&
+        engine.analytic_brush_buffer != nullptr &&
+        engine.analytic_uniform_bind_group != nullptr) {
+        return true;
+    }
+
+    std::uint64_t new_size = std::max(
+        initial_brush_buffer_size,
+        engine.analytic_brush_buffer_size);
+    while (new_size < required_size) {
+        if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
+            return false;
+        }
+        new_size *= 2U;
+    }
+
+    WGPUBufferDescriptor descriptor{};
+    descriptor.label = "ProGPU native solid brush table";
+    descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+    descriptor.size = new_size;
+    WGPUBuffer replacement = wgpuDeviceCreateBuffer(engine.device, &descriptor);
+    if (replacement == nullptr) {
+        return false;
+    }
+    WGPUBindGroup replacement_group = create_analytic_uniform_bind_group(
+        engine,
+        replacement,
+        new_size);
+    if (replacement_group == nullptr) {
+        wgpuBufferDestroy(replacement);
+        wgpuBufferRelease(replacement);
+        return false;
+    }
+
+    if (engine.analytic_uniform_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.analytic_uniform_bind_group);
+    }
+    if (engine.analytic_brush_buffer != nullptr) {
+        wgpuBufferDestroy(engine.analytic_brush_buffer);
+        wgpuBufferRelease(engine.analytic_brush_buffer);
+    }
+    engine.analytic_brush_buffer = replacement;
+    engine.analytic_brush_buffer_size = new_size;
+    engine.analytic_uniform_bind_group = replacement_group;
+    return true;
+}
+
 bool create_analytic_pipeline(progpu_native_engine& engine) {
     const std::array<WGPUVertexAttribute, 8U> attributes{{
         {WGPUVertexFormat_Float32x2, 0U, 0U},
@@ -442,14 +517,6 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         engine.device,
         &uniform_descriptor);
 
-    WGPUBufferDescriptor brush_descriptor{};
-    brush_descriptor.label = "ProGPU native analytic solid brush";
-    brush_descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-    brush_descriptor.size = 256U;
-    engine.analytic_brush_buffer = wgpuDeviceCreateBuffer(
-        engine.device,
-        &brush_descriptor);
-
     WGPUBufferDescriptor gradient_descriptor{};
     gradient_descriptor.label = "ProGPU native analytic gradient sentinel";
     gradient_descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
@@ -459,7 +526,6 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         &gradient_descriptor);
 
     if (engine.analytic_uniform_buffer == nullptr ||
-        engine.analytic_brush_buffer == nullptr ||
         engine.analytic_gradient_buffer == nullptr) {
         return false;
     }
@@ -501,7 +567,11 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         return false;
     }
 
-    std::array<std::byte, 256U> solid_brush{};
+    if (!ensure_analytic_brush_buffer(engine, gpu_brush_size)) {
+        return false;
+    }
+
+    std::array<std::byte, gpu_brush_size> solid_brush{};
     constexpr float opacity = 1.0F;
     std::memcpy(solid_brush.data() + 4U, &opacity, sizeof(opacity));
     wgpuQueueWriteBuffer(
@@ -517,26 +587,6 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         0U,
         gradient_sentinel.data(),
         gradient_sentinel.size());
-
-    const std::array<WGPUBindGroupEntry, 3U> entries{{
-        {nullptr, 0U, engine.analytic_uniform_buffer, 0U, sizeof(gpu_uniforms),
-            nullptr, nullptr},
-        {nullptr, 1U, engine.analytic_brush_buffer, 0U, 256U,
-            nullptr, nullptr},
-        {nullptr, 2U, engine.analytic_gradient_buffer, 0U, 32U,
-            nullptr, nullptr}
-    }};
-    WGPUBindGroupDescriptor bind_group_descriptor{};
-    bind_group_descriptor.label = "ProGPU native analytic bind group";
-    bind_group_descriptor.layout = engine.analytic_uniform_layout;
-    bind_group_descriptor.entryCount = entries.size();
-    bind_group_descriptor.entries = entries.data();
-    engine.analytic_uniform_bind_group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &bind_group_descriptor);
-    if (engine.analytic_uniform_bind_group == nullptr) {
-        return false;
-    }
 
     const std::array<WGPUBindGroupEntry, 2U> atlas_entries{{
         {nullptr, 0U, nullptr, 0U, 0U,
@@ -577,6 +627,16 @@ void clear_metrics(progpu_native_analytic_frame_metrics* metrics) noexcept {
     metrics->struct_size = struct_size;
 }
 
+void clear_metrics(progpu_native_geometry_frame_metrics* metrics) noexcept {
+    if (metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_geometry_frame_metrics)) {
+        return;
+    }
+    const std::uint32_t struct_size = metrics->struct_size;
+    *metrics = {};
+    metrics->struct_size = struct_size;
+}
+
 } // namespace
 
 extern "C" {
@@ -598,7 +658,9 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_TARGET |
         PROGPU_NATIVE_CAPABILITY_INDEXED_ANALYTIC_BATCH |
-        PROGPU_NATIVE_CAPABILITY_AFFINE_2D;
+        PROGPU_NATIVE_CAPABILITY_AFFINE_2D |
+        PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH |
+        PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1024,6 +1086,252 @@ progpu_native_status progpu_native_engine_render_analytic(
             static_cast<std::uint32_t>(engine->indices.size());
         metrics->vertex_upload_bytes = vertex_bytes;
         metrics->index_upload_bytes = index_bytes;
+        metrics->uniform_upload_bytes =
+            engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
+        metrics->submission_count = engine->submission_count;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_render_geometry(
+    progpu_native_engine* engine,
+    const progpu_native_geometry_frame* frame,
+    progpu_native_geometry_frame_metrics* metrics) {
+    clear_metrics(metrics);
+    if (engine == nullptr || frame == nullptr ||
+        frame->struct_size < sizeof(progpu_native_geometry_frame) ||
+        frame->width == 0U || frame->height == 0U ||
+        !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
+        frame->target_view == 0U ||
+        (frame->primitive_count != 0U && frame->primitives == nullptr) ||
+        !progpu::native::is_finite(frame->clear_color)) {
+        return engine == nullptr
+            ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
+            : engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The geometry frame descriptor is invalid.");
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer must be used from its owner thread.");
+    }
+    if (frame->primitive_count > (1U << 24U) ||
+        frame->primitive_count >
+            std::numeric_limits<std::uint32_t>::max() / 6U ||
+        frame->primitive_count >
+            std::numeric_limits<std::size_t>::max() / 6U ||
+        frame->primitive_count >
+            std::numeric_limits<std::size_t>::max() / gpu_brush_size) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The geometry primitive batch is too large.");
+    }
+
+    try {
+        engine->vertices.clear();
+        engine->indices.clear();
+        engine->primitive_brush_indices.clear();
+        engine->vertices.reserve(frame->primitive_count * 4U);
+        engine->indices.reserve(frame->primitive_count * 6U);
+        engine->primitive_brush_indices.resize(frame->primitive_count);
+        std::uint32_t brush_count = 1U;
+        for (std::size_t index = 0; index < frame->primitive_count; ++index) {
+            const std::uint32_t brush_index =
+                progpu::native::geometry_uses_payload_brush(
+                    frame->primitives[index])
+                ? brush_count++
+                : 0U;
+            engine->primitive_brush_indices[index] = brush_index;
+            if (!progpu::native::append_geometry_primitive(
+                    frame->primitives[index],
+                    static_cast<float>(brush_index),
+                    engine->vertices,
+                    engine->indices)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A geometry primitive contains invalid points, stroke state, color, transform, or flags.");
+            }
+        }
+
+        engine->brush_bytes.clear();
+        engine->brush_bytes.resize(
+            static_cast<std::size_t>(brush_count) * gpu_brush_size);
+        constexpr float opacity = 1.0F;
+        for (std::uint32_t index = 0; index < brush_count; ++index) {
+            std::byte* brush = engine->brush_bytes.data() +
+                index * gpu_brush_size;
+            std::memcpy(brush + 4U, &opacity, sizeof(opacity));
+        }
+        for (std::size_t index = 0; index < frame->primitive_count; ++index) {
+            const std::uint32_t brush_index =
+                engine->primitive_brush_indices[index];
+            if (brush_index == 0U) {
+                continue;
+            }
+            std::byte* brush = engine->brush_bytes.data() +
+                static_cast<std::size_t>(brush_index) * gpu_brush_size;
+            std::memcpy(
+                brush + 64U,
+                &frame->primitives[index].color,
+                sizeof(progpu_native_color));
+        }
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The native geometry batch could not be allocated.");
+    }
+
+    const std::uint64_t vertex_bytes =
+        engine->vertices.size() * sizeof(progpu::native::vector_vertex);
+    const std::uint64_t index_bytes =
+        engine->indices.size() * sizeof(std::uint32_t);
+    const std::uint64_t brush_upload_bytes = engine->brush_bytes.size();
+    if (vertex_bytes != 0U) {
+        if (engine->analytic_pipeline == nullptr &&
+            !create_analytic_pipeline(*engine)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native indexed geometry WebGPU pipeline could not be created.");
+        }
+        if (!engine->ensure_vertex_buffer(vertex_bytes) ||
+            !engine->ensure_index_buffer(index_bytes) ||
+            !ensure_analytic_brush_buffer(*engine, brush_upload_bytes)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native indexed geometry WebGPU buffers could not be allocated.");
+        }
+
+        const gpu_uniforms uniforms = create_uniforms(
+            frame->width,
+            frame->height,
+            frame->dpi_scale);
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->analytic_uniform_buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->vertex_buffer,
+            0U,
+            engine->vertices.data(),
+            static_cast<std::size_t>(vertex_bytes));
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->index_buffer,
+            0U,
+            engine->indices.data(),
+            static_cast<std::size_t>(index_bytes));
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->analytic_brush_buffer,
+            0U,
+            engine->brush_bytes.data(),
+            engine->brush_bytes.size());
+    }
+
+    WGPUCommandEncoderDescriptor encoder_descriptor{};
+    encoder_descriptor.label = "ProGPU native geometry frame encoder";
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+        engine->device,
+        &encoder_descriptor);
+    if (encoder == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native geometry command encoder could not be created.");
+    }
+
+    WGPURenderPassColorAttachment color_attachment{};
+    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.storeOp = WGPUStoreOp_Store;
+    color_attachment.clearValue = {
+        frame->clear_color.r,
+        frame->clear_color.g,
+        frame->clear_color.b,
+        frame->clear_color.a
+    };
+    WGPURenderPassDescriptor pass_descriptor{};
+    pass_descriptor.label = "ProGPU native indexed geometry pass";
+    pass_descriptor.colorAttachmentCount = 1U;
+    pass_descriptor.colorAttachments = &color_attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &pass_descriptor);
+    if (pass == nullptr) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native geometry render pass could not be created.");
+    }
+
+    if (!engine->indices.empty()) {
+        wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            0U,
+            engine->analytic_uniform_bind_group,
+            0U,
+            nullptr);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            1U,
+            engine->analytic_atlas_bind_group,
+            0U,
+            nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass,
+            0U,
+            engine->vertex_buffer,
+            0U,
+            vertex_bytes);
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass,
+            engine->index_buffer,
+            WGPUIndexFormat_Uint32,
+            0U,
+            index_bytes);
+        wgpuRenderPassEncoderDrawIndexed(
+            pass,
+            static_cast<std::uint32_t>(engine->indices.size()),
+            1U,
+            0U,
+            0,
+            0U);
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+
+    WGPUCommandBufferDescriptor command_descriptor{};
+    command_descriptor.label = "ProGPU native geometry frame commands";
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+        encoder,
+        &command_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native geometry command buffer could not be finished.");
+    }
+
+    wgpuQueueSubmit(engine->queue, 1U, &command);
+    wgpuCommandBufferRelease(command);
+    ++engine->submission_count;
+    engine->last_error.clear();
+
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_geometry_frame_metrics)) {
+        metrics->draw_call_count = engine->indices.empty() ? 0U : 1U;
+        metrics->vertex_count =
+            static_cast<std::uint32_t>(engine->vertices.size());
+        metrics->index_count =
+            static_cast<std::uint32_t>(engine->indices.size());
+        metrics->vertex_upload_bytes = vertex_bytes;
+        metrics->index_upload_bytes = index_bytes;
+        metrics->brush_upload_bytes =
+            engine->indices.empty() ? 0U : brush_upload_bytes;
         metrics->uniform_upload_bytes =
             engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
         metrics->submission_count = engine->submission_count;

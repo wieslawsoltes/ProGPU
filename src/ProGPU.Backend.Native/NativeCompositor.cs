@@ -205,6 +205,65 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    public NativeGeometryFrameMetrics RenderGeometry(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeGeometryPrimitive> primitives,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+
+        fixed (NativeGeometryPrimitive* primitivePointer = primitives)
+        {
+            var frame = new NativeMethods.GeometryFrame
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.GeometryFrame>(),
+                Width = target.Width,
+                Height = target.Height,
+                DpiScale = dpiScale,
+                TargetView = (nuint)target.ViewPtr,
+                ClearColor = new NativeMethods.NativeColor
+                {
+                    R = clearColor.X,
+                    G = clearColor.Y,
+                    B = clearColor.Z,
+                    A = clearColor.W
+                },
+                Primitives = primitivePointer,
+                PrimitiveCount = (nuint)primitives.Length
+            };
+            var metrics = new NativeMethods.GeometryFrameMetrics
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>()
+            };
+
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                var status = NativeMethods.RenderGeometry(
+                    _engine,
+                    &frame,
+                    &metrics);
+                if (status != NativeRendererStatus.Success)
+                {
+                    throw new NativeRendererException(status, ReadLastError());
+                }
+                target.NotifyExternalContentChanged();
+                _context.PollDevice(wait: false);
+            }
+
+            return new NativeGeometryFrameMetrics(
+                metrics.DrawCallCount,
+                metrics.VertexCount,
+                metrics.IndexCount,
+                metrics.VertexUploadBytes,
+                metrics.IndexUploadBytes,
+                metrics.BrushUploadBytes,
+                metrics.UniformUploadBytes,
+                metrics.SubmissionCount);
+        }
+    }
+
     public void Dispose()
     {
         DisposeCore();
