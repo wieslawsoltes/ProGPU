@@ -382,6 +382,14 @@ DPI-1 output is byte-exact across all 518,400 pixels with matching
 `60F5020BAF0150F4` hashes. The 64-times difference image is entirely black.
 DPI-2 is also byte-exact with matching `1306F12A59D53014` hashes.
 
+A separate capacity gate duplicates 1,024 independently keyed DPI-2 Inter
+outlines. After seeding a real 1024-square resource, it transactionally grows
+the native glyph atlas to 2048 square, publishes generation `2` and growth
+count `1`, then proves the next retained replay
+performs zero rasterization, coverage staging, outline upload, and instance
+upload without changing the generation. Native and managed readbacks remain
+byte-exact across all 518,400 pixels with matching `1747555C290A2CC4` hashes.
+
 Final-binary Time Profiler, Allocations/VM Tracker, and synchronized Metal
 System Trace captures all completed. The 5,000-pair bounded Time Profiler
 workload reported 0.2067/0.2934 ms native/managed p95. The Metal trace contains the
@@ -510,6 +518,14 @@ Metal table, so the trace is used for error, scheduling, and residency evidence
 only. The Allocations template again aborted the instrumented .NET process
 (`SIGABRT`, exit 6) before allocation tables were produced; the failed trace is
 retained as a diagnostic and no Instruments allocation claim is made.
+
+A separate 1,024-path capacity gate uses independently keyed copies of the
+same analytic cubic outline at fixed scale. After seeding a real 1024-square
+resource, it transactionally grows the native path atlas to 2048 square,
+publishes generation `2`, and proves that the next replay
+preserves that generation while issuing zero rasterization, coverage staging,
+path, vertex, index, and brush uploads. Its native and managed readbacks are
+byte-exact with matching `D83B9C7BC4E00501` hashes.
 
 Retained ignored evidence:
 

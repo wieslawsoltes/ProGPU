@@ -26,8 +26,8 @@ constexpr std::uint64_t initial_index_buffer_size = 16U * 1024U;
 constexpr std::uint64_t initial_brush_buffer_size = 64U * 256U;
 constexpr std::uint64_t gpu_brush_size = 256U;
 constexpr float antialias_padding_pixels = 1.5F;
-constexpr std::uint32_t native_path_atlas_size = 1024U;
-constexpr std::uint32_t native_glyph_atlas_size = 1024U;
+constexpr std::uint32_t native_initial_atlas_size = 1024U;
+constexpr std::uint32_t native_max_atlas_size = 4096U;
 constexpr std::uint32_t path_padding = 4U;
 constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
 
@@ -312,6 +312,8 @@ struct progpu_native_engine {
     WGPUTexture path_atlas_texture = nullptr;
     WGPUTextureView path_atlas_texture_view = nullptr;
     WGPUBindGroup path_atlas_bind_group = nullptr;
+    std::uint32_t path_atlas_size = native_initial_atlas_size;
+    std::uint32_t path_atlas_generation = 0U;
     WGPUShaderModule glyph_raster_shader = nullptr;
     WGPUComputePipeline glyph_raster_pipeline = nullptr;
     WGPUBindGroupLayout glyph_raster_layout = nullptr;
@@ -326,6 +328,9 @@ struct progpu_native_engine {
     WGPUTexture glyph_atlas_texture = nullptr;
     WGPUTextureView glyph_atlas_texture_view = nullptr;
     WGPUBindGroup text_atlas_bind_group = nullptr;
+    std::uint32_t glyph_atlas_size = native_initial_atlas_size;
+    std::uint32_t glyph_atlas_generation = 0U;
+    std::uint32_t glyph_atlas_growth_count = 0U;
     WGPUBuffer text_vertex_buffer = nullptr;
     std::uint64_t text_vertex_buffer_size = 0U;
     WGPUBuffer vertex_buffer = nullptr;
@@ -1068,8 +1073,8 @@ bool create_path_resources(progpu_native_engine& engine) {
         WGPUTextureUsage_CopyDst;
     texture_descriptor.dimension = WGPUTextureDimension_2D;
     texture_descriptor.size = {
-        native_path_atlas_size,
-        native_path_atlas_size,
+        engine.path_atlas_size,
+        engine.path_atlas_size,
         1U
     };
     texture_descriptor.format = WGPUTextureFormat_R8Unorm;
@@ -1118,7 +1123,11 @@ bool create_path_resources(progpu_native_engine& engine) {
     engine.path_atlas_bind_group = wgpuDeviceCreateBindGroup(
         engine.device,
         &atlas_descriptor);
-    return engine.path_atlas_bind_group != nullptr;
+    if (engine.path_atlas_bind_group == nullptr) {
+        return false;
+    }
+    ++engine.path_atlas_generation;
+    return true;
 }
 
 bool create_glyph_resources(progpu_native_engine& engine) {
@@ -1329,8 +1338,8 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         WGPUTextureUsage_CopyDst;
     atlas_descriptor.dimension = WGPUTextureDimension_2D;
     atlas_descriptor.size = {
-        native_glyph_atlas_size,
-        native_glyph_atlas_size,
+        engine.glyph_atlas_size,
+        engine.glyph_atlas_size,
         1U
     };
     atlas_descriptor.format = WGPUTextureFormat_R8Unorm;
@@ -1379,7 +1388,128 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     engine.text_atlas_bind_group = wgpuDeviceCreateBindGroup(
         engine.device,
         &atlas_group_descriptor);
-    return engine.text_atlas_bind_group != nullptr;
+    if (engine.text_atlas_bind_group == nullptr) {
+        return false;
+    }
+    ++engine.glyph_atlas_generation;
+    return true;
+}
+
+bool resize_path_atlas(
+    progpu_native_engine& engine,
+    std::uint32_t requested_size) {
+    if (requested_size <= engine.path_atlas_size) {
+        return true;
+    }
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = "ProGPU native retained path atlas";
+    descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopyDst;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {requested_size, requested_size, 1U};
+    descriptor.format = WGPUTextureFormat_R8Unorm;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    const std::array<WGPUBindGroupEntry, 2U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U,
+            engine.path_atlas_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view}
+    }};
+    WGPUBindGroupDescriptor group_descriptor{};
+    group_descriptor.label = "ProGPU native path atlas bind group";
+    group_descriptor.layout = engine.analytic_atlas_layout;
+    group_descriptor.entryCount = entries.size();
+    group_descriptor.entries = entries.data();
+    WGPUBindGroup group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &group_descriptor);
+    if (group == nullptr) {
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+
+    wgpuBindGroupRelease(engine.path_atlas_bind_group);
+    wgpuTextureViewRelease(engine.path_atlas_texture_view);
+    wgpuTextureDestroy(engine.path_atlas_texture);
+    wgpuTextureRelease(engine.path_atlas_texture);
+    engine.path_atlas_bind_group = group;
+    engine.path_atlas_texture_view = view;
+    engine.path_atlas_texture = texture;
+    engine.path_atlas_size = requested_size;
+    ++engine.path_atlas_generation;
+    return true;
+}
+
+bool resize_glyph_atlas(
+    progpu_native_engine& engine,
+    std::uint32_t requested_size) {
+    if (requested_size <= engine.glyph_atlas_size) {
+        return true;
+    }
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = "ProGPU native retained glyph atlas";
+    descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopyDst;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {requested_size, requested_size, 1U};
+    descriptor.format = WGPUTextureFormat_R8Unorm;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U,
+            engine.glyph_atlas_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view},
+        {nullptr, 2U, nullptr, 0U, 0U,
+            nullptr, engine.analytic_sentinel_texture_view}
+    }};
+    WGPUBindGroupDescriptor group_descriptor{};
+    group_descriptor.label = "ProGPU native text atlas bind group";
+    group_descriptor.layout = engine.text_atlas_layout;
+    group_descriptor.entryCount = entries.size();
+    group_descriptor.entries = entries.data();
+    WGPUBindGroup group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &group_descriptor);
+    if (group == nullptr) {
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+
+    wgpuBindGroupRelease(engine.text_atlas_bind_group);
+    wgpuTextureViewRelease(engine.glyph_atlas_texture_view);
+    wgpuTextureDestroy(engine.glyph_atlas_texture);
+    wgpuTextureRelease(engine.glyph_atlas_texture);
+    engine.text_atlas_bind_group = group;
+    engine.glyph_atlas_texture_view = view;
+    engine.glyph_atlas_texture = texture;
+    engine.glyph_atlas_size = requested_size;
+    ++engine.glyph_atlas_generation;
+    ++engine.glyph_atlas_growth_count;
+    return true;
 }
 
 void clear_metrics(progpu_native_frame_metrics* metrics) noexcept {
@@ -1463,7 +1593,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_DASHED_STROKES |
         PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY |
         PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS |
-        PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS;
+        PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS |
+        PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -2528,6 +2659,7 @@ progpu_native_status progpu_native_engine_render_paths(
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t path_upload_bytes = 0U;
     std::uint32_t rasterized_path_count = 0U;
+    std::uint32_t required_atlas_size = engine->path_atlas_size;
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<gpu_path_record> path_records;
@@ -2656,8 +2788,8 @@ progpu_native_status progpu_native_engine_render_paths(
                 if (!std::isfinite(raster_width) ||
                     !std::isfinite(raster_height) ||
                     raster_width <= 0.0 || raster_height <= 0.0 ||
-                    raster_width > native_path_atlas_size - 4U ||
-                    raster_height > native_path_atlas_size - 4U) {
+                    raster_width > native_max_atlas_size - 4U ||
+                    raster_height > native_max_atlas_size - 4U) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_UNSUPPORTED,
                         "A transformed path exceeds the bounded native atlas tile size.");
@@ -2671,12 +2803,20 @@ progpu_native_status progpu_native_engine_render_paths(
                         static_cast<std::uint32_t>(raster_width);
                     const auto height =
                         static_cast<std::uint32_t>(raster_height);
-                    if (atlas_x + width + 2U > native_path_atlas_size) {
+                    while (width + 4U > required_atlas_size &&
+                           required_atlas_size < native_max_atlas_size) {
+                        required_atlas_size *= 2U;
+                    }
+                    if (atlas_x + width + 2U > required_atlas_size) {
                         atlas_x = 2U;
                         atlas_y += row_height + 2U;
                         row_height = 0U;
                     }
-                    if (atlas_y + height + 2U > native_path_atlas_size) {
+                    while (atlas_y + height + 2U > required_atlas_size &&
+                           required_atlas_size < native_max_atlas_size) {
+                        required_atlas_size *= 2U;
+                    }
+                    if (atlas_y + height + 2U > required_atlas_size) {
                         return engine->fail(
                             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                             "The retained native path set does not fit the bounded atlas.");
@@ -2821,10 +2961,20 @@ progpu_native_status progpu_native_engine_render_paths(
         }
     }
 
-    if (!create_path_resources(*engine)) {
+    const std::uint32_t atlas_generation_before =
+        engine->path_atlas_generation;
+    if (engine->path_atlas_texture == nullptr) {
+        engine->path_atlas_size = required_atlas_size;
+    }
+    if (!create_path_resources(*engine) ||
+        !resize_path_atlas(*engine, required_atlas_size)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path atlas WebGPU resources could not be created.");
+    }
+    if (!compiled_payload_hit && frame->path_count != 0U &&
+        engine->path_atlas_generation == atlas_generation_before) {
+        ++engine->path_atlas_generation;
     }
 
     const std::uint64_t vertex_bytes = engine->path_vertices.size() *
@@ -3107,8 +3257,9 @@ progpu_native_status progpu_native_engine_render_paths(
         metrics->index_count = static_cast<std::uint32_t>(
             engine->path_indices.size());
         metrics->rasterized_path_count = rasterized_path_count;
-        metrics->atlas_width = native_path_atlas_size;
-        metrics->atlas_height = native_path_atlas_size;
+        metrics->atlas_width = engine->path_atlas_size;
+        metrics->atlas_height = engine->path_atlas_size;
+        metrics->atlas_generation = engine->path_atlas_generation;
         metrics->vertex_upload_bytes = upload_draw_payload ? vertex_bytes : 0U;
         metrics->index_upload_bytes = upload_draw_payload ? index_bytes : 0U;
         metrics->brush_upload_bytes = upload_draw_payload ? brush_bytes : 0U;
@@ -3174,6 +3325,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t outline_upload_bytes = 0U;
     std::uint32_t rasterized_glyph_count = 0U;
+    std::uint32_t required_atlas_size = engine->glyph_atlas_size;
 
     if (!compiled_payload_hit) {
         engine->glyph_cache_valid = false;
@@ -3250,20 +3402,28 @@ progpu_native_status progpu_native_engine_render_glyphs(
                 if (!std::isfinite(width_value) ||
                     !std::isfinite(height_value) ||
                     width_value <= 0.0 || height_value <= 0.0 ||
-                    width_value > native_glyph_atlas_size - 4U ||
-                    height_value > native_glyph_atlas_size - 4U) {
+                    width_value > native_max_atlas_size - 4U ||
+                    height_value > native_max_atlas_size - 4U) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_UNSUPPORTED,
                         "A glyph exceeds the bounded native atlas tile size.");
                 }
                 const auto width = static_cast<std::uint32_t>(width_value);
                 const auto height = static_cast<std::uint32_t>(height_value);
-                if (atlas_x + width + 2U > native_glyph_atlas_size) {
+                while (width + 4U > required_atlas_size &&
+                       required_atlas_size < native_max_atlas_size) {
+                    required_atlas_size *= 2U;
+                }
+                if (atlas_x + width + 2U > required_atlas_size) {
                     atlas_x = 2U;
                     atlas_y += row_height + 2U;
                     row_height = 0U;
                 }
-                if (atlas_y + height + 2U > native_glyph_atlas_size) {
+                while (atlas_y + height + 2U > required_atlas_size &&
+                       required_atlas_size < native_max_atlas_size) {
+                    required_atlas_size *= 2U;
+                }
+                if (atlas_y + height + 2U > required_atlas_size) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "The retained native glyph set does not fit the bounded atlas.");
@@ -3391,6 +3551,16 @@ progpu_native_status progpu_native_engine_render_glyphs(
                     engine->glyph_instances.data(),
                     engine->glyph_instances.size() *
                         sizeof(gpu_glyph_instance));
+                engine->glyph_payload_hash = append_fnv1a64(
+                    engine->glyph_payload_hash,
+                    frame->outlines,
+                    frame->outline_count *
+                        sizeof(progpu_native_glyph_outline));
+                engine->glyph_payload_hash = append_fnv1a64(
+                    engine->glyph_payload_hash,
+                    frame->segments,
+                    frame->segment_count *
+                        sizeof(progpu_native_path_segment));
                 engine->glyph_cache_valid = true;
             }
         } catch (const std::bad_alloc&) {
@@ -3400,10 +3570,23 @@ progpu_native_status progpu_native_engine_render_glyphs(
         }
     }
 
-    if (!create_glyph_resources(*engine)) {
+    const std::uint32_t atlas_generation_before =
+        engine->glyph_atlas_generation;
+    if (engine->glyph_atlas_texture == nullptr) {
+        while (engine->glyph_atlas_size < required_atlas_size) {
+            engine->glyph_atlas_size *= 2U;
+            ++engine->glyph_atlas_growth_count;
+        }
+    }
+    if (!create_glyph_resources(*engine) ||
+        !resize_glyph_atlas(*engine, required_atlas_size)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native glyph atlas WebGPU resources could not be created.");
+    }
+    if (!compiled_payload_hit && frame->outline_count != 0U &&
+        engine->glyph_atlas_generation == atlas_generation_before) {
+        ++engine->glyph_atlas_generation;
     }
     const std::uint64_t instance_bytes = engine->glyph_instances.size() *
         sizeof(gpu_glyph_instance);
@@ -3673,8 +3856,10 @@ progpu_native_status progpu_native_engine_render_glyphs(
         metrics->glyph_count = static_cast<std::uint32_t>(
             engine->glyph_instances.size());
         metrics->rasterized_glyph_count = rasterized_glyph_count;
-        metrics->atlas_width = native_glyph_atlas_size;
-        metrics->atlas_height = native_glyph_atlas_size;
+        metrics->atlas_width = engine->glyph_atlas_size;
+        metrics->atlas_height = engine->glyph_atlas_size;
+        metrics->atlas_generation = engine->glyph_atlas_generation;
+        metrics->atlas_growth_count = engine->glyph_atlas_growth_count;
         metrics->instance_upload_bytes = upload_instances
             ? instance_bytes
             : 0U;

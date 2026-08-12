@@ -106,6 +106,9 @@ instanced `Text.wgsl` composite. Add `--dpi 2` for the Retina gate and
 Use `--drain-each-pair` to bound queue depth while measuring CPU submission
 without charging the shared GPU completion wait to either renderer; use
 `--sync` when deliberately measuring complete GPU work.
+Use `--atlas-growth` with `--paths` or `--glyphs` and a sufficiently large
+`--rectangles` count to exercise transactional 1024-to-4096 R8 atlas growth,
+generation stability, and zero-upload retained replay.
 
 Current native parity:
 
@@ -134,10 +137,12 @@ Current native parity:
   skip unchanged GPU vertex/index/brush uploads while still encoding and
   submitting the current target pass;
 - retained filled line/quadratic/cubic/resolved-arc paths with a native-owned
-  R8 coverage atlas, 64-phase tile reuse, shared compute/vector WGSL, and no
-  stable-frame raster or payload upload;
+  geometrically growing bounded R8 coverage atlas, published generation,
+  64-phase tile reuse, shared compute/vector WGSL, and no stable-frame raster
+  or payload upload;
 - retained positioned glyphs with deduplicated analytic outlines, a
-  native-owned R8 glyph atlas, production glyph-compute/text-composite WGSL,
+  native-owned geometrically growing bounded R8 glyph atlas, published
+  generation/growth counters, production glyph-compute/text-composite WGSL,
   one instanced draw, exact DPI-1/DPI-2 parity, and no stable-frame glyph
   raster or payload upload;
 - compact reusable per-frame solid-brush tables only for geometry whose shader

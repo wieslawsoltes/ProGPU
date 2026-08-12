@@ -151,7 +151,7 @@ internal static unsafe partial class NativeMethods
         internal uint RasterizedPathCount;
         internal uint AtlasWidth;
         internal uint AtlasHeight;
-        internal uint Reserved;
+        internal uint AtlasGeneration;
         internal ulong VertexUploadBytes;
         internal ulong IndexUploadBytes;
         internal ulong BrushUploadBytes;
@@ -190,8 +190,8 @@ internal static unsafe partial class NativeMethods
         internal uint RasterizedGlyphCount;
         internal uint AtlasWidth;
         internal uint AtlasHeight;
-        internal uint Reserved0;
-        internal uint Reserved1;
+        internal uint AtlasGeneration;
+        internal uint AtlasGrowthCount;
         internal ulong InstanceUploadBytes;
         internal ulong OutlineUploadBytes;
         internal ulong CoverageStagingBytes;

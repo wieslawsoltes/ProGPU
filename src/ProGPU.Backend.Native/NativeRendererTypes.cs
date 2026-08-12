@@ -116,7 +116,8 @@ public enum NativeRendererCapabilities : ulong
     DashedStrokes = 1UL << 11,
     RetainedGeometryReplay = 1UL << 12,
     PathFillAtlas = 1UL << 13,
-    PositionedGlyphAtlas = 1UL << 14
+    PositionedGlyphAtlas = 1UL << 14,
+    ResizableAtlases = 1UL << 15
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -520,6 +521,7 @@ public readonly record struct NativePathFrameMetrics(
     uint RasterizedPathCount,
     uint AtlasWidth,
     uint AtlasHeight,
+    uint AtlasGeneration,
     ulong VertexUploadBytes,
     ulong IndexUploadBytes,
     ulong BrushUploadBytes,
@@ -535,6 +537,8 @@ public readonly record struct NativeGlyphFrameMetrics(
     uint RasterizedGlyphCount,
     uint AtlasWidth,
     uint AtlasHeight,
+    uint AtlasGeneration,
+    uint AtlasGrowthCount,
     ulong InstanceUploadBytes,
     ulong OutlineUploadBytes,
     ulong CoverageStagingBytes,

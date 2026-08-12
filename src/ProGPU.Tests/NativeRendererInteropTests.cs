@@ -80,6 +80,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             16384UL,
             (ulong)NativeRendererCapabilities.PositionedGlyphAtlas);
+        Assert.Equal(
+            32768UL,
+            (ulong)NativeRendererCapabilities.ResizableAtlases);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);

@@ -35,7 +35,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_DASHED_STROKES = 1ULL << 11U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY = 1ULL << 12U,
     PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS = 1ULL << 13U,
-    PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U
+    PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U,
+    PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U
 };
 
 enum {
@@ -447,7 +448,7 @@ typedef struct progpu_native_path_frame_metrics {
     uint32_t rasterized_path_count;
     uint32_t atlas_width;
     uint32_t atlas_height;
-    uint32_t reserved;
+    uint32_t atlas_generation;
     uint64_t vertex_upload_bytes;
     uint64_t index_upload_bytes;
     uint64_t brush_upload_bytes;
@@ -482,8 +483,8 @@ typedef struct progpu_native_glyph_frame_metrics {
     uint32_t rasterized_glyph_count;
     uint32_t atlas_width;
     uint32_t atlas_height;
-    uint32_t reserved0;
-    uint32_t reserved1;
+    uint32_t atlas_generation;
+    uint32_t atlas_growth_count;
     uint64_t instance_upload_bytes;
     uint64_t outline_upload_bytes;
     uint64_t coverage_staging_bytes;

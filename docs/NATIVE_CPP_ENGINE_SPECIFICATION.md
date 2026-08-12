@@ -468,15 +468,21 @@ For `P` path instances, `U <= P` unique coverage keys, `S` transferred
 segments, atlas area `A`, and sample grid `G` in `{4,8}`, validation is
 `O(P + S)`, retained-key construction is average `O(P)`, raster work is
 `O(A * G^2 * S_u)` over each unique key's segment count `S_u`, and compositing
-is `O(P)`. Persistent atlas storage is a bounded 1024 by 1024 R8 texture;
-temporary coverage rows obey WebGPU's 256-byte copy alignment.
+is `O(P)`. The single-page R8 atlas starts at 1024 square, grows geometrically
+to at most 4096 square after a checked shelf-pack miss, and transactionally
+replaces its texture/view/bind group before releasing the prior resource.
+Every rebuild or resize advances the published atlas generation; a retained
+hit preserves it. Persistent path-atlas storage is therefore bounded from
+1 MiB through 16 MiB, and temporary coverage rows obey WebGPU's 256-byte copy
+alignment.
 
 The second Tranche B increment adds retained positioned glyph composition.
 Managed shaping and line layout remain reusable CPU results; one typed frame
 call transfers positioned glyph IDs, affine basis vectors, colors, and a
 deduplicated outline/segment arena. C++ validates every range and finite value,
 dispatches the production `GlyphRasterizer.wgsl` once per unique outline into
-a native-owned 1024 by 1024 R8 atlas, and composites all glyph instances in one
+a native-owned geometrically growing 1024-to-4096-square R8 atlas, and
+composites all glyph instances in one
 instanced draw through the production `Text.wgsl`. Stable content revisions
 skip outline transfer, coverage compute, and instance upload while still
 encoding and submitting the current target pass. This intentionally preserves
@@ -487,8 +493,10 @@ For `G` positioned glyphs, `U <= G` unique outlines, `S` analytic outline
 segments, atlas area `A`, and sample grid `Q`, validation and instance creation
 are `O(G + U + S)`, raster work is `O(A * Q^2 * S_u)` over each unique
 outline's segment count `S_u`, and composition is `O(G)`. Atlas storage is
-bounded; the uniform ring obeys 256-byte dynamic-offset alignment; and warm
-resource count is constant apart from geometric instance-buffer growth.
+bounded from 1 MiB through 16 MiB, texture replacement is transactional, and
+generation/growth counters make invalidation observable. The uniform ring
+obeys 256-byte dynamic-offset alignment; warm resource count is constant apart
+from geometric instance-buffer growth.
 
 ## 10. Migration tranches
 
@@ -511,15 +519,17 @@ resource count is constant apart from geometric instance-buffer growth.
 ### Tranche B — paths, atlases, text, and textures
 
 - retained filled-path transfer, native compute orchestration, 64-phase
-  ordinary-path keys, a bounded R8 atlas, and stable replay are implemented
+  ordinary-path keys, a bounded geometrically growing R8 atlas, published
+  generation, and stable replay are implemented
   with the production `PathRasterizer.wgsl`; boolean programs, path strokes,
-  adaptive capacity recovery/growth, and generation publication remain;
+  multi-page eviction/recovery, and cache compaction remain;
 - positioned glyph-run transfer, glyph compute orchestration reusing
   `GlyphRasterizer.wgsl`, a bounded native text atlas, production `Text.wgsl`
   composition, Retina DPI, quarter-pixel phase input, and retained replay are
-  implemented; vector-text fallback, multi-page capacity recovery, phase/scale
-  cache policies, color glyphs, decorations, masks, and atlas generation
-  publication remain;
+  implemented together with bounded geometric atlas growth and published
+  generation/growth counters; vector-text fallback, multi-page
+  eviction/recovery, phase/scale cache policies, color glyphs, decorations,
+  and masks remain;
 - texture upload, sampling/mips/cubic/anisotropy, image/color transforms,
   layers, masks, and zero-copy external textures.
 
@@ -654,9 +664,9 @@ path with WebGPU validation and bounded resource policies.
    opacity, clipping, and retained reuse into C++ as one wider 2D tranche.
 3. Expand the differential to transformed and stroked primitives, multiple DPI
    values, opacity, clipping, resize, invalid input, lifetime, and device loss.
-4. Complete path/glyph atlas capacity recovery, generation publication,
-   vector/color text and text masks, then move images, layers, masks, and
-   external media textures while continuing to reuse production WGSL modules.
+4. Complete path/glyph multi-page eviction/recovery, vector/color text and text
+   masks, then move images, layers, masks, and external media textures while
+   continuing to reuse production WGSL modules.
 5. Add the Dawn/WebScene adapter using PR #10's proc resolver and exact provider
    revision, then validate zero-copy composition and synchronization.
 6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing

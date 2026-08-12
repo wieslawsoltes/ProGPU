@@ -95,6 +95,16 @@ bool useGlyphScene = Array.Exists(
         value,
         "--glyphs",
         StringComparison.OrdinalIgnoreCase));
+bool forceAtlasGrowth = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--atlas-growth",
+        StringComparison.OrdinalIgnoreCase));
+if (forceAtlasGrowth && !useGlyphScene && !usePathScene)
+{
+    throw new ArgumentException("--atlas-growth requires --glyphs or --paths.");
+}
 bool enableManagedCompiledSceneCache = Array.Exists(
     args,
     static value => string.Equals(
@@ -143,7 +153,11 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
     : [];
 (NativePathFill[] nativePaths, NativePathSegment[] nativePathSegments) =
     usePathScene
-        ? CreateNativePaths(rectangleCount, logicalWidth, logicalHeight)
+        ? CreateNativePaths(
+            rectangleCount,
+            logicalWidth,
+            logicalHeight,
+            forceAtlasGrowth)
         : ([], []);
 TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
 (NativeGlyphOutline[] nativeGlyphOutlines,
@@ -151,7 +165,13 @@ TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
  NativePositionedGlyph[] nativeGlyphs,
  ushort[] managedGlyphIndices,
  Vector2[] managedGlyphPositions) = useGlyphScene
-    ? CreateGlyphScene(glyphFont!, rectangleCount, dpiScale, logicalWidth, logicalHeight)
+    ? CreateGlyphScene(
+        glyphFont!,
+        rectangleCount,
+        dpiScale,
+        logicalWidth,
+        logicalHeight,
+        forceAtlasGrowth)
     : ([], [], [], [], []);
 (Vector2[] geometryPoints,
  NativePolyline[] geometryPolylines,
@@ -197,6 +217,11 @@ ulong nativeCoverageStagingBytes = 0;
 uint nativeRasterizedGlyphCount = 0;
 ulong nativeGlyphOutlineUploadBytes = 0;
 ulong nativeGlyphInstanceUploadBytes = 0;
+uint nativeAtlasWidth = 0;
+uint nativeAtlasGeneration = 0;
+uint nativeAtlasGrowthCount = 0;
+NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
+NativePathFrameMetrics lastNativePathMetrics = default;
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
@@ -223,7 +248,11 @@ DrawingVisual managedVisual = useGlyphScene
         logicalWidth,
         logicalHeight)
     : usePathScene
-    ? CreateManagedPathVisual(rectangleCount, logicalWidth, logicalHeight)
+    ? CreateManagedPathVisual(
+        rectangleCount,
+        logicalWidth,
+        logicalHeight,
+        forceAtlasGrowth)
     : useGeometryScene
     ? CreateManagedGeometryVisual(
         geometryPrimitives,
@@ -241,13 +270,80 @@ DrawingVisual managedVisual = useGlyphScene
         logicalHeight)
         : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
 
+// A growth gate first establishes the ordinary 1024-square resource, then
+// changes revision to a larger retained set. This exercises transactional
+// texture/view/bind-group replacement rather than merely creating a large
+// first atlas.
+if (forceAtlasGrowth && useGlyphScene)
+{
+    var seed = CreateGlyphScene(
+        glyphFont!,
+        96,
+        dpiScale,
+        logicalWidth,
+        logicalHeight,
+        forceUniqueOutlines: false);
+    native.RenderGlyphs(
+        nativeTarget,
+        dpiScale,
+        seed.Outlines,
+        seed.Segments,
+        seed.Glyphs,
+        clearColor,
+        capturePayloadHash: false,
+        contentRevision: uint.MaxValue);
+    context.PollDevice(wait: true);
+}
+else if (forceAtlasGrowth && usePathScene)
+{
+    var seed = CreateNativePaths(
+        96,
+        logicalWidth,
+        logicalHeight,
+        forceUniqueOutlines: false);
+    native.RenderPaths(
+        nativeTarget,
+        dpiScale,
+        seed.Paths,
+        seed.Segments,
+        clearColor,
+        capturePayloadHash: false,
+        contentRevision: uint.MaxValue);
+    context.PollDevice(wait: true);
+}
+
 // Compile both shader/pipeline paths before correctness or timing evidence.
 RenderNative();
+uint coldAtlasGeneration = useGlyphScene
+    ? lastNativeGlyphMetrics.AtlasGeneration
+    : lastNativePathMetrics.AtlasGeneration;
 RenderManaged();
 context.PollDevice(wait: true);
 
 // Compare a second fully warmed submission, not the pipeline's first draw.
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
+if (forceAtlasGrowth && useGlyphScene &&
+    (lastNativeGlyphMetrics.AtlasGeneration != coldAtlasGeneration ||
+     lastNativeGlyphMetrics.RasterizedGlyphCount != 0U ||
+     lastNativeGlyphMetrics.OutlineUploadBytes != 0UL ||
+     lastNativeGlyphMetrics.InstanceUploadBytes != 0UL ||
+     lastNativeGlyphMetrics.CoverageStagingBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native glyph replay changed the grown atlas or uploaded retained payload.");
+}
+if (forceAtlasGrowth && usePathScene &&
+    (lastNativePathMetrics.AtlasGeneration != coldAtlasGeneration ||
+     lastNativePathMetrics.RasterizedPathCount != 0U ||
+     lastNativePathMetrics.PathUploadBytes != 0UL ||
+     lastNativePathMetrics.VertexUploadBytes != 0UL ||
+     lastNativePathMetrics.IndexUploadBytes != 0UL ||
+     lastNativePathMetrics.BrushUploadBytes != 0UL ||
+     lastNativePathMetrics.CoverageStagingBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native path replay changed the grown atlas or uploaded retained payload.");
+}
 RenderManaged();
 context.PollDevice(wait: true);
 
@@ -257,9 +353,9 @@ if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
     string imageStem = useGlyphScene
-        ? "glyphs"
+        ? forceAtlasGrowth ? "glyphs-growth" : "glyphs"
         : usePathScene
-        ? "paths"
+        ? forceAtlasGrowth ? "paths-growth" : "paths"
         : useDashedGeometryScene ? "dashes" : "latest";
     WritePpm(
         $"artifacts/progpu-native/differential/{imageStem}-native.ppm",
@@ -280,6 +376,17 @@ if (writeImages)
         amplification: 64);
 }
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
+if (forceAtlasGrowth && nativeAtlasWidth <= 1024U)
+{
+    throw new InvalidOperationException(
+        $"The native atlas growth gate did not grow: " +
+        $"width={nativeAtlasWidth}, growthCount={nativeAtlasGrowthCount}.");
+}
+if (forceAtlasGrowth && useGlyphScene && nativeAtlasGrowthCount == 0U)
+{
+    throw new InvalidOperationException(
+        "The native glyph atlas did not publish its growth count.");
+}
 bool requiresExactPixels = useGlyphScene ||
     (!useAnalyticScene && !useGeometryScene && !usePathScene && dpiScale == 1f);
 bool usesGeometryDifferential = useGeometryScene || usePathScene;
@@ -509,6 +616,9 @@ var report = new BenchmarkReport(
     NativeRasterizedGlyphCount: nativeRasterizedGlyphCount,
     NativeGlyphOutlineUploadBytes: nativeGlyphOutlineUploadBytes,
     NativeGlyphInstanceUploadBytes: nativeGlyphInstanceUploadBytes,
+    NativeAtlasWidth: nativeAtlasWidth,
+    NativeAtlasGeneration: nativeAtlasGeneration,
+    NativeAtlasGrowthCount: nativeAtlasGrowthCount,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -528,6 +638,7 @@ ulong RenderNative(bool capturePayloadHash = false)
             clearColor,
             capturePayloadHash,
             contentRevision: 1U);
+        lastNativeGlyphMetrics = metrics;
         nativeRasterizedGlyphCount = Math.Max(
             nativeRasterizedGlyphCount,
             metrics.RasterizedGlyphCount);
@@ -540,6 +651,13 @@ ulong RenderNative(bool capturePayloadHash = false)
         nativeCoverageStagingBytes = Math.Max(
             nativeCoverageStagingBytes,
             metrics.CoverageStagingBytes);
+        nativeAtlasWidth = Math.Max(nativeAtlasWidth, metrics.AtlasWidth);
+        nativeAtlasGeneration = Math.Max(
+            nativeAtlasGeneration,
+            metrics.AtlasGeneration);
+        nativeAtlasGrowthCount = Math.Max(
+            nativeAtlasGrowthCount,
+            metrics.AtlasGrowthCount);
         return metrics.PayloadHash;
     }
     if (usePathScene)
@@ -552,6 +670,7 @@ ulong RenderNative(bool capturePayloadHash = false)
             clearColor,
             capturePayloadHash,
             contentRevision: 1U);
+        lastNativePathMetrics = metrics;
         nativeVertexCount = metrics.VertexCount;
         nativeIndexCount = metrics.IndexCount;
         nativeRasterizedPathCount = Math.Max(
@@ -563,6 +682,10 @@ ulong RenderNative(bool capturePayloadHash = false)
         nativeCoverageStagingBytes = Math.Max(
             nativeCoverageStagingBytes,
             metrics.CoverageStagingBytes);
+        nativeAtlasWidth = Math.Max(nativeAtlasWidth, metrics.AtlasWidth);
+        nativeAtlasGeneration = Math.Max(
+            nativeAtlasGeneration,
+            metrics.AtlasGeneration);
         return metrics.PayloadHash;
     }
     if (useGeometryScene || usePathScene)
@@ -1571,11 +1694,12 @@ static DrawingVisual CreateManagedGeometryVisual(
 static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
     int count,
     float logicalWidth,
-    float logicalHeight)
+    float logicalHeight,
+    bool forceUniqueOutlines)
 {
     const float radius = 12f;
     const float kappa = 0.55228475f;
-    var segments = new[]
+    var baseSegments = new[]
     {
         new NativePathSegment(
             NativePathSegmentKind.Cubic,
@@ -1602,13 +1726,25 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
             new Vector2(-radius * kappa, -radius),
             new Vector2(0f, -radius))
     };
+    NativePathSegment[] segments = forceUniqueOutlines
+        ? new NativePathSegment[count * baseSegments.Length]
+        : baseSegments;
+    if (forceUniqueOutlines)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            baseSegments.CopyTo(segments, index * baseSegments.Length);
+        }
+    }
     var paths = new NativePathFill[count];
     int columns = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(
         count * logicalWidth / logicalHeight)));
     int rows = (count + columns - 1) / columns;
     float cellWidth = logicalWidth / columns;
     float cellHeight = logicalHeight / rows;
-    float scale = MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+    float scale = forceUniqueOutlines
+        ? 1.5f
+        : MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
     for (int index = 0; index < count; index++)
     {
         int column = index % columns;
@@ -1624,8 +1760,8 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
                 (column + 0.5f) * cellWidth,
                 (row + 0.5f) * cellHeight);
         paths[index] = new NativePathFill(
-            0,
-            (nuint)segments.Length,
+            forceUniqueOutlines ? (nuint)(index * baseSegments.Length) : 0,
+            (nuint)baseSegments.Length,
             new Vector2(-radius),
             new Vector2(radius),
             color,
@@ -1637,7 +1773,8 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
 static DrawingVisual CreateManagedPathVisual(
     int count,
     float logicalWidth,
-    float logicalHeight)
+    float logicalHeight,
+    bool forceAtlasGrowth)
 {
     const float radius = 12f;
     const float kappa = 0.55228475f;
@@ -1670,7 +1807,9 @@ static DrawingVisual CreateManagedPathVisual(
     int rows = (count + columns - 1) / columns;
     float cellWidth = logicalWidth / columns;
     float cellHeight = logicalHeight / rows;
-    float scale = MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+    float scale = forceAtlasGrowth
+        ? 1.5f
+        : MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
     for (int index = 0; index < count; index++)
     {
         int column = index % columns;
@@ -1708,7 +1847,8 @@ static (
     int count,
     float dpiScale,
     float logicalWidth,
-    float logicalHeight)
+    float logicalHeight,
+    bool forceUniqueOutlines)
 {
     const float fontSize = 20f;
     const string alphabet = "ProGPUWebNative0123456789ABCDEFGHJKLMNQRSTUVXYZ";
@@ -1742,7 +1882,8 @@ static (
         glyphIndices[index] = glyphIndex;
         glyphPositions[index] = managedPosition;
 
-        if (!outlineIndices.TryGetValue(glyphIndex, out uint outlineIndex))
+        if (forceUniqueOutlines ||
+            !outlineIndices.TryGetValue(glyphIndex, out uint outlineIndex))
         {
             PathGeometry? outline = font.GetGlyphOutline(glyphIndex);
             if (outline == null ||
@@ -1800,7 +1941,10 @@ static (
                     $"Glyph {glyphIndex} has an empty outline.");
             }
             outlineIndex = checked((uint)outlines.Count);
-            outlineIndices.Add(glyphIndex, outlineIndex);
+            if (!forceUniqueOutlines)
+            {
+                outlineIndices.Add(glyphIndex, outlineIndex);
+            }
             outlines.Add(new NativeGlyphOutline(
                 segmentOffset,
                 segmentCount,
@@ -1990,6 +2134,9 @@ internal sealed record BenchmarkReport(
     uint NativeRasterizedGlyphCount,
     ulong NativeGlyphOutlineUploadBytes,
     ulong NativeGlyphInstanceUploadBytes,
+    uint NativeAtlasWidth,
+    uint NativeAtlasGeneration,
+    uint NativeAtlasGrowthCount,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(
