@@ -23,6 +23,30 @@ internal static unsafe partial class NativeMethods
         internal NativeImageRect ClipRect;
         internal float GroupOpacity;
         internal uint GroupRevision;
+        internal nuint GroupMask;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GroupMask
+    {
+        internal uint StructSize;
+        internal NativeGroupMaskKind Kind;
+        internal uint Flags;
+        internal uint Reserved;
+        internal nuint ExternalView;
+        internal uint Width;
+        internal uint Height;
+        internal NativeImageSampling Sampling;
+        internal NativeMaskTextureFormat TextureFormat;
+        internal uint Revision;
+        internal uint Reserved2;
+        internal NativeImageRect DestinationRect;
+        internal NativeImageRect Bounds;
+        internal Matrix3x2 Transform;
+        internal Vector4 CornerRadiiX;
+        internal Vector4 CornerRadiiY;
+        internal float Opacity;
+        internal uint Reserved3;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -283,6 +307,11 @@ internal static unsafe partial class NativeMethods
         internal ulong TextureBytes;
         internal ulong VertexUploadBytes;
         internal ulong UniformUploadBytes;
+        internal NativeGroupMaskKind MaskKind;
+        internal uint MaskRevision;
+        internal uint MaskBindGroupGeneration;
+        internal uint MaskBindGroupCacheHit;
+        internal ulong MaskUniformUploadBytes;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

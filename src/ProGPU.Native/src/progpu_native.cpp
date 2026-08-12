@@ -317,7 +317,93 @@ struct resolved_draw_state {
     std::uint32_t clip_y = 0U;
     std::uint32_t clip_width = 0U;
     std::uint32_t clip_height = 0U;
+    bool has_group_mask = false;
+    progpu_native_group_mask group_mask{};
 };
+
+bool is_finite_positive_rect(
+    const progpu_native_image_rect& rect) noexcept {
+    return std::isfinite(rect.x) && std::isfinite(rect.y) &&
+        std::isfinite(rect.width) && std::isfinite(rect.height) &&
+        rect.width > 0.0F && rect.height > 0.0F;
+}
+
+bool is_finite_nonnegative_radii(
+    const float (&values)[4]) noexcept {
+    return std::ranges::all_of(values, [](float value) {
+        return std::isfinite(value) && value >= 0.0F;
+    });
+}
+
+void normalize_group_mask_radii(
+    progpu_native_group_mask& mask) noexcept {
+    const float width = mask.bounds.width;
+    const float height = mask.bounds.height;
+    float scale = 1.0F;
+    const auto constrain = [&scale](float available, float requested) {
+        if (requested > 0.0F) {
+            scale = std::min(scale, available / requested);
+        }
+    };
+    constrain(width, mask.corner_radii_x[0] + mask.corner_radii_x[1]);
+    constrain(width, mask.corner_radii_x[3] + mask.corner_radii_x[2]);
+    constrain(height, mask.corner_radii_y[0] + mask.corner_radii_y[3]);
+    constrain(height, mask.corner_radii_y[1] + mask.corner_radii_y[2]);
+    scale = std::clamp(scale, 0.0F, 1.0F);
+    for (std::size_t index = 0U; index < 4U; ++index) {
+        mask.corner_radii_x[index] *= scale;
+        mask.corner_radii_y[index] *= scale;
+    }
+}
+
+bool resolve_group_mask(
+    const progpu_native_group_mask* requested,
+    std::uintptr_t target_view,
+    progpu_native_group_mask& resolved) noexcept {
+    if (requested == nullptr) {
+        return true;
+    }
+    if (requested->struct_size < sizeof(progpu_native_group_mask) ||
+        requested->flags != 0U || requested->reserved != 0U ||
+        requested->reserved2 != 0U || requested->reserved3 != 0U) {
+        return false;
+    }
+    resolved = *requested;
+    if (resolved.kind == PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
+        return resolved.external_view != 0U &&
+            resolved.external_view != target_view &&
+            resolved.width > 0U && resolved.width <= 16384U &&
+            resolved.height > 0U && resolved.height <= 16384U &&
+            resolved.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+            resolved.texture_format >= PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM &&
+            resolved.texture_format <=
+                PROGPU_NATIVE_MASK_TEXTURE_BGRA8_UNORM &&
+            resolved.revision != 0U &&
+            is_finite_positive_rect(resolved.destination_rect);
+    }
+    if (resolved.kind != PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
+        resolved.external_view != 0U || resolved.width != 0U ||
+        resolved.height != 0U || resolved.texture_format != 0U ||
+        resolved.revision != 0U ||
+        !is_finite_positive_rect(resolved.bounds) ||
+        !progpu::native::is_finite(resolved.transform) ||
+        !is_finite_nonnegative_radii(resolved.corner_radii_x) ||
+        !is_finite_nonnegative_radii(resolved.corner_radii_y) ||
+        !std::isfinite(resolved.opacity) || resolved.opacity < 0.0F ||
+        resolved.opacity > 1.0F) {
+        return false;
+    }
+    const double determinant =
+        static_cast<double>(resolved.transform.m11) *
+            resolved.transform.m22 -
+        static_cast<double>(resolved.transform.m12) *
+            resolved.transform.m21;
+    if (!std::isfinite(determinant) || std::abs(determinant) <= 0.000001) {
+        return false;
+    }
+    normalize_group_mask_radii(resolved);
+    return true;
+}
 
 float snap_scissor_coordinate(float value) noexcept {
     const float rounded = std::round(value);
@@ -326,6 +412,7 @@ float snap_scissor_coordinate(float value) noexcept {
 
 bool resolve_draw_state(
     const progpu_native_draw_state* state,
+    std::uintptr_t target_view,
     std::uint32_t target_width,
     std::uint32_t target_height,
     float dpi_scale,
@@ -343,13 +430,27 @@ bool resolve_draw_state(
         return false;
     }
     resolved.opacity = state->opacity;
-    if (state->struct_size >= sizeof(progpu_native_draw_state)) {
+    constexpr std::uint32_t group_size =
+        offsetof(progpu_native_draw_state, group_mask);
+    if (state->struct_size >= group_size) {
         if (!std::isfinite(state->group_opacity) ||
             state->group_opacity < 0.0F || state->group_opacity > 1.0F) {
             return false;
         }
         resolved.group_opacity = state->group_opacity;
         resolved.group_revision = state->group_revision;
+    }
+    constexpr std::uint32_t mask_size =
+        offsetof(progpu_native_draw_state, group_mask) +
+        sizeof(state->group_mask);
+    if (state->struct_size >= mask_size && state->group_mask != nullptr) {
+        if (!resolve_group_mask(
+                state->group_mask,
+                target_view,
+                resolved.group_mask)) {
+            return false;
+        }
+        resolved.has_group_mask = true;
     }
     if ((state->flags & PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) == 0U) {
         return state->clip_rect.x == 0.0F && state->clip_rect.y == 0.0F &&
@@ -563,6 +664,20 @@ struct progpu_native_engine {
     bool image_cache_valid = false;
     bool image_gpu_cache_valid = false;
     WGPURenderPipeline layer_composite_pipeline = nullptr;
+    WGPURenderPipeline layer_mask_pipeline = nullptr;
+    WGPUBindGroupLayout layer_mask_layout = nullptr;
+    WGPUBuffer layer_mask_uniform_buffer = nullptr;
+    WGPUTexture layer_mask_dummy_texture = nullptr;
+    WGPUTextureView layer_mask_dummy_view = nullptr;
+    WGPUBindGroup layer_analytic_mask_bind_group = nullptr;
+    WGPUTextureView layer_external_mask_view = nullptr;
+    WGPUBindGroup layer_external_mask_nearest_bind_group = nullptr;
+    WGPUBindGroup layer_external_mask_linear_bind_group = nullptr;
+    std::uint32_t layer_external_mask_width = 0U;
+    std::uint32_t layer_external_mask_height = 0U;
+    std::uint32_t layer_mask_bind_group_generation = 0U;
+    gpu_mask_sampling_uniforms cached_layer_mask_uniforms{};
+    bool layer_mask_uniform_cache_valid = false;
     WGPUBuffer layer_uniform_buffer = nullptr;
     WGPUBindGroup layer_uniform_bind_group = nullptr;
     WGPUBuffer layer_vertex_buffer = nullptr;
@@ -619,6 +734,35 @@ struct progpu_native_engine {
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        if (layer_external_mask_linear_bind_group != nullptr) {
+            wgpuBindGroupRelease(layer_external_mask_linear_bind_group);
+        }
+        if (layer_external_mask_nearest_bind_group != nullptr) {
+            wgpuBindGroupRelease(layer_external_mask_nearest_bind_group);
+        }
+        if (layer_external_mask_view != nullptr) {
+            wgpuTextureViewRelease(layer_external_mask_view);
+        }
+        if (layer_analytic_mask_bind_group != nullptr) {
+            wgpuBindGroupRelease(layer_analytic_mask_bind_group);
+        }
+        if (layer_mask_dummy_view != nullptr) {
+            wgpuTextureViewRelease(layer_mask_dummy_view);
+        }
+        if (layer_mask_dummy_texture != nullptr) {
+            wgpuTextureDestroy(layer_mask_dummy_texture);
+            wgpuTextureRelease(layer_mask_dummy_texture);
+        }
+        if (layer_mask_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(layer_mask_uniform_buffer);
+            wgpuBufferRelease(layer_mask_uniform_buffer);
+        }
+        if (layer_mask_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(layer_mask_layout);
+        }
+        if (layer_mask_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(layer_mask_pipeline);
+        }
         if (layer_texture_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_texture_bind_group);
         }
@@ -2247,6 +2391,362 @@ bool create_layer_resources(progpu_native_engine& engine) {
     return true;
 }
 
+WGPUBindGroup create_layer_mask_bind_group(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    WGPUTextureView view,
+    const char* label) {
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view},
+        {nullptr, 2U, engine.layer_mask_uniform_buffer, 0U,
+            sizeof(gpu_mask_sampling_uniforms), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(label);
+    descriptor.layout = engine.layer_mask_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+bool create_layer_mask_resources(progpu_native_engine& engine) {
+    if (engine.layer_mask_pipeline != nullptr) {
+        return true;
+    }
+    if (!create_layer_resources(engine) ||
+        engine.layer_mask_layout != nullptr ||
+        engine.layer_mask_uniform_buffer != nullptr ||
+        engine.layer_mask_dummy_texture != nullptr ||
+        engine.layer_mask_dummy_view != nullptr ||
+        engine.layer_analytic_mask_bind_group != nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 3U> mask_entries{};
+    mask_entries[0].binding = 0U;
+    mask_entries[0].visibility = WGPUShaderStage_Fragment;
+    mask_entries[0].sampler.type = WGPUSamplerBindingType_Filtering;
+    mask_entries[1].binding = 1U;
+    mask_entries[1].visibility = WGPUShaderStage_Fragment;
+    mask_entries[1].texture.sampleType = WGPUTextureSampleType_Float;
+    mask_entries[1].texture.viewDimension = WGPUTextureViewDimension_2D;
+    mask_entries[1].texture.multisampled = false;
+    mask_entries[2].binding = 2U;
+    mask_entries[2].visibility = WGPUShaderStage_Fragment;
+    mask_entries[2].buffer.type = WGPUBufferBindingType_Uniform;
+    mask_entries[2].buffer.minBindingSize =
+        sizeof(gpu_mask_sampling_uniforms);
+    WGPUBindGroupLayoutDescriptor mask_layout_descriptor{};
+    mask_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native common group mask layout");
+    mask_layout_descriptor.entryCount = mask_entries.size();
+    mask_layout_descriptor.entries = mask_entries.data();
+    engine.layer_mask_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &mask_layout_descriptor);
+    if (engine.layer_mask_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUBindGroupLayout, 3U> layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout,
+        engine.layer_mask_layout
+    }};
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native masked group composite layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = layouts.size();
+    pipeline_layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 7U> attributes{{
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U)
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.image_shader;
+    vertex_state.entryPoint =
+        progpu::native::webgpu::string_view("vs_main");
+    vertex_state.bufferCount = 1U;
+    vertex_state.buffers = &vertex_layout;
+    WGPUBlendState blend{};
+    blend.color.srcFactor = WGPUBlendFactor_One;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = &blend;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.image_shader;
+    fragment.entryPoint = progpu::native::webgpu::string_view("fs_main");
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native masked premultiplied group composite pipeline");
+    pipeline_descriptor.layout = pipeline_layout;
+    pipeline_descriptor.vertex = vertex_state;
+    pipeline_descriptor.primitive.topology =
+        WGPUPrimitiveTopology_TriangleList;
+    pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
+    pipeline_descriptor.multisample.count = 1U;
+    pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
+    pipeline_descriptor.fragment = &fragment;
+    engine.layer_mask_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.layer_mask_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native common group mask uniforms");
+    buffer_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    buffer_descriptor.size = sizeof(gpu_mask_sampling_uniforms);
+    engine.layer_mask_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &buffer_descriptor);
+    if (engine.layer_mask_uniform_buffer == nullptr) {
+        return false;
+    }
+
+    WGPUTextureDescriptor texture_descriptor{};
+    texture_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native analytic group mask sentinel");
+    texture_descriptor.usage = WGPUTextureUsage_TextureBinding;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {1U, 1U, 1U};
+    texture_descriptor.format = WGPUTextureFormat_R8Unorm;
+    texture_descriptor.mipLevelCount = 1U;
+    texture_descriptor.sampleCount = 1U;
+    engine.layer_mask_dummy_texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &texture_descriptor);
+    if (engine.layer_mask_dummy_texture == nullptr) {
+        return false;
+    }
+    engine.layer_mask_dummy_view = wgpuTextureCreateView(
+        engine.layer_mask_dummy_texture,
+        nullptr);
+    if (engine.layer_mask_dummy_view == nullptr) {
+        return false;
+    }
+    engine.layer_analytic_mask_bind_group = create_layer_mask_bind_group(
+        engine,
+        engine.image_linear_sampler,
+        engine.layer_mask_dummy_view,
+        "ProGPU native analytic group mask bind group");
+    if (engine.layer_analytic_mask_bind_group == nullptr) {
+        return false;
+    }
+    ++engine.layer_mask_bind_group_generation;
+    return true;
+}
+
+bool update_layer_external_mask(
+    progpu_native_engine& engine,
+    const progpu_native_group_mask& mask,
+    bool& replaced) {
+    WGPUTextureView view = reinterpret_cast<WGPUTextureView>(
+        mask.external_view);
+    replaced = engine.layer_external_mask_view == nullptr ||
+        engine.layer_external_mask_view != view ||
+        engine.layer_external_mask_width != mask.width ||
+        engine.layer_external_mask_height != mask.height;
+    if (!replaced) {
+        return true;
+    }
+
+    progpu::native::webgpu::texture_view_add_ref(view);
+    WGPUBindGroup nearest = create_layer_mask_bind_group(
+        engine,
+        engine.image_nearest_sampler,
+        view,
+        "ProGPU native nearest common group mask bind group");
+    WGPUBindGroup linear = create_layer_mask_bind_group(
+        engine,
+        engine.image_linear_sampler,
+        view,
+        "ProGPU native linear common group mask bind group");
+    if (nearest == nullptr || linear == nullptr) {
+        if (linear != nullptr) wgpuBindGroupRelease(linear);
+        if (nearest != nullptr) wgpuBindGroupRelease(nearest);
+        wgpuTextureViewRelease(view);
+        return false;
+    }
+    if (engine.layer_external_mask_linear_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.layer_external_mask_linear_bind_group);
+    }
+    if (engine.layer_external_mask_nearest_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.layer_external_mask_nearest_bind_group);
+    }
+    if (engine.layer_external_mask_view != nullptr) {
+        wgpuTextureViewRelease(engine.layer_external_mask_view);
+    }
+    engine.layer_external_mask_view = view;
+    engine.layer_external_mask_nearest_bind_group = nearest;
+    engine.layer_external_mask_linear_bind_group = linear;
+    engine.layer_external_mask_width = mask.width;
+    engine.layer_external_mask_height = mask.height;
+    ++engine.layer_mask_bind_group_generation;
+    return true;
+}
+
+bool create_rounded_group_mask_uniforms(
+    const progpu_native_group_mask& mask,
+    float dpi_scale,
+    gpu_mask_sampling_uniforms& uniforms) noexcept {
+    const double m11 = static_cast<double>(mask.transform.m11) * dpi_scale;
+    const double m12 = static_cast<double>(mask.transform.m12) * dpi_scale;
+    const double m21 = static_cast<double>(mask.transform.m21) * dpi_scale;
+    const double m22 = static_cast<double>(mask.transform.m22) * dpi_scale;
+    const double m31 = static_cast<double>(mask.transform.m31) * dpi_scale;
+    const double m32 = static_cast<double>(mask.transform.m32) * dpi_scale;
+    const double determinant = m11 * m22 - m12 * m21;
+    if (!std::isfinite(determinant) || std::abs(determinant) <= 0.000001) {
+        return false;
+    }
+    const double inverse = 1.0 / determinant;
+    const double inverse_m11 = m22 * inverse;
+    const double inverse_m12 = -m12 * inverse;
+    const double inverse_m21 = -m21 * inverse;
+    const double inverse_m22 = m11 * inverse;
+    const double inverse_m31 = (m21 * m32 - m22 * m31) * inverse;
+    const double inverse_m32 = (m12 * m31 - m11 * m32) * inverse;
+    const std::array<double, 6U> inverse_values{
+        inverse_m11,
+        inverse_m12,
+        inverse_m21,
+        inverse_m22,
+        inverse_m31,
+        inverse_m32
+    };
+    if (!std::ranges::all_of(inverse_values, [](double value) {
+            return std::isfinite(value) &&
+                value >= -std::numeric_limits<float>::max() &&
+                value <= std::numeric_limits<float>::max();
+        })) {
+        return false;
+    }
+
+    uniforms.coordinate0[0] = static_cast<float>(inverse_m11);
+    uniforms.coordinate0[1] = static_cast<float>(inverse_m21);
+    uniforms.coordinate0[2] = static_cast<float>(inverse_m31);
+    uniforms.coordinate1[0] = static_cast<float>(inverse_m12);
+    uniforms.coordinate1[1] = static_cast<float>(inverse_m22);
+    uniforms.coordinate1[2] = static_cast<float>(inverse_m32);
+    uniforms.bounds[0] = mask.bounds.x;
+    uniforms.bounds[1] = mask.bounds.y;
+    uniforms.bounds[2] = mask.bounds.x + mask.bounds.width;
+    uniforms.bounds[3] = mask.bounds.y + mask.bounds.height;
+    std::copy_n(
+        mask.corner_radii_x,
+        4U,
+        uniforms.corner_radii_x);
+    std::copy_n(
+        mask.corner_radii_y,
+        4U,
+        uniforms.corner_radii_y);
+    uniforms.options[0] = 2.0F;
+    uniforms.options[1] = mask.opacity;
+    return true;
+}
+
+bool update_layer_group_mask(
+    progpu_native_engine& engine,
+    const resolved_draw_state& draw_state,
+    float dpi_scale,
+    bool& uploaded_uniforms) {
+    uploaded_uniforms = false;
+    const bool resources_existed = engine.layer_mask_pipeline != nullptr;
+    if (!draw_state.has_group_mask || !create_layer_mask_resources(engine)) {
+        return !draw_state.has_group_mask;
+    }
+
+    const auto& mask = draw_state.group_mask;
+    gpu_mask_sampling_uniforms uniforms{};
+    bool binding_replaced = false;
+    if (mask.kind == PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
+        if (!update_layer_external_mask(
+                engine,
+                mask,
+                binding_replaced)) {
+            return false;
+        }
+        uniforms.coordinate0[0] =
+            mask.destination_rect.x * dpi_scale;
+        uniforms.coordinate0[1] =
+            mask.destination_rect.y * dpi_scale;
+        uniforms.coordinate1[0] = 1.0F /
+            (mask.destination_rect.width * dpi_scale);
+        uniforms.coordinate1[1] = 1.0F /
+            (mask.destination_rect.height * dpi_scale);
+        uniforms.options[0] = 1.0F;
+    } else if (!create_rounded_group_mask_uniforms(
+            mask,
+            dpi_scale,
+            uniforms)) {
+        return false;
+    }
+
+    if (!engine.layer_mask_uniform_cache_valid ||
+        std::memcmp(
+            &engine.cached_layer_mask_uniforms,
+            &uniforms,
+            sizeof(uniforms)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.layer_mask_uniform_buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        engine.cached_layer_mask_uniforms = uniforms;
+        engine.layer_mask_uniform_cache_valid = true;
+        uploaded_uniforms = true;
+    }
+    engine.last_layer_metrics.mask_kind = mask.kind;
+    engine.last_layer_metrics.mask_revision = mask.revision;
+    engine.last_layer_metrics.mask_bind_group_generation =
+        engine.layer_mask_bind_group_generation;
+    engine.last_layer_metrics.mask_bind_group_cache_hit =
+        resources_existed && !binding_replaced ? 1U : 0U;
+    engine.last_layer_metrics.mask_uniform_upload_bytes =
+        uploaded_uniforms ? sizeof(uniforms) : 0U;
+    return true;
+}
+
 bool ensure_layer_texture(
     progpu_native_engine& engine,
     std::uint32_t width,
@@ -2432,15 +2932,41 @@ bool encode_layer_composite(
     if (draw_state.group_opacity != 0.0F &&
         draw_state.has_drawable_clip) {
         apply_scissor(pass, draw_state);
+        WGPUBindGroup mask_bind_group = nullptr;
+        if (draw_state.has_group_mask) {
+            mask_bind_group =
+                draw_state.group_mask.kind ==
+                    PROGPU_NATIVE_GROUP_MASK_TEXTURE
+                ? (draw_state.group_mask.sampling ==
+                        PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                    ? engine.layer_external_mask_nearest_bind_group
+                    : engine.layer_external_mask_linear_bind_group)
+                : engine.layer_analytic_mask_bind_group;
+            if (mask_bind_group == nullptr) {
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+                return false;
+            }
+        }
         wgpuRenderPassEncoderSetPipeline(
             pass,
-            engine.layer_composite_pipeline);
+            draw_state.has_group_mask
+                ? engine.layer_mask_pipeline
+                : engine.layer_composite_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             0U,
             engine.layer_uniform_bind_group,
             0U,
             nullptr);
+        if (draw_state.has_group_mask) {
+            wgpuRenderPassEncoderSetBindGroup(
+                pass,
+                2U,
+                mask_bind_group,
+                0U,
+                nullptr);
+        }
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             1U,
@@ -2479,7 +3005,8 @@ progpu_native_status prepare_group_layer(
     bool& use_group_layer,
     bool& submitted_cache_hit) {
     use_group_layer = draw_state.group_opacity < 1.0F ||
-        draw_state.group_revision != 0U;
+        draw_state.group_revision != 0U ||
+        draw_state.has_group_mask;
     submitted_cache_hit = false;
     if (!use_group_layer) {
         return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -2493,6 +3020,21 @@ progpu_native_status prepare_group_layer(
         return engine.fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The pooled group layer could not be prepared.");
+    }
+    bool uploaded_mask_uniforms = false;
+    if (draw_state.has_group_mask &&
+        !update_layer_group_mask(
+            engine,
+            draw_state,
+            dpi_scale,
+            uploaded_mask_uniforms)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The common group mask could not be prepared.");
+    }
+    if (uploaded_mask_uniforms) {
+        engine.last_layer_metrics.uniform_upload_bytes +=
+            sizeof(gpu_mask_sampling_uniforms);
     }
     const bool cache_hit = draw_state.group_revision != 0U &&
         engine.layer_content_cache_valid &&
@@ -3049,7 +3591,9 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
         PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE |
         PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE |
-        PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY;
+        PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY |
+        PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK |
+        PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -3171,6 +3715,7 @@ progpu_native_status progpu_native_engine_render(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -3416,6 +3961,7 @@ progpu_native_status progpu_native_engine_render_analytic(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -3716,6 +4262,7 @@ progpu_native_status progpu_native_engine_render_geometry(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -4382,6 +4929,7 @@ progpu_native_status progpu_native_engine_render_paths(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -5137,6 +5685,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -5880,6 +6429,7 @@ progpu_native_status progpu_native_engine_render_image(
             : nullptr;
     if (!resolve_draw_state(
             requested_draw_state,
+            frame->target_view,
             frame->width,
             frame->height,
             frame->dpi_scale,
@@ -6219,8 +6769,10 @@ progpu_native_status progpu_native_engine_get_layer_metrics(
     progpu_native_layer_metrics* metrics) {
     const progpu::native::webgpu::dispatch_scope dispatch_scope(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
+    constexpr std::uint32_t legacy_size =
+        offsetof(progpu_native_layer_metrics, mask_kind);
     if (engine == nullptr || metrics == nullptr ||
-        metrics->struct_size < sizeof(progpu_native_layer_metrics)) {
+        metrics->struct_size < legacy_size) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     if (!engine->is_owner_thread()) {
@@ -6228,7 +6780,13 @@ progpu_native_status progpu_native_engine_get_layer_metrics(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer layer metrics must be queried from its owner thread.");
     }
-    *metrics = engine->last_layer_metrics;
+    const std::uint32_t requested_size = metrics->struct_size;
+    std::memcpy(
+        metrics,
+        &engine->last_layer_metrics,
+        std::min<std::size_t>(
+            requested_size,
+            sizeof(progpu_native_layer_metrics)));
     metrics->struct_size = sizeof(progpu_native_layer_metrics);
     engine->last_error.clear();
     return PROGPU_NATIVE_STATUS_SUCCESS;

@@ -53,8 +53,12 @@ static_assert(sizeof(progpu_native_path_frame) ==
 static_assert(sizeof(progpu_native_image_frame) ==
     (sizeof(std::size_t) == 8U ? 208U : 184U));
 static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
-static_assert(sizeof(progpu_native_draw_state) == 40U);
-static_assert(sizeof(progpu_native_layer_metrics) == 56U);
+static_assert(sizeof(progpu_native_group_mask) ==
+    (sizeof(std::uintptr_t) == 8U ? 144U : 140U));
+static_assert(offsetof(progpu_native_draw_state, group_mask) == 40U);
+static_assert(sizeof(progpu_native_draw_state) ==
+    (sizeof(std::uintptr_t) == 8U ? 48U : 44U));
+static_assert(sizeof(progpu_native_layer_metrics) == 80U);
 
 inline bool is_finite(const progpu_native_color& color) noexcept {
     return std::isfinite(color.r) &&

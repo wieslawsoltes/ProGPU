@@ -72,7 +72,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(40, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeMethods.DrawState>());
         Assert.Equal(
             0,
             OffsetOf<NativeMethods.DrawState>(
@@ -92,7 +92,29 @@ public class NativeRendererInteropTests
         Assert.Equal(
             36,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupRevision)));
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(
+            40,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupMask)));
+        Assert.Equal(144, Unsafe.SizeOf<NativeMethods.GroupMask>());
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ExternalView)));
+        Assert.Equal(
+            48,
+            OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.DestinationRect)));
+        Assert.Equal(
+            80,
+            OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.Transform)));
+        Assert.Equal(
+            136,
+            OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.Opacity)));
+        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(
+            56,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskKind)));
+        Assert.Equal(
+            72,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskUniformUploadBytes)));
         Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
@@ -146,6 +168,31 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void PublicDrawStateCarriesTypedAnalyticGroupMask()
+    {
+        var mask = NativeGroupMask.RoundedRectangle(
+            new NativeImageRect(2f, 3f, 40f, 20f),
+            new Matrix3x2(1f, 0.25f, -0.1f, 1f, 5f, 7f),
+            new Vector4(4f, 5f, 6f, 7f),
+            new Vector4(8f, 9f, 10f, 11f),
+            0.75f);
+        var state = new NativeDrawState(
+            1f,
+            default,
+            NativeDrawStateFlags.None,
+            0.5f,
+            9U,
+            mask);
+
+        Assert.Equal(NativeGroupMaskKind.RoundedRectangle, state.GroupMask.Kind);
+        Assert.Equal(40f, state.GroupMask.Bounds.Width);
+        Assert.Equal(0.25f, state.GroupMask.Transform.M12);
+        Assert.Equal(6f, state.GroupMask.CornerRadiiX.Z);
+        Assert.Equal(11f, state.GroupMask.CornerRadiiY.W);
+        Assert.Equal(0.75f, state.GroupMask.Opacity);
+    }
+
+    [Fact]
     public void CapabilityValuesMatchPublishedNativeHeader()
     {
         Assert.Equal(1UL, (ulong)NativeRendererCapabilities.SolidRectBatch);
@@ -188,6 +235,12 @@ public class NativeRendererInteropTests
         Assert.Equal(
             2097152UL,
             (ulong)NativeRendererCapabilities.GroupOpacity);
+        Assert.Equal(
+            4194304UL,
+            (ulong)NativeRendererCapabilities.CommonGroupMask);
+        Assert.Equal(
+            8388608UL,
+            (ulong)NativeRendererCapabilities.AnalyticRoundedGroupMask);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

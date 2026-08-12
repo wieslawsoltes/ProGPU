@@ -367,6 +367,39 @@ else
       --geometry --dpi 2 --rectangles 96 --warmup 1 --iterations 2
 fi
 
+# Common masks are a shared final-composite contract, so exercise every frame
+# family with both the sampled zero-copy and analytic rounded-mask routes. The
+# benchmark executable fails the build on image divergence, retained-content
+# rebuilds, bind-group churn, or stable uniform uploads.
+run_common_mask_benchmark() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- "$@"
+  else
+    LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- "$@"
+  fi
+}
+
+for mask_mode in --group-texture-mask --group-rounded-mask; do
+  run_common_mask_benchmark \
+    "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --analytic "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --geometry "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --paths "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --glyphs "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --images "${mask_mode}" --warmup 2 --iterations 4
+done
+
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"
 echo "Managed sample: ${sample_dir}/progpu-native-managed-sample.ppm"

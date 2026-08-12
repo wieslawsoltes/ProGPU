@@ -43,7 +43,9 @@ enum {
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U,
     PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE = 1ULL << 19U,
     PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE = 1ULL << 20U,
-    PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY = 1ULL << 21U
+    PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY = 1ULL << 21U,
+    PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK = 1ULL << 22U,
+    PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U
 };
 
 enum {
@@ -54,6 +56,18 @@ typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
     PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1
 } progpu_native_image_sampling;
+
+typedef enum progpu_native_group_mask_kind {
+    PROGPU_NATIVE_GROUP_MASK_NONE = 0,
+    PROGPU_NATIVE_GROUP_MASK_TEXTURE = 1,
+    PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE = 2
+} progpu_native_group_mask_kind;
+
+typedef enum progpu_native_mask_texture_format {
+    PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM = 1,
+    PROGPU_NATIVE_MASK_TEXTURE_RGBA8_UNORM = 2,
+    PROGPU_NATIVE_MASK_TEXTURE_BGRA8_UNORM = 3
+} progpu_native_mask_texture_format;
 
 typedef enum progpu_native_image_source_flags {
     PROGPU_NATIVE_IMAGE_SOURCE_UPLOAD_RGBA8 = 0,
@@ -368,6 +382,36 @@ typedef struct progpu_native_positioned_glyph {
 } progpu_native_positioned_glyph;
 
 /*
+ * Optional mask applied once to the pooled frame-family result. Texture masks
+ * borrow a same-device filterable texture view and map its red channel over
+ * destination_rect. Rounded-rectangle masks use bounds and corner radii in
+ * local coordinates plus a local-to-logical affine transform. The native
+ * engine retains a texture view when it becomes the active sampled mask; the
+ * producer keeps the underlying texture alive until replacement or engine
+ * destruction.
+ */
+typedef struct progpu_native_group_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved;
+    uintptr_t external_view;
+    uint32_t width;
+    uint32_t height;
+    uint32_t sampling;
+    uint32_t texture_format;
+    uint32_t revision;
+    uint32_t reserved2;
+    progpu_native_image_rect destination_rect;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float corner_radii_x[4];
+    float corner_radii_y[4];
+    float opacity;
+    uint32_t reserved3;
+} progpu_native_group_mask;
+
+/*
  * Optional per-draw state shared by every frame family. opacity multiplies
  * primitive alpha. group_opacity composites the whole frame family through a
  * pooled transparent layer. A nonzero caller-owned group_revision permits the
@@ -376,7 +420,8 @@ typedef struct progpu_native_positioned_glyph {
  * group composite rather than baked into retained layer pixels.
  *
  * struct_size keeps ABI-v3 append compatibility: the original 32-byte prefix
- * defaults group_opacity to one and group_revision to zero.
+ * defaults group_opacity to one and group_revision to zero; the 40-byte
+ * prefix has group state but no common mask.
  */
 typedef struct progpu_native_draw_state {
     uint32_t struct_size;
@@ -386,6 +431,7 @@ typedef struct progpu_native_draw_state {
     progpu_native_image_rect clip_rect;
     float group_opacity;
     uint32_t group_revision;
+    const progpu_native_group_mask* group_mask;
 } progpu_native_draw_state;
 
 typedef struct progpu_native_layer_metrics {
@@ -400,6 +446,11 @@ typedef struct progpu_native_layer_metrics {
     uint64_t texture_bytes;
     uint64_t vertex_upload_bytes;
     uint64_t uniform_upload_bytes;
+    uint32_t mask_kind;
+    uint32_t mask_revision;
+    uint32_t mask_bind_group_generation;
+    uint32_t mask_bind_group_cache_hit;
+    uint64_t mask_uniform_upload_bytes;
 } progpu_native_layer_metrics;
 
 /*

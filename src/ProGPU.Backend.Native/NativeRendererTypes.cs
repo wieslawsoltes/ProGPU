@@ -73,6 +73,20 @@ public enum NativeImageSampling : uint
     Linear = 1
 }
 
+public enum NativeGroupMaskKind : uint
+{
+    None = 0,
+    Texture = 1,
+    RoundedRectangle = 2
+}
+
+internal enum NativeMaskTextureFormat : uint
+{
+    R8Unorm = 1,
+    Rgba8Unorm = 2,
+    Bgra8Unorm = 3
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
@@ -129,7 +143,9 @@ public enum NativeRendererCapabilities : ulong
     ExternalImageMask = 1UL << 18,
     ExplicitQueueTimeline = 1UL << 19,
     FrameDrawState = 1UL << 20,
-    GroupOpacity = 1UL << 21
+    GroupOpacity = 1UL << 21,
+    CommonGroupMask = 1UL << 22,
+    AnalyticRoundedGroupMask = 1UL << 23
 }
 
 [Flags]
@@ -137,6 +153,87 @@ public enum NativeDrawStateFlags : uint
 {
     None = 0,
     ClipRect = 1U << 0
+}
+
+/// <summary>
+/// Describes a typed mask applied once to a pooled native frame-family result.
+/// </summary>
+/// <remarks>
+/// A texture mask remains zero-copy and samples its red channel. Keep its
+/// texture alive until another mask view replaces it or the compositor is
+/// disposed. Rounded-rectangle bounds and radii use local coordinates while
+/// Transform maps that local space to logical target coordinates.
+/// </remarks>
+public readonly struct NativeGroupMask
+{
+    private NativeGroupMask(
+        NativeGroupMaskKind kind,
+        GpuTexture? texture,
+        NativeImageRect destinationRect,
+        NativeImageSampling sampling,
+        uint revision,
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        Vector4 cornerRadiiX,
+        Vector4 cornerRadiiY,
+        float opacity)
+    {
+        Kind = kind;
+        Texture = texture;
+        DestinationRect = destinationRect;
+        Sampling = sampling;
+        Revision = revision;
+        Bounds = bounds;
+        Transform = transform;
+        CornerRadiiX = cornerRadiiX;
+        CornerRadiiY = cornerRadiiY;
+        Opacity = opacity;
+    }
+
+    public static NativeGroupMask TextureMask(
+        GpuTexture texture,
+        NativeImageRect destinationRect,
+        NativeImageSampling sampling,
+        uint revision) => new(
+            NativeGroupMaskKind.Texture,
+            texture,
+            destinationRect,
+            sampling,
+            revision,
+            default,
+            Matrix3x2.Identity,
+            default,
+            default,
+            1f);
+
+    public static NativeGroupMask RoundedRectangle(
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        Vector4 cornerRadiiX,
+        Vector4 cornerRadiiY,
+        float opacity = 1f) => new(
+            NativeGroupMaskKind.RoundedRectangle,
+            null,
+            default,
+            NativeImageSampling.Linear,
+            0U,
+            bounds,
+            transform,
+            cornerRadiiX,
+            cornerRadiiY,
+            opacity);
+
+    public NativeGroupMaskKind Kind { get; }
+    public GpuTexture? Texture { get; }
+    public NativeImageRect DestinationRect { get; }
+    public NativeImageSampling Sampling { get; }
+    public uint Revision { get; }
+    public NativeImageRect Bounds { get; }
+    public Matrix3x2 Transform { get; }
+    public Vector4 CornerRadiiX { get; }
+    public Vector4 CornerRadiiY { get; }
+    public float Opacity { get; }
+    public bool IsEnabled => Kind != NativeGroupMaskKind.None;
 }
 
 /// <summary>
@@ -228,12 +325,30 @@ public readonly struct NativeDrawState
         NativeDrawStateFlags flags,
         float groupOpacity,
         uint groupRevision)
+        : this(
+            opacity,
+            clipRect,
+            flags,
+            groupOpacity,
+            groupRevision,
+            default)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision,
+        NativeGroupMask groupMask)
     {
         Opacity = opacity;
         ClipRect = clipRect;
         Flags = flags;
         GroupOpacity = groupOpacity;
         GroupRevision = groupRevision;
+        GroupMask = groupMask;
         _initialized = 1;
     }
 
@@ -244,6 +359,7 @@ public readonly struct NativeDrawState
     public readonly NativeDrawStateFlags Flags;
     public readonly float GroupOpacity;
     public readonly uint GroupRevision;
+    public readonly NativeGroupMask GroupMask;
 
     private readonly byte _initialized;
 
@@ -701,7 +817,12 @@ public readonly record struct NativeLayerMetrics(
     bool CacheHit,
     ulong TextureBytes,
     ulong VertexUploadBytes,
-    ulong UniformUploadBytes);
+    ulong UniformUploadBytes,
+    NativeGroupMaskKind MaskKind,
+    uint MaskRevision,
+    uint MaskBindGroupGeneration,
+    bool MaskBindGroupCacheHit,
+    ulong MaskUniformUploadBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

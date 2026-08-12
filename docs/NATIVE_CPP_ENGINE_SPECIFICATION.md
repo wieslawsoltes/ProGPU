@@ -254,7 +254,9 @@ compatibility without reading beyond a legacy record.
 The draw-state record itself is also append-only. Its original 32-byte prefix
 defaults group opacity to one and disables retained group reuse. The 40-byte
 record adds finite `group_opacity` in `[0,1]` and a caller-owned
-`group_revision`. A nonzero revision asserts that all family content and
+`group_revision`. The current 48-byte 64-bit / 44-byte 32-bit record appends
+an optional pointer to the size-tagged common-mask descriptor. A nonzero
+revision asserts that all family content and
 primitive state affecting layer pixels are unchanged; changing only group
 opacity or the outer clip may reuse those pixels. Incorrectly retaining a
 revision after content mutation is a caller contract violation, matching the
@@ -664,9 +666,9 @@ stack. Arbitrary/path clip chains, opacity masks, blend isolation, effects,
 nested layer commands, bounded multi-layer pooling, and device-loss recreation
 remain the next semantic-scene slice.
 
-### Phase 2 common mask and clip design gate
+### Phase 2 common mask and clip checkpoint
 
-The next additive ABI increment applies one common opacity/clip mask to the
+The fourth additive ABI-v3 extension applies one common opacity/clip mask to the
 pooled result of any implemented frame family. It deliberately starts with two
 representations already supported by the production `Texture.wgsl` contract:
 
@@ -678,15 +680,18 @@ representations already supported by the production `Texture.wgsl` contract:
 
 The versioned mask descriptor is referenced only by an appended draw-state
 field. A 32-byte legacy state has primitive opacity and rectangle clip only, a
-40-byte state additionally has group opacity/revision, and the new full state
-may publish the mask pointer. Each prefix is read only after its own explicit
-size threshold; extending `sizeof(progpu_native_draw_state)` must never make a
-40-byte caller lose group semantics. The native boundary validates descriptor
+40-byte state additionally has group opacity/revision, and the 48-byte 64-bit
+or 44-byte 32-bit state may publish the mask pointer. The referenced descriptor
+is 144 bytes on 64-bit and 140 bytes on 32-bit. Each prefix is read only after
+its own explicit size threshold; extending the full draw-state size must never
+make a 40-byte caller lose group semantics. The native boundary validates descriptor
 size/kind/flags/reserved fields, finite mapping values, dimensions, sampling,
-supported formats, same-device ownership, and source/target aliasing before it
-retains a texture view or begins command encoding. The safe .NET surface owns
-the `GpuTexture` reference and emits the raw descriptor only within the locked
-render call; raw WebGPU handles are not the ordinary public contract.
+supported formats, and source/target aliasing before it retains a texture view
+or begins command encoding. The safe .NET surface additionally validates the
+same device domain, texture usage, sample count, lifetime, and format; WebGPU
+validates the binding for raw C callers. The wrapper owns the `GpuTexture`
+reference and emits the raw descriptor only within the locked render call; raw
+WebGPU handles are not the ordinary public contract.
 
 A requested mask activates the existing pooled layer even when group opacity
 is one. The content pass remains transparent and unmasked. The final composite
@@ -706,7 +711,18 @@ image. An unchanged retained replay is `O(1)` CPU work plus one composite draw
 and performs zero mask, family, vertex, index, brush, atlas, or source-texture
 upload. First use retains `O(1)` WebGPU objects in addition to the existing
 `O(W*H)` RGBA group texture; sampled masks retain but do not duplicate their
-producer texture.
+producer texture. The append-only layer metric record is now 80 bytes while
+the getter still accepts the original 56-byte prefix. It reports mask kind,
+revision, bind-group generation/hit state, and dedicated mask-uniform upload
+bytes without changing any family metric record.
+
+Both mask representations are implemented across solid, analytic, indexed
+geometry, retained path, positioned glyph, and retained image families. The
+real WebScene/Dawn/Metal provider test covers both legacy draw-state prefixes,
+invalid kinds, target alias rejection, retained sampled/analytic replay, the
+legacy metric prefix, and zero-upload unchanged replay. The matched benchmark
+gate exercises all twelve family/mask combinations and fails on content-cache
+misses, bind-group churn, stable uniform uploads, or output divergence.
 
 This increment is not arbitrary clip-chain parity. A general clip is a retained
 ordered intersection/difference expression with its own transform and fill
@@ -739,8 +755,10 @@ glyph-family result after rendering, preserving the established text boundary.
   clipping and primitive opacity are implemented across rectangles, analytic
   geometry, retained geometry, paths, glyphs, and images with append-only ABI
   compatibility; true frame-group opacity and retained pooled-layer replay are
-  implemented for all six families. Nested clip/opacity stacks, blend stack,
-  static buffers, and full compiled-scene reuse remain;
+  implemented for all six families; sampled texture and analytic rounded
+  common masks are also implemented at the final pooled composite for all six
+  families. Arbitrary vector clip chains, nested clip/opacity stacks, blend
+  stack, static buffers, and full compiled-scene reuse remain;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
 - deterministic pixel differential suite against the managed compositor.
 

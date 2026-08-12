@@ -107,7 +107,12 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.CacheHit != 0U,
             metrics.TextureBytes,
             metrics.VertexUploadBytes,
-            metrics.UniformUploadBytes);
+            metrics.UniformUploadBytes,
+            metrics.MaskKind,
+            metrics.MaskRevision,
+            metrics.MaskBindGroupGeneration,
+            metrics.MaskBindGroupCacheHit != 0U,
+            metrics.MaskUniformUploadBytes);
     }
 
     /// <summary>
@@ -164,7 +169,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (NativeSolidRectangle* rectanglePointer = rectangles)
         {
@@ -220,7 +229,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (NativeAnalyticPrimitive* primitivePointer = primitives)
         {
@@ -366,7 +379,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
         fixed (Vector2* pointPointer = points)
@@ -454,7 +471,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (NativePathFill* pathPointer = paths)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -534,7 +555,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (NativeGlyphOutline* outlinePointer = outlines)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -624,7 +649,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeDrawState drawState = default)
     {
         ValidateTarget(target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
 
         fixed (byte* pixelPointer = rgbaPixels)
         {
@@ -722,7 +751,11 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         ValidateImageSource(source, target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -822,7 +855,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         ValidateTarget(target);
         ValidateImageSource(source, target);
         ValidateImageMask(mask, target);
-        var nativeDrawState = CreateDrawState(drawState);
+        NativeMethods.GroupMask nativeGroupMask = default;
+        var nativeDrawState = CreateDrawState(
+            drawState,
+            target,
+            &nativeGroupMask);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -1088,8 +1125,19 @@ public sealed unsafe class NativeCompositor : IDisposable
                 $"The initial native renderer does not support {format} targets.")
         };
 
-    private static NativeMethods.DrawState CreateDrawState(
-        NativeDrawState state) => new()
+    private NativeMethods.DrawState CreateDrawState(
+        NativeDrawState state,
+        GpuTexture target,
+        NativeMethods.GroupMask* nativeGroupMask)
+    {
+        nuint groupMaskPointer = 0U;
+        if (state.GroupMask.IsEnabled)
+        {
+            *nativeGroupMask = CreateGroupMask(state.GroupMask, target);
+            groupMaskPointer = (nuint)nativeGroupMask;
+        }
+
+        return new NativeMethods.DrawState
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.DrawState>(),
             Flags = (uint)state.Flags,
@@ -1097,8 +1145,140 @@ public sealed unsafe class NativeCompositor : IDisposable
             Reserved = 0U,
             ClipRect = state.ClipRect,
             GroupOpacity = state.EffectiveGroupOpacity,
-            GroupRevision = state.GroupRevision
+            GroupRevision = state.GroupRevision,
+            GroupMask = groupMaskPointer
         };
+    }
+
+    private NativeMethods.GroupMask CreateGroupMask(
+        NativeGroupMask mask,
+        GpuTexture target)
+    {
+        switch (mask.Kind)
+        {
+            case NativeGroupMaskKind.Texture:
+            {
+                GpuTexture texture = mask.Texture ?? throw new ArgumentException(
+                    "A native texture group mask requires a texture.",
+                    nameof(mask));
+                ValidateGroupMaskTexture(texture, target);
+                if (!IsFinitePositiveRect(mask.DestinationRect) ||
+                    mask.Sampling is not (
+                        NativeImageSampling.Nearest or
+                        NativeImageSampling.Linear) ||
+                    mask.Revision == 0U)
+                {
+                    throw new ArgumentException(
+                        "A native texture group mask requires a finite positive destination, supported sampling, and a nonzero revision.",
+                        nameof(mask));
+                }
+
+                return new NativeMethods.GroupMask
+                {
+                    StructSize = (uint)Unsafe.SizeOf<NativeMethods.GroupMask>(),
+                    Kind = NativeGroupMaskKind.Texture,
+                    ExternalView = (nuint)texture.ViewPtr,
+                    Width = texture.Width,
+                    Height = texture.Height,
+                    Sampling = mask.Sampling,
+                    TextureFormat = ToNativeMaskFormat(texture.Format),
+                    Revision = mask.Revision,
+                    DestinationRect = mask.DestinationRect,
+                    Transform = Matrix3x2.Identity,
+                    Opacity = 1f
+                };
+            }
+            case NativeGroupMaskKind.RoundedRectangle:
+            {
+                if (!IsFinitePositiveRect(mask.Bounds) ||
+                    !IsFinite(mask.Transform) ||
+                    MathF.Abs(mask.Transform.GetDeterminant()) <= 0.000001f ||
+                    !IsFiniteNonNegative(mask.CornerRadiiX) ||
+                    !IsFiniteNonNegative(mask.CornerRadiiY) ||
+                    !float.IsFinite(mask.Opacity) ||
+                    mask.Opacity < 0f || mask.Opacity > 1f)
+                {
+                    throw new ArgumentException(
+                        "A native rounded group mask requires finite positive bounds, an invertible transform, nonnegative radii, and opacity in [0,1].",
+                        nameof(mask));
+                }
+
+                return new NativeMethods.GroupMask
+                {
+                    StructSize = (uint)Unsafe.SizeOf<NativeMethods.GroupMask>(),
+                    Kind = NativeGroupMaskKind.RoundedRectangle,
+                    Sampling = NativeImageSampling.Linear,
+                    Bounds = mask.Bounds,
+                    Transform = mask.Transform,
+                    CornerRadiiX = mask.CornerRadiiX,
+                    CornerRadiiY = mask.CornerRadiiY,
+                    Opacity = mask.Opacity
+                };
+            }
+            default:
+                throw new ArgumentException(
+                    "The native group mask kind is unsupported.",
+                    nameof(mask));
+        }
+    }
+
+    private void ValidateGroupMaskTexture(GpuTexture mask, GpuTexture target)
+    {
+        if (ReferenceEquals(mask, target))
+        {
+            throw new ArgumentException(
+                "A group mask cannot also be the active render target.",
+                nameof(mask));
+        }
+        if (!ReferenceEquals(mask.Context, _context))
+        {
+            throw new ArgumentException(
+                "The group mask must belong to the native compositor's WebGPU device domain.",
+                nameof(mask));
+        }
+        if (mask.IsDisposed || mask.ViewPtr == null)
+        {
+            throw new ObjectDisposedException(nameof(mask));
+        }
+        if ((mask.Usage & TextureUsage.TextureBinding) == 0 ||
+            mask.SampleCount != 1 || mask.Width > 16384U ||
+            mask.Height > 16384U ||
+            mask.Format is not (
+                TextureFormat.R8Unorm or
+                TextureFormat.Rgba8Unorm or
+                TextureFormat.Bgra8Unorm))
+        {
+            throw new ArgumentException(
+                "A native group mask requires a single-sample bindable R8/RGBA/BGRA unorm texture no larger than 16384 pixels per axis.",
+                nameof(mask));
+        }
+    }
+
+    private static NativeMaskTextureFormat ToNativeMaskFormat(
+        TextureFormat format) => format switch
+        {
+            TextureFormat.R8Unorm => NativeMaskTextureFormat.R8Unorm,
+            TextureFormat.Rgba8Unorm => NativeMaskTextureFormat.Rgba8Unorm,
+            TextureFormat.Bgra8Unorm => NativeMaskTextureFormat.Bgra8Unorm,
+            _ => throw new NotSupportedException(
+                $"The native group mask does not support {format}.")
+        };
+
+    private static bool IsFinitePositiveRect(NativeImageRect rect) =>
+        float.IsFinite(rect.X) && float.IsFinite(rect.Y) &&
+        float.IsFinite(rect.Width) && float.IsFinite(rect.Height) &&
+        rect.Width > 0f && rect.Height > 0f;
+
+    private static bool IsFinite(Matrix3x2 matrix) =>
+        float.IsFinite(matrix.M11) && float.IsFinite(matrix.M12) &&
+        float.IsFinite(matrix.M21) && float.IsFinite(matrix.M22) &&
+        float.IsFinite(matrix.M31) && float.IsFinite(matrix.M32);
+
+    private static bool IsFiniteNonNegative(Vector4 value) =>
+        float.IsFinite(value.X) && value.X >= 0f &&
+        float.IsFinite(value.Y) && value.Y >= 0f &&
+        float.IsFinite(value.Z) && value.Z >= 0f &&
+        float.IsFinite(value.W) && value.W >= 0f;
 }
 
 public sealed class NativeRendererException : Exception

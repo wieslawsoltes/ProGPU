@@ -389,6 +389,38 @@ Retained ignored evidence:
 - byte-exact native/managed group-opacity screenshots and the black amplified
   difference image under `artifacts/progpu-native/differential/`.
 
+## Common group-mask functional checkpoint
+
+The additive common-mask ABI is exercised after full warm-up across all six
+native frame families with both a borrowed sampled texture and an analytic
+rounded rectangle. These short two-warmup/four-frame Release runs are
+correctness and retained-state gates, not final performance distributions.
+
+| Family | Sampled mask max / mean | Rounded mask max / mean |
+|---|---:|---:|
+| solid rectangles | `1 / 0.064451` | `1 / 0.011426` |
+| indexed analytic | `33 / 0.019187` | `51 / 0.041802` |
+| indexed geometry | `91 / 0.010416` | `204 / 0.020250` |
+| retained paths | `1 / 0.026072` | `1 / 0.004321` |
+| positioned glyphs | `1 / 0.001176` | `1 / 0.001303` |
+| retained RGBA image | `1 / 0.041750` | byte-exact |
+
+Values are maximum and mean absolute 8-bit channel differences against the
+managed compositor. The one high geometry value is the already bounded single
+edge-ownership pixel; mask quantization introduces no pixel beyond the
+three-channel-value common-mask tolerance. Both paths allocate one retained
+960-by-540 RGBA layer (2,073,600 bytes), then report one composite pass, a
+content-cache hit, no content pass, a mask bind-group cache hit, zero stable
+mask/uniform upload, and zero managed allocation per frame.
+
+The harness separately mutates only mask mapping while retaining the family
+content revision. That frame uploads exactly one 96-byte mask uniform and no
+family content; restoring and replaying the unchanged mask uploads zero bytes.
+The full native build lane runs all twelve combinations on every supported CI
+host. Final synchronized distributions, screenshots, and correlated macOS
+Time Profiler, Metal System Trace, and Allocations/VM Tracker captures remain
+qualification items for the integration candidate.
+
 ## Common draw-state supplement
 
 The ABI-v3 append-only draw-state increment applies primitive opacity and one

@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 
 #include <chrono>
+#include <array>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -360,6 +361,45 @@ int main(int argc, char** argv) {
         texture, &view_descriptor);
     require(view != nullptr, "target view creation failed");
 
+    WGPUTextureDescriptor mask_texture_descriptor =
+        WGPU_TEXTURE_DESCRIPTOR_INIT;
+    mask_texture_descriptor.label = {
+        "ProGPU common mask provider test",
+        WGPU_STRLEN};
+    mask_texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopyDst;
+    mask_texture_descriptor.dimension = WGPUTextureDimension_2D;
+    mask_texture_descriptor.size = {1U, 1U, 1U};
+    mask_texture_descriptor.format = WGPUTextureFormat_R8Unorm;
+    mask_texture_descriptor.mipLevelCount = 1U;
+    mask_texture_descriptor.sampleCount = 1U;
+    WGPUTexture mask_texture = resolve<WGPUProcDeviceCreateTexture>(
+        api, provider, "wgpuDeviceCreateTexture")(
+        device, &mask_texture_descriptor);
+    require(mask_texture != nullptr, "mask texture creation failed");
+    WGPUTextureView mask_view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        mask_texture, &view_descriptor);
+    require(mask_view != nullptr, "mask view creation failed");
+    const std::uint8_t opaque_mask = 255U;
+    WGPUTexelCopyTextureInfo mask_destination =
+        WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+    mask_destination.texture = mask_texture;
+    mask_destination.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyBufferLayout mask_layout =
+        WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+    mask_layout.bytesPerRow = 1U;
+    mask_layout.rowsPerImage = 1U;
+    const WGPUExtent3D mask_extent{1U, 1U, 1U};
+    resolve<WGPUProcQueueWriteTexture>(
+        api, provider, "wgpuQueueWriteTexture")(
+        queue,
+        &mask_destination,
+        &opaque_mask,
+        sizeof(opaque_mask),
+        &mask_layout,
+        &mask_extent);
+
     const progpu_native_rect rectangles[]{
         {4.0F, 4.0F, 32.0F, 24.0F,
             {0.92F, 0.18F, 0.08F, 1.0F}},
@@ -396,7 +436,16 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
         "legacy ABI-v3 draw-state prefix failed");
+    draw_state.struct_size = offsetof(
+        progpu_native_draw_state,
+        group_mask);
+    draw_state.group_opacity = 0.75F;
+    draw_state.group_revision = 3U;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "40-byte ABI-v3 group draw-state prefix failed");
     draw_state.struct_size = sizeof(draw_state);
+    draw_state.group_revision = 0U;
     draw_state.group_opacity = 1.1F;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -431,6 +480,18 @@ int main(int argc, char** argv) {
         layer_metrics.cache_hit == 0U &&
         layer_metrics.allocation_count == 1U,
         "group layer content metrics are invalid");
+    alignas(progpu_native_layer_metrics)
+        std::array<std::byte, 56U> legacy_layer_metrics_bytes{};
+    auto* legacy_layer_metrics =
+        reinterpret_cast<progpu_native_layer_metrics*>(
+            legacy_layer_metrics_bytes.data());
+    legacy_layer_metrics->struct_size = legacy_layer_metrics_bytes.size();
+    require(progpu_native_engine_get_layer_metrics(
+        engine, legacy_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        legacy_layer_metrics->struct_size ==
+            sizeof(progpu_native_layer_metrics) &&
+        legacy_layer_metrics->content_pass_count == 1U,
+        "legacy layer-metrics prefix failed");
     draw_state.group_opacity = 0.5F;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U &&
@@ -444,6 +505,92 @@ int main(int argc, char** argv) {
         layer_metrics.allocation_count == 1U &&
         layer_metrics.vertex_upload_bytes == 224U,
         "retained group replay metrics are invalid");
+
+    progpu_native_group_mask group_mask{};
+    group_mask.struct_size = sizeof(group_mask);
+    group_mask.kind = 0xFFFFFFFFU;
+    draw_state.group_mask = &group_mask;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "unknown group-mask kind did not fail closed");
+    group_mask = {};
+    group_mask.struct_size = sizeof(group_mask);
+    group_mask.kind = PROGPU_NATIVE_GROUP_MASK_TEXTURE;
+    group_mask.external_view = frame.target_view;
+    group_mask.width = 1U;
+    group_mask.height = 1U;
+    group_mask.texture_format = PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM;
+    group_mask.revision = 1U;
+    group_mask.destination_rect = {10.0F, 8.0F, 11.0F, 11.0F};
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "target/group-mask alias did not fail closed");
+    group_mask = {};
+    group_mask.struct_size = sizeof(group_mask);
+    group_mask.kind = PROGPU_NATIVE_GROUP_MASK_TEXTURE;
+    group_mask.external_view = reinterpret_cast<std::uintptr_t>(mask_view);
+    group_mask.width = 1U;
+    group_mask.height = 1U;
+    group_mask.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    group_mask.texture_format = PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM;
+    group_mask.revision = 1U;
+    group_mask.destination_rect = {10.0F, 8.0F, 11.0F, 11.0F};
+    draw_state.group_mask = &group_mask;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "retained texture group-mask replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.uniform_upload_bytes == 96U &&
+        layer_metrics.mask_kind == PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        layer_metrics.mask_revision == 1U &&
+        layer_metrics.mask_bind_group_cache_hit == 0U &&
+        layer_metrics.mask_uniform_upload_bytes == 96U,
+        "texture group-mask metrics are invalid");
+
+    group_mask = {};
+    group_mask.struct_size = sizeof(group_mask);
+    group_mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
+    group_mask.bounds = {10.0F, 8.0F, 11.0F, 11.0F};
+    group_mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    group_mask.corner_radii_x[0] = 2.0F;
+    group_mask.corner_radii_x[1] = 2.0F;
+    group_mask.corner_radii_x[2] = 2.0F;
+    group_mask.corner_radii_x[3] = 2.0F;
+    group_mask.corner_radii_y[0] = 2.0F;
+    group_mask.corner_radii_y[1] = 2.0F;
+    group_mask.corner_radii_y[2] = 2.0F;
+    group_mask.corner_radii_y[3] = 2.0F;
+    group_mask.opacity = 1.0F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "retained analytic group-mask replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.uniform_upload_bytes == 96U &&
+        layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE &&
+        layer_metrics.mask_bind_group_cache_hit == 1U &&
+        layer_metrics.mask_uniform_upload_bytes == 96U,
+        "analytic group-mask metrics are invalid");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "unchanged analytic group-mask replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.mask_bind_group_cache_hit == 1U &&
+        layer_metrics.mask_uniform_upload_bytes == 0U &&
+        layer_metrics.uniform_upload_bytes == 0U,
+        "unchanged analytic group-mask replay uploaded state");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,
@@ -474,8 +621,12 @@ int main(int argc, char** argv) {
     api.release_external(provider, &external);
     api.release_external(provider, &external);
 
-    api.destroy_canvas(provider, canvas);
     progpu_native_engine_destroy(engine);
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(mask_view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(mask_texture);
+    api.destroy_canvas(provider, canvas);
     resolve<WGPUProcQueueRelease>(api, provider, "wgpuQueueRelease")(queue);
     resolve<WGPUProcDeviceRelease>(api, provider, "wgpuDeviceRelease")(device);
     api.destroy(provider);

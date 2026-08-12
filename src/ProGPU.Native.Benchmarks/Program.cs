@@ -151,6 +151,24 @@ bool useGroupOpacity = Array.Exists(
         value,
         "--group-opacity",
         StringComparison.OrdinalIgnoreCase));
+bool useTextureGroupMask = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-texture-mask",
+        StringComparison.OrdinalIgnoreCase));
+bool useRoundedGroupMask = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-rounded-mask",
+        StringComparison.OrdinalIgnoreCase));
+if (useTextureGroupMask && useRoundedGroupMask)
+{
+    throw new ArgumentException(
+        "Select only one common group-mask benchmark mode.");
+}
+bool useGroupMask = useTextureGroupMask || useRoundedGroupMask;
 int analyticKind = ReadArgument("--analytic-kind", -1);
 int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
@@ -245,16 +263,7 @@ NativeImageRect drawClip = new(
     logicalWidth * 0.55f,
     logicalHeight * 0.65f);
 const float benchmarkGroupOpacity = 0.625f;
-NativeDrawState nativeDrawState = useDrawState || useGroupOpacity
-    ? new NativeDrawState(
-        useDrawState ? 0.625f : 1f,
-        useDrawState ? drawClip : default,
-        useDrawState
-            ? NativeDrawStateFlags.ClipRect
-            : NativeDrawStateFlags.None,
-        useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity ? 1U : 0U)
-    : default;
+NativeDrawState nativeDrawState = default;
 uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
 int managedVertexCount = 0;
@@ -277,7 +286,7 @@ const uint benchmarkImageHeight = 128U;
 byte[] imagePixels = useImageScene
     ? CreateImagePixels(benchmarkImageWidth, benchmarkImageHeight)
     : [];
-byte[] imageMaskPixels = useMaskedImageScene
+byte[] imageMaskPixels = useMaskedImageScene || useTextureGroupMask
     ? CreateImageMaskPixels(benchmarkImageWidth, benchmarkImageHeight)
     : [];
 bool nativeImageUploaded = false;
@@ -299,7 +308,8 @@ using GpuTexture? managedImageTexture = useImageScene
         alphaMode: GpuTextureAlphaMode.Straight)
     : null;
 managedImageTexture?.WritePixels<byte>(imagePixels);
-using GpuTexture? managedImageMaskTexture = useMaskedImageScene
+using GpuTexture? managedImageMaskTexture = useMaskedImageScene ||
+    useTextureGroupMask
     ? new GpuTexture(
         context,
         benchmarkImageWidth,
@@ -310,6 +320,38 @@ using GpuTexture? managedImageMaskTexture = useMaskedImageScene
         alphaMode: GpuTextureAlphaMode.Straight)
     : null;
 managedImageMaskTexture?.WritePixels<byte>(imageMaskPixels);
+NativeGroupMask nativeGroupMask = useTextureGroupMask
+    ? NativeGroupMask.TextureMask(
+        managedImageMaskTexture!,
+        new NativeImageRect(
+            60f,
+            40f,
+            logicalWidth - 120f,
+            logicalHeight - 80f),
+        NativeImageSampling.Linear,
+        revision: 1U)
+    : useRoundedGroupMask
+    ? NativeGroupMask.RoundedRectangle(
+        new NativeImageRect(
+            60f,
+            40f,
+            logicalWidth - 120f,
+            logicalHeight - 80f),
+        Matrix3x2.Identity,
+        new Vector4(36f),
+        new Vector4(36f))
+    : default;
+nativeDrawState = useDrawState || useGroupOpacity || useGroupMask
+    ? new NativeDrawState(
+        useDrawState ? 0.625f : 1f,
+        useDrawState ? drawClip : default,
+        useDrawState
+            ? NativeDrawStateFlags.ClipRect
+            : NativeDrawStateFlags.None,
+        useGroupOpacity ? benchmarkGroupOpacity : 1f,
+        useGroupOpacity || useGroupMask ? 1U : 0U,
+        nativeGroupMask)
+    : default;
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
 using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
@@ -393,6 +435,39 @@ if (useGroupOpacity)
     managedVisual.CacheAsLayer = true;
     managedVisual.Opacity = benchmarkGroupOpacity;
 }
+if (useTextureGroupMask)
+{
+    managedVisual.OpacityMask = new GpuTextureBrush
+    {
+        Texture = managedImageMaskTexture,
+        SourceRect = new Rect(
+            0f,
+            0f,
+            benchmarkImageWidth,
+            benchmarkImageHeight),
+        DestinationRect = new Rect(
+            60f,
+            40f,
+            logicalWidth - 120f,
+            logicalHeight - 80f),
+        SamplingMode = TextureSamplingMode.Linear
+    };
+    managedVisual.OpacityMaskBounds = new Rect(
+        60f,
+        40f,
+        logicalWidth - 120f,
+        logicalHeight - 80f);
+}
+else if (useRoundedGroupMask)
+{
+    managedVisual.GeometryClip = PrimitivePathGeometry.CreateRoundedRectangle(
+        60f,
+        40f,
+        logicalWidth - 120f,
+        logicalHeight - 80f,
+        36f,
+        36f);
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -455,7 +530,8 @@ if (useDrawState &&
         drawClip,
         NativeDrawStateFlags.ClipRect,
         useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity ? 1U : 0U);
+        useGroupOpacity || useGroupMask ? 1U : 0U,
+        nativeGroupMask);
     RenderNative();
     if (useGeometryScene &&
         (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
@@ -497,8 +573,69 @@ if (useDrawState &&
     RenderNative();
 }
 
+// A mask-only mutation must update only the final composite state. The
+// retained family content revision intentionally remains unchanged.
+if (useGroupMask)
+{
+    NativeDrawState originalDrawState = nativeDrawState;
+    NativeGroupMask mutatedMask = useTextureGroupMask
+        ? NativeGroupMask.TextureMask(
+            managedImageMaskTexture!,
+            new NativeImageRect(
+                64f,
+                40f,
+                logicalWidth - 120f,
+                logicalHeight - 80f),
+            NativeImageSampling.Linear,
+            revision: 1U)
+        : NativeGroupMask.RoundedRectangle(
+            new NativeImageRect(
+                60f,
+                40f,
+                logicalWidth - 120f,
+                logicalHeight - 80f),
+            Matrix3x2.CreateTranslation(4f, 0f),
+            new Vector4(36f),
+            new Vector4(36f));
+    nativeDrawState = new NativeDrawState(
+        originalDrawState.Opacity,
+        originalDrawState.ClipRect,
+        originalDrawState.Flags,
+        originalDrawState.GroupOpacity,
+        originalDrawState.GroupRevision,
+        mutatedMask);
+    RenderNative();
+    NativeLayerMetrics mutatedLayerMetrics = native.GetLayerMetrics();
+    if (!mutatedLayerMetrics.CacheHit ||
+        mutatedLayerMetrics.ContentPassCount != 0U ||
+        mutatedLayerMetrics.CompositePassCount != 1U ||
+        mutatedLayerMetrics.MaskKind != mutatedMask.Kind ||
+        mutatedLayerMetrics.MaskUniformUploadBytes != 96UL)
+    {
+        throw new InvalidOperationException(
+            "Mask-only mutation rebuilt retained content or did not update " +
+            "exactly one common-mask uniform block.");
+    }
+
+    nativeDrawState = originalDrawState;
+    RenderNative();
+}
+
 // Compare a second fully warmed submission, not the pipeline's first draw.
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
+NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
+if (useGroupMask &&
+    (!stableLayerMetrics.CacheHit ||
+     stableLayerMetrics.ContentPassCount != 0U ||
+     stableLayerMetrics.CompositePassCount != 1U ||
+     stableLayerMetrics.MaskKind != nativeGroupMask.Kind ||
+     !stableLayerMetrics.MaskBindGroupCacheHit ||
+     stableLayerMetrics.MaskUniformUploadBytes != 0UL ||
+     stableLayerMetrics.UniformUploadBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable common-mask replay rebuilt content or uploaded composite state.");
+}
 if (useDrawState && useGeometryScene &&
     (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
      lastNativeGeometryMetrics.IndexUploadBytes != 0UL ||
@@ -566,7 +703,31 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useGroupOpacity
+    string imageStem = useRoundedGroupMask
+        ? useImageScene
+            ? "group-rounded-mask-images"
+            : useGlyphScene
+            ? "group-rounded-mask-glyphs"
+            : usePathScene
+            ? "group-rounded-mask-paths"
+            : useGeometryScene
+            ? "group-rounded-mask-geometry"
+            : useAnalyticScene
+            ? "group-rounded-mask-analytic"
+            : "group-rounded-mask-solid"
+        : useTextureGroupMask
+        ? useImageScene
+            ? "group-texture-mask-images"
+            : useGlyphScene
+            ? "group-texture-mask-glyphs"
+            : usePathScene
+            ? "group-texture-mask-paths"
+            : useGeometryScene
+            ? "group-texture-mask-geometry"
+            : useAnalyticScene
+            ? "group-texture-mask-analytic"
+            : "group-texture-mask-solid"
+        : useGroupOpacity
         ? useImageScene
             ? "group-opacity-images"
             : useGlyphScene
@@ -624,6 +785,8 @@ bool usesGeometryDifferential = useGeometryScene || usePathScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
     (!useAnalyticScene && !useGeometryScene && !requiresExactPixels);
+bool usesCommonMaskDifferential = useGroupMask &&
+    !usesGeometryDifferential && !useAnalyticScene;
 // The managed opacity-mask route first rasterizes the brush into an R8 mask,
 // while the native zero-copy route samples the borrowed texture directly.
 // Linear filtering can therefore differ by one final channel value after the
@@ -633,6 +796,7 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
     : useMaskedImageScene
     ? 1
+    : usesCommonMaskDifferential ? 3
     : requiresExactPixels ? 0
     : usesGeometryDifferential ? 204 : usesTightDifferential ? 3 : 96;
 int maximumAllowedPixelsOverTolerance =
@@ -642,7 +806,8 @@ int maximumAllowedPixelsOverTolerance =
         ? useSplineGeometryScene || useDashedGeometryScene
             ? Math.Max(1, rectangleCount / 32)
             : 1
-        : requiresExactPixels || usesTightDifferential
+        : requiresExactPixels || usesTightDifferential ||
+          usesCommonMaskDifferential
         ? 0
         : comparison.PixelCount / 40;
 double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
@@ -651,6 +816,10 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
     : useMaskedImageScene
+    ? 0.05
+    : useTextureGroupMask
+    ? 0.075
+    : useRoundedGroupMask
     ? 0.05
     : requiresExactPixels ? 0.0
     // The independently expanded paths can differ by one byte on shared AA
@@ -836,6 +1005,12 @@ var report = new BenchmarkReport(
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
         : useMaskedImageScene
         ? "Near-exact; direct mask sampling versus quantized managed R8 intermediate"
+        : useGroupMask && usesGeometryDifferential
+        ? "Near-exact common mask plus bounded independent raster edge ownership"
+        : useGroupMask && useAnalyticScene
+        ? "Bounded analytic raster differential plus near-exact common mask"
+        : usesCommonMaskDifferential
+        ? "Near-exact common mask; at most 3/255 per channel and no pixels beyond tolerance"
         : requiresExactPixels
         ? "Exact"
         : usesGeometryDifferential
@@ -851,6 +1026,11 @@ var report = new BenchmarkReport(
     DrainEachPair: drainEachPair,
     DrawState: useDrawState,
     GroupOpacity: useGroupOpacity,
+    GroupMask: useRoundedGroupMask
+        ? "RoundedRectangle"
+        : useTextureGroupMask
+            ? "Texture"
+            : "None",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -2553,6 +2733,7 @@ internal sealed record BenchmarkReport(
     bool DrainEachPair,
     bool DrawState,
     bool GroupOpacity,
+    string GroupMask,
     bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,
