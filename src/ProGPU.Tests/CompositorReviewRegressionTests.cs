@@ -4241,6 +4241,29 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void OpacityMaskBoundsTransformIsAllocationFree()
+    {
+        var bounds = new Rect(3f, 5f, 17f, 11f);
+        Matrix4x4 transform =
+            Matrix4x4.CreateScale(1.5f, 0.75f, 1f) *
+            Matrix4x4.CreateRotationZ(0.35f) *
+            Matrix4x4.CreateTranslation(9f, -4f, 0f);
+        Rect expected = new GeneralTransform(transform).TransformBounds(bounds);
+        Rect actual = Compositor.TransformMaskBounds(bounds, transform);
+        Assert.Equal(expected, actual);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            actual = Compositor.TransformMaskBounds(bounds, transform);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void PbgraTextureUploadBumpsGenerationForWpfShaderEffectCache()
     {
         using var window = new HeadlessWindow(1, 1);

@@ -20054,7 +20054,7 @@ SceneStateUploadComplete:
     {
         const float antialiasPaddingPixels = 2f;
         var normalizedTransform = transform == default ? Matrix4x4.Identity : transform;
-        var transformedBounds = new GeneralTransform(normalizedTransform).TransformBounds(logicalBounds);
+        var transformedBounds = TransformMaskBounds(logicalBounds, normalizedTransform);
         var dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
 
         float left = CurrentCanvasPixelX + transformedBounds.X * dpiScale - antialiasPaddingPixels;
@@ -20087,6 +20087,27 @@ SceneStateUploadComplete:
             (uint)y,
             (uint)(rightEdge - x),
             (uint)(bottomEdge - y));
+    }
+
+    internal static Rect TransformMaskBounds(Rect rect, Matrix4x4 transform)
+    {
+        Vector3 p0 = Vector3.Transform(
+            new Vector3(rect.X, rect.Y, 0f),
+            transform);
+        Vector3 p1 = Vector3.Transform(
+            new Vector3(rect.Right, rect.Y, 0f),
+            transform);
+        Vector3 p2 = Vector3.Transform(
+            new Vector3(rect.X, rect.Bottom, 0f),
+            transform);
+        Vector3 p3 = Vector3.Transform(
+            new Vector3(rect.Right, rect.Bottom, 0f),
+            transform);
+        float minX = MathF.Min(MathF.Min(p0.X, p1.X), MathF.Min(p2.X, p3.X));
+        float maxX = MathF.Max(MathF.Max(p0.X, p1.X), MathF.Max(p2.X, p3.X));
+        float minY = MathF.Min(MathF.Min(p0.Y, p1.Y), MathF.Min(p2.Y, p3.Y));
+        float maxY = MathF.Max(MathF.Max(p0.Y, p1.Y), MathF.Max(p2.Y, p3.Y));
+        return new Rect(minX, minY, maxX - minX, maxY - minY);
     }
 
     private MaskPixelBounds GetFullMaskPixelBounds()

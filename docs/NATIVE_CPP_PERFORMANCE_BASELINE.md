@@ -413,9 +413,11 @@ intentionally close because both paths submit the same one-quad `Texture.wgsl`
 work to the same Dawn/Metal queue; the zero-copy benefit is lower CPU submission
 and removal of the duplicate texture/upload resource.
 
-This result covers only a same-device WebGPU view. It does not yet claim
-zero-copy native decoder import, IOSurface/DXGI/DMA-BUF ownership, browser
-external textures, or explicit producer/consumer fence synchronization.
+This result covers only a same-device WebGPU view. ABI v3 now publishes the
+pinned wgpu-native submission index and supports allocation-free poll/wait of
+that consumer token, but it does not yet claim zero-copy native decoder import,
+IOSurface/DXGI/DMA-BUF ownership, browser external textures, or cross-API
+producer-fence acquisition.
 Retained ignored evidence is
 `artifacts/progpu-native/benchmarks/external-image-sync-final.json` plus the
 native, managed, and amplified-difference captures under
@@ -451,6 +453,38 @@ reference first quantizes that sample through an R8 intermediate. Across
 Native/managed hashes are `F2CC379B7484336F` and `E6BE6F3DFA337817`.
 Native, managed, and 64-times-amplified difference captures are retained under
 `artifacts/progpu-native/differential/`.
+
+### ABI-v3 submission timeline and matched mask optimization
+
+ABI v3 submits with the pinned wgpu-native indexed-submit extension. The
+managed owner retrieves the opaque token and waits through the native device
+poll only when the caller explicitly requests synchronization. Three matched
+3,000-frame Apple M3 Pro/Metal runs, each with 120 warmup frames and alternating
+renderer order, produced these median-of-run values:
+
+| Metric | Native ABI-v3 timeline | Managed queue wait |
+|---|---:|---:|
+| Submission p95 | 0.1308 ms | 0.2755 ms |
+| GPU-complete mean | 1.6385 ms | 1.9681 ms |
+| GPU-complete p95 | 2.9122 ms | 3.1496 ms |
+| Managed allocation | 0 B/frame | 0 B/frame |
+
+The native submission p95 is 52.5% lower, GPU-complete mean is 16.7% lower,
+and GPU-complete p95 is 7.5% lower for the median run. The direct mask remains
+zero-upload on stable replay and retains the same maximum 1/255 channel delta
+with no pixel beyond tolerance.
+
+Allocation tracing also found that the managed mask-bounds path constructed a
+`GeneralTransform` reference object once per frame. Replacing it with direct
+four-corner `Matrix4x4` value math changed the matched unsynchronized managed
+path from 24.13 B/frame to 0 B/frame without changing output. A focused
+10,000-iteration allocation regression now protects the helper. The retained
+trace is
+`artifacts/progpu-native/profiles/managed-mask-allocation-before.nettrace`;
+the three final JSON reports and native/managed/difference screenshots are
+under `artifacts/progpu-native/benchmarks/` and
+`artifacts/progpu-native/differential/`. Temporary `/tmp` trace conversions
+were removed after analysis.
 
 ## Retained positioned-glyph supplement
 
