@@ -460,7 +460,9 @@ internal static class NativeRendererSamplePage
                             strokeThickness: flags == NativeGeometryPrimitiveFlags.Hairline
                                 ? 0f
                                 : 1f + index % 4,
-                            flags: flags);
+                            flags: flags,
+                            startCap: (NativeStrokeCap)(index % 4),
+                            endCap: (NativeStrokeCap)((index + 2) % 4));
                         break;
                     case 1:
                         _geometryPrimitives[index] = new NativeGeometryPrimitive(
@@ -537,7 +539,9 @@ internal static class NativeRendererSamplePage
                     strokeThickness: flags == NativeGeometryPrimitiveFlags.Hairline
                         ? 0f
                         : 1f + index % 4,
-                    flags: flags);
+                    flags: flags,
+                    startCap: (NativeStrokeCap)(index % 4),
+                    endCap: (NativeStrokeCap)((index + 2) % 4));
             }
         }
 

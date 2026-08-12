@@ -38,8 +38,8 @@ public class NativeRendererInteropTests
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
         Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeGeometryPrimitive>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
@@ -58,6 +58,7 @@ public class NativeRendererInteropTests
         Assert.Equal(32UL, (ulong)NativeRendererCapabilities.IndexedGeometryBatch);
         Assert.Equal(64UL, (ulong)NativeRendererCapabilities.DeviceStrokes);
         Assert.Equal(128UL, (ulong)NativeRendererCapabilities.BezierStrokes);
+        Assert.Equal(256UL, (ulong)NativeRendererCapabilities.StrokeCaps);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
@@ -89,6 +90,17 @@ public class NativeRendererInteropTests
         Assert.Equal(
             NativeGeometryPrimitiveFlags.FixedDeviceStroke,
             primitive.Flags);
+
+        var capped = new NativeGeometryPrimitive(
+            NativeGeometryPrimitiveKind.CubicBezier,
+            Vector2.Zero,
+            Vector2.One,
+            Vector4.One,
+            Matrix3x2.Identity,
+            startCap: NativeStrokeCap.Round,
+            endCap: NativeStrokeCap.Triangle);
+        Assert.Equal(NativeStrokeCap.Round, capped.StartCap);
+        Assert.Equal(NativeStrokeCap.Triangle, capped.EndCap);
     }
 
     [Fact]

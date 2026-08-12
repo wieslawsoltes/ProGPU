@@ -28,7 +28,12 @@ enum {
     PROGPU_NATIVE_CAPABILITY_AFFINE_2D = 1ULL << 4U,
     PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH = 1ULL << 5U,
     PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES = 1ULL << 6U,
-    PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U
+    PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U,
+    PROGPU_NATIVE_CAPABILITY_STROKE_CAPS = 1ULL << 8U
+};
+
+enum {
+    PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U
 };
 
 typedef enum progpu_native_status {
@@ -96,8 +101,19 @@ typedef enum progpu_native_primitive_kind {
 enum {
     PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED = 1U << 0U,
     PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE = 1U << 1U,
-    PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE = 1U << 2U
+    PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE = 1U << 2U,
+    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT = 3U,
+    PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK = 3U << 3U,
+    PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT = 5U,
+    PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK = 3U << 5U
 };
+
+typedef enum progpu_native_stroke_cap {
+    PROGPU_NATIVE_STROKE_CAP_FLAT = 0,
+    PROGPU_NATIVE_STROKE_CAP_SQUARE = 1,
+    PROGPU_NATIVE_STROKE_CAP_ROUND = 2,
+    PROGPU_NATIVE_STROKE_CAP_TRIANGLE = 3
+} progpu_native_stroke_cap;
 
 typedef enum progpu_native_geometry_primitive_kind {
     PROGPU_NATIVE_GEOMETRY_LINE = 0,
@@ -150,7 +166,8 @@ typedef struct progpu_native_analytic_primitive {
  * selects one framebuffer pixel and
  * FIXED_DEVICE_STROKE keeps stroke_thickness in framebuffer pixels. The two
  * device-stroke flags are mutually exclusive and apply only to stroked lines
- * and curves. Curve endpoints use flat caps.
+ * and curves. The start/end cap fields are packed into their documented flag
+ * masks and are ignored by filled records.
  */
 typedef struct progpu_native_geometry_primitive {
     uint32_t kind;
@@ -222,6 +239,8 @@ typedef struct progpu_native_geometry_frame {
     progpu_native_color clear_color;
     const progpu_native_geometry_primitive* primitives;
     size_t primitive_count;
+    uint32_t flags;
+    uint32_t reserved;
 } progpu_native_geometry_frame;
 
 typedef struct progpu_native_geometry_frame_metrics {
@@ -234,6 +253,7 @@ typedef struct progpu_native_geometry_frame_metrics {
     uint64_t brush_upload_bytes;
     uint64_t uniform_upload_bytes;
     uint64_t submission_count;
+    uint64_t payload_hash;
 } progpu_native_geometry_frame_metrics;
 
 PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);

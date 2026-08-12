@@ -344,18 +344,35 @@ channel value of 1/255 across 518,400 pixels (mean absolute error
 0.000000482), with no pixel above 3/255. A 4,096-curve DPI-2 scene remains at
 maximum 3/255 with no pixel above tolerance and mean absolute error 0.000324.
 
+The fourth Tranche A increment packs independent flat, square, round, or
+triangle start/end caps into the existing 88-byte line/Bezier record. Hairline
+and positive fixed-device caps transform their endpoint and tangent first and
+use production GPU shape 22, preserving a device-space width under arbitrary
+affine scale or shear. Ordinary conformal caps expand at the resolved scalar
+width. Ordinary anisotropic/sheared caps build the complete local outline and
+then transform it, matching the managed directional-thickness contract.
+Start caps are emitted before the stroke body and end caps after it so fixed-
+function alpha blending preserves the managed overlap order.
+
+Cap compilation is bounded `O(1)` per endpoint: square uses two triangles,
+triangle uses one, and round uses eight. A device-space cap uses one indexed
+quad. Checked capacity reserves at most 32 vertices and 48 indices per cap.
+The optional frame payload hash is `O(V + I + B)` over compiled vertices,
+indices, and brushes and is disabled by default; benchmark correctness enables
+it for one warmed frame only, never in timed steady-state submissions.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
 - indexed analytic quad batching for rectangle, ellipse, and circular rounded
-  rectangle plus flat-cap line, triangle, and quadrilateral geometry is
-  implemented; quadratic/cubic curves are implemented; polyline and spline
-  remain;
+  rectangle plus capped line, triangle, and quadrilateral geometry is
+  implemented; capped quadratic/cubic curves are implemented; polyline and
+  spline remain;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
-  curve hairline/fixed-device strokes are implemented; caps, joins, dashes,
-  and the remaining primitives are pending;
+  curve hairline/fixed-device strokes and all four line/curve cap kinds are
+  implemented; joins, dashes, and the remaining primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

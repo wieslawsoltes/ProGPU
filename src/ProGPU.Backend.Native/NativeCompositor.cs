@@ -209,7 +209,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         GpuTexture target,
         float dpiScale,
         ReadOnlySpan<NativeGeometryPrimitive> primitives,
-        Vector4 clearColor)
+        Vector4 clearColor,
+        bool capturePayloadHash = false)
     {
         ValidateTarget(target);
 
@@ -230,7 +231,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                     A = clearColor.W
                 },
                 Primitives = primitivePointer,
-                PrimitiveCount = (nuint)primitives.Length
+                PrimitiveCount = (nuint)primitives.Length,
+                Flags = capturePayloadHash
+                    ? NativeMethods.GeometryFrameCapturePayloadHash
+                    : 0U
             };
             var metrics = new NativeMethods.GeometryFrameMetrics
             {
@@ -260,7 +264,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                 metrics.IndexUploadBytes,
                 metrics.BrushUploadBytes,
                 metrics.UniformUploadBytes,
-                metrics.SubmissionCount);
+                metrics.SubmissionCount,
+                metrics.PayloadHash);
         }
     }
 

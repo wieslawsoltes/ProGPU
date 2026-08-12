@@ -50,6 +50,8 @@ bool writeImages = Array.Exists(
 int analyticKind = ReadArgument("--analytic-kind", -1);
 int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
+int geometryStartCap = ReadArgument("--geometry-start-cap", -1);
+int geometryEndCap = ReadArgument("--geometry-end-cap", -1);
 
 NativeSolidRectangle[] rectangles = CreateRectangles(
     rectangleCount,
@@ -67,6 +69,8 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
         rectangleCount,
         geometryKind,
         geometryLineMode,
+        geometryStartCap,
+        geometryEndCap,
         useCurveGeometryScene,
         logicalWidth,
         logicalHeight)
@@ -101,6 +105,11 @@ DrawingVisual managedVisual = useGeometryScene
 
 // Compile both shader/pipeline paths before correctness or timing evidence.
 RenderNative();
+RenderManaged();
+context.PollDevice(wait: true);
+
+// Compare a second fully warmed submission, not the pipeline's first draw.
+ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
 RenderManaged();
 context.PollDevice(wait: true);
 
@@ -155,7 +164,10 @@ if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
         $"meanAbsolute={comparison.MeanAbsoluteChannelDifference:F6}; " +
         $"allowedMax={maximumAllowedDifference}, " +
         $"allowedPixels={maximumAllowedPixelsOverTolerance}, " +
-        $"allowedMean={maximumAllowedMeanAbsoluteDifference:F6}.");
+        $"allowedMean={maximumAllowedMeanAbsoluteDifference:F6}; " +
+        $"nativePayloadHash={nativePayloadHash:X16}; " +
+        $"nativeHash={comparison.NativeFnv1A64}, " +
+        $"managedHash={comparison.ManagedFnv1A64}.");
 }
 
 for (int index = 0; index < warmupCount; index++)
@@ -236,23 +248,25 @@ var report = new BenchmarkReport(
         ? 0
         : nativeSummary.P95Milliseconds / managedSummary.P95Milliseconds,
     CombinedMetalAllocatedBytes: combinedMetalAllocatedBytes,
+    NativePayloadHash: nativePayloadHash.ToString("X16"),
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
     report,
     new JsonSerializerOptions { WriteIndented = true }));
 
-void RenderNative()
+ulong RenderNative(bool capturePayloadHash = false)
 {
     if (useGeometryScene)
     {
-        native.RenderGeometry(
+        return native.RenderGeometry(
             nativeTarget,
             dpiScale,
             geometryPrimitives,
-            clearColor);
+            clearColor,
+            capturePayloadHash).PayloadHash;
     }
-    else if (useAnalyticScene)
+    if (useAnalyticScene)
     {
         native.RenderAnalytic(
             nativeTarget,
@@ -268,6 +282,7 @@ void RenderNative()
             rectangles,
             clearColor);
     }
+    return 0UL;
 }
 
 void RenderManaged()
@@ -555,6 +570,8 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
     int count,
     int forcedKind,
     int forcedLineMode,
+    int forcedStartCap,
+    int forcedEndCap,
     bool curvesOnly,
     float logicalWidth,
     float logicalHeight)
@@ -563,6 +580,12 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
     const float inset = 24f;
     float usableWidth = logicalWidth - inset * 2f;
     float usableHeight = logicalHeight - inset * 2f;
+    NativeStrokeCap startCap = forcedStartCap is >= 0 and <= 3
+        ? (NativeStrokeCap)forcedStartCap
+        : NativeStrokeCap.Flat;
+    NativeStrokeCap endCap = forcedEndCap is >= 0 and <= 3
+        ? (NativeStrokeCap)forcedEndCap
+        : NativeStrokeCap.Flat;
     int columns = Math.Max(
         1,
         (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
@@ -618,7 +641,9 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
                     strokeThickness: flags == NativeGeometryPrimitiveFlags.Hairline
                         ? 0f
                         : 1f + index % 4,
-                    flags: flags);
+                    flags: flags,
+                    startCap: startCap,
+                    endCap: endCap);
                 break;
             case 1:
                 result[index] = new NativeGeometryPrimitive(
@@ -663,7 +688,9 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
                     strokeThickness: curveFlags == NativeGeometryPrimitiveFlags.Hairline
                         ? 0f
                         : 1f + index % 4,
-                    flags: curveFlags);
+                    flags: curveFlags,
+                    startCap: startCap,
+                    endCap: endCap);
                 break;
             default:
                 throw new InvalidOperationException("Unsupported geometry kind.");
@@ -708,6 +735,8 @@ static DrawingVisual CreateManagedGeometryVisual(
                     new Pen(
                         brush,
                         thickness,
+                        startLineCap: ToPenLineCap(primitive.StartCap),
+                        endLineCap: ToPenLineCap(primitive.EndCap),
                         strokeTransformMode: mode),
                     primitive.P0,
                     primitive.P1,
@@ -741,6 +770,8 @@ static DrawingVisual CreateManagedGeometryVisual(
                 var curvePen = new Pen(
                     brush,
                     curveThickness,
+                    startLineCap: ToPenLineCap(primitive.StartCap),
+                    endLineCap: ToPenLineCap(primitive.EndCap),
                     strokeTransformMode: curveMode);
                 visual.Context.Commands.Add(new RenderCommand
                 {
@@ -755,7 +786,21 @@ static DrawingVisual CreateManagedGeometryVisual(
                     Transform = transform,
                     IsPenThicknessLocal = true,
                     IsEdgeAliased = (primitive.Flags &
-                        NativeGeometryPrimitiveFlags.EdgeAliased) != 0
+                        NativeGeometryPrimitiveFlags.EdgeAliased) != 0,
+                    GeometryCache = primitive.StartCap != NativeStrokeCap.Flat ||
+                        primitive.EndCap != NativeStrokeCap.Flat
+                        ? RenderCommandGeometryCache.ForStrokePath(
+                            primitive.Kind == NativeGeometryPrimitiveKind.QuadraticBezier
+                                ? RenderCommandGeometryCache.CreateQuadraticBezierPath(
+                                    primitive.P0,
+                                    primitive.P1,
+                                    primitive.P2)
+                                : RenderCommandGeometryCache.CreateCubicBezierPath(
+                                    primitive.P0,
+                                    primitive.P1,
+                                    primitive.P2,
+                                    primitive.P3))
+                        : null
                 });
                 break;
             default:
@@ -764,6 +809,14 @@ static DrawingVisual CreateManagedGeometryVisual(
         }
     }
     return visual;
+
+    static PenLineCap ToPenLineCap(NativeStrokeCap cap) => cap switch
+    {
+        NativeStrokeCap.Square => PenLineCap.Square,
+        NativeStrokeCap.Round => PenLineCap.Round,
+        NativeStrokeCap.Triangle => PenLineCap.Triangle,
+        _ => PenLineCap.Flat
+    };
 }
 
 static PixelComparison ComparePixels(
@@ -881,6 +934,7 @@ internal sealed record BenchmarkReport(
     TimingSummary Managed,
     double NativeToManagedP95Ratio,
     ulong CombinedMetalAllocatedBytes,
+    string NativePayloadHash,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(

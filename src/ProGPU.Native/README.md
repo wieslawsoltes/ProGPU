@@ -78,7 +78,11 @@ Use `--geometry-kind 0 --geometry-line-mode 0|1|2` to isolate hairline,
 fixed-device, or ordinary transformed lines. Use `--geometry-kind 3|4` for an
 isolated quadratic/cubic Bezier, or `--geometry-curves` for a deterministic
 mixed curve scene covering hairline, fixed-device, and ordinary affine
-strokes. `--sync` includes an individual
+strokes. Use `--geometry-start-cap 0|1|2|3` and
+`--geometry-end-cap 0|1|2|3` to select flat, square, round, or triangle caps.
+The differential compares a second submission after both pipelines are fully
+warmed and reports the optional native compiled-payload hash alongside the
+readback hashes. `--sync` includes an individual
 device-completion wait inside each renderer's measured interval. Generated
 native, managed, and absolute-difference images are written under
 `artifacts/progpu-native/differential/`.
@@ -92,13 +96,16 @@ Current native parity:
 - exact `VectorVertex` layout and the shared solid-rectangle shader path;
 - indexed mixed analytic rectangle/ellipse/circular-rounded-rectangle fill and
   stroke batches with per-primitive affine transforms;
-- indexed flat-cap line, triangle, and quadrilateral batches, including
+- indexed line, triangle, and quadrilateral batches, including
   one-device-pixel hairlines, positive fixed-device strokes, conformal scalar
   expansion, and transformed local outlines under anisotropic scale/shear;
 - indexed quadratic/cubic Bezier batches: conformal and device-space strokes
   are evaluated by the production 24-section GPU curve shader, while ordinary
   anisotropic/sheared strokes use bounded 24–1,024-section exact local-outline
   compilation before the same indexed GPU pass;
+- flat, square, round, and triangle start/end caps for lines and Bezier curves;
+  hairline/fixed caps expand after the full affine transform, while ordinary
+  non-conformal caps transform their complete local outlines;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

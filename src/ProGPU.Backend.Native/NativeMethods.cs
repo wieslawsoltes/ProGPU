@@ -8,6 +8,7 @@ internal static unsafe partial class NativeMethods
     internal const string LibraryName = "progpu_native";
     internal const uint AbiVersion = 1;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
+    internal const uint GeometryFrameCapturePayloadHash = 1U;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct EngineOptions
@@ -92,6 +93,8 @@ internal static unsafe partial class NativeMethods
         internal NativeColor ClearColor;
         internal NativeGeometryPrimitive* Primitives;
         internal nuint PrimitiveCount;
+        internal uint Flags;
+        internal uint Reserved;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -106,6 +109,7 @@ internal static unsafe partial class NativeMethods
         internal ulong BrushUploadBytes;
         internal ulong UniformUploadBytes;
         internal ulong SubmissionCount;
+        internal ulong PayloadHash;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

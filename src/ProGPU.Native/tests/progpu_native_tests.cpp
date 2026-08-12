@@ -53,6 +53,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_STROKE_CAPS) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 
@@ -233,6 +235,61 @@ void geometry_batch_encodes_gpu_and_affine_bezier_strokes() {
     PROGPU_REQUIRE(vertices[vertices.size() - 1U].shape_type == 17.0F);
 }
 
+void geometry_batch_preserves_cap_order_and_space() {
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    progpu_native_geometry_primitive hairline{
+        PROGPU_NATIVE_GEOMETRY_LINE,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+            (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
+            (PROGPU_NATIVE_STROKE_CAP_TRIANGLE <<
+                PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT),
+        {1.0F, 2.0F},
+        {5.0F, 6.0F},
+        {},
+        {},
+        0.0F,
+        0.0F,
+        {0.3F, 0.5F, 0.7F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        hairline,
+        2.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 12U && indices.size() == 18U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 22.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[0], 2.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[1], 1.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[0], 0.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].shape_type, 22.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].color[0], 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].color[1], 0.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].shape_size[0], 8.0F));
+
+    vertices.clear();
+    indices.clear();
+    hairline.flags =
+        (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
+        (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+            PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT);
+    hairline.stroke_thickness = 4.0F;
+    hairline.transform = {2.0F, 0.25F, 0.5F, 1.0F, 3.0F, 5.0F};
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        hairline,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 68U && indices.size() == 102U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 13.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[32].shape_type, 14.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[36].shape_type, 13.0F));
+}
+
 void invalid_geometry_flags_fail_without_partial_append() {
     progpu_native_geometry_primitive primitive{
         PROGPU_NATIVE_GEOMETRY_LINE,
@@ -360,6 +417,7 @@ int main() {
     geometry_batch_encodes_direct_and_affine_lines();
     geometry_batch_encodes_device_strokes_and_fills();
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
+    geometry_batch_preserves_cap_order_and_space();
     invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();
     std::cout << "ProGPU native CPU/ABI tests passed.\n";

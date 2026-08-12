@@ -80,6 +80,17 @@ gpu_uniforms create_uniforms(
     return uniforms;
 }
 
+std::uint64_t append_fnv1a64(
+    std::uint64_t hash,
+    const void* data,
+    std::size_t size) noexcept {
+    const auto* bytes = static_cast<const std::uint8_t*>(data);
+    for (std::size_t index = 0; index < size; ++index) {
+        hash = (hash ^ bytes[index]) * 1099511628211ULL;
+    }
+    return hash;
+}
+
 } // namespace
 
 struct progpu_native_engine {
@@ -661,7 +672,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_AFFINE_2D |
         PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH |
         PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES |
-        PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES;
+        PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES |
+        PROGPU_NATIVE_CAPABILITY_STROKE_CAPS;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1105,6 +1117,8 @@ progpu_native_status progpu_native_engine_render_geometry(
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
         (frame->primitive_count != 0U && frame->primitives == nullptr) ||
+        (frame->flags &
+            ~PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U ||
         !progpu::native::is_finite(frame->clear_color)) {
         return engine == nullptr
             ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
@@ -1210,6 +1224,23 @@ progpu_native_status progpu_native_engine_render_geometry(
     const std::uint64_t index_bytes =
         engine->indices.size() * sizeof(std::uint32_t);
     const std::uint64_t brush_upload_bytes = engine->brush_bytes.size();
+    std::uint64_t payload_hash = 0U;
+    if ((frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
+        payload_hash = 14695981039346656037ULL;
+        payload_hash = append_fnv1a64(
+            payload_hash,
+            engine->vertices.data(),
+            static_cast<std::size_t>(vertex_bytes));
+        payload_hash = append_fnv1a64(
+            payload_hash,
+            engine->indices.data(),
+            static_cast<std::size_t>(index_bytes));
+        payload_hash = append_fnv1a64(
+            payload_hash,
+            engine->brush_bytes.data(),
+            engine->brush_bytes.size());
+    }
     if (vertex_bytes != 0U) {
         if (engine->analytic_pipeline == nullptr &&
             !create_analytic_pipeline(*engine)) {
@@ -1358,6 +1389,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         metrics->uniform_upload_bytes =
             engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
         metrics->submission_count = engine->submission_count;
+        metrics->payload_hash = payload_hash;
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }

@@ -265,3 +265,64 @@ Additional ignored evidence:
   command-buffer errors, and memory schema;
 - curve native, managed, and absolute-difference PPM/PNG images under
   `artifacts/progpu-native/differential/`.
+
+## Capped line and Bezier supplement
+
+The next increment adds independent square, round, and triangle start/end caps
+to lines and quadratic/cubic curves while retaining flat as the zero-cost
+default. The representative scene contains 512 alternating quadratic/cubic
+records, round start caps, triangle end caps, all three stroke-transform modes,
+and one indexed draw.
+
+The differential now compares the second fully warmed submission. This was
+made explicit after fresh-process stress showed that reading the very first
+Metal pipeline draw could alternate between two readback hashes even though
+the compiled C++ vertex/index/brush payload was byte-stable. With a real warm
+submission, 30 fresh processes retained payload hash `4DCC2E4F746E2ECF` and
+native image hash `45609835E15B3FB6` with zero failures.
+
+The clean 5,000-iteration Release run on the same Apple M3 Pro/Metal device
+reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU encode/upload/submit | 0.8337 ms | 1.7121 ms |
+| p50 CPU encode/upload/submit | 0.8206 ms | 1.3330 ms |
+| p95 CPU encode/upload/submit | 0.9513 ms | 5.3582 ms |
+| Worst observed submission | 2.2052 ms | 8.3111 ms |
+| Managed allocation total | 2,256 bytes | 11,640,000 bytes |
+| Managed allocation / frame | 0.4512 bytes | 2,328 bytes |
+
+Native is about 2.05 times faster by mean and 5.63 times faster by p95 on the
+queue-submission path. Five separate 1,000-frame synchronized runs produced a
+median native/managed mean of 3.9701/4.3314 ms, so native remained about 8.3%
+faster by mean. Their median p95 was 6.8863/6.5002 ms, leaving native about
+5.9% slower at the synchronized tail; this remains an explicit optimization
+target rather than being hidden by the much stronger asynchronous result.
+
+The readback has maximum channel difference 1/255, zero pixels above 3/255,
+four total channel values of absolute difference, and mean absolute channel
+difference 0.000001929. The managed hash is `6BBBC8184210C766`.
+The uninstrumented combined-process Metal snapshot was 25,968,640 bytes
+(24.77 MiB).
+
+A valid final-binary Time Profiler trace and a valid 200-frame synchronized
+Metal System Trace both exited zero. The Metal trace identifies
+`ProGPU native indexed geometry pass` and `Offscreen Compositor Encoder`, has
+no command-buffer error row, and reached 30,048,256 bytes (28.66 MiB) peak
+`currentAllocatedSize` with Instruments overhead. Xcode Allocations launch and
+attach modes repeatedly suspended or failed to finalize on this host; those
+invalid traces were moved to Trash and no native-allocation-table claim is
+made. The exact same cap implementation is still covered by the benchmark's
+managed allocation counter, the native sanitizer build, and checked-capacity
+C++ tests. A successful Allocations/VM Tracker capture remains a qualification
+item before integration.
+
+Retained ignored evidence:
+
+- `native-managed-capped-curves-time-profiler-valid.trace` and exported TOC;
+- `native-managed-capped-curves-metal-valid.trace`, exported TOC, labels,
+  submissions, completions, GPU intervals, command-buffer errors, and memory;
+- `capped-curves-async-5000.json` plus five synchronized JSON runs;
+- native, managed, and 64-times-amplified difference PNG images under
+  `artifacts/progpu-native/differential/`.

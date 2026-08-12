@@ -38,6 +38,14 @@ public enum NativeGeometryPrimitiveKind : uint
     CubicBezier = 4
 }
 
+public enum NativeStrokeCap : uint
+{
+    Flat = 0,
+    Square = 1,
+    Round = 2,
+    Triangle = 3
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
@@ -51,7 +59,9 @@ public enum NativeGeometryPrimitiveFlags : uint
     None = 0,
     EdgeAliased = 1U << 0,
     Hairline = 1U << 1,
-    FixedDeviceStroke = 1U << 2
+    FixedDeviceStroke = 1U << 2,
+    StartCapMask = 3U << 3,
+    EndCapMask = 3U << 5
 }
 
 [Flags]
@@ -65,7 +75,8 @@ public enum NativeRendererCapabilities : ulong
     Affine2D = 1UL << 4,
     IndexedGeometryBatch = 1UL << 5,
     DeviceStrokes = 1UL << 6,
-    BezierStrokes = 1UL << 7
+    BezierStrokes = 1UL << 7,
+    StrokeCaps = 1UL << 8
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -143,10 +154,20 @@ public readonly struct NativeGeometryPrimitive
         Vector2 p2 = default,
         Vector2 p3 = default,
         float strokeThickness = 0f,
-        NativeGeometryPrimitiveFlags flags = NativeGeometryPrimitiveFlags.None)
+        NativeGeometryPrimitiveFlags flags = NativeGeometryPrimitiveFlags.None,
+        NativeStrokeCap startCap = NativeStrokeCap.Flat,
+        NativeStrokeCap endCap = NativeStrokeCap.Flat)
     {
+        if ((uint)startCap > (uint)NativeStrokeCap.Triangle)
+            throw new ArgumentOutOfRangeException(nameof(startCap));
+        if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
+            throw new ArgumentOutOfRangeException(nameof(endCap));
         Kind = kind;
-        Flags = flags;
+        Flags = (flags & ~(
+                NativeGeometryPrimitiveFlags.StartCapMask |
+                NativeGeometryPrimitiveFlags.EndCapMask)) |
+            (NativeGeometryPrimitiveFlags)((uint)startCap << 3) |
+            (NativeGeometryPrimitiveFlags)((uint)endCap << 5);
         P0 = p0;
         P1 = p1;
         P2 = p2;
@@ -167,6 +188,12 @@ public readonly struct NativeGeometryPrimitive
     private readonly float Reserved;
     public readonly Vector4 Color;
     public readonly Matrix3x2 Transform;
+
+    public NativeStrokeCap StartCap =>
+        (NativeStrokeCap)(((uint)Flags >> 3) & 3U);
+
+    public NativeStrokeCap EndCap =>
+        (NativeStrokeCap)(((uint)Flags >> 5) & 3U);
 }
 
 public readonly record struct NativeFrameMetrics(
@@ -193,7 +220,8 @@ public readonly record struct NativeGeometryFrameMetrics(
     ulong IndexUploadBytes,
     ulong BrushUploadBytes,
     ulong UniformUploadBytes,
-    ulong SubmissionCount);
+    ulong SubmissionCount,
+    ulong PayloadHash);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,
