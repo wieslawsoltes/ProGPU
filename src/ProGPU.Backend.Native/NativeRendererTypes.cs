@@ -127,7 +127,15 @@ public enum NativeRendererCapabilities : ulong
     RetainedRgbaImage = 1UL << 16,
     ExternalRgbaView = 1UL << 17,
     ExternalImageMask = 1UL << 18,
-    ExplicitQueueTimeline = 1UL << 19
+    ExplicitQueueTimeline = 1UL << 19,
+    FrameDrawState = 1UL << 20
+}
+
+[Flags]
+public enum NativeDrawStateFlags : uint
+{
+    None = 0,
+    ClipRect = 1U << 0
 }
 
 /// <summary>
@@ -183,6 +191,47 @@ public readonly struct NativeImageRect
     public readonly float Y;
     public readonly float Width;
     public readonly float Height;
+}
+
+/// <summary>
+/// Describes allocation-free state applied to one native draw submission.
+/// </summary>
+/// <remarks>
+/// Opacity multiplies each primitive independently and is not group opacity.
+/// A group with overlapping children requires an offscreen layer.
+/// </remarks>
+public readonly struct NativeDrawState
+{
+    public NativeDrawState(float opacity)
+        : this(opacity, default, NativeDrawStateFlags.None)
+    {
+    }
+
+    public NativeDrawState(float opacity, NativeImageRect clipRect)
+        : this(opacity, clipRect, NativeDrawStateFlags.ClipRect)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags)
+    {
+        Opacity = opacity;
+        ClipRect = clipRect;
+        Flags = flags;
+        _initialized = 1;
+    }
+
+    public static NativeDrawState Default => new(1f);
+
+    public readonly float Opacity;
+    public readonly NativeImageRect ClipRect;
+    public readonly NativeDrawStateFlags Flags;
+
+    private readonly byte _initialized;
+
+    internal float EffectiveOpacity => _initialized == 0 ? 1f : Opacity;
 }
 
 [StructLayout(LayoutKind.Sequential)]

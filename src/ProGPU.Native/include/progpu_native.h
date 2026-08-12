@@ -41,7 +41,12 @@ enum {
     PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U,
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U,
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U,
-    PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE = 1ULL << 19U
+    PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE = 1ULL << 19U,
+    PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE = 1ULL << 20U
+};
+
+enum {
+    PROGPU_NATIVE_DRAW_STATE_CLIP_RECT = 1U << 0U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -362,6 +367,19 @@ typedef struct progpu_native_positioned_glyph {
 } progpu_native_positioned_glyph;
 
 /*
+ * Optional per-draw state shared by every frame family. opacity multiplies
+ * primitive alpha; it is not group/layer opacity. clip_rect is expressed in
+ * logical target coordinates and is mapped to a physical WebGPU scissor.
+ */
+typedef struct progpu_native_draw_state {
+    uint32_t struct_size;
+    uint32_t flags;
+    float opacity;
+    uint32_t reserved;
+    progpu_native_image_rect clip_rect;
+} progpu_native_draw_state;
+
+/*
  * width and height are physical target pixels. Rectangle coordinates are
  * logical pixels and dpi_scale maps logical coordinates to physical pixels.
  * target_view is borrowed for the duration of the call.
@@ -375,6 +393,7 @@ typedef struct progpu_native_frame {
     progpu_native_color clear_color;
     const progpu_native_rect* rects;
     size_t rect_count;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_frame;
 
 typedef struct progpu_native_frame_metrics {
@@ -396,6 +415,7 @@ typedef struct progpu_native_analytic_frame {
     progpu_native_color clear_color;
     const progpu_native_analytic_primitive* primitives;
     size_t primitive_count;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_analytic_frame;
 
 typedef struct progpu_native_analytic_frame_metrics {
@@ -431,6 +451,7 @@ typedef struct progpu_native_geometry_frame {
     size_t dash_style_count;
     const progpu_native_spline* splines;
     size_t spline_count;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_geometry_frame;
 
 typedef struct progpu_native_geometry_frame_metrics {
@@ -460,6 +481,7 @@ typedef struct progpu_native_path_frame {
     uint32_t flags;
     /* Nonzero caller-owned content revision when retention is requested. */
     uint32_t content_revision;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_path_frame;
 
 typedef struct progpu_native_path_frame_metrics {
@@ -496,6 +518,7 @@ typedef struct progpu_native_glyph_frame {
     size_t glyph_count;
     uint32_t flags;
     uint32_t content_revision;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_glyph_frame;
 
 typedef struct progpu_native_glyph_frame_metrics {
@@ -555,6 +578,7 @@ typedef struct progpu_native_image_frame {
     progpu_native_image_rect mask_destination_rect;
     uint32_t mask_revision;
     uint32_t mask_sampling;
+    const progpu_native_draw_state* draw_state;
 } progpu_native_image_frame;
 
 typedef struct progpu_native_image_frame_metrics {

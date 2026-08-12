@@ -33,12 +33,23 @@ public class NativeRendererInteropTests
     public void PrivateInteropRecordsMatchNativeAbiThree()
     {
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.Frame>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.Frame>());
+        Assert.Equal(
+            56,
+            OffsetOf<NativeMethods.Frame>(nameof(NativeMethods.Frame.DrawState)));
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.FrameMetrics>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
+        Assert.Equal(
+            56,
+            OffsetOf<NativeMethods.AnalyticFrame>(
+                nameof(NativeMethods.AnalyticFrame.DrawState)));
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
         Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
-        Assert.Equal(144, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(152, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(
+            144,
+            OffsetOf<NativeMethods.GeometryFrame>(
+                nameof(NativeMethods.GeometryFrame.DrawState)));
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeGeometryPrimitive>());
         Assert.Equal(72, Unsafe.SizeOf<NativePolyline>());
@@ -46,14 +57,40 @@ public class NativeRendererInteropTests
         Assert.Equal(112, Unsafe.SizeOf<NativeSpline>());
         Assert.Equal(48, Unsafe.SizeOf<NativePathSegment>());
         Assert.Equal(80, Unsafe.SizeOf<NativePathFill>());
-        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.PathFrame>());
+        Assert.Equal(88, Unsafe.SizeOf<NativeMethods.PathFrame>());
+        Assert.Equal(
+            80,
+            OffsetOf<NativeMethods.PathFrame>(
+                nameof(NativeMethods.PathFrame.DrawState)));
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.PathFrameMetrics>());
         Assert.Equal(40, Unsafe.SizeOf<NativeGlyphOutline>());
         Assert.Equal(64, Unsafe.SizeOf<NativePositionedGlyph>());
-        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
+        Assert.Equal(104, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
+        Assert.Equal(
+            96,
+            OffsetOf<NativeMethods.GlyphFrame>(
+                nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(200, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(
+            0,
+            OffsetOf<NativeMethods.DrawState>(
+                nameof(NativeMethods.DrawState.StructSize)));
+        Assert.Equal(
+            4,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.Flags)));
+        Assert.Equal(
+            8,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.Opacity)));
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.ClipRect)));
+        Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(
+            200,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.DrawState)));
         Assert.Equal(72, Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>());
         Assert.Equal(
             144,
@@ -79,6 +116,21 @@ public class NativeRendererInteropTests
         Assert.Equal(1U, NativeDawnAdapter.AdapterAbiVersion);
         Assert.Equal(2U, NativeDawnAdapter.RequiredProviderAbiVersion);
         Assert.Equal(2U, NativeDawnAdapter.BackendAbi);
+    }
+
+    [Fact]
+    public void PublicDrawStateSeparatesPrimitiveOpacityFromLogicalClip()
+    {
+        var state = new NativeDrawState(
+            0.625f,
+            new NativeImageRect(1.25f, 2.5f, 30.75f, 40.5f),
+            NativeDrawStateFlags.ClipRect);
+
+        Assert.Equal(0.625f, state.Opacity);
+        Assert.Equal(NativeDrawStateFlags.ClipRect, state.Flags);
+        Assert.Equal(1.25f, state.ClipRect.X);
+        Assert.Equal(40.5f, state.ClipRect.Height);
+        Assert.Equal(1f, NativeDrawState.Default.EffectiveOpacity);
     }
 
     [Fact]
@@ -118,6 +170,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             524288UL,
             (ulong)NativeRendererCapabilities.ExplicitQueueTimeline);
+        Assert.Equal(
+            1048576UL,
+            (ulong)NativeRendererCapabilities.FrameDrawState);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

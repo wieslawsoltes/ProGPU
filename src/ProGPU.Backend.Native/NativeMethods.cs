@@ -14,6 +14,16 @@ internal static unsafe partial class NativeMethods
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct DrawState
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal float Opacity;
+        internal uint Reserved;
+        internal NativeImageRect ClipRect;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct EngineOptions
     {
         internal uint StructSize;
@@ -45,6 +55,7 @@ internal static unsafe partial class NativeMethods
         internal NativeColor ClearColor;
         internal NativeSolidRectangle* Rectangles;
         internal nuint RectangleCount;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -70,6 +81,7 @@ internal static unsafe partial class NativeMethods
         internal NativeColor ClearColor;
         internal NativeAnalyticPrimitive* Primitives;
         internal nuint PrimitiveCount;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -108,6 +120,7 @@ internal static unsafe partial class NativeMethods
         internal nuint DashStyleCount;
         internal NativeSpline* Splines;
         internal nuint SplineCount;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -140,6 +153,7 @@ internal static unsafe partial class NativeMethods
         internal nuint SegmentCount;
         internal uint Flags;
         internal uint ContentRevision;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -180,6 +194,7 @@ internal static unsafe partial class NativeMethods
         internal nuint GlyphCount;
         internal uint Flags;
         internal uint ContentRevision;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -232,6 +247,7 @@ internal static unsafe partial class NativeMethods
         internal NativeImageRect MaskDestinationRect;
         internal uint MaskRevision;
         internal NativeImageSampling MaskSampling;
+        internal DrawState* DrawState;
     }
 
     [StructLayout(LayoutKind.Sequential)]

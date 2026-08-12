@@ -67,6 +67,7 @@ metadata.
 | System | Observable architecture | ProGPU decision |
 | --- | --- | --- |
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
+| [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
 | [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
@@ -78,8 +79,12 @@ metadata.
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Do not hide general layer semantics inside the first image-mask ABI. The direct-mask lane performs one bounded texture sample; reusable layers and nested effects remain a later semantic-scene capability. |
+| [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
+| [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Use WebGPU scissoring for the rectangular fast path and name the ABI value primitive opacity. Reject the tempting scalar shortcut for group opacity; true groups require pooled offscreen layers. |
+| [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve the semantic distinction in the WinUI-aligned surface. The current draw-state record does not claim `CreateLayer` parity. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. |
+| [WebRender clip chains](https://searchfox.org/mozilla-central/source/gfx/wr) | Common display-item properties carry spatial and clip-chain identity so retained items reuse hierarchical clip state. | Keep clip identity in the future semantic scene rather than baking clip-dependent geometry. The frame-level fast path only supplies one resolved rectangle. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
 | [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha while rendering remains GPU-oriented. | Reserve explicit semantic layer commands for nested clips/effects; do not grow the image-frame record into an implicit general scene stack. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
@@ -235,6 +240,14 @@ Rules:
 
 Future ABI additions append fields or add entry points. Existing field meaning
 never changes within an ABI version.
+
+ABI v3 frame families now append an optional `progpu_native_draw_state`
+pointer after their legacy prefix. A caller that publishes the older
+`struct_size` receives opacity `1` and the full target clip; a current caller
+publishes the complete frame size and a size-tagged state. Unknown flags,
+nonzero reserved data, non-finite opacity/clip values, out-of-range opacity,
+and negative clip extents fail before command encoding. This preserves binary
+compatibility without reading beyond a legacy record.
 
 ## 7. Semantic scene format
 
@@ -602,6 +615,24 @@ DXGI shared fences, DMA-BUF sync files, and browser external-texture acquisition
 still require separate typed platform adapters before decoder-native imports
 can be claimed.
 
+The second ABI-v3 extension adds common per-draw primitive opacity and one
+target-space logical rectangle clip to every implemented frame family. Clip
+resolution is fixed `O(1)` time/storage: multiply by DPI, intersect with the
+physical target, snap coordinates within `0.0001` of an integer, floor the
+minimum, and ceil the maximum before `setScissorRect`. Empty clips and zero
+opacity retain clear/submission semantics but emit no draw call. Rectangle and
+analytic batches apply opacity during their existing `O(V)` vertex write.
+Retained geometry/path cache hits update only `O(B)` packed brush-opacity words;
+positioned text updates `O(G)` instance alpha from retained source alpha; image
+replay updates four vertices. None of these state-only changes rebuilds stroke
+geometry, rerasterizes a path/glyph atlas, reshapes text, or reuploads a source
+texture. Stable unchanged replay stays allocation-free.
+
+This record deliberately does not implement a nested opacity stack or group
+opacity. Per-draw opacity changes overlap blending, whereas group opacity must
+composite one offscreen result. Pooled offscreen layers, arbitrary/path clips,
+masks, blend isolation, and effect nesting remain the next scene-state slice.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -615,8 +646,11 @@ can be claimed.
   curve hairline/fixed-device strokes, all four line/curve cap kinds, all three
   solid-polyline/spline join kinds, reusable dash styles, and retained compiled
   geometry replay are implemented; the remaining primitives are pending;
-- transforms, scissor clips, opacity stack, blend stack, static buffers, and
-  compiled-scene reuse;
+- transforms are implemented for the current subsets; common physical-scissor
+  clipping and primitive opacity are implemented across rectangles, analytic
+  geometry, retained geometry, paths, glyphs, and images with append-only ABI
+  compatibility. Nested clip/opacity stacks, group opacity, blend stack,
+  static buffers, and full compiled-scene reuse remain;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
 - deterministic pixel differential suite against the managed compositor.
 

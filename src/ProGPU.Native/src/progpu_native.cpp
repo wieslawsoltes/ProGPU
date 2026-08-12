@@ -298,6 +298,115 @@ std::uint64_t append_fnv1a64(
     return hash;
 }
 
+struct resolved_draw_state {
+    float opacity = 1.0F;
+    bool has_clip = false;
+    bool has_drawable_clip = true;
+    std::uint32_t clip_x = 0U;
+    std::uint32_t clip_y = 0U;
+    std::uint32_t clip_width = 0U;
+    std::uint32_t clip_height = 0U;
+};
+
+float snap_scissor_coordinate(float value) noexcept {
+    const float rounded = std::round(value);
+    return std::abs(value - rounded) < 0.0001F ? rounded : value;
+}
+
+bool resolve_draw_state(
+    const progpu_native_draw_state* state,
+    std::uint32_t target_width,
+    std::uint32_t target_height,
+    float dpi_scale,
+    resolved_draw_state& resolved) noexcept {
+    resolved = {};
+    if (state == nullptr) {
+        return true;
+    }
+    if (state->struct_size < sizeof(progpu_native_draw_state) ||
+        (state->flags & ~PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) != 0U ||
+        state->reserved != 0U || !std::isfinite(state->opacity) ||
+        state->opacity < 0.0F || state->opacity > 1.0F) {
+        return false;
+    }
+    resolved.opacity = state->opacity;
+    if ((state->flags & PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) == 0U) {
+        return state->clip_rect.x == 0.0F && state->clip_rect.y == 0.0F &&
+            state->clip_rect.width == 0.0F &&
+            state->clip_rect.height == 0.0F;
+    }
+    const auto& clip = state->clip_rect;
+    if (!std::isfinite(clip.x) || !std::isfinite(clip.y) ||
+        !std::isfinite(clip.width) || !std::isfinite(clip.height) ||
+        clip.width < 0.0F || clip.height < 0.0F) {
+        return false;
+    }
+
+    resolved.has_clip = true;
+    const float left = std::clamp(clip.x * dpi_scale, 0.0F,
+        static_cast<float>(target_width));
+    const float top = std::clamp(clip.y * dpi_scale, 0.0F,
+        static_cast<float>(target_height));
+    const float right = std::clamp(
+        (clip.x + clip.width) * dpi_scale,
+        0.0F,
+        static_cast<float>(target_width));
+    const float bottom = std::clamp(
+        (clip.y + clip.height) * dpi_scale,
+        0.0F,
+        static_cast<float>(target_height));
+    const float snapped_left = snap_scissor_coordinate(left);
+    const float snapped_top = snap_scissor_coordinate(top);
+    const float snapped_right = snap_scissor_coordinate(right);
+    const float snapped_bottom = snap_scissor_coordinate(bottom);
+    if (snapped_right <= snapped_left || snapped_bottom <= snapped_top) {
+        resolved.has_drawable_clip = false;
+        return true;
+    }
+    resolved.clip_x = static_cast<std::uint32_t>(std::floor(snapped_left));
+    resolved.clip_y = static_cast<std::uint32_t>(std::floor(snapped_top));
+    const std::uint32_t right_pixel = static_cast<std::uint32_t>(
+        std::ceil(snapped_right));
+    const std::uint32_t bottom_pixel = static_cast<std::uint32_t>(
+        std::ceil(snapped_bottom));
+    resolved.clip_width = right_pixel - resolved.clip_x;
+    resolved.clip_height = bottom_pixel - resolved.clip_y;
+    return true;
+}
+
+void apply_scissor(
+    WGPURenderPassEncoder pass,
+    const resolved_draw_state& state) noexcept {
+    if (state.has_clip && state.has_drawable_clip) {
+        wgpuRenderPassEncoderSetScissorRect(
+            pass,
+            state.clip_x,
+            state.clip_y,
+            state.clip_width,
+            state.clip_height);
+    }
+}
+
+void multiply_vertex_alpha(
+    std::vector<progpu::native::vector_vertex>& vertices,
+    float opacity) noexcept {
+    if (opacity == 1.0F) {
+        return;
+    }
+    for (auto& vertex : vertices) {
+        vertex.color[3] *= opacity;
+    }
+}
+
+void set_brush_opacity(
+    std::vector<std::byte>& brushes,
+    float opacity) noexcept {
+    for (std::size_t offset = 4U; offset < brushes.size();
+         offset += gpu_brush_size) {
+        std::memcpy(brushes.data() + offset, &opacity, sizeof(opacity));
+    }
+}
+
 } // namespace
 
 struct progpu_native_engine {
@@ -371,6 +480,7 @@ struct progpu_native_engine {
     std::vector<progpu::native::spline_homogeneous_point> spline_work;
     std::vector<std::byte> brush_bytes;
     std::uint32_t geometry_content_revision = 0U;
+    float geometry_opacity = 1.0F;
     std::uint64_t geometry_payload_hash = 0U;
     bool geometry_cache_valid = false;
     bool geometry_gpu_cache_valid = false;
@@ -380,13 +490,16 @@ struct progpu_native_engine {
     std::vector<native_path_raster> path_rasters;
     std::uint32_t path_content_revision = 0U;
     float path_dpi_scale = 0.0F;
+    float path_opacity = 1.0F;
     std::uint64_t path_payload_hash = 0U;
     bool path_cache_valid = false;
     bool path_gpu_cache_valid = false;
     std::vector<gpu_glyph_instance> glyph_instances;
+    std::vector<float> glyph_source_alphas;
     std::vector<native_glyph_raster> glyph_rasters;
     std::uint32_t glyph_content_revision = 0U;
     float glyph_dpi_scale = 0.0F;
+    float glyph_opacity = 1.0F;
     std::uint64_t glyph_payload_hash = 0U;
     bool glyph_cache_valid = false;
     bool glyph_gpu_cache_valid = false;
@@ -414,6 +527,7 @@ struct progpu_native_engine {
     gpu_uniforms cached_image_uniforms{};
     std::uint32_t image_revision = 0U;
     std::uint32_t image_content_revision = 0U;
+    float image_draw_opacity = 1.0F;
     std::uint32_t image_width = 0U;
     std::uint32_t image_height = 0U;
     std::uint32_t image_texture_generation = 0U;
@@ -2393,7 +2507,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
-        PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE;
+        PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE |
+        PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -2493,7 +2608,7 @@ progpu_native_status progpu_native_engine_render(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_frame) ||
+        frame->struct_size < offsetof(progpu_native_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -2507,6 +2622,21 @@ progpu_native_status progpu_native_engine_render(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -2539,6 +2669,7 @@ progpu_native_status progpu_native_engine_render(
                     "A rectangle contains invalid geometry or color values.");
             }
         }
+        multiply_vertex_alpha(engine->vertices, draw_state.opacity);
     } catch (const std::bad_alloc&) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -2607,7 +2738,9 @@ progpu_native_status progpu_native_engine_render(
             "The native render pass could not be created.");
     }
 
-    if (!engine->vertices.empty()) {
+    if (!engine->vertices.empty() && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
         wgpuRenderPassEncoderSetPipeline(pass, engine->pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -2649,7 +2782,10 @@ progpu_native_status progpu_native_engine_render(
 
     if (metrics != nullptr &&
         metrics->struct_size >= sizeof(progpu_native_frame_metrics)) {
-        metrics->draw_call_count = engine->vertices.empty() ? 0U : 1U;
+        metrics->draw_call_count = engine->vertices.empty() ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->vertex_count =
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->vertex_upload_bytes = vertex_bytes;
@@ -2669,7 +2805,7 @@ progpu_native_status progpu_native_engine_render_analytic(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_analytic_frame) ||
+        frame->struct_size < offsetof(progpu_native_analytic_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -2680,6 +2816,21 @@ progpu_native_status progpu_native_engine_render_analytic(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The analytic frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_analytic_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The analytic frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -2723,6 +2874,7 @@ progpu_native_status progpu_native_engine_render_analytic(
                     "An analytic primitive contains invalid geometry, color, or flags.");
             }
         }
+        multiply_vertex_alpha(engine->vertices, draw_state.opacity);
     } catch (const std::bad_alloc&) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -2807,7 +2959,9 @@ progpu_native_status progpu_native_engine_render_analytic(
             "The native analytic render pass could not be created.");
     }
 
-    if (!engine->indices.empty()) {
+    if (!engine->indices.empty() && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -2862,7 +3016,10 @@ progpu_native_status progpu_native_engine_render_analytic(
 
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_analytic_frame_metrics)) {
-        metrics->draw_call_count = engine->indices.empty() ? 0U : 1U;
+        metrics->draw_call_count = engine->indices.empty() ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->vertex_count =
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->index_count =
@@ -2885,7 +3042,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_geometry_frame) ||
+        frame->struct_size < offsetof(progpu_native_geometry_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -2908,6 +3065,21 @@ progpu_native_status progpu_native_engine_render_geometry(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The geometry frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_geometry_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The geometry frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -3198,12 +3370,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine->brush_bytes.clear();
         engine->brush_bytes.resize(
             static_cast<std::size_t>(brush_count) * gpu_brush_size);
-        constexpr float opacity = 1.0F;
-        for (std::uint32_t index = 0; index < brush_count; ++index) {
-            std::byte* brush = engine->brush_bytes.data() +
-                index * gpu_brush_size;
-            std::memcpy(brush + 4U, &opacity, sizeof(opacity));
-        }
+        set_brush_opacity(engine->brush_bytes, draw_state.opacity);
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
             const std::uint32_t brush_index =
                 engine->primitive_brush_indices[index];
@@ -3242,6 +3409,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         }
         if (retain_compiled_payload) {
             engine->geometry_content_revision = frame->reserved;
+            engine->geometry_opacity = draw_state.opacity;
             engine->geometry_payload_hash = 14695981039346656037ULL;
             engine->geometry_payload_hash = append_fnv1a64(
                 engine->geometry_payload_hash,
@@ -3265,6 +3433,27 @@ progpu_native_status progpu_native_engine_render_geometry(
         }
     }
 
+    const bool opacity_changed = compiled_payload_hit &&
+        engine->geometry_opacity != draw_state.opacity;
+    if (opacity_changed) {
+        set_brush_opacity(engine->brush_bytes, draw_state.opacity);
+        engine->geometry_opacity = draw_state.opacity;
+        engine->geometry_payload_hash = 14695981039346656037ULL;
+        engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash,
+            engine->vertices.data(),
+            engine->vertices.size() *
+                sizeof(progpu::native::vector_vertex));
+        engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash,
+            engine->indices.data(),
+            engine->indices.size() * sizeof(std::uint32_t));
+        engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash,
+            engine->brush_bytes.data(),
+            engine->brush_bytes.size());
+    }
+
     const std::uint64_t vertex_bytes =
         engine->vertices.size() * sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes =
@@ -3272,6 +3461,8 @@ progpu_native_status progpu_native_engine_render_geometry(
     const std::uint64_t brush_upload_bytes = engine->brush_bytes.size();
     const bool upload_compiled_payload =
         !compiled_payload_hit || !engine->geometry_gpu_cache_valid;
+    const bool upload_brush_payload =
+        upload_compiled_payload || opacity_changed;
     bool uploaded_uniforms = false;
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -3331,13 +3522,15 @@ progpu_native_status progpu_native_engine_render_geometry(
                 0U,
                 engine->indices.data(),
                 static_cast<std::size_t>(index_bytes));
+            engine->geometry_gpu_cache_valid = retain_compiled_payload;
+        }
+        if (upload_brush_payload) {
             wgpuQueueWriteBuffer(
                 engine->queue,
                 engine->analytic_brush_buffer,
                 0U,
                 engine->brush_bytes.data(),
                 engine->brush_bytes.size());
-            engine->geometry_gpu_cache_valid = retain_compiled_payload;
         }
     }
 
@@ -3377,7 +3570,9 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The native geometry render pass could not be created.");
     }
 
-    if (!engine->indices.empty()) {
+    if (!engine->indices.empty() && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -3432,7 +3627,10 @@ progpu_native_status progpu_native_engine_render_geometry(
 
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_geometry_frame_metrics)) {
-        metrics->draw_call_count = engine->indices.empty() ? 0U : 1U;
+        metrics->draw_call_count = engine->indices.empty() ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->vertex_count =
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->index_count =
@@ -3444,7 +3642,7 @@ progpu_native_status progpu_native_engine_render_geometry(
             ? index_bytes
             : 0U;
         metrics->brush_upload_bytes =
-            engine->indices.empty() || !upload_compiled_payload
+            engine->indices.empty() || !upload_brush_payload
                 ? 0U
                 : brush_upload_bytes;
         metrics->uniform_upload_bytes = uploaded_uniforms
@@ -3464,7 +3662,7 @@ progpu_native_status progpu_native_engine_render_paths(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_path_frame) ||
+        frame->struct_size < offsetof(progpu_native_path_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -3482,6 +3680,21 @@ progpu_native_status progpu_native_engine_render_paths(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The path frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_path_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The path frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -3527,16 +3740,9 @@ progpu_native_status progpu_native_engine_render_paths(
             engine->path_brush_bytes.resize(
                 (frame->path_count + 1U) * gpu_brush_size);
 
-            constexpr float opacity = 1.0F;
-            for (std::size_t index = 0U;
-                 index <= frame->path_count;
-                 ++index) {
-                std::memcpy(
-                    engine->path_brush_bytes.data() +
-                        index * gpu_brush_size + 4U,
-                    &opacity,
-                    sizeof(opacity));
-            }
+            set_brush_opacity(
+                engine->path_brush_bytes,
+                draw_state.opacity);
 
             std::uint32_t atlas_x = 2U;
             std::uint32_t atlas_y = 2U;
@@ -3786,6 +3992,7 @@ progpu_native_status progpu_native_engine_render_paths(
             if (retain_compiled_payload) {
                 engine->path_content_revision = frame->content_revision;
                 engine->path_dpi_scale = frame->dpi_scale;
+                engine->path_opacity = draw_state.opacity;
                 engine->path_payload_hash = 14695981039346656037ULL;
                 engine->path_payload_hash = append_fnv1a64(
                     engine->path_payload_hash,
@@ -3807,6 +4014,27 @@ progpu_native_status progpu_native_engine_render_paths(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native path batch could not be allocated.");
         }
+    }
+
+    const bool opacity_changed = compiled_payload_hit &&
+        engine->path_opacity != draw_state.opacity;
+    if (opacity_changed) {
+        set_brush_opacity(engine->path_brush_bytes, draw_state.opacity);
+        engine->path_opacity = draw_state.opacity;
+        engine->path_payload_hash = 14695981039346656037ULL;
+        engine->path_payload_hash = append_fnv1a64(
+            engine->path_payload_hash,
+            engine->path_vertices.data(),
+            engine->path_vertices.size() *
+                sizeof(progpu::native::vector_vertex));
+        engine->path_payload_hash = append_fnv1a64(
+            engine->path_payload_hash,
+            engine->path_indices.data(),
+            engine->path_indices.size() * sizeof(std::uint32_t));
+        engine->path_payload_hash = append_fnv1a64(
+            engine->path_payload_hash,
+            engine->path_brush_bytes.data(),
+            engine->path_brush_bytes.size());
     }
 
     const std::uint32_t atlas_generation_before =
@@ -3832,6 +4060,7 @@ progpu_native_status progpu_native_engine_render_paths(
     const std::uint64_t brush_bytes = engine->path_brush_bytes.size();
     const bool upload_draw_payload =
         !compiled_payload_hit || !engine->path_gpu_cache_valid;
+    const bool upload_brush_payload = upload_draw_payload || opacity_changed;
     bool uploaded_uniforms = false;
     if (vertex_bytes != 0U &&
         (!engine->ensure_vertex_buffer(vertex_bytes) ||
@@ -3864,14 +4093,16 @@ progpu_native_status progpu_native_engine_render_paths(
                 0U,
                 engine->path_indices.data(),
                 index_bytes);
+            engine->path_gpu_cache_valid = retain_compiled_payload;
+            engine->geometry_gpu_cache_valid = false;
+        }
+        if (upload_brush_payload) {
             wgpuQueueWriteBuffer(
                 engine->queue,
                 engine->analytic_brush_buffer,
                 0U,
                 engine->path_brush_bytes.data(),
                 brush_bytes);
-            engine->path_gpu_cache_valid = retain_compiled_payload;
-            engine->geometry_gpu_cache_valid = false;
         }
     }
 
@@ -4045,7 +4276,9 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path render pass could not be created.");
     }
-    if (!engine->path_indices.empty()) {
+    if (!engine->path_indices.empty() && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass, 0U, engine->analytic_uniform_bind_group, 0U, nullptr);
@@ -4099,7 +4332,10 @@ progpu_native_status progpu_native_engine_render_paths(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_path_frame_metrics)) {
-        metrics->draw_call_count = engine->path_indices.empty() ? 0U : 1U;
+        metrics->draw_call_count = engine->path_indices.empty() ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->vertex_count = static_cast<std::uint32_t>(
             engine->path_vertices.size());
         metrics->index_count = static_cast<std::uint32_t>(
@@ -4110,7 +4346,7 @@ progpu_native_status progpu_native_engine_render_paths(
         metrics->atlas_generation = engine->path_atlas_generation;
         metrics->vertex_upload_bytes = upload_draw_payload ? vertex_bytes : 0U;
         metrics->index_upload_bytes = upload_draw_payload ? index_bytes : 0U;
-        metrics->brush_upload_bytes = upload_draw_payload ? brush_bytes : 0U;
+        metrics->brush_upload_bytes = upload_brush_payload ? brush_bytes : 0U;
         metrics->path_upload_bytes = path_upload_bytes;
         metrics->coverage_staging_bytes = coverage_staging_bytes;
         metrics->uniform_upload_bytes = uploaded_uniforms
@@ -4130,7 +4366,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_glyph_frame) ||
+        frame->struct_size < offsetof(progpu_native_glyph_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -4149,6 +4385,21 @@ progpu_native_status progpu_native_engine_render_glyphs(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The positioned glyph frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_glyph_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The positioned glyph frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -4187,6 +4438,8 @@ progpu_native_status progpu_native_engine_render_glyphs(
             engine->glyph_rasters.reserve(frame->outline_count);
             engine->glyph_instances.clear();
             engine->glyph_instances.reserve(frame->glyph_count);
+            engine->glyph_source_alphas.clear();
+            engine->glyph_source_alphas.reserve(frame->glyph_count);
 
             for (std::size_t index = 0U;
                  index < frame->segment_count;
@@ -4381,6 +4634,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
                     instance.color,
                     &glyph.color,
                     sizeof(glyph.color));
+                instance.color[3] *= draw_state.opacity;
                 instance.scale_bold_italic_flags[0] =
                     glyph.atlas_to_logical_scale;
                 instance.scale_bold_italic_flags[1] = glyph.bold_offset;
@@ -4388,6 +4642,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
                 instance.scale_bold_italic_flags[3] = 0.0F;
                 instance.brush_index = -1.0F;
                 engine->glyph_instances.push_back(instance);
+                engine->glyph_source_alphas.push_back(glyph.color.a);
             }
 
             coverage_staging_bytes = output_offset;
@@ -4396,6 +4651,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
             if (retain_compiled_payload) {
                 engine->glyph_content_revision = frame->content_revision;
                 engine->glyph_dpi_scale = frame->dpi_scale;
+                engine->glyph_opacity = draw_state.opacity;
                 engine->glyph_payload_hash = append_fnv1a64(
                     14695981039346656037ULL,
                     engine->glyph_instances.data(),
@@ -4420,6 +4676,36 @@ progpu_native_status progpu_native_engine_render_glyphs(
         }
     }
 
+    const bool opacity_changed = compiled_payload_hit &&
+        engine->glyph_opacity != draw_state.opacity;
+    if (opacity_changed) {
+        if (engine->glyph_source_alphas.size() !=
+            engine->glyph_instances.size()) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The retained glyph opacity cache is inconsistent.");
+        }
+        for (std::size_t index = 0U;
+             index < engine->glyph_instances.size();
+             ++index) {
+            engine->glyph_instances[index].color[3] =
+                engine->glyph_source_alphas[index] * draw_state.opacity;
+        }
+        engine->glyph_opacity = draw_state.opacity;
+        engine->glyph_payload_hash = append_fnv1a64(
+            14695981039346656037ULL,
+            engine->glyph_instances.data(),
+            engine->glyph_instances.size() * sizeof(gpu_glyph_instance));
+        engine->glyph_payload_hash = append_fnv1a64(
+            engine->glyph_payload_hash,
+            frame->outlines,
+            frame->outline_count * sizeof(progpu_native_glyph_outline));
+        engine->glyph_payload_hash = append_fnv1a64(
+            engine->glyph_payload_hash,
+            frame->segments,
+            frame->segment_count * sizeof(progpu_native_path_segment));
+    }
+
     const std::uint32_t atlas_generation_before =
         engine->glyph_atlas_generation;
     if (engine->glyph_atlas_texture == nullptr) {
@@ -4441,7 +4727,8 @@ progpu_native_status progpu_native_engine_render_glyphs(
     const std::uint64_t instance_bytes = engine->glyph_instances.size() *
         sizeof(gpu_glyph_instance);
     const bool upload_instances =
-        !compiled_payload_hit || !engine->glyph_gpu_cache_valid;
+        !compiled_payload_hit || !engine->glyph_gpu_cache_valid ||
+        opacity_changed;
     if (instance_bytes != 0U &&
         !engine->ensure_text_vertex_buffer(instance_bytes)) {
         return engine->fail(
@@ -4654,7 +4941,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph render pass could not be created.");
     }
-    if (!engine->glyph_instances.empty()) {
+    if (!engine->glyph_instances.empty() && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
         wgpuRenderPassEncoderSetPipeline(pass, engine->text_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass, 0U, engine->text_uniform_bind_group, 0U, nullptr);
@@ -4702,7 +4991,10 @@ progpu_native_status progpu_native_engine_render_glyphs(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_glyph_frame_metrics)) {
-        metrics->draw_call_count = engine->glyph_instances.empty() ? 0U : 1U;
+        metrics->draw_call_count = engine->glyph_instances.empty() ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->glyph_count = static_cast<std::uint32_t>(
             engine->glyph_instances.size());
         metrics->rasterized_glyph_count = rasterized_glyph_count;
@@ -4746,7 +5038,7 @@ progpu_native_status progpu_native_engine_render_image(
         frame->mask_destination_rect.width == 0.0F &&
         frame->mask_destination_rect.height == 0.0F;
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_image_frame) ||
+        frame->struct_size < offsetof(progpu_native_image_frame, draw_state) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -4787,6 +5079,21 @@ progpu_native_status progpu_native_engine_render_image(
             : engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The retained RGBA image frame descriptor is invalid.");
+    }
+    resolved_draw_state draw_state{};
+    const auto* requested_draw_state =
+        frame->struct_size >= sizeof(progpu_native_image_frame)
+            ? frame->draw_state
+            : nullptr;
+    if (!resolve_draw_state(
+            requested_draw_state,
+            frame->width,
+            frame->height,
+            frame->dpi_scale,
+            draw_state)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The retained image frame draw state is invalid.");
     }
     if (!engine->is_owner_thread()) {
         return engine->fail(
@@ -4841,6 +5148,7 @@ progpu_native_status progpu_native_engine_render_image(
 
     const bool compiled_payload_hit = engine->image_cache_valid &&
         engine->image_content_revision == frame->content_revision &&
+        engine->image_draw_opacity == draw_state.opacity &&
         !dimensions_changed;
     if (!compiled_payload_hit) {
         const float x0 = frame->destination_rect.x;
@@ -4871,7 +5179,7 @@ progpu_native_status progpu_native_engine_render_image(
             vertex.color[0] = 1.0F;
             vertex.color[1] = 0.0F;
             vertex.color[2] = 1.0F;
-            vertex.color[3] = frame->opacity;
+            vertex.color[3] = frame->opacity * draw_state.opacity;
             vertex.texture_coordinate[0] = corners[index][0] == 0U ? u0 : u1;
             vertex.texture_coordinate[1] = corners[index][1] == 0U ? v0 : v1;
             vertex.brush_index = 0.0F;
@@ -4886,6 +5194,7 @@ progpu_native_status progpu_native_engine_render_image(
             engine->image_vertices.data(),
             sizeof(engine->image_vertices));
         engine->image_content_revision = frame->content_revision;
+        engine->image_draw_opacity = draw_state.opacity;
         engine->image_cache_valid = true;
         engine->image_gpu_cache_valid = false;
     }
@@ -4944,42 +5253,46 @@ progpu_native_status progpu_native_engine_render_image(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image render pass could not be created.");
     }
-    wgpuRenderPassEncoderSetPipeline(
-        pass,
-        has_mask ? engine->image_mask_pipeline : engine->image_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(
-        pass, 0U, engine->image_uniform_bind_group, 0U, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(
-        pass,
-        1U,
-        frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-            ? engine->image_nearest_bind_group
-            : engine->image_linear_bind_group,
-        0U,
-        nullptr);
-    if (has_mask) {
+    if (frame->opacity != 0.0F && draw_state.opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
+        wgpuRenderPassEncoderSetPipeline(
+            pass,
+            has_mask ? engine->image_mask_pipeline : engine->image_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, 0U, engine->image_uniform_bind_group, 0U, nullptr);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
-            2U,
-            frame->mask_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-                ? engine->image_mask_nearest_bind_group
-                : engine->image_mask_linear_bind_group,
+            1U,
+            frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                ? engine->image_nearest_bind_group
+                : engine->image_linear_bind_group,
             0U,
             nullptr);
+        if (has_mask) {
+            wgpuRenderPassEncoderSetBindGroup(
+                pass,
+                2U,
+                frame->mask_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                    ? engine->image_mask_nearest_bind_group
+                    : engine->image_mask_linear_bind_group,
+                0U,
+                nullptr);
+        }
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass,
+            0U,
+            engine->image_vertex_buffer,
+            0U,
+            sizeof(engine->image_vertices));
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass,
+            engine->image_index_buffer,
+            WGPUIndexFormat_Uint32,
+            0U,
+            6U * sizeof(std::uint32_t));
+        wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
     }
-    wgpuRenderPassEncoderSetVertexBuffer(
-        pass,
-        0U,
-        engine->image_vertex_buffer,
-        0U,
-        sizeof(engine->image_vertices));
-    wgpuRenderPassEncoderSetIndexBuffer(
-        pass,
-        engine->image_index_buffer,
-        WGPUIndexFormat_Uint32,
-        0U,
-        6U * sizeof(std::uint32_t));
-    wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
 
@@ -5013,7 +5326,10 @@ progpu_native_status progpu_native_engine_render_image(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_image_frame_metrics)) {
-        metrics->draw_call_count = 1U;
+        metrics->draw_call_count = frame->opacity == 0.0F ||
+            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            ? 0U
+            : 1U;
         metrics->vertex_count = 4U;
         metrics->index_count = 6U;
         metrics->texture_generation = engine->image_texture_generation;

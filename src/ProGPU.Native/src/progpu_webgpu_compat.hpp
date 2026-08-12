@@ -66,6 +66,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(RenderPassEncoderSetBindGroup) \
     X(RenderPassEncoderSetIndexBuffer) \
     X(RenderPassEncoderSetPipeline) \
+    X(RenderPassEncoderSetScissorRect) \
     X(RenderPassEncoderSetVertexBuffer) \
     X(RenderPipelineGetBindGroupLayout) \
     X(RenderPipelineRelease) \
@@ -399,6 +400,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetIndexBuffer)
 #define wgpuRenderPassEncoderSetPipeline \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetPipeline)
+#define wgpuRenderPassEncoderSetScissorRect \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetScissorRect)
 #define wgpuRenderPassEncoderSetVertexBuffer \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetVertexBuffer)
 #define wgpuRenderPipelineGetBindGroupLayout \

@@ -327,6 +327,70 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Common draw-state supplement
+
+The ABI-v3 append-only draw-state increment applies primitive opacity and one
+logical target clip across solid rectangles, analytic primitives, retained
+geometry, paths, positioned glyphs, uploaded images, same-device external
+images, and externally masked images. A legacy frame prefix still renders with
+opacity one and the full target. The WebScene/Dawn/Metal provider gate exercises
+an unknown flag rejection, an empty clip that clears/submits without a draw,
+and a `1.5` DPI logical clip converted to a physical scissor.
+
+All seven matched Release differentials pass. Paths and glyphs are byte-exact.
+The retained/external image lanes differ only on 528 one-pixel clip-perimeter
+pixels because the managed compiler clips the quad and recomputes boundary UVs,
+while native leaves interpolation unchanged and uses fixed-function scissoring;
+their mean absolute channel error remains at most `0.04473/255`. The 384-solid
+representative is byte-exact (`F2A587875EA36087`) and both asynchronous stable
+render paths allocate zero managed bytes per frame.
+
+Three paired 300-frame synchronized runs on the Apple M3 Pro/Metal device,
+after 60 warmups per run, produced these median p95 values:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| CPU encode/upload/submit p95 | 0.3028 ms | 0.4483 ms | -32.5% |
+| GPU-completion wait portion p95 | 3.0585 ms | 3.0507 ms | +0.3% |
+| End-to-end synchronized p95 | 3.1789 ms | 3.3112 ms | -4.0% |
+
+The completion portion is deliberately reported separately: both paths submit
+to the same queue and are effectively on par once queue/GPU scheduling
+dominates. Native retains the CPU submission advantage and a modest end-to-end
+p95 advantage without a pixel difference. Native measured zero managed bytes
+in the synchronized interval; managed measured 2,328 bytes per frame because
+the interval includes its current `PollDevice(wait: true)` completion-observer
+path. The asynchronous renderer-only suite is zero-allocation for both.
+
+State-only opacity mutation is actively gated. Under an unchanged content
+revision, geometry/path update only packed brush bytes, glyphs update only
+instance alpha from retained source alpha, and images update four vertices.
+The test rejects any geometry/index rebuild, path/glyph rerasterization,
+coverage staging, outline upload, or source-texture upload; the following
+unchanged replay must report zero payload upload and zero managed allocation.
+
+Final-binary Time Profiler, Metal System Trace, and Allocations/VM Tracker
+captures all completed for the same draw-state workload. The Metal trace
+contains `ProGPU native solid rectangle pass`, `ProGPU native frame encoder`,
+and managed `Offscreen Compositor Encoder` labels, reports zero command-buffer
+errors, and reaches 13,254,656 bytes (12.64 MiB) peak combined-process Metal
+`currentAllocatedSize`. That shared-process residency is not attributable to
+one renderer. The Allocations/VM Tracker capture is valid and retains its UI
+tracks, but this Instruments version exposes no allocation-table export schema;
+therefore no native-heap delta is claimed from it.
+
+Retained ignored evidence:
+
+- `draw-state-sync-{1,2,3}.json` and per-family `draw-state-*.json` under
+  `artifacts/progpu-native/benchmarks/`;
+- matched Time Profiler, Metal System Trace, and Allocations/VM Tracker bundles
+  plus exported TOCs and Metal tables under
+  `artifacts/progpu-native/traces/draw-state-20260812/`;
+- `progpu-native-webscene-draw-state.png` under
+  `artifacts/progpu-native/sample/`;
+- native, managed, and amplified texture-boundary differential images under
+  `artifacts/progpu-native/differential/`.
+
 ## Retained RGBA-image GPU-complete supplement
 
 The third Tranche B increment uploads one deterministic 192-by-128

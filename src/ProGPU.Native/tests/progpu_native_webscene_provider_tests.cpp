@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -246,10 +247,13 @@ void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
         return bytes + y * row_bytes + x * 4U;
     };
     const std::uint8_t* outside = pixel(2U, 2U);
+    const std::uint8_t* clipped = pixel(12U, 20U);
     const std::uint8_t* inside = pixel(20U, 20U);
     std::fprintf(stderr,
-        "IOSurface outside=%u,%u,%u,%u inside=%u,%u,%u,%u row=%zu\n",
+        "IOSurface outside=%u,%u,%u,%u clipped=%u,%u,%u,%u "
+        "inside=%u,%u,%u,%u row=%zu\n",
         outside[0], outside[1], outside[2], outside[3],
+        clipped[0], clipped[1], clipped[2], clipped[3],
         inside[0], inside[1], inside[2], inside[3], row_bytes);
 
     if (output_path != nullptr && output_path[0] != '\0') {
@@ -271,9 +275,12 @@ void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
 
     require(outside[2] < 80U && outside[0] > outside[2],
         "clear-color pixel did not reach the IOSurface");
-    require(inside[2] > 180U && inside[2] > inside[1] * 2U &&
+    require(std::memcmp(outside, clipped, 4U) == 0,
+        "physical draw-state scissor did not preserve the clear color");
+    require(inside[2] > 100U && inside[2] < 160U &&
+        inside[2] > inside[1] * 2U &&
         inside[2] > inside[0] * 2U,
-        "native rectangle pixel did not reach the IOSurface");
+        "native primitive opacity did not reach the IOSurface");
     require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
         kIOReturnSuccess, "could not unlock IOSurface");
 }
@@ -354,24 +361,45 @@ int main(int argc, char** argv) {
     require(view != nullptr, "target view creation failed");
 
     const progpu_native_rect rectangle{
-        8.0F, 8.0F, 32.0F, 24.0F,
+        4.0F, 4.0F, 32.0F, 24.0F,
         {0.92F, 0.18F, 0.08F, 1.0F}
     };
-    const progpu_native_frame frame{
+    progpu_native_draw_state draw_state{};
+    draw_state.struct_size = sizeof(draw_state);
+    draw_state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
+    draw_state.opacity = 0.5F;
+    draw_state.clip_rect = {10.25F, 8.25F, 10.5F, 10.5F};
+    progpu_native_frame frame{
         sizeof(progpu_native_frame),
         64U,
         48U,
-        1.0F,
+        1.5F,
         reinterpret_cast<std::uintptr_t>(view),
         {0.05F, 0.10F, 0.22F, 1.0F},
         &rectangle,
-        1U
+        1U,
+        &draw_state
     };
     progpu_native_frame_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
+    draw_state.flags = 1U << 31U;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "unknown draw-state feature did not fail closed");
+    draw_state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
+    draw_state.clip_rect = {10.0F, 8.0F, 0.0F, 10.0F};
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "empty draw-state clip did not skip the draw");
+    draw_state.clip_rect = {10.25F, 8.25F, 10.5F, 10.5F};
+    frame.struct_size = offsetof(progpu_native_frame, draw_state);
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
-        "ProGPU render failed");
+        "legacy ABI v3 frame prefix failed");
+    frame.struct_size = sizeof(frame);
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
+        "ProGPU clipped-opacity render failed");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,

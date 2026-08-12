@@ -45,13 +45,13 @@ static_assert(sizeof(progpu_native_path_segment) == 48U);
 static_assert(sizeof(progpu_native_path_fill) ==
     (sizeof(std::size_t) == 8U ? 80U : 72U));
 static_assert(sizeof(progpu_native_geometry_frame) ==
-    (sizeof(std::size_t) == 8U ? 144U : 92U));
+    (sizeof(std::size_t) == 8U ? 152U : 96U));
 static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
     (sizeof(std::size_t) == 8U ? 60U : 48U));
 static_assert(sizeof(progpu_native_path_frame) ==
-    (sizeof(std::size_t) == 8U ? 80U : 60U));
+    (sizeof(std::size_t) == 8U ? 88U : 64U));
 static_assert(sizeof(progpu_native_image_frame) ==
-    (sizeof(std::size_t) == 8U ? 200U : 180U));
+    (sizeof(std::size_t) == 8U ? 208U : 184U));
 static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
 
 inline bool is_finite(const progpu_native_color& color) noexcept {

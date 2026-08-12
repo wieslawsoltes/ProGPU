@@ -133,9 +133,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         GpuTexture target,
         float dpiScale,
         ReadOnlySpan<NativeSolidRectangle> rectangles,
-        Vector4 clearColor)
+        Vector4 clearColor,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (NativeSolidRectangle* rectanglePointer = rectangles)
         {
@@ -154,7 +156,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     A = clearColor.W
                 },
                 Rectangles = rectanglePointer,
-                RectangleCount = (nuint)rectangles.Length
+                RectangleCount = (nuint)rectangles.Length,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.FrameMetrics
             {
@@ -186,9 +189,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         GpuTexture target,
         float dpiScale,
         ReadOnlySpan<NativeAnalyticPrimitive> primitives,
-        Vector4 clearColor)
+        Vector4 clearColor,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (NativeAnalyticPrimitive* primitivePointer = primitives)
         {
@@ -207,7 +212,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     A = clearColor.W
                 },
                 Primitives = primitivePointer,
-                PrimitiveCount = (nuint)primitives.Length
+                PrimitiveCount = (nuint)primitives.Length,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.AnalyticFrameMetrics
             {
@@ -246,7 +252,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativeGeometryPrimitive> primitives,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         return RenderGeometry(
             target,
@@ -259,7 +266,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             ReadOnlySpan<NativeSpline>.Empty,
             clearColor,
             capturePayloadHash,
-            contentRevision);
+            contentRevision,
+            drawState);
     }
 
     public NativeGeometryFrameMetrics RenderGeometry(
@@ -270,7 +278,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativePolyline> polylines,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         return RenderGeometry(
             target,
@@ -283,7 +292,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             ReadOnlySpan<NativeSpline>.Empty,
             clearColor,
             capturePayloadHash,
-            contentRevision);
+            contentRevision,
+            drawState);
     }
 
     public NativeGeometryFrameMetrics RenderGeometry(
@@ -296,7 +306,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativeSpline> splines,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         return RenderGeometry(
             target,
@@ -309,7 +320,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             splines,
             clearColor,
             capturePayloadHash,
-            contentRevision);
+            contentRevision,
+            drawState);
     }
 
     public NativeGeometryFrameMetrics RenderGeometry(
@@ -323,9 +335,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativeSpline> splines,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
         fixed (Vector2* pointPointer = points)
@@ -366,7 +380,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                 DashStyles = dashStylePointer,
                 DashStyleCount = (nuint)dashStyles.Length,
                 Splines = splinePointer,
-                SplineCount = (nuint)splines.Length
+                SplineCount = (nuint)splines.Length,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.GeometryFrameMetrics
             {
@@ -408,9 +423,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativePathSegment> segments,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (NativePathFill* pathPointer = paths)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -439,7 +456,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     (contentRevision != 0U
                         ? NativeMethods.GeometryFrameRetainCompiledPayload
                         : 0U),
-                ContentRevision = contentRevision
+                ContentRevision = contentRevision,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.PathFrameMetrics
             {
@@ -485,9 +503,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativePositionedGlyph> glyphs,
         Vector4 clearColor,
         bool capturePayloadHash = false,
-        uint contentRevision = 0)
+        uint contentRevision = 0,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (NativeGlyphOutline* outlinePointer = outlines)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -519,7 +539,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     (contentRevision != 0U
                         ? NativeMethods.GeometryFrameRetainCompiledPayload
                         : 0U),
-                ContentRevision = contentRevision
+                ContentRevision = contentRevision,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.GlyphFrameMetrics
             {
@@ -572,9 +593,11 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeImageSampling sampling,
         Vector4 clearColor,
         uint imageRevision,
-        uint contentRevision)
+        uint contentRevision,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
+        var nativeDrawState = CreateDrawState(drawState);
 
         fixed (byte* pixelPointer = rgbaPixels)
         {
@@ -607,7 +630,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                 Reserved = 0U,
                 ExternalSourceView = 0U,
                 SourceFlags = 0U,
-                Reserved2 = 0U
+                Reserved2 = 0U,
+                DrawState = &nativeDrawState
             };
             var metrics = new NativeMethods.ImageFrameMetrics
             {
@@ -666,10 +690,12 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeImageSampling sampling,
         Vector4 clearColor,
         uint sourceRevision,
-        uint contentRevision)
+        uint contentRevision,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
         ValidateImageSource(source, target);
+        var nativeDrawState = CreateDrawState(drawState);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -705,7 +731,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             MaskHeight = 0U,
             MaskDestinationRect = default,
             MaskRevision = 0U,
-            MaskSampling = NativeImageSampling.Nearest
+            MaskSampling = NativeImageSampling.Nearest,
+            DrawState = &nativeDrawState
         };
         var metrics = new NativeMethods.ImageFrameMetrics
         {
@@ -762,11 +789,13 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         uint sourceRevision,
         uint maskRevision,
-        uint contentRevision)
+        uint contentRevision,
+        NativeDrawState drawState = default)
     {
         ValidateTarget(target);
         ValidateImageSource(source, target);
         ValidateImageMask(mask, target);
+        var nativeDrawState = CreateDrawState(drawState);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -797,7 +826,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             MaskHeight = mask.Height,
             MaskDestinationRect = maskDestinationRect,
             MaskRevision = maskRevision,
-            MaskSampling = maskSampling
+            MaskSampling = maskSampling,
+            DrawState = &nativeDrawState
         };
         var metrics = new NativeMethods.ImageFrameMetrics
         {
@@ -1029,6 +1059,16 @@ public sealed unsafe class NativeCompositor : IDisposable
             TextureFormat.Bgra8UnormSrgb => NativeRendererTextureFormat.Bgra8UnormSrgb,
             _ => throw new NotSupportedException(
                 $"The initial native renderer does not support {format} targets.")
+        };
+
+    private static NativeMethods.DrawState CreateDrawState(
+        NativeDrawState state) => new()
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.DrawState>(),
+            Flags = (uint)state.Flags,
+            Opacity = state.EffectiveOpacity,
+            Reserved = 0U,
+            ClipRect = state.ClipRect
         };
 }
 

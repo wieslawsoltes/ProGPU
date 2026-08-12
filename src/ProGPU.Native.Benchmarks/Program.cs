@@ -139,6 +139,12 @@ bool writeImages = Array.Exists(
         value,
         "--write-images",
         StringComparison.OrdinalIgnoreCase));
+bool useDrawState = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--draw-state",
+        StringComparison.OrdinalIgnoreCase));
 int analyticKind = ReadArgument("--analytic-kind", -1);
 int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
@@ -227,6 +233,16 @@ TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
             logicalHeight)
         : ([], [], [], [], []);
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
+NativeImageRect drawClip = new(
+    logicalWidth * 0.2f,
+    logicalHeight * 0.15f,
+    logicalWidth * 0.55f,
+    logicalHeight * 0.65f);
+NativeDrawState nativeDrawState = useDrawState
+    ? new NativeDrawState(
+        0.625f,
+        drawClip)
+    : default;
 uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
 int managedVertexCount = 0;
@@ -242,6 +258,7 @@ uint nativeAtlasGeneration = 0;
 uint nativeAtlasGrowthCount = 0;
 NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
 NativePathFrameMetrics lastNativePathMetrics = default;
+NativeGeometryFrameMetrics lastNativeGeometryMetrics = default;
 NativeImageFrameMetrics lastNativeImageMetrics = default;
 const uint benchmarkImageWidth = 192U;
 const uint benchmarkImageHeight = 128U;
@@ -333,6 +350,32 @@ DrawingVisual managedVisual = useImageScene
         logicalWidth,
         logicalHeight)
         : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
+if (useDrawState)
+{
+    var clip = new Rect(
+        drawClip.X,
+        drawClip.Y,
+        drawClip.Width,
+        drawClip.Height);
+    managedVisual.Context.Commands.Insert(0, new RenderCommand
+    {
+        Type = RenderCommandType.PushClip,
+        Rect = clip
+    });
+    managedVisual.Context.Commands.Insert(1, new RenderCommand
+    {
+        Type = RenderCommandType.PushOpacity,
+        FontSize = 0.625f
+    });
+    managedVisual.Context.Commands.Add(new RenderCommand
+    {
+        Type = RenderCommandType.PopOpacity
+    });
+    managedVisual.Context.Commands.Add(new RenderCommand
+    {
+        Type = RenderCommandType.PopClip
+    });
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -384,8 +427,86 @@ uint coldAtlasGeneration = useGlyphScene
 RenderManaged();
 context.PollDevice(wait: true);
 
+// Prove that a state-only opacity mutation reuses retained geometry, atlas,
+// shaping, and image resources under the same content revision.
+if (useDrawState &&
+    (useGeometryScene || usePathScene || useGlyphScene || useImageScene))
+{
+    NativeDrawState originalDrawState = nativeDrawState;
+    nativeDrawState = new NativeDrawState(
+        0.5f,
+        drawClip);
+    RenderNative();
+    if (useGeometryScene &&
+        (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
+         lastNativeGeometryMetrics.IndexUploadBytes != 0UL ||
+         lastNativeGeometryMetrics.BrushUploadBytes == 0UL))
+    {
+        throw new InvalidOperationException(
+            "State-only geometry opacity rebuilt geometry instead of updating brushes.");
+    }
+    if (usePathScene &&
+        (lastNativePathMetrics.RasterizedPathCount != 0U ||
+         lastNativePathMetrics.PathUploadBytes != 0UL ||
+         lastNativePathMetrics.VertexUploadBytes != 0UL ||
+         lastNativePathMetrics.IndexUploadBytes != 0UL ||
+         lastNativePathMetrics.BrushUploadBytes == 0UL ||
+         lastNativePathMetrics.CoverageStagingBytes != 0UL))
+    {
+        throw new InvalidOperationException(
+            "State-only path opacity rerasterized or rebuilt retained paths.");
+    }
+    if (useGlyphScene &&
+        (lastNativeGlyphMetrics.RasterizedGlyphCount != 0U ||
+         lastNativeGlyphMetrics.OutlineUploadBytes != 0UL ||
+         lastNativeGlyphMetrics.InstanceUploadBytes == 0UL ||
+         lastNativeGlyphMetrics.CoverageStagingBytes != 0UL))
+    {
+        throw new InvalidOperationException(
+            "State-only glyph opacity rerasterized outlines instead of updating instances.");
+    }
+    if (useImageScene &&
+        (lastNativeImageMetrics.TextureUploadBytes != 0UL ||
+         lastNativeImageMetrics.VertexUploadBytes == 0UL ||
+         lastNativeImageMetrics.IndexUploadBytes != 0UL))
+    {
+        throw new InvalidOperationException(
+            "State-only image opacity reuploaded retained texture resources.");
+    }
+    nativeDrawState = originalDrawState;
+    RenderNative();
+}
+
 // Compare a second fully warmed submission, not the pipeline's first draw.
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
+if (useDrawState && useGeometryScene &&
+    (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
+     lastNativeGeometryMetrics.IndexUploadBytes != 0UL ||
+     lastNativeGeometryMetrics.BrushUploadBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native geometry draw state uploaded retained payload.");
+}
+if (useDrawState && usePathScene &&
+    (lastNativePathMetrics.RasterizedPathCount != 0U ||
+     lastNativePathMetrics.PathUploadBytes != 0UL ||
+     lastNativePathMetrics.VertexUploadBytes != 0UL ||
+     lastNativePathMetrics.IndexUploadBytes != 0UL ||
+     lastNativePathMetrics.BrushUploadBytes != 0UL ||
+     lastNativePathMetrics.CoverageStagingBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native path draw state uploaded retained payload.");
+}
+if (useDrawState && useGlyphScene &&
+    (lastNativeGlyphMetrics.RasterizedGlyphCount != 0U ||
+     lastNativeGlyphMetrics.OutlineUploadBytes != 0UL ||
+     lastNativeGlyphMetrics.InstanceUploadBytes != 0UL ||
+     lastNativeGlyphMetrics.CoverageStagingBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native glyph draw state uploaded retained payload.");
+}
 if (forceAtlasGrowth && useGlyphScene &&
     (lastNativeGlyphMetrics.AtlasGeneration != coldAtlasGeneration ||
      lastNativeGlyphMetrics.RasterizedGlyphCount != 0U ||
@@ -475,19 +596,29 @@ bool usesTightDifferential =
 // while the native zero-copy route samples the borrowed texture directly.
 // Linear filtering can therefore differ by one final channel value after the
 // managed intermediate quantization, but must not change any pixel by more.
-int maximumAllowedDifference = useMaskedImageScene
+bool usesDrawStateClipImage = useDrawState && useImageScene;
+int maximumAllowedDifference = usesDrawStateClipImage
+    ? 128
+    : useMaskedImageScene
     ? 1
     : requiresExactPixels ? 0
     : usesGeometryDifferential ? 204 : usesTightDifferential ? 3 : 96;
 int maximumAllowedPixelsOverTolerance =
-    usesGeometryDifferential
+    usesDrawStateClipImage
+        ? 2048
+        : usesGeometryDifferential
         ? useSplineGeometryScene || useDashedGeometryScene
             ? Math.Max(1, rectangleCount / 32)
             : 1
         : requiresExactPixels || usesTightDifferential
         ? 0
         : comparison.PixelCount / 40;
-double maximumAllowedMeanAbsoluteDifference = useMaskedImageScene
+double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
+    // The managed comparator clips the texture quad and recomputes boundary
+    // UVs; native uses the fixed-function scissor and leaves interpolation
+    // untouched. Differences are restricted to the one-pixel clip perimeter.
+    ? 0.05
+    : useMaskedImageScene
     ? 0.05
     : requiresExactPixels ? 0.0
     // The independently expanded paths can differ by one byte on shared AA
@@ -668,7 +799,9 @@ var report = new BenchmarkReport(
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
-    DifferentialContract: useMaskedImageScene
+    DifferentialContract: usesDrawStateClipImage
+        ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
+        : useMaskedImageScene
         ? "Near-exact; direct mask sampling versus quantized managed R8 intermediate"
         : requiresExactPixels
         ? "Exact"
@@ -683,6 +816,7 @@ var report = new BenchmarkReport(
     MeasuredIterations: iterationCount,
     SynchronizeEachFrame: synchronizeEachFrame,
     DrainEachPair: drainEachPair,
+    DrawState: useDrawState,
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -751,7 +885,8 @@ ulong RenderNative(bool capturePayloadHash = false)
                 clearColor,
                 sourceRevision: 1U,
                 maskRevision: 1U,
-                contentRevision: 1U)
+                contentRevision: 1U,
+                drawState: nativeDrawState)
             : useExternalImageScene
             ? native.RenderExternalImage(
                 nativeTarget,
@@ -764,7 +899,8 @@ ulong RenderNative(bool capturePayloadHash = false)
                 NativeImageSampling.Nearest,
                 clearColor,
                 sourceRevision: 1U,
-                contentRevision: 1U)
+                contentRevision: 1U,
+                drawState: nativeDrawState)
             : native.RenderImage(
                 nativeTarget,
                 dpiScale,
@@ -779,7 +915,8 @@ ulong RenderNative(bool capturePayloadHash = false)
                 NativeImageSampling.Nearest,
                 clearColor,
                 imageRevision: 1U,
-                contentRevision: 1U);
+                contentRevision: 1U,
+                drawState: nativeDrawState);
         nativeImageUploaded = true;
         lastNativeImageMetrics = metrics;
         nativeVertexCount = metrics.VertexCount;
@@ -802,7 +939,8 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativeGlyphs,
             clearColor,
             capturePayloadHash,
-            contentRevision: 1U);
+            contentRevision: 1U,
+            drawState: nativeDrawState);
         lastNativeGlyphMetrics = metrics;
         nativeRasterizedGlyphCount = Math.Max(
             nativeRasterizedGlyphCount,
@@ -834,7 +972,8 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativePathSegments,
             clearColor,
             capturePayloadHash,
-            contentRevision: 1U);
+            contentRevision: 1U,
+            drawState: nativeDrawState);
         lastNativePathMetrics = metrics;
         nativeVertexCount = metrics.VertexCount;
         nativeIndexCount = metrics.IndexCount;
@@ -866,7 +1005,8 @@ ulong RenderNative(bool capturePayloadHash = false)
                 geometrySplines,
                 clearColor,
                 capturePayloadHash,
-                contentRevision: 1U)
+                contentRevision: 1U,
+                drawState: nativeDrawState)
             : useDashedGeometryScene
             ? native.RenderGeometry(
                 nativeTarget,
@@ -879,7 +1019,8 @@ ulong RenderNative(bool capturePayloadHash = false)
                 geometrySplines,
                 clearColor,
                 capturePayloadHash,
-                contentRevision: 1U)
+                contentRevision: 1U,
+                drawState: nativeDrawState)
             : usePolylineGeometryScene
             ? native.RenderGeometry(
                 nativeTarget,
@@ -889,16 +1030,19 @@ ulong RenderNative(bool capturePayloadHash = false)
                 geometryPolylines,
                 clearColor,
                 capturePayloadHash,
-                contentRevision: 1U)
+                contentRevision: 1U,
+                drawState: nativeDrawState)
             : native.RenderGeometry(
                 nativeTarget,
                 dpiScale,
                 geometryPrimitives,
                 clearColor,
                 capturePayloadHash,
-                contentRevision: 1U);
+                contentRevision: 1U,
+                drawState: nativeDrawState);
         nativeVertexCount = metrics.VertexCount;
         nativeIndexCount = metrics.IndexCount;
+        lastNativeGeometryMetrics = metrics;
         return metrics.PayloadHash;
     }
     if (useAnalyticScene)
@@ -907,7 +1051,8 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativeTarget,
             dpiScale,
             analyticPrimitives,
-            clearColor);
+            clearColor,
+            nativeDrawState);
     }
     else
     {
@@ -915,7 +1060,8 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativeTarget,
             dpiScale,
             rectangles,
-            clearColor);
+            clearColor,
+            nativeDrawState);
     }
     return 0UL;
 }
@@ -2370,6 +2516,7 @@ internal sealed record BenchmarkReport(
     int MeasuredIterations,
     bool SynchronizeEachFrame,
     bool DrainEachPair,
+    bool DrawState,
     bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,
