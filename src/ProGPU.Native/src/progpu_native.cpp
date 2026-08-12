@@ -45,6 +45,17 @@ struct gpu_uniforms {
 
 static_assert(sizeof(gpu_uniforms) == 224U);
 
+struct gpu_mask_sampling_uniforms {
+    float coordinate0[4];
+    float coordinate1[4];
+    float bounds[4];
+    float corner_radii_x[4];
+    float corner_radii_y[4];
+    float options[4];
+};
+
+static_assert(sizeof(gpu_mask_sampling_uniforms) == 96U);
+
 struct gpu_path_uniforms {
     float x_start;
     float y_start;
@@ -369,8 +380,10 @@ struct progpu_native_engine {
     bool glyph_gpu_cache_valid = false;
     WGPUShaderModule image_shader = nullptr;
     WGPURenderPipeline image_pipeline = nullptr;
+    WGPURenderPipeline image_mask_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
+    WGPUBindGroupLayout image_mask_layout = nullptr;
     WGPUBuffer image_uniform_buffer = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
     WGPUSampler image_nearest_sampler = nullptr;
@@ -379,6 +392,10 @@ struct progpu_native_engine {
     WGPUTextureView image_texture_view = nullptr;
     WGPUBindGroup image_nearest_bind_group = nullptr;
     WGPUBindGroup image_linear_bind_group = nullptr;
+    WGPUTextureView image_mask_view = nullptr;
+    WGPUBuffer image_mask_uniform_buffer = nullptr;
+    WGPUBindGroup image_mask_nearest_bind_group = nullptr;
+    WGPUBindGroup image_mask_linear_bind_group = nullptr;
     WGPUBuffer image_vertex_buffer = nullptr;
     WGPUBuffer image_index_buffer = nullptr;
     std::array<progpu::native::vector_vertex, 4U> image_vertices{};
@@ -388,6 +405,11 @@ struct progpu_native_engine {
     std::uint32_t image_width = 0U;
     std::uint32_t image_height = 0U;
     std::uint32_t image_texture_generation = 0U;
+    std::uint32_t image_mask_revision = 0U;
+    std::uint32_t image_mask_width = 0U;
+    std::uint32_t image_mask_height = 0U;
+    gpu_mask_sampling_uniforms cached_image_mask_uniforms{};
+    bool image_mask_uniform_cache_valid = false;
     bool image_source_is_external = false;
     std::uint64_t image_payload_hash = 0U;
     bool image_uniform_cache_valid = false;
@@ -417,6 +439,25 @@ struct progpu_native_engine {
     }
 
     ~progpu_native_engine() {
+        if (image_mask_linear_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_mask_linear_bind_group);
+        }
+        if (image_mask_nearest_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_mask_nearest_bind_group);
+        }
+        if (image_mask_view != nullptr) {
+            wgpuTextureViewRelease(image_mask_view);
+        }
+        if (image_mask_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(image_mask_uniform_buffer);
+            wgpuBufferRelease(image_mask_uniform_buffer);
+        }
+        if (image_mask_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_mask_layout);
+        }
+        if (image_mask_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_mask_pipeline);
+        }
         if (image_index_buffer != nullptr) {
             wgpuBufferDestroy(image_index_buffer);
             wgpuBufferRelease(image_index_buffer);
@@ -1632,6 +1673,58 @@ bool create_image_resources(progpu_native_engine& engine) {
         return false;
     }
 
+    WGPUBindGroupLayoutEntry uniform_layout_entry{};
+    uniform_layout_entry.binding = 0U;
+    uniform_layout_entry.visibility = WGPUShaderStage_Vertex |
+        WGPUShaderStage_Fragment;
+    uniform_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
+    uniform_layout_entry.buffer.minBindingSize = sizeof(gpu_uniforms);
+    WGPUBindGroupLayoutDescriptor uniform_layout_descriptor{};
+    uniform_layout_descriptor.label = "ProGPU native image uniform layout";
+    uniform_layout_descriptor.entryCount = 1U;
+    uniform_layout_descriptor.entries = &uniform_layout_entry;
+    engine.image_uniform_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &uniform_layout_descriptor);
+
+    std::array<WGPUBindGroupLayoutEntry, 2U> texture_layout_entries{};
+    texture_layout_entries[0].binding = 0U;
+    texture_layout_entries[0].visibility = WGPUShaderStage_Fragment;
+    texture_layout_entries[0].sampler.type = WGPUSamplerBindingType_Filtering;
+    texture_layout_entries[1].binding = 1U;
+    texture_layout_entries[1].visibility = WGPUShaderStage_Fragment;
+    texture_layout_entries[1].texture.sampleType =
+        WGPUTextureSampleType_Float;
+    texture_layout_entries[1].texture.viewDimension =
+        WGPUTextureViewDimension_2D;
+    texture_layout_entries[1].texture.multisampled = false;
+    WGPUBindGroupLayoutDescriptor texture_layout_descriptor{};
+    texture_layout_descriptor.label = "ProGPU native image texture layout";
+    texture_layout_descriptor.entryCount = texture_layout_entries.size();
+    texture_layout_descriptor.entries = texture_layout_entries.data();
+    engine.image_texture_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &texture_layout_descriptor);
+    if (engine.image_uniform_layout == nullptr ||
+        engine.image_texture_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUBindGroupLayout, 2U> pipeline_layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout
+    }};
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = "ProGPU native unmasked image layout";
+    pipeline_layout_descriptor.bindGroupLayoutCount = pipeline_layouts.size();
+    pipeline_layout_descriptor.bindGroupLayouts = pipeline_layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+
     const std::array<WGPUVertexAttribute, 7U> attributes{{
         {WGPUVertexFormat_Float32x2, 0U, 0U},
         {WGPUVertexFormat_Float32x4, 8U, 1U},
@@ -1669,6 +1762,7 @@ bool create_image_resources(progpu_native_engine& engine) {
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
     pipeline_descriptor.label = "ProGPU native retained image pipeline";
+    pipeline_descriptor.layout = pipeline_layout;
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
@@ -1679,17 +1773,8 @@ bool create_image_resources(progpu_native_engine& engine) {
     engine.image_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
     if (engine.image_pipeline == nullptr) {
-        return false;
-    }
-    engine.image_uniform_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.image_pipeline,
-        0U);
-    engine.image_texture_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.image_pipeline,
-        1U);
-    if (engine.image_uniform_layout == nullptr ||
-        engine.image_texture_layout == nullptr) {
         return false;
     }
 
@@ -1767,6 +1852,211 @@ bool create_image_resources(progpu_native_engine& engine) {
         0U,
         indices.data(),
         sizeof(indices));
+    return true;
+}
+
+WGPUBindGroup create_image_mask_bind_group(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    WGPUTextureView view,
+    const char* label) {
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view},
+        {nullptr, 2U, engine.image_mask_uniform_buffer, 0U,
+            sizeof(gpu_mask_sampling_uniforms), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = label;
+    descriptor.layout = engine.image_mask_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+bool create_image_mask_resources(progpu_native_engine& engine) {
+    if (engine.image_mask_pipeline != nullptr) {
+        return true;
+    }
+    if (engine.image_pipeline == nullptr || engine.image_shader == nullptr ||
+        engine.image_uniform_layout == nullptr ||
+        engine.image_texture_layout == nullptr ||
+        engine.image_mask_layout != nullptr ||
+        engine.image_mask_uniform_buffer != nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 3U> mask_entries{};
+    mask_entries[0].binding = 0U;
+    mask_entries[0].visibility = WGPUShaderStage_Fragment;
+    mask_entries[0].sampler.type = WGPUSamplerBindingType_Filtering;
+    mask_entries[1].binding = 1U;
+    mask_entries[1].visibility = WGPUShaderStage_Fragment;
+    mask_entries[1].texture.sampleType = WGPUTextureSampleType_Float;
+    mask_entries[1].texture.viewDimension = WGPUTextureViewDimension_2D;
+    mask_entries[1].texture.multisampled = false;
+    mask_entries[2].binding = 2U;
+    mask_entries[2].visibility = WGPUShaderStage_Fragment;
+    mask_entries[2].buffer.type = WGPUBufferBindingType_Uniform;
+    mask_entries[2].buffer.minBindingSize = sizeof(gpu_mask_sampling_uniforms);
+    WGPUBindGroupLayoutDescriptor mask_layout_descriptor{};
+    mask_layout_descriptor.label = "ProGPU native image mask layout";
+    mask_layout_descriptor.entryCount = mask_entries.size();
+    mask_layout_descriptor.entries = mask_entries.data();
+    engine.image_mask_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &mask_layout_descriptor);
+    if (engine.image_mask_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUBindGroupLayout, 3U> layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout,
+        engine.image_mask_layout
+    }};
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = "ProGPU native masked image layout";
+    pipeline_layout_descriptor.bindGroupLayoutCount = layouts.size();
+    pipeline_layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 7U> attributes{{
+        {WGPUVertexFormat_Float32x2, 0U, 0U},
+        {WGPUVertexFormat_Float32x4, 8U, 1U},
+        {WGPUVertexFormat_Float32x2, 24U, 2U},
+        {WGPUVertexFormat_Float32, 32U, 3U},
+        {WGPUVertexFormat_Float32x2, 36U, 4U},
+        {WGPUVertexFormat_Float32, 44U, 5U},
+        {WGPUVertexFormat_Float32, 48U, 6U}
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.image_shader;
+    vertex_state.entryPoint = "vs_main";
+    vertex_state.bufferCount = 1U;
+    vertex_state.buffers = &vertex_layout;
+    WGPUBlendState blend{};
+    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = &blend;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.image_shader;
+    fragment.entryPoint = "fs_main";
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = "ProGPU native retained masked image pipeline";
+    pipeline_descriptor.layout = pipeline_layout;
+    pipeline_descriptor.vertex = vertex_state;
+    pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
+    pipeline_descriptor.multisample.count = 1U;
+    pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
+    pipeline_descriptor.fragment = &fragment;
+    engine.image_mask_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.image_mask_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.label = "ProGPU native image mask sampling uniforms";
+    buffer_descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    buffer_descriptor.size = sizeof(gpu_mask_sampling_uniforms);
+    engine.image_mask_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &buffer_descriptor);
+    return engine.image_mask_uniform_buffer != nullptr;
+}
+
+bool update_image_mask(
+    progpu_native_engine& engine,
+    const progpu_native_image_frame& frame,
+    bool& uploaded_uniforms) {
+    WGPUTextureView view = reinterpret_cast<WGPUTextureView>(
+        frame.external_mask_view);
+    const bool replace = engine.image_mask_view == nullptr ||
+        engine.image_mask_view != view ||
+        engine.image_mask_width != frame.mask_width ||
+        engine.image_mask_height != frame.mask_height;
+    if (replace) {
+        wgpuTextureViewReference(view);
+        WGPUBindGroup nearest = create_image_mask_bind_group(
+            engine,
+            engine.image_nearest_sampler,
+            view,
+            "ProGPU native nearest image mask bind group");
+        WGPUBindGroup linear = create_image_mask_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            view,
+            "ProGPU native linear image mask bind group");
+        if (nearest == nullptr || linear == nullptr) {
+            if (linear != nullptr) wgpuBindGroupRelease(linear);
+            if (nearest != nullptr) wgpuBindGroupRelease(nearest);
+            wgpuTextureViewRelease(view);
+            return false;
+        }
+        if (engine.image_mask_linear_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.image_mask_linear_bind_group);
+        }
+        if (engine.image_mask_nearest_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.image_mask_nearest_bind_group);
+        }
+        if (engine.image_mask_view != nullptr) {
+            wgpuTextureViewRelease(engine.image_mask_view);
+        }
+        engine.image_mask_view = view;
+        engine.image_mask_nearest_bind_group = nearest;
+        engine.image_mask_linear_bind_group = linear;
+        engine.image_mask_width = frame.mask_width;
+        engine.image_mask_height = frame.mask_height;
+    }
+
+    gpu_mask_sampling_uniforms uniforms{};
+    uniforms.coordinate0[0] = frame.mask_destination_rect.x * frame.dpi_scale;
+    uniforms.coordinate0[1] = frame.mask_destination_rect.y * frame.dpi_scale;
+    uniforms.coordinate1[0] = 1.0F /
+        (frame.mask_destination_rect.width * frame.dpi_scale);
+    uniforms.coordinate1[1] = 1.0F /
+        (frame.mask_destination_rect.height * frame.dpi_scale);
+    uniforms.options[0] = 1.0F;
+    if (!engine.image_mask_uniform_cache_valid ||
+        std::memcmp(
+            &engine.cached_image_mask_uniforms,
+            &uniforms,
+            sizeof(uniforms)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.image_mask_uniform_buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        engine.cached_image_mask_uniforms = uniforms;
+        engine.image_mask_uniform_cache_valid = true;
+        uploaded_uniforms = true;
+    }
+    engine.image_mask_revision = frame.mask_revision;
     return true;
 }
 
@@ -1999,7 +2289,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS |
         PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES |
         PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE |
-        PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW;
+        PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
+        PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -4289,6 +4580,15 @@ progpu_native_status progpu_native_engine_render_image(
             std::isfinite(rect.width) && std::isfinite(rect.height) &&
             rect.width > 0.0F && rect.height > 0.0F;
     };
+    const bool has_mask = frame != nullptr &&
+        frame->external_mask_view != 0U;
+    const bool empty_mask_descriptor = frame != nullptr &&
+        frame->mask_width == 0U && frame->mask_height == 0U &&
+        frame->mask_revision == 0U && frame->mask_sampling == 0U &&
+        frame->mask_destination_rect.x == 0.0F &&
+        frame->mask_destination_rect.y == 0.0F &&
+        frame->mask_destination_rect.width == 0.0F &&
+        frame->mask_destination_rect.height == 0.0F;
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_image_frame) ||
         frame->width == 0U || frame->height == 0U ||
@@ -4306,6 +4606,13 @@ progpu_native_status progpu_native_engine_render_image(
             (frame->external_source_view == 0U ||
              frame->rgba_pixels != nullptr || frame->pixel_bytes != 0U)) ||
         frame->sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        (has_mask &&
+            (frame->mask_width == 0U || frame->mask_height == 0U ||
+             frame->mask_width > 16384U || frame->mask_height > 16384U ||
+             frame->mask_revision == 0U ||
+             frame->mask_sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+             !valid_rect(frame->mask_destination_rect))) ||
+        (!has_mask && !empty_mask_descriptor) ||
         frame->image_revision == 0U || frame->content_revision == 0U ||
         !valid_rect(frame->source_rect) ||
         !valid_rect(frame->destination_rect) ||
@@ -4366,6 +4673,14 @@ progpu_native_status progpu_native_engine_render_image(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image texture could not be uploaded.");
+    }
+    bool uploaded_mask_uniforms = false;
+    if (has_mask &&
+        (!create_image_mask_resources(*engine) ||
+         !update_image_mask(*engine, *frame, uploaded_mask_uniforms))) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained image mask resources could not be prepared.");
     }
 
     const bool compiled_payload_hit = engine->image_cache_valid &&
@@ -4472,7 +4787,9 @@ progpu_native_status progpu_native_engine_render_image(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image render pass could not be created.");
     }
-    wgpuRenderPassEncoderSetPipeline(pass, engine->image_pipeline);
+    wgpuRenderPassEncoderSetPipeline(
+        pass,
+        has_mask ? engine->image_mask_pipeline : engine->image_pipeline);
     wgpuRenderPassEncoderSetBindGroup(
         pass, 0U, engine->image_uniform_bind_group, 0U, nullptr);
     wgpuRenderPassEncoderSetBindGroup(
@@ -4483,6 +4800,16 @@ progpu_native_status progpu_native_engine_render_image(
             : engine->image_linear_bind_group,
         0U,
         nullptr);
+    if (has_mask) {
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            2U,
+            frame->mask_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                ? engine->image_mask_nearest_bind_group
+                : engine->image_mask_linear_bind_group,
+            0U,
+            nullptr);
+    }
     wgpuRenderPassEncoderSetVertexBuffer(
         pass,
         0U,
@@ -4523,6 +4850,10 @@ progpu_native_status progpu_native_engine_render_image(
         payload_hash,
         &frame->sampling,
         sizeof(frame->sampling));
+    payload_hash = append_fnv1a64(
+        payload_hash,
+        &frame->mask_revision,
+        sizeof(frame->mask_revision));
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_image_frame_metrics)) {
@@ -4539,9 +4870,11 @@ progpu_native_status progpu_native_engine_render_image(
         metrics->texture_upload_bytes = upload_texture && !external
             ? required_upload_bytes
             : 0U;
-        metrics->uniform_upload_bytes = uploaded_uniforms
-            ? sizeof(gpu_uniforms)
-            : 0U;
+        metrics->uniform_upload_bytes =
+            (uploaded_uniforms ? sizeof(gpu_uniforms) : 0U) +
+            (uploaded_mask_uniforms
+                ? sizeof(gpu_mask_sampling_uniforms)
+                : 0U);
         metrics->submission_count = engine->submission_count;
         metrics->payload_hash = payload_hash;
     }

@@ -51,9 +51,10 @@ flow, lookup data, or comments may be copied into ProGPU implementation files.
 Third-party WebGPU headers and libraries remain reviewed external build inputs.
 The initial lane pins wgpu-native and its WebGPU headers under ignored
 `artifacts/`; it does not vendor them. The only production shader used by the
-initial engine is the existing ProGPU
-[`Vector.wgsl`](../src/ProGPU.Backend/Shaders/Vector.wgsl). CMake generates a
-packed byte header from that source during the build, so no fixed shader is
+initial engine uses the existing ProGPU production modules, including
+[`Vector.wgsl`](../src/ProGPU.Backend/Shaders/Vector.wgsl) and
+[`Texture.wgsl`](../src/ProGPU.Backend/Shaders/Texture.wgsl). CMake generates
+packed byte headers from those sources during the build, so no fixed shader is
 duplicated as a C++ literal or parsed in a frame hot path.
 
 Before each native PR is integrated, audit the complete branch history for
@@ -74,9 +75,12 @@ metadata.
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Initially preserve ProGPU.Text shaping results and transfer positioned glyph IDs/runs. Native shaping is a later parallel implementation, never a prerequisite for moving raster/upload/composition to C++. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
+| [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
+| [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Do not hide general layer semantics inside the first image-mask ABI. The direct-mask lane performs one bounded texture sample; reusable layers and nested effects remain a later semantic-scene capability. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
+| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha while rendering remains GPU-oriented. | Reserve explicit semantic layer commands for nested clips/effects; do not grow the image-frame record into an implicit general scene stack. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
 | [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
@@ -530,6 +534,22 @@ DMA-BUF, browser-external-texture imports and explicit producer/consumer fence
 handoff remain future typed capabilities. Premultiplied formats, subrect
 updates, mipmaps, cubic/anisotropic sampling, tiling, color transforms, and
 masks also remain.
+
+The following ABI-v2 increment accepts a second borrowed same-device
+R8/RGBA/BGRA unorm texture view as an image opacity mask. Its red channel is
+mapped independently over a logical destination rectangle and sampled by the
+production `Texture.wgsl` masked fragment entry point. The masked pipeline,
+96-byte sampling uniform, and two sampler bind groups are created lazily, so
+ordinary unmasked images retain their two-bind-group resource contract. View
+or dimension replacement rebuilds the mask bind groups transactionally;
+stable replay performs no image, mask, vertex, index, or uniform upload.
+
+Mask binding and submission are `O(1)` CPU time/storage after warmup, add one
+texture sample per covered fragment, and retain no duplicate mask texture.
+The typed managed boundary rejects foreign-device, render-target, multisample,
+disposed, non-bindable, and unsupported-format masks. General nested layers,
+vector/text masks, decoder-native IOSurface/DXGI/DMA-BUF import, and explicit
+producer/consumer fences remain later capabilities.
 
 ## 10. Migration tranches
 

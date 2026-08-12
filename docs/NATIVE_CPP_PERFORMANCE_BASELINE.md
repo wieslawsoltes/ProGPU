@@ -422,6 +422,36 @@ native, managed, and amplified-difference captures under
 `artifacts/progpu-native/differential/`. No temporary profiling file remains
 under `/tmp`.
 
+### Same-device external image-mask supplement
+
+The ABI-v2 mask lane binds both the existing source and mask WebGPU views in
+C++ and reuses production `Texture.wgsl`. It avoids the managed compositor's
+intermediate R8 opacity-mask render target and submits one masked image draw.
+A synchronized 3,000-frame alternating Apple M3 Pro/Metal run produced:
+
+| Metric | Native direct mask | Managed opacity-mask layer |
+|---|---:|---:|
+| Submission mean | 0.0972 ms | 0.1893 ms |
+| Submission p95 | 0.3400 ms | 0.5735 ms |
+| Completion-wait mean | 2.0256 ms | 2.0969 ms |
+| Completion-wait p95 | 3.1194 ms | 4.5895 ms |
+| Total mean | 2.1230 ms | 2.2864 ms |
+| Total p95 | 3.4063 ms | 4.7935 ms |
+
+Native submission p95 is 40.7% lower and total p95 is 28.9% lower for this
+fixture. Warm measured native frames allocate zero managed bytes and report
+zero texture, vertex, index, and uniform uploads. The managed opacity-mask
+path retains a separate offscreen pass, so this result is specific to direct
+image masking and is not generalized to arbitrary nested layer effects.
+
+The direct lane samples the original linear-filtered mask, whereas the managed
+reference first quantizes that sample through an R8 intermediate. Across
+518,400 pixels, maximum channel difference is 1/255, no pixel exceeds the
+3/255 edge tolerance, and mean absolute channel difference is 0.0381/255.
+Native/managed hashes are `F2CC379B7484336F` and `E6BE6F3DFA337817`.
+Native, managed, and 64-times-amplified difference captures are retained under
+`artifacts/progpu-native/differential/`.
+
 ## Retained positioned-glyph supplement
 
 The second Tranche B increment keeps Unicode/OpenType shaping and line layout

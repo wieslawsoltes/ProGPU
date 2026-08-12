@@ -30,7 +30,7 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void PrivateInteropRecordsMatchNativeAbiOne()
+    public void PrivateInteropRecordsMatchNativeAbiTwo()
     {
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.Frame>());
@@ -53,7 +53,7 @@ public class NativeRendererInteropTests
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(160, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(200, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(72, Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>());
         Assert.Equal(
             144,
@@ -63,9 +63,17 @@ public class NativeRendererInteropTests
             152,
             OffsetOf<NativeMethods.ImageFrame>(
                 nameof(NativeMethods.ImageFrame.SourceFlags)));
+        Assert.Equal(
+            160,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.ExternalMaskView)));
+        Assert.Equal(
+            176,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.MaskDestinationRect)));
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
-        Assert.Equal(1U, NativeMethods.AbiVersion);
+        Assert.Equal(2U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
     }
 
@@ -100,6 +108,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             131072UL,
             (ulong)NativeRendererCapabilities.ExternalRgbaView);
+        Assert.Equal(
+            262144UL,
+            (ulong)NativeRendererCapabilities.ExternalImageMask);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);

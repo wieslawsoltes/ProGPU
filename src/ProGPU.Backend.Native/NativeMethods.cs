@@ -7,7 +7,7 @@ namespace ProGPU.Backend.Native;
 internal static unsafe partial class NativeMethods
 {
     internal const string LibraryName = "progpu_native";
-    internal const uint AbiVersion = 1;
+    internal const uint AbiVersion = 2;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
@@ -225,6 +225,12 @@ internal static unsafe partial class NativeMethods
         internal nuint ExternalSourceView;
         internal uint SourceFlags;
         internal uint Reserved2;
+        internal nuint ExternalMaskView;
+        internal uint MaskWidth;
+        internal uint MaskHeight;
+        internal NativeImageRect MaskDestinationRect;
+        internal uint MaskRevision;
+        internal NativeImageSampling MaskSampling;
     }
 
     [StructLayout(LayoutKind.Sequential)]

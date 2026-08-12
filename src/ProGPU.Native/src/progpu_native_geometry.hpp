@@ -51,7 +51,7 @@ static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
 static_assert(sizeof(progpu_native_path_frame) ==
     (sizeof(std::size_t) == 8U ? 80U : 60U));
 static_assert(sizeof(progpu_native_image_frame) ==
-    (sizeof(std::size_t) == 8U ? 160U : 144U));
+    (sizeof(std::size_t) == 8U ? 200U : 180U));
 static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
 
 inline bool is_finite(const progpu_native_color& color) noexcept {

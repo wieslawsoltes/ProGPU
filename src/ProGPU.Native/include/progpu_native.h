@@ -19,7 +19,7 @@ extern "C" {
 typedef struct progpu_native_engine progpu_native_engine;
 
 enum {
-    PROGPU_NATIVE_ABI_VERSION = 1U,
+    PROGPU_NATIVE_ABI_VERSION = 2U,
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_CAPABILITY_SOLID_RECT_BATCH = 1ULL << 0U,
     PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER = 1ULL << 1U,
@@ -38,7 +38,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U,
     PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U,
-    PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U,
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -541,6 +542,17 @@ typedef struct progpu_native_image_frame {
     uintptr_t external_source_view;
     uint32_t source_flags;
     uint32_t reserved2;
+    /*
+     * Optional borrowed same-device filterable mask view. Its red channel is
+     * sampled over mask_destination_rect and multiplies source alpha. The
+     * engine retains the view under the same lifetime rule as the source.
+     */
+    uintptr_t external_mask_view;
+    uint32_t mask_width;
+    uint32_t mask_height;
+    progpu_native_image_rect mask_destination_rect;
+    uint32_t mask_revision;
+    uint32_t mask_sampling;
 } progpu_native_image_frame;
 
 typedef struct progpu_native_image_frame_metrics {

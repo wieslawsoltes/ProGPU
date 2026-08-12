@@ -666,7 +666,105 @@ public sealed unsafe class NativeCompositor : IDisposable
             Reserved = 0U,
             ExternalSourceView = (nuint)source.ViewPtr,
             SourceFlags = ExternalImageSourceViewFlag,
-            Reserved2 = 0U
+            Reserved2 = 0U,
+            ExternalMaskView = 0U,
+            MaskWidth = 0U,
+            MaskHeight = 0U,
+            MaskDestinationRect = default,
+            MaskRevision = 0U,
+            MaskSampling = NativeImageSampling.Nearest
+        };
+        var metrics = new NativeMethods.ImageFrameMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>()
+        };
+
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            if (status != NativeRendererStatus.Success)
+            {
+                throw new NativeRendererException(status, ReadLastError());
+            }
+            target.NotifyExternalContentChanged();
+            _context.PollDevice(wait: false);
+        }
+
+        return new NativeImageFrameMetrics(
+            metrics.DrawCallCount,
+            metrics.VertexCount,
+            metrics.IndexCount,
+            metrics.TextureGeneration,
+            metrics.VertexUploadBytes,
+            metrics.IndexUploadBytes,
+            metrics.TextureUploadBytes,
+            metrics.UniformUploadBytes,
+            metrics.SubmissionCount,
+            metrics.PayloadHash);
+    }
+
+    /// <summary>
+    /// Samples a same-device image through a same-device texture opacity mask
+    /// without transferring either payload through the native ABI.
+    /// </summary>
+    /// <remarks>
+    /// The mask red channel is mapped over <paramref name="maskDestinationRect"/>
+    /// in logical target coordinates and multiplies source alpha. Both source
+    /// views remain retained until replacement or compositor disposal, so both
+    /// textures must remain alive for that interval.
+    /// </remarks>
+    public NativeImageFrameMetrics RenderMaskedExternalImage(
+        GpuTexture target,
+        GpuTexture source,
+        GpuTexture mask,
+        float dpiScale,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        NativeImageRect maskDestinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        NativeImageSampling maskSampling,
+        Vector4 clearColor,
+        uint sourceRevision,
+        uint maskRevision,
+        uint contentRevision)
+    {
+        ValidateTarget(target);
+        ValidateImageSource(source, target);
+        ValidateImageMask(mask, target);
+        var frame = new NativeMethods.ImageFrame
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
+            Width = target.Width,
+            Height = target.Height,
+            DpiScale = dpiScale,
+            TargetView = (nuint)target.ViewPtr,
+            ClearColor = new NativeMethods.NativeColor
+            {
+                R = clearColor.X,
+                G = clearColor.Y,
+                B = clearColor.Z,
+                A = clearColor.W
+            },
+            ImageWidth = source.Width,
+            ImageHeight = source.Height,
+            Sampling = sampling,
+            ImageRevision = sourceRevision,
+            ContentRevision = contentRevision,
+            SourceRect = sourceRect,
+            DestinationRect = destinationRect,
+            Transform = transform,
+            Opacity = opacity,
+            ExternalSourceView = (nuint)source.ViewPtr,
+            SourceFlags = ExternalImageSourceViewFlag,
+            ExternalMaskView = (nuint)mask.ViewPtr,
+            MaskWidth = mask.Width,
+            MaskHeight = mask.Height,
+            MaskDestinationRect = maskDestinationRect,
+            MaskRevision = maskRevision,
+            MaskSampling = maskSampling
         };
         var metrics = new NativeMethods.ImageFrameMetrics
         {
@@ -818,6 +916,38 @@ public sealed unsafe class NativeCompositor : IDisposable
             throw new ArgumentException(
                 "The first external image lane requires a single-sample bindable straight-alpha RGBA/BGRA 8-bit texture.",
                 nameof(source));
+        }
+    }
+
+    private void ValidateImageMask(GpuTexture mask, GpuTexture target)
+    {
+        ArgumentNullException.ThrowIfNull(mask);
+        if (ReferenceEquals(mask, target))
+        {
+            throw new ArgumentException(
+                "An image mask cannot also be the active render target.",
+                nameof(mask));
+        }
+        if (!ReferenceEquals(mask.Context, _context))
+        {
+            throw new ArgumentException(
+                "The image mask must belong to the native compositor's WebGPU device domain.",
+                nameof(mask));
+        }
+        if (mask.IsDisposed || mask.ViewPtr == null)
+        {
+            throw new ObjectDisposedException(nameof(mask));
+        }
+        if ((mask.Usage & TextureUsage.TextureBinding) == 0 ||
+            mask.SampleCount != 1 ||
+            mask.Format is not (
+                TextureFormat.R8Unorm or
+                TextureFormat.Rgba8Unorm or
+                TextureFormat.Bgra8Unorm))
+        {
+            throw new ArgumentException(
+                "The initial native image-mask lane requires a single-sample bindable R8/RGBA/BGRA unorm texture.",
+                nameof(mask));
         }
     }
 

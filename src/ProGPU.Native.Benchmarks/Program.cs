@@ -107,6 +107,13 @@ bool useExternalImageScene = Array.Exists(
         value,
         "--external-images",
         StringComparison.OrdinalIgnoreCase));
+bool useMaskedImageScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--masked-images",
+        StringComparison.OrdinalIgnoreCase));
+useExternalImageScene |= useMaskedImageScene;
 useImageScene |= useExternalImageScene;
 bool forceAtlasGrowth = Array.Exists(
     args,
@@ -241,6 +248,9 @@ const uint benchmarkImageHeight = 128U;
 byte[] imagePixels = useImageScene
     ? CreateImagePixels(benchmarkImageWidth, benchmarkImageHeight)
     : [];
+byte[] imageMaskPixels = useMaskedImageScene
+    ? CreateImageMaskPixels(benchmarkImageWidth, benchmarkImageHeight)
+    : [];
 bool nativeImageUploaded = false;
 ulong nativeImageTextureUploadBytes = 0UL;
 uint nativeImageTextureGeneration = 0U;
@@ -260,6 +270,17 @@ using GpuTexture? managedImageTexture = useImageScene
         alphaMode: GpuTextureAlphaMode.Straight)
     : null;
 managedImageTexture?.WritePixels<byte>(imagePixels);
+using GpuTexture? managedImageMaskTexture = useMaskedImageScene
+    ? new GpuTexture(
+        context,
+        benchmarkImageWidth,
+        benchmarkImageHeight,
+        TextureFormat.Rgba8Unorm,
+        TextureUsage.TextureBinding | TextureUsage.CopyDst,
+        "Managed retained RGBA benchmark image mask",
+        alphaMode: GpuTextureAlphaMode.Straight)
+    : null;
+managedImageMaskTexture?.WritePixels<byte>(imageMaskPixels);
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
 using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
@@ -278,6 +299,7 @@ using var managed = new Compositor(
 DrawingVisual managedVisual = useImageScene
     ? CreateManagedImageVisual(
         managedImageTexture!,
+        managedImageMaskTexture,
         benchmarkImageWidth,
         benchmarkImageHeight,
         logicalWidth,
@@ -404,7 +426,9 @@ if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
     string imageStem = useImageScene
-        ? useExternalImageScene ? "external-images" : "images"
+        ? useMaskedImageScene
+            ? "masked-images"
+            : useExternalImageScene ? "external-images" : "images"
         : useGlyphScene
         ? forceAtlasGrowth ? "glyphs-growth" : "glyphs"
         : usePathScene
@@ -440,14 +464,20 @@ if (forceAtlasGrowth && useGlyphScene && nativeAtlasGrowthCount == 0U)
     throw new InvalidOperationException(
         "The native glyph atlas did not publish its growth count.");
 }
-bool requiresExactPixels = useImageScene || useGlyphScene ||
-    (!useAnalyticScene && !useGeometryScene && !usePathScene && dpiScale == 1f);
+bool requiresExactPixels = (useImageScene && !useMaskedImageScene) || useGlyphScene ||
+    (!useImageScene && !useGlyphScene && !useAnalyticScene &&
+     !useGeometryScene && !usePathScene && dpiScale == 1f);
 bool usesGeometryDifferential = useGeometryScene || usePathScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
     (!useAnalyticScene && !useGeometryScene && !requiresExactPixels);
-int maximumAllowedDifference = requiresExactPixels
-    ? 0
+// The managed opacity-mask route first rasterizes the brush into an R8 mask,
+// while the native zero-copy route samples the borrowed texture directly.
+// Linear filtering can therefore differ by one final channel value after the
+// managed intermediate quantization, but must not change any pixel by more.
+int maximumAllowedDifference = useMaskedImageScene
+    ? 1
+    : requiresExactPixels ? 0
     : usesGeometryDifferential ? 204 : usesTightDifferential ? 3 : 96;
 int maximumAllowedPixelsOverTolerance =
     usesGeometryDifferential
@@ -457,8 +487,9 @@ int maximumAllowedPixelsOverTolerance =
         : requiresExactPixels || usesTightDifferential
         ? 0
         : comparison.PixelCount / 40;
-double maximumAllowedMeanAbsoluteDifference = requiresExactPixels
-    ? 0.0
+double maximumAllowedMeanAbsoluteDifference = useMaskedImageScene
+    ? 0.05
+    : requiresExactPixels ? 0.0
     // The independently expanded paths can differ by one byte on shared AA
     // edge ties. Keep the aggregate budget below 0.004/255 per channel while
     // retaining the stricter high-difference pixel limit above.
@@ -618,7 +649,9 @@ var report = new BenchmarkReport(
     Backend: context.AdapterBackendType.ToString(),
     Scene: useImageScene
         ? useExternalImageScene
-            ? "ZeroCopyExternalRgbaImage"
+            ? useMaskedImageScene
+                ? "ZeroCopyMaskedExternalRgbaImage"
+                : "ZeroCopyExternalRgbaImage"
             : "RetainedRgbaImage"
         : useGlyphScene
         ? "RetainedPositionedGlyphAtlas"
@@ -635,7 +668,9 @@ var report = new BenchmarkReport(
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
-    DifferentialContract: requiresExactPixels
+    DifferentialContract: useMaskedImageScene
+        ? "Near-exact; direct mask sampling versus quantized managed R8 intermediate"
+        : requiresExactPixels
         ? "Exact"
         : usesGeometryDifferential
             ? "Near-exact; bounded raster edge ownership ties"
@@ -700,7 +735,24 @@ ulong RenderNative(bool capturePayloadHash = false)
             60f,
             destinationWidth,
             destinationHeight);
-        NativeImageFrameMetrics metrics = useExternalImageScene
+        NativeImageFrameMetrics metrics = useMaskedImageScene
+            ? native.RenderMaskedExternalImage(
+                nativeTarget,
+                managedImageTexture!,
+                managedImageMaskTexture!,
+                dpiScale,
+                sourceRect,
+                destinationRect,
+                destinationRect,
+                Matrix3x2.Identity,
+                1f,
+                NativeImageSampling.Nearest,
+                NativeImageSampling.Linear,
+                clearColor,
+                sourceRevision: 1U,
+                maskRevision: 1U,
+                contentRevision: 1U)
+            : useExternalImageScene
             ? native.RenderExternalImage(
                 nativeTarget,
                 managedImageTexture!,
@@ -1005,8 +1057,32 @@ static byte[] CreateImagePixels(uint imageWidth, uint imageHeight)
     return pixels;
 }
 
+static byte[] CreateImageMaskPixels(uint imageWidth, uint imageHeight)
+{
+    var pixels = new byte[checked((int)(imageWidth * imageHeight * 4U))];
+    for (uint y = 0U; y < imageHeight; ++y)
+    {
+        for (uint x = 0U; x < imageWidth; ++x)
+        {
+            float nx = (x + 0.5f) / imageWidth * 2f - 1f;
+            float ny = (y + 0.5f) / imageHeight * 2f - 1f;
+            byte coverage = (byte)Math.Clamp(
+                (1f - MathF.Sqrt(nx * nx + ny * ny)) * 384f,
+                0f,
+                255f);
+            int offset = checked((int)((y * imageWidth + x) * 4U));
+            pixels[offset] = coverage;
+            pixels[offset + 1] = coverage;
+            pixels[offset + 2] = coverage;
+            pixels[offset + 3] = coverage;
+        }
+    }
+    return pixels;
+}
+
 static DrawingVisual CreateManagedImageVisual(
     GpuTexture texture,
+    GpuTexture? maskTexture,
     uint imageWidth,
     uint imageHeight,
     float logicalWidth,
@@ -1022,6 +1098,22 @@ static DrawingVisual CreateManagedImageVisual(
         new Rect(0f, 0f, imageWidth, imageHeight),
         Matrix4x4.Identity,
         TextureSamplingMode.Nearest);
+    if (maskTexture is not null)
+    {
+        var destination = new Rect(
+            80f,
+            60f,
+            logicalWidth - 160f,
+            logicalHeight - 120f);
+        visual.OpacityMask = new GpuTextureBrush
+        {
+            Texture = maskTexture,
+            SourceRect = new Rect(0f, 0f, imageWidth, imageHeight),
+            DestinationRect = destination,
+            SamplingMode = TextureSamplingMode.Linear
+        };
+        visual.OpacityMaskBounds = destination;
+    }
     return visual;
 }
 
