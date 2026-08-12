@@ -315,6 +315,13 @@ internal static class PictureArchive
             return;
         }
 
+        if (command.Type == RenderCommandType.DrawPolyline && pen.HasDashPattern)
+        {
+            command.GeometryCache =
+                RenderCommandGeometryCache.ForDeferredStrokePath();
+            return;
+        }
+
         PathGeometry? strokePath = command.Type switch
         {
             RenderCommandType.DrawLine when RequiresStrokePath(pen) =>

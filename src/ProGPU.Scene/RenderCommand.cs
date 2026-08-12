@@ -427,7 +427,7 @@ public sealed class RenderCommandGeometryCache
         SecondaryFillPath = secondaryFillPath;
     }
 
-    public PathGeometry? StrokePath { get; }
+    public PathGeometry? StrokePath { get; private set; }
     public PathGeometry? FillPath { get; }
     public PathGeometry? SecondaryFillPath { get; }
 
@@ -441,6 +441,26 @@ public sealed class RenderCommandGeometryCache
     {
         ArgumentNullException.ThrowIfNull(path);
         return new RenderCommandGeometryCache(path, null, null);
+    }
+
+    internal static RenderCommandGeometryCache ForDeferredStrokePath() =>
+        new(null, null, null);
+
+    internal PathGeometry GetOrCreatePolylineStrokePath(
+        ReadOnlySpan<Vector2> points,
+        bool isClosed)
+    {
+        if (StrokePath != null)
+        {
+            return StrokePath;
+        }
+
+        // Span-recorded points already have retained ownership in DrawingContext's
+        // point arena. Materialize the object graph once on first compilation so
+        // recording remains O(N) copy work with O(1) object allocation and stable
+        // replay never reconstructs either the source or dashed geometry.
+        StrokePath = CreatePolylinePath(points, isClosed);
+        return StrokePath;
     }
 
     public static RenderCommandGeometryCache ForFillPath(PathGeometry path)
@@ -4390,7 +4410,10 @@ public class DrawingContext :
             PointBufferOffset = offset,
             PointBufferCount = count,
             IsClosed = isClosed,
-            IsPenThicknessLocal = true
+            IsPenThicknessLocal = true,
+            GeometryCache = pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForDeferredStrokePath()
+                : null
         });
     }
 
@@ -5010,9 +5033,12 @@ public class DrawingContext :
             _ => null
         };
 
-        command.GeometryCache = strokePath == null
-            ? null
-            : RenderCommandGeometryCache.ForStrokePath(strokePath);
+        command.GeometryCache = command.Type == RenderCommandType.DrawPolyline &&
+            pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForDeferredStrokePath()
+                : strokePath == null
+                    ? null
+                    : RenderCommandGeometryCache.ForStrokePath(strokePath);
     }
 
     private void TranslatePointBufferSlice(int offset, int count, Vector2 translation)

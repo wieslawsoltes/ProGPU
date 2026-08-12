@@ -31,11 +31,14 @@ enum {
     PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U,
     PROGPU_NATIVE_CAPABILITY_STROKE_CAPS = 1ULL << 8U,
     PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES = 1ULL << 9U,
-    PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES = 1ULL << 10U
+    PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES = 1ULL << 10U,
+    PROGPU_NATIVE_CAPABILITY_DASHED_STROKES = 1ULL << 11U,
+    PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY = 1ULL << 12U
 };
 
 enum {
-    PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U
+    PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U,
+    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD = 1U << 1U
 };
 
 typedef enum progpu_native_status {
@@ -217,8 +220,22 @@ typedef struct progpu_native_polyline {
     float stroke_thickness;
     float miter_limit;
     uint32_t flags;
-    uint32_t reserved;
+    /* Zero selects a solid stroke; otherwise this is dash_style index + 1. */
+    uint32_t dash_style;
 } progpu_native_polyline;
+
+/*
+ * A reusable dash style borrows alternating on/off multipliers from
+ * geometry_frame.doubles. Values and offset are multiplied by the resolved
+ * pen thickness. Odd interval counts repeat logically to an even count.
+ */
+typedef struct progpu_native_dash_style {
+    size_t interval_offset;
+    size_t interval_count;
+    double offset;
+    uint32_t cap;
+    uint32_t reserved;
+} progpu_native_dash_style;
 
 /*
  * A B-spline/NURBS stroke reuses progpu_native_polyline for its control-point
@@ -293,6 +310,7 @@ typedef struct progpu_native_geometry_frame {
     const progpu_native_geometry_primitive* primitives;
     size_t primitive_count;
     uint32_t flags;
+    /* Nonzero caller-owned content revision when retention is requested. */
     uint32_t reserved;
     const progpu_native_point* points;
     size_t point_count;
@@ -300,6 +318,8 @@ typedef struct progpu_native_geometry_frame {
     size_t polyline_count;
     const double* doubles;
     size_t double_count;
+    const progpu_native_dash_style* dash_styles;
+    size_t dash_style_count;
     const progpu_native_spline* splines;
     size_t spline_count;
 } progpu_native_geometry_frame;

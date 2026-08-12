@@ -210,7 +210,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         float dpiScale,
         ReadOnlySpan<NativeGeometryPrimitive> primitives,
         Vector4 clearColor,
-        bool capturePayloadHash = false)
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
     {
         return RenderGeometry(
             target,
@@ -219,9 +220,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             ReadOnlySpan<Vector2>.Empty,
             ReadOnlySpan<NativePolyline>.Empty,
             ReadOnlySpan<double>.Empty,
+            ReadOnlySpan<NativeDashStyle>.Empty,
             ReadOnlySpan<NativeSpline>.Empty,
             clearColor,
-            capturePayloadHash);
+            capturePayloadHash,
+            contentRevision);
     }
 
     public NativeGeometryFrameMetrics RenderGeometry(
@@ -231,7 +234,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<Vector2> points,
         ReadOnlySpan<NativePolyline> polylines,
         Vector4 clearColor,
-        bool capturePayloadHash = false)
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
     {
         return RenderGeometry(
             target,
@@ -240,9 +244,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             points,
             polylines,
             ReadOnlySpan<double>.Empty,
+            ReadOnlySpan<NativeDashStyle>.Empty,
             ReadOnlySpan<NativeSpline>.Empty,
             clearColor,
-            capturePayloadHash);
+            capturePayloadHash,
+            contentRevision);
     }
 
     public NativeGeometryFrameMetrics RenderGeometry(
@@ -254,7 +260,35 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<double> doubles,
         ReadOnlySpan<NativeSpline> splines,
         Vector4 clearColor,
-        bool capturePayloadHash = false)
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
+    {
+        return RenderGeometry(
+            target,
+            dpiScale,
+            primitives,
+            points,
+            polylines,
+            doubles,
+            ReadOnlySpan<NativeDashStyle>.Empty,
+            splines,
+            clearColor,
+            capturePayloadHash,
+            contentRevision);
+    }
+
+    public NativeGeometryFrameMetrics RenderGeometry(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeGeometryPrimitive> primitives,
+        ReadOnlySpan<Vector2> points,
+        ReadOnlySpan<NativePolyline> polylines,
+        ReadOnlySpan<double> doubles,
+        ReadOnlySpan<NativeDashStyle> dashStyles,
+        ReadOnlySpan<NativeSpline> splines,
+        Vector4 clearColor,
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
     {
         ValidateTarget(target);
 
@@ -262,6 +296,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         fixed (Vector2* pointPointer = points)
         fixed (NativePolyline* polylinePointer = polylines)
         fixed (double* doublePointer = doubles)
+        fixed (NativeDashStyle* dashStylePointer = dashStyles)
         fixed (NativeSpline* splinePointer = splines)
         {
             var frame = new NativeMethods.GeometryFrame
@@ -280,15 +315,21 @@ public sealed unsafe class NativeCompositor : IDisposable
                 },
                 Primitives = primitivePointer,
                 PrimitiveCount = (nuint)primitives.Length,
-                Flags = capturePayloadHash
-                    ? NativeMethods.GeometryFrameCapturePayloadHash
-                    : 0U,
+                Flags = (capturePayloadHash
+                        ? NativeMethods.GeometryFrameCapturePayloadHash
+                        : 0U) |
+                    (contentRevision != 0U
+                        ? NativeMethods.GeometryFrameRetainCompiledPayload
+                        : 0U),
+                Reserved = contentRevision,
                 Points = pointPointer,
                 PointCount = (nuint)points.Length,
                 Polylines = polylinePointer,
                 PolylineCount = (nuint)polylines.Length,
                 Doubles = doublePointer,
                 DoubleCount = (nuint)doubles.Length,
+                DashStyles = dashStylePointer,
+                DashStyleCount = (nuint)dashStyles.Length,
                 Splines = splinePointer,
                 SplineCount = (nuint)splines.Length
             };

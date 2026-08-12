@@ -1,4 +1,4 @@
-// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad regenerates each cap or join from transformed centerline directions and evaluates its exterior analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
 // Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, and non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
 struct Brush {
@@ -1148,7 +1148,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     }
 
     var brushCoord = texCoord;
-    if (isHairlineAdornment) {
+    if (isHairlineAdornment || sType == 24u) {
         brushCoord = worldPos;
     }
     if (sType == 8u) {
@@ -2127,10 +2127,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0001);
         shapeAlpha = 1.0 -
             smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
-    } else if (sType == 22u) {
-        // Analytic one-device-pixel path cap. The cap/body interface is a
-        // hard-owned internal seam; only the round, square, or triangular
-        // exterior contributes antialias coverage. Work and storage are O(1).
+    } else if (sType == 22u || sType == 24u) {
+        // Analytic path cap. Shape 22 is expanded as a fixed-device adornment
+        // in the vertex stage; shape 24 arrives as an already affine-expanded
+        // positive-width quad. The cap/body interface is a hard-owned internal
+        // seam; only the exterior contributes AA coverage. Work/storage are O(1).
         let point = input.texCoord;
         let capKind = u32(round(input.cornerRadius));
         let isFullCap = input.strokeThickness > 0.5;
@@ -2332,7 +2333,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     if (brush.brushType == 0u) {
         if (sType == 5u || sType == 6u ||
             (sType >= 12u && sType <= 18u) ||
-            sType == 22u || sType == 23u) {
+            sType == 22u || sType == 23u || sType == 24u) {
             finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
         } else {
             finalColor = vec4<f32>(input.color.rgb, input.color.a * brush.opacity);

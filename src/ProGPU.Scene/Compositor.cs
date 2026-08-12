@@ -214,6 +214,7 @@ public struct CompositorMetrics
     public int SceneUploadCopyCount;
     public ulong SceneUploadArenaBytes;
     public int VectorVerticesCount;
+    public int VectorIndicesCount;
     public int TextVerticesCount;
     public int ActiveTextStyleCount;
     public int LegacyTextVertexCount;
@@ -443,6 +444,7 @@ public unsafe partial class Compositor : IDisposable
     private const float DotGridShapeType = 21f;
     private const float HairlineCapShapeType = 22f;
     private const float HairlineJoinShapeType = 23f;
+    private const float AffineRoundCapShapeType = 24f;
     private const int DirectRoundedMinimumCornerSegmentCount = 8;
     private const int DirectRoundedMaximumCornerSegmentCount = 128;
     private const float DirectRoundedMaximumDeviceChordError = 0.25f;
@@ -3774,6 +3776,7 @@ SceneStateUploadComplete:
             DpiScale = _currentDpiScale,
             DrawCallsCount = _drawCalls.Count,
             VectorVerticesCount = _vectorVerticesList.Count,
+            VectorIndicesCount = _vectorIndicesList.Count,
             TextVerticesCount = _textVerticesList.Count,
             ActiveTextStyleCount = _activeTextStyles.Count,
             LegacyTextVertexCount = _legacyTextVertexCount,
@@ -9444,7 +9447,10 @@ SceneStateUploadComplete:
                 Vector2.Transform(localTriangle.P0, transform),
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
-            var edgeMasks = GetStrokeTriangleEdgeMasks(generatedTriangles, triangleIndex);
+            var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
+                pen.LineJoin,
+                generatedTriangles.Length,
+                triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
@@ -9676,6 +9682,22 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isStart)
     {
+        if (lineCap == PenLineCap.Round)
+        {
+            AppendAffineRoundStrokeCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                localThickness,
+                localCenter,
+                localDirectionAlongPath,
+                transform,
+                isEdgeAliased,
+                isStart);
+            return;
+        }
         var directionLength = localDirectionAlongPath.Length();
         if (!float.IsFinite(directionLength) || directionLength <= StrokeEpsilon)
         {
@@ -9697,8 +9719,6 @@ SceneStateUploadComplete:
             lineStart,
             lineEnd,
             isStart);
-        var normalizedLocalDirection = localDirectionAlongPath / directionLength;
-
         var generatedTriangles = localTriangles[..localTriangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
@@ -9707,11 +9727,10 @@ SceneStateUploadComplete:
                 Vector2.Transform(localTriangle.P0, transform),
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
-            var edgeMasks = GetStrokeCapTriangleEdgeMasks(
-                generatedTriangles,
-                triangleIndex,
-                localCenter,
-                normalizedLocalDirection);
+            var edgeMasks = GetStrokeCapTopologyEdgeMasks(
+                lineCap,
+                generatedTriangles.Length,
+                triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
@@ -9755,7 +9774,10 @@ SceneStateUploadComplete:
         var generatedTriangles = triangles[..triangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
-            var edgeMasks = GetStrokeTriangleEdgeMasks(generatedTriangles, triangleIndex);
+            var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
+                pen.LineJoin,
+                generatedTriangles.Length,
+                triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
@@ -9812,6 +9834,22 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isStart)
     {
+        if (lineCap == PenLineCap.Round)
+        {
+            AppendAffineRoundStrokeCapVertices(
+                verticesSpan,
+                indicesSpan,
+                ref currentVertexCount,
+                ref currentIndexCount,
+                penBrushIdx,
+                thickness,
+                center,
+                directionAlongPath,
+                Matrix4x4.Identity,
+                isEdgeAliased,
+                isStart);
+            return;
+        }
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeCapGeometry.MaxTrianglesPerCap];
         Vector2 lineStart = isStart
@@ -9827,16 +9865,13 @@ SceneStateUploadComplete:
             lineStart,
             lineEnd,
             isStart);
-        var normalizedDirection = Vector2.Normalize(directionAlongPath);
-
         var generatedTriangles = triangles[..triangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
-            var edgeMasks = GetStrokeCapTriangleEdgeMasks(
-                generatedTriangles,
-                triangleIndex,
-                center,
-                normalizedDirection);
+            var edgeMasks = GetStrokeCapTopologyEdgeMasks(
+                lineCap,
+                generatedTriangles.Length,
+                triangleIndex);
             AppendStrokeTriangleVertices(
                 verticesSpan,
                 indicesSpan,
@@ -9850,149 +9885,123 @@ SceneStateUploadComplete:
         }
     }
 
-    private static (uint Exterior, uint OwnedInternal) GetStrokeCapTriangleEdgeMasks(
-        ReadOnlySpan<StrokeJoinTriangle> triangles,
-        int triangleIndex,
-        Vector2 capCenter,
-        Vector2 directionAlongPath)
+    private static void AppendAffineRoundStrokeCapVertices(
+        Span<VectorVertex> verticesSpan,
+        Span<uint> indicesSpan,
+        ref int currentVertexCount,
+        ref int currentIndexCount,
+        float penBrushIdx,
+        float localThickness,
+        Vector2 localCenter,
+        Vector2 localDirectionAlongPath,
+        Matrix4x4 transform,
+        bool isEdgeAliased,
+        bool isStart)
     {
-        return GetStrokeTriangleEdgeMasks(
-            triangles,
-            triangleIndex,
-            hasCapBodyInterface: true,
-            capCenter: capCenter,
-            capDirection: directionAlongPath);
-    }
-
-    private static bool IsPointOnStrokeCapBodyInterface(
-        Vector2 point,
-        Vector2 capCenter,
-        Vector2 directionAlongPath)
-    {
-        var offset = point - capCenter;
-        var tolerance = StrokeEpsilon * MathF.Max(1f, offset.Length());
-        return MathF.Abs(Vector2.Dot(offset, directionAlongPath)) <= tolerance;
-    }
-
-    private static (uint Exterior, uint OwnedInternal) GetStrokeTriangleEdgeMasks(
-        ReadOnlySpan<StrokeJoinTriangle> triangles,
-        int triangleIndex,
-        bool hasCapBodyInterface = false,
-        Vector2 capCenter = default,
-        Vector2 capDirection = default)
-    {
-        var triangle = triangles[triangleIndex];
-        uint exteriorMask = 0;
-        uint ownedInternalMask = 0;
-        ClassifyStrokeTriangleEdge(
-            triangles,
-            triangleIndex,
-            triangle.P0,
-            triangle.P1,
-            1u,
-            hasCapBodyInterface,
-            capCenter,
-            capDirection,
-            ref exteriorMask,
-            ref ownedInternalMask);
-        ClassifyStrokeTriangleEdge(
-            triangles,
-            triangleIndex,
-            triangle.P1,
-            triangle.P2,
-            2u,
-            hasCapBodyInterface,
-            capCenter,
-            capDirection,
-            ref exteriorMask,
-            ref ownedInternalMask);
-        ClassifyStrokeTriangleEdge(
-            triangles,
-            triangleIndex,
-            triangle.P2,
-            triangle.P0,
-            4u,
-            hasCapBodyInterface,
-            capCenter,
-            capDirection,
-            ref exteriorMask,
-            ref ownedInternalMask);
-        return (exteriorMask, ownedInternalMask);
-    }
-
-    private static void ClassifyStrokeTriangleEdge(
-        ReadOnlySpan<StrokeJoinTriangle> triangles,
-        int triangleIndex,
-        Vector2 edgeStart,
-        Vector2 edgeEnd,
-        uint bit,
-        bool hasCapBodyInterface,
-        Vector2 capCenter,
-        Vector2 capDirection,
-        ref uint exteriorMask,
-        ref uint ownedInternalMask)
-    {
-        if (hasCapBodyInterface &&
-            IsPointOnStrokeCapBodyInterface(edgeStart, capCenter, capDirection) &&
-            IsPointOnStrokeCapBodyInterface(edgeEnd, capCenter, capDirection))
+        var directionLength = localDirectionAlongPath.Length();
+        if (!float.IsFinite(directionLength) ||
+            directionLength <= StrokeEpsilon ||
+            !float.IsFinite(localThickness) ||
+            localThickness <= StrokeEpsilon ||
+            !TransformMetrics.TryGetStrokeScales(
+                transform,
+                out _,
+                out var minimumScale))
         {
             return;
         }
 
-        var sharedTriangleIndex = FindSharedStrokeTriangleEdge(
-            triangles,
-            triangleIndex,
-            edgeStart,
-            edgeEnd);
-        if (sharedTriangleIndex < 0)
+        var direction = localDirectionAlongPath / directionLength;
+        var outward = isStart ? -direction : direction;
+        var normal = new Vector2(-outward.Y, outward.X);
+        var radius = localThickness * 0.5f;
+        var localPadding = 1.5f / minimumScale;
+        var minimumX = -localPadding;
+        var maximumX = radius + localPadding;
+        var minimumY = -radius - localPadding;
+        var maximumY = radius + localPadding;
+        Span<Vector2> coordinates =
+        [
+            new(minimumX, minimumY),
+            new(maximumX, minimumY),
+            new(maximumX, maximumY),
+            new(minimumX, maximumY)
+        ];
+        var index = (uint)currentVertexCount;
+        var shapeType = EncodeShapeType(isEdgeAliased, AffineRoundCapShapeType);
+        for (var coordinateIndex = 0; coordinateIndex < coordinates.Length; coordinateIndex++)
         {
-            exteriorMask |= bit;
+            var coordinate = coordinates[coordinateIndex];
+            var localPosition = localCenter +
+                outward * coordinate.X +
+                normal * coordinate.Y;
+            verticesSpan[currentVertexCount++] = new VectorVertex(
+                Vector2.Transform(localPosition, transform),
+                Vector4.Zero,
+                coordinate,
+                penBrushIdx,
+                new Vector2(localThickness, 0f),
+                (float)PenLineCap.Round,
+                0f,
+                shapeType);
         }
-        else if (triangleIndex < sharedTriangleIndex)
-        {
-            ownedInternalMask |= bit;
-        }
+        AppendHairlineAdornmentIndices(
+            indicesSpan,
+            ref currentIndexCount,
+            index);
     }
 
-    private static int FindSharedStrokeTriangleEdge(
-        ReadOnlySpan<StrokeJoinTriangle> triangles,
-        int triangleIndex,
-        Vector2 edgeStart,
-        Vector2 edgeEnd)
+    private static (uint Exterior, uint OwnedInternal) GetStrokeCapTopologyEdgeMasks(
+        PenLineCap lineCap,
+        int triangleCount,
+        int triangleIndex)
     {
-        for (var index = 0; index < triangles.Length; index++)
+        if ((uint)triangleIndex >= (uint)triangleCount || triangleCount == 0)
         {
-            if (index == triangleIndex)
-            {
-                continue;
-            }
-
-            var candidate = triangles[index];
-            if (StrokeTriangleEdgesMatch(edgeStart, edgeEnd, candidate.P0, candidate.P1) ||
-                StrokeTriangleEdgesMatch(edgeStart, edgeEnd, candidate.P1, candidate.P2) ||
-                StrokeTriangleEdgesMatch(edgeStart, edgeEnd, candidate.P2, candidate.P0))
-            {
-                return index;
-            }
+            return default;
+        }
+        if (lineCap == PenLineCap.Square && triangleCount == 2)
+        {
+            return triangleIndex == 0 ? (3u, 4u) : (2u, 0u);
+        }
+        if (lineCap == PenLineCap.Triangle && triangleCount == 1)
+        {
+            return (3u, 0u);
         }
 
-        return -1;
+        return (2u, triangleIndex + 1 < triangleCount ? 4u : 0u);
     }
 
-    private static bool StrokeTriangleEdgesMatch(
-        Vector2 firstStart,
-        Vector2 firstEnd,
-        Vector2 secondStart,
-        Vector2 secondEnd)
+    private static (uint Exterior, uint OwnedInternal) GetStrokeJoinTopologyEdgeMasks(
+        PenLineJoin lineJoin,
+        int triangleCount,
+        int triangleIndex)
     {
-        return (StrokeTrianglePointsMatch(firstStart, secondStart) &&
-                StrokeTrianglePointsMatch(firstEnd, secondEnd)) ||
-               (StrokeTrianglePointsMatch(firstStart, secondEnd) &&
-                StrokeTrianglePointsMatch(firstEnd, secondStart));
-    }
+        if ((uint)triangleIndex >= (uint)triangleCount || triangleCount == 0)
+        {
+            return default;
+        }
+        if (triangleCount == 1)
+        {
+            return (7u, 0u);
+        }
+        if (lineJoin == PenLineJoin.Miter && triangleCount == 2)
+        {
+            return (3u, triangleIndex == 0 ? 4u : 0u);
+        }
 
-    private static bool StrokeTrianglePointsMatch(Vector2 first, Vector2 second) =>
-        Vector2.DistanceSquared(first, second) <= StrokeEpsilon * StrokeEpsilon;
+        uint exterior = 2u;
+        if (triangleIndex == 0)
+        {
+            exterior |= 1u;
+        }
+        if (triangleIndex + 1 == triangleCount)
+        {
+            exterior |= 4u;
+            return (exterior, 0u);
+        }
+        return (exterior, 4u);
+    }
 
     private static void AppendStrokeTriangleVertices(
         Span<VectorVertex> verticesSpan,
@@ -10879,10 +10888,10 @@ SceneStateUploadComplete:
 
         if (cmd.Pen!.HasDashPattern)
         {
-            var path = cmd.GeometryCache?.StrokePath ??
-                RenderCommandGeometryCache.CreatePolylinePath(
+            var path = cmd.GeometryCache?.GetOrCreatePolylineStrokePath(
                     pointsSpan,
-                    cmd.IsClosed);
+                    cmd.IsClosed) ??
+                RenderCommandGeometryCache.CreatePolylinePath(pointsSpan, cmd.IsClosed);
             CompileRetainedStrokePath(cmd, path, stroke, transform);
             return;
         }
@@ -16646,6 +16655,7 @@ SceneStateUploadComplete:
             DpiScale = _currentDpiScale,
             DrawCallsCount = _drawCalls.Count,
             VectorVerticesCount = _vectorVerticesList.Count,
+            VectorIndicesCount = _vectorIndicesList.Count,
             TextVerticesCount = _textVerticesList.Count,
             ActiveTextStyleCount = _activeTextStyles.Count,
             LegacyTextVertexCount = _legacyTextVertexCount,

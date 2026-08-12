@@ -87,6 +87,11 @@ device-completion wait inside each renderer's measured interval. Generated
 native, managed, and absolute-difference images are written under
 `artifacts/progpu-native/differential/`.
 
+Use `--geometry-polylines`, `--geometry-splines`, or `--geometry-dashes` for
+the connected-stroke lanes. Geometry benchmarks publish a stable native
+content revision, so timed replay reuses compiled CPU vectors and the prior GPU
+vertex/index/brush upload exactly as the managed retained scene does.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -106,16 +111,23 @@ Current native parity:
 - flat, square, round, and triangle start/end caps for lines and Bezier curves;
   hairline/fixed caps expand after the full affine transform, while ordinary
   non-conformal caps transform their complete local outlines;
+- connected open/closed polyline and adaptive rational-spline strokes with all
+  transform modes, caps, joins, and reusable odd/even dash styles;
+- one affine analytic WebGPU quad for every positive-width round cap, including
+  anisotropic/sheared ordinary strokes;
+- explicit retained geometry revisions that reuse compiled CPU payloads and
+  skip unchanged GPU vertex/index/brush uploads while still encoding and
+  submitting the current target pass;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
   lazily initialized reusable resources, and no per-primitive WebGPU resource
   allocation;
 - reusable uniform/vertex resources with geometric buffer growth;
-- headless hardware-WebGPU image verification.
+- headless hardware-WebGPU image verification;
 - a typed zero-copy .NET host sharing device, queue, and render target;
-- an interactive desktop page cycling reusable 1–4,096 rectangle, mixed
-  analytic, mixed geometry, and mixed GPU Bezier batches;
+- an interactive desktop page cycling reusable 1–4,096 rectangle, analytic,
+  geometry, GPU Bezier, connected polyline, dashed, and rational-spline batches;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in

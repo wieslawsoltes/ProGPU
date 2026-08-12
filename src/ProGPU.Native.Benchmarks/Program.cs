@@ -22,6 +22,18 @@ bool synchronizeEachFrame = Array.Exists(
         value,
         "--sync",
         StringComparison.OrdinalIgnoreCase));
+bool groupMeasurements = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--grouped",
+        StringComparison.OrdinalIgnoreCase));
+bool managedGroupFirst = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--managed-first",
+        StringComparison.OrdinalIgnoreCase));
 bool useAnalyticScene = Array.Exists(
     args,
     static value => string.Equals(
@@ -52,8 +64,14 @@ bool useSplineGeometryScene = Array.Exists(
         value,
         "--geometry-splines",
         StringComparison.OrdinalIgnoreCase));
+bool useDashedGeometryScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--geometry-dashes",
+        StringComparison.OrdinalIgnoreCase));
 useGeometryScene |= useCurveGeometryScene || usePolylineGeometryScene ||
-    useSplineGeometryScene;
+    useSplineGeometryScene || useDashedGeometryScene;
 bool writeImages = Array.Exists(
     args,
     static value => string.Equals(
@@ -80,6 +98,7 @@ NativeAnalyticPrimitive[] analyticPrimitives = useAnalyticScene
     : [];
 NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
     && !usePolylineGeometryScene
+    && !useDashedGeometryScene
     && !useSplineGeometryScene
     ? CreateGeometryPrimitives(
         rectangleCount,
@@ -94,8 +113,18 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
 (Vector2[] geometryPoints,
  NativePolyline[] geometryPolylines,
  double[] geometryDoubles,
+ NativeDashStyle[] geometryDashStyles,
  NativeSpline[] geometrySplines) =
-    useSplineGeometryScene
+    useDashedGeometryScene
+        ? CreateDashedPolylines(
+            rectangleCount,
+            geometryLineMode,
+            geometryStartCap,
+            geometryEndCap,
+            geometryJoin,
+            logicalWidth,
+            logicalHeight)
+        : useSplineGeometryScene
         ? CreateSplines(
             rectangleCount,
             geometryLineMode,
@@ -113,7 +142,7 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
             geometryJoin,
             logicalWidth,
             logicalHeight)
-        : ([], [], [], []);
+        : ([], [], [], [], []);
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
 uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
@@ -140,6 +169,7 @@ DrawingVisual managedVisual = useGeometryScene
         geometryPoints,
         geometryPolylines,
         geometryDoubles,
+        geometryDashStyles,
         geometrySplines,
         logicalWidth,
         logicalHeight)
@@ -165,22 +195,24 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
+    string imageStem = useDashedGeometryScene ? "dashes" : "latest";
     WritePpm(
-        "artifacts/progpu-native/differential/native.ppm",
+        $"artifacts/progpu-native/differential/{imageStem}-native.ppm",
         nativePixels,
         width,
         height);
     WritePpm(
-        "artifacts/progpu-native/differential/managed.ppm",
+        $"artifacts/progpu-native/differential/{imageStem}-managed.ppm",
         managedPixels,
         width,
         height);
     WriteDifferencePpm(
-        "artifacts/progpu-native/differential/difference.ppm",
+        $"artifacts/progpu-native/differential/{imageStem}-difference-64x.ppm",
         nativePixels,
         managedPixels,
         width,
-        height);
+        height,
+        amplification: 64);
 }
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
 bool requiresExactPixels = !useAnalyticScene && !useGeometryScene && dpiScale == 1f;
@@ -193,7 +225,7 @@ int maximumAllowedDifference = requiresExactPixels
     : usesGeometryDifferential ? 204 : usesTightDifferential ? 3 : 96;
 int maximumAllowedPixelsOverTolerance =
     usesGeometryDifferential
-        ? useSplineGeometryScene
+        ? useSplineGeometryScene || useDashedGeometryScene
             ? Math.Max(1, rectangleCount / 32)
             : 1
         : requiresExactPixels || usesTightDifferential
@@ -201,6 +233,10 @@ int maximumAllowedPixelsOverTolerance =
         : comparison.PixelCount / 40;
 double maximumAllowedMeanAbsoluteDifference = requiresExactPixels
     ? 0.0
+    // The independently expanded paths can differ by one byte on shared AA
+    // edge ties. Keep the aggregate budget below 0.004/255 per channel while
+    // retaining the stricter high-difference pixel limit above.
+    : useDashedGeometryScene ? 0.004
     : usesGeometryDifferential || usesTightDifferential ? 0.001 : 0.15;
 if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
     comparison.PixelsOverTolerance > maximumAllowedPixelsOverTolerance ||
@@ -243,21 +279,63 @@ var managedTimes = new double[iterationCount];
 long nativeAllocationStart = GC.GetAllocatedBytesForCurrentThread();
 long nativeAllocatedBytes = 0;
 long managedAllocatedBytes = 0;
-for (int index = 0; index < iterationCount; index++)
+if (groupMeasurements)
 {
-    if ((index & 1) == 0)
+    void MeasureNativeGroup()
     {
-        nativeTimes[index] = MeasureNative(out long allocated);
-        nativeAllocatedBytes += allocated;
-        managedTimes[index] = MeasureManaged(out allocated);
-        managedAllocatedBytes += allocated;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        for (int index = 0; index < iterationCount; index++)
+        {
+            nativeTimes[index] = MeasureNative(out long allocated);
+            nativeAllocatedBytes += allocated;
+        }
+    }
+
+    void MeasureManagedGroup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        for (int index = 0; index < iterationCount; index++)
+        {
+            managedTimes[index] = MeasureManaged(out long allocated);
+            managedAllocatedBytes += allocated;
+        }
+    }
+
+    if (managedGroupFirst)
+    {
+        MeasureManagedGroup();
+        context.PollDevice(wait: true);
+        MeasureNativeGroup();
     }
     else
     {
-        managedTimes[index] = MeasureManaged(out long allocated);
-        managedAllocatedBytes += allocated;
-        nativeTimes[index] = MeasureNative(out allocated);
-        nativeAllocatedBytes += allocated;
+        MeasureNativeGroup();
+        context.PollDevice(wait: true);
+        MeasureManagedGroup();
+    }
+}
+else
+{
+    for (int index = 0; index < iterationCount; index++)
+    {
+        if ((index & 1) == 0)
+        {
+            nativeTimes[index] = MeasureNative(out long allocated);
+            nativeAllocatedBytes += allocated;
+            managedTimes[index] = MeasureManaged(out allocated);
+            managedAllocatedBytes += allocated;
+        }
+        else
+        {
+            managedTimes[index] = MeasureManaged(out long allocated);
+            managedAllocatedBytes += allocated;
+            nativeTimes[index] = MeasureNative(out allocated);
+            nativeAllocatedBytes += allocated;
+        }
     }
 }
 context.PollDevice(wait: true);
@@ -275,7 +353,9 @@ var report = new BenchmarkReport(
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
     Scene: useGeometryScene
-        ? useSplineGeometryScene
+        ? useDashedGeometryScene
+            ? "IndexedGeometryDashes"
+            : useSplineGeometryScene
             ? "IndexedGeometrySplines"
             : usePolylineGeometryScene
             ? "IndexedGeometryPolylines"
@@ -295,6 +375,9 @@ var report = new BenchmarkReport(
     WarmupIterations: warmupCount,
     MeasuredIterations: iterationCount,
     SynchronizeEachFrame: synchronizeEachFrame,
+    MeasurementOrder: groupMeasurements
+        ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
+        : "Alternating",
     Native: nativeSummary,
     Managed: managedSummary,
     NativeToManagedP95Ratio: managedSummary.P95Milliseconds == 0
@@ -326,7 +409,21 @@ ulong RenderNative(bool capturePayloadHash = false)
                 geometryDoubles,
                 geometrySplines,
                 clearColor,
-                capturePayloadHash)
+                capturePayloadHash,
+                contentRevision: 1U)
+            : useDashedGeometryScene
+            ? native.RenderGeometry(
+                nativeTarget,
+                dpiScale,
+                geometryPrimitives,
+                geometryPoints,
+                geometryPolylines,
+                geometryDoubles,
+                geometryDashStyles,
+                geometrySplines,
+                clearColor,
+                capturePayloadHash,
+                contentRevision: 1U)
             : usePolylineGeometryScene
             ? native.RenderGeometry(
                 nativeTarget,
@@ -335,13 +432,15 @@ ulong RenderNative(bool capturePayloadHash = false)
                 geometryPoints,
                 geometryPolylines,
                 clearColor,
-                capturePayloadHash)
+                capturePayloadHash,
+                contentRevision: 1U)
             : native.RenderGeometry(
                 nativeTarget,
                 dpiScale,
                 geometryPrimitives,
                 clearColor,
-                capturePayloadHash);
+                capturePayloadHash,
+                contentRevision: 1U);
         nativeVertexCount = metrics.VertexCount;
         nativeIndexCount = metrics.IndexCount;
         return metrics.PayloadHash;
@@ -378,7 +477,7 @@ void RenderManaged()
     if (useGeometryScene)
     {
         managedVertexCount = managed.Metrics.VectorVerticesCount;
-        managedIndexCount = managed.VectorIndexCount;
+        managedIndexCount = managed.Metrics.VectorIndicesCount;
     }
 }
 
@@ -790,6 +889,58 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
 static (Vector2[] Points,
         NativePolyline[] Polylines,
         double[] Doubles,
+        NativeDashStyle[] DashStyles,
+        NativeSpline[] Splines) CreateDashedPolylines(
+    int count,
+    int forcedLineMode,
+    int forcedStartCap,
+    int forcedEndCap,
+    int forcedJoin,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var scene = CreatePolylines(
+        count,
+        forcedLineMode is >= 0 and <= 2 ? forcedLineMode : 2,
+        forcedStartCap,
+        forcedEndCap,
+        forcedJoin,
+        logicalWidth,
+        logicalHeight);
+    var polylines = scene.Polylines;
+    for (int index = 0; index < polylines.Length; index++)
+    {
+        NativePolyline source = polylines[index];
+        polylines[index] = new NativePolyline(
+            source.PointOffset,
+            source.PointCount,
+            source.Color,
+            source.Transform,
+            source.StrokeThickness,
+            source.MiterLimit,
+            source.Flags,
+            source.StartCap,
+            source.EndCap,
+            source.LineJoin,
+            source.IsClosed,
+            dashStyle: 1);
+    }
+    double[] intervals = [1.75, 0.9, 0.45];
+    NativeDashStyle[] styles =
+    [
+        new NativeDashStyle(
+            0,
+            (nuint)intervals.Length,
+            -0.35,
+            NativeStrokeCap.Round)
+    ];
+    return (scene.Points, polylines, intervals, styles, []);
+}
+
+static (Vector2[] Points,
+        NativePolyline[] Polylines,
+        double[] Doubles,
+        NativeDashStyle[] DashStyles,
         NativeSpline[] Splines) CreatePolylines(
     int count,
     int forcedLineMode,
@@ -873,7 +1024,7 @@ static (Vector2[] Points,
             lineJoin: join,
             isClosed: index % 4 == 3);
     }
-    return (points, polylines, [], []);
+    return (points, polylines, [], [], []);
 
     static float Wave(float phase) =>
         0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
@@ -882,6 +1033,7 @@ static (Vector2[] Points,
 static (Vector2[] Points,
         NativePolyline[] Polylines,
         double[] Doubles,
+        NativeDashStyle[] DashStyles,
         NativeSpline[] Splines) CreateSplines(
     int count,
     int forcedLineMode,
@@ -986,7 +1138,7 @@ static (Vector2[] Points,
             weightOffset: (nuint)(doubleOffset + knotsPerSpline),
             weightCount: weightsPerSpline);
     }
-    return (points, [], doubles, splines);
+    return (points, [], doubles, [], splines);
 
     static float Wave(float phase) =>
         0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
@@ -997,6 +1149,7 @@ static DrawingVisual CreateManagedGeometryVisual(
     ReadOnlySpan<Vector2> points,
     ReadOnlySpan<NativePolyline> polylines,
     ReadOnlySpan<double> doubles,
+    ReadOnlySpan<NativeDashStyle> dashStyles,
     ReadOnlySpan<NativeSpline> splines,
     float logicalWidth,
     float logicalHeight)
@@ -1114,6 +1267,19 @@ static DrawingVisual CreateManagedGeometryVisual(
         float thickness = (polyline.Flags & NativePolylineFlags.Hairline) != 0
             ? Pen.HairlineThickness
             : polyline.StrokeThickness;
+        double[]? dashArray = null;
+        double dashOffset = 0.0;
+        PenLineCap dashCap = PenLineCap.Flat;
+        if (polyline.DashStyle != 0U)
+        {
+            NativeDashStyle dash = dashStyles[
+                checked((int)polyline.DashStyle - 1)];
+            dashArray = doubles.Slice(
+                checked((int)dash.IntervalOffset),
+                checked((int)dash.IntervalCount)).ToArray();
+            dashOffset = dash.Offset;
+            dashCap = ToPenLineCap(dash.Cap);
+        }
         visual.Context.DrawPolyline(
             new Pen(
                 brush,
@@ -1122,6 +1288,9 @@ static DrawingVisual CreateManagedGeometryVisual(
                 miterLimit: polyline.MiterLimit,
                 startLineCap: ToPenLineCap(polyline.StartCap),
                 endLineCap: ToPenLineCap(polyline.EndCap),
+                dashCap: dashCap,
+                dashArray: dashArray,
+                dashOffset: dashOffset,
                 strokeTransformMode: mode),
             points.Slice(offset, count),
             polyline.IsClosed);
@@ -1153,6 +1322,19 @@ static DrawingVisual CreateManagedGeometryVisual(
         float thickness = (stroke.Flags & NativePolylineFlags.Hairline) != 0
             ? Pen.HairlineThickness
             : stroke.StrokeThickness;
+        double[]? dashArray = null;
+        double dashOffset = 0.0;
+        PenLineCap dashCap = PenLineCap.Flat;
+        if (stroke.DashStyle != 0U)
+        {
+            NativeDashStyle dash = dashStyles[
+                checked((int)stroke.DashStyle - 1)];
+            dashArray = doubles.Slice(
+                checked((int)dash.IntervalOffset),
+                checked((int)dash.IntervalCount)).ToArray();
+            dashOffset = dash.Offset;
+            dashCap = ToPenLineCap(dash.Cap);
+        }
         visual.Context.DrawSpline(
             new Pen(
                 brush,
@@ -1161,6 +1343,9 @@ static DrawingVisual CreateManagedGeometryVisual(
                 miterLimit: stroke.MiterLimit,
                 startLineCap: ToPenLineCap(stroke.StartCap),
                 endLineCap: ToPenLineCap(stroke.EndCap),
+                dashCap: dashCap,
+                dashArray: dashArray,
+                dashOffset: dashOffset,
                 strokeTransformMode: mode),
             points.Slice(pointOffset, pointCount),
             doubles.Slice(knotOffset, knotCount),
@@ -1262,7 +1447,8 @@ static void WriteDifferencePpm(
     ReadOnlySpan<byte> left,
     ReadOnlySpan<byte> right,
     uint imageWidth,
-    uint imageHeight)
+    uint imageHeight,
+    int amplification)
 {
     using var stream = File.Create(path);
     using var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, leaveOpen: true);
@@ -1270,9 +1456,15 @@ static void WriteDifferencePpm(
         $"P6\n{imageWidth} {imageHeight}\n255\n"));
     for (int offset = 0; offset < left.Length; offset += 4)
     {
-        writer.Write((byte)Math.Abs(left[offset] - right[offset]));
-        writer.Write((byte)Math.Abs(left[offset + 1] - right[offset + 1]));
-        writer.Write((byte)Math.Abs(left[offset + 2] - right[offset + 2]));
+        writer.Write((byte)Math.Min(
+            byte.MaxValue,
+            Math.Abs(left[offset] - right[offset]) * amplification));
+        writer.Write((byte)Math.Min(
+            byte.MaxValue,
+            Math.Abs(left[offset + 1] - right[offset + 1]) * amplification));
+        writer.Write((byte)Math.Min(
+            byte.MaxValue,
+            Math.Abs(left[offset + 2] - right[offset + 2]) * amplification));
     }
 }
 
@@ -1310,6 +1502,7 @@ internal sealed record BenchmarkReport(
     int WarmupIterations,
     int MeasuredIterations,
     bool SynchronizeEachFrame,
+    string MeasurementOrder,
     TimingSummary Native,
     TimingSummary Managed,
     double NativeToManagedP95Ratio,

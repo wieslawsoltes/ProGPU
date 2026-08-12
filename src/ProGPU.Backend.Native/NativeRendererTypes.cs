@@ -98,7 +98,9 @@ public enum NativeRendererCapabilities : ulong
     BezierStrokes = 1UL << 7,
     StrokeCaps = 1UL << 8,
     ConnectedStrokes = 1UL << 9,
-    SplineStrokes = 1UL << 10
+    SplineStrokes = 1UL << 10,
+    DashedStrokes = 1UL << 11,
+    RetainedGeometryReplay = 1UL << 12
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -232,7 +234,8 @@ public readonly struct NativePolyline
         NativeStrokeCap startCap = NativeStrokeCap.Flat,
         NativeStrokeCap endCap = NativeStrokeCap.Flat,
         NativeStrokeJoin lineJoin = NativeStrokeJoin.Miter,
-        bool isClosed = false)
+        bool isClosed = false,
+        uint dashStyle = 0)
     {
         if ((uint)startCap > (uint)NativeStrokeCap.Triangle)
             throw new ArgumentOutOfRangeException(nameof(startCap));
@@ -258,7 +261,7 @@ public readonly struct NativePolyline
             (NativePolylineFlags)((uint)endCap << 5) |
             (NativePolylineFlags)((uint)lineJoin << 7) |
             (isClosed ? NativePolylineFlags.Closed : 0);
-        Reserved = 0U;
+        DashStyle = dashStyle;
     }
 
     public readonly nuint PointOffset;
@@ -268,7 +271,7 @@ public readonly struct NativePolyline
     public readonly float StrokeThickness;
     public readonly float MiterLimit;
     public readonly NativePolylineFlags Flags;
-    private readonly uint Reserved;
+    public readonly uint DashStyle;
 
     public NativeStrokeCap StartCap =>
         (NativeStrokeCap)(((uint)Flags >> 3) & 3U);
@@ -280,6 +283,32 @@ public readonly struct NativePolyline
         (NativeStrokeJoin)(((uint)Flags >> 7) & 3U);
 
     public bool IsClosed => (Flags & NativePolylineFlags.Closed) != 0;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeDashStyle
+{
+    public NativeDashStyle(
+        nuint intervalOffset,
+        nuint intervalCount,
+        double offset,
+        NativeStrokeCap cap = NativeStrokeCap.Flat)
+    {
+        if ((uint)cap > (uint)NativeStrokeCap.Triangle)
+            throw new ArgumentOutOfRangeException(nameof(cap));
+
+        IntervalOffset = intervalOffset;
+        IntervalCount = intervalCount;
+        Offset = offset;
+        Cap = cap;
+        Reserved = 0U;
+    }
+
+    public readonly nuint IntervalOffset;
+    public readonly nuint IntervalCount;
+    public readonly double Offset;
+    public readonly NativeStrokeCap Cap;
+    private readonly uint Reserved;
 }
 
 [StructLayout(LayoutKind.Sequential)]

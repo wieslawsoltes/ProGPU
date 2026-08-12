@@ -8,6 +8,34 @@ namespace ProGPU.Tests;
 public sealed class DashedStrokeGeometryCacheTests
 {
     [Fact]
+    public void SpanPolylineDefersSourceGraphAndRetainsItAfterFirstCompile()
+    {
+        var context = new DrawingContext();
+        var pen = CreatePen(new SolidColorBrush(Vector4.One));
+        Vector2[] points =
+        [
+            new(1f, 2f),
+            new(9f, 4f),
+            new(12f, 11f)
+        ];
+
+        context.DrawPolyline(pen, points, isClosed: true);
+
+        var command = Assert.Single(context.Commands);
+        var cache = Assert.IsType<RenderCommandGeometryCache>(command.GeometryCache);
+        Assert.Null(cache.StrokePath);
+
+        var first = cache.GetOrCreatePolylineStrokePath(points, isClosed: true);
+        var second = cache.GetOrCreatePolylineStrokePath(points, isClosed: true);
+
+        Assert.Same(first, second);
+        var figure = Assert.Single(first.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(points[0], figure.StartPoint);
+        Assert.Equal(2, figure.Segments.Count);
+    }
+
+    [Fact]
     public void ReconstructedPictureGradientPenReusesGeometryWithoutKeepingStalePaint()
     {
         var cache = CreateLineCache();

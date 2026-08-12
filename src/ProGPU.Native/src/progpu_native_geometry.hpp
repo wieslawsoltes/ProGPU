@@ -36,8 +36,14 @@ static_assert(sizeof(progpu_native_point) == 8U);
 static_assert(sizeof(progpu_native_geometry_primitive) == 88U);
 static_assert(sizeof(progpu_native_polyline) ==
     (sizeof(std::size_t) == 8U ? 72U : 64U));
+static_assert(sizeof(progpu_native_dash_style) ==
+    (sizeof(std::size_t) == 8U ? 32U : 24U));
 static_assert(sizeof(progpu_native_spline) ==
     (sizeof(std::size_t) == 8U ? 112U : 88U));
+static_assert(sizeof(progpu_native_geometry_frame) ==
+    (sizeof(std::size_t) == 8U ? 144U : 92U));
+static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
+    (sizeof(std::size_t) == 8U ? 60U : 48U));
 
 inline bool is_finite(const progpu_native_color& color) noexcept {
     return std::isfinite(color.r) &&
@@ -353,7 +359,9 @@ inline bool append_stroke_quadrilateral(
         return false;
     }
     const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
-    const auto append = [&](float x, float y) {
+    const std::size_t vertex_start = vertices.size();
+    vertices.resize(vertex_start + 4U);
+    const auto write = [&](std::size_t index, float x, float y) {
         vector_vertex vertex{};
         vertex.position[0] = x;
         vertex.position[1] = y;
@@ -369,16 +377,20 @@ inline bool append_stroke_quadrilateral(
         vertex.corner_radius = points[3].x;
         vertex.stroke_thickness = points[3].y;
         vertex.shape_type = shape_type + (aliased ? 1000.0F : 0.0F);
-        vertices.push_back(vertex);
+        vertices[vertex_start + index] = vertex;
     };
-    append(min_x, min_y);
-    append(max_x, min_y);
-    append(max_x, max_y);
-    append(min_x, max_y);
-    indices.insert(indices.end(), {
-        base, base + 1U, base + 2U,
-        base, base + 2U, base + 3U
-    });
+    write(0U, min_x, min_y);
+    write(1U, max_x, min_y);
+    write(2U, max_x, max_y);
+    write(3U, min_x, max_y);
+    const std::size_t index_start = indices.size();
+    indices.resize(index_start + 6U);
+    indices[index_start] = base;
+    indices[index_start + 1U] = base + 1U;
+    indices[index_start + 2U] = base + 2U;
+    indices[index_start + 3U] = base;
+    indices[index_start + 4U] = base + 2U;
+    indices[index_start + 5U] = base + 3U;
     return true;
 }
 
@@ -467,6 +479,75 @@ inline void classify_triangle_edges(
     }
 }
 
+// Cap meshes have fixed fan/quad topology. Deriving edge ownership from the
+// construction index avoids the quadratic approximate edge matching used by
+// arbitrary triangle sets while producing the same shader masks.
+inline void classify_cap_triangle_edges(
+    std::uint32_t cap,
+    std::size_t triangle_count,
+    std::size_t triangle_index,
+    std::uint32_t& exterior_mask,
+    std::uint32_t& owned_internal_mask) noexcept {
+    exterior_mask = 0U;
+    owned_internal_mask = 0U;
+    if (triangle_index >= triangle_count || triangle_count == 0U) {
+        return;
+    }
+    if (cap == PROGPU_NATIVE_STROKE_CAP_SQUARE && triangle_count == 2U) {
+        exterior_mask = triangle_index == 0U ? 0x3U : 0x2U;
+        owned_internal_mask = triangle_index == 0U ? 0x4U : 0U;
+        return;
+    }
+    if (cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE && triangle_count == 1U) {
+        exterior_mask = 0x3U;
+        return;
+    }
+
+    // Round caps are a center fan. Edge 1 is the curved exterior; the first
+    // edge of the first triangle and last edge of the final triangle are the
+    // stroke-body interface. Each triangle owns its following radial seam.
+    exterior_mask = 0x2U;
+    if (triangle_index + 1U < triangle_count) {
+        owned_internal_mask = 0x4U;
+    }
+}
+
+// Join meshes likewise have construction-defined topology. A single bevel
+// (or miter fallback) triangle retains the historical all-exterior mask. A
+// two-triangle miter shares its diagonal as edge 2 in both triangles. Round
+// joins are center fans whose first/last radial edges remain exterior.
+inline void classify_join_triangle_edges(
+    std::uint32_t join,
+    std::size_t triangle_count,
+    std::size_t triangle_index,
+    std::uint32_t& exterior_mask,
+    std::uint32_t& owned_internal_mask) noexcept {
+    exterior_mask = 0U;
+    owned_internal_mask = 0U;
+    if (triangle_index >= triangle_count || triangle_count == 0U) {
+        return;
+    }
+    if (triangle_count == 1U) {
+        exterior_mask = 0x7U;
+        return;
+    }
+    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER && triangle_count == 2U) {
+        exterior_mask = 0x3U;
+        owned_internal_mask = triangle_index == 0U ? 0x4U : 0U;
+        return;
+    }
+
+    exterior_mask = 0x2U;
+    if (triangle_index == 0U) {
+        exterior_mask |= 0x1U;
+    }
+    if (triangle_index + 1U == triangle_count) {
+        exterior_mask |= 0x4U;
+    } else {
+        owned_internal_mask = 0x4U;
+    }
+}
+
 inline bool append_stroke_triangle(
     const stroke_triangle& triangle,
     float brush_index,
@@ -497,7 +578,9 @@ inline bool append_stroke_triangle(
         return false;
     }
     const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
-    const auto append = [&](float x, float y) {
+    const std::size_t vertex_start = vertices.size();
+    vertices.resize(vertex_start + 4U);
+    const auto write = [&](std::size_t index, float x, float y) {
         vector_vertex vertex{};
         vertex.position[0] = x;
         vertex.position[1] = y;
@@ -513,16 +596,20 @@ inline bool append_stroke_triangle(
         vertex.corner_radius = static_cast<float>(exterior_mask);
         vertex.stroke_thickness = static_cast<float>(owned_internal_mask);
         vertex.shape_type = 13.0F + (aliased ? 1000.0F : 0.0F);
-        vertices.push_back(vertex);
+        vertices[vertex_start + index] = vertex;
     };
-    append(min_x, min_y);
-    append(max_x, min_y);
-    append(max_x, max_y);
-    append(min_x, max_y);
-    indices.insert(indices.end(), {
-        base, base + 1U, base + 2U,
-        base, base + 2U, base + 3U
-    });
+    write(0U, min_x, min_y);
+    write(1U, max_x, min_y);
+    write(2U, max_x, max_y);
+    write(3U, min_x, max_y);
+    const std::size_t index_start = indices.size();
+    indices.resize(index_start + 6U);
+    indices[index_start] = base;
+    indices[index_start + 1U] = base + 1U;
+    indices[index_start + 2U] = base + 2U;
+    indices[index_start + 3U] = base;
+    indices[index_start + 4U] = base + 2U;
+    indices[index_start + 5U] = base + 3U;
     return true;
 }
 
@@ -575,23 +662,108 @@ inline std::size_t create_cap_triangles(
         return 1U;
     }
     constexpr std::size_t segment_count = 8U;
-    const float base_angle = std::atan2(outward.y, outward.x);
-    const float start_angle = base_angle -
-        std::numbers::pi_v<float> * 0.5F;
+    constexpr std::array<float, segment_count + 1U> cosine{
+        0.0F, 0.3826834324F, 0.7071067812F, 0.9238795325F, 1.0F,
+        0.9238795325F, 0.7071067812F, 0.3826834324F, 0.0F
+    };
+    constexpr std::array<float, segment_count + 1U> sine{
+        -1.0F, -0.9238795325F, -0.7071067812F, -0.3826834324F, 0.0F,
+        0.3826834324F, 0.7071067812F, 0.9238795325F, 1.0F
+    };
+    const progpu_native_point perpendicular{-outward.y, outward.x};
+    const auto circle_point = [&](std::size_t index) {
+        return progpu_native_point{
+            center.x + (outward.x * cosine[index] +
+                perpendicular.x * sine[index]) * radius,
+            center.y + (outward.y * cosine[index] +
+                perpendicular.y * sine[index]) * radius
+        };
+    };
     for (std::size_t index = 0U; index < segment_count; ++index) {
-        const float angle0 = start_angle + std::numbers::pi_v<float> *
-            static_cast<float>(index) / static_cast<float>(segment_count);
-        const float angle1 = start_angle + std::numbers::pi_v<float> *
-            static_cast<float>(index + 1U) / static_cast<float>(segment_count);
         triangles[index] = {
             center,
-            {center.x + std::cos(angle0) * radius,
-                center.y + std::sin(angle0) * radius},
-            {center.x + std::cos(angle1) * radius,
-                center.y + std::sin(angle1) * radius}
+            circle_point(index),
+            circle_point(index + 1U)
         };
     }
     return segment_count;
+}
+
+inline bool append_affine_round_cap(
+    float thickness,
+    const progpu_native_point& center,
+    progpu_native_point direction,
+    bool is_start,
+    const progpu_native_affine_2d* outline_transform,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    if (!try_normalize(direction, {}, direction) ||
+        !std::isfinite(thickness) || thickness <= 0.0001F) {
+        return true;
+    }
+    const progpu_native_point outward{
+        is_start ? -direction.x : direction.x,
+        is_start ? -direction.y : direction.y
+    };
+    const progpu_native_point normal{-outward.y, outward.x};
+    float local_padding = 1.5F;
+    if (outline_transform != nullptr) {
+        float maximum_scale = 0.0F;
+        float minimum_scale = 0.0F;
+        if (!try_get_stroke_scales(
+                *outline_transform,
+                maximum_scale,
+                minimum_scale)) {
+            return false;
+        }
+        local_padding /= minimum_scale;
+    }
+    const float radius = thickness * 0.5F;
+    const float minimum_x = -local_padding;
+    const float maximum_x = radius + local_padding;
+    const float minimum_y = -radius - local_padding;
+    const float maximum_y = radius + local_padding;
+    const progpu_native_point coordinates[4] = {
+        {minimum_x, minimum_y},
+        {maximum_x, minimum_y},
+        {maximum_x, maximum_y},
+        {minimum_x, maximum_y}
+    };
+    const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
+    const std::size_t vertex_start = vertices.size();
+    vertices.resize(vertex_start + 4U);
+    for (std::size_t index = 0U; index < 4U; ++index) {
+        const auto coordinate = coordinates[index];
+        progpu_native_point position{
+            center.x + outward.x * coordinate.x + normal.x * coordinate.y,
+            center.y + outward.y * coordinate.x + normal.y * coordinate.y
+        };
+        if (outline_transform != nullptr) {
+            position = transformed_point(*outline_transform, position);
+        }
+        vector_vertex vertex{};
+        vertex.position[0] = position.x;
+        vertex.position[1] = position.y;
+        vertex.texture_coordinate[0] = coordinate.x;
+        vertex.texture_coordinate[1] = coordinate.y;
+        vertex.brush_index = brush_index;
+        vertex.shape_size[0] = thickness;
+        vertex.corner_radius =
+            static_cast<float>(PROGPU_NATIVE_STROKE_CAP_ROUND);
+        vertex.shape_type = 24.0F + (aliased ? 1000.0F : 0.0F);
+        vertices[vertex_start + index] = vertex;
+    }
+    const std::size_t index_start = indices.size();
+    indices.resize(index_start + 6U);
+    indices[index_start] = base;
+    indices[index_start + 1U] = base + 1U;
+    indices[index_start + 2U] = base + 2U;
+    indices[index_start + 3U] = base;
+    indices[index_start + 4U] = base + 2U;
+    indices[index_start + 5U] = base + 3U;
+    return true;
 }
 
 inline bool append_cpu_cap(
@@ -605,6 +777,18 @@ inline bool append_cpu_cap(
     bool aliased,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices) {
+    if (cap == PROGPU_NATIVE_STROKE_CAP_ROUND) {
+        return append_affine_round_cap(
+            thickness,
+            center,
+            direction,
+            is_start,
+            outline_transform,
+            brush_index,
+            aliased,
+            vertices,
+            indices);
+    }
     std::array<stroke_triangle, 8U> triangles{};
     const std::size_t count = create_cap_triangles(
         triangles,
@@ -613,21 +797,16 @@ inline bool append_cpu_cap(
         center,
         direction,
         is_start);
-    progpu_native_point normalized_direction{};
-    if (count == 0U ||
-        !try_normalize(direction, {}, normalized_direction)) {
+    if (count == 0U) {
         return true;
     }
     for (std::size_t index = 0U; index < count; ++index) {
         std::uint32_t exterior_mask = 0U;
         std::uint32_t owned_internal_mask = 0U;
-        classify_triangle_edges(
-            triangles.data(),
+        classify_cap_triangle_edges(
+            cap,
             count,
             index,
-            true,
-            center,
-            normalized_direction,
             exterior_mask,
             owned_internal_mask);
         stroke_triangle output = triangles[index];
@@ -1448,13 +1627,10 @@ inline bool append_cpu_join(
     for (std::size_t index = 0U; index < count; ++index) {
         std::uint32_t exterior_mask = 0U;
         std::uint32_t owned_internal_mask = 0U;
-        classify_triangle_edges(
-            triangles.data(),
+        classify_join_triangle_edges(
+            join,
             count,
             index,
-            false,
-            {},
-            {},
             exterior_mask,
             owned_internal_mask);
         stroke_triangle output = triangles[index];
@@ -1625,6 +1801,291 @@ inline bool append_connected_line_body(
     return true;
 }
 
+struct dash_pattern_state {
+    const double* intervals = nullptr;
+    std::size_t source_count = 0U;
+    std::size_t effective_count = 0U;
+    std::size_t index = 0U;
+    float distance = 0.0F;
+    float thickness = 0.0F;
+    std::uint32_t cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+};
+
+inline float resolved_dash_interval(
+    const dash_pattern_state& pattern,
+    std::size_t index) noexcept {
+    constexpr float epsilon = 0.0001F;
+    const double scaled =
+        pattern.intervals[index % pattern.source_count] * pattern.thickness;
+    if (!std::isfinite(scaled) || scaled < 0.0) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const float interval = static_cast<float>(scaled);
+    return interval <= epsilon
+        ? std::max(epsilon * 2.0F, pattern.thickness * 0.001F)
+        : interval;
+}
+
+inline bool try_create_dash_pattern(
+    const progpu_native_polyline& polyline,
+    const progpu_native_dash_style* styles,
+    std::size_t style_count,
+    const double* doubles,
+    std::size_t double_count,
+    dash_pattern_state& pattern) noexcept {
+    constexpr float epsilon = 0.0001F;
+    pattern = {};
+    if (polyline.dash_style == 0U) {
+        return false;
+    }
+    const std::size_t style_index =
+        static_cast<std::size_t>(polyline.dash_style - 1U);
+    if (styles == nullptr || style_index >= style_count || doubles == nullptr) {
+        return false;
+    }
+    const auto& style = styles[style_index];
+    if (style.interval_count == 0U ||
+        style.interval_offset > double_count ||
+        style.interval_count > double_count - style.interval_offset ||
+        style.interval_count > std::numeric_limits<std::size_t>::max() / 2U ||
+        !std::isfinite(style.offset) ||
+        style.cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
+        style.reserved != 0U) {
+        return false;
+    }
+    const bool hairline =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE) != 0U;
+    const float thickness = hairline ? 1.0F : polyline.stroke_thickness;
+    if (!std::isfinite(thickness) || thickness <= 0.0F) {
+        return false;
+    }
+    pattern.intervals = doubles + style.interval_offset;
+    pattern.source_count = style.interval_count;
+    pattern.effective_count = (style.interval_count & 1U) == 0U
+        ? style.interval_count
+        : style.interval_count * 2U;
+    pattern.thickness = thickness;
+    pattern.cap = style.cap;
+    float pattern_length = 0.0F;
+    for (std::size_t index = 0U; index < pattern.effective_count; ++index) {
+        const float interval = resolved_dash_interval(pattern, index);
+        if (!std::isfinite(interval) || interval <= epsilon ||
+            pattern_length > std::numeric_limits<float>::max() - interval) {
+            return false;
+        }
+        pattern_length += interval;
+    }
+    const double scaled_offset = style.offset * thickness;
+    if (!std::isfinite(scaled_offset) ||
+        !std::isfinite(pattern_length) || pattern_length <= epsilon) {
+        return false;
+    }
+    float distance = std::fmod(
+        static_cast<float>(scaled_offset),
+        pattern_length);
+    if (!std::isfinite(distance)) {
+        return false;
+    }
+    if (distance < 0.0F) {
+        distance += pattern_length;
+    }
+    while (distance >= resolved_dash_interval(pattern, pattern.index)) {
+        distance -= resolved_dash_interval(pattern, pattern.index);
+        pattern.index = (pattern.index + 1U) % pattern.effective_count;
+    }
+    pattern.distance = distance;
+    return true;
+}
+
+inline void advance_dash_pattern(
+    dash_pattern_state& pattern,
+    float remaining,
+    float step) noexcept {
+    constexpr float epsilon = 0.0001F;
+    if (step >= remaining - epsilon) {
+        pattern.distance = 0.0F;
+        pattern.index = (pattern.index + 1U) % pattern.effective_count;
+    } else {
+        pattern.distance += step;
+    }
+}
+
+template <typename Body, typename Cap, typename Join>
+inline bool walk_dashed_polyline(
+    const progpu_native_polyline& polyline,
+    const progpu_native_point* points,
+    dash_pattern_state pattern,
+    Body&& append_body,
+    Cap&& append_cap,
+    Join&& append_join) {
+    constexpr float epsilon = 0.0001F;
+    const bool closed =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U;
+    const bool device_space =
+        (polyline.flags & (PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
+            PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE)) != 0U;
+    const std::size_t segment_count = closed
+        ? polyline.point_count
+        : polyline.point_count - 1U;
+    const auto point_at = [&](std::size_t index) {
+        return device_space
+            ? transformed_point(polyline.transform, points[index])
+            : points[index];
+    };
+
+    bool first_visible = false;
+    bool last_visible = false;
+    bool continuing_run = false;
+    bool have_first_direction = false;
+    bool have_previous_direction = false;
+    progpu_native_point first_direction{};
+    progpu_native_point previous_direction{};
+    progpu_native_point first_visible_direction{};
+    progpu_native_point last_visible_direction{};
+    progpu_native_point first_visible_point{};
+    progpu_native_point last_visible_point{};
+
+    for (std::size_t segment = 0U; segment < segment_count; ++segment) {
+        const std::size_t next = (segment + 1U) % polyline.point_count;
+        const progpu_native_point start = point_at(segment);
+        const progpu_native_point end = point_at(next);
+        const progpu_native_point delta{end.x - start.x, end.y - start.y};
+        const float length = std::hypot(delta.x, delta.y);
+        if (!std::isfinite(length)) {
+            return false;
+        }
+        if (length <= epsilon) {
+            continue;
+        }
+        const progpu_native_point direction{
+            delta.x / length,
+            delta.y / length
+        };
+        if (!have_first_direction) {
+            first_direction = direction;
+            have_first_direction = true;
+        }
+        if (continuing_run && have_previous_direction) {
+            if (!append_join(start, previous_direction, direction)) {
+                return false;
+            }
+        }
+
+        float distance = 0.0F;
+        bool segment_ends_visible = false;
+        bool segment_continues = false;
+        while (distance < length - epsilon) {
+            const float interval = resolved_dash_interval(pattern, pattern.index);
+            if (!std::isfinite(interval) || interval <= epsilon) {
+                return false;
+            }
+            const float remaining = interval - pattern.distance;
+            const float step = std::min(remaining, length - distance);
+            const bool on = (pattern.index & 1U) == 0U;
+            const bool at_segment_start = distance <= epsilon;
+            const bool at_segment_end = distance + step >= length - epsilon;
+            const bool pattern_ends = step >= remaining - epsilon;
+            if (on && step > epsilon) {
+                const progpu_native_point body_start{
+                    start.x + direction.x * distance,
+                    start.y + direction.y * distance
+                };
+                const progpu_native_point body_end{
+                    start.x + direction.x * (distance + step),
+                    start.y + direction.y * (distance + step)
+                };
+                if (!append_body(body_start, body_end)) {
+                    return false;
+                }
+                const bool starts_new_run =
+                    !(continuing_run && at_segment_start);
+                if (starts_new_run) {
+                    const bool source_start = !closed && segment == 0U &&
+                        at_segment_start;
+                    const std::uint32_t cap = source_start
+                        ? (polyline.flags & PROGPU_NATIVE_POLYLINE_START_CAP_MASK) >>
+                            PROGPU_NATIVE_POLYLINE_START_CAP_SHIFT
+                        : pattern.cap;
+                    if (closed && segment == 0U && at_segment_start) {
+                        first_visible = true;
+                        first_visible_point = body_start;
+                        first_visible_direction = direction;
+                    } else if (!append_cap(
+                            cap,
+                            body_start,
+                            direction,
+                            true)) {
+                        return false;
+                    }
+                }
+
+                const bool source_end = !closed &&
+                    segment + 1U == segment_count && at_segment_end;
+                if (source_end) {
+                    const std::uint32_t cap =
+                        (polyline.flags & PROGPU_NATIVE_POLYLINE_END_CAP_MASK) >>
+                        PROGPU_NATIVE_POLYLINE_END_CAP_SHIFT;
+                    if (!append_cap(cap, body_end, direction, false)) {
+                        return false;
+                    }
+                } else if (closed && segment + 1U == segment_count &&
+                    at_segment_end) {
+                    last_visible = true;
+                    last_visible_point = body_end;
+                    last_visible_direction = direction;
+                } else if (pattern_ends) {
+                    if (!append_cap(
+                            pattern.cap,
+                            body_end,
+                            direction,
+                            false)) {
+                        return false;
+                    }
+                }
+                segment_ends_visible = at_segment_end;
+                segment_continues = at_segment_end && !pattern_ends &&
+                    !source_end;
+            } else if (at_segment_end) {
+                segment_ends_visible = false;
+                segment_continues = false;
+            }
+            advance_dash_pattern(pattern, remaining, step);
+            distance += step;
+        }
+        continuing_run = segment_ends_visible && segment_continues;
+        previous_direction = direction;
+        have_previous_direction = true;
+    }
+
+    if (closed) {
+        if (first_visible && last_visible && have_first_direction &&
+            have_previous_direction) {
+            if (!append_join(
+                    first_visible_point,
+                    last_visible_direction,
+                    first_visible_direction)) {
+                return false;
+            }
+        } else {
+            if (first_visible && !append_cap(
+                    pattern.cap,
+                    first_visible_point,
+                    first_visible_direction,
+                    true)) {
+                return false;
+            }
+            if (last_visible && !append_cap(
+                    pattern.cap,
+                    last_visible_point,
+                    last_visible_direction,
+                    false)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 inline bool polyline_capacity(
     const progpu_native_polyline& polyline,
     std::size_t& vertex_count,
@@ -1657,12 +2118,82 @@ inline bool polyline_capacity(
     return true;
 }
 
+inline bool polyline_capacity(
+    const progpu_native_polyline& polyline,
+    const progpu_native_point* points,
+    const progpu_native_dash_style* dash_styles,
+    std::size_t dash_style_count,
+    const double* doubles,
+    std::size_t double_count,
+    std::size_t& vertex_count,
+    std::size_t& index_count) {
+    if (polyline.dash_style == 0U) {
+        return polyline_capacity(polyline, vertex_count, index_count);
+    }
+    if (points == nullptr) {
+        return false;
+    }
+    dash_pattern_state pattern{};
+    if (!try_create_dash_pattern(
+            polyline,
+            dash_styles,
+            dash_style_count,
+            doubles,
+            double_count,
+            pattern)) {
+        return false;
+    }
+    vertex_count = 0U;
+    index_count = 0U;
+    bool valid = true;
+    const auto add = [&](std::size_t vertices_to_add,
+                         std::size_t indices_to_add) {
+        if (vertex_count > std::numeric_limits<std::size_t>::max() -
+                vertices_to_add ||
+            index_count > std::numeric_limits<std::size_t>::max() -
+                indices_to_add) {
+            valid = false;
+            return false;
+        }
+        vertex_count += vertices_to_add;
+        index_count += indices_to_add;
+        return true;
+    };
+    const auto body = [&](const progpu_native_point&,
+                          const progpu_native_point&) {
+        return add(4U, 6U);
+    };
+    const auto cap = [&](std::uint32_t cap_kind,
+                         const progpu_native_point&,
+                         const progpu_native_point&,
+                         bool) {
+        return cap_kind == PROGPU_NATIVE_STROKE_CAP_FLAT || add(32U, 48U);
+    };
+    const auto join = [&](const progpu_native_point&,
+                          const progpu_native_point&,
+                          const progpu_native_point&) {
+        return add(32U, 48U);
+    };
+    return walk_dashed_polyline(
+        polyline,
+        points,
+        pattern,
+        body,
+        cap,
+        join) && valid;
+}
+
 inline bool append_polyline(
     const progpu_native_polyline& polyline,
     const progpu_native_point* points,
     float brush_index,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    const progpu_native_dash_style* dash_styles = nullptr,
+    std::size_t dash_style_count = 0U,
+    const double* doubles = nullptr,
+    std::size_t double_count = 0U,
+    bool capacity_prevalidated = false) {
     constexpr std::uint32_t all_flags =
         PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
         PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
@@ -1685,7 +2216,6 @@ inline bool append_polyline(
         (closed && polyline.point_count < 3U) ||
         (polyline.flags & ~all_flags) != 0U ||
         join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
-        polyline.reserved != 0U ||
         !is_finite(polyline.color) || !is_finite(polyline.transform) ||
         !std::isfinite(polyline.stroke_thickness) ||
         !std::isfinite(polyline.miter_limit) ||
@@ -1702,7 +2232,15 @@ inline bool append_polyline(
 
     std::size_t capacity_vertices = 0U;
     std::size_t capacity_indices = 0U;
-    if (!polyline_capacity(polyline, capacity_vertices, capacity_indices) ||
+    if ((!capacity_prevalidated && !polyline_capacity(
+            polyline,
+            points,
+            dash_styles,
+            dash_style_count,
+            doubles,
+            double_count,
+            capacity_vertices,
+            capacity_indices)) ||
         vertices.size() > std::numeric_limits<std::uint32_t>::max() -
             capacity_vertices ||
         vertices.size() > std::numeric_limits<std::size_t>::max() -
@@ -1755,6 +2293,138 @@ inline bool append_polyline(
         indices.resize(initial_index_count);
         return false;
     };
+
+    if (polyline.dash_style != 0U) {
+        dash_pattern_state pattern{};
+        if (!try_create_dash_pattern(
+                polyline,
+                dash_styles,
+                dash_style_count,
+                doubles,
+                double_count,
+                pattern)) {
+            return rollback();
+        }
+        const progpu_native_affine_2d identity{
+            1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F
+        };
+        const auto& body_transform = hairline || fixed_device
+            ? identity
+            : polyline.transform;
+        const auto append_body = [&](const progpu_native_point& start,
+                                     const progpu_native_point& end) {
+            return append_connected_line_body(
+                start,
+                end,
+                body_transform,
+                polyline.color,
+                polyline.stroke_thickness,
+                encoded_thickness,
+                affine_outline,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+        };
+        const auto append_cap_at = [&](std::uint32_t cap,
+                                       const progpu_native_point& center,
+                                       const progpu_native_point& direction,
+                                       bool is_start) {
+            if (hairline || fixed_device) {
+                append_device_cap(
+                    cap,
+                    center,
+                    direction,
+                    is_start,
+                    encoded_thickness,
+                    brush_index,
+                    aliased,
+                    vertices,
+                    indices);
+                return true;
+            }
+            if (affine_outline) {
+                return append_cpu_cap(
+                    cap,
+                    polyline.stroke_thickness,
+                    center,
+                    direction,
+                    is_start,
+                    &polyline.transform,
+                    brush_index,
+                    aliased,
+                    vertices,
+                    indices);
+            }
+            return append_cpu_cap(
+                cap,
+                polyline.stroke_thickness * maximum_scale,
+                transformed_point(polyline.transform, center),
+                transformed_direction(polyline.transform, direction),
+                is_start,
+                nullptr,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+        };
+        const auto append_join_at_points = [&] (
+            const progpu_native_point& point,
+            const progpu_native_point& incoming,
+            const progpu_native_point& outgoing) {
+            if (hairline || fixed_device) {
+                append_device_join(
+                    join,
+                    polyline.miter_limit,
+                    point,
+                    incoming,
+                    outgoing,
+                    encoded_thickness,
+                    brush_index,
+                    aliased,
+                    vertices,
+                    indices);
+                return true;
+            }
+            if (affine_outline) {
+                return append_cpu_join(
+                    join,
+                    polyline.stroke_thickness,
+                    polyline.miter_limit,
+                    point,
+                    incoming,
+                    outgoing,
+                    &polyline.transform,
+                    brush_index,
+                    aliased,
+                    vertices,
+                    indices);
+            }
+            return append_cpu_join(
+                join,
+                polyline.stroke_thickness * maximum_scale,
+                polyline.miter_limit,
+                transformed_point(polyline.transform, point),
+                transformed_direction(polyline.transform, incoming),
+                transformed_direction(polyline.transform, outgoing),
+                nullptr,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+        };
+        if (!walk_dashed_polyline(
+                polyline,
+                points,
+                pattern,
+                append_body,
+                append_cap_at,
+                append_join_at_points)) {
+            return rollback();
+        }
+        return true;
+    }
+
     const auto append_join_at = [&](std::size_t previous,
                                     std::size_t current,
                                     std::size_t next) {
@@ -2041,8 +2711,7 @@ inline bool spline_capacity(
     std::size_t& segment_count,
     std::size_t& vertex_count,
     std::size_t& index_count) noexcept {
-    if (spline.reserved != 0U || spline.stroke.reserved != 0U ||
-        spline.degree > (1U << 20U)) {
+    if (spline.reserved != 0U || spline.degree > (1U << 20U)) {
         return false;
     }
     if (spline.stroke.point_count < 2U || spline.knot_count == 0U) {
@@ -2078,6 +2747,76 @@ inline bool spline_capacity(
     return polyline_capacity(sampled_stroke, vertex_count, index_count);
 }
 
+inline bool spline_capacity(
+    const progpu_native_spline& spline,
+    const progpu_native_point* control_points,
+    const double* knots,
+    const double* weights,
+    const progpu_native_dash_style* dash_styles,
+    std::size_t dash_style_count,
+    const double* doubles,
+    std::size_t double_count,
+    std::size_t& segment_count,
+    std::array<progpu_native_point, 101U>& sampled_points,
+    std::vector<spline_homogeneous_point>& work,
+    std::size_t& vertex_count,
+    std::size_t& index_count) {
+    if (!spline_capacity(
+            spline,
+            control_points,
+            knots,
+            segment_count,
+            vertex_count,
+            index_count)) {
+        return false;
+    }
+    if (spline.stroke.dash_style == 0U || segment_count == 0U) {
+        return true;
+    }
+    double start_knot = 0.0;
+    double end_knot = 0.0;
+    if (!try_get_spline_domain(spline, knots, start_knot, end_knot)) {
+        return polyline_capacity(
+            spline.stroke,
+            control_points,
+            dash_styles,
+            dash_style_count,
+            doubles,
+            double_count,
+            vertex_count,
+            index_count);
+    }
+    if (segment_count >= sampled_points.size()) {
+        return false;
+    }
+    const double delta =
+        (end_knot - start_knot) / static_cast<double>(segment_count);
+    for (std::size_t index = 0U; index <= segment_count; ++index) {
+        if (!try_evaluate_spline_point(
+                spline,
+                control_points,
+                knots,
+                weights,
+                start_knot + static_cast<double>(index) * delta,
+                work,
+                sampled_points[index])) {
+            return false;
+        }
+    }
+    progpu_native_polyline sampled_stroke = spline.stroke;
+    sampled_stroke.point_offset = 0U;
+    sampled_stroke.point_count = segment_count + 1U;
+    return polyline_capacity(
+        sampled_stroke,
+        sampled_points.data(),
+        dash_styles,
+        dash_style_count,
+        doubles,
+        double_count,
+        vertex_count,
+        index_count);
+}
+
 inline bool append_spline(
     const progpu_native_spline& spline,
     const progpu_native_point* control_points,
@@ -2088,7 +2827,11 @@ inline bool append_spline(
     std::array<progpu_native_point, 101U>& sampled_points,
     std::vector<spline_homogeneous_point>& work,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    const progpu_native_dash_style* dash_styles = nullptr,
+    std::size_t dash_style_count = 0U,
+    const double* doubles = nullptr,
+    std::size_t double_count = 0U) {
     double start_knot = 0.0;
     double end_knot = 0.0;
     if (!try_get_spline_domain(
@@ -2101,7 +2844,11 @@ inline bool append_spline(
             control_points,
             brush_index,
             vertices,
-            indices);
+            indices,
+            dash_styles,
+            dash_style_count,
+            doubles,
+            double_count);
     }
     if (segment_count == 0U || segment_count >= sampled_points.size()) {
         return segment_count == 0U;
@@ -2128,7 +2875,11 @@ inline bool append_spline(
         sampled_points.data(),
         brush_index,
         vertices,
-        indices);
+        indices,
+        dash_styles,
+        dash_style_count,
+        doubles,
+        double_count);
 }
 
 inline bool append_analytic_primitive(

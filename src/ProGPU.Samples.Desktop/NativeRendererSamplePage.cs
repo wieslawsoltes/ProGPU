@@ -102,6 +102,10 @@ internal static class NativeRendererSamplePage
             new Vector2[MaximumRectangles * 4];
         private readonly NativePolyline[] _polylines =
             new NativePolyline[MaximumRectangles];
+        private readonly double[] _dashIntervals =
+            new double[MaximumRectangles * 3];
+        private readonly NativeDashStyle[] _dashStyles =
+            new NativeDashStyle[MaximumRectangles];
         private readonly Vector2[] _splineControlPoints =
             new Vector2[MaximumRectangles * 6];
         private readonly double[] _splineDoubles =
@@ -115,6 +119,8 @@ internal static class NativeRendererSamplePage
         private int _rectangleCount = 384;
         private int _palette;
         private NativeBatchMode _mode = NativeBatchMode.Analytic;
+        private uint _contentRevision;
+        private bool _sceneDirty = true;
         private int _disposeState;
 
         public NativeRendererSampleSession(WgpuContext context)
@@ -159,8 +165,9 @@ internal static class NativeRendererSamplePage
                 $"{_info.Name}. One stable C ABI call records one GPU " +
                 "submission. Cycle indexed analytic primitives, lines and " +
                 "polygon geometry, capped GPU Bezier curves, connected " +
-                "polylines with joins, adaptive rational splines, or the " +
-                "rectangle fast path. Every mode " +
+                "polylines with joins, dashed strokes, adaptive rational " +
+                "splines, or the rectangle fast path. Stable geometry modes " +
+                "reuse retained native CPU/GPU payloads. Every mode " +
                 "reuses the production Vector.wgsl module.",
                 12f));
             root.AddChild(heading);
@@ -201,6 +208,7 @@ internal static class NativeRendererSamplePage
                     (int)Math.Round(countSlider.Value),
                     1,
                     MaximumRectangles);
+                _sceneDirty = true;
                 UpdateCountText();
             };
             controls.AddChild(countSlider);
@@ -212,7 +220,8 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 6);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 7);
+                _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
             };
@@ -222,6 +231,7 @@ internal static class NativeRendererSamplePage
             paletteButton.Click += (_, _) =>
             {
                 _palette = (_palette + 1) % 3;
+                _sceneDirty = true;
                 RenderFrame();
             };
             controls.AddChild(paletteButton);
@@ -273,26 +283,38 @@ internal static class NativeRendererSamplePage
                 return;
             }
 
-            switch (_mode)
+            if (_sceneDirty)
             {
-                case NativeBatchMode.Analytic:
-                    FillAnalyticPrimitives(_rectangleCount, _palette);
-                    break;
-                case NativeBatchMode.Geometry:
-                    FillGeometryPrimitives(_rectangleCount, _palette);
-                    break;
-                case NativeBatchMode.Curves:
-                    FillCurvePrimitives(_rectangleCount, _palette);
-                    break;
-                case NativeBatchMode.Polylines:
-                    FillPolylines(_rectangleCount, _palette);
-                    break;
-                case NativeBatchMode.Splines:
-                    FillSplines(_rectangleCount, _palette);
-                    break;
-                default:
-                    FillRectangles(_rectangleCount, _palette);
-                    break;
+                switch (_mode)
+                {
+                    case NativeBatchMode.Analytic:
+                        FillAnalyticPrimitives(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Geometry:
+                        FillGeometryPrimitives(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Curves:
+                        FillCurvePrimitives(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Polylines:
+                        FillPolylines(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Dashes:
+                        FillDashedPolylines(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Splines:
+                        FillSplines(_rectangleCount, _palette);
+                        break;
+                    default:
+                        FillRectangles(_rectangleCount, _palette);
+                        break;
+                }
+                _contentRevision++;
+                if (_contentRevision == 0U)
+                {
+                    _contentRevision = 1U;
+                }
+                _sceneDirty = false;
             }
             long allocationStart = GC.GetAllocatedBytesForCurrentThread();
             long timestamp = Stopwatch.GetTimestamp();
@@ -316,21 +338,35 @@ internal static class NativeRendererSamplePage
                     _target,
                     dpiScale: 1f,
                     _geometryPrimitives.AsSpan(0, _rectangleCount),
-                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                    contentRevision: _contentRevision);
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.VertexUploadBytes +
                     metrics.IndexUploadBytes + metrics.BrushUploadBytes;
             }
-            else if (_mode == NativeBatchMode.Polylines)
+            else if (_mode is NativeBatchMode.Polylines or NativeBatchMode.Dashes)
             {
-                NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
-                    _target,
-                    dpiScale: 1f,
-                    ReadOnlySpan<NativeGeometryPrimitive>.Empty,
-                    _polylinePoints.AsSpan(0, _rectangleCount * 4),
-                    _polylines.AsSpan(0, _rectangleCount),
-                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                NativeGeometryFrameMetrics metrics = _mode == NativeBatchMode.Dashes
+                    ? _compositor.RenderGeometry(
+                        _target,
+                        dpiScale: 1f,
+                        ReadOnlySpan<NativeGeometryPrimitive>.Empty,
+                        _polylinePoints.AsSpan(0, _rectangleCount * 4),
+                        _polylines.AsSpan(0, _rectangleCount),
+                        _dashIntervals.AsSpan(0, _rectangleCount * 3),
+                        _dashStyles.AsSpan(0, _rectangleCount),
+                        ReadOnlySpan<NativeSpline>.Empty,
+                        new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                        contentRevision: _contentRevision)
+                    : _compositor.RenderGeometry(
+                        _target,
+                        dpiScale: 1f,
+                        ReadOnlySpan<NativeGeometryPrimitive>.Empty,
+                        _polylinePoints.AsSpan(0, _rectangleCount * 4),
+                        _polylines.AsSpan(0, _rectangleCount),
+                        new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                        contentRevision: _contentRevision);
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.VertexUploadBytes +
@@ -346,7 +382,8 @@ internal static class NativeRendererSamplePage
                     ReadOnlySpan<NativePolyline>.Empty,
                     _splineDoubles.AsSpan(0, _rectangleCount * 16),
                     _splines.AsSpan(0, _rectangleCount),
-                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                    contentRevision: _contentRevision);
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.VertexUploadBytes +
@@ -658,6 +695,42 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillDashedPolylines(int count, int palette)
+        {
+            FillPolylines(count, palette);
+            for (int index = 0; index < count; index++)
+            {
+                int intervalOffset = index * 3;
+                _dashIntervals[intervalOffset] = 1.75;
+                _dashIntervals[intervalOffset + 1] = 0.9;
+                _dashIntervals[intervalOffset + 2] = 0.45;
+                _dashStyles[index] = new NativeDashStyle(
+                    (nuint)intervalOffset,
+                    intervalCount: 3,
+                    offset: -0.35,
+                    cap: NativeStrokeCap.Round);
+
+                NativePolyline source = _polylines[index];
+                NativePolylineFlags strokeMode = source.Flags &
+                    (NativePolylineFlags.EdgeAliased |
+                     NativePolylineFlags.Hairline |
+                     NativePolylineFlags.FixedDeviceStroke);
+                _polylines[index] = new NativePolyline(
+                    source.PointOffset,
+                    source.PointCount,
+                    source.Color,
+                    source.Transform,
+                    source.StrokeThickness,
+                    source.MiterLimit,
+                    strokeMode,
+                    source.StartCap,
+                    source.EndCap,
+                    source.LineJoin,
+                    source.IsClosed,
+                    dashStyle: (uint)index + 1U);
+            }
+        }
+
         private void FillSplines(int count, int palette)
         {
             const int controlPointsPerSpline = 6;
@@ -773,6 +846,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
                     NativeBatchMode.Curves => $"Curves: {_rectangleCount:N0}",
                     NativeBatchMode.Polylines => $"Polylines: {_rectangleCount:N0}",
+                    NativeBatchMode.Dashes => $"Dashes: {_rectangleCount:N0}",
                     NativeBatchMode.Splines => $"Splines: {_rectangleCount:N0}",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
@@ -785,6 +859,7 @@ internal static class NativeRendererSamplePage
             Geometry,
             Curves,
             Polylines,
+            Dashes,
             Splines,
             Rectangles
         }

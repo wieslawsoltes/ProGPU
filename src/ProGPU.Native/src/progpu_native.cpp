@@ -128,6 +128,10 @@ struct progpu_native_engine {
     std::array<progpu_native_point, 101U> spline_sampled_points{};
     std::vector<progpu::native::spline_homogeneous_point> spline_work;
     std::vector<std::byte> brush_bytes;
+    std::uint32_t geometry_content_revision = 0U;
+    std::uint64_t geometry_payload_hash = 0U;
+    bool geometry_cache_valid = false;
+    bool geometry_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
 
@@ -680,7 +684,9 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES |
         PROGPU_NATIVE_CAPABILITY_STROKE_CAPS |
         PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES |
-        PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES;
+        PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES |
+        PROGPU_NATIVE_CAPABILITY_DASHED_STROKES |
+        PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -757,6 +763,7 @@ progpu_native_status progpu_native_engine_render(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    engine->geometry_gpu_cache_valid = false;
     if (frame->rect_count >
             std::numeric_limits<std::size_t>::max() / 6U ||
         frame->rect_count >
@@ -925,6 +932,7 @@ progpu_native_status progpu_native_engine_render_analytic(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    engine->geometry_gpu_cache_valid = false;
     if (frame->primitive_count >
             std::numeric_limits<std::uint32_t>::max() / 6U ||
         frame->primitive_count >
@@ -1128,10 +1136,14 @@ progpu_native_status progpu_native_engine_render_geometry(
         (frame->polyline_count != 0U && frame->polylines == nullptr) ||
         (frame->spline_count != 0U && frame->points == nullptr) ||
         (frame->double_count != 0U && frame->doubles == nullptr) ||
+        (frame->dash_style_count != 0U && frame->dash_styles == nullptr) ||
         (frame->spline_count != 0U && frame->splines == nullptr) ||
         (frame->flags &
-            ~PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U ||
-        frame->reserved != 0U ||
+            ~(PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH |
+              PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD)) != 0U ||
+        (((frame->flags &
+                PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U) !=
+            (frame->reserved != 0U)) ||
         !progpu::native::is_finite(frame->clear_color)) {
         return engine == nullptr
             ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
@@ -1147,6 +1159,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
         frame->spline_count > (1U << 24U) ||
+        frame->dash_style_count > (1U << 24U) ||
         frame->point_count > (1U << 28U) ||
         frame->double_count > (1U << 28U) ||
         frame->primitive_count >
@@ -1170,13 +1183,49 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The geometry primitive batch is too large.");
     }
 
-    try {
+    const bool retain_compiled_payload =
+        (frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U;
+    const bool compiled_payload_hit = retain_compiled_payload &&
+        engine->geometry_cache_valid &&
+        engine->geometry_content_revision == frame->reserved;
+    if (!compiled_payload_hit) {
+        engine->geometry_cache_valid = false;
+        engine->geometry_gpu_cache_valid = false;
+        try {
         engine->vertices.clear();
         engine->indices.clear();
         engine->primitive_brush_indices.clear();
         engine->polyline_brush_indices.clear();
         engine->spline_brush_indices.clear();
         engine->spline_segment_counts.clear();
+        for (std::size_t index = 0U;
+             index < frame->dash_style_count;
+             ++index) {
+            const auto& style = frame->dash_styles[index];
+            if (style.interval_count == 0U ||
+                style.interval_offset > frame->double_count ||
+                style.interval_count >
+                    frame->double_count - style.interval_offset ||
+                !std::isfinite(style.offset) ||
+                style.cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
+                style.reserved != 0U) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A dash style range, offset, cap, or reserved field is invalid.");
+            }
+            for (std::size_t interval = 0U;
+                 interval < style.interval_count;
+                 ++interval) {
+                const double value =
+                    frame->doubles[style.interval_offset + interval];
+                if (!std::isfinite(value) || value < 0.0) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A dash interval is negative or not finite.");
+                }
+            }
+        }
         std::size_t vertex_capacity = 0U;
         std::size_t index_capacity = 0U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
@@ -1208,6 +1257,11 @@ progpu_native_status progpu_native_engine_render_geometry(
                     frame->point_count - polyline.point_offset ||
                 !progpu::native::polyline_capacity(
                     polyline,
+                    frame->points + polyline.point_offset,
+                    frame->dash_styles,
+                    frame->dash_style_count,
+                    frame->doubles,
+                    frame->double_count,
                     vertices_to_add,
                     indices_to_add) ||
                 vertex_capacity >
@@ -1227,6 +1281,17 @@ progpu_native_status progpu_native_engine_render_geometry(
             index_capacity += indices_to_add;
         }
         std::size_t maximum_spline_degree = 0U;
+        for (std::size_t index = 0U; index < frame->spline_count; ++index) {
+            if (frame->splines[index].degree > (1U << 20U)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A spline degree exceeds the native safety bound.");
+            }
+            maximum_spline_degree = std::max(
+                maximum_spline_degree,
+                static_cast<std::size_t>(frame->splines[index].degree));
+        }
+        engine->spline_work.reserve(maximum_spline_degree + 1U);
         engine->spline_segment_counts.resize(frame->spline_count);
         for (std::size_t index = 0; index < frame->spline_count; ++index) {
             const auto& spline = frame->splines[index];
@@ -1249,7 +1314,16 @@ progpu_native_status progpu_native_engine_render_geometry(
                     spline.knot_count == 0U
                         ? nullptr
                         : frame->doubles + spline.knot_offset,
+                    spline.weight_count == 0U
+                        ? nullptr
+                        : frame->doubles + spline.weight_offset,
+                    frame->dash_styles,
+                    frame->dash_style_count,
+                    frame->doubles,
+                    frame->double_count,
                     segment_count,
+                    engine->spline_sampled_points,
+                    engine->spline_work,
                     vertices_to_add,
                     indices_to_add) ||
                 vertex_capacity >
@@ -1283,9 +1357,6 @@ progpu_native_status progpu_native_engine_render_geometry(
                 }
             }
             engine->spline_segment_counts[index] = segment_count;
-            maximum_spline_degree = std::max(
-                maximum_spline_degree,
-                static_cast<std::size_t>(spline.degree));
             vertex_capacity += vertices_to_add;
             index_capacity += indices_to_add;
         }
@@ -1294,7 +1365,6 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine->primitive_brush_indices.resize(frame->primitive_count);
         engine->polyline_brush_indices.resize(frame->polyline_count);
         engine->spline_brush_indices.resize(frame->spline_count);
-        engine->spline_work.reserve(maximum_spline_degree + 1U);
         std::uint32_t brush_count = 1U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
             const std::uint32_t brush_index =
@@ -1322,7 +1392,12 @@ progpu_native_status progpu_native_engine_render_geometry(
                     frame->points + polyline.point_offset,
                     static_cast<float>(brush_index),
                     engine->vertices,
-                    engine->indices)) {
+                    engine->indices,
+                    frame->dash_styles,
+                    frame->dash_style_count,
+                    frame->doubles,
+                    frame->double_count,
+                    true)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                     "A connected stroke contains invalid points, stroke state, transform, join, or flags.");
@@ -1350,7 +1425,11 @@ progpu_native_status progpu_native_engine_render_geometry(
                     engine->spline_sampled_points,
                     engine->spline_work,
                     engine->vertices,
-                    engine->indices)) {
+                    engine->indices,
+                    frame->dash_styles,
+                    frame->dash_style_count,
+                    frame->doubles,
+                    frame->double_count)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                     "A spline contains invalid control points, knots, weights, stroke state, or transform.");
@@ -1402,10 +1481,29 @@ progpu_native_status progpu_native_engine_render_geometry(
                 &frame->splines[index].stroke.color,
                 sizeof(progpu_native_color));
         }
-    } catch (const std::bad_alloc&) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-            "The native geometry batch could not be allocated.");
+        if (retain_compiled_payload) {
+            engine->geometry_content_revision = frame->reserved;
+            engine->geometry_payload_hash = 14695981039346656037ULL;
+            engine->geometry_payload_hash = append_fnv1a64(
+                engine->geometry_payload_hash,
+                engine->vertices.data(),
+                engine->vertices.size() *
+                    sizeof(progpu::native::vector_vertex));
+            engine->geometry_payload_hash = append_fnv1a64(
+                engine->geometry_payload_hash,
+                engine->indices.data(),
+                engine->indices.size() * sizeof(std::uint32_t));
+            engine->geometry_payload_hash = append_fnv1a64(
+                engine->geometry_payload_hash,
+                engine->brush_bytes.data(),
+                engine->brush_bytes.size());
+            engine->geometry_cache_valid = true;
+        }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native geometry batch could not be allocated.");
+        }
     }
 
     const std::uint64_t vertex_bytes =
@@ -1413,8 +1511,14 @@ progpu_native_status progpu_native_engine_render_geometry(
     const std::uint64_t index_bytes =
         engine->indices.size() * sizeof(std::uint32_t);
     const std::uint64_t brush_upload_bytes = engine->brush_bytes.size();
+    const bool upload_compiled_payload =
+        !compiled_payload_hit || !engine->geometry_gpu_cache_valid;
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U &&
+        retain_compiled_payload && engine->geometry_cache_valid) {
+        payload_hash = engine->geometry_payload_hash;
+    } else if ((frame->flags &
             PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
         payload_hash = 14695981039346656037ULL;
         payload_hash = append_fnv1a64(
@@ -1455,24 +1559,27 @@ progpu_native_status progpu_native_engine_render_geometry(
             0U,
             &uniforms,
             sizeof(uniforms));
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            engine->vertex_buffer,
-            0U,
-            engine->vertices.data(),
-            static_cast<std::size_t>(vertex_bytes));
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            engine->index_buffer,
-            0U,
-            engine->indices.data(),
-            static_cast<std::size_t>(index_bytes));
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            engine->analytic_brush_buffer,
-            0U,
-            engine->brush_bytes.data(),
-            engine->brush_bytes.size());
+        if (upload_compiled_payload) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->vertex_buffer,
+                0U,
+                engine->vertices.data(),
+                static_cast<std::size_t>(vertex_bytes));
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->index_buffer,
+                0U,
+                engine->indices.data(),
+                static_cast<std::size_t>(index_bytes));
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->analytic_brush_buffer,
+                0U,
+                engine->brush_bytes.data(),
+                engine->brush_bytes.size());
+            engine->geometry_gpu_cache_valid = retain_compiled_payload;
+        }
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
@@ -1571,10 +1678,16 @@ progpu_native_status progpu_native_engine_render_geometry(
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->index_count =
             static_cast<std::uint32_t>(engine->indices.size());
-        metrics->vertex_upload_bytes = vertex_bytes;
-        metrics->index_upload_bytes = index_bytes;
+        metrics->vertex_upload_bytes = upload_compiled_payload
+            ? vertex_bytes
+            : 0U;
+        metrics->index_upload_bytes = upload_compiled_payload
+            ? index_bytes
+            : 0U;
         metrics->brush_upload_bytes =
-            engine->indices.empty() ? 0U : brush_upload_bytes;
+            engine->indices.empty() || !upload_compiled_payload
+                ? 0U
+                : brush_upload_bytes;
         metrics->uniform_upload_bytes =
             engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
         metrics->submission_count = engine->submission_count;

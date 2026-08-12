@@ -327,6 +327,76 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Dashed strokes and retained GPU-complete replay supplement
+
+The seventh native increment adds reusable odd/even dash styles, continuous
+open/closed contour walking, separate source/dash caps, transform-correct
+normal/fixed/hairline placement, and dashed adaptive splines. The matched
+96-polyline scene uses four-point contours, odd `[1.75, 0.9, 0.45]` intervals,
+negative phase, round dash caps, and the production WebGPU vector shader.
+
+The first synchronized profile explained why native was initially only on par
+with managed: both emitted 170,880 vertices, submitted the same fragment work,
+and waited on the same device. CPU expansion also performed an approximate
+quadratic triangle-adjacency search for each cap/join. Native measured about
+8.50 ms mean / 9.26 ms p95 versus managed 8.16 / 8.83 ms, while managed rebuilt
+the retained dashed object graph and allocated 569,472 bytes per frame.
+
+The correction is shared rather than native-only:
+
+- both compilers use constant-time topology edge masks;
+- every positive-width round cap is one affine analytic quad (shape 24), not
+  eight triangle-SDF quads;
+- managed span polylines lazily retain their source and dashed graphs, making
+  stable replay allocation-free without eager O(N) recording objects;
+- a nonzero native `content_revision` retains compiled CPU geometry and the
+  last vertex/index/brush GPU upload. Stable calls still update dimensions/DPI,
+  clear, encode the pass, and submit; a changed revision recompiles fully.
+
+The cap change reduces the matched batch from 170,880 to 31,776 vertices
+(-81.4%). The benchmark resource snapshot falls from 71,794,688 to 18,399,232
+combined Metal bytes (-74.4%). Five paired 1,000-frame synchronized Release
+runs, alternating grouped order, produced these median values:
+
+| Metric | Native C++ retained | Managed retained |
+|---|---:|---:|
+| Mean GPU-complete frame | 1.5055 ms | 2.1268 ms |
+| p95 GPU-complete frame | 2.6953 ms | 4.2849 ms |
+| Stable managed allocation / frame | 7–9 bytes* | 0 bytes |
+
+Native is 29.2% faster by median mean and 37.1% faster by median p95 values.
+One of five noisy synchronized runs favored managed by 7.5% at p95, so this is
+not presented as isolated GPU execution superiority: both paths intentionally
+run the same 31,776 vertices/47,664 indices. The repeatable gain is retained
+CPU compilation/upload work outside the shared GPU draw. A 5,000-frame
+queue-path run measured 0.4435/1.7712 ms native/managed p95 (75.0% lower native
+p95). `*`The small native-call managed count is intermittent wrapper/runtime activity;
+the C++ retained hit performs no geometry allocation or upload.
+
+Readback remains near-exact: maximum channel difference 1/255, zero pixels over
+3/255, and mean absolute channel difference 0.00153164. Native and managed
+screenshots contain the same stroke coverage; the 64-times difference image
+shows only single-byte antialias ties.
+
+The final synchronized Time Profiler trace reduces inclusive native
+`append_polyline` samples from 312 in the uncached trace to one and removes
+`polyline_capacity` from sampled steady-state stacks. The final Metal System
+Trace contains both `ProGPU native indexed geometry pass` and
+`Offscreen Compositor Encoder`, has zero command-buffer error rows, and reports
+a 20.61 MiB peak combined-process `currentAllocatedSize` under profiling. The
+Allocations template again cannot attach because macOS marks the launched .NET
+target restricted while SIP is enabled; the failed trace and exact diagnostic
+are retained rather than converted into a memory claim.
+
+Retained ignored evidence:
+
+- five synchronized JSON runs and `dashes-async-96-retained-5000.json`;
+- pre/post retained Time Profiler traces and exported tables;
+- `native-managed-dashes-retained-metal-20260812.trace`, labels, submission,
+  completion, error, and current-allocation exports;
+- native, managed, and 64-times-amplified difference PNG images under
+  `artifacts/progpu-native/differential/`.
+
 ## Adaptive rational-spline supplement
 
 The sixth native increment evaluates B-spline/NURBS control points, knots, and

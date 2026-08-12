@@ -62,7 +62,8 @@ public sealed class SkPictureSerializationCompatibilityTests
         Assert.NotNull(commands[0].GeometryCache?.StrokePath);
         Assert.NotNull(commands[1].GeometryCache?.StrokePath);
         Assert.NotNull(commands[2].GeometryCache?.StrokePath);
-        Assert.Null(commands[3].GeometryCache);
+        Assert.Null(Assert.IsType<RenderCommandGeometryCache>(
+            commands[3].GeometryCache).StrokePath);
         Assert.Null(commands[4].GeometryCache);
         Assert.NotNull(commands[5].GeometryCache?.StrokePath);
         Assert.Same(commands[5].Path, commands[5].GeometryCache?.StrokePath);

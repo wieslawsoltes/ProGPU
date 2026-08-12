@@ -74,6 +74,10 @@ metadata.
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
+| [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
+| [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
+| [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
+| [Kurbo stroke contract](https://github.com/linebender/kurbo/blob/ca273499e3e48bd2de6f02aa8e99a148984e45f3/kurbo/src/stroke.rs) and [Lyon path walking](https://docs.rs/lyon_algorithms/latest/lyon_algorithms/walk/index.html) | Dashing is separable from undashed stroke expansion; correct closed-contour output must join a dash that crosses the close seam. Distance walking needs explicit curve-flattening tolerance. | Use an original allocation-bounded two-pass dash walker feeding the existing connected-stroke compiler. Merge the first/final visible runs at a closed seam and retain adaptive curve/spline sampling rather than inventing a second fixed flattening policy. |
 | [Parley](https://github.com/linebender/parley) | Text layout output is reusable independently of a particular renderer. | Define a positioned-glyph/run transfer ABI first; later C++ shaping must be differentially equivalent before it replaces managed shaping. |
 | [HarfBuzz shaping plans](https://harfbuzz.github.io/shaping-and-shape-plans.html) and [glyph rendering boundary](https://harfbuzz.github.io/glyphs-and-rendering.html) | Cached plans produce glyph IDs, advances, offsets, and cluster data; outline/rasterization is downstream. | Retain glyph indices and positioned results across the ABI. Never remap characters in the native compositor hot path. |
 
@@ -81,6 +85,22 @@ The adopted common pattern is recording/scene reuse plus device-domain resource
 ownership. Rejected patterns are per-primitive FFI, CPU tessellation as a
 general replacement for ProGPU compute rasterization, synchronous readback for
 same-device composition, and a second independent shader implementation.
+
+For dashed native strokes, the ABI stores reusable dash styles separately from
+polyline/spline records. A one-based style index occupies the former reserved
+word in `progpu_native_polyline`; zero remains the allocation-free solid-stroke
+fast path. Each style borrows a range of `geometry_frame.doubles`, so repeated
+strokes share one interval payload. The implementation duplicates odd interval
+lists logically rather than copying them, clamps observable zero entries using
+the managed ProGPU epsilon contract, and performs an exact counting pass before
+writing the persistent vertex/index vectors. The counting and emission passes
+are both `O(S + D)` for `S` source/sample segments and `D` emitted dash pieces,
+with `O(1)` walker state and no per-dash heap object. Closed contours suppress
+coincident seam caps and emit a join only when both cyclic edge runs are drawn.
+Ordinary positive-width round caps are emitted as one affine analytic quad
+(production shader shape 24), rather than eight triangle-SDF quads. Fragment
+derivatives preserve the transformed ellipse under anisotropic scale/shear,
+and the adjacent body owns the hard cap seam.
 
 ## 4. Current ProGPU architecture inventory
 
@@ -162,6 +182,12 @@ Rules:
   construction and upload preparation will use worker-safe builders;
 - device/queue are retained by the engine. Frame target views and command input
   arrays are borrowed only for the call;
+- a nonzero caller revision in the geometry frame's reserved word opts into
+  retained replay (the typed .NET parameter is `contentRevision`). The
+  caller must change it for every mutation of any referenced primitive, arena,
+  dash style, spline, or brush value. A stable revision lets the engine reuse
+  compiled CPU vectors and their last GPU upload; other render entry points
+  invalidate GPU residency without discarding the CPU payload;
 - destruction is deterministic and releases resources in reverse dependency
   order. No GPU call is made from an unmanaged finalizer.
 
@@ -355,9 +381,9 @@ then transform it, matching the managed directional-thickness contract.
 Start caps are emitted before the stroke body and end caps after it so fixed-
 function alpha blending preserves the managed overlap order.
 
-Cap compilation is bounded `O(1)` per endpoint: square uses two triangles,
-triangle uses one, and round uses eight. A device-space cap uses one indexed
-quad. Checked capacity reserves at most 32 vertices and 48 indices per cap.
+Cap compilation is bounded `O(1)` per endpoint: square uses two triangle-SDF
+quads, triangle uses one, and every positive-width round cap uses one affine
+analytic indexed quad. Checked capacity reserves a bounded worst case per cap.
 The optional frame payload hash is `O(V + I + B)` over compiled vertices,
 indices, and brushes and is disabled by default; benchmark correctness enables
 it for one warmed frame only, never in timed steady-state submissions.
@@ -408,6 +434,25 @@ is `O(D + 101)` and the caller-owned arenas remain `O(P + K)`. The C ABI makes
 one frame call and the complete spline batch remains one indexed draw and one
 submission.
 
+The seventh Tranche A increment adds reusable dashed stroke styles for
+polylines and sampled splines. Odd patterns repeat logically, offsets are
+normalized once, and the allocation-bounded walker carries pattern state
+across connected segments. Fixed/hairline dashes are measured after the
+centerline transform; ordinary dashes are measured in source space before the
+complete outline transform. Source caps replace dash caps only at visible open
+contour endpoints, while a visible run crossing a closed seam receives one
+join and no coincident caps.
+
+The same increment adds explicit retained geometry replay. A nonzero caller
+revision makes the first call validate, compile, hash, and upload the complete
+payload. Subsequent calls with that revision still encode the current clear,
+target, dimensions, DPI uniforms, pass, and submission, but reuse the CPU
+vertices/indices/brushes and skip their GPU uploads. A cache hit is `O(1)` CPU
+work before render-pass encoding; compilation on a miss remains bounded by the
+geometry algorithms above. The managed comparison similarly defers the
+span-polyline source graph until first compilation and retains both source and
+dashed paths, keeping stable replay allocation-free.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -418,9 +463,9 @@ submission.
   adaptive rational splines are implemented;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
-  curve hairline/fixed-device strokes, all four line/curve cap kinds, and all
-  three solid-polyline/spline join kinds are implemented; dashes and the
-  remaining primitives are pending;
+  curve hairline/fixed-device strokes, all four line/curve cap kinds, all three
+  solid-polyline/spline join kinds, reusable dash styles, and retained compiled
+  geometry replay are implemented; the remaining primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

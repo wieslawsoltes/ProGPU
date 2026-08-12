@@ -80,7 +80,7 @@ public sealed class StrokeTransformProvenanceTests
     }
 
     [Fact]
-    public void DashedCurvesRetainCachesWhileIndexedRecordersStayCacheFree()
+    public void DashedCurvesRetainPathsWhileIndexedRecordersDeferPathGraphs()
     {
         var context = new DrawingContext();
         var pen = new Pen(
@@ -111,7 +111,8 @@ public sealed class StrokeTransformProvenanceTests
         Assert.Equal(4, context.Commands.Count);
         Assert.NotNull(context.Commands[0].GeometryCache?.StrokePath);
         Assert.NotNull(context.Commands[1].GeometryCache?.StrokePath);
-        Assert.Null(context.Commands[2].GeometryCache);
+        Assert.Null(Assert.IsType<RenderCommandGeometryCache>(
+            context.Commands[2].GeometryCache).StrokePath);
         Assert.Null(context.Commands[3].GeometryCache);
     }
 

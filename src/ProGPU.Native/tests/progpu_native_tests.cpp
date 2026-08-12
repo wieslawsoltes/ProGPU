@@ -29,6 +29,57 @@ bool nearly_equal(float left, float right) {
     return std::abs(left - right) <= 0.00001F;
 }
 
+void fixed_stroke_topology_masks_match_reference_classification() {
+    using progpu::native::stroke_triangle;
+    std::array<stroke_triangle, 8U> triangles{};
+    const progpu_native_point center{13.25F, -7.5F};
+    const progpu_native_point direction{3.0F, 4.0F};
+    for (std::uint32_t cap = PROGPU_NATIVE_STROKE_CAP_SQUARE;
+         cap <= PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+         ++cap) {
+        const std::size_t count = progpu::native::create_cap_triangles(
+            triangles, cap, 5.5F, center, direction, false);
+        progpu_native_point normalized{};
+        PROGPU_REQUIRE(progpu::native::try_normalize(
+            direction, {}, normalized));
+        for (std::size_t index = 0U; index < count; ++index) {
+            std::uint32_t expected_exterior = 0U;
+            std::uint32_t expected_owned = 0U;
+            std::uint32_t actual_exterior = 0U;
+            std::uint32_t actual_owned = 0U;
+            progpu::native::classify_triangle_edges(
+                triangles.data(), count, index, true, center, normalized,
+                expected_exterior, expected_owned);
+            progpu::native::classify_cap_triangle_edges(
+                cap, count, index, actual_exterior, actual_owned);
+            PROGPU_REQUIRE(actual_exterior == expected_exterior);
+            PROGPU_REQUIRE(actual_owned == expected_owned);
+        }
+    }
+
+    const progpu_native_point incoming{1.0F, 0.0F};
+    const progpu_native_point outgoing{0.35F, 0.94F};
+    for (std::uint32_t join = PROGPU_NATIVE_STROKE_JOIN_MITER;
+         join <= PROGPU_NATIVE_STROKE_JOIN_ROUND;
+         ++join) {
+        const std::size_t count = progpu::native::create_join_triangles(
+            triangles, join, 5.5F, 4.0F, center, incoming, outgoing);
+        for (std::size_t index = 0U; index < count; ++index) {
+            std::uint32_t expected_exterior = 0U;
+            std::uint32_t expected_owned = 0U;
+            std::uint32_t actual_exterior = 0U;
+            std::uint32_t actual_owned = 0U;
+            progpu::native::classify_triangle_edges(
+                triangles.data(), count, index, false, {}, {},
+                expected_exterior, expected_owned);
+            progpu::native::classify_join_triangle_edges(
+                join, count, index, actual_exterior, actual_owned);
+            PROGPU_REQUIRE(actual_exterior == expected_exterior);
+            PROGPU_REQUIRE(actual_owned == expected_owned);
+        }
+    }
+}
+
 void api_contract_is_versioned() {
     PROGPU_REQUIRE(
         progpu_native_get_abi_version() == PROGPU_NATIVE_ABI_VERSION);
@@ -59,6 +110,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_DASHED_STROKES) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 
@@ -288,10 +341,10 @@ void geometry_batch_preserves_cap_order_and_space() {
         3.0F,
         vertices,
         indices));
-    PROGPU_REQUIRE(vertices.size() == 68U && indices.size() == 102U);
-    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 13.0F));
-    PROGPU_REQUIRE(nearly_equal(vertices[32].shape_type, 14.0F));
-    PROGPU_REQUIRE(nearly_equal(vertices[36].shape_type, 13.0F));
+    PROGPU_REQUIRE(vertices.size() == 12U && indices.size() == 18U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 24.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 14.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].shape_type, 24.0F));
 }
 
 void invalid_geometry_flags_fail_without_partial_append() {
@@ -386,6 +439,134 @@ void connected_strokes_encode_caps_joins_and_closed_contours() {
     PROGPU_REQUIRE(indices.size() == 36U);
     PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 14.0F));
     PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 13.0F));
+}
+
+void dashed_strokes_preserve_pattern_space_caps_and_closed_seams() {
+    const double intervals[] = {2.0, 2.0};
+    const progpu_native_dash_style flat_style{
+        0U,
+        2U,
+        0.0,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        0U
+    };
+    const progpu_native_point line[] = {
+        {0.0F, 0.0F},
+        {10.0F, 0.0F}
+    };
+    progpu_native_polyline stroke{
+        0U,
+        2U,
+        {0.2F, 0.7F, 0.4F, 1.0F},
+        {2.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        1.0F,
+        4.0F,
+        PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE,
+        1U
+    };
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        stroke,
+        line,
+        2.0F,
+        vertices,
+        indices,
+        &flat_style,
+        1U,
+        intervals,
+        2U));
+    PROGPU_REQUIRE(vertices.size() == 20U);
+    PROGPU_REQUIRE(indices.size() == 30U);
+
+    vertices.clear();
+    indices.clear();
+    stroke.flags = 0U;
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        stroke,
+        line,
+        2.0F,
+        vertices,
+        indices,
+        &flat_style,
+        1U,
+        intervals,
+        2U));
+    PROGPU_REQUIRE(vertices.size() == 12U);
+    PROGPU_REQUIRE(indices.size() == 18U);
+
+    const progpu_native_dash_style round_style{
+        0U,
+        2U,
+        0.0,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        0U
+    };
+    vertices.clear();
+    indices.clear();
+    stroke.flags = PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+    stroke.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        stroke,
+        line,
+        2.0F,
+        vertices,
+        indices,
+        &round_style,
+        1U,
+        intervals,
+        2U));
+    PROGPU_REQUIRE(vertices.size() == 28U);
+    PROGPU_REQUIRE(indices.size() == 42U);
+
+    const double closed_intervals[] = {100.0, 1.0};
+    const progpu_native_point square[] = {
+        {0.0F, 0.0F},
+        {5.0F, 0.0F},
+        {5.0F, 5.0F},
+        {0.0F, 5.0F}
+    };
+    stroke.point_count = 4U;
+    stroke.flags = PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE |
+        PROGPU_NATIVE_POLYLINE_FLAG_CLOSED |
+        (PROGPU_NATIVE_STROKE_JOIN_BEVEL <<
+            PROGPU_NATIVE_POLYLINE_JOIN_SHIFT);
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        stroke,
+        square,
+        2.0F,
+        vertices,
+        indices,
+        &round_style,
+        1U,
+        closed_intervals,
+        2U));
+    PROGPU_REQUIRE(vertices.size() == 32U);
+    PROGPU_REQUIRE(indices.size() == 48U);
+
+    const double odd_intervals[] = {2.0, 1.0, 3.0};
+    const progpu_native_dash_style odd_style{
+        0U,
+        3U,
+        -2.0,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        0U
+    };
+    progpu::native::dash_pattern_state pattern{};
+    stroke.point_count = 2U;
+    stroke.flags = PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+    PROGPU_REQUIRE(progpu::native::try_create_dash_pattern(
+        stroke,
+        &odd_style,
+        1U,
+        odd_intervals,
+        3U,
+        pattern));
+    PROGPU_REQUIRE(pattern.effective_count == 6U);
+    PROGPU_REQUIRE(pattern.index < pattern.effective_count);
+    PROGPU_REQUIRE(pattern.distance >= 0.0F);
 }
 
 void splines_evaluate_adaptively_without_retained_graphs() {
@@ -591,6 +772,7 @@ void invalid_rectangles_fail_without_partial_append() {
 
 int main() {
     api_contract_is_versioned();
+    fixed_stroke_topology_masks_match_reference_classification();
     rectangle_batch_matches_vector_vertex_abi();
     indexed_analytic_batch_preserves_affine_local_coordinates();
     singular_analytic_transform_fails_closed();
@@ -599,6 +781,7 @@ int main() {
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
+    dashed_strokes_preserve_pattern_space_caps_and_closed_seams();
     splines_evaluate_adaptively_without_retained_graphs();
     invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();

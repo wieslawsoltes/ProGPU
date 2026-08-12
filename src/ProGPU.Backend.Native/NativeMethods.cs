@@ -10,6 +10,7 @@ internal static unsafe partial class NativeMethods
     internal const uint AbiVersion = 1;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
+    internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct EngineOptions
@@ -102,6 +103,8 @@ internal static unsafe partial class NativeMethods
         internal nuint PolylineCount;
         internal double* Doubles;
         internal nuint DoubleCount;
+        internal NativeDashStyle* DashStyles;
+        internal nuint DashStyleCount;
         internal NativeSpline* Splines;
         internal nuint SplineCount;
     }
