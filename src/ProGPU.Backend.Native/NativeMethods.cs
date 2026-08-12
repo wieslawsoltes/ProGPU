@@ -21,6 +21,8 @@ internal static unsafe partial class NativeMethods
         internal float Opacity;
         internal uint Reserved;
         internal NativeImageRect ClipRect;
+        internal float GroupOpacity;
+        internal uint GroupRevision;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -267,6 +269,22 @@ internal static unsafe partial class NativeMethods
         internal ulong PayloadHash;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LayerMetrics
+    {
+        internal uint StructSize;
+        internal uint TextureWidth;
+        internal uint TextureHeight;
+        internal uint TextureGeneration;
+        internal uint AllocationCount;
+        internal uint ContentPassCount;
+        internal uint CompositePassCount;
+        internal uint CacheHit;
+        internal ulong TextureBytes;
+        internal ulong VertexUploadBytes;
+        internal ulong UniformUploadBytes;
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal unsafe struct EngineInfo
     {
@@ -343,6 +361,12 @@ internal static unsafe partial class NativeMethods
     internal static partial NativeRendererStatus GetLastSubmission(
         nint engine,
         ulong* submissionIndex);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_layer_metrics")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetLayerMetrics(
+        nint engine,
+        LayerMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_poll_submission")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

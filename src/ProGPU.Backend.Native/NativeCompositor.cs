@@ -84,6 +84,33 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Returns pooled group-layer activity for the most recently submitted frame.
+    /// </summary>
+    public NativeLayerMetrics GetLayerMetrics()
+    {
+        var metrics = new NativeMethods.LayerMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.LayerMetrics>()
+        };
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            ThrowForStatus(NativeMethods.GetLayerMetrics(_engine, &metrics));
+        }
+        return new NativeLayerMetrics(
+            metrics.TextureWidth,
+            metrics.TextureHeight,
+            metrics.TextureGeneration,
+            metrics.AllocationCount,
+            metrics.ContentPassCount,
+            metrics.CompositePassCount,
+            metrics.CacheHit != 0U,
+            metrics.TextureBytes,
+            metrics.VertexUploadBytes,
+            metrics.UniformUploadBytes);
+    }
+
+    /// <summary>
     /// Tests whether the GPU has completed a native submission without waiting.
     /// </summary>
     public bool IsSubmissionComplete(NativeSubmissionToken token) =>
@@ -1068,7 +1095,9 @@ public sealed unsafe class NativeCompositor : IDisposable
             Flags = (uint)state.Flags,
             Opacity = state.EffectiveOpacity,
             Reserved = 0U,
-            ClipRect = state.ClipRect
+            ClipRect = state.ClipRect,
+            GroupOpacity = state.EffectiveGroupOpacity,
+            GroupRevision = state.GroupRevision
         };
 }
 

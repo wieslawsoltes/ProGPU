@@ -42,7 +42,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U,
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U,
     PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE = 1ULL << 19U,
-    PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE = 1ULL << 20U
+    PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE = 1ULL << 20U,
+    PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY = 1ULL << 21U
 };
 
 enum {
@@ -368,8 +369,14 @@ typedef struct progpu_native_positioned_glyph {
 
 /*
  * Optional per-draw state shared by every frame family. opacity multiplies
- * primitive alpha; it is not group/layer opacity. clip_rect is expressed in
- * logical target coordinates and is mapped to a physical WebGPU scissor.
+ * primitive alpha. group_opacity composites the whole frame family through a
+ * pooled transparent layer. A nonzero caller-owned group_revision permits the
+ * layer pixels to be reused until the caller changes that revision. clip_rect
+ * is expressed in logical target coordinates and is applied to the final
+ * group composite rather than baked into retained layer pixels.
+ *
+ * struct_size keeps ABI-v3 append compatibility: the original 32-byte prefix
+ * defaults group_opacity to one and group_revision to zero.
  */
 typedef struct progpu_native_draw_state {
     uint32_t struct_size;
@@ -377,7 +384,23 @@ typedef struct progpu_native_draw_state {
     float opacity;
     uint32_t reserved;
     progpu_native_image_rect clip_rect;
+    float group_opacity;
+    uint32_t group_revision;
 } progpu_native_draw_state;
+
+typedef struct progpu_native_layer_metrics {
+    uint32_t struct_size;
+    uint32_t texture_width;
+    uint32_t texture_height;
+    uint32_t texture_generation;
+    uint32_t allocation_count;
+    uint32_t content_pass_count;
+    uint32_t composite_pass_count;
+    uint32_t cache_hit;
+    uint64_t texture_bytes;
+    uint64_t vertex_upload_bytes;
+    uint64_t uniform_upload_bytes;
+} progpu_native_layer_metrics;
 
 /*
  * width and height are physical target pixels. Rectangle coordinates are
@@ -635,6 +658,9 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_image(
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_last_submission(
     progpu_native_engine* engine,
     uint64_t* submission_index);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_layer_metrics(
+    progpu_native_engine* engine,
+    progpu_native_layer_metrics* metrics);
 /*
  * Polls or waits for one submission from this engine. This is the consumer
  * fence used by external-image owners before recycling a borrowed texture.

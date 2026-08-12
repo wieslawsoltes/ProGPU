@@ -360,15 +360,18 @@ int main(int argc, char** argv) {
         texture, &view_descriptor);
     require(view != nullptr, "target view creation failed");
 
-    const progpu_native_rect rectangle{
-        4.0F, 4.0F, 32.0F, 24.0F,
-        {0.92F, 0.18F, 0.08F, 1.0F}
+    const progpu_native_rect rectangles[]{
+        {4.0F, 4.0F, 32.0F, 24.0F,
+            {0.92F, 0.18F, 0.08F, 1.0F}},
+        {4.0F, 4.0F, 32.0F, 24.0F,
+            {0.92F, 0.18F, 0.08F, 1.0F}}
     };
     progpu_native_draw_state draw_state{};
     draw_state.struct_size = sizeof(draw_state);
     draw_state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
     draw_state.opacity = 0.5F;
     draw_state.clip_rect = {10.25F, 8.25F, 10.5F, 10.5F};
+    draw_state.group_opacity = 1.0F;
     progpu_native_frame frame{
         sizeof(progpu_native_frame),
         64U,
@@ -376,7 +379,7 @@ int main(int argc, char** argv) {
         1.5F,
         reinterpret_cast<std::uintptr_t>(view),
         {0.05F, 0.10F, 0.22F, 1.0F},
-        &rectangle,
+        rectangles,
         1U,
         &draw_state
     };
@@ -387,6 +390,18 @@ int main(int argc, char** argv) {
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
         "unknown draw-state feature did not fail closed");
     draw_state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
+    draw_state.struct_size = offsetof(
+        progpu_native_draw_state,
+        group_opacity);
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
+        "legacy ABI-v3 draw-state prefix failed");
+    draw_state.struct_size = sizeof(draw_state);
+    draw_state.group_opacity = 1.1F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "out-of-range group opacity did not fail closed");
+    draw_state.group_opacity = 1.0F;
     draw_state.clip_rect = {10.0F, 8.0F, 0.0F, 10.0F};
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
@@ -400,6 +415,35 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
         "ProGPU clipped-opacity render failed");
+    draw_state.opacity = 1.0F;
+    draw_state.group_opacity = 0.25F;
+    draw_state.group_revision = 7U;
+    frame.rect_count = 2U;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 1U,
+        "ProGPU group-opacity content render failed");
+    progpu_native_layer_metrics layer_metrics{};
+    layer_metrics.struct_size = sizeof(layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 1U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 0U &&
+        layer_metrics.allocation_count == 1U,
+        "group layer content metrics are invalid");
+    draw_state.group_opacity = 0.5F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U &&
+        metrics.vertex_upload_bytes == 0U,
+        "retained group replay did not skip family compilation and upload");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.allocation_count == 1U &&
+        layer_metrics.vertex_upload_bytes == 224U,
+        "retained group replay metrics are invalid");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,

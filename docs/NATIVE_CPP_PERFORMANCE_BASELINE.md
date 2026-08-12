@@ -327,6 +327,68 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Pooled frame-group opacity checkpoint
+
+The append-only 40-byte draw-state record adds true group opacity and an
+optional caller-owned group revision. Every native family can render into one
+transparent target-format texture and composite that premultiplied result once
+over the clear color. The outer rectangular clip is applied to the composite,
+not to family content. The engine retains one texture/view/bind group per
+compositor, reallocates it only on size change, and publishes separate layer
+metrics so existing per-family records remain ABI-compatible.
+
+The exact WebScene/Dawn/Metal provider test draws two identical overlapping
+opaque rectangles into a 25% group, then changes only group opacity to 50%.
+The first frame reports one content pass, one composite pass, one allocation,
+and no cache hit. The second reports zero family draws/uploads, zero content
+passes, one composite pass, the same allocation count, and a cache hit. Its
+224-byte quad update is the only payload change; a following unchanged replay
+uploads zero bytes. The final IOSurface pixel is the once-composited 50% group,
+not the 75% result that per-primitive alpha would produce.
+
+Short Release differential gates (two warmups, four measured frames) exercise
+all six families with retained group replay on Apple M3 Pro/Metal. These runs
+are functional gates, not final performance distributions:
+
+| Family | Pixel result | Stable native/managed allocation | Layer state |
+|---|---|---:|---|
+| solid rectangles | byte-exact | 0 / 0 B per frame | one 2,073,600-byte texture, cache hit |
+| indexed analytic | existing bounded AA differential; mean `0.004361/255` | 0 / 0 B per frame | same |
+| indexed geometry | byte-exact | 0 / 0 B per frame | same |
+| retained paths | byte-exact | 0 / 0 B per frame | same |
+| positioned glyphs | byte-exact | 0 / 0 B per frame | same |
+| retained RGBA image | byte-exact | 0 / 0 B per frame | same |
+
+Three paired 300-frame synchronized 384-solid runs after 60 warmups produced
+these median p95 values:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| CPU encode/upload/submit | 0.1748 ms | 0.2207 ms | -20.8% |
+| GPU-completion wait portion | 3.0459 ms | 3.0465 ms | on par |
+| end-to-end synchronized | 3.0912 ms | 3.1303 ms | -1.2% |
+| stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+All three runs are byte-exact with native/managed hash
+`90172B40F34BDA56`. Valid final-binary 2,000-frame Time Profiler and
+Allocations/VM Tracker traces, plus a synchronized 200-frame Metal System
+Trace, exited zero. The Metal trace records the native pooled texture,
+retained-group replay encoder, group composite pass and managed offscreen
+encoder labels, 1,587 submissions, 2,522 completions, zero command-buffer
+errors, and 16.92 MiB peak combined-process `currentAllocatedSize`. That
+residency remains shared and is not attributed to either renderer. The
+Allocations capture contains both Allocations and VM Tracker tracks.
+
+Retained ignored evidence:
+
+- `group-opacity/sync-{1,2,3}.json` and six per-family gate JSON files under
+  `artifacts/progpu-native/benchmarks/`;
+- final-binary Time Profiler, Allocations/VM Tracker, and Metal System Trace
+  bundles with zero-exit TOCs and exported Metal tables under
+  `artifacts/progpu-native/traces/group-opacity-20260813/`;
+- byte-exact native/managed group-opacity screenshots and the black amplified
+  difference image under `artifacts/progpu-native/differential/`.
+
 ## Common draw-state supplement
 
 The ABI-v3 append-only draw-state increment applies primitive opacity and one

@@ -134,7 +134,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --analytic --rectangles 96 --warmup 4 --iterations 8
+      --group-opacity --rectangles 384 --warmup 4 --iterations 8
+  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --analytic --group-opacity --rectangles 96 --warmup 4 --iterations 8
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -149,7 +154,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --geometry --rectangles 96 --warmup 4 --iterations 8
+      --geometry --group-opacity --rectangles 96 --warmup 4 --iterations 8
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -186,7 +191,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --paths --rectangles 96 --warmup 2 --iterations 4
+      --paths --group-opacity --rectangles 96 --warmup 2 --iterations 4
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -201,7 +206,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --glyphs --rectangles 96 --warmup 2 --iterations 4
+      --glyphs --group-opacity --rectangles 96 --warmup 2 --iterations 4
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -216,7 +221,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --images --warmup 2 --iterations 4
+      --images --group-opacity --warmup 2 --iterations 4
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -252,7 +257,7 @@ else
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --analytic --rectangles 96 --warmup 4 --iterations 8
+      --analytic --group-opacity --rectangles 96 --warmup 4 --iterations 8
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -267,7 +272,7 @@ else
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --geometry --rectangles 96 --warmup 4 --iterations 8
+      --geometry --group-opacity --rectangles 96 --warmup 4 --iterations 8
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -304,7 +309,12 @@ else
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --paths --rectangles 96 --warmup 2 --iterations 4
+      --group-opacity --rectangles 384 --warmup 4 --iterations 8
+  LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
+      --paths --group-opacity --rectangles 96 --warmup 2 --iterations 4
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -319,7 +329,7 @@ else
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --glyphs --rectangles 96 --warmup 2 --iterations 4
+      --glyphs --group-opacity --rectangles 96 --warmup 2 --iterations 4
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -334,7 +344,7 @@ else
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
-      --images --warmup 2 --iterations 4
+      --images --group-opacity --warmup 2 --iterations 4
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \

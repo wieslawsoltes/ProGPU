@@ -42,6 +42,15 @@ constexpr std::uint32_t native_max_atlas_size = 4096U;
 constexpr std::uint32_t path_padding = 4U;
 constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
 
+enum class layer_family : std::uint32_t {
+    solid = 1U,
+    analytic = 2U,
+    geometry = 3U,
+    path = 4U,
+    glyph = 5U,
+    image = 6U
+};
+
 struct gpu_uniforms {
     float projection[16];
     float model_view_projection[16];
@@ -300,6 +309,8 @@ std::uint64_t append_fnv1a64(
 
 struct resolved_draw_state {
     float opacity = 1.0F;
+    float group_opacity = 1.0F;
+    std::uint32_t group_revision = 0U;
     bool has_clip = false;
     bool has_drawable_clip = true;
     std::uint32_t clip_x = 0U;
@@ -323,13 +334,23 @@ bool resolve_draw_state(
     if (state == nullptr) {
         return true;
     }
-    if (state->struct_size < sizeof(progpu_native_draw_state) ||
+    constexpr std::uint32_t legacy_size =
+        offsetof(progpu_native_draw_state, group_opacity);
+    if (state->struct_size < legacy_size ||
         (state->flags & ~PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) != 0U ||
         state->reserved != 0U || !std::isfinite(state->opacity) ||
         state->opacity < 0.0F || state->opacity > 1.0F) {
         return false;
     }
     resolved.opacity = state->opacity;
+    if (state->struct_size >= sizeof(progpu_native_draw_state)) {
+        if (!std::isfinite(state->group_opacity) ||
+            state->group_opacity < 0.0F || state->group_opacity > 1.0F) {
+            return false;
+        }
+        resolved.group_opacity = state->group_opacity;
+        resolved.group_revision = state->group_revision;
+    }
     if ((state->flags & PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) == 0U) {
         return state->clip_rect.x == 0.0F && state->clip_rect.y == 0.0F &&
             state->clip_rect.width == 0.0F &&
@@ -541,6 +562,28 @@ struct progpu_native_engine {
     bool image_uniform_cache_valid = false;
     bool image_cache_valid = false;
     bool image_gpu_cache_valid = false;
+    WGPURenderPipeline layer_composite_pipeline = nullptr;
+    WGPUBuffer layer_uniform_buffer = nullptr;
+    WGPUBindGroup layer_uniform_bind_group = nullptr;
+    WGPUBuffer layer_vertex_buffer = nullptr;
+    WGPUBuffer layer_index_buffer = nullptr;
+    WGPUTexture layer_texture = nullptr;
+    WGPUTextureView layer_texture_view = nullptr;
+    WGPUBindGroup layer_texture_bind_group = nullptr;
+    std::array<progpu::native::vector_vertex, 4U> layer_vertices{};
+    gpu_uniforms cached_layer_uniforms{};
+    bool layer_uniform_cache_valid = false;
+    bool layer_vertex_cache_valid = false;
+    std::uint32_t layer_width = 0U;
+    std::uint32_t layer_height = 0U;
+    std::uint32_t layer_texture_generation = 0U;
+    std::uint32_t layer_allocation_count = 0U;
+    std::uint32_t layer_cached_family = 0U;
+    std::uint32_t layer_cached_revision = 0U;
+    float layer_cached_dpi_scale = 0.0F;
+    float layer_cached_primitive_opacity = 1.0F;
+    bool layer_content_cache_valid = false;
+    progpu_native_layer_metrics last_layer_metrics{};
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
@@ -576,6 +619,34 @@ struct progpu_native_engine {
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        if (layer_texture_bind_group != nullptr) {
+            wgpuBindGroupRelease(layer_texture_bind_group);
+        }
+        if (layer_texture_view != nullptr) {
+            wgpuTextureViewRelease(layer_texture_view);
+        }
+        if (layer_texture != nullptr) {
+            wgpuTextureDestroy(layer_texture);
+            wgpuTextureRelease(layer_texture);
+        }
+        if (layer_index_buffer != nullptr) {
+            wgpuBufferDestroy(layer_index_buffer);
+            wgpuBufferRelease(layer_index_buffer);
+        }
+        if (layer_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(layer_vertex_buffer);
+            wgpuBufferRelease(layer_vertex_buffer);
+        }
+        if (layer_uniform_bind_group != nullptr) {
+            wgpuBindGroupRelease(layer_uniform_bind_group);
+        }
+        if (layer_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(layer_uniform_buffer);
+            wgpuBufferRelease(layer_uniform_buffer);
+        }
+        if (layer_composite_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(layer_composite_pipeline);
+        }
         if (image_mask_linear_bind_group != nullptr) {
             wgpuBindGroupRelease(image_mask_linear_bind_group);
         }
@@ -2023,6 +2094,475 @@ bool create_image_resources(progpu_native_engine& engine) {
     return true;
 }
 
+bool create_layer_resources(progpu_native_engine& engine) {
+    if (engine.layer_composite_pipeline != nullptr) {
+        return true;
+    }
+    if (!create_image_resources(engine) ||
+        engine.layer_uniform_buffer != nullptr ||
+        engine.layer_uniform_bind_group != nullptr ||
+        engine.layer_vertex_buffer != nullptr ||
+        engine.layer_index_buffer != nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUBindGroupLayout, 2U> layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout
+    }};
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label =
+        progpu::native::webgpu::string_view(
+            "ProGPU native group composite layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = layouts.size();
+    pipeline_layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 7U> attributes{{
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U)
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.image_shader;
+    vertex_state.entryPoint =
+        progpu::native::webgpu::string_view("vs_main");
+    vertex_state.bufferCount = 1U;
+    vertex_state.buffers = &vertex_layout;
+
+    WGPUBlendState blend{};
+    blend.color.srcFactor = WGPUBlendFactor_One;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = &blend;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.image_shader;
+    fragment.entryPoint =
+        progpu::native::webgpu::string_view("fs_main_unmasked");
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native premultiplied group composite pipeline");
+    descriptor.layout = pipeline_layout;
+    descriptor.vertex = vertex_state;
+    descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    descriptor.primitive.cullMode = WGPUCullMode_None;
+    descriptor.multisample.count = 1U;
+    descriptor.multisample.mask = 0xFFFFFFFFU;
+    descriptor.fragment = &fragment;
+    engine.layer_composite_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.layer_composite_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor uniform_descriptor{};
+    uniform_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite uniforms");
+    uniform_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    uniform_descriptor.size = sizeof(gpu_uniforms);
+    engine.layer_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &uniform_descriptor);
+    WGPUBufferDescriptor vertex_descriptor{};
+    vertex_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite vertices");
+    vertex_descriptor.usage = WGPUBufferUsage_Vertex |
+        WGPUBufferUsage_CopyDst;
+    vertex_descriptor.size = sizeof(engine.layer_vertices);
+    engine.layer_vertex_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &vertex_descriptor);
+    WGPUBufferDescriptor index_descriptor{};
+    index_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite indices");
+    index_descriptor.usage = WGPUBufferUsage_Index |
+        WGPUBufferUsage_CopyDst;
+    index_descriptor.size = 6U * sizeof(std::uint32_t);
+    engine.layer_index_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &index_descriptor);
+    if (engine.layer_uniform_buffer == nullptr ||
+        engine.layer_vertex_buffer == nullptr ||
+        engine.layer_index_buffer == nullptr) {
+        return false;
+    }
+
+    WGPUBindGroupEntry uniform_entry{};
+    uniform_entry.binding = 0U;
+    uniform_entry.buffer = engine.layer_uniform_buffer;
+    uniform_entry.size = sizeof(gpu_uniforms);
+    WGPUBindGroupDescriptor uniform_group_descriptor{};
+    uniform_group_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite uniform bind group");
+    uniform_group_descriptor.layout = engine.image_uniform_layout;
+    uniform_group_descriptor.entryCount = 1U;
+    uniform_group_descriptor.entries = &uniform_entry;
+    engine.layer_uniform_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &uniform_group_descriptor);
+    if (engine.layer_uniform_bind_group == nullptr) {
+        return false;
+    }
+    constexpr std::array<std::uint32_t, 6U> indices{
+        0U, 1U, 2U, 0U, 2U, 3U};
+    wgpuQueueWriteBuffer(
+        engine.queue,
+        engine.layer_index_buffer,
+        0U,
+        indices.data(),
+        sizeof(indices));
+    return true;
+}
+
+bool ensure_layer_texture(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (engine.layer_texture != nullptr &&
+        engine.layer_width == width && engine.layer_height == height) {
+        return true;
+    }
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native pooled group layer");
+    descriptor.usage = WGPUTextureUsage_RenderAttachment |
+        WGPUTextureUsage_TextureBinding;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = engine.target_format;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    WGPUBindGroup bind_group = create_image_texture_bind_group(
+        engine,
+        engine.image_linear_sampler,
+        view,
+        "ProGPU native pooled group layer bind group");
+    if (bind_group == nullptr) {
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    if (engine.layer_texture_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.layer_texture_bind_group);
+    }
+    if (engine.layer_texture_view != nullptr) {
+        wgpuTextureViewRelease(engine.layer_texture_view);
+    }
+    if (engine.layer_texture != nullptr) {
+        wgpuTextureDestroy(engine.layer_texture);
+        wgpuTextureRelease(engine.layer_texture);
+    }
+    engine.layer_texture = texture;
+    engine.layer_texture_view = view;
+    engine.layer_texture_bind_group = bind_group;
+    engine.layer_width = width;
+    engine.layer_height = height;
+    engine.layer_content_cache_valid = false;
+    engine.layer_vertex_cache_valid = false;
+    ++engine.layer_texture_generation;
+    ++engine.layer_allocation_count;
+    return true;
+}
+
+bool prepare_layer_composite(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height,
+    float dpi_scale,
+    float opacity) {
+    if (!create_layer_resources(engine) ||
+        !ensure_layer_texture(engine, width, height)) {
+        return false;
+    }
+    std::array<progpu::native::vector_vertex, 4U> vertices{};
+    const float logical_width = static_cast<float>(width) / dpi_scale;
+    const float logical_height = static_cast<float>(height) / dpi_scale;
+    constexpr std::array<std::array<std::uint32_t, 2U>, 4U> corners{{
+        {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+    }};
+    for (std::size_t index = 0U; index < corners.size(); ++index) {
+        auto& vertex = vertices[index];
+        vertex.position[0] = corners[index][0] == 0U
+            ? 0.0F
+            : logical_width;
+        vertex.position[1] = corners[index][1] == 0U
+            ? 0.0F
+            : logical_height;
+        vertex.color[0] = opacity;
+        vertex.color[1] = 1.0F;
+        vertex.color[2] = 0.0F;
+        vertex.color[3] = opacity;
+        vertex.texture_coordinate[0] =
+            static_cast<float>(corners[index][0]);
+        vertex.texture_coordinate[1] =
+            static_cast<float>(corners[index][1]);
+        vertex.stroke_thickness = 1.0F;
+    }
+    bool uploaded_vertices = false;
+    if (!engine.layer_vertex_cache_valid ||
+        std::memcmp(
+            engine.layer_vertices.data(),
+            vertices.data(),
+            sizeof(vertices)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.layer_vertex_buffer,
+            0U,
+            vertices.data(),
+            sizeof(vertices));
+        engine.layer_vertices = vertices;
+        engine.layer_vertex_cache_valid = true;
+        uploaded_vertices = true;
+    }
+    const gpu_uniforms uniforms = create_uniforms(width, height, dpi_scale);
+    const bool uploaded_uniforms = engine.upload_uniform_if_changed(
+        engine.layer_uniform_buffer,
+        uniforms,
+        engine.cached_layer_uniforms,
+        engine.layer_uniform_cache_valid);
+    engine.last_layer_metrics = {};
+    engine.last_layer_metrics.struct_size =
+        sizeof(progpu_native_layer_metrics);
+    engine.last_layer_metrics.texture_width = engine.layer_width;
+    engine.last_layer_metrics.texture_height = engine.layer_height;
+    engine.last_layer_metrics.texture_generation =
+        engine.layer_texture_generation;
+    engine.last_layer_metrics.allocation_count =
+        engine.layer_allocation_count;
+    engine.last_layer_metrics.texture_bytes =
+        static_cast<std::uint64_t>(width) * height * 4U;
+    engine.last_layer_metrics.vertex_upload_bytes = uploaded_vertices
+        ? sizeof(vertices)
+        : 0U;
+    engine.last_layer_metrics.uniform_upload_bytes = uploaded_uniforms
+        ? sizeof(uniforms)
+        : 0U;
+    return true;
+}
+
+void reset_layer_metrics(progpu_native_engine& engine) noexcept {
+    engine.last_layer_metrics = {};
+    engine.last_layer_metrics.struct_size =
+        sizeof(progpu_native_layer_metrics);
+    engine.last_layer_metrics.texture_width = engine.layer_width;
+    engine.last_layer_metrics.texture_height = engine.layer_height;
+    engine.last_layer_metrics.texture_generation =
+        engine.layer_texture_generation;
+    engine.last_layer_metrics.allocation_count =
+        engine.layer_allocation_count;
+    engine.last_layer_metrics.texture_bytes =
+        static_cast<std::uint64_t>(engine.layer_width) *
+        engine.layer_height * 4U;
+}
+
+bool encode_layer_composite(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    WGPUTextureView target_view,
+    const progpu_native_color& clear_color,
+    const resolved_draw_state& draw_state) {
+    WGPURenderPassColorAttachment attachment{};
+    progpu::native::webgpu::initialize_color_attachment(attachment);
+    attachment.view = target_view;
+    attachment.loadOp = WGPULoadOp_Clear;
+    attachment.storeOp = WGPUStoreOp_Store;
+    attachment.clearValue = {
+        clear_color.r,
+        clear_color.g,
+        clear_color.b,
+        clear_color.a
+    };
+    WGPURenderPassDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite pass");
+    descriptor.colorAttachmentCount = 1U;
+    descriptor.colorAttachments = &attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &descriptor);
+    if (pass == nullptr) {
+        return false;
+    }
+    if (draw_state.group_opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        apply_scissor(pass, draw_state);
+        wgpuRenderPassEncoderSetPipeline(
+            pass,
+            engine.layer_composite_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            0U,
+            engine.layer_uniform_bind_group,
+            0U,
+            nullptr);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            1U,
+            engine.layer_texture_bind_group,
+            0U,
+            nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass,
+            0U,
+            engine.layer_vertex_buffer,
+            0U,
+            sizeof(engine.layer_vertices));
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass,
+            engine.layer_index_buffer,
+            WGPUIndexFormat_Uint32,
+            0U,
+            6U * sizeof(std::uint32_t));
+        wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
+        engine.last_layer_metrics.composite_pass_count = 1U;
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    return true;
+}
+
+progpu_native_status prepare_group_layer(
+    progpu_native_engine& engine,
+    layer_family family,
+    std::uint32_t width,
+    std::uint32_t height,
+    float dpi_scale,
+    WGPUTextureView target_view,
+    const progpu_native_color& clear_color,
+    const resolved_draw_state& draw_state,
+    bool& use_group_layer,
+    bool& submitted_cache_hit) {
+    use_group_layer = draw_state.group_opacity < 1.0F ||
+        draw_state.group_revision != 0U;
+    submitted_cache_hit = false;
+    if (!use_group_layer) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+    if (!prepare_layer_composite(
+            engine,
+            width,
+            height,
+            dpi_scale,
+            draw_state.group_opacity)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The pooled group layer could not be prepared.");
+    }
+    const bool cache_hit = draw_state.group_revision != 0U &&
+        engine.layer_content_cache_valid &&
+        engine.layer_cached_family ==
+            static_cast<std::uint32_t>(family) &&
+        engine.layer_cached_revision == draw_state.group_revision &&
+        engine.layer_cached_dpi_scale == dpi_scale &&
+        engine.layer_cached_primitive_opacity == draw_state.opacity;
+    if (!cache_hit) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+
+    WGPUCommandEncoderDescriptor encoder_descriptor{};
+    encoder_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained group replay encoder");
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+        engine.device,
+        &encoder_descriptor);
+    if (encoder == nullptr) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained group replay encoder could not be created.");
+    }
+    if (!encode_layer_composite(
+            engine,
+            encoder,
+            target_view,
+            clear_color,
+            draw_state)) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained group replay pass could not be created.");
+    }
+    WGPUCommandBufferDescriptor command_descriptor{};
+    command_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained group replay commands");
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+        encoder,
+        &command_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == nullptr) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained group replay command buffer could not be finished.");
+    }
+    engine.submit(command);
+    wgpuCommandBufferRelease(command);
+    engine.last_layer_metrics.cache_hit = 1U;
+    submitted_cache_hit = true;
+    engine.last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+void retain_group_layer_content(
+    progpu_native_engine& engine,
+    layer_family family,
+    float dpi_scale,
+    const resolved_draw_state& draw_state) noexcept {
+    if (draw_state.group_revision == 0U) {
+        engine.layer_content_cache_valid = false;
+        return;
+    }
+    engine.layer_cached_family = static_cast<std::uint32_t>(family);
+    engine.layer_cached_revision = draw_state.group_revision;
+    engine.layer_cached_dpi_scale = dpi_scale;
+    engine.layer_cached_primitive_opacity = draw_state.opacity;
+    engine.layer_content_cache_valid = true;
+}
+
 WGPUBindGroup create_image_mask_bind_group(
     progpu_native_engine& engine,
     WGPUSampler sampler,
@@ -2508,7 +3048,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
         PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE |
-        PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE;
+        PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE |
+        PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -2643,6 +3184,7 @@ progpu_native_status progpu_native_engine_render(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
     engine->path_gpu_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->rect_count >
@@ -2652,6 +3194,29 @@ progpu_native_status progpu_native_engine_render(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The rectangle batch is too large.");
+    }
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::solid,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
     try {
@@ -2715,15 +3280,18 @@ progpu_native_status progpu_native_engine_render(
 
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    color_attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native solid rectangle pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -2739,8 +3307,10 @@ progpu_native_status progpu_native_engine_render(
     }
 
     if (!engine->vertices.empty() && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(pass, engine->pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -2763,6 +3333,20 @@ progpu_native_status progpu_native_engine_render(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The group composite pass could not be created.");
+        }
+    }
 
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame commands");
@@ -2778,12 +3362,20 @@ progpu_native_status progpu_native_engine_render(
 
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::solid,
+            frame->dpi_scale,
+            draw_state);
+    }
     engine->last_error.clear();
 
     if (metrics != nullptr &&
         metrics->struct_size >= sizeof(progpu_native_frame_metrics)) {
         metrics->draw_call_count = engine->vertices.empty() ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->vertex_count =
@@ -2837,6 +3429,7 @@ progpu_native_status progpu_native_engine_render_analytic(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
     engine->path_gpu_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->primitive_count >
@@ -2846,6 +3439,29 @@ progpu_native_status progpu_native_engine_render_analytic(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The analytic primitive batch is too large.");
+    }
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::analytic,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_analytic_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
     try {
@@ -2936,15 +3552,18 @@ progpu_native_status progpu_native_engine_render_analytic(
 
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    color_attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native indexed analytic primitive pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -2960,8 +3579,10 @@ progpu_native_status progpu_native_engine_render_analytic(
     }
 
     if (!engine->indices.empty() && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -2997,6 +3618,20 @@ progpu_native_status progpu_native_engine_render_analytic(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The analytic group composite pass could not be created.");
+        }
+    }
 
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame commands");
@@ -3012,12 +3647,20 @@ progpu_native_status progpu_native_engine_render_analytic(
 
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::analytic,
+            frame->dpi_scale,
+            draw_state);
+    }
     engine->last_error.clear();
 
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_analytic_frame_metrics)) {
         metrics->draw_call_count = engine->indices.empty() ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->vertex_count =
@@ -3086,6 +3729,7 @@ progpu_native_status progpu_native_engine_render_geometry(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
     engine->path_gpu_cache_valid = false;
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
@@ -3112,6 +3756,29 @@ progpu_native_status progpu_native_engine_render_geometry(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The geometry primitive batch is too large.");
+    }
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::geometry,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_geometry_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
     const bool retain_compiled_payload =
@@ -3547,15 +4214,18 @@ progpu_native_status progpu_native_engine_render_geometry(
 
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    color_attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native indexed geometry pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -3571,8 +4241,10 @@ progpu_native_status progpu_native_engine_render_geometry(
     }
 
     if (!engine->indices.empty() && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass,
@@ -3608,6 +4280,20 @@ progpu_native_status progpu_native_engine_render_geometry(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The geometry group composite pass could not be created.");
+        }
+    }
 
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native geometry frame commands");
@@ -3623,12 +4309,20 @@ progpu_native_status progpu_native_engine_render_geometry(
 
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::geometry,
+            frame->dpi_scale,
+            draw_state);
+    }
     engine->last_error.clear();
 
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_geometry_frame_metrics)) {
         metrics->draw_call_count = engine->indices.empty() ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->vertex_count =
@@ -3701,6 +4395,7 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
     if (frame->path_count > (1U << 20U) ||
         frame->segment_count > (1U << 24U) ||
         frame->path_count >
@@ -3708,6 +4403,29 @@ progpu_native_status progpu_native_engine_render_paths(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The path batch exceeds the native safety bound.");
+    }
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::path,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_path_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
     const bool retain_compiled_payload =
@@ -4105,7 +4823,6 @@ progpu_native_status progpu_native_engine_render_paths(
                 brush_bytes);
         }
     }
-
     path_raster_resources temporary;
     WGPUBuffer& path_uniform_buffer = temporary.uniforms;
     WGPUBuffer& path_record_buffer = temporary.records;
@@ -4254,15 +4971,18 @@ progpu_native_status progpu_native_engine_render_paths(
 
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    color_attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -4277,8 +4997,10 @@ progpu_native_status progpu_native_engine_render_paths(
             "The native path render pass could not be created.");
     }
     if (!engine->path_indices.empty() && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass, 0U, engine->analytic_uniform_bind_group, 0U, nullptr);
@@ -4298,6 +5020,20 @@ progpu_native_status progpu_native_engine_render_paths(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The path group composite pass could not be created.");
+        }
+    }
 
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path commands");
@@ -4312,6 +5048,13 @@ progpu_native_status progpu_native_engine_render_paths(
     }
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::path,
+            frame->dpi_scale,
+            draw_state);
+    }
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -4333,7 +5076,8 @@ progpu_native_status progpu_native_engine_render_paths(
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_path_frame_metrics)) {
         metrics->draw_call_count = engine->path_indices.empty() ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->vertex_count = static_cast<std::uint32_t>(
@@ -4406,12 +5150,36 @@ progpu_native_status progpu_native_engine_render_glyphs(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
     if (frame->outline_count > (1U << 20U) ||
         frame->segment_count > (1U << 24U) ||
         frame->glyph_count > (1U << 24U)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The positioned glyph batch exceeds the native safety bound.");
+    }
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::glyph,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_glyph_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
     const bool retain_compiled_payload =
@@ -4756,7 +5524,6 @@ progpu_native_status progpu_native_engine_render_glyphs(
             engine->glyph_gpu_cache_valid = retain_compiled_payload;
         }
     }
-
     path_raster_resources temporary;
     std::vector<std::byte> uniform_bytes;
     if (!compiled_payload_hit && frame->outline_count != 0U) {
@@ -4918,16 +5685,18 @@ progpu_native_status progpu_native_engine_render_glyphs(
 
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(
-        frame->target_view);
+    color_attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    color_attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -4942,8 +5711,10 @@ progpu_native_status progpu_native_engine_render_glyphs(
             "The native positioned glyph render pass could not be created.");
     }
     if (!engine->glyph_instances.empty() && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(pass, engine->text_pipeline);
         wgpuRenderPassEncoderSetBindGroup(
             pass, 0U, engine->text_uniform_bind_group, 0U, nullptr);
@@ -4964,6 +5735,20 @@ progpu_native_status progpu_native_engine_render_glyphs(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The glyph group composite pass could not be created.");
+        }
+    }
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
@@ -4977,6 +5762,13 @@ progpu_native_status progpu_native_engine_render_glyphs(
     }
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::glyph,
+            frame->dpi_scale,
+            draw_state);
+    }
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -4992,7 +5784,8 @@ progpu_native_status progpu_native_engine_render_glyphs(
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_glyph_frame_metrics)) {
         metrics->draw_call_count = engine->glyph_instances.empty() ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->glyph_count = static_cast<std::uint32_t>(
@@ -5100,6 +5893,32 @@ progpu_native_status progpu_native_engine_render_image(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    reset_layer_metrics(*engine);
+
+    const bool created_resources = engine->image_pipeline == nullptr;
+    bool use_group_layer = false;
+    bool group_cache_hit = false;
+    const auto group_status = prepare_group_layer(
+        *engine,
+        layer_family::image,
+        frame->width,
+        frame->height,
+        frame->dpi_scale,
+        reinterpret_cast<WGPUTextureView>(frame->target_view),
+        frame->clear_color,
+        draw_state,
+        use_group_layer,
+        group_cache_hit);
+    if (group_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return group_status;
+    }
+    if (group_cache_hit) {
+        if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_image_frame_metrics)) {
+            metrics->submission_count = engine->submission_count;
+        }
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
 
     const bool external = (frame->source_flags &
         PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U;
@@ -5126,7 +5945,6 @@ progpu_native_status progpu_native_engine_render_image(
             "The retained RGBA image revision or pixel payload is invalid.");
     }
 
-    const bool created_resources = engine->image_pipeline == nullptr;
     if (!create_image_resources(*engine)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -5231,15 +6049,18 @@ progpu_native_status progpu_native_engine_render_image(
     }
     WGPURenderPassColorAttachment attachment{};
     progpu::native::webgpu::initialize_color_attachment(attachment);
-    attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    attachment.view = use_group_layer
+        ? engine->layer_texture_view
+        : reinterpret_cast<WGPUTextureView>(frame->target_view);
     attachment.loadOp = WGPULoadOp_Clear;
     attachment.storeOp = WGPUStoreOp_Store;
-    attachment.clearValue = {
-        frame->clear_color.r,
-        frame->clear_color.g,
-        frame->clear_color.b,
-        frame->clear_color.a
-    };
+    attachment.clearValue = use_group_layer
+        ? WGPUColor{0.0, 0.0, 0.0, 0.0}
+        : WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
     WGPURenderPassDescriptor pass_descriptor{};
     pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image pass");
     pass_descriptor.colorAttachmentCount = 1U;
@@ -5254,8 +6075,10 @@ progpu_native_status progpu_native_engine_render_image(
             "The retained RGBA image render pass could not be created.");
     }
     if (frame->opacity != 0.0F && draw_state.opacity != 0.0F &&
-        draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
+        (use_group_layer || draw_state.has_drawable_clip)) {
+        if (!use_group_layer) {
+            apply_scissor(pass, draw_state);
+        }
         wgpuRenderPassEncoderSetPipeline(
             pass,
             has_mask ? engine->image_mask_pipeline : engine->image_pipeline);
@@ -5295,6 +6118,20 @@ progpu_native_status progpu_native_engine_render_image(
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
+    if (use_group_layer) {
+        engine->last_layer_metrics.content_pass_count = 1U;
+        if (!encode_layer_composite(
+                *engine,
+                encoder,
+                reinterpret_cast<WGPUTextureView>(frame->target_view),
+                frame->clear_color,
+                draw_state)) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The image group composite pass could not be created.");
+        }
+    }
 
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image commands");
@@ -5309,6 +6146,13 @@ progpu_native_status progpu_native_engine_render_image(
     }
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+    if (use_group_layer) {
+        retain_group_layer_content(
+            *engine,
+            layer_family::image,
+            frame->dpi_scale,
+            draw_state);
+    }
 
     std::uint64_t payload_hash = engine->image_payload_hash;
     payload_hash = append_fnv1a64(
@@ -5327,7 +6171,8 @@ progpu_native_status progpu_native_engine_render_image(
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_image_frame_metrics)) {
         metrics->draw_call_count = frame->opacity == 0.0F ||
-            draw_state.opacity == 0.0F || !draw_state.has_drawable_clip
+            draw_state.opacity == 0.0F ||
+            (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
         metrics->vertex_count = 4U;
@@ -5365,6 +6210,26 @@ progpu_native_status progpu_native_engine_get_last_submission(
             "The native renderer submission timeline must be queried from its owner thread.");
     }
     *submission_index = engine->last_submission_index;
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_get_layer_metrics(
+    progpu_native_engine* engine,
+    progpu_native_layer_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
+    if (engine == nullptr || metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_layer_metrics)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer layer metrics must be queried from its owner thread.");
+    }
+    *metrics = engine->last_layer_metrics;
+    metrics->struct_size = sizeof(progpu_native_layer_metrics);
     engine->last_error.clear();
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }

@@ -72,7 +72,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(40, Unsafe.SizeOf<NativeMethods.DrawState>());
         Assert.Equal(
             0,
             OffsetOf<NativeMethods.DrawState>(
@@ -86,6 +86,13 @@ public class NativeRendererInteropTests
         Assert.Equal(
             16,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.ClipRect)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupOpacity)));
+        Assert.Equal(
+            36,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupRevision)));
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
@@ -119,18 +126,23 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void PublicDrawStateSeparatesPrimitiveOpacityFromLogicalClip()
+    public void PublicDrawStateSeparatesPrimitiveOpacityClipAndGroupOpacity()
     {
         var state = new NativeDrawState(
             0.625f,
             new NativeImageRect(1.25f, 2.5f, 30.75f, 40.5f),
-            NativeDrawStateFlags.ClipRect);
+            NativeDrawStateFlags.ClipRect,
+            0.4f,
+            17U);
 
         Assert.Equal(0.625f, state.Opacity);
         Assert.Equal(NativeDrawStateFlags.ClipRect, state.Flags);
         Assert.Equal(1.25f, state.ClipRect.X);
         Assert.Equal(40.5f, state.ClipRect.Height);
+        Assert.Equal(0.4f, state.GroupOpacity);
+        Assert.Equal(17U, state.GroupRevision);
         Assert.Equal(1f, NativeDrawState.Default.EffectiveOpacity);
+        Assert.Equal(1f, NativeDrawState.Default.EffectiveGroupOpacity);
     }
 
     [Fact]
@@ -173,6 +185,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             1048576UL,
             (ulong)NativeRendererCapabilities.FrameDrawState);
+        Assert.Equal(
+            2097152UL,
+            (ulong)NativeRendererCapabilities.GroupOpacity);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

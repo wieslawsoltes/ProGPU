@@ -177,6 +177,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
     $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj") -c Release -- $SampleOutput
+    dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --group-opacity --rectangles 384 --warmup 4 --iterations 8
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --external-images --warmup 2 --iterations 4
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --masked-images --warmup 2 --iterations 4
 } else {

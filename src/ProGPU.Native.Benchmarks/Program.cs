@@ -145,6 +145,12 @@ bool useDrawState = Array.Exists(
         value,
         "--draw-state",
         StringComparison.OrdinalIgnoreCase));
+bool useGroupOpacity = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-opacity",
+        StringComparison.OrdinalIgnoreCase));
 int analyticKind = ReadArgument("--analytic-kind", -1);
 int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
@@ -238,10 +244,16 @@ NativeImageRect drawClip = new(
     logicalHeight * 0.15f,
     logicalWidth * 0.55f,
     logicalHeight * 0.65f);
-NativeDrawState nativeDrawState = useDrawState
+const float benchmarkGroupOpacity = 0.625f;
+NativeDrawState nativeDrawState = useDrawState || useGroupOpacity
     ? new NativeDrawState(
-        0.625f,
-        drawClip)
+        useDrawState ? 0.625f : 1f,
+        useDrawState ? drawClip : default,
+        useDrawState
+            ? NativeDrawStateFlags.ClipRect
+            : NativeDrawStateFlags.None,
+        useGroupOpacity ? benchmarkGroupOpacity : 1f,
+        useGroupOpacity ? 1U : 0U)
     : default;
 uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
@@ -376,6 +388,11 @@ if (useDrawState)
         Type = RenderCommandType.PopClip
     });
 }
+if (useGroupOpacity)
+{
+    managedVisual.CacheAsLayer = true;
+    managedVisual.Opacity = benchmarkGroupOpacity;
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -435,7 +452,10 @@ if (useDrawState &&
     NativeDrawState originalDrawState = nativeDrawState;
     nativeDrawState = new NativeDrawState(
         0.5f,
-        drawClip);
+        drawClip,
+        NativeDrawStateFlags.ClipRect,
+        useGroupOpacity ? benchmarkGroupOpacity : 1f,
+        useGroupOpacity ? 1U : 0U);
     RenderNative();
     if (useGeometryScene &&
         (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
@@ -546,7 +566,19 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useImageScene
+    string imageStem = useGroupOpacity
+        ? useImageScene
+            ? "group-opacity-images"
+            : useGlyphScene
+            ? "group-opacity-glyphs"
+            : usePathScene
+            ? "group-opacity-paths"
+            : useGeometryScene
+            ? "group-opacity-geometry"
+            : useAnalyticScene
+            ? "group-opacity-analytic"
+            : "group-opacity-solid"
+        : useImageScene
         ? useMaskedImageScene
             ? "masked-images"
             : useExternalImageScene ? "external-images" : "images"
@@ -773,6 +805,7 @@ ulong combinedMetalAllocatedBytes =
     context.TryCaptureNativeResourceSnapshot(out var resourceSnapshot)
         ? resourceSnapshot.MetalAllocatedBytes
         : 0UL;
+NativeLayerMetrics nativeLayerMetrics = native.GetLayerMetrics();
 var report = new BenchmarkReport(
     RuntimeInformation: System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
@@ -817,6 +850,7 @@ var report = new BenchmarkReport(
     SynchronizeEachFrame: synchronizeEachFrame,
     DrainEachPair: drainEachPair,
     DrawState: useDrawState,
+    GroupOpacity: useGroupOpacity,
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -847,6 +881,7 @@ var report = new BenchmarkReport(
     NativeAtlasGrowthCount: nativeAtlasGrowthCount,
     NativeImageTextureUploadBytes: nativeImageTextureUploadBytes,
     NativeImageTextureGeneration: nativeImageTextureGeneration,
+    NativeLayerMetrics: nativeLayerMetrics,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -2517,6 +2552,7 @@ internal sealed record BenchmarkReport(
     bool SynchronizeEachFrame,
     bool DrainEachPair,
     bool DrawState,
+    bool GroupOpacity,
     bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,
@@ -2543,6 +2579,7 @@ internal sealed record BenchmarkReport(
     uint NativeAtlasGrowthCount,
     ulong NativeImageTextureUploadBytes,
     uint NativeImageTextureGeneration,
+    NativeLayerMetrics NativeLayerMetrics,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(

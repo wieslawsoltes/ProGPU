@@ -128,7 +128,8 @@ public enum NativeRendererCapabilities : ulong
     ExternalRgbaView = 1UL << 17,
     ExternalImageMask = 1UL << 18,
     ExplicitQueueTimeline = 1UL << 19,
-    FrameDrawState = 1UL << 20
+    FrameDrawState = 1UL << 20,
+    GroupOpacity = 1UL << 21
 }
 
 [Flags]
@@ -197,8 +198,9 @@ public readonly struct NativeImageRect
 /// Describes allocation-free state applied to one native draw submission.
 /// </summary>
 /// <remarks>
-/// Opacity multiplies each primitive independently and is not group opacity.
-/// A group with overlapping children requires an offscreen layer.
+/// Opacity multiplies each primitive independently. GroupOpacity composites
+/// the whole family through a pooled transparent layer. A nonzero
+/// GroupRevision permits the layer pixels to be reused until content changes.
 /// </remarks>
 public readonly struct NativeDrawState
 {
@@ -216,10 +218,22 @@ public readonly struct NativeDrawState
         float opacity,
         NativeImageRect clipRect,
         NativeDrawStateFlags flags)
+        : this(opacity, clipRect, flags, 1f, 0U)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision)
     {
         Opacity = opacity;
         ClipRect = clipRect;
         Flags = flags;
+        GroupOpacity = groupOpacity;
+        GroupRevision = groupRevision;
         _initialized = 1;
     }
 
@@ -228,10 +242,15 @@ public readonly struct NativeDrawState
     public readonly float Opacity;
     public readonly NativeImageRect ClipRect;
     public readonly NativeDrawStateFlags Flags;
+    public readonly float GroupOpacity;
+    public readonly uint GroupRevision;
 
     private readonly byte _initialized;
 
     internal float EffectiveOpacity => _initialized == 0 ? 1f : Opacity;
+
+    internal float EffectiveGroupOpacity =>
+        _initialized == 0 ? 1f : GroupOpacity;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -671,6 +690,18 @@ public readonly record struct NativeImageFrameMetrics(
     ulong UniformUploadBytes,
     ulong SubmissionCount,
     ulong PayloadHash);
+
+public readonly record struct NativeLayerMetrics(
+    uint TextureWidth,
+    uint TextureHeight,
+    uint TextureGeneration,
+    uint AllocationCount,
+    uint ContentPassCount,
+    uint CompositePassCount,
+    bool CacheHit,
+    ulong TextureBytes,
+    ulong VertexUploadBytes,
+    ulong UniformUploadBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,
