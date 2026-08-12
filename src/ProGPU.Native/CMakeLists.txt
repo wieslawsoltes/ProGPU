@@ -23,6 +23,8 @@ set(PROGPU_NATIVE_TEXTURE_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Texture.wgsl"
     CACHE FILEPATH "Shared ProGPU texture shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
+option(PROGPU_NATIVE_ENABLE_SANITIZERS
+    "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 function(progpu_native_enable_warnings target_name)
     if(MSVC)
@@ -30,6 +32,20 @@ function(progpu_native_enable_warnings target_name)
     else()
         target_compile_options(${target_name} PRIVATE
             -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endfunction()
+
+function(progpu_native_enable_sanitizers target_name)
+    if(PROGPU_NATIVE_ENABLE_SANITIZERS)
+        if(MSVC)
+            message(FATAL_ERROR
+                "PROGPU_NATIVE_ENABLE_SANITIZERS requires Clang or GCC")
+        endif()
+        target_compile_options(${target_name} PRIVATE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer)
+        target_link_options(${target_name} PRIVATE
+            -fsanitize=address,undefined)
     endif()
 endfunction()
 
@@ -152,6 +168,7 @@ target_include_directories(progpu_native SYSTEM PRIVATE
 target_link_libraries(progpu_native PRIVATE
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
 progpu_native_enable_warnings(progpu_native)
+progpu_native_enable_sanitizers(progpu_native)
 set_target_properties(progpu_native PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES)
@@ -177,7 +194,9 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(progpu_native_tests PRIVATE progpu_native)
     progpu_native_enable_warnings(progpu_native_tests)
+    progpu_native_enable_sanitizers(progpu_native_tests)
     add_test(NAME progpu_native_tests COMMAND progpu_native_tests)
+    set_tests_properties(progpu_native_tests PROPERTIES TIMEOUT 60)
 endif()
 
 if(PROGPU_NATIVE_BUILD_SAMPLE)

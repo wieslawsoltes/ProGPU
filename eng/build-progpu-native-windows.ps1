@@ -128,8 +128,8 @@ if (Test-Path $NativePdb) {
 
 $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
 if ($CurrentArchitecture -eq $RunnableArchitecture) {
-    ctest --test-dir $BuildDir -C Release --output-on-failure
     $env:PATH = "$(Join-Path $BuildDir 'Release');$RuntimeDir;$env:PATH"
+    ctest --test-dir $BuildDir -C Release --output-on-failure
     $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj") -c Release -- $SampleOutput

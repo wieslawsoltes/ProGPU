@@ -66,6 +66,8 @@ jobs:
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          PROGPU_NATIVE_RUN_SANITIZERS: ${{ matrix.rid == 'linux-x64' && '1' || '0' }}
         run: |
           ./eng/build-progpu-native.sh
           ./eng/progpu-stage-native-runtime.sh

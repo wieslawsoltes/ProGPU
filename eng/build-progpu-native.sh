@@ -84,6 +84,26 @@ ctest --test-dir "${build_dir}" -C Release --output-on-failure
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
   "${repo_root}/eng/progpu-verify-native-exports.sh"
 
+if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
+  sanitizer_build_dir="${build_dir}-sanitized"
+  sanitizer_detect_leaks=1
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    sanitizer_detect_leaks=0
+  fi
+  cmake -S "${repo_root}/src/ProGPU.Native" -B "${sanitizer_build_dir}" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="${include_dir}" \
+    -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}" \
+    -DPROGPU_NATIVE_BUILD_SAMPLE=OFF \
+    -DPROGPU_NATIVE_ENABLE_SANITIZERS=ON \
+    -DBUILD_TESTING=ON
+  cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
+  ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
+  UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    ctest --test-dir "${sanitizer_build_dir}" \
+      -C RelWithDebInfo --output-on-failure
+fi
+
 mkdir -p "${sample_dir}"
 "${build_dir}/progpu_native_sample" \
   "${sample_dir}/progpu-native-sample.ppm"
