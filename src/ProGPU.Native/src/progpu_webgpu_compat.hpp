@@ -4,10 +4,118 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 
 namespace progpu::native::webgpu {
 
 #if defined(PROGPU_NATIVE_DAWN_ABI)
+
+using proc_resolver = void* (*)(void* context, const char* name);
+
+#define PROGPU_NATIVE_DAWN_PROC_LIST(X) \
+    X(BindGroupLayoutRelease) \
+    X(BindGroupRelease) \
+    X(BufferDestroy) \
+    X(BufferRelease) \
+    X(CommandBufferRelease) \
+    X(CommandEncoderBeginComputePass) \
+    X(CommandEncoderBeginRenderPass) \
+    X(CommandEncoderCopyBufferToTexture) \
+    X(CommandEncoderFinish) \
+    X(CommandEncoderRelease) \
+    X(ComputePassEncoderDispatchWorkgroups) \
+    X(ComputePassEncoderEnd) \
+    X(ComputePassEncoderRelease) \
+    X(ComputePassEncoderSetBindGroup) \
+    X(ComputePassEncoderSetPipeline) \
+    X(ComputePipelineRelease) \
+    X(DeviceAddRef) \
+    X(DeviceCreateBindGroup) \
+    X(DeviceCreateBindGroupLayout) \
+    X(DeviceCreateBuffer) \
+    X(DeviceCreateCommandEncoder) \
+    X(DeviceCreateComputePipeline) \
+    X(DeviceCreatePipelineLayout) \
+    X(DeviceCreateRenderPipeline) \
+    X(DeviceCreateSampler) \
+    X(DeviceCreateShaderModule) \
+    X(DeviceCreateTexture) \
+    X(DeviceRelease) \
+    X(InstanceAddRef) \
+    X(InstanceRelease) \
+    X(InstanceWaitAny) \
+    X(PipelineLayoutRelease) \
+    X(QueueAddRef) \
+    X(QueueOnSubmittedWorkDone) \
+    X(QueueRelease) \
+    X(QueueSubmit) \
+    X(QueueWriteBuffer) \
+    X(QueueWriteTexture) \
+    X(RenderPassEncoderDraw) \
+    X(RenderPassEncoderDrawIndexed) \
+    X(RenderPassEncoderEnd) \
+    X(RenderPassEncoderRelease) \
+    X(RenderPassEncoderSetBindGroup) \
+    X(RenderPassEncoderSetIndexBuffer) \
+    X(RenderPassEncoderSetPipeline) \
+    X(RenderPassEncoderSetVertexBuffer) \
+    X(RenderPipelineGetBindGroupLayout) \
+    X(RenderPipelineRelease) \
+    X(SamplerRelease) \
+    X(ShaderModuleRelease) \
+    X(TextureCreateView) \
+    X(TextureDestroy) \
+    X(TextureRelease) \
+    X(TextureViewAddRef) \
+    X(TextureViewRelease)
+
+struct dispatch final {
+#define PROGPU_NATIVE_DECLARE_DAWN_PROC(Name) \
+    WGPUProc##Name wgpu##Name = nullptr;
+    PROGPU_NATIVE_DAWN_PROC_LIST(PROGPU_NATIVE_DECLARE_DAWN_PROC)
+#undef PROGPU_NATIVE_DECLARE_DAWN_PROC
+
+    bool load(void* context, proc_resolver resolver) noexcept {
+        if (resolver == nullptr) {
+            return false;
+        }
+        bool complete = true;
+#define PROGPU_NATIVE_LOAD_DAWN_PROC(Name) \
+        wgpu##Name = reinterpret_cast<WGPUProc##Name>( \
+            resolver(context, "wgpu" #Name)); \
+        complete = complete && wgpu##Name != nullptr;
+        PROGPU_NATIVE_DAWN_PROC_LIST(PROGPU_NATIVE_LOAD_DAWN_PROC)
+#undef PROGPU_NATIVE_LOAD_DAWN_PROC
+        return complete;
+    }
+};
+
+inline thread_local const dispatch* current_dispatch = nullptr;
+
+class dispatch_scope final {
+public:
+    explicit dispatch_scope(const dispatch* value) noexcept
+        : previous_(current_dispatch) {
+        current_dispatch = value;
+    }
+
+    ~dispatch_scope() {
+        current_dispatch = previous_;
+    }
+
+    dispatch_scope(const dispatch_scope&) = delete;
+    dispatch_scope& operator=(const dispatch_scope&) = delete;
+
+private:
+    const dispatch* previous_;
+};
+
+inline const dispatch& active_dispatch() noexcept {
+    if (current_dispatch == nullptr) {
+        std::abort();
+    }
+    return *current_dispatch;
+}
 
 template<std::size_t Size>
 constexpr WGPUStringView string_view(
@@ -48,16 +156,24 @@ using texture_data_layout = WGPUTexelCopyBufferLayout;
 using image_copy_buffer = WGPUTexelCopyBufferInfo;
 using buffer_usage_flags = WGPUBufferUsage;
 
+inline void instance_add_ref(WGPUInstance instance) noexcept {
+    active_dispatch().wgpuInstanceAddRef(instance);
+}
+
+inline void instance_release(WGPUInstance instance) noexcept {
+    active_dispatch().wgpuInstanceRelease(instance);
+}
+
 inline void device_add_ref(WGPUDevice device) noexcept {
-    wgpuDeviceAddRef(device);
+    active_dispatch().wgpuDeviceAddRef(device);
 }
 
 inline void queue_add_ref(WGPUQueue queue) noexcept {
-    wgpuQueueAddRef(queue);
+    active_dispatch().wgpuQueueAddRef(queue);
 }
 
 inline void texture_view_add_ref(WGPUTextureView view) noexcept {
-    wgpuTextureViewAddRef(view);
+    active_dispatch().wgpuTextureViewAddRef(view);
 }
 
 inline void queue_work_done(
@@ -71,11 +187,13 @@ inline std::uint64_t submit(
     WGPUQueue queue,
     std::size_t command_count,
     WGPUCommandBuffer const* commands) noexcept {
-    wgpuQueueSubmit(queue, command_count, commands);
+    active_dispatch().wgpuQueueSubmit(queue, command_count, commands);
     WGPUQueueWorkDoneCallbackInfo callback{};
     callback.mode = WGPUCallbackMode_WaitAnyOnly;
     callback.callback = queue_work_done;
-    return wgpuQueueOnSubmittedWorkDone(queue, callback).id;
+    return active_dispatch()
+        .wgpuQueueOnSubmittedWorkDone(queue, callback)
+        .id;
 }
 
 inline bool poll_submission(
@@ -86,7 +204,7 @@ inline bool poll_submission(
     bool wait) noexcept {
     WGPUFutureWaitInfo future{};
     future.future.id = submission_index;
-    const WGPUWaitStatus status = wgpuInstanceWaitAny(
+    const WGPUWaitStatus status = active_dispatch().wgpuInstanceWaitAny(
         instance,
         1U,
         &future,
@@ -95,6 +213,15 @@ inline bool poll_submission(
 }
 
 #else
+
+struct dispatch final {
+};
+
+class dispatch_scope final {
+public:
+    explicit dispatch_scope(const dispatch*) noexcept {
+    }
+};
 
 template<std::size_t Size>
 constexpr const char* string_view(
@@ -131,6 +258,14 @@ using image_copy_texture = WGPUImageCopyTexture;
 using texture_data_layout = WGPUTextureDataLayout;
 using image_copy_buffer = WGPUImageCopyBuffer;
 using buffer_usage_flags = WGPUBufferUsageFlags;
+
+inline void instance_add_ref(WGPUInstance instance) noexcept {
+    wgpuInstanceReference(instance);
+}
+
+inline void instance_release(WGPUInstance instance) noexcept {
+    wgpuInstanceRelease(instance);
+}
 
 inline void device_add_ref(WGPUDevice device) noexcept {
     wgpuDeviceReference(device);
@@ -178,3 +313,100 @@ inline WGPUVertexAttribute vertex_attribute(
 }
 
 } // namespace progpu::native::webgpu
+
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+#define wgpuBindGroupLayoutRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuBindGroupLayoutRelease)
+#define wgpuBindGroupRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuBindGroupRelease)
+#define wgpuBufferDestroy \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferDestroy)
+#define wgpuBufferRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferRelease)
+#define wgpuCommandBufferRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandBufferRelease)
+#define wgpuCommandEncoderBeginComputePass \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderBeginComputePass)
+#define wgpuCommandEncoderBeginRenderPass \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderBeginRenderPass)
+#define wgpuCommandEncoderCopyBufferToTexture \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToTexture)
+#define wgpuCommandEncoderFinish \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderFinish)
+#define wgpuCommandEncoderRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderRelease)
+#define wgpuComputePassEncoderDispatchWorkgroups \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePassEncoderDispatchWorkgroups)
+#define wgpuComputePassEncoderEnd \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePassEncoderEnd)
+#define wgpuComputePassEncoderRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePassEncoderRelease)
+#define wgpuComputePassEncoderSetBindGroup \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePassEncoderSetBindGroup)
+#define wgpuComputePassEncoderSetPipeline \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePassEncoderSetPipeline)
+#define wgpuComputePipelineRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuComputePipelineRelease)
+#define wgpuDeviceCreateBindGroup \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateBindGroup)
+#define wgpuDeviceCreateBindGroupLayout \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateBindGroupLayout)
+#define wgpuDeviceCreateBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateBuffer)
+#define wgpuDeviceCreateCommandEncoder \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateCommandEncoder)
+#define wgpuDeviceCreateComputePipeline \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateComputePipeline)
+#define wgpuDeviceCreatePipelineLayout \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreatePipelineLayout)
+#define wgpuDeviceCreateRenderPipeline \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateRenderPipeline)
+#define wgpuDeviceCreateSampler \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateSampler)
+#define wgpuDeviceCreateShaderModule \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateShaderModule)
+#define wgpuDeviceCreateTexture \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateTexture)
+#define wgpuDeviceRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceRelease)
+#define wgpuPipelineLayoutRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuPipelineLayoutRelease)
+#define wgpuQueueRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuQueueRelease)
+#define wgpuQueueWriteBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuQueueWriteBuffer)
+#define wgpuQueueWriteTexture \
+    (::progpu::native::webgpu::active_dispatch().wgpuQueueWriteTexture)
+#define wgpuRenderPassEncoderDraw \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderDraw)
+#define wgpuRenderPassEncoderDrawIndexed \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderDrawIndexed)
+#define wgpuRenderPassEncoderEnd \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderEnd)
+#define wgpuRenderPassEncoderRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderRelease)
+#define wgpuRenderPassEncoderSetBindGroup \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetBindGroup)
+#define wgpuRenderPassEncoderSetIndexBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetIndexBuffer)
+#define wgpuRenderPassEncoderSetPipeline \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetPipeline)
+#define wgpuRenderPassEncoderSetVertexBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetVertexBuffer)
+#define wgpuRenderPipelineGetBindGroupLayout \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineGetBindGroupLayout)
+#define wgpuRenderPipelineRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineRelease)
+#define wgpuSamplerRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuSamplerRelease)
+#define wgpuShaderModuleRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuShaderModuleRelease)
+#define wgpuTextureCreateView \
+    (::progpu::native::webgpu::active_dispatch().wgpuTextureCreateView)
+#define wgpuTextureDestroy \
+    (::progpu::native::webgpu::active_dispatch().wgpuTextureDestroy)
+#define wgpuTextureRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuTextureRelease)
+#define wgpuTextureViewRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuTextureViewRelease)
+#endif

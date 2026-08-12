@@ -323,7 +323,7 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void NativeRendererHasAnExactSourceOnlyWebSceneDawnHeaderGate()
+    public void NativeRendererHasAnExactProviderResolvedWebSceneDawnGate()
     {
         string cmake = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "CMakeLists.txt"));
@@ -333,7 +333,7 @@ public class NativeRendererInteropTests
             "eng", "progpu-verify-native-dawn-header.sh"));
 
         Assert.Contains(
-            "progpu_native_dawn_header_contract OBJECT",
+            "add_library(progpu_native_dawn SHARED",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -341,7 +341,7 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "target_link_libraries(progpu_native_dawn_header_contract",
+            "target_link_libraries(progpu_native_dawn PRIVATE",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains("WGPUStringView", compatibility, StringComparison.Ordinal);
@@ -356,6 +356,10 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu-native-dawn.version.json",
+            verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "imports WebGPU procedures directly",
             verifier,
             StringComparison.Ordinal);
 
@@ -374,7 +378,7 @@ public class NativeRendererInteropTests
             "01addc4ba8a2915a061b7095a6768b512071ab96",
             manifest.RootElement.GetProperty("webGpuHeadersRevision").GetString());
         Assert.Equal(
-            "source-header-contract",
+            "provider-dispatch-contract",
             manifest.RootElement.GetProperty("status").GetString());
     }
 

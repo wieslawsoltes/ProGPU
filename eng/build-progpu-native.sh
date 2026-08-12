@@ -7,6 +7,7 @@ build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
 runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${repo_root}/artifacts/progpu-native/runtime}"
+dawn_header_source="${PROGPU_NATIVE_DAWN_HEADER_SOURCE:-${repo_root}/artifacts/webgpu-headers-dawn}"
 expected_commit="33133da4ec5a0174cb21539ef2d3346f75200411"
 expected_headers_commit="aef5e428a1fdab2ea770581ae7c95d8779984e0a"
 package_version="2.23.0"
@@ -90,6 +91,11 @@ fi
 
 if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   sanitizer_build_dir="${build_dir}-sanitized"
+  sanitizer_dawn_options=()
+  if [[ "${PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT:-0}" == "1" ]]; then
+    sanitizer_dawn_options+=(
+      "-DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=${dawn_header_source}")
+  fi
   sanitizer_detect_leaks=1
   if [[ "$(uname -s)" == "Darwin" ]]; then
     sanitizer_detect_leaks=0
@@ -100,7 +106,8 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}" \
     -DPROGPU_NATIVE_BUILD_SAMPLE=OFF \
     -DPROGPU_NATIVE_ENABLE_SANITIZERS=ON \
-    -DBUILD_TESTING=ON
+    -DBUILD_TESTING=ON \
+    "${sanitizer_dawn_options[@]}"
   cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
   ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
   UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \

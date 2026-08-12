@@ -3,20 +3,21 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
-expected="${repo_root}/eng/progpu-native-exports.txt"
+library_basename="${PROGPU_NATIVE_LIBRARY_BASENAME:-progpu_native}"
+expected="${PROGPU_NATIVE_EXPORTS_FILE:-${repo_root}/eng/progpu-native-exports.txt}"
 temporary="$(mktemp -d)"
 trap 'rm -r "${temporary}"' EXIT
 actual="${temporary}/actual.txt"
 
 case "$(uname -s)" in
   Darwin)
-    library="${build_dir}/libprogpu_native.dylib"
+    library="${build_dir}/lib${library_basename}.dylib"
     nm -gU "${library}" |
       awk '$2 ~ /^[TDBS]$/ { sub(/^_/, "", $3); print $3 }' |
       LC_ALL=C sort -u > "${actual}"
     ;;
   Linux)
-    library="${build_dir}/libprogpu_native.so"
+    library="${build_dir}/lib${library_basename}.so"
     nm -D --defined-only "${library}" |
       awk '$2 ~ /^[TDBS]$/ { print $3 }' |
       LC_ALL=C sort -u > "${actual}"
@@ -37,4 +38,4 @@ if ! diff -u "${expected}" "${actual}"; then
   exit 1
 fi
 
-echo "Verified the ProGPU native exported-symbol allowlist."
+echo "Verified the ${library_basename} exported-symbol allowlist."

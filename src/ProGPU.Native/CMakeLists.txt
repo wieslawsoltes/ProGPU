@@ -181,26 +181,57 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         message(FATAL_ERROR
             "PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR must contain webgpu.h")
     endif()
-    add_library(progpu_native_dawn_header_contract OBJECT
+    add_library(progpu_native_dawn SHARED
         src/progpu_native.cpp
         src/progpu_native_geometry.hpp
         src/progpu_webgpu_compat.hpp
+        include/progpu_native.h
+        include/progpu_native_dawn.h
         "${generated_vector_shader}"
         "${generated_path_rasterizer_shader}"
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
         "${generated_texture_shader}")
-    target_compile_features(progpu_native_dawn_header_contract
+    target_compile_features(progpu_native_dawn
         PRIVATE cxx_std_20)
-    target_compile_definitions(progpu_native_dawn_header_contract
-        PRIVATE PROGPU_NATIVE_DAWN_ABI=1)
-    target_include_directories(progpu_native_dawn_header_contract PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    target_compile_definitions(progpu_native_dawn PRIVATE
+        PROGPU_NATIVE_BUILD=1
+        PROGPU_NATIVE_DAWN_ABI=1)
+    target_include_directories(progpu_native_dawn
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${generated_directory}")
-    target_include_directories(progpu_native_dawn_header_contract SYSTEM PRIVATE
+    target_include_directories(progpu_native_dawn SYSTEM PRIVATE
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
-    progpu_native_enable_warnings(progpu_native_dawn_header_contract)
+    progpu_native_enable_warnings(progpu_native_dawn)
+    progpu_native_enable_sanitizers(progpu_native_dawn)
+    set_target_properties(progpu_native_dawn PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES)
+    if(UNIX AND NOT APPLE)
+        target_link_options(progpu_native_dawn PRIVATE
+            "-Wl,--no-undefined")
+    endif()
+
+    if(BUILD_TESTING)
+        add_executable(progpu_native_dawn_contract_tests
+            tests/progpu_native_dawn_contract_tests.cpp)
+        target_compile_features(progpu_native_dawn_contract_tests
+            PRIVATE cxx_std_20)
+        target_include_directories(progpu_native_dawn_contract_tests PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_link_libraries(progpu_native_dawn_contract_tests PRIVATE
+            progpu_native_dawn)
+        progpu_native_enable_warnings(progpu_native_dawn_contract_tests)
+        progpu_native_enable_sanitizers(progpu_native_dawn_contract_tests)
+        add_test(
+            NAME progpu_native_dawn_contract_tests
+            COMMAND progpu_native_dawn_contract_tests)
+        set_tests_properties(
+            progpu_native_dawn_contract_tests
+            PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
 get_filename_component(webgpu_library_directory

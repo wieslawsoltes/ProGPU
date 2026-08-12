@@ -177,15 +177,26 @@ headers and WebScene's exact `01addc4...` WebGPU headers. A small typed
 compatibility layer accounts for string views, WGSL chained descriptors,
 renamed texel-copy records, reference operations, vertex-record initialization,
 and the different queue-completion mechanisms. CI fetches the immutable header
-commit and builds an object-only contract target. It does not link Dawn, call a
-WebScene provider, or make a Dawn object valid in the wgpu-native binary.
+commit and compiles the provider-dispatch shared-library target. This contract
+does not link Dawn, create a WebScene provider, or make a Dawn object valid in
+the wgpu-native binary.
 
-The next checkpoint is a separately linked `progpu_native_dawn` adapter. It
-must resolve every WebGPU entry point through the ABI 2 provider, retain the
-provider instance/device/queue domain, use standard WebGPU futures for queue
-completion, and fail before handle use when the provider ABI, resolver, or
-required procedures differ. Direct Dawn linkage and cross-casting handles
-between the two binaries remain prohibited.
+The second Dawn checkpoint adds the separately linked `progpu_native_dawn`
+adapter. It has no Dawn or wgpu-native link dependency: every WebGPU entry point
+used by the shared renderer is loaded once from a neutral host callback backed
+by the ABI 2 provider resolver. An engine retains the provider instance,
+device, and queue in one resource domain, binds the immutable procedure table
+only on its owner thread, and uses standard WebGPU futures for queue completion.
+The adapter rejects the generic wgpu-native constructor, a mismatched provider
+or adapter ABI, nonzero reserved fields, and an incomplete resolver before any
+GPU handle is retained. Its exported-symbol surface and absence of unresolved
+direct WebGPU imports are link-gated.
+
+The remaining runtime checkpoint is the real WebScene provider success path:
+create a Dawn engine from the exact provider, render into a provider canvas,
+wait through the standard future contract, present/retain/release the external
+texture, and prove zero readback and correct fence ownership. Direct Dawn
+linkage and cross-casting handles between the two binaries remain prohibited.
 
 ## 6. Stable native engine ABI
 
@@ -763,10 +774,10 @@ path with WebGPU validation and bounded resource policies.
    masks, then extend retained RGBA images with layers, masks, color processing,
    and external media textures while
    continuing to reuse production WGSL modules.
-5. Complete the separately linked Dawn/WebScene adapter using PR #10's proc
-   resolver and exact provider revision. The shared renderer-source header
-   contract is already gated; runtime procedure dispatch, provider ownership,
-   zero-copy composition, and synchronization still require implementation and
-   validation.
+5. Complete the Dawn/WebScene integration using PR #10's exact provider
+   revision. Shared-source compilation, the separately linked procedure
+   dispatch binary, ABI rejection, and export/link isolation are gated;
+   provider-backed device/canvas creation, zero-copy composition, package
+   consumption, and synchronization still require end-to-end validation.
 6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing
    opt-in .NET substitution to graduate beyond experimental status.

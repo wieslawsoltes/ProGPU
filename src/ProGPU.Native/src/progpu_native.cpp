@@ -6,9 +6,13 @@
 #include "TextureWgsl.generated.hpp"
 #include "VectorWgsl.generated.hpp"
 
-#include <webgpu.h>
 #if !defined(PROGPU_NATIVE_DAWN_ABI)
+#include <webgpu.h>
 #include <wgpu.h>
+#else
+#define WGPU_SKIP_DECLARATIONS
+#include <webgpu.h>
+#include "progpu_native_dawn.h"
 #endif
 
 #include "progpu_webgpu_compat.hpp"
@@ -19,6 +23,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <new>
 #include <string>
 #include <thread>
@@ -297,6 +302,7 @@ std::uint64_t append_fnv1a64(
 
 struct progpu_native_engine {
     std::thread::id owner_thread;
+    progpu::native::webgpu::dispatch webgpu_dispatch{};
     WGPUInstance instance = nullptr;
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
@@ -454,6 +460,8 @@ struct progpu_native_engine {
     }
 
     ~progpu_native_engine() {
+        const progpu::native::webgpu::dispatch_scope dispatch_scope(
+            &webgpu_dispatch);
         if (image_mask_linear_bind_group != nullptr) {
             wgpuBindGroupRelease(image_mask_linear_bind_group);
         }
@@ -658,6 +666,9 @@ struct progpu_native_engine {
         }
         if (device != nullptr) {
             wgpuDeviceRelease(device);
+        }
+        if (instance != nullptr) {
+            progpu::native::webgpu::instance_release(instance);
         }
     }
 
@@ -2305,6 +2316,43 @@ void clear_metrics(progpu_native_image_frame_metrics* metrics) noexcept {
     metrics->struct_size = struct_size;
 }
 
+progpu_native_status create_engine(
+    WGPUInstance instance,
+    WGPUDevice device,
+    WGPUQueue queue,
+    WGPUTextureFormat target_format,
+    const progpu::native::webgpu::dispatch& webgpu_dispatch,
+    progpu_native_engine** engine) {
+    try {
+        auto result = std::make_unique<progpu_native_engine>();
+        result->owner_thread = std::this_thread::get_id();
+        result->webgpu_dispatch = webgpu_dispatch;
+        result->instance = instance;
+        result->device = device;
+        result->queue = queue;
+        result->target_format = target_format;
+        const progpu::native::webgpu::dispatch_scope dispatch_scope(
+            &result->webgpu_dispatch);
+        if (result->instance != nullptr) {
+            progpu::native::webgpu::instance_add_ref(result->instance);
+        }
+        progpu::native::webgpu::device_add_ref(result->device);
+        progpu::native::webgpu::queue_add_ref(result->queue);
+        if (!create_pipeline(*result) ||
+            !result->ensure_vertex_buffer(initial_vertex_buffer_size)) {
+            result->last_error =
+                "The shared vector shader or native WebGPU pipeline could not be created.";
+            return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        }
+        *engine = result.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
 } // namespace
 
 extern "C" {
@@ -2320,7 +2368,11 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
     *info = {};
     info->struct_size = sizeof(progpu_native_engine_info);
     info->abi_version = PROGPU_NATIVE_ABI_VERSION;
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+    info->backend_abi = PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07;
+#else
     info->backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
+#endif
     info->capabilities =
         PROGPU_NATIVE_CAPABILITY_SOLID_RECT_BATCH |
         PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER |
@@ -2342,7 +2394,11 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
         PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE;
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+    constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
+#else
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
+#endif
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
 }
@@ -2354,6 +2410,10 @@ progpu_native_status progpu_native_engine_create(
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     *engine = nullptr;
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+    (void)options;
+    return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+#else
     if (options == nullptr ||
         options->struct_size < sizeof(progpu_native_engine_options) ||
         options->abi_version != PROGPU_NATIVE_ABI_VERSION ||
@@ -2363,30 +2423,63 @@ progpu_native_status progpu_native_engine_create(
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
-
-    try {
-        auto result = new progpu_native_engine();
-        result->owner_thread = std::this_thread::get_id();
-        result->device = reinterpret_cast<WGPUDevice>(options->device);
-        result->queue = reinterpret_cast<WGPUQueue>(options->queue);
-        result->target_format = texture_format(options->target_format);
-        progpu::native::webgpu::device_add_ref(result->device);
-        progpu::native::webgpu::queue_add_ref(result->queue);
-        if (!create_pipeline(*result) ||
-            !result->ensure_vertex_buffer(initial_vertex_buffer_size)) {
-            result->last_error =
-                "The shared vector shader or native WebGPU pipeline could not be created.";
-            delete result;
-            return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
-        }
-        *engine = result;
-        return PROGPU_NATIVE_STATUS_SUCCESS;
-    } catch (const std::bad_alloc&) {
-        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
-    } catch (...) {
-        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
-    }
+    const progpu::native::webgpu::dispatch webgpu_dispatch{};
+    return create_engine(
+        nullptr,
+        reinterpret_cast<WGPUDevice>(options->device),
+        reinterpret_cast<WGPUQueue>(options->queue),
+        texture_format(options->target_format),
+        webgpu_dispatch,
+        engine);
+#endif
 }
+
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+static_assert(sizeof(progpu_native_dawn_engine_options) == 72U);
+
+uint32_t progpu_native_dawn_get_adapter_abi_version(void) {
+    return PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION;
+}
+
+progpu_native_status progpu_native_dawn_engine_create(
+    const progpu_native_dawn_engine_options* options,
+    progpu_native_engine** engine) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *engine = nullptr;
+    if (options == nullptr ||
+        options->struct_size < sizeof(progpu_native_dawn_engine_options) ||
+        options->native_abi_version != PROGPU_NATIVE_ABI_VERSION ||
+        options->adapter_abi_version !=
+            PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION ||
+        options->provider_abi_version !=
+            PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION ||
+        options->reserved != 0U || options->flags != 0U ||
+        options->resolver_context == nullptr ||
+        options->resolve_proc == nullptr ||
+        options->instance == 0U || options->device == 0U ||
+        options->queue == 0U ||
+        texture_format(options->target_format) ==
+            WGPUTextureFormat_Undefined) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+
+    progpu::native::webgpu::dispatch webgpu_dispatch{};
+    if (!webgpu_dispatch.load(
+            options->resolver_context,
+            options->resolve_proc)) {
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    }
+    return create_engine(
+        reinterpret_cast<WGPUInstance>(options->instance),
+        reinterpret_cast<WGPUDevice>(options->device),
+        reinterpret_cast<WGPUQueue>(options->queue),
+        texture_format(options->target_format),
+        webgpu_dispatch,
+        engine);
+}
+#endif
 
 void progpu_native_engine_destroy(progpu_native_engine* engine) {
     delete engine;
@@ -2396,6 +2489,8 @@ progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,
     progpu_native_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_frame) ||
@@ -2569,6 +2664,8 @@ progpu_native_status progpu_native_engine_render_analytic(
     progpu_native_engine* engine,
     const progpu_native_analytic_frame* frame,
     progpu_native_analytic_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_analytic_frame) ||
@@ -2782,6 +2879,8 @@ progpu_native_status progpu_native_engine_render_geometry(
     progpu_native_engine* engine,
     const progpu_native_geometry_frame* frame,
     progpu_native_geometry_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_geometry_frame) ||
@@ -3358,6 +3457,8 @@ progpu_native_status progpu_native_engine_render_paths(
     progpu_native_engine* engine,
     const progpu_native_path_frame* frame,
     progpu_native_path_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_path_frame) ||
@@ -4021,6 +4122,8 @@ progpu_native_status progpu_native_engine_render_glyphs(
     progpu_native_engine* engine,
     const progpu_native_glyph_frame* frame,
     progpu_native_glyph_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     if (engine == nullptr || frame == nullptr ||
         frame->struct_size < sizeof(progpu_native_glyph_frame) ||
@@ -4620,6 +4723,8 @@ progpu_native_status progpu_native_engine_render_image(
     progpu_native_engine* engine,
     const progpu_native_image_frame* frame,
     progpu_native_image_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     clear_metrics(metrics);
     const auto valid_rect = [](const progpu_native_image_rect& rect) {
         return std::isfinite(rect.x) && std::isfinite(rect.y) &&
@@ -4947,6 +5052,8 @@ progpu_native_status progpu_native_engine_poll_submission(
     std::uint64_t submission_index,
     std::uint8_t wait,
     std::uint8_t* complete) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     if (engine == nullptr || complete == nullptr || wait > 1U ||
         submission_index == 0U ||
         submission_index > engine->last_submission_index) {

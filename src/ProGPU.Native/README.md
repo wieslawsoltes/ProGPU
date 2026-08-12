@@ -41,12 +41,18 @@ exact modern WebGPU header contract:
 ./eng/progpu-verify-native-dawn-header.sh
 ```
 
-This builds an object-only `progpu_native_dawn_header_contract` target with
-warnings as errors. It deliberately does not link Dawn or accept WebScene
-provider handles yet. Runtime provider procedure dispatch and provider-owned
-resource validation belong to the separately compiled Dawn adapter; a passing
-header-contract build must never be interpreted as object-ABI compatibility
-with the wgpu-native binary.
+This builds the separately linked `progpu_native_dawn` shared library with
+warnings as errors, runs its fail-closed provider contract test, and verifies
+its exported-symbol allowlist. The library has no Dawn or wgpu-native link
+dependency: its typed constructor loads every required WebGPU procedure through
+a neutral callback backed by WebScene's provider resolver. The ordinary
+wgpu-native constructor is disabled in this binary, so the two object domains
+cannot be cross-cast accidentally.
+
+The contract test does not yet claim provider-backed rendering. A final
+integration must create the exact WebScene provider/device/canvas, render and
+wait on the same Dawn instance, present the provider texture, and verify the
+external-texture retain/release and fence lifecycle without CPU readback.
 
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a
