@@ -416,10 +416,52 @@ mask/uniform upload, and zero managed allocation per frame.
 The harness separately mutates only mask mapping while retaining the family
 content revision. That frame uploads exactly one 96-byte mask uniform and no
 family content; restoring and replaying the unchanged mask uploads zero bytes.
-The full native build lane runs all twelve combinations on every supported CI
-host. Final synchronized distributions, screenshots, and correlated macOS
-Time Profiler, Metal System Trace, and Allocations/VM Tracker captures remain
-qualification items for the integration candidate.
+host.
+
+Three paired 300-frame synchronized runs after 60 warmups produced these
+median p95 values:
+
+| Mask | Metric | Native C++ | Managed compositor | Native delta |
+|---|---|---:|---:|---:|
+| sampled texture | CPU submit | 0.0990 ms | 0.4581 ms | -78.4% |
+| sampled texture | GPU-completion wait | 3.0382 ms | 4.5299 ms | -32.9% |
+| sampled texture | end to end | 3.1038 ms | 4.7161 ms | -34.2% |
+| analytic rounded | CPU submit | 0.0971 ms | 0.3646 ms | -73.4% |
+| analytic rounded | GPU-completion wait | 3.0395 ms | 3.0496 ms | on par |
+| analytic rounded | end to end | 3.0915 ms | 3.3347 ms | -7.3% |
+
+Native measured zero managed bytes per synchronized frame. The managed
+interval measured 2,328 bytes because its current completion observer allocates
+under `PollDevice(wait: true)`; the asynchronous renderer-only path is zero for
+both. The sampled-mask managed path currently rasterizes an intermediate R8
+mask, explaining why two of its three GPU-wait runs form the slower mode. This
+is a managed-path optimization target, not attributed to the native renderer.
+
+Matched native, managed, and 64-times-amplified difference PNGs were inspected
+for both masks. Both maximum channel differences are one. The sampled mask has
+mean absolute difference `0.058975/255`; the rounded mask has
+`0.011220/255`.
+
+Valid final-binary Instruments captures cover the sampled-mask workload. The
+5,000-frame Time Profiler run exits zero and shows native retained-group
+preparation/composite below wgpu-native render-pass and queue costs; no new
+per-frame mask upload or bind-group creation appears. The 2,000-frame
+Allocations capture exits zero and contains both Allocations and VM Tracker
+tracks. The 200-frame synchronized Metal System Trace exits zero, records
+native and managed compositor labels, 2,379 submissions, 3,339 completions,
+zero command-buffer errors, and a 15.34 MiB peak combined-process Metal
+`currentAllocatedSize`. That shared-process peak is not attributed to either
+renderer.
+
+Retained ignored evidence:
+
+- six synchronized JSON distributions under
+  `artifacts/progpu-native/benchmarks/group-masks/`;
+- matched PNGs under
+  `artifacts/progpu-native/differential/group-masks/`;
+- Time Profiler, Allocations/VM Tracker, Metal System Trace, exported TOCs,
+  sampled stacks, labels, submissions, completions, errors, and Metal residency
+  under `artifacts/progpu-native/traces/group-masks-20260813/`.
 
 ## Common draw-state supplement
 
