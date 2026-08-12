@@ -23,7 +23,9 @@ enum {
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_CAPABILITY_SOLID_RECT_BATCH = 1ULL << 0U,
     PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER = 1ULL << 1U,
-    PROGPU_NATIVE_CAPABILITY_EXTERNAL_TARGET = 1ULL << 2U
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_TARGET = 1ULL << 2U,
+    PROGPU_NATIVE_CAPABILITY_INDEXED_ANALYTIC_BATCH = 1ULL << 3U,
+    PROGPU_NATIVE_CAPABILITY_AFFINE_2D = 1ULL << 4U
 };
 
 typedef enum progpu_native_status {
@@ -82,6 +84,47 @@ typedef struct progpu_native_rect {
     progpu_native_color color;
 } progpu_native_rect;
 
+typedef enum progpu_native_primitive_kind {
+    PROGPU_NATIVE_PRIMITIVE_RECTANGLE = 0,
+    PROGPU_NATIVE_PRIMITIVE_ELLIPSE = 1,
+    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE = 2
+} progpu_native_primitive_kind;
+
+enum {
+    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED = 1U << 0U
+};
+
+/*
+ * System.Numerics-compatible row-vector affine transform:
+ * x' = x*m11 + y*m21 + m31; y' = x*m12 + y*m22 + m32.
+ */
+typedef struct progpu_native_affine_2d {
+    float m11;
+    float m12;
+    float m21;
+    float m22;
+    float m31;
+    float m32;
+} progpu_native_affine_2d;
+
+/*
+ * One analytic draw record. A zero stroke_thickness selects a fill; a positive
+ * value selects a centered local-coordinate stroke. Each record may carry an
+ * independent affine transform while the whole batch remains one indexed draw.
+ */
+typedef struct progpu_native_analytic_primitive {
+    uint32_t kind;
+    uint32_t flags;
+    float x;
+    float y;
+    float width;
+    float height;
+    float corner_radius;
+    float stroke_thickness;
+    progpu_native_color color;
+    progpu_native_affine_2d transform;
+} progpu_native_analytic_primitive;
+
 /*
  * width and height are physical target pixels. Rectangle coordinates are
  * logical pixels and dpi_scale maps logical coordinates to physical pixels.
@@ -108,6 +151,28 @@ typedef struct progpu_native_frame_metrics {
     uint64_t submission_count;
 } progpu_native_frame_metrics;
 
+typedef struct progpu_native_analytic_frame {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_color clear_color;
+    const progpu_native_analytic_primitive* primitives;
+    size_t primitive_count;
+} progpu_native_analytic_frame;
+
+typedef struct progpu_native_analytic_frame_metrics {
+    uint32_t struct_size;
+    uint32_t draw_call_count;
+    uint32_t vertex_count;
+    uint32_t index_count;
+    uint64_t vertex_upload_bytes;
+    uint64_t index_upload_bytes;
+    uint64_t uniform_upload_bytes;
+    uint64_t submission_count;
+} progpu_native_analytic_frame_metrics;
+
 PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);
 PROGPU_NATIVE_API uint8_t progpu_native_get_info(
     progpu_native_engine_info* info);
@@ -120,6 +185,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,
     progpu_native_frame_metrics* metrics);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_analytic(
+    progpu_native_engine* engine,
+    const progpu_native_analytic_frame* frame,
+    progpu_native_analytic_frame_metrics* metrics);
 PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
     const progpu_native_engine* engine,
     char* destination,

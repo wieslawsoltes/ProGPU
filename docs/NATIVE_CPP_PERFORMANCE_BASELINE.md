@@ -116,3 +116,48 @@ cross-platform evidence defined in
 
 All trace bundles are ignored build artifacts because they are large and tied
 to one machine. The JSON files beside them preserve the exact measured output.
+
+## Indexed analytic Tranche A supplement
+
+The next native increment adds one indexed general-vector draw for mixed
+rectangles, ellipses, and circular rounded rectangles with fill/stroke and an
+independent affine transform. It does not change the exact rectangle fast-path
+baseline above.
+
+The final Release gate used 512 deterministic mixed primitives on the same
+Apple M3 Pro/Metal device. A 5,000-iteration Time Profiler capture reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU submission | 0.1011 ms | 0.8792 ms |
+| p50 CPU submission | 0.0915 ms | 0.6484 ms |
+| p95 CPU submission | 0.1510 ms | 1.9627 ms |
+| Worst observed submission | 1.0920 ms | 6.0511 ms |
+| Managed allocation total | 7,632 bytes | 11,640,168 bytes |
+| Managed allocation / frame | 1.5264 bytes | 2,328.0336 bytes |
+
+The allocation-instrumented 2,000-iteration run reported native/managed p95
+submission of 0.1745/2.0198 ms and managed allocations of 3.36/2,328.084 bytes
+per frame. The bounded 200-frame synchronized Metal System Trace completed
+without a WebGPU validation or process failure. These CPU timings include
+command recording and submission, not isolated GPU execution or presentation.
+
+The 512-primitive mixed readback differs only at the rectangle shader
+specialization boundary: maximum channel difference 75, 1,922 of 518,400
+pixels above 3/255, and mean absolute channel difference 0.025058. At the
+supported 4,096-primitive sample boundary those values are 89, 10,338 pixels,
+and 0.123854. Ellipse-only and rounded-rectangle-only 4,096-primitive gates
+have maximum difference 1 and no pixel above 3/255. The original specialized
+solid-rectangle path remains byte-exact.
+
+A DPI-2 differential also passes: 4,096 mixed primitives have maximum channel
+difference 83, 5,149 pixels above 3/255, and mean absolute difference 0.056588;
+the DPI-2 rectangle fast path and ellipse-only path have maximum difference 1
+and no pixel above 3/255. This gate uses 480 by 270 logical units rendered into
+the same 960 by 540 physical target.
+
+Additional ignored evidence:
+
+- `native-managed-analytic-time-profiler.trace` and `.json`
+- `native-managed-analytic-allocations.trace` and `.json`
+- `native-managed-analytic-metal-short.trace` and `.json`

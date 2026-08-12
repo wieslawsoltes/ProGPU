@@ -35,6 +35,9 @@ public class NativeRendererInteropTests
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.Frame>());
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.FrameMetrics>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
+        Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -47,8 +50,33 @@ public class NativeRendererInteropTests
         Assert.Equal(1UL, (ulong)NativeRendererCapabilities.SolidRectBatch);
         Assert.Equal(2UL, (ulong)NativeRendererCapabilities.SharedVectorShader);
         Assert.Equal(4UL, (ulong)NativeRendererCapabilities.ExternalTarget);
+        Assert.Equal(8UL, (ulong)NativeRendererCapabilities.IndexedAnalyticBatch);
+        Assert.Equal(16UL, (ulong)NativeRendererCapabilities.Affine2D);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
+    }
+
+    [Fact]
+    public void AnalyticPrimitiveMatchesNativeAffinePodLayout()
+    {
+        Assert.Equal(0, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.Kind)));
+        Assert.Equal(4, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.Flags)));
+        Assert.Equal(8, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.X)));
+        Assert.Equal(24, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.CornerRadius)));
+        Assert.Equal(28, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.StrokeThickness)));
+        Assert.Equal(32, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.Color)));
+        Assert.Equal(48, OffsetOf<NativeAnalyticPrimitive>(nameof(NativeAnalyticPrimitive.Transform)));
+
+        var primitive = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Ellipse,
+            1,
+            2,
+            3,
+            4,
+            Vector4.One,
+            Matrix3x2.CreateTranslation(5, 6));
+        Assert.Equal(5, primitive.Transform.M31);
+        Assert.Equal(6, primitive.Transform.M32);
     }
 
     [Fact]

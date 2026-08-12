@@ -195,6 +195,9 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
+  src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj
+  src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj
+  src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj
   src/ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj
   src/ProGPU.Samples.Android/ProGPU.Samples.Android.csproj
   src/ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj
@@ -213,6 +216,9 @@ progpu_nonshipping_projects=(
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
+  "Experimental typed .NET host for the non-shipping native C++ renderer."
+  "Native C++ renderer differential and performance benchmark."
+  "Native C++ renderer managed-host sample."
   "Activity Monitor sample application."
   "Android sample application."
   "Avalonia sample application."

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using System.Text.Json;
 using ProGPU.Backend;
@@ -12,14 +13,34 @@ const uint height = 540;
 int rectangleCount = ReadPositiveArgument("--rectangles", 384);
 int warmupCount = ReadNonNegativeArgument("--warmup", 60);
 int iterationCount = ReadPositiveArgument("--iterations", 300);
+float dpiScale = ReadPositiveFloatArgument("--dpi", 1f);
+float logicalWidth = width / dpiScale;
+float logicalHeight = height / dpiScale;
 bool synchronizeEachFrame = Array.Exists(
     args,
     static value => string.Equals(
         value,
         "--sync",
         StringComparison.OrdinalIgnoreCase));
+bool useAnalyticScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--analytic",
+        StringComparison.OrdinalIgnoreCase));
+int analyticKind = ReadArgument("--analytic-kind", -1);
 
-NativeSolidRectangle[] rectangles = CreateRectangles(rectangleCount);
+NativeSolidRectangle[] rectangles = CreateRectangles(
+    rectangleCount,
+    logicalWidth,
+    logicalHeight);
+NativeAnalyticPrimitive[] analyticPrimitives = useAnalyticScene
+    ? CreateAnalyticPrimitives(
+        rectangleCount,
+        analyticKind,
+        logicalWidth,
+        logicalHeight)
+    : [];
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
 
 using var context = new WgpuContext();
@@ -36,7 +57,12 @@ using var managed = new Compositor(
         EnableGpuHitTesting = false,
         PrimarySampleCount = 1
     });
-DrawingVisual managedVisual = CreateManagedVisual(rectangles);
+DrawingVisual managedVisual = useAnalyticScene
+    ? CreateManagedAnalyticVisual(
+        analyticPrimitives,
+        logicalWidth,
+        logicalHeight)
+    : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
 
 // Compile both shader/pipeline paths before correctness or timing evidence.
 RenderNative();
@@ -46,12 +72,32 @@ context.PollDevice(wait: true);
 byte[] nativePixels = nativeTarget.ReadPixels();
 byte[] managedPixels = managedTarget.ReadPixels();
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
-if (comparison.MaximumChannelDifference > 3 ||
-    comparison.PixelsOverTolerance > comparison.PixelCount / 1000)
+bool requiresExactPixels = !useAnalyticScene && dpiScale == 1f;
+bool usesTightDifferential =
+    (useAnalyticScene && analyticKind is 1 or 2) ||
+    (!useAnalyticScene && !requiresExactPixels);
+int maximumAllowedDifference = requiresExactPixels
+    ? 0
+    : usesTightDifferential ? 3 : 96;
+int maximumAllowedPixelsOverTolerance =
+    requiresExactPixels || usesTightDifferential
+        ? 0
+        : comparison.PixelCount / 40;
+double maximumAllowedMeanAbsoluteDifference = requiresExactPixels
+    ? 0.0
+    : usesTightDifferential ? 0.001 : 0.15;
+if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
+    comparison.PixelsOverTolerance > maximumAllowedPixelsOverTolerance ||
+    comparison.MeanAbsoluteChannelDifference >
+        maximumAllowedMeanAbsoluteDifference)
 {
     throw new InvalidOperationException(
         $"Native/managed output diverged: max={comparison.MaximumChannelDifference}, " +
-        $"pixelsOverTolerance={comparison.PixelsOverTolerance}/{comparison.PixelCount}.");
+        $"pixelsOverTolerance={comparison.PixelsOverTolerance}/{comparison.PixelCount}; " +
+        $"meanAbsolute={comparison.MeanAbsoluteChannelDifference:F6}; " +
+        $"allowedMax={maximumAllowedDifference}, " +
+        $"allowedPixels={maximumAllowedPixelsOverTolerance}, " +
+        $"allowedMean={maximumAllowedMeanAbsoluteDifference:F6}.");
 }
 
 for (int index = 0; index < warmupCount; index++)
@@ -103,7 +149,14 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
+    Scene: useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
+    DifferentialContract: requiresExactPixels
+        ? "Exact"
+        : usesTightDifferential
+            ? "Near-exact pipeline (at most 3/255 per channel)"
+            : "Bounded against managed solid-rectangle specialization",
     RectangleCount: rectangleCount,
+    DpiScale: dpiScale,
     WarmupIterations: warmupCount,
     MeasuredIterations: iterationCount,
     SynchronizeEachFrame: synchronizeEachFrame,
@@ -120,22 +173,33 @@ Console.WriteLine(JsonSerializer.Serialize(
 
 void RenderNative()
 {
-    native.Render(
-        nativeTarget,
-        dpiScale: 1f,
-        rectangles,
-        clearColor);
+    if (useAnalyticScene)
+    {
+        native.RenderAnalytic(
+            nativeTarget,
+            dpiScale,
+            analyticPrimitives,
+            clearColor);
+    }
+    else
+    {
+        native.Render(
+            nativeTarget,
+            dpiScale,
+            rectangles,
+            clearColor);
+    }
 }
 
 void RenderManaged()
 {
     managed.RenderOffscreen(
         managedVisual,
-        width,
-        height,
+        Math.Max(1U, (uint)MathF.Round(logicalWidth)),
+        Math.Max(1U, (uint)MathF.Round(logicalHeight)),
         managedTarget,
         padding: 0f,
-        dpiScale: 1f,
+        dpiScale,
         clearColor);
 }
 
@@ -179,6 +243,25 @@ int ReadNonNegativeArgument(string name, int fallback)
     return value >= 0 ? value : fallback;
 }
 
+float ReadPositiveFloatArgument(string name, float fallback)
+{
+    for (int index = 0; index + 1 < args.Length; index++)
+    {
+        if (string.Equals(args[index], name, StringComparison.OrdinalIgnoreCase) &&
+            float.TryParse(
+                args[index + 1],
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out float value) &&
+            float.IsFinite(value) &&
+            value > 0f)
+        {
+            return value;
+        }
+    }
+    return fallback;
+}
+
 int ReadArgument(string name, int fallback)
 {
     for (int index = 0; index + 1 < args.Length; index++)
@@ -204,13 +287,16 @@ static GpuTexture CreateTarget(WgpuContext context, string label) =>
         label,
         alphaMode: GpuTextureAlphaMode.Premultiplied);
 
-static NativeSolidRectangle[] CreateRectangles(int count)
+static NativeSolidRectangle[] CreateRectangles(
+    int count,
+    float logicalWidth,
+    float logicalHeight)
 {
     var result = new NativeSolidRectangle[count];
     const float inset = 18f;
     const float gap = 3f;
-    float usableWidth = width - inset * 2f;
-    float usableHeight = height - inset * 2f;
+    float usableWidth = logicalWidth - inset * 2f;
+    float usableHeight = logicalHeight - inset * 2f;
     int columns = Math.Max(
         1,
         (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
@@ -241,11 +327,13 @@ static NativeSolidRectangle[] CreateRectangles(int count)
 }
 
 static DrawingVisual CreateManagedVisual(
-    ReadOnlySpan<NativeSolidRectangle> rectangles)
+    ReadOnlySpan<NativeSolidRectangle> rectangles,
+    float logicalWidth,
+    float logicalHeight)
 {
     var visual = new DrawingVisual
     {
-        Size = new Vector2(width, height)
+        Size = new Vector2(logicalWidth, logicalHeight)
     };
     foreach (ref readonly NativeSolidRectangle rectangle in rectangles)
     {
@@ -261,6 +349,127 @@ static DrawingVisual CreateManagedVisual(
     return visual;
 }
 
+static NativeAnalyticPrimitive[] CreateAnalyticPrimitives(
+    int count,
+    int forcedKind,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var result = new NativeAnalyticPrimitive[count];
+    const float inset = 24f;
+    float usableWidth = logicalWidth - inset * 2f;
+    float usableHeight = logicalHeight - inset * 2f;
+    int columns = Math.Max(
+        1,
+        (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = usableWidth / columns;
+    float cellHeight = usableHeight / rows;
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float itemWidth = Math.Max(2f, cellWidth * 0.64f);
+        float itemHeight = Math.Max(2f, cellHeight * 0.58f);
+        float centerX = inset + (column + 0.5f) * cellWidth;
+        float centerY = inset + (row + 0.5f) * cellHeight;
+        float phase = index * 0.61803398875f % 1f;
+        Vector4 color = new(
+            0.16f + 0.68f * Wave(phase),
+            0.2f + 0.72f * Wave(phase + 0.333f),
+            0.25f + 0.7f * Wave(phase + 0.666f),
+            0.55f + 0.4f * Wave(phase + 0.17f));
+        Matrix3x2 transform =
+            Matrix3x2.CreateScale(
+                0.82f + 0.32f * Wave(phase + 0.21f),
+                0.78f + 0.38f * Wave(phase + 0.49f)) *
+            Matrix3x2.CreateSkew(
+                (Wave(phase + 0.77f) - 0.5f) * 0.18f,
+                0f) *
+            Matrix3x2.CreateRotation(
+                (Wave(phase + 0.91f) - 0.5f) * 0.28f) *
+            Matrix3x2.CreateTranslation(centerX, centerY);
+        var kind = forcedKind is >= 0 and <= 2
+            ? (NativeAnalyticPrimitiveKind)forcedKind
+            : (NativeAnalyticPrimitiveKind)(index % 3);
+        bool stroke = (index & 1) != 0;
+        result[index] = new NativeAnalyticPrimitive(
+            kind,
+            -itemWidth * 0.5f,
+            -itemHeight * 0.5f,
+            itemWidth,
+            itemHeight,
+            color,
+            transform,
+            cornerRadius: Math.Min(itemWidth, itemHeight) * 0.22f,
+            strokeThickness: stroke ? 1f + index % 4 : 0f);
+    }
+    return result;
+
+    static float Wave(float phase) =>
+        0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
+}
+
+static DrawingVisual CreateManagedAnalyticVisual(
+    ReadOnlySpan<NativeAnalyticPrimitive> primitives,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var visual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    foreach (ref readonly NativeAnalyticPrimitive primitive in primitives)
+    {
+        var solid = new SolidColorBrush(primitive.Color);
+        Brush? fill = primitive.StrokeThickness > 0f ? null : solid;
+        Pen? pen = primitive.StrokeThickness > 0f
+            ? new Pen(solid, primitive.StrokeThickness)
+            : null;
+        Matrix3x2 affine = primitive.Transform;
+        var transform = new Matrix4x4(
+            affine.M11, affine.M12, 0f, 0f,
+            affine.M21, affine.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            affine.M31, affine.M32, 0f, 1f);
+        var rect = new Rect(
+            primitive.X,
+            primitive.Y,
+            primitive.Width,
+            primitive.Height);
+        switch (primitive.Kind)
+        {
+            case NativeAnalyticPrimitiveKind.Rectangle:
+                visual.Context.DrawRectangle(fill, pen, rect, transform);
+                break;
+            case NativeAnalyticPrimitiveKind.Ellipse:
+                visual.Context.DrawEllipse(
+                    fill,
+                    pen,
+                    new Vector2(
+                        primitive.X + primitive.Width * 0.5f,
+                        primitive.Y + primitive.Height * 0.5f),
+                    primitive.Width * 0.5f,
+                    primitive.Height * 0.5f,
+                    transform);
+                break;
+            case NativeAnalyticPrimitiveKind.RoundedRectangle:
+                visual.Context.DrawRoundedRectangle(
+                    fill,
+                    pen,
+                    rect,
+                    primitive.CornerRadius,
+                    primitive.CornerRadius,
+                    transform);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported analytic primitive {primitive.Kind}.");
+        }
+    }
+    return visual;
+}
+
 static PixelComparison ComparePixels(
     ReadOnlySpan<byte> native,
     ReadOnlySpan<byte> managed)
@@ -271,6 +480,7 @@ static PixelComparison ComparePixels(
     }
     int maximum = 0;
     int pixelsOverTolerance = 0;
+    long totalAbsoluteDifference = 0;
     ulong nativeHash = 14695981039346656037UL;
     ulong managedHash = 14695981039346656037UL;
     for (int offset = 0; offset < native.Length; offset += 4)
@@ -280,6 +490,7 @@ static PixelComparison ComparePixels(
         {
             int difference = Math.Abs(native[offset + channel] - managed[offset + channel]);
             maximum = Math.Max(maximum, difference);
+            totalAbsoluteDifference += difference;
             overTolerance |= difference > 3;
             nativeHash = (nativeHash ^ native[offset + channel]) * 1099511628211UL;
             managedHash = (managedHash ^ managed[offset + channel]) * 1099511628211UL;
@@ -293,6 +504,8 @@ static PixelComparison ComparePixels(
         native.Length / 4,
         maximum,
         pixelsOverTolerance,
+        totalAbsoluteDifference,
+        totalAbsoluteDifference / (double)native.Length,
         nativeHash.ToString("X16"),
         managedHash.ToString("X16"));
 }
@@ -324,7 +537,10 @@ internal sealed record BenchmarkReport(
     string OperatingSystem,
     string Adapter,
     string Backend,
+    string Scene,
+    string DifferentialContract,
     int RectangleCount,
+    float DpiScale,
     int WarmupIterations,
     int MeasuredIterations,
     bool SynchronizeEachFrame,
@@ -345,5 +561,7 @@ internal sealed record PixelComparison(
     int PixelCount,
     int MaximumChannelDifference,
     int PixelsOverTolerance,
+    long TotalAbsoluteChannelDifference,
+    double MeanAbsoluteChannelDifference,
     string NativeFnv1A64,
     string ManagedFnv1A64);

@@ -94,12 +94,15 @@ internal static class NativeRendererSamplePage
         private readonly GpuTexture _target;
         private readonly NativeSolidRectangle[] _rectangles =
             new NativeSolidRectangle[MaximumRectangles];
+        private readonly NativeAnalyticPrimitive[] _analyticPrimitives =
+            new NativeAnalyticPrimitive[MaximumRectangles];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
         private Run? _metricsRun;
         private int _rectangleCount = 384;
         private int _palette;
+        private bool _useAnalytic = true;
         private int _disposeState;
 
         public NativeRendererSampleSession(WgpuContext context)
@@ -142,8 +145,9 @@ internal static class NativeRendererSamplePage
                 bold: true));
             heading.AddChild(CreateText(
                 $"{_info.Name}. One stable C ABI call records one GPU " +
-                "submission using the same embedded Vector.wgsl module as " +
-                "the managed renderer.",
+                "submission. Toggle between the indexed mixed analytic batch " +
+                "and solid-rectangle fast path; both reuse the production " +
+                "Vector.wgsl module.",
                 12f));
             root.AddChild(heading);
             Grid.SetRow(heading, 0);
@@ -190,6 +194,15 @@ internal static class NativeRendererSamplePage
             var renderButton = CreateButton("Render native batch", 170f);
             renderButton.Click += (_, _) => RenderFrame();
             controls.AddChild(renderButton);
+
+            var modeButton = CreateButton("Toggle batch mode", 156f);
+            modeButton.Click += (_, _) =>
+            {
+                _useAnalytic = !_useAnalytic;
+                UpdateCountText();
+                RenderFrame();
+            };
+            controls.AddChild(modeButton);
 
             var paletteButton = CreateButton("Cycle palette", 132f);
             paletteButton.Click += (_, _) =>
@@ -246,14 +259,41 @@ internal static class NativeRendererSamplePage
                 return;
             }
 
-            FillRectangles(_rectangleCount, _palette);
+            if (_useAnalytic)
+            {
+                FillAnalyticPrimitives(_rectangleCount, _palette);
+            }
+            else
+            {
+                FillRectangles(_rectangleCount, _palette);
+            }
             long allocationStart = GC.GetAllocatedBytesForCurrentThread();
             long timestamp = Stopwatch.GetTimestamp();
-            NativeFrameMetrics metrics = _compositor.Render(
-                _target,
-                dpiScale: 1f,
-                _rectangles.AsSpan(0, _rectangleCount),
-                new Vector4(0.015f, 0.02f, 0.035f, 1f));
+            uint drawCallCount;
+            uint vertexCount;
+            ulong uploadBytes;
+            if (_useAnalytic)
+            {
+                NativeAnalyticFrameMetrics metrics = _compositor.RenderAnalytic(
+                    _target,
+                    dpiScale: 1f,
+                    _analyticPrimitives.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes + metrics.IndexUploadBytes;
+            }
+            else
+            {
+                NativeFrameMetrics metrics = _compositor.Render(
+                    _target,
+                    dpiScale: 1f,
+                    _rectangles.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes;
+            }
             double elapsedMilliseconds =
                 Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
             long managedBytes =
@@ -264,9 +304,9 @@ internal static class NativeRendererSamplePage
                 _metricsRun.Text =
                     $"C ABI + submit {elapsedMilliseconds:F3} ms · " +
                     $"managed alloc {managedBytes} B · " +
-                    $"draws {metrics.DrawCallCount} · " +
-                    $"vertices {metrics.VertexCount:N0} · " +
-                    $"upload {metrics.VertexUploadBytes:N0} B";
+                    $"draws {drawCallCount} · " +
+                    $"vertices {vertexCount:N0} · " +
+                    $"upload {uploadBytes:N0} B";
             }
             _preview?.Invalidate();
         }
@@ -300,6 +340,56 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillAnalyticPrimitives(int count, int palette)
+        {
+            const float inset = 24f;
+            float usableWidth = TargetWidth - inset * 2f;
+            float usableHeight = TargetHeight - inset * 2f;
+            int columns = Math.Max(
+                1,
+                (int)MathF.Ceiling(MathF.Sqrt(
+                    count * usableWidth / usableHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = usableWidth / columns;
+            float cellHeight = usableHeight / rows;
+
+            for (int index = 0; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                float phase = (index * 0.61803398875f + palette * 0.23f) % 1f;
+                float itemWidth = Math.Max(2f, cellWidth * 0.64f);
+                float itemHeight = Math.Max(2f, cellHeight * 0.58f);
+                float centerX = inset + (column + 0.5f) * cellWidth;
+                float centerY = inset + (row + 0.5f) * cellHeight;
+                Vector4 color = Palette(phase, palette);
+                color.W = 0.68f + 0.3f * Wave(phase + 0.17f);
+                Matrix3x2 transform =
+                    Matrix3x2.CreateScale(
+                        0.82f + 0.32f * Wave(phase + 0.21f),
+                        0.78f + 0.38f * Wave(phase + 0.49f)) *
+                    Matrix3x2.CreateSkew(
+                        (Wave(phase + 0.77f) - 0.5f) * 0.18f,
+                        0f) *
+                    Matrix3x2.CreateRotation(
+                        (Wave(phase + 0.91f) - 0.5f) * 0.28f) *
+                    Matrix3x2.CreateTranslation(centerX, centerY);
+                _analyticPrimitives[index] = new NativeAnalyticPrimitive(
+                    (NativeAnalyticPrimitiveKind)(index % 3),
+                    -itemWidth * 0.5f,
+                    -itemHeight * 0.5f,
+                    itemWidth,
+                    itemHeight,
+                    color,
+                    transform,
+                    cornerRadius: Math.Min(itemWidth, itemHeight) * 0.22f,
+                    strokeThickness: (index & 1) == 0 ? 0f : 1f + index % 4);
+            }
+        }
+
+        private static float Wave(float phase) =>
+            0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
+
         private static Vector4 Palette(float phase, int palette)
         {
             float wave0 = 0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
@@ -317,7 +407,9 @@ internal static class NativeRendererSamplePage
         {
             if (_countRun is not null)
             {
-                _countRun.Text = $"Rectangles: {_rectangleCount:N0}";
+                _countRun.Text = _useAnalytic
+                    ? $"Primitives: {_rectangleCount:N0}"
+                    : $"Rectangles: {_rectangleCount:N0}";
             }
         }
 

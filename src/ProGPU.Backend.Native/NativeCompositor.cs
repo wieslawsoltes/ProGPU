@@ -100,30 +100,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         ReadOnlySpan<NativeSolidRectangle> rectangles,
         Vector4 clearColor)
     {
-        ArgumentNullException.ThrowIfNull(target);
-        ThrowIfDisposed();
-        if (!ReferenceEquals(target.Context, _context))
-        {
-            throw new ArgumentException(
-                "The target must belong to the native compositor's WebGPU device domain.",
-                nameof(target));
-        }
-        if (target.IsDisposed || target.ViewPtr == null)
-        {
-            throw new ObjectDisposedException(nameof(target));
-        }
-        if (target.Format != _targetFormat || target.SampleCount != 1)
-        {
-            throw new ArgumentException(
-                "The target format and sample count must match the native pipeline.",
-                nameof(target));
-        }
-        if (!target.Usage.HasFlag(TextureUsage.RenderAttachment))
-        {
-            throw new ArgumentException(
-                "The target must allow WebGPU render-attachment usage.",
-                nameof(target));
-        }
+        ValidateTarget(target);
 
         fixed (NativeSolidRectangle* rectanglePointer = rectangles)
         {
@@ -165,6 +142,64 @@ public sealed unsafe class NativeCompositor : IDisposable
                 metrics.DrawCallCount,
                 metrics.VertexCount,
                 metrics.VertexUploadBytes,
+                metrics.UniformUploadBytes,
+                metrics.SubmissionCount);
+        }
+    }
+
+    public NativeAnalyticFrameMetrics RenderAnalytic(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeAnalyticPrimitive> primitives,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+
+        fixed (NativeAnalyticPrimitive* primitivePointer = primitives)
+        {
+            var frame = new NativeMethods.AnalyticFrame
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.AnalyticFrame>(),
+                Width = target.Width,
+                Height = target.Height,
+                DpiScale = dpiScale,
+                TargetView = (nuint)target.ViewPtr,
+                ClearColor = new NativeMethods.NativeColor
+                {
+                    R = clearColor.X,
+                    G = clearColor.Y,
+                    B = clearColor.Z,
+                    A = clearColor.W
+                },
+                Primitives = primitivePointer,
+                PrimitiveCount = (nuint)primitives.Length
+            };
+            var metrics = new NativeMethods.AnalyticFrameMetrics
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>()
+            };
+
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                var status = NativeMethods.RenderAnalytic(
+                    _engine,
+                    &frame,
+                    &metrics);
+                if (status != NativeRendererStatus.Success)
+                {
+                    throw new NativeRendererException(status, ReadLastError());
+                }
+                target.NotifyExternalContentChanged();
+                _context.PollDevice(wait: false);
+            }
+
+            return new NativeAnalyticFrameMetrics(
+                metrics.DrawCallCount,
+                metrics.VertexCount,
+                metrics.IndexCount,
+                metrics.VertexUploadBytes,
+                metrics.IndexUploadBytes,
                 metrics.UniformUploadBytes,
                 metrics.SubmissionCount);
         }
@@ -228,6 +263,34 @@ public sealed unsafe class NativeCompositor : IDisposable
         if (IsDisposed || _context.IsDisposed || _engine == 0)
         {
             throw new ObjectDisposedException(nameof(NativeCompositor));
+        }
+    }
+
+    private void ValidateTarget(GpuTexture target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ThrowIfDisposed();
+        if (!ReferenceEquals(target.Context, _context))
+        {
+            throw new ArgumentException(
+                "The target must belong to the native compositor's WebGPU device domain.",
+                nameof(target));
+        }
+        if (target.IsDisposed || target.ViewPtr == null)
+        {
+            throw new ObjectDisposedException(nameof(target));
+        }
+        if (target.Format != _targetFormat || target.SampleCount != 1)
+        {
+            throw new ArgumentException(
+                "The target format and sample count must match the native pipeline.",
+                nameof(target));
+        }
+        if (!target.Usage.HasFlag(TextureUsage.RenderAttachment))
+        {
+            throw new ArgumentException(
+                "The target must allow WebGPU render-attachment usage.",
+                nameof(target));
         }
     }
 

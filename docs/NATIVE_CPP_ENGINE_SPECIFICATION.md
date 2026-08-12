@@ -34,10 +34,11 @@ The migration is complete only when all of the following are true:
    checksum manifests, sample, .NET host, and WebScene provider integration are
    built and tested in CI.
 
-The initial implementation is deliberately smaller: it proves the engine ABI,
-exact WebGPU ABI selection, shared shader pipeline, native batching and
-submission, external-target ownership, and hardware readback with solid
-rectangles. It is evidence for the architecture, not a claim of full parity.
+The implementation remains deliberately smaller than the managed compositor:
+it proves the engine ABI, exact WebGPU ABI selection, shared shader pipelines,
+native batching and submission, external-target ownership, hardware readback,
+and the first indexed analytic primitive batch. It is evidence for the
+architecture, not a claim of full parity.
 
 ## 2. Clean-room and source policy
 
@@ -233,7 +234,7 @@ The host owns:
 - borrowed target view lifetime across one render call;
 - WebScene canvas/external-texture lease lifetime in the Dawn provider lane.
 
-## 9. Initial implemented slice
+## 9. Implemented native slices
 
 `src/ProGPU.Native` currently implements:
 
@@ -262,13 +263,50 @@ baseline are also implemented. The exact evidence and its deliberately narrow
 interpretation are recorded in
 [`NATIVE_CPP_PERFORMANCE_BASELINE.md`](NATIVE_CPP_PERFORMANCE_BASELINE.md).
 
+The first Tranche A increment additionally implements:
+
+- one 72-byte, pointer-free analytic primitive record for rectangles,
+  ellipses, and circular rounded rectangles;
+- fill or centered stroke, edge-alias mode, and an independent invertible
+  affine transform per primitive;
+- four exact `VectorVertex` values and six 32-bit indices per primitive;
+- one lazily initialized persistent general-vector pipeline,
+  frame/brush/gradient resources, a
+  one-pixel atlas sentinel required by the shared shader layout, geometric
+  vertex/index buffer growth, one indexed draw, and one submission;
+- a typed one-call .NET span entry point, C++ layout/validation tests,
+  managed ABI tests, deterministic hardware differentials, and an interactive
+  gallery toggle between the analytic and rectangle paths.
+
+For `P` analytic primitives, CPU compilation and upload are `O(P)`, storage is
+`4P` vertices plus `6P` indices, and warm WebGPU resource count is constant
+apart from geometric buffer growth. Singular/non-finite transforms and invalid
+primitive records fail before submission. No primitive creates a WebGPU object
+or crosses the managed/native boundary independently.
+
+The managed compositor selects a separate solid-rectangle stroke shader while
+the native mixed batch deliberately remains one general-vector draw. Ellipse
+and rounded-rectangle differentials stay within 1/255 per channel at 4,096
+primitives with no pixel above the 3/255 tolerance. Mixed 4,096-primitive output
+has a bounded antialias-edge difference: maximum 89/255, 10,338 of 518,400
+pixels above 3/255, and 0.123854 mean absolute channel difference. This is a
+recorded specialization boundary, not permission for unbounded pixel drift.
+Exact solid-rectangle fast-path parity remains independently gated.
+At DPI 2, the 4,096-primitive mixed gate remains within the same contract
+(maximum 83, 5,149 pixels above 3/255, mean absolute difference 0.056588),
+while the rectangle fast path and general analytic-only paths remain within
+1/255 per channel.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
-- indexed vector buffer parity to avoid duplicated quad vertices;
-- solid fills/strokes for rectangle, ellipse, rounded rectangle, circle, line,
-  triangle, quad, quadratic/cubic curve, polyline, and spline;
+- indexed analytic quad batching for rectangle, ellipse, and circular rounded
+  rectangle is implemented; line, triangle, quad, curves, polyline, and spline
+  remain;
+- solid fills/strokes, affine transforms, and alias mode are implemented for
+  the current analytic subset; caps, joins, dashes, fixed-device stroke, and
+  the remaining primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

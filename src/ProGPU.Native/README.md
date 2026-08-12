@@ -48,6 +48,23 @@ the same retained scene into two textures on one device, rejects pixel drift,
 alternates measurement order, and reports p50/p95/worst CPU submission plus
 managed allocation. It does not by itself establish whole-engine parity.
 
+Exercise the first indexed analytic batch with deterministic rectangles,
+ellipses, circular rounded rectangles, strokes, and affine transforms:
+
+```sh
+DYLD_LIBRARY_PATH="$PWD/artifacts/progpu-native/build:$PWD/artifacts/progpu-native/runtime" \
+  dotnet run --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj -c Release -- \
+  --analytic --rectangles 512 --warmup 60 --iterations 600
+```
+
+Add `--analytic-kind 1` for the tight ellipse-only differential or
+`--analytic-kind 2` for rounded rectangles. The mixed gate records the bounded
+AA-edge difference from the managed compositor's separate solid-rectangle
+stroke specialization; the general analytic paths remain within 3/255 per
+channel, and the original rectangle fast path remains byte-exact.
+Add `--dpi 2` to render a 480 by 270 logical scene into the 960 by 540 physical
+target and exercise Retina projection and analytic derivative coverage.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -55,10 +72,16 @@ Current native parity:
 - one batched draw and one submission for all solid rectangles;
 - physical framebuffer sizing and logical-to-physical DPI projection;
 - exact `VectorVertex` layout and the shared solid-rectangle shader path;
+- indexed mixed analytic rectangle/ellipse/circular-rounded-rectangle fill and
+  stroke batches with per-primitive affine transforms;
+- four vertices and six indices per analytic primitive, one draw/submission,
+  lazily initialized reusable resources, and no per-primitive WebGPU resource
+  allocation;
 - reusable uniform/vertex resources with geometric buffer growth;
 - headless hardware-WebGPU image verification.
 - a typed zero-copy .NET host sharing device, queue, and render target;
-- an interactive desktop page with a reusable 1–4,096 rectangle batch;
+- an interactive desktop page toggling reusable 1–4,096 rectangle and mixed
+  analytic batches;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in
