@@ -8,6 +8,14 @@
 
 namespace progpu::native::webgpu {
 
+inline void initialize_color_attachment(
+    WGPURenderPassColorAttachment& attachment) noexcept {
+    // Both supported headers expose depthSlice, but only the modern Dawn ABI
+    // validates its sentinel for a non-3D target. Zero names depth slice zero
+    // and is therefore invalid for ordinary 2D render attachments.
+    attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+}
+
 #if defined(PROGPU_NATIVE_DAWN_ABI)
 
 using proc_resolver = void* (*)(void* context, const char* name);

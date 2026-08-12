@@ -9,6 +9,10 @@ set(PROGPU_NATIVE_WEBGPU_LIBRARY "" CACHE FILEPATH
     "Exact wgpu-native library consumed by Silk.NET.WebGPU 2.23.0")
 set(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR "" CACHE PATH
     "Optional directory containing WebScene's exact modern Dawn webgpu.h")
+set(PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR "" CACHE PATH
+    "Optional directory containing webscene_gpu_provider.h")
+set(PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY "" CACHE FILEPATH
+    "Optional exact WebScene provider library for hardware integration tests")
 set(PROGPU_NATIVE_VECTOR_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Vector.wgsl"
     CACHE FILEPATH "Shared ProGPU vector shader source")
@@ -231,6 +235,47 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         set_tests_properties(
             progpu_native_dawn_contract_tests
             PROPERTIES TIMEOUT 60)
+
+        if(APPLE
+            AND PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR
+            AND PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY)
+            if(NOT EXISTS
+                "${PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR}/webscene_gpu_provider.h")
+                message(FATAL_ERROR
+                    "PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR must contain "
+                    "webscene_gpu_provider.h")
+            endif()
+            if(NOT EXISTS "${PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY}")
+                message(FATAL_ERROR
+                    "PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY does not exist")
+            endif()
+            add_executable(progpu_native_webscene_provider_tests
+                tests/progpu_native_webscene_provider_tests.cpp)
+            target_compile_features(progpu_native_webscene_provider_tests
+                PRIVATE cxx_std_20)
+            target_include_directories(
+                progpu_native_webscene_provider_tests PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                "${PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR}")
+            target_include_directories(
+                progpu_native_webscene_provider_tests SYSTEM PRIVATE
+                "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
+            find_library(PROGPU_NATIVE_IOSURFACE_FRAMEWORK IOSurface REQUIRED)
+            target_link_libraries(progpu_native_webscene_provider_tests PRIVATE
+                progpu_native_dawn
+                "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
+                "${CMAKE_DL_LIBS}")
+            progpu_native_enable_warnings(
+                progpu_native_webscene_provider_tests)
+            add_test(
+                NAME progpu_native_webscene_provider_tests
+                COMMAND progpu_native_webscene_provider_tests
+                    "${PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY}"
+                    "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-webscene-provider.ppm")
+            set_tests_properties(
+                progpu_native_webscene_provider_tests
+                PROPERTIES TIMEOUT 60)
+        endif()
     endif()
 endif()
 

@@ -335,6 +335,15 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_webgpu_compat.hpp"));
         string verifier = File.ReadAllText(FindRepoFile(
             "eng", "progpu-verify-native-dawn-header.sh"));
+        string providerVerifier = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-verify-native-webscene-provider.sh"));
+        string providerTest = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "tests",
+            "progpu_native_webscene_provider_tests.cpp"));
+        string buildWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "build.yml"));
+        string releaseWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "release.yml"));
         string packageProject = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend.Native", "ProGPU.Backend.Native.csproj"));
 
@@ -376,6 +385,34 @@ public class NativeRendererInteropTests
             "progpu_native_dawn.h",
             packageProject,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_webscene_provider_tests",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "build-native-gpu-runtime.sh",
+            providerVerifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_engine_poll_submission",
+            providerTest,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE",
+            providerTest,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "webscene_gpu_provider_retain_external_texture",
+            providerTest,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Verify exact WebScene provider on Metal",
+            buildWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Verify exact WebScene provider on Metal",
+            releaseWorkflow,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));
@@ -392,7 +429,7 @@ public class NativeRendererInteropTests
             "01addc4ba8a2915a061b7095a6768b512071ab96",
             manifest.RootElement.GetProperty("webGpuHeadersRevision").GetString());
         Assert.Equal(
-            "provider-dispatch-contract",
+            "provider-hardware-integration",
             manifest.RootElement.GetProperty("status").GetString());
     }
 

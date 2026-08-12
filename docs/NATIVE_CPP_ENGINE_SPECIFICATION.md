@@ -142,9 +142,9 @@ the current clear/render/present operation.
 
 ## 5. WebScene PR #10 analysis
 
-[WebScene PR #10](https://github.com/wieslawsoltes/WebScene/pull/10) is an
-appropriate future host/provider integration point, but not a link-compatible
-replacement for the current Silk lane.
+[WebScene PR #10](https://github.com/wieslawsoltes/WebScene/pull/10) is the
+pinned host/provider integration point, but not a link-compatible replacement
+for the current Silk lane.
 
 The PR pins Dawn `710c33013c53ab2700d332c25ff51430251a8cc4` and WebGPU
 headers `01addc4ba8a2915a061b7095a6768b512071ab96`. Its ABI 2 provider exposes
@@ -159,7 +159,7 @@ Therefore:
 
 - `progpu_native_wgpu` is compiled against the Silk-compatible headers and may
   share device/queue/texture-view handles with the current .NET renderer;
-- `progpu_native_dawn` will be compiled against WebScene's exact Dawn headers,
+- `progpu_native_dawn` is compiled against WebScene's exact Dawn headers,
   obtain functions from the provider resolver, and share the provider-created
   Dawn device/canvas textures;
 - both binaries expose the same ProGPU-owned semantic engine ABI, capability
@@ -192,11 +192,17 @@ or adapter ABI, nonzero reserved fields, and an incomplete resolver before any
 GPU handle is retained. Its exported-symbol surface and absence of unresolved
 direct WebGPU imports are link-gated.
 
-The remaining runtime checkpoint is the real WebScene provider success path:
-create a Dawn engine from the exact provider, render into a provider canvas,
-wait through the standard future contract, present/retain/release the external
-texture, and prove zero readback and correct fence ownership. Direct Dawn
-linkage and cross-casting handles between the two binaries remain prohibited.
+The third checkpoint implements the real WebScene provider success path on
+macOS arm64. The reproducible gate checks out provider revision `02823bf8...`,
+uses WebScene's published builder for exact Dawn `710c3301...`, creates one
+Metal provider/device/canvas resource domain, renders through
+`progpu_native_dawn`, waits through the standard future contract, presents the
+provider texture, and verifies the IOSurface retain/release lifecycle. The
+production path performs no copy or CPU readback. A post-present IOSurface map
+exists only in the integration test to validate pixels and emit CI evidence.
+Every Dawn validation error and unexpected device loss fails the gate. Direct
+Dawn linkage and cross-casting handles between the two binaries remain
+prohibited.
 
 ## 6. Stable native engine ABI
 
@@ -774,10 +780,10 @@ path with WebGPU validation and bounded resource policies.
    masks, then extend retained RGBA images with layers, masks, color processing,
    and external media textures while
    continuing to reuse production WGSL modules.
-5. Complete the Dawn/WebScene integration using PR #10's exact provider
-   revision. Shared-source compilation, the separately linked procedure
-   dispatch binary, ABI rejection, and export/link isolation are gated;
-   provider-backed device/canvas creation, zero-copy composition, package
-   consumption, and synchronization still require end-to-end validation.
+5. Extend the completed macOS-arm64 Dawn/WebScene provider gate to additional
+   provider backends as WebScene exposes them. Shared-source compilation,
+   procedure dispatch, ABI rejection, export/link isolation, provider-backed
+   Metal device/canvas rendering, zero-copy presentation, package consumption,
+   synchronization, and lease ownership are already gated.
 6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing
    opt-in .NET substitution to graduate beyond experimental status.

@@ -49,17 +49,27 @@ a neutral callback backed by WebScene's provider resolver. The ordinary
 wgpu-native constructor is disabled in this binary, so the two object domains
 cannot be cross-cast accidentally.
 
-The contract test does not yet claim provider-backed rendering. A final
-integration must create the exact WebScene provider/device/canvas, render and
-wait on the same Dawn instance, present the provider texture, and verify the
-external-texture retain/release and fence lifecycle without CPU readback.
+Run the macOS-arm64 hardware integration against the exact WebScene provider
+and Dawn revisions recorded in `eng/progpu-native-dawn.version.json`:
+
+```sh
+./eng/progpu-verify-native-webscene-provider.sh
+```
+
+The gate builds WebScene's provider through its own published build entry
+point, creates one Metal provider/device/canvas resource domain, renders the
+ProGPU C++ frame into the acquired canvas texture, waits for its native queue
+submission, presents it, and verifies the external IOSurface retain/release
+lifecycle. Production rendering and presentation remain GPU-only and
+zero-copy. The gate maps the IOSurface only after presentation for deterministic
+pixel verification and a CI evidence image; that readback is test-only.
 
 Both `progpu_native` and `progpu_native_dawn` are staged in the
 `ProGPU.Backend.Native` RID package for Linux, macOS, and Windows x64/arm64.
 The source-independent package consumer loads both binaries and validates their
 distinct backend identities; it executes the existing wgpu-native hardware
-render smoke and leaves provider-backed Dawn creation to the WebScene
-integration gate.
+render smoke. The exact WebScene provider hardware gate runs separately on
+macOS arm64 because that provider revision currently exposes Metal/IOSurface.
 
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a

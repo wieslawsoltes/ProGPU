@@ -7,5 +7,5 @@
   "dawnRevision": "710c33013c53ab2700d332c25ff51430251a8cc4",
   "webGpuHeadersRepository": "https://github.com/webgpu-native/webgpu-headers.git",
   "webGpuHeadersRevision": "01addc4ba8a2915a061b7095a6768b512071ab96",
-  "status": "provider-dispatch-contract"
+  "status": "provider-hardware-integration"
 }

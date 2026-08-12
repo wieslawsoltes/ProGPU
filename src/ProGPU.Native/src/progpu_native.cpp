@@ -2583,6 +2583,7 @@ progpu_native_status progpu_native_engine_render(
     }
 
     WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
@@ -2782,6 +2783,7 @@ progpu_native_status progpu_native_engine_render_analytic(
     }
 
     WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
@@ -3351,6 +3353,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     }
 
     WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
@@ -4019,6 +4022,7 @@ progpu_native_status progpu_native_engine_render_paths(
     }
 
     WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
@@ -4626,6 +4630,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     }
 
     WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = reinterpret_cast<WGPUTextureView>(
         frame->target_view);
     color_attachment.loadOp = WGPULoadOp_Clear;
@@ -4916,6 +4921,7 @@ progpu_native_status progpu_native_engine_render_image(
             "The retained RGBA image command encoder could not be created.");
     }
     WGPURenderPassColorAttachment attachment{};
+    progpu::native::webgpu::initialize_color_attachment(attachment);
     attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
     attachment.loadOp = WGPULoadOp_Clear;
     attachment.storeOp = WGPUStoreOp_Store;
