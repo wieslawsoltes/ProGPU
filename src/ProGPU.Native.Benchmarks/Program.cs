@@ -517,16 +517,16 @@ for (int index = 0; index < warmupCount; index++)
     if ((index & 1) == 0)
     {
         RenderNative();
-        SynchronizeIfRequested();
+        SynchronizeNativeIfRequested();
         RenderManaged();
-        SynchronizeIfRequested();
+        SynchronizeManagedIfRequested();
     }
     else
     {
         RenderManaged();
-        SynchronizeIfRequested();
+        SynchronizeManagedIfRequested();
         RenderNative();
-        SynchronizeIfRequested();
+        SynchronizeNativeIfRequested();
     }
 
     if (drainEachPair)
@@ -937,7 +937,15 @@ void RenderManaged()
     }
 }
 
-void SynchronizeIfRequested()
+void SynchronizeNativeIfRequested()
+{
+    if (synchronizeEachFrame)
+    {
+        native.WaitForSubmission(native.GetLastSubmissionToken());
+    }
+}
+
+void SynchronizeManagedIfRequested()
 {
     if (synchronizeEachFrame)
     {
@@ -953,9 +961,15 @@ double MeasureNative(
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderNative();
+    NativeSubmissionToken submission = synchronizeEachFrame
+        ? native.GetLastSubmissionToken()
+        : default;
     submissionMilliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     long waitTimestamp = Stopwatch.GetTimestamp();
-    SynchronizeIfRequested();
+    if (synchronizeEachFrame)
+    {
+        native.WaitForSubmission(submission);
+    }
     completionWaitMilliseconds = synchronizeEachFrame
         ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
         : 0.0;
@@ -974,7 +988,7 @@ double MeasureManaged(
     RenderManaged();
     submissionMilliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     long waitTimestamp = Stopwatch.GetTimestamp();
-    SynchronizeIfRequested();
+    SynchronizeManagedIfRequested();
     completionWaitMilliseconds = synchronizeEachFrame
         ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
         : 0.0;

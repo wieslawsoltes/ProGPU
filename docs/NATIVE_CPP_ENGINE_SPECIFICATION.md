@@ -67,6 +67,7 @@ metadata.
 | System | Observable architecture | ProGPU decision |
 | --- | --- | --- |
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
+| [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
 | [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
@@ -551,6 +552,22 @@ disposed, non-bindable, and unsupported-format masks. General nested layers,
 vector/text masks, decoder-native IOSurface/DXGI/DMA-BUF import, and explicit
 producer/consumer fences remain later capabilities.
 
+The ABI-v3 increment adds an explicit same-queue consumer timeline. Every
+native render submits through the pinned wgpu-native indexed-submit extension
+and records its opaque backend submission index. The typed .NET compositor can
+retrieve that token, poll it without waiting, or wait for it through the
+pinned device-poll extension. A media producer therefore keeps an imported
+texture lease alive until the token completes instead of guessing from frame
+age or forcing every frame to block. Submission and token queries are `O(1)`,
+allocation-free, owner-thread-affine operations; ordinary rendering never
+polls or waits. A token is valid only for its originating compositor.
+
+This timeline is the consumer side of external-media synchronization. Work
+produced on the same WebGPU queue is already ordered. IOSurface shared events,
+DXGI shared fences, DMA-BUF sync files, and browser external-texture acquisition
+still require separate typed platform adapters before decoder-native imports
+can be claimed.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -590,7 +607,9 @@ producer/consumer fences remain later capabilities.
   with zero CPU transfer and explicit borrowed lifetime is implemented;
   premultiplied formats, subrect updates, mips,
   cubic/anisotropic sampling, image/color transforms, layers, masks, tiling,
-  native platform texture import and explicit fences remain;
+  a zero-allocation same-queue submission timeline is implemented for retained
+  external-image leases; native platform texture import and cross-API producer
+  fences remain;
 
 ### Tranche C — effects, extensions, media, and 3D
 

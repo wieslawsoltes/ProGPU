@@ -126,7 +126,46 @@ public enum NativeRendererCapabilities : ulong
     ResizableAtlases = 1UL << 15,
     RetainedRgbaImage = 1UL << 16,
     ExternalRgbaView = 1UL << 17,
-    ExternalImageMask = 1UL << 18
+    ExternalImageMask = 1UL << 18,
+    ExplicitQueueTimeline = 1UL << 19
+}
+
+/// <summary>
+/// Identifies one submitted native WebGPU command buffer on its owning queue.
+/// </summary>
+/// <remarks>
+/// External-image producers keep their texture lease alive until this token
+/// completes. The value is backend-local and must not cross compositor instances.
+/// </remarks>
+public readonly struct NativeSubmissionToken : IEquatable<NativeSubmissionToken>
+{
+    internal NativeSubmissionToken(ulong value, nint owner)
+    {
+        Value = value;
+        Owner = owner;
+    }
+
+    public ulong Value { get; }
+
+    internal nint Owner { get; }
+
+    public bool IsValid => Value != 0 && Owner != 0;
+
+    public bool Equals(NativeSubmissionToken other) =>
+        Value == other.Value && Owner == other.Owner;
+
+    public override bool Equals(object? obj) =>
+        obj is NativeSubmissionToken other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(Value, Owner);
+
+    public static bool operator ==(
+        NativeSubmissionToken left,
+        NativeSubmissionToken right) => left.Equals(right);
+
+    public static bool operator !=(
+        NativeSubmissionToken left,
+        NativeSubmissionToken right) => !left.Equals(right);
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -7,7 +7,7 @@ namespace ProGPU.Backend.Native;
 internal static unsafe partial class NativeMethods
 {
     internal const string LibraryName = "progpu_native";
-    internal const uint AbiVersion = 2;
+    internal const uint AbiVersion = 3;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
@@ -320,6 +320,20 @@ internal static unsafe partial class NativeMethods
         nint engine,
         ImageFrame* frame,
         ImageFrameMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_submission")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetLastSubmission(
+        nint engine,
+        ulong* submissionIndex);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_poll_submission")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus PollSubmission(
+        nint engine,
+        ulong submissionIndex,
+        byte wait,
+        byte* complete);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

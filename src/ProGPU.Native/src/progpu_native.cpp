@@ -7,6 +7,7 @@
 #include "VectorWgsl.generated.hpp"
 
 #include <webgpu.h>
+#include <wgpu.h>
 
 #include <algorithm>
 #include <array>
@@ -417,6 +418,12 @@ struct progpu_native_engine {
     bool image_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
+    WGPUSubmissionIndex last_submission_index = 0U;
+
+    void submit(WGPUCommandBuffer command) noexcept {
+        last_submission_index = wgpuQueueSubmitForIndex(queue, 1U, &command);
+        ++submission_count;
+    }
 
     bool upload_uniform_if_changed(
         WGPUBuffer buffer,
@@ -2290,7 +2297,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES |
         PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
-        PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK;
+        PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
+        PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -2496,9 +2504,8 @@ progpu_native_status progpu_native_engine_render(
             "The native frame command buffer could not be finished.");
     }
 
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
     engine->last_error.clear();
 
     if (metrics != nullptr &&
@@ -2707,9 +2714,8 @@ progpu_native_status progpu_native_engine_render_analytic(
             "The native analytic command buffer could not be finished.");
     }
 
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
     engine->last_error.clear();
 
     if (metrics != nullptr && metrics->struct_size >=
@@ -3275,9 +3281,8 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The native geometry command buffer could not be finished.");
     }
 
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
     engine->last_error.clear();
 
     if (metrics != nullptr && metrics->struct_size >=
@@ -3924,9 +3929,8 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path command buffer could not be finished.");
     }
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -4531,9 +4535,8 @@ progpu_native_status progpu_native_engine_render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph command buffer could not be finished.");
     }
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -4837,9 +4840,8 @@ progpu_native_status progpu_native_engine_render_image(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image command buffer could not be finished.");
     }
-    wgpuQueueSubmit(engine->queue, 1U, &command);
+    engine->submit(command);
     wgpuCommandBufferRelease(command);
-    ++engine->submission_count;
 
     std::uint64_t payload_hash = engine->image_payload_hash;
     payload_hash = append_fnv1a64(
@@ -4878,6 +4880,55 @@ progpu_native_status progpu_native_engine_render_image(
         metrics->submission_count = engine->submission_count;
         metrics->payload_hash = payload_hash;
     }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_get_last_submission(
+    progpu_native_engine* engine,
+    std::uint64_t* submission_index) {
+    if (engine == nullptr || submission_index == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer submission timeline must be queried from its owner thread.");
+    }
+    *submission_index = engine->last_submission_index;
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_poll_submission(
+    progpu_native_engine* engine,
+    std::uint64_t submission_index,
+    std::uint8_t wait,
+    std::uint8_t* complete) {
+    if (engine == nullptr || complete == nullptr || wait > 1U ||
+        submission_index == 0U ||
+        submission_index > engine->last_submission_index) {
+        return engine == nullptr
+            ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
+            : engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The native renderer submission token is invalid.");
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer submission timeline must be polled from its owner thread.");
+    }
+    const WGPUWrappedSubmissionIndex wrapped{
+        engine->queue,
+        submission_index
+    };
+    *complete = wgpuDevicePoll(
+        engine->device,
+        wait != 0U,
+        &wrapped) != 0U
+        ? 1U
+        : 0U;
+    engine->last_error.clear();
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 

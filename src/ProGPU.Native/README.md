@@ -34,6 +34,12 @@ portable desktop TFM, and opens the **Native C++ Renderer** page. The ordinary
 desktop launch remains on Dawn for native media interop. The two handle domains
 are deliberately separate.
 
+ABI v3 also publishes an opaque submission token for each native frame.
+External-image owners can poll or wait for that token before recycling a
+borrowed texture; stable rendering does not wait and creates no managed
+per-frame synchronization object. Platform decoder imports and cross-API
+producer fences remain separate adapters.
+
 Run the matched managed/native rectangle differential and CPU-submission
 benchmark after the native build:
 

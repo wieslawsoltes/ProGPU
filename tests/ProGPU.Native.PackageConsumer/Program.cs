@@ -4,8 +4,9 @@ using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
 NativeRendererInfo info = NativeCompositor.GetInfo();
-if (info.AbiVersion != 2 ||
-    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask))
+if (info.AbiVersion != 3 ||
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask) ||
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline))
 {
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
@@ -26,7 +27,28 @@ NativeFrameMetrics metrics = compositor.Render(
     1f,
     [new NativeSolidRectangle(8, 8, 48, 48, new Vector4(1f, 0.25f, 0.1f, 1f))],
     new Vector4(0f, 0f, 0f, 1f));
-context.PollDevice(wait: true);
+NativeSubmissionToken submission = compositor.GetLastSubmissionToken();
+if (!submission.IsValid)
+{
+    throw new InvalidOperationException("The packaged renderer did not publish a submission token.");
+}
+compositor.WaitForSubmission(submission);
+if (!compositor.IsSubmissionComplete(submission))
+{
+    throw new InvalidOperationException("The packaged renderer submission did not remain complete.");
+}
+using (var other = new NativeCompositor(context, TextureFormat.Rgba8Unorm))
+{
+    try
+    {
+        _ = other.IsSubmissionComplete(submission);
+        throw new InvalidOperationException(
+            "A submission token crossed compositor ownership domains.");
+    }
+    catch (ArgumentException)
+    {
+    }
+}
 byte[] pixels = target.ReadPixels();
 if (metrics.DrawCallCount != 1 || pixels.All(static value => value == 0))
 {

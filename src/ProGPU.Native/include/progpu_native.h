@@ -19,7 +19,7 @@ extern "C" {
 typedef struct progpu_native_engine progpu_native_engine;
 
 enum {
-    PROGPU_NATIVE_ABI_VERSION = 2U,
+    PROGPU_NATIVE_ABI_VERSION = 3U,
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_CAPABILITY_SOLID_RECT_BATCH = 1ULL << 0U,
     PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER = 1ULL << 1U,
@@ -39,7 +39,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U,
     PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U,
-    PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK = 1ULL << 18U,
+    PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE = 1ULL << 19U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -602,6 +603,23 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_image(
     progpu_native_engine* engine,
     const progpu_native_image_frame* frame,
     progpu_native_image_frame_metrics* metrics);
+/*
+ * Returns the backend submission index of the most recently submitted frame.
+ * The zero value means that this engine has not submitted work yet.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_last_submission(
+    progpu_native_engine* engine,
+    uint64_t* submission_index);
+/*
+ * Polls or waits for one submission from this engine. This is the consumer
+ * fence used by external-image owners before recycling a borrowed texture.
+ * Calls are owner-thread affine and perform no allocation.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_poll_submission(
+    progpu_native_engine* engine,
+    uint64_t submission_index,
+    uint8_t wait,
+    uint8_t* complete);
 PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
     const progpu_native_engine* engine,
     char* destination,

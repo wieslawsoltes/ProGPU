@@ -30,7 +30,7 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void PrivateInteropRecordsMatchNativeAbiTwo()
+    public void PrivateInteropRecordsMatchNativeAbiThree()
     {
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.Frame>());
@@ -73,7 +73,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.ImageFrame.MaskDestinationRect)));
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
-        Assert.Equal(2U, NativeMethods.AbiVersion);
+        Assert.Equal(3U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
     }
 
@@ -111,6 +111,10 @@ public class NativeRendererInteropTests
         Assert.Equal(
             262144UL,
             (ulong)NativeRendererCapabilities.ExternalImageMask);
+        Assert.Equal(
+            524288UL,
+            (ulong)NativeRendererCapabilities.ExplicitQueueTimeline);
+        Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);

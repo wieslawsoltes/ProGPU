@@ -124,6 +124,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_frame) == 96U);

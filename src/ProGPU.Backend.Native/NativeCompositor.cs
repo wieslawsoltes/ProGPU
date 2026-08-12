@@ -69,6 +69,39 @@ public sealed unsafe class NativeCompositor : IDisposable
 
     public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
 
+    /// <summary>
+    /// Returns the queue token for the most recently submitted native frame.
+    /// </summary>
+    public NativeSubmissionToken GetLastSubmissionToken()
+    {
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            ulong value = 0;
+            ThrowForStatus(NativeMethods.GetLastSubmission(_engine, &value));
+            return new NativeSubmissionToken(value, _engine);
+        }
+    }
+
+    /// <summary>
+    /// Tests whether the GPU has completed a native submission without waiting.
+    /// </summary>
+    public bool IsSubmissionComplete(NativeSubmissionToken token) =>
+        PollSubmission(token, wait: false);
+
+    /// <summary>
+    /// Waits until the GPU completes a native submission.
+    /// </summary>
+    public void WaitForSubmission(NativeSubmissionToken token)
+    {
+        if (!PollSubmission(token, wait: true))
+        {
+            throw new NativeRendererException(
+                NativeRendererStatus.DeviceLost,
+                "The WebGPU queue did not complete the requested native submission.");
+        }
+    }
+
     public static NativeRendererInfo GetInfo()
     {
         if (NativeMethods.GetAbiVersion() != NativeMethods.AbiVersion)
@@ -827,6 +860,42 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             NativeMethods.Destroy(engine);
+        }
+    }
+
+    private bool PollSubmission(NativeSubmissionToken token, bool wait)
+    {
+        if (!token.IsValid)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(token),
+                "A native submission token must be non-zero.");
+        }
+
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            if (token.Owner != _engine)
+            {
+                throw new ArgumentException(
+                    "A native submission token belongs to a different compositor.",
+                    nameof(token));
+            }
+            byte complete = 0;
+            ThrowForStatus(NativeMethods.PollSubmission(
+                _engine,
+                token.Value,
+                wait ? (byte)1 : (byte)0,
+                &complete));
+            return complete != 0;
+        }
+    }
+
+    private void ThrowForStatus(NativeRendererStatus status)
+    {
+        if (status != NativeRendererStatus.Success)
+        {
+            throw new NativeRendererException(status, ReadLastError());
         }
     }
 
