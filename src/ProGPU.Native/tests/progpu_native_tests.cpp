@@ -112,6 +112,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_DASHED_STROKES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 

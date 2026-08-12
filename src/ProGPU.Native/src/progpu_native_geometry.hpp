@@ -40,10 +40,15 @@ static_assert(sizeof(progpu_native_dash_style) ==
     (sizeof(std::size_t) == 8U ? 32U : 24U));
 static_assert(sizeof(progpu_native_spline) ==
     (sizeof(std::size_t) == 8U ? 112U : 88U));
+static_assert(sizeof(progpu_native_path_segment) == 48U);
+static_assert(sizeof(progpu_native_path_fill) ==
+    (sizeof(std::size_t) == 8U ? 80U : 72U));
 static_assert(sizeof(progpu_native_geometry_frame) ==
     (sizeof(std::size_t) == 8U ? 144U : 92U));
 static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
     (sizeof(std::size_t) == 8U ? 60U : 48U));
+static_assert(sizeof(progpu_native_path_frame) ==
+    (sizeof(std::size_t) == 8U ? 80U : 60U));
 
 inline bool is_finite(const progpu_native_color& color) noexcept {
     return std::isfinite(color.r) &&

@@ -70,6 +70,12 @@ bool useDashedGeometryScene = Array.Exists(
         value,
         "--geometry-dashes",
         StringComparison.OrdinalIgnoreCase));
+bool usePathScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--paths",
+        StringComparison.OrdinalIgnoreCase));
 useGeometryScene |= useCurveGeometryScene || usePolylineGeometryScene ||
     useSplineGeometryScene || useDashedGeometryScene;
 bool writeImages = Array.Exists(
@@ -110,6 +116,10 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
         logicalWidth,
         logicalHeight)
     : [];
+(NativePathFill[] nativePaths, NativePathSegment[] nativePathSegments) =
+    usePathScene
+        ? CreateNativePaths(rectangleCount, logicalWidth, logicalHeight)
+        : ([], []);
 (Vector2[] geometryPoints,
  NativePolyline[] geometryPolylines,
  double[] geometryDoubles,
@@ -148,6 +158,9 @@ uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
 int managedVertexCount = 0;
 int managedIndexCount = 0;
+uint nativeRasterizedPathCount = 0;
+ulong nativePathUploadBytes = 0;
+ulong nativeCoverageStagingBytes = 0;
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
@@ -163,7 +176,9 @@ using var managed = new Compositor(
         EnableGpuHitTesting = false,
         PrimarySampleCount = 1
     });
-DrawingVisual managedVisual = useGeometryScene
+DrawingVisual managedVisual = usePathScene
+    ? CreateManagedPathVisual(rectangleCount, logicalWidth, logicalHeight)
+    : useGeometryScene
     ? CreateManagedGeometryVisual(
         geometryPrimitives,
         geometryPoints,
@@ -195,7 +210,9 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useDashedGeometryScene ? "dashes" : "latest";
+    string imageStem = usePathScene
+        ? "paths"
+        : useDashedGeometryScene ? "dashes" : "latest";
     WritePpm(
         $"artifacts/progpu-native/differential/{imageStem}-native.ppm",
         nativePixels,
@@ -215,8 +232,9 @@ if (writeImages)
         amplification: 64);
 }
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
-bool requiresExactPixels = !useAnalyticScene && !useGeometryScene && dpiScale == 1f;
-bool usesGeometryDifferential = useGeometryScene;
+bool requiresExactPixels = !useAnalyticScene && !useGeometryScene &&
+    !usePathScene && dpiScale == 1f;
+bool usesGeometryDifferential = useGeometryScene || usePathScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
     (!useAnalyticScene && !useGeometryScene && !requiresExactPixels);
@@ -352,7 +370,9 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: useGeometryScene
+    Scene: usePathScene
+        ? "RetainedPathAtlas"
+        : useGeometryScene
         ? useDashedGeometryScene
             ? "IndexedGeometryDashes"
             : useSplineGeometryScene
@@ -389,6 +409,9 @@ var report = new BenchmarkReport(
     ManagedVertexCount: managedVertexCount,
     ManagedIndexCount: managedIndexCount,
     NativePayloadHash: nativePayloadHash.ToString("X16"),
+    NativeRasterizedPathCount: nativeRasterizedPathCount,
+    NativePathUploadBytes: nativePathUploadBytes,
+    NativeCoverageStagingBytes: nativeCoverageStagingBytes,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -397,7 +420,30 @@ Console.WriteLine(JsonSerializer.Serialize(
 
 ulong RenderNative(bool capturePayloadHash = false)
 {
-    if (useGeometryScene)
+    if (usePathScene)
+    {
+        NativePathFrameMetrics metrics = native.RenderPaths(
+            nativeTarget,
+            dpiScale,
+            nativePaths,
+            nativePathSegments,
+            clearColor,
+            capturePayloadHash,
+            contentRevision: 1U);
+        nativeVertexCount = metrics.VertexCount;
+        nativeIndexCount = metrics.IndexCount;
+        nativeRasterizedPathCount = Math.Max(
+            nativeRasterizedPathCount,
+            metrics.RasterizedPathCount);
+        nativePathUploadBytes = Math.Max(
+            nativePathUploadBytes,
+            metrics.PathUploadBytes);
+        nativeCoverageStagingBytes = Math.Max(
+            nativeCoverageStagingBytes,
+            metrics.CoverageStagingBytes);
+        return metrics.PayloadHash;
+    }
+    if (useGeometryScene || usePathScene)
     {
         NativeGeometryFrameMetrics metrics = useSplineGeometryScene
             ? native.RenderGeometry(
@@ -1384,6 +1430,136 @@ static DrawingVisual CreateManagedGeometryVisual(
     };
 }
 
+static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
+    int count,
+    float logicalWidth,
+    float logicalHeight)
+{
+    const float radius = 12f;
+    const float kappa = 0.55228475f;
+    var segments = new[]
+    {
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(0f, -radius),
+            new Vector2(radius * kappa, -radius),
+            new Vector2(radius, -radius * kappa),
+            new Vector2(radius, 0f)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(radius, 0f),
+            new Vector2(radius, radius * kappa),
+            new Vector2(radius * kappa, radius),
+            new Vector2(0f, radius)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(0f, radius),
+            new Vector2(-radius * kappa, radius),
+            new Vector2(-radius, radius * kappa),
+            new Vector2(-radius, 0f)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(-radius, 0f),
+            new Vector2(-radius, -radius * kappa),
+            new Vector2(-radius * kappa, -radius),
+            new Vector2(0f, -radius))
+    };
+    var paths = new NativePathFill[count];
+    int columns = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(
+        count * logicalWidth / logicalHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = logicalWidth / columns;
+    float cellHeight = logicalHeight / rows;
+    float scale = MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float phase = index * 0.61803398875f % 1f;
+        Vector4 color = new(
+            0.2f + 0.7f * (0.5f + 0.5f * MathF.Sin(phase * MathF.Tau)),
+            0.25f + 0.65f * (0.5f + 0.5f * MathF.Sin((phase + 0.333f) * MathF.Tau)),
+            0.3f + 0.6f * (0.5f + 0.5f * MathF.Sin((phase + 0.666f) * MathF.Tau)),
+            1f);
+        Matrix3x2 transform = Matrix3x2.CreateScale(scale) *
+            Matrix3x2.CreateTranslation(
+                (column + 0.5f) * cellWidth,
+                (row + 0.5f) * cellHeight);
+        paths[index] = new NativePathFill(
+            0,
+            (nuint)segments.Length,
+            new Vector2(-radius),
+            new Vector2(radius),
+            color,
+            transform);
+    }
+    return (paths, segments);
+}
+
+static DrawingVisual CreateManagedPathVisual(
+    int count,
+    float logicalWidth,
+    float logicalHeight)
+{
+    const float radius = 12f;
+    const float kappa = 0.55228475f;
+    var path = new PathGeometry();
+    var figure = new PathFigure(new Vector2(0f, -radius), isClosed: true);
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(radius * kappa, -radius),
+        new Vector2(radius, -radius * kappa),
+        new Vector2(radius, 0f)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(radius, radius * kappa),
+        new Vector2(radius * kappa, radius),
+        new Vector2(0f, radius)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(-radius * kappa, radius),
+        new Vector2(-radius, radius * kappa),
+        new Vector2(-radius, 0f)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(-radius, -radius * kappa),
+        new Vector2(-radius * kappa, -radius),
+        new Vector2(0f, -radius)));
+    path.Figures.Add(figure);
+
+    var visual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    int columns = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(
+        count * logicalWidth / logicalHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = logicalWidth / columns;
+    float cellHeight = logicalHeight / rows;
+    float scale = MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float phase = index * 0.61803398875f % 1f;
+        Vector4 color = new(
+            0.2f + 0.7f * (0.5f + 0.5f * MathF.Sin(phase * MathF.Tau)),
+            0.25f + 0.65f * (0.5f + 0.5f * MathF.Sin((phase + 0.333f) * MathF.Tau)),
+            0.3f + 0.6f * (0.5f + 0.5f * MathF.Sin((phase + 0.666f) * MathF.Tau)),
+            1f);
+        Matrix3x2 affine = Matrix3x2.CreateScale(scale) *
+            Matrix3x2.CreateTranslation(
+                (column + 0.5f) * cellWidth,
+                (row + 0.5f) * cellHeight);
+        visual.Context.DrawPath(
+            new SolidColorBrush(color),
+            pen: null,
+            path,
+            new Matrix4x4(
+                affine.M11, affine.M12, 0f, 0f,
+                affine.M21, affine.M22, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                affine.M31, affine.M32, 0f, 1f));
+    }
+    return visual;
+}
+
 static PixelComparison ComparePixels(
     ReadOnlySpan<byte> native,
     ReadOnlySpan<byte> managed)
@@ -1512,6 +1688,9 @@ internal sealed record BenchmarkReport(
     int ManagedVertexCount,
     int ManagedIndexCount,
     string NativePayloadHash,
+    uint NativeRasterizedPathCount,
+    ulong NativePathUploadBytes,
+    ulong NativeCoverageStagingBytes,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(

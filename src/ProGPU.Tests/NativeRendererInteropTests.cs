@@ -44,6 +44,10 @@ public class NativeRendererInteropTests
         Assert.Equal(72, Unsafe.SizeOf<NativePolyline>());
         Assert.Equal(32, Unsafe.SizeOf<NativeDashStyle>());
         Assert.Equal(112, Unsafe.SizeOf<NativeSpline>());
+        Assert.Equal(48, Unsafe.SizeOf<NativePathSegment>());
+        Assert.Equal(80, Unsafe.SizeOf<NativePathFill>());
+        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.PathFrame>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.PathFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -68,10 +72,28 @@ public class NativeRendererInteropTests
         Assert.Equal(
             4096UL,
             (ulong)NativeRendererCapabilities.RetainedGeometryReplay);
+        Assert.Equal(8192UL, (ulong)NativeRendererCapabilities.PathFillAtlas);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
+    }
+
+    [Fact]
+    public void PathRecordsMatchPublishedNativeStorageLayout()
+    {
+        Assert.Equal(0, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P0)));
+        Assert.Equal(8, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P1)));
+        Assert.Equal(16, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P2)));
+        Assert.Equal(24, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P3)));
+        Assert.Equal(32, OffsetOf<NativePathSegment>(nameof(NativePathSegment.Kind)));
+        Assert.Equal(0, OffsetOf<NativePathFill>(nameof(NativePathFill.SegmentOffset)));
+        Assert.Equal(16, OffsetOf<NativePathFill>(nameof(NativePathFill.Minimum)));
+        Assert.Equal(24, OffsetOf<NativePathFill>(nameof(NativePathFill.Maximum)));
+        Assert.Equal(32, OffsetOf<NativePathFill>(nameof(NativePathFill.Color)));
+        Assert.Equal(48, OffsetOf<NativePathFill>(nameof(NativePathFill.Transform)));
+        Assert.Equal(72, OffsetOf<NativePathFill>(nameof(NativePathFill.FillRule)));
+        Assert.Equal(76, OffsetOf<NativePathFill>(nameof(NativePathFill.SampleGrid)));
     }
 
     [Fact]

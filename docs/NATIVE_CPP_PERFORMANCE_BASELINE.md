@@ -397,6 +397,53 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Retained path-atlas GPU-complete supplement
+
+The first Tranche B increment transfers analytic line/quadratic/cubic/resolved
+arc segments once, dispatches the production `PathRasterizer.wgsl` from C++,
+copies aligned R8 coverage into a native-owned 1024-square atlas, and draws all
+instances through the production vector shader. The initial 96-instance cubic
+circle workload reuses segment ranges and 64-phase keys; equal keys share one
+tile. A stable content revision skips coverage compute and every path,
+vertex/index, and brush upload.
+
+A 1,000-frame alternating synchronized Release run on the Apple M3 Pro
+measured 1.9444 ms mean / 3.1912 ms p95 native and 1.9995 / 3.2672 ms managed.
+Native p95 was 2.3% lower, but the important result is that GPU-complete time is
+deliberately close: both paths submit the same 384 vertices/576 indices, sample
+equivalent retained coverage, and wait on the same Metal queue. Language choice
+cannot make identical GPU execution materially faster. The native benefit is
+outside that shared floor: a 1,000-frame asynchronous run measured 0.0450 ms
+mean / 0.0845 ms p95 native versus 0.4892 / 1.8930 ms managed by eliminating
+managed scene traversal and command compilation from the native submission.
+
+The 960 by 540 DPI-1 readbacks are byte-exact: maximum channel difference zero,
+zero differing pixels, and identical `B0DE03008302AB83` FNV-1a hashes. The
+separate DPI-2/480-by-270 logical scene is also byte-exact with matching
+`2E73084B06A13A6E` hashes, validating physical projection without increasing
+ordinary-path atlas resolution relative to the managed compositor.
+
+The final 96-instance cold batch produced 49 unique phase/scale tiles, uploaded
+4,112 bytes of path records/uniforms/segments, and used a 727,552-byte aligned
+coverage staging buffer; all three are zero on stable replay. Final-binary Time
+Profiler and 200-frame synchronized Metal System Trace captures completed
+successfully. The Metal trace contains zero command-buffer-error rows and peaks
+at 10.47 MiB combined-process `currentAllocatedSize`. This wgpu-native build
+publishes internal command-buffer labels rather than ProGPU pass labels to the
+Metal table, so the trace is used for error, scheduling, and residency evidence
+only. The Allocations template again aborted the instrumented .NET process
+(`SIGABRT`, exit 6) before allocation tables were produced; the failed trace is
+retained as a diagnostic and no Instruments allocation claim is made.
+
+Retained ignored evidence:
+
+- `paths-native.png`, `paths-managed.png`, and the 64-times-amplified exact-zero
+  difference image under `artifacts/progpu-native/differential/`;
+- `native-managed-paths-time-20260812.trace`,
+  `native-managed-paths-metal-20260812.trace`, exported tables, and the failed
+  `native-managed-paths-allocations-20260812.trace` diagnostic;
+- JSON output from the 1,000-frame asynchronous and synchronized path runs.
+
 ## Adaptive rational-spline supplement
 
 The sixth native increment evaluates B-spline/NURBS control points, knots, and

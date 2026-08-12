@@ -453,6 +453,24 @@ geometry algorithms above. The managed comparison similarly defers the
 span-polyline source graph until first compilation and retains both source and
 dashed paths, keeping stable replay allocation-free.
 
+The first Tranche B increment adds retained filled paths. The public ABI keeps
+line, quadratic, cubic, and resolved elliptical-arc segments analytic and
+borrows one immutable segment arena per call. C++ validates segment ranges,
+finite bounds, transforms, fill rules, sample grids, and arc radii, then uses
+the production `PathRasterizer.wgsl` compute module to write supersampled R8
+coverage into a native-owned atlas. Equal segment range, scale, 64-way
+translation phase, fill rule, and sample grid keys share one tile within the
+retained revision. One indexed `Vector.wgsl` draw composites every affine path
+quad. Stable replay performs neither path compute nor vertex/index/brush/path
+upload; a DPI or content-revision change rebuilds the bounded payload.
+
+For `P` path instances, `U <= P` unique coverage keys, `S` transferred
+segments, atlas area `A`, and sample grid `G` in `{4,8}`, validation is
+`O(P + S)`, retained-key construction is average `O(P)`, raster work is
+`O(A * G^2 * S_u)` over each unique key's segment count `S_u`, and compositing
+is `O(P)`. Persistent atlas storage is a bounded 1024 by 1024 R8 texture;
+temporary coverage rows obey WebGPU's 256-byte copy alignment.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -473,10 +491,12 @@ dashed paths, keeping stable replay allocation-free.
 
 ### Tranche B — paths, atlases, text, and textures
 
-- port ProGPU's original path/glyph compute orchestration while reusing
-  `PathRasterizer.wgsl`, `GlyphRasterizer.wgsl`, and related shaders;
-- path cache keys, 64-phase ordinary paths, vector-text phase/scale policies,
-  atlas capacity recovery, and generation invalidation;
+- retained filled-path transfer, native compute orchestration, 64-phase
+  ordinary-path keys, a bounded R8 atlas, and stable replay are implemented
+  with the production `PathRasterizer.wgsl`; boolean programs, path strokes,
+  adaptive capacity recovery/growth, and generation publication remain;
+- glyph compute orchestration reusing `GlyphRasterizer.wgsl`, vector-text
+  phase/scale policies, and atlas generation invalidation remain;
 - positioned glyph-run transfer, text atlas, retained vector glyph fallback,
   DPI and quarter-pixel snapping;
 - texture upload, sampling/mips/cubic/anisotropy, image/color transforms,

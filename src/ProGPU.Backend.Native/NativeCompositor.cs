@@ -366,6 +366,81 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    public NativePathFrameMetrics RenderPaths(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativePathFill> paths,
+        ReadOnlySpan<NativePathSegment> segments,
+        Vector4 clearColor,
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
+    {
+        ValidateTarget(target);
+
+        fixed (NativePathFill* pathPointer = paths)
+        fixed (NativePathSegment* segmentPointer = segments)
+        {
+            var frame = new NativeMethods.PathFrame
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.PathFrame>(),
+                Width = target.Width,
+                Height = target.Height,
+                DpiScale = dpiScale,
+                TargetView = (nuint)target.ViewPtr,
+                ClearColor = new NativeMethods.NativeColor
+                {
+                    R = clearColor.X,
+                    G = clearColor.Y,
+                    B = clearColor.Z,
+                    A = clearColor.W
+                },
+                Paths = pathPointer,
+                PathCount = (nuint)paths.Length,
+                Segments = segmentPointer,
+                SegmentCount = (nuint)segments.Length,
+                Flags = (capturePayloadHash
+                        ? NativeMethods.GeometryFrameCapturePayloadHash
+                        : 0U) |
+                    (contentRevision != 0U
+                        ? NativeMethods.GeometryFrameRetainCompiledPayload
+                        : 0U),
+                ContentRevision = contentRevision
+            };
+            var metrics = new NativeMethods.PathFrameMetrics
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.PathFrameMetrics>()
+            };
+
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                var status = NativeMethods.RenderPaths(_engine, &frame, &metrics);
+                if (status != NativeRendererStatus.Success)
+                {
+                    throw new NativeRendererException(status, ReadLastError());
+                }
+                target.NotifyExternalContentChanged();
+                _context.PollDevice(wait: false);
+            }
+
+            return new NativePathFrameMetrics(
+                metrics.DrawCallCount,
+                metrics.VertexCount,
+                metrics.IndexCount,
+                metrics.RasterizedPathCount,
+                metrics.AtlasWidth,
+                metrics.AtlasHeight,
+                metrics.VertexUploadBytes,
+                metrics.IndexUploadBytes,
+                metrics.BrushUploadBytes,
+                metrics.PathUploadBytes,
+                metrics.CoverageStagingBytes,
+                metrics.UniformUploadBytes,
+                metrics.SubmissionCount,
+                metrics.PayloadHash);
+        }
+    }
+
     public void Dispose()
     {
         DisposeCore();

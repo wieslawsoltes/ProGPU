@@ -1,17 +1,20 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
+#include "PathRasterizerWgsl.generated.hpp"
 #include "VectorWgsl.generated.hpp"
 
 #include <webgpu.h>
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <new>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -21,6 +24,9 @@ constexpr std::uint64_t initial_index_buffer_size = 16U * 1024U;
 constexpr std::uint64_t initial_brush_buffer_size = 64U * 256U;
 constexpr std::uint64_t gpu_brush_size = 256U;
 constexpr float antialias_padding_pixels = 1.5F;
+constexpr std::uint32_t native_path_atlas_size = 1024U;
+constexpr std::uint32_t path_padding = 4U;
+constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
 
 struct gpu_uniforms {
     float projection[16];
@@ -34,6 +40,130 @@ struct gpu_uniforms {
 };
 
 static_assert(sizeof(gpu_uniforms) == 224U);
+
+struct gpu_path_uniforms {
+    float x_start;
+    float y_start;
+    float scale_x;
+    float scale_y;
+    std::uint32_t path_index;
+    std::uint32_t output_offset_words;
+    std::uint32_t output_row_words;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t sample_grid;
+    std::uint32_t path_index_b;
+    std::uint32_t path_op_kind;
+};
+
+struct gpu_path_record {
+    std::uint32_t start_segment;
+    std::uint32_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    std::uint32_t fill_rule;
+    std::uint32_t pad1;
+};
+
+struct native_path_raster {
+    std::uint32_t atlas_x;
+    std::uint32_t atlas_y;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t output_offset;
+    std::uint32_t output_bytes_per_row;
+    float scale_x;
+    float scale_y;
+    float raster_min_x;
+    float raster_min_y;
+    float subpixel_x;
+    float subpixel_y;
+};
+
+struct native_path_cache_key {
+    std::size_t segment_offset;
+    std::size_t segment_count;
+    std::uint32_t min_x;
+    std::uint32_t min_y;
+    std::uint32_t max_x;
+    std::uint32_t max_y;
+    std::uint32_t scale;
+    std::uint32_t subpixel_x;
+    std::uint32_t subpixel_y;
+    std::uint32_t fill_rule;
+    std::uint32_t sample_grid;
+
+    bool operator==(const native_path_cache_key&) const = default;
+};
+
+struct native_path_cache_key_hash {
+    std::size_t operator()(const native_path_cache_key& key) const noexcept {
+        std::uint64_t hash = 14695981039346656037ULL;
+        const auto mix = [&hash](std::uint64_t value) {
+            for (std::uint32_t byte = 0U; byte < 8U; ++byte) {
+                hash = (hash ^ static_cast<std::uint8_t>(value)) *
+                    1099511628211ULL;
+                value >>= 8U;
+            }
+        };
+        mix(key.segment_offset);
+        mix(key.segment_count);
+        mix(key.min_x);
+        mix(key.min_y);
+        mix(key.max_x);
+        mix(key.max_y);
+        mix(key.scale);
+        mix(key.subpixel_x);
+        mix(key.subpixel_y);
+        mix(key.fill_rule);
+        mix(key.sample_grid);
+        return static_cast<std::size_t>(hash);
+    }
+};
+
+static_assert(sizeof(gpu_path_uniforms) == 48U);
+static_assert(sizeof(gpu_path_record) == 32U);
+static_assert(sizeof(gpu_path_record) == sizeof(progpu_native_path_segment) - 16U);
+
+std::uint32_t align_up(
+    std::uint32_t value,
+    std::uint32_t alignment) noexcept {
+    return (value + alignment - 1U) / alignment * alignment;
+}
+
+float quantize_subpixel_phase(float value) noexcept {
+    value -= std::floor(value);
+    const float quantized = std::round(value * 64.0F) / 64.0F;
+    return quantized >= 1.0F ? 0.0F : quantized;
+}
+
+struct path_raster_resources {
+    WGPUBuffer uniforms = nullptr;
+    WGPUBuffer records = nullptr;
+    WGPUBuffer segments = nullptr;
+    WGPUBuffer coverage = nullptr;
+    WGPUBindGroup bind_group = nullptr;
+
+    ~path_raster_resources() {
+        if (bind_group != nullptr) {
+            wgpuBindGroupRelease(bind_group);
+        }
+        release_buffer(uniforms);
+        release_buffer(records);
+        release_buffer(segments);
+        release_buffer(coverage);
+    }
+
+private:
+    static void release_buffer(WGPUBuffer buffer) {
+        if (buffer != nullptr) {
+            wgpuBufferDestroy(buffer);
+            wgpuBufferRelease(buffer);
+        }
+    }
+};
 
 WGPUTextureFormat texture_format(std::uint32_t value) noexcept {
     switch (value) {
@@ -115,6 +245,14 @@ struct progpu_native_engine {
     WGPUSampler analytic_sentinel_sampler = nullptr;
     WGPUTexture analytic_sentinel_texture = nullptr;
     WGPUTextureView analytic_sentinel_texture_view = nullptr;
+    WGPUShaderModule path_raster_shader = nullptr;
+    WGPUComputePipeline path_raster_pipeline = nullptr;
+    WGPUBindGroupLayout path_raster_layout = nullptr;
+    WGPUPipelineLayout path_raster_pipeline_layout = nullptr;
+    WGPUSampler path_atlas_sampler = nullptr;
+    WGPUTexture path_atlas_texture = nullptr;
+    WGPUTextureView path_atlas_texture_view = nullptr;
+    WGPUBindGroup path_atlas_bind_group = nullptr;
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
     std::uint64_t vertex_buffer_size = 0;
@@ -132,10 +270,44 @@ struct progpu_native_engine {
     std::uint64_t geometry_payload_hash = 0U;
     bool geometry_cache_valid = false;
     bool geometry_gpu_cache_valid = false;
+    std::vector<progpu::native::vector_vertex> path_vertices;
+    std::vector<std::uint32_t> path_indices;
+    std::vector<std::byte> path_brush_bytes;
+    std::vector<native_path_raster> path_rasters;
+    std::uint32_t path_content_revision = 0U;
+    float path_dpi_scale = 0.0F;
+    std::uint64_t path_payload_hash = 0U;
+    bool path_cache_valid = false;
+    bool path_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
 
     ~progpu_native_engine() {
+        if (path_atlas_bind_group != nullptr) {
+            wgpuBindGroupRelease(path_atlas_bind_group);
+        }
+        if (path_atlas_texture_view != nullptr) {
+            wgpuTextureViewRelease(path_atlas_texture_view);
+        }
+        if (path_atlas_texture != nullptr) {
+            wgpuTextureDestroy(path_atlas_texture);
+            wgpuTextureRelease(path_atlas_texture);
+        }
+        if (path_atlas_sampler != nullptr) {
+            wgpuSamplerRelease(path_atlas_sampler);
+        }
+        if (path_raster_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_raster_pipeline);
+        }
+        if (path_raster_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(path_raster_pipeline_layout);
+        }
+        if (path_raster_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(path_raster_layout);
+        }
+        if (path_raster_shader != nullptr) {
+            wgpuShaderModuleRelease(path_raster_shader);
+        }
         if (index_buffer != nullptr) {
             wgpuBufferDestroy(index_buffer);
             wgpuBufferRelease(index_buffer);
@@ -627,6 +799,146 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     return engine.analytic_atlas_bind_group != nullptr;
 }
 
+bool create_path_resources(progpu_native_engine& engine) {
+    if (engine.path_raster_pipeline != nullptr &&
+        engine.path_atlas_bind_group != nullptr) {
+        return true;
+    }
+    if (engine.path_raster_shader != nullptr ||
+        engine.path_raster_pipeline != nullptr ||
+        engine.path_raster_layout != nullptr ||
+        engine.path_raster_pipeline_layout != nullptr ||
+        engine.path_atlas_sampler != nullptr ||
+        engine.path_atlas_texture != nullptr ||
+        engine.path_atlas_texture_view != nullptr ||
+        engine.path_atlas_bind_group != nullptr) {
+        return false;
+    }
+    if (engine.analytic_pipeline == nullptr &&
+        !create_analytic_pipeline(engine)) {
+        return false;
+    }
+
+    WGPUShaderModuleWGSLDescriptor wgsl{};
+    wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+    wgsl.code = reinterpret_cast<const char*>(
+        progpu::native::generated::path_rasterizer_wgsl);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = &wgsl.chain;
+    shader_descriptor.label = "ProGPU shared PathRasterizer.wgsl";
+    engine.path_raster_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &shader_descriptor);
+    if (engine.path_raster_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 4U> layout_entries{};
+    for (std::uint32_t index = 0U; index < layout_entries.size(); ++index) {
+        layout_entries[index].binding = index;
+        layout_entries[index].visibility = WGPUShaderStage_Compute;
+        layout_entries[index].buffer.hasDynamicOffset = false;
+        layout_entries[index].buffer.type = index == 3U
+            ? WGPUBufferBindingType_Storage
+            : WGPUBufferBindingType_ReadOnlyStorage;
+    }
+    layout_entries[0].buffer.minBindingSize = sizeof(gpu_path_uniforms);
+    layout_entries[1].buffer.minBindingSize = sizeof(gpu_path_record);
+    layout_entries[2].buffer.minBindingSize = sizeof(progpu_native_path_segment);
+    layout_entries[3].buffer.minBindingSize = sizeof(std::uint32_t);
+    WGPUBindGroupLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = "ProGPU native path raster bindings";
+    layout_descriptor.entryCount = layout_entries.size();
+    layout_descriptor.entries = layout_entries.data();
+    engine.path_raster_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &layout_descriptor);
+    if (engine.path_raster_layout == nullptr) {
+        return false;
+    }
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = "ProGPU native path raster layout";
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts = &engine.path_raster_layout;
+    engine.path_raster_pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (engine.path_raster_pipeline_layout == nullptr) {
+        return false;
+    }
+
+    WGPUComputePipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = "ProGPU native path raster pipeline";
+    pipeline_descriptor.layout = engine.path_raster_pipeline_layout;
+    pipeline_descriptor.compute.module = engine.path_raster_shader;
+    pipeline_descriptor.compute.entryPoint = "cs_main";
+    engine.path_raster_pipeline = wgpuDeviceCreateComputePipeline(
+        engine.device,
+        &pipeline_descriptor);
+    if (engine.path_raster_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUTextureDescriptor texture_descriptor{};
+    texture_descriptor.label = "ProGPU native retained path atlas";
+    texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopyDst;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {
+        native_path_atlas_size,
+        native_path_atlas_size,
+        1U
+    };
+    texture_descriptor.format = WGPUTextureFormat_R8Unorm;
+    texture_descriptor.mipLevelCount = 1U;
+    texture_descriptor.sampleCount = 1U;
+    engine.path_atlas_texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &texture_descriptor);
+    if (engine.path_atlas_texture == nullptr) {
+        return false;
+    }
+    engine.path_atlas_texture_view = wgpuTextureCreateView(
+        engine.path_atlas_texture,
+        nullptr);
+
+    WGPUSamplerDescriptor sampler_descriptor{};
+    sampler_descriptor.label = "ProGPU native path atlas sampler";
+    sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.magFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.minFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    sampler_descriptor.lodMinClamp = 0.0F;
+    sampler_descriptor.lodMaxClamp = 0.0F;
+    sampler_descriptor.maxAnisotropy = 1U;
+    engine.path_atlas_sampler = wgpuDeviceCreateSampler(
+        engine.device,
+        &sampler_descriptor);
+    if (engine.path_atlas_texture_view == nullptr ||
+        engine.path_atlas_sampler == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUBindGroupEntry, 2U> atlas_entries{{
+        {nullptr, 0U, nullptr, 0U, 0U,
+            engine.path_atlas_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U,
+            nullptr, engine.path_atlas_texture_view}
+    }};
+    WGPUBindGroupDescriptor atlas_descriptor{};
+    atlas_descriptor.label = "ProGPU native path atlas bind group";
+    atlas_descriptor.layout = engine.analytic_atlas_layout;
+    atlas_descriptor.entryCount = atlas_entries.size();
+    atlas_descriptor.entries = atlas_entries.data();
+    engine.path_atlas_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &atlas_descriptor);
+    return engine.path_atlas_bind_group != nullptr;
+}
+
 void clear_metrics(progpu_native_frame_metrics* metrics) noexcept {
     if (metrics == nullptr ||
         metrics->struct_size < sizeof(progpu_native_frame_metrics)) {
@@ -650,6 +962,16 @@ void clear_metrics(progpu_native_analytic_frame_metrics* metrics) noexcept {
 void clear_metrics(progpu_native_geometry_frame_metrics* metrics) noexcept {
     if (metrics == nullptr ||
         metrics->struct_size < sizeof(progpu_native_geometry_frame_metrics)) {
+        return;
+    }
+    const std::uint32_t struct_size = metrics->struct_size;
+    *metrics = {};
+    metrics->struct_size = struct_size;
+}
+
+void clear_metrics(progpu_native_path_frame_metrics* metrics) noexcept {
+    if (metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_path_frame_metrics)) {
         return;
     }
     const std::uint32_t struct_size = metrics->struct_size;
@@ -686,7 +1008,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES |
         PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES |
         PROGPU_NATIVE_CAPABILITY_DASHED_STROKES |
-        PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY;
+        PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY |
+        PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -763,6 +1086,7 @@ progpu_native_status progpu_native_engine_render(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    engine->path_gpu_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->rect_count >
             std::numeric_limits<std::size_t>::max() / 6U ||
@@ -932,6 +1256,7 @@ progpu_native_status progpu_native_engine_render_analytic(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    engine->path_gpu_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->primitive_count >
             std::numeric_limits<std::uint32_t>::max() / 6U ||
@@ -1156,6 +1481,7 @@ progpu_native_status progpu_native_engine_render_geometry(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    engine->path_gpu_cache_valid = false;
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
         frame->spline_count > (1U << 24U) ||
@@ -1690,6 +2016,650 @@ progpu_native_status progpu_native_engine_render_geometry(
                 : brush_upload_bytes;
         metrics->uniform_upload_bytes =
             engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
+        metrics->submission_count = engine->submission_count;
+        metrics->payload_hash = payload_hash;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_render_paths(
+    progpu_native_engine* engine,
+    const progpu_native_path_frame* frame,
+    progpu_native_path_frame_metrics* metrics) {
+    clear_metrics(metrics);
+    if (engine == nullptr || frame == nullptr ||
+        frame->struct_size < sizeof(progpu_native_path_frame) ||
+        frame->width == 0U || frame->height == 0U ||
+        !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
+        frame->target_view == 0U ||
+        (frame->path_count != 0U && frame->paths == nullptr) ||
+        (frame->segment_count != 0U && frame->segments == nullptr) ||
+        (frame->flags &
+            ~(PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH |
+              PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD)) != 0U ||
+        (((frame->flags &
+                PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U) !=
+            (frame->content_revision != 0U)) ||
+        !progpu::native::is_finite(frame->clear_color)) {
+        return engine == nullptr
+            ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
+            : engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The path frame descriptor is invalid.");
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer must be used from its owner thread.");
+    }
+    if (frame->path_count > (1U << 20U) ||
+        frame->segment_count > (1U << 24U) ||
+        frame->path_count >
+            std::numeric_limits<std::uint32_t>::max() / 4U) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The path batch exceeds the native safety bound.");
+    }
+
+    const bool retain_compiled_payload =
+        (frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U;
+    const bool compiled_payload_hit = retain_compiled_payload &&
+        engine->path_cache_valid &&
+        engine->path_content_revision == frame->content_revision &&
+        engine->path_dpi_scale == frame->dpi_scale;
+    std::uint64_t coverage_staging_bytes = 0U;
+    std::uint64_t path_upload_bytes = 0U;
+    std::uint32_t rasterized_path_count = 0U;
+
+    std::vector<gpu_path_uniforms> path_uniforms;
+    std::vector<gpu_path_record> path_records;
+    if (!compiled_payload_hit) {
+        engine->path_cache_valid = false;
+        engine->path_gpu_cache_valid = false;
+        try {
+            engine->path_vertices.clear();
+            engine->path_indices.clear();
+            engine->path_brush_bytes.clear();
+            engine->path_rasters.clear();
+            path_uniforms.reserve(frame->path_count);
+            path_records.reserve(frame->path_count);
+            engine->path_rasters.reserve(frame->path_count);
+            engine->path_vertices.reserve(frame->path_count * 4U);
+            engine->path_indices.reserve(frame->path_count * 6U);
+            engine->path_brush_bytes.resize(
+                (frame->path_count + 1U) * gpu_brush_size);
+
+            constexpr float opacity = 1.0F;
+            for (std::size_t index = 0U;
+                 index <= frame->path_count;
+                 ++index) {
+                std::memcpy(
+                    engine->path_brush_bytes.data() +
+                        index * gpu_brush_size + 4U,
+                    &opacity,
+                    sizeof(opacity));
+            }
+
+            std::uint32_t atlas_x = 2U;
+            std::uint32_t atlas_y = 2U;
+            std::uint32_t row_height = 0U;
+            std::uint32_t output_offset = 0U;
+            std::unordered_map<
+                native_path_cache_key,
+                std::size_t,
+                native_path_cache_key_hash> retained_tiles;
+            retained_tiles.reserve(frame->path_count);
+            for (std::size_t segment_index = 0U;
+                 segment_index < frame->segment_count;
+                 ++segment_index) {
+                const auto& segment = frame->segments[segment_index];
+                const bool is_arc =
+                    segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                if (segment.kind > PROGPU_NATIVE_PATH_SEGMENT_ARC ||
+                    !progpu::native::is_finite(segment.p0) ||
+                    !progpu::native::is_finite(segment.p1) ||
+                    !progpu::native::is_finite(segment.p2) ||
+                    !progpu::native::is_finite(segment.p3) ||
+                    (is_arc &&
+                        (segment.p3.x <= 0.0F || segment.p3.y <= 0.0F ||
+                         !std::isfinite(std::bit_cast<float>(segment.pad0)) ||
+                         !std::isfinite(std::bit_cast<float>(segment.pad1)) ||
+                         !std::isfinite(std::bit_cast<float>(segment.pad2)))) ||
+                    (!is_arc &&
+                        (segment.pad0 != 0U || segment.pad1 != 0U ||
+                         segment.pad2 != 0U))) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A path segment kind, point, arc, or reserved field is invalid.");
+                }
+            }
+            for (std::size_t index = 0U;
+                 index < frame->path_count;
+                 ++index) {
+                const auto& path = frame->paths[index];
+                if (path.segment_count == 0U ||
+                    path.segment_offset > frame->segment_count ||
+                    path.segment_count >
+                        frame->segment_count - path.segment_offset ||
+                    !std::isfinite(path.min_x) ||
+                    !std::isfinite(path.min_y) ||
+                    !std::isfinite(path.max_x) ||
+                    !std::isfinite(path.max_y) ||
+                    path.max_x <= path.min_x ||
+                    path.max_y <= path.min_y ||
+                    !progpu::native::is_finite(path.color) ||
+                    !progpu::native::is_finite(path.transform) ||
+                    path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
+                    (path.sample_grid != 4U && path.sample_grid != 8U)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A path range, bound, transform, fill rule, or sample grid is invalid.");
+                }
+                float maximum_scale = 0.0F;
+                float minimum_scale = 0.0F;
+                if (!progpu::native::try_get_stroke_scales(
+                        path.transform,
+                        maximum_scale,
+                        minimum_scale)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A path transform is singular.");
+                }
+                (void)minimum_scale;
+                const float raster_scale = maximum_scale;
+                const float subpixel_x = quantize_subpixel_phase(
+                    path.transform.m31);
+                const float subpixel_y = quantize_subpixel_phase(
+                    path.transform.m32);
+                native_path_cache_key cache_key{};
+                cache_key.segment_offset = path.segment_offset;
+                cache_key.segment_count = path.segment_count;
+                cache_key.min_x = std::bit_cast<std::uint32_t>(path.min_x);
+                cache_key.min_y = std::bit_cast<std::uint32_t>(path.min_y);
+                cache_key.max_x = std::bit_cast<std::uint32_t>(path.max_x);
+                cache_key.max_y = std::bit_cast<std::uint32_t>(path.max_y);
+                cache_key.scale = std::bit_cast<std::uint32_t>(raster_scale);
+                cache_key.subpixel_x =
+                    std::bit_cast<std::uint32_t>(subpixel_x);
+                cache_key.subpixel_y =
+                    std::bit_cast<std::uint32_t>(subpixel_y);
+                cache_key.fill_rule = path.fill_rule;
+                cache_key.sample_grid = path.sample_grid;
+                const float raster_min_x =
+                    std::floor(path.min_x * raster_scale) - path_padding;
+                const float raster_min_y =
+                    std::floor(path.min_y * raster_scale) - path_padding;
+                const float raster_max_x =
+                    std::ceil(path.max_x * raster_scale) + path_padding;
+                const float raster_max_y =
+                    std::ceil(path.max_y * raster_scale) + path_padding;
+                const double raster_width = raster_max_x - raster_min_x;
+                const double raster_height = raster_max_y - raster_min_y;
+                if (!std::isfinite(raster_width) ||
+                    !std::isfinite(raster_height) ||
+                    raster_width <= 0.0 || raster_height <= 0.0 ||
+                    raster_width > native_path_atlas_size - 4U ||
+                    raster_height > native_path_atlas_size - 4U) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "A transformed path exceeds the bounded native atlas tile size.");
+                }
+                std::size_t raster_index = 0U;
+                const auto retained_tile = retained_tiles.find(cache_key);
+                if (retained_tile != retained_tiles.end()) {
+                    raster_index = retained_tile->second;
+                } else {
+                    const auto width =
+                        static_cast<std::uint32_t>(raster_width);
+                    const auto height =
+                        static_cast<std::uint32_t>(raster_height);
+                    if (atlas_x + width + 2U > native_path_atlas_size) {
+                        atlas_x = 2U;
+                        atlas_y += row_height + 2U;
+                        row_height = 0U;
+                    }
+                    if (atlas_y + height + 2U > native_path_atlas_size) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                            "The retained native path set does not fit the bounded atlas.");
+                    }
+                    const std::uint32_t output_bytes_per_row = align_up(
+                        width,
+                        webgpu_copy_row_alignment);
+                    output_offset = align_up(
+                        output_offset,
+                        webgpu_copy_row_alignment);
+                    const std::uint64_t next_output =
+                        static_cast<std::uint64_t>(output_offset) +
+                        static_cast<std::uint64_t>(output_bytes_per_row) * height;
+                    if (next_output >
+                        std::numeric_limits<std::uint32_t>::max()) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                            "The path coverage staging batch exceeds 4 GiB.");
+                    }
+                    raster_index = engine->path_rasters.size();
+                    engine->path_rasters.push_back({
+                        atlas_x,
+                        atlas_y,
+                        width,
+                        height,
+                        output_offset,
+                        output_bytes_per_row,
+                        raster_scale,
+                        raster_scale,
+                        raster_min_x,
+                        raster_min_y,
+                        subpixel_x,
+                        subpixel_y
+                    });
+                    path_uniforms.push_back({
+                        raster_min_x - subpixel_x,
+                        raster_min_y - subpixel_y,
+                        raster_scale,
+                        raster_scale,
+                        static_cast<std::uint32_t>(raster_index),
+                        output_offset / 4U,
+                        output_bytes_per_row / 4U,
+                        width,
+                        height,
+                        path.sample_grid,
+                        0U,
+                        0U
+                    });
+                    path_records.push_back({
+                        static_cast<std::uint32_t>(path.segment_offset),
+                        static_cast<std::uint32_t>(path.segment_count),
+                        path.min_x,
+                        path.min_y,
+                        path.max_x,
+                        path.max_y,
+                        path.fill_rule,
+                        0U
+                    });
+                    retained_tiles.emplace(cache_key, raster_index);
+                    output_offset = static_cast<std::uint32_t>(next_output);
+                    atlas_x += width + 2U;
+                    row_height = std::max(row_height, height);
+                }
+                const auto& raster = engine->path_rasters[raster_index];
+
+                const float local_min_x = raster_min_x / raster_scale;
+                const float local_min_y = raster_min_y / raster_scale;
+                const float local_max_x = raster_max_x / raster_scale;
+                const float local_max_y = raster_max_y / raster_scale;
+                const std::array<progpu_native_point, 4U> local_points{{
+                    {local_min_x, local_min_y},
+                    {local_max_x, local_min_y},
+                    {local_max_x, local_max_y},
+                    {local_min_x, local_max_y}
+                }};
+                const std::array<progpu_native_point, 4U> atlas_points{{
+                    {raster.atlas_x + subpixel_x, raster.atlas_y + subpixel_y},
+                    {raster.atlas_x + raster.width + subpixel_x, raster.atlas_y + subpixel_y},
+                    {raster.atlas_x + raster.width + subpixel_x, raster.atlas_y + raster.height + subpixel_y},
+                    {raster.atlas_x + subpixel_x, raster.atlas_y + raster.height + subpixel_y}
+                }};
+                const std::uint32_t vertex_start = static_cast<std::uint32_t>(
+                    engine->path_vertices.size());
+                for (std::size_t corner = 0U; corner < 4U; ++corner) {
+                    progpu::native::vector_vertex vertex{};
+                    progpu::native::transform_point(
+                        path.transform,
+                        local_points[corner].x,
+                        local_points[corner].y,
+                        vertex.position[0],
+                        vertex.position[1]);
+                    std::memcpy(
+                        vertex.color,
+                        &path.color,
+                        sizeof(path.color));
+                    vertex.texture_coordinate[0] = atlas_points[corner].x;
+                    vertex.texture_coordinate[1] = atlas_points[corner].y;
+                    vertex.brush_index = static_cast<float>(index + 1U);
+                    vertex.shape_size[0] = local_points[corner].x;
+                    vertex.shape_size[1] = local_points[corner].y;
+                    vertex.corner_radius = 1.0F;
+                    vertex.shape_type = 4.0F;
+                    engine->path_vertices.push_back(vertex);
+                }
+                engine->path_indices.insert(
+                    engine->path_indices.end(),
+                    {vertex_start, vertex_start + 1U, vertex_start + 2U,
+                     vertex_start, vertex_start + 2U, vertex_start + 3U});
+                std::memcpy(
+                    engine->path_brush_bytes.data() +
+                        (index + 1U) * gpu_brush_size + 64U,
+                    &path.color,
+                    sizeof(path.color));
+
+            }
+            coverage_staging_bytes = output_offset;
+            rasterized_path_count = static_cast<std::uint32_t>(
+                engine->path_rasters.size());
+            if (retain_compiled_payload) {
+                engine->path_content_revision = frame->content_revision;
+                engine->path_dpi_scale = frame->dpi_scale;
+                engine->path_payload_hash = 14695981039346656037ULL;
+                engine->path_payload_hash = append_fnv1a64(
+                    engine->path_payload_hash,
+                    engine->path_vertices.data(),
+                    engine->path_vertices.size() *
+                        sizeof(progpu::native::vector_vertex));
+                engine->path_payload_hash = append_fnv1a64(
+                    engine->path_payload_hash,
+                    engine->path_indices.data(),
+                    engine->path_indices.size() * sizeof(std::uint32_t));
+                engine->path_payload_hash = append_fnv1a64(
+                    engine->path_payload_hash,
+                    engine->path_brush_bytes.data(),
+                    engine->path_brush_bytes.size());
+                engine->path_cache_valid = true;
+            }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native path batch could not be allocated.");
+        }
+    }
+
+    if (!create_path_resources(*engine)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native path atlas WebGPU resources could not be created.");
+    }
+
+    const std::uint64_t vertex_bytes = engine->path_vertices.size() *
+        sizeof(progpu::native::vector_vertex);
+    const std::uint64_t index_bytes = engine->path_indices.size() *
+        sizeof(std::uint32_t);
+    const std::uint64_t brush_bytes = engine->path_brush_bytes.size();
+    const bool upload_draw_payload =
+        !compiled_payload_hit || !engine->path_gpu_cache_valid;
+    if (vertex_bytes != 0U &&
+        (!engine->ensure_vertex_buffer(vertex_bytes) ||
+         !engine->ensure_index_buffer(index_bytes) ||
+         !ensure_analytic_brush_buffer(*engine, brush_bytes))) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The native path draw buffers could not be allocated.");
+    }
+    const gpu_uniforms uniforms = create_uniforms(
+        frame->width,
+        frame->height,
+        frame->dpi_scale);
+    if (vertex_bytes != 0U) {
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->analytic_uniform_buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        if (upload_draw_payload) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->vertex_buffer,
+                0U,
+                engine->path_vertices.data(),
+                vertex_bytes);
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->index_buffer,
+                0U,
+                engine->path_indices.data(),
+                index_bytes);
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->analytic_brush_buffer,
+                0U,
+                engine->path_brush_bytes.data(),
+                brush_bytes);
+            engine->path_gpu_cache_valid = retain_compiled_payload;
+            engine->geometry_gpu_cache_valid = false;
+        }
+    }
+
+    path_raster_resources temporary;
+    WGPUBuffer& path_uniform_buffer = temporary.uniforms;
+    WGPUBuffer& path_record_buffer = temporary.records;
+    WGPUBuffer& path_segment_buffer = temporary.segments;
+    WGPUBuffer& coverage_buffer = temporary.coverage;
+    WGPUBindGroup& raster_bind_group = temporary.bind_group;
+    const auto create_buffer = [&](
+        const char* label,
+        std::uint64_t size,
+        WGPUBufferUsageFlags usage) -> WGPUBuffer {
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = label;
+        descriptor.size = std::max<std::uint64_t>(size, 4U);
+        descriptor.usage = usage;
+        return wgpuDeviceCreateBuffer(engine->device, &descriptor);
+    };
+    if (!compiled_payload_hit && frame->path_count != 0U) {
+        path_uniform_buffer = create_buffer(
+            "ProGPU native path uniforms",
+            path_uniforms.size() * sizeof(gpu_path_uniforms),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        path_record_buffer = create_buffer(
+            "ProGPU native path records",
+            path_records.size() * sizeof(gpu_path_record),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        path_segment_buffer = create_buffer(
+            "ProGPU native path segments",
+            frame->segment_count * sizeof(progpu_native_path_segment),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        coverage_buffer = create_buffer(
+            "ProGPU native path coverage staging",
+            coverage_staging_bytes,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        if (path_uniform_buffer == nullptr || path_record_buffer == nullptr ||
+            path_segment_buffer == nullptr || coverage_buffer == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native path raster staging buffers could not be allocated.");
+        }
+        const std::uint64_t uniform_bytes = path_uniforms.size() *
+            sizeof(gpu_path_uniforms);
+        const std::uint64_t record_bytes = path_records.size() *
+            sizeof(gpu_path_record);
+        const std::uint64_t segment_bytes = frame->segment_count *
+            sizeof(progpu_native_path_segment);
+        wgpuQueueWriteBuffer(engine->queue, path_uniform_buffer, 0U,
+            path_uniforms.data(), uniform_bytes);
+        wgpuQueueWriteBuffer(engine->queue, path_record_buffer, 0U,
+            path_records.data(), record_bytes);
+        wgpuQueueWriteBuffer(engine->queue, path_segment_buffer, 0U,
+            frame->segments, segment_bytes);
+        path_upload_bytes = uniform_bytes + record_bytes + segment_bytes;
+
+        const std::array<WGPUBindGroupEntry, 4U> entries{{
+            {nullptr, 0U, path_uniform_buffer, 0U, uniform_bytes,
+                nullptr, nullptr},
+            {nullptr, 1U, path_record_buffer, 0U, record_bytes,
+                nullptr, nullptr},
+            {nullptr, 2U, path_segment_buffer, 0U, segment_bytes,
+                nullptr, nullptr},
+            {nullptr, 3U, coverage_buffer, 0U, coverage_staging_bytes,
+                nullptr, nullptr}
+        }};
+        WGPUBindGroupDescriptor descriptor{};
+        descriptor.label = "ProGPU native path raster bind group";
+        descriptor.layout = engine->path_raster_layout;
+        descriptor.entryCount = entries.size();
+        descriptor.entries = entries.data();
+        raster_bind_group = wgpuDeviceCreateBindGroup(
+            engine->device,
+            &descriptor);
+        if (raster_bind_group == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native path raster bind group could not be created.");
+        }
+    }
+
+    WGPUCommandEncoderDescriptor encoder_descriptor{};
+    encoder_descriptor.label = "ProGPU native retained path frame encoder";
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+        engine->device,
+        &encoder_descriptor);
+    if (encoder == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native path command encoder could not be created.");
+    }
+
+    if (raster_bind_group != nullptr) {
+        std::uint32_t workgroups_x = 0U;
+        std::uint32_t workgroups_y = 0U;
+        for (const auto& raster : engine->path_rasters) {
+            workgroups_x = std::max(
+                workgroups_x,
+                (raster.width + 63U) / 64U);
+            workgroups_y = std::max(
+                workgroups_y,
+                (raster.height + 15U) / 16U);
+        }
+        WGPUComputePassDescriptor compute_descriptor{};
+        compute_descriptor.label = "ProGPU native path coverage pass";
+        WGPUComputePassEncoder compute_pass =
+            wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
+        if (compute_pass == nullptr) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native path compute pass could not be created.");
+        }
+        wgpuComputePassEncoderSetPipeline(
+            compute_pass,
+            engine->path_raster_pipeline);
+        wgpuComputePassEncoderSetBindGroup(
+            compute_pass,
+            0U,
+            raster_bind_group,
+            0U,
+            nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(
+            compute_pass,
+            workgroups_x,
+            workgroups_y,
+            static_cast<std::uint32_t>(engine->path_rasters.size()));
+        wgpuComputePassEncoderEnd(compute_pass);
+        wgpuComputePassEncoderRelease(compute_pass);
+
+        for (const auto& raster : engine->path_rasters) {
+            WGPUImageCopyBuffer source{};
+            source.buffer = coverage_buffer;
+            source.layout.offset = raster.output_offset;
+            source.layout.bytesPerRow = raster.output_bytes_per_row;
+            source.layout.rowsPerImage = raster.height;
+            WGPUImageCopyTexture destination{};
+            destination.texture = engine->path_atlas_texture;
+            destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
+            destination.aspect = WGPUTextureAspect_All;
+            const WGPUExtent3D extent{raster.width, raster.height, 1U};
+            wgpuCommandEncoderCopyBufferToTexture(
+                encoder,
+                &source,
+                &destination,
+                &extent);
+        }
+    }
+
+    WGPURenderPassColorAttachment color_attachment{};
+    color_attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.storeOp = WGPUStoreOp_Store;
+    color_attachment.clearValue = {
+        frame->clear_color.r,
+        frame->clear_color.g,
+        frame->clear_color.b,
+        frame->clear_color.a
+    };
+    WGPURenderPassDescriptor pass_descriptor{};
+    pass_descriptor.label = "ProGPU native retained path pass";
+    pass_descriptor.colorAttachmentCount = 1U;
+    pass_descriptor.colorAttachments = &color_attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &pass_descriptor);
+    if (pass == nullptr) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native path render pass could not be created.");
+    }
+    if (!engine->path_indices.empty()) {
+        wgpuRenderPassEncoderSetPipeline(pass, engine->analytic_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, 0U, engine->analytic_uniform_bind_group, 0U, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, 1U, engine->path_atlas_bind_group, 0U, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass, 0U, engine->vertex_buffer, 0U, vertex_bytes);
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass, engine->index_buffer, WGPUIndexFormat_Uint32, 0U, index_bytes);
+        wgpuRenderPassEncoderDrawIndexed(
+            pass,
+            static_cast<std::uint32_t>(engine->path_indices.size()),
+            1U,
+            0U,
+            0,
+            0U);
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+
+    WGPUCommandBufferDescriptor command_descriptor{};
+    command_descriptor.label = "ProGPU native retained path commands";
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+        encoder,
+        &command_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native path command buffer could not be finished.");
+    }
+    wgpuQueueSubmit(engine->queue, 1U, &command);
+    wgpuCommandBufferRelease(command);
+    ++engine->submission_count;
+
+    std::uint64_t payload_hash = 0U;
+    if ((frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
+        payload_hash = retain_compiled_payload
+            ? engine->path_payload_hash
+            : append_fnv1a64(
+                append_fnv1a64(
+                    append_fnv1a64(
+                        14695981039346656037ULL,
+                        engine->path_vertices.data(),
+                        vertex_bytes),
+                    engine->path_indices.data(),
+                    index_bytes),
+                engine->path_brush_bytes.data(),
+                engine->path_brush_bytes.size());
+    }
+    engine->last_error.clear();
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_path_frame_metrics)) {
+        metrics->draw_call_count = engine->path_indices.empty() ? 0U : 1U;
+        metrics->vertex_count = static_cast<std::uint32_t>(
+            engine->path_vertices.size());
+        metrics->index_count = static_cast<std::uint32_t>(
+            engine->path_indices.size());
+        metrics->rasterized_path_count = rasterized_path_count;
+        metrics->atlas_width = native_path_atlas_size;
+        metrics->atlas_height = native_path_atlas_size;
+        metrics->vertex_upload_bytes = upload_draw_payload ? vertex_bytes : 0U;
+        metrics->index_upload_bytes = upload_draw_payload ? index_bytes : 0U;
+        metrics->brush_upload_bytes = upload_draw_payload ? brush_bytes : 0U;
+        metrics->path_upload_bytes = path_upload_bytes;
+        metrics->coverage_staging_bytes = coverage_staging_bytes;
+        metrics->uniform_upload_bytes = engine->path_indices.empty()
+            ? 0U
+            : sizeof(gpu_uniforms);
         metrics->submission_count = engine->submission_count;
         metrics->payload_hash = payload_hash;
     }

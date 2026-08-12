@@ -124,6 +124,44 @@ internal static unsafe partial class NativeMethods
         internal ulong PayloadHash;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PathFrame
+    {
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal NativeColor ClearColor;
+        internal NativePathFill* Paths;
+        internal nuint PathCount;
+        internal NativePathSegment* Segments;
+        internal nuint SegmentCount;
+        internal uint Flags;
+        internal uint ContentRevision;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PathFrameMetrics
+    {
+        internal uint StructSize;
+        internal uint DrawCallCount;
+        internal uint VertexCount;
+        internal uint IndexCount;
+        internal uint RasterizedPathCount;
+        internal uint AtlasWidth;
+        internal uint AtlasHeight;
+        internal uint Reserved;
+        internal ulong VertexUploadBytes;
+        internal ulong IndexUploadBytes;
+        internal ulong BrushUploadBytes;
+        internal ulong PathUploadBytes;
+        internal ulong CoverageStagingBytes;
+        internal ulong UniformUploadBytes;
+        internal ulong SubmissionCount;
+        internal ulong PayloadHash;
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal unsafe struct EngineInfo
     {
@@ -173,6 +211,13 @@ internal static unsafe partial class NativeMethods
         nint engine,
         GeometryFrame* frame,
         GeometryFrameMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_paths")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus RenderPaths(
+        nint engine,
+        PathFrame* frame,
+        PathFrameMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

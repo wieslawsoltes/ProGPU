@@ -53,6 +53,20 @@ public enum NativeStrokeJoin : uint
     Round = 2
 }
 
+public enum NativePathSegmentKind : uint
+{
+    Line = 0,
+    Quadratic = 1,
+    Cubic = 2,
+    Arc = 3
+}
+
+public enum NativeFillRule : uint
+{
+    NonZero = 0,
+    EvenOdd = 1
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
@@ -100,7 +114,8 @@ public enum NativeRendererCapabilities : ulong
     ConnectedStrokes = 1UL << 9,
     SplineStrokes = 1UL << 10,
     DashedStrokes = 1UL << 11,
-    RetainedGeometryReplay = 1UL << 12
+    RetainedGeometryReplay = 1UL << 12,
+    PathFillAtlas = 1UL << 13
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -340,6 +355,72 @@ public readonly struct NativeSpline
     private readonly uint Reserved;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativePathSegment
+{
+    public NativePathSegment(
+        NativePathSegmentKind kind,
+        Vector2 p0,
+        Vector2 p1,
+        Vector2 p2 = default,
+        Vector2 p3 = default,
+        uint pad0 = 0,
+        uint pad1 = 0,
+        uint pad2 = 0)
+    {
+        Kind = kind;
+        P0 = p0;
+        P1 = p1;
+        P2 = p2;
+        P3 = p3;
+        Pad0 = pad0;
+        Pad1 = pad1;
+        Pad2 = pad2;
+    }
+
+    public readonly Vector2 P0;
+    public readonly Vector2 P1;
+    public readonly Vector2 P2;
+    public readonly Vector2 P3;
+    public readonly NativePathSegmentKind Kind;
+    public readonly uint Pad0;
+    public readonly uint Pad1;
+    public readonly uint Pad2;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativePathFill
+{
+    public NativePathFill(
+        nuint segmentOffset,
+        nuint segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        Vector4 color,
+        Matrix3x2 transform,
+        NativeFillRule fillRule = NativeFillRule.NonZero,
+        uint sampleGrid = 4)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        Color = color;
+        Transform = transform;
+        FillRule = fillRule;
+        SampleGrid = sampleGrid;
+    }
+
+    public readonly nuint SegmentOffset;
+    public readonly nuint SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly Vector4 Color;
+    public readonly Matrix3x2 Transform;
+    public readonly NativeFillRule FillRule;
+    public readonly uint SampleGrid;
+}
+
 public readonly record struct NativeFrameMetrics(
     uint DrawCallCount,
     uint VertexCount,
@@ -363,6 +444,22 @@ public readonly record struct NativeGeometryFrameMetrics(
     ulong VertexUploadBytes,
     ulong IndexUploadBytes,
     ulong BrushUploadBytes,
+    ulong UniformUploadBytes,
+    ulong SubmissionCount,
+    ulong PayloadHash);
+
+public readonly record struct NativePathFrameMetrics(
+    uint DrawCallCount,
+    uint VertexCount,
+    uint IndexCount,
+    uint RasterizedPathCount,
+    uint AtlasWidth,
+    uint AtlasHeight,
+    ulong VertexUploadBytes,
+    ulong IndexUploadBytes,
+    ulong BrushUploadBytes,
+    ulong PathUploadBytes,
+    ulong CoverageStagingBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount,
     ulong PayloadHash);

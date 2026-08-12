@@ -112,6 +112,10 @@ internal static class NativeRendererSamplePage
             new double[MaximumRectangles * 16];
         private readonly NativeSpline[] _splines =
             new NativeSpline[MaximumRectangles];
+        private readonly NativePathFill[] _pathFills =
+            new NativePathFill[MaximumRectangles];
+        private readonly NativePathSegment[] _pathSegments =
+            new NativePathSegment[4];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
@@ -166,7 +170,8 @@ internal static class NativeRendererSamplePage
                 "submission. Cycle indexed analytic primitives, lines and " +
                 "polygon geometry, capped GPU Bezier curves, connected " +
                 "polylines with joins, dashed strokes, adaptive rational " +
-                "splines, or the rectangle fast path. Stable geometry modes " +
+                "splines, retained compute-rasterized paths, or the rectangle " +
+                "fast path. Stable geometry and path modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
                 "reuses the production Vector.wgsl module.",
                 12f));
@@ -220,7 +225,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 7);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 8);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -305,6 +310,9 @@ internal static class NativeRendererSamplePage
                     case NativeBatchMode.Splines:
                         FillSplines(_rectangleCount, _palette);
                         break;
+                    case NativeBatchMode.Paths:
+                        FillPaths(_rectangleCount, _palette);
+                        break;
                     default:
                         FillRectangles(_rectangleCount, _palette);
                         break;
@@ -388,6 +396,21 @@ internal static class NativeRendererSamplePage
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.VertexUploadBytes +
                     metrics.IndexUploadBytes + metrics.BrushUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Paths)
+            {
+                NativePathFrameMetrics metrics = _compositor.RenderPaths(
+                    _target,
+                    dpiScale: 1f,
+                    _pathFills.AsSpan(0, _rectangleCount),
+                    _pathSegments,
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                    contentRevision: _contentRevision);
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes +
+                    metrics.IndexUploadBytes + metrics.BrushUploadBytes +
+                    metrics.PathUploadBytes;
             }
             else
             {
@@ -836,6 +859,59 @@ internal static class NativeRendererSamplePage
             };
         }
 
+        private void FillPaths(int count, int palette)
+        {
+            const float radius = 12f;
+            const float kappa = 0.55228475f;
+            _pathSegments[0] = new NativePathSegment(
+                NativePathSegmentKind.Cubic,
+                new Vector2(0f, -radius),
+                new Vector2(radius * kappa, -radius),
+                new Vector2(radius, -radius * kappa),
+                new Vector2(radius, 0f));
+            _pathSegments[1] = new NativePathSegment(
+                NativePathSegmentKind.Cubic,
+                new Vector2(radius, 0f),
+                new Vector2(radius, radius * kappa),
+                new Vector2(radius * kappa, radius),
+                new Vector2(0f, radius));
+            _pathSegments[2] = new NativePathSegment(
+                NativePathSegmentKind.Cubic,
+                new Vector2(0f, radius),
+                new Vector2(-radius * kappa, radius),
+                new Vector2(-radius, radius * kappa),
+                new Vector2(-radius, 0f));
+            _pathSegments[3] = new NativePathSegment(
+                NativePathSegmentKind.Cubic,
+                new Vector2(-radius, 0f),
+                new Vector2(-radius, -radius * kappa),
+                new Vector2(-radius * kappa, -radius),
+                new Vector2(0f, -radius));
+
+            int columns = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(
+                count * TargetWidth / (float)TargetHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = TargetWidth / (float)columns;
+            float cellHeight = TargetHeight / (float)rows;
+            float scale = MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+            for (int index = 0; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                Matrix3x2 transform = Matrix3x2.CreateScale(scale) *
+                    Matrix3x2.CreateTranslation(
+                        (column + 0.5f) * cellWidth,
+                        (row + 0.5f) * cellHeight);
+                _pathFills[index] = new NativePathFill(
+                    0,
+                    (nuint)_pathSegments.Length,
+                    new Vector2(-radius),
+                    new Vector2(radius),
+                    Palette(index * 0.61803398875f % 1f, palette),
+                    transform);
+            }
+        }
+
         private void UpdateCountText()
         {
             if (_countRun is not null)
@@ -848,6 +924,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Polylines => $"Polylines: {_rectangleCount:N0}",
                     NativeBatchMode.Dashes => $"Dashes: {_rectangleCount:N0}",
                     NativeBatchMode.Splines => $"Splines: {_rectangleCount:N0}",
+                    NativeBatchMode.Paths => $"Paths: {_rectangleCount:N0}",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -861,6 +938,7 @@ internal static class NativeRendererSamplePage
             Polylines,
             Dashes,
             Splines,
+            Paths,
             Rectangles
         }
 

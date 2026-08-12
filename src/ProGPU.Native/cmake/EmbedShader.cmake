@@ -4,6 +4,9 @@ endif()
 if(NOT DEFINED OUTPUT)
     message(FATAL_ERROR "EmbedShader requires OUTPUT")
 endif()
+if(NOT DEFINED SYMBOL)
+    set(SYMBOL "vector_wgsl")
+endif()
 
 file(READ "${INPUT}" shader_hex HEX)
 string(REGEX MATCHALL ".." shader_bytes "${shader_hex}")
@@ -25,6 +28,6 @@ file(WRITE "${OUTPUT}"
 "#pragma once\n"
 "#include <cstddef>\n"
 "namespace progpu::native::generated {\n"
-"inline constexpr unsigned char vector_wgsl[] = {\n${shader_initializer}\n};\n"
-"inline constexpr std::size_t vector_wgsl_size = sizeof(vector_wgsl) - 1U;\n"
+"inline constexpr unsigned char ${SYMBOL}[] = {\n${shader_initializer}\n};\n"
+"inline constexpr std::size_t ${SYMBOL}_size = sizeof(${SYMBOL}) - 1U;\n"
 "}\n")

@@ -92,6 +92,12 @@ the connected-stroke lanes. Geometry benchmarks publish a stable native
 content revision, so timed replay reuses compiled CPU vectors and the prior GPU
 vertex/index/brush upload exactly as the managed retained scene does.
 
+Use `--paths` for the first Tranche B lane. It transfers compact analytic path
+segments, dispatches the shared path-coverage compute shader on a cache miss,
+and composites retained atlas quads. Add `--write-images` for native, managed,
+and amplified-difference captures. DPI-1 and Retina DPI-2 outputs are
+byte-exact against the managed compositor.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -118,6 +124,9 @@ Current native parity:
 - explicit retained geometry revisions that reuse compiled CPU payloads and
   skip unchanged GPU vertex/index/brush uploads while still encoding and
   submitting the current target pass;
+- retained filled line/quadratic/cubic/resolved-arc paths with a native-owned
+  R8 coverage atlas, 64-phase tile reuse, shared compute/vector WGSL, and no
+  stable-frame raster or payload upload;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
@@ -127,7 +136,8 @@ Current native parity:
 - headless hardware-WebGPU image verification;
 - a typed zero-copy .NET host sharing device, queue, and render target;
 - an interactive desktop page cycling reusable 1–4,096 rectangle, analytic,
-  geometry, GPU Bezier, connected polyline, dashed, and rational-spline batches;
+  geometry, GPU Bezier, connected polyline, dashed, rational-spline, and
+  retained compute-path batches;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in

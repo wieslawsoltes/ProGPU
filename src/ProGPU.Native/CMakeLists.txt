@@ -10,6 +10,9 @@ set(PROGPU_NATIVE_WEBGPU_LIBRARY "" CACHE FILEPATH
 set(PROGPU_NATIVE_VECTOR_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Vector.wgsl"
     CACHE FILEPATH "Shared ProGPU vector shader source")
+set(PROGPU_NATIVE_PATH_RASTERIZER_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizer.wgsl"
+    CACHE FILEPATH "Shared ProGPU path-rasterizer shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 
 function(progpu_native_enable_warnings target_name)
@@ -34,6 +37,9 @@ endif()
 if(NOT EXISTS "${PROGPU_NATIVE_VECTOR_SHADER}")
     message(FATAL_ERROR "The shared ProGPU Vector.wgsl source is missing")
 endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU PathRasterizer.wgsl source is missing")
+endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(generated_vector_shader
@@ -43,18 +49,34 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_VECTOR_SHADER}"
         "-DOUTPUT=${generated_vector_shader}"
+        "-DSYMBOL=vector_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_VECTOR_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
     VERBATIM)
+set(generated_path_rasterizer_shader
+    "${generated_directory}/PathRasterizerWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_rasterizer_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "-DOUTPUT=${generated_path_rasterizer_shader}"
+        "-DSYMBOL=path_rasterizer_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU PathRasterizer.wgsl shader"
+    VERBATIM)
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
     src/progpu_native_geometry.hpp
     include/progpu_native.h
-    "${generated_vector_shader}")
+    "${generated_vector_shader}"
+    "${generated_path_rasterizer_shader}")
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native
