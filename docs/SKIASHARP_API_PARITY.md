@@ -2082,3 +2082,27 @@ spills, hangs, or command-buffer errors. Raw trace, ETLX, XML-export, and Xcode
 scratch artifacts were deleted after compact evidence was retained. Full
 methods, complexity, research sources, distributions, and rejected experiments
 are in `docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.
+
+## Preview.48 exact transformed-stroke tranche
+
+Preview.48 preserves the official 4,222/4,222 metadata match and corrects the
+shared retained stroke pipeline exercised by SkiaSharp and Avalonia.Skia.
+Source-local pen provenance now survives recording, append, retained picture
+replay, archive round-trip, CPU/GPU transform selection, opacity-mask and
+special-shader routes, and GPU hit testing. Conformal scale is applied once;
+anisotropic and sheared normal strokes transform their local outline exactly;
+and zero-width hairlines plus fixed positive widths expand in framebuffer or
+device space. Caps, joins, miters, dashes, and reflected transforms retain the
+same stroke mode. Special image, picture, composed, and color-filter shaders no
+longer discard hairline-only coverage.
+
+Indexed polyline and spline recording no longer allocates eager
+`PathGeometry`/segment graphs. Direct polyline compilation is bounded `O(N)`,
+and spline replay restores transform-adaptive sampling instead of forcing 100
+segments at every scale. The exact PR #87 head passed all 16 CI checks,
+including official metadata, native/ProGPU SVG image parity, matched CPU
+benchmarks on three operating systems, source-built Avalonia contracts,
+portable/mobile packaging, and native Dawn. Local final gates pass 3,569 core,
+240 headless, and 185 focused stroke/hairline/hit-test cases. Algorithms,
+quality bounds, complexity, and primary research sources are recorded in
+`docs/STROKE_TRANSFORM_RESEARCH.md`.

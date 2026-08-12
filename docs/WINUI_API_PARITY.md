@@ -2210,3 +2210,23 @@ automatic monotonic gates. API-contract markers, retained WebGPU Composition
 families, behavior-complete XAML control/property clusters, ProGPU-only surface
 reconciliation, and matched quality/performance evidence remain independently
 required. Metadata equality alone cannot establish behavioral compatibility.
+
+## Preview.48 handoff after exact transformed-stroke integration
+
+Preview.48 claims no additional official WinUI declarations. The pinned NuGet
+metadata ledger remains 4,952 exact matches of 16,579 official declarations,
+with 11,627 remaining and 6,652 ProGPU-only entries. This release corrects the
+shared retained WebGPU stroke pipeline used by WinUI Composition and framework
+hosts. In particular, `CompositionSpriteShape.IsStrokeNonScaling` now retains
+raw stroke width and compiles its transformed centerline in device space rather
+than approximating anisotropic or sheared transforms with one inverse scalar.
+Normal, fixed-device, dashed, cap, join, archive, replay, and GPU-hit-test
+semantics share one typed contract without adding a CPU renderer or reflection
+bridge.
+
+The next broad WinUI parity PR starts from the immutable Preview.48 tag and
+keeps `eng/progpu-winui-api-check.sh` plus `eng/winui-api-baseline.json` as
+automatic monotonic gates. API-contract markers, retained WebGPU Composition
+families, behavior-complete XAML control/property clusters, ProGPU-only surface
+reconciliation, and matched quality/performance evidence remain independently
+required. Metadata equality alone cannot establish behavioral compatibility.
