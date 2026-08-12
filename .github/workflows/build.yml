@@ -523,6 +523,7 @@ jobs:
     name: Pack portable packages
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: native-cpp
 
     steps:
       - name: Checkout
@@ -534,6 +535,13 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Download native runtimes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-native-runtime-*
+          path: artifacts/progpu-native/package
+          merge-multiple: true
 
       - name: Pack shipping packages
         shell: bash

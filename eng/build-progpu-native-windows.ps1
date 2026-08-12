@@ -21,12 +21,18 @@ if (-not $IsWindows) {
 switch ($Rid) {
     "win-x64" {
         $CMakeArchitecture = "x64"
+        $DevCmdArchitecture = "x64"
+        $DevCmdHostArchitecture = "x64"
+        $ToolComponent = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
         $LibraryMachine = "X64"
         $PackageRid = "win-x64"
         $RunnableArchitecture = [System.Runtime.InteropServices.Architecture]::X64
     }
     "win-arm64" {
         $CMakeArchitecture = "ARM64"
+        $DevCmdArchitecture = "arm64"
+        $DevCmdHostArchitecture = "arm64"
+        $ToolComponent = "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
         $LibraryMachine = "ARM64"
         $PackageRid = "win-arm64"
         $RunnableArchitecture = [System.Runtime.InteropServices.Architecture]::Arm64
@@ -61,12 +67,12 @@ Copy-Item (Join-Path $SourceDir "ffi/wgpu.h") $IncludeDir -Force
 Copy-Item $WgpuDll (Join-Path $RuntimeDir "wgpu_native.dll") -Force
 
 $VsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
-$VsInstall = (& $VsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+$VsInstall = (& $VsWhere -latest -products * -requires $ToolComponent -property installationPath | Select-Object -First 1)
 if (-not $VsInstall) {
     throw "Visual Studio C++ build tools were not found."
 }
 Import-Module (Join-Path $VsInstall "Common7/Tools/Microsoft.VisualStudio.DevShell.dll")
-Enter-VsDevShell -VsInstallPath $VsInstall -SkipAutomaticLocation -DevCmdArguments "-arch=$CMakeArchitecture -host_arch=x64" | Out-Null
+Enter-VsDevShell -VsInstallPath $VsInstall -SkipAutomaticLocation -DevCmdArguments "-arch=$DevCmdArchitecture -host_arch=$DevCmdHostArchitecture" | Out-Null
 
 $DefFile = Join-Path $RuntimeDir "wgpu_native.def"
 $ImportLibrary = Join-Path $RuntimeDir "wgpu_native.lib"

@@ -2280,10 +2280,14 @@ inline bool append_polyline(
                 std::nextafter(1.0F, 2.0F))
             : polyline.stroke_thickness * maximum_scale;
     const std::uint32_t primitive_flags =
-        (aliased ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED : 0U) |
-        (hairline ? PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE : 0U) |
+        (aliased
+            ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
+            : 0U) |
+        (hairline
+            ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE)
+            : 0U) |
         (fixed_device
-            ? PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE
+            ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)
             : 0U);
 
     const auto make_segment = [&](std::size_t first, std::size_t second) {
