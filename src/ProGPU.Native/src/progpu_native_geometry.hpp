@@ -31,6 +31,7 @@ static_assert(offsetof(vector_vertex, brush_index) == 32U);
 static_assert(offsetof(vector_vertex, shape_size) == 36U);
 static_assert(offsetof(vector_vertex, shape_type) == 52U);
 static_assert(sizeof(progpu_native_affine_2d) == 24U);
+static_assert(sizeof(progpu_native_image_rect) == 16U);
 static_assert(sizeof(progpu_native_analytic_primitive) == 72U);
 static_assert(sizeof(progpu_native_point) == 8U);
 static_assert(sizeof(progpu_native_geometry_primitive) == 88U);
@@ -49,6 +50,9 @@ static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
     (sizeof(std::size_t) == 8U ? 60U : 48U));
 static_assert(sizeof(progpu_native_path_frame) ==
     (sizeof(std::size_t) == 8U ? 80U : 60U));
+static_assert(sizeof(progpu_native_image_frame) ==
+    (sizeof(std::size_t) == 8U ? 144U : 132U));
+static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
 
 inline bool is_finite(const progpu_native_color& color) noexcept {
     return std::isfinite(color.r) &&

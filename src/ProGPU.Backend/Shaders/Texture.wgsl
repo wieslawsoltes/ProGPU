@@ -352,14 +352,9 @@ fn blend_atlas_color(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
     return atlas_unpremultiply(clamp(result, vec4<f32>(0.0), vec4<f32>(1.0)));
 }
 
-fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
+fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let textureCoordDx = dpdx(input.texCoord);
     let textureCoordDy = dpdy(input.texCoord);
-    let fragmentOrigin = select(
-        vec2<f32>(0.0),
-        uniforms.canvasSize,
-        uniforms.boundedSourcePass > 0.5);
-    let maskAlpha = sample_mask_alpha(input.position.xy + fragmentOrigin);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -402,9 +397,23 @@ fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
     return vec4<f32>(texColor.rgb * rgbScale, texColor.a * coverage);
 }
 
+fn texture_fs_main(input: VertexOutput) -> vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0),
+        uniforms.canvasSize,
+        uniforms.boundedSourcePass > 0.5);
+    let maskAlpha = sample_mask_alpha(input.position.xy + fragmentOrigin);
+    return texture_fs_main_with_mask(input, maskAlpha);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     return texture_fs_main(input);
+}
+
+@fragment
+fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return texture_fs_main_with_mask(input, 1.0);
 }
 
 @fragment
@@ -414,7 +423,19 @@ fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = texture_fs_main_with_mask(input, 1.0);
+    return vec4<f32>(color.rgb * color.a, color.a);
+}
+
+@fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = texture_fs_main(input);
+    return vec4<f32>(color.a, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = texture_fs_main_with_mask(input, 1.0);
     return vec4<f32>(color.a, 0.0, 0.0, 1.0);
 }

@@ -66,11 +66,14 @@ metadata.
 | System | Observable architecture | ProGPU decision |
 | --- | --- | --- |
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
+| [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
 | [Skia Graphite `Recorder`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Recorder.h) and [`Context`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Context.h) | Recording is separable from device submission; recordings own transferable GPU work while context/device resources remain explicit. | Separate semantic scene recording, native compilation, and queue submission. Make recordings immutable and device-domain caches explicit. |
+| [Skia `SkImage`](https://api.skia.org/classSkImage.html) | Images are immutable logical resources and may be raster- or texture-backed; drawing does not imply rebuilding their pixel payload. | Treat image and draw-content revisions independently. A changed image revision updates the retained GPU texture; a changed content revision alone recompiles the transformed destination quad. |
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Initially preserve ProGPU.Text shaping results and transfer positioned glyph IDs/runs. Native shaping is a later parallel implementation, never a prerequisite for moving raster/upload/composition to C++. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
+| [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
@@ -498,6 +501,25 @@ generation/growth counters make invalidation observable. The uniform ring
 obeys 256-byte dynamic-offset alignment; warm resource count is constant apart
 from geometric instance-buffer growth.
 
+The third Tranche B increment adds retained straight-alpha RGBA8 images. A
+typed frame borrows pixel bytes only when `image_revision` changes, validates
+row stride and source bounds, and writes one device-domain texture. Separate
+`content_revision` state retains four transformed vertices and six static
+indices. Stable replay performs no texture, vertex, index, or uniform upload;
+it selects a persistent nearest or linear sampler and submits one indexed draw
+through the production `Texture.wgsl`. Because this first lane has no image
+mask, both native and managed select the shader's unmasked entry point; the
+native pipeline therefore owns only uniform and sampled-texture bind groups,
+not a dummy mask texture/buffer/group.
+
+For image dimensions `W x H`, upload is `O(W*H)` time and `O(W*H)` retained GPU
+storage only when the image revision changes. Quad compilation and stable
+submission are `O(1)` time/storage. This slice intentionally rejects zero
+revisions, out-of-bounds sources, invalid row strides, non-finite transforms,
+and unsupported sampling. Premultiplied formats, subrect updates, mipmaps,
+cubic/anisotropic sampling, tiling, color transforms, masks, and external
+zero-copy textures remain future typed capabilities.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -530,8 +552,12 @@ from geometric instance-buffer growth.
   generation/growth counters; vector-text fallback, multi-page
   eviction/recovery, phase/scale cache policies, color glyphs, decorations,
   and masks remain;
-- texture upload, sampling/mips/cubic/anisotropy, image/color transforms,
-  layers, masks, and zero-copy external textures.
+- straight-alpha RGBA8 upload, source/destination rectangles, affine transform,
+  opacity, persistent nearest/linear sampling, independent image/content
+  revisions, and zero-upload stable replay are implemented with production
+  `Texture.wgsl`; premultiplied formats, subrect updates, mips,
+  cubic/anisotropic sampling, image/color transforms, layers, masks, tiling,
+  and zero-copy external textures remain;
 
 ### Tranche C — effects, extensions, media, and 3D
 
@@ -665,7 +691,8 @@ path with WebGPU validation and bounded resource policies.
 3. Expand the differential to transformed and stroked primitives, multiple DPI
    values, opacity, clipping, resize, invalid input, lifetime, and device loss.
 4. Complete path/glyph multi-page eviction/recovery, vector/color text and text
-   masks, then move images, layers, masks, and external media textures while
+   masks, then extend retained RGBA images with layers, masks, color processing,
+   and external media textures while
    continuing to reuse production WGSL modules.
 5. Add the Dawn/WebScene adapter using PR #10's proc resolver and exact provider
    revision, then validate zero-copy composition and synchronization.

@@ -67,6 +67,12 @@ public enum NativeFillRule : uint
     EvenOdd = 1
 }
 
+public enum NativeImageSampling : uint
+{
+    Nearest = 0,
+    Linear = 1
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
@@ -117,7 +123,25 @@ public enum NativeRendererCapabilities : ulong
     RetainedGeometryReplay = 1UL << 12,
     PathFillAtlas = 1UL << 13,
     PositionedGlyphAtlas = 1UL << 14,
-    ResizableAtlases = 1UL << 15
+    ResizableAtlases = 1UL << 15,
+    RetainedRgbaImage = 1UL << 16
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeImageRect
+{
+    public NativeImageRect(float x, float y, float width, float height)
+    {
+        X = x;
+        Y = y;
+        Width = width;
+        Height = height;
+    }
+
+    public readonly float X;
+    public readonly float Y;
+    public readonly float Width;
+    public readonly float Height;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -542,6 +566,18 @@ public readonly record struct NativeGlyphFrameMetrics(
     ulong InstanceUploadBytes,
     ulong OutlineUploadBytes,
     ulong CoverageStagingBytes,
+    ulong UniformUploadBytes,
+    ulong SubmissionCount,
+    ulong PayloadHash);
+
+public readonly record struct NativeImageFrameMetrics(
+    uint DrawCallCount,
+    uint VertexCount,
+    uint IndexCount,
+    uint TextureGeneration,
+    ulong VertexUploadBytes,
+    ulong IndexUploadBytes,
+    ulong TextureUploadBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount,
     ulong PayloadHash);

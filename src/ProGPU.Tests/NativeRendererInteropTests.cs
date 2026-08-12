@@ -52,6 +52,9 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativePositionedGlyph>());
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
+        Assert.Equal(144, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(72, Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -83,6 +86,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             32768UL,
             (ulong)NativeRendererCapabilities.ResizableAtlases);
+        Assert.Equal(
+            65536UL,
+            (ulong)NativeRendererCapabilities.RetainedRgbaImage);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);

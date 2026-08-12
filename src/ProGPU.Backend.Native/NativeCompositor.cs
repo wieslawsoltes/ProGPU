@@ -523,6 +523,88 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    public NativeImageFrameMetrics RenderImage(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<byte> rgbaPixels,
+        uint imageWidth,
+        uint imageHeight,
+        uint rowBytes,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        Vector4 clearColor,
+        uint imageRevision,
+        uint contentRevision)
+    {
+        ValidateTarget(target);
+
+        fixed (byte* pixelPointer = rgbaPixels)
+        {
+            var frame = new NativeMethods.ImageFrame
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
+                Width = target.Width,
+                Height = target.Height,
+                DpiScale = dpiScale,
+                TargetView = (nuint)target.ViewPtr,
+                ClearColor = new NativeMethods.NativeColor
+                {
+                    R = clearColor.X,
+                    G = clearColor.Y,
+                    B = clearColor.Z,
+                    A = clearColor.W
+                },
+                RgbaPixels = pixelPointer,
+                PixelBytes = (nuint)rgbaPixels.Length,
+                ImageWidth = imageWidth,
+                ImageHeight = imageHeight,
+                RowBytes = rowBytes,
+                Sampling = sampling,
+                ImageRevision = imageRevision,
+                ContentRevision = contentRevision,
+                SourceRect = sourceRect,
+                DestinationRect = destinationRect,
+                Transform = transform,
+                Opacity = opacity,
+                Reserved = 0U
+            };
+            var metrics = new NativeMethods.ImageFrameMetrics
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>()
+            };
+
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                var status = NativeMethods.RenderImage(
+                    _engine,
+                    &frame,
+                    &metrics);
+                if (status != NativeRendererStatus.Success)
+                {
+                    throw new NativeRendererException(status, ReadLastError());
+                }
+                target.NotifyExternalContentChanged();
+                _context.PollDevice(wait: false);
+            }
+
+            return new NativeImageFrameMetrics(
+                metrics.DrawCallCount,
+                metrics.VertexCount,
+                metrics.IndexCount,
+                metrics.TextureGeneration,
+                metrics.VertexUploadBytes,
+                metrics.IndexUploadBytes,
+                metrics.TextureUploadBytes,
+                metrics.UniformUploadBytes,
+                metrics.SubmissionCount,
+                metrics.PayloadHash);
+        }
+    }
+
     public void Dispose()
     {
         DisposeCore();

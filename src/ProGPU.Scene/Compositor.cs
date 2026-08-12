@@ -2386,11 +2386,11 @@ public unsafe partial class Compositor : IDisposable
                 }
 
                 _texturePipeline = _pipelineCache.GetOrCreateRenderPipeline(
-                    "Texture",
+                    "Texture_Unmasked",
                     texShaderModule,
                     vectorVertexLayouts,
                     "vs_main",
-                    "fs_main",
+                    "fs_main_unmasked",
                     RenderFormat,
                     PrimitiveTopology.TriangleList,
                     enableBlend: true,
@@ -2426,11 +2426,11 @@ public unsafe partial class Compositor : IDisposable
                 );
 
                 _texturePipelineOffscreen = _pipelineCache.GetOrCreateRenderPipeline(
-                    "Texture_Offscreen",
+                    "Texture_Offscreen_Unmasked",
                     texShaderModule,
                     vectorVertexLayouts,
                     "vs_main",
-                    "fs_main",
+                    "fs_main_unmasked",
                     RenderFormat,
                     PrimitiveTopology.TriangleList,
                     enableBlend: true,
@@ -3522,11 +3522,13 @@ SceneStateUploadComplete:
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
                 var texture = dc.Texture!;
+                var hasMask = HasMask(dc);
                 var activePipeline = GetPipeline(
                     dc.Type,
                     dc.BlendMode,
                     isOffscreen: false,
-                    textureAlphaMode: dc.TextureAlphaMode);
+                    textureAlphaMode: dc.TextureAlphaMode,
+                    hasMask: hasMask);
                 var maskBindGroup = GetDrawCallMaskBindGroup(dc, isOffscreen: false);
 
                 _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
@@ -3545,6 +3547,7 @@ SceneStateUploadComplete:
 
                 currentType = DrawCallType.Texture;
                 currentBlendMode = dc.BlendMode;
+                currentPipelineHasMask = hasMask;
 
                 var viewPtr = texture.ViewPtr;
                 var cacheKey = new TextureCacheKey(
@@ -16449,11 +16452,13 @@ SceneStateUploadComplete:
             else if (dc.Type == DrawCallType.Texture && IsTextureBindable(dc.Texture))
             {
                 var texture = dc.Texture!;
+                var hasMask = HasMask(dc);
                 var activePipeline = GetPipeline(
                     dc.Type,
                     dc.BlendMode,
                     isOffscreen: true,
-                    textureAlphaMode: dc.TextureAlphaMode);
+                    textureAlphaMode: dc.TextureAlphaMode,
+                    hasMask: hasMask);
                 var maskBindGroup = GetDrawCallMaskBindGroup(dc, isOffscreen: true);
 
                 _context.Api.RenderPassEncoderSetPipeline(pass, activePipeline);
@@ -16472,6 +16477,7 @@ SceneStateUploadComplete:
 
                 currentType = DrawCallType.Texture;
                 currentBlendMode = dc.BlendMode;
+                currentPipelineHasMask = hasMask;
 
                 var viewPtr = texture.ViewPtr;
                 var cacheKey = new TextureCacheKey(
@@ -18997,7 +19003,7 @@ SceneStateUploadComplete:
                 : "fs_main_premultiplied";
         }
 
-        return (type is DrawCallType.Text or DrawCallType.Vector) && !hasMask
+        return !hasMask
             ? $"{entryPoint}_unmasked"
             : entryPoint;
     }
@@ -19336,7 +19342,9 @@ SceneStateUploadComplete:
                 }
             }
 
-            if (type == DrawCallType.Texture && textureAlphaMode == GpuTextureAlphaMode.Premultiplied)
+            if (type == DrawCallType.Texture &&
+                textureAlphaMode == GpuTextureAlphaMode.Premultiplied &&
+                !hasMask)
             {
                 var cachedPipeline = isOffscreen
                     ? _texturePipelineOffscreen

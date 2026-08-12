@@ -110,6 +110,12 @@ Use `--atlas-growth` with `--paths` or `--glyphs` and a sufficiently large
 `--rectangles` count to exercise transactional 1024-to-4096 R8 atlas growth,
 generation stability, and zero-upload retained replay.
 
+Use `--images` for the retained straight-alpha RGBA8 lane. The first frame
+uploads one typed pixel payload and compiles one transformed quad; later frames
+reuse the texture, sampler bind group, vertices, indices, and uniforms. Add
+`--dpi 2` and `--write-images` for the Retina exact-pixel gate, or `--sync` to
+separate CPU submission from the shared WebGPU/Metal completion wait.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -145,6 +151,10 @@ Current native parity:
   generation/growth counters, production glyph-compute/text-composite WGSL,
   one instanced draw, exact DPI-1/DPI-2 parity, and no stable-frame glyph
   raster or payload upload;
+- retained straight-alpha RGBA8 images with checked row stride/source bounds,
+  affine destination transform, opacity, persistent nearest/linear samplers,
+  production unmasked `Texture.wgsl`, exact DPI-1/DPI-2 parity, and no stable
+  texture/vertex/index/uniform upload;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

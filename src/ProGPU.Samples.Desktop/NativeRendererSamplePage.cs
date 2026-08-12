@@ -121,6 +121,7 @@ internal static class NativeRendererSamplePage
         private NativePathSegment[] _glyphSegments = [];
         private readonly NativePositionedGlyph[] _positionedGlyphs =
             new NativePositionedGlyph[MaximumRectangles];
+        private readonly byte[] _imagePixels = new byte[192 * 128 * 4];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
@@ -129,6 +130,8 @@ internal static class NativeRendererSamplePage
         private int _palette;
         private NativeBatchMode _mode = NativeBatchMode.Analytic;
         private uint _contentRevision;
+        private uint _imageRevision;
+        private bool _imageNeedsUpload;
         private bool _sceneDirty = true;
         private int _disposeState;
 
@@ -177,7 +180,8 @@ internal static class NativeRendererSamplePage
                 "polylines with joins, dashed strokes, adaptive rational " +
                 "splines, retained compute-rasterized paths, or the rectangle " +
                 "fast path, plus positioned glyph runs rasterized into the " +
-                "native-owned GPU atlas. Stable geometry, path, and glyph modes " +
+                "native-owned GPU atlas, or retained RGBA image upload and " +
+                "sampling. Stable geometry, path, glyph, and image modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
                 "reuses the production Vector.wgsl, GlyphRasterizer.wgsl, or " +
                 "Text.wgsl modules.",
@@ -232,7 +236,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 9);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 10);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -322,6 +326,9 @@ internal static class NativeRendererSamplePage
                         break;
                     case NativeBatchMode.Glyphs:
                         FillGlyphs(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Images:
+                        FillImage(_palette);
                         break;
                     default:
                         FillRectangles(_rectangleCount, _palette);
@@ -436,6 +443,31 @@ internal static class NativeRendererSamplePage
                 vertexCount = metrics.GlyphCount * 6U;
                 uploadBytes = metrics.InstanceUploadBytes +
                     metrics.OutlineUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Images)
+            {
+                NativeImageFrameMetrics metrics = _compositor.RenderImage(
+                    _target,
+                    dpiScale: 1f,
+                    _imageNeedsUpload
+                        ? _imagePixels
+                        : ReadOnlySpan<byte>.Empty,
+                    imageWidth: 192,
+                    imageHeight: 128,
+                    rowBytes: 192 * 4,
+                    new NativeImageRect(0f, 0f, 192f, 128f),
+                    new NativeImageRect(80f, 60f, 800f, 420f),
+                    Matrix3x2.Identity,
+                    opacity: 1f,
+                    NativeImageSampling.Nearest,
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                    _imageRevision,
+                    _contentRevision);
+                _imageNeedsUpload = false;
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.TextureUploadBytes +
+                    metrics.VertexUploadBytes + metrics.IndexUploadBytes;
             }
             else
             {
@@ -1036,6 +1068,42 @@ internal static class NativeRendererSamplePage
             _glyphSegments = segments.ToArray();
         }
 
+        private void FillImage(int palette)
+        {
+            const int imageWidth = 192;
+            const int imageHeight = 128;
+            for (int y = 0; y < imageHeight; y++)
+            {
+                for (int x = 0; x < imageWidth; x++)
+                {
+                    int offset = (y * imageWidth + x) * 4;
+                    bool checker = ((x / 12) + (y / 12)) % 2 == 0;
+                    Vector4 color = Palette(
+                        (x / (float)imageWidth + y / (float)imageHeight) * 0.5f,
+                        palette);
+                    _imagePixels[offset] = (byte)Math.Clamp(
+                        (checker ? color.X : color.Z) * 255f,
+                        0f,
+                        255f);
+                    _imagePixels[offset + 1] = (byte)Math.Clamp(
+                        color.Y * 255f,
+                        0f,
+                        255f);
+                    _imagePixels[offset + 2] = (byte)Math.Clamp(
+                        (checker ? color.Z : color.X) * 255f,
+                        0f,
+                        255f);
+                    _imagePixels[offset + 3] = byte.MaxValue;
+                }
+            }
+            _imageRevision++;
+            if (_imageRevision == 0U)
+            {
+                _imageRevision = 1U;
+            }
+            _imageNeedsUpload = true;
+        }
+
         private void UpdateCountText()
         {
             if (_countRun is not null)
@@ -1050,6 +1118,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Splines => $"Splines: {_rectangleCount:N0}",
                     NativeBatchMode.Paths => $"Paths: {_rectangleCount:N0}",
                     NativeBatchMode.Glyphs => $"Glyphs: {_rectangleCount:N0}",
+                    NativeBatchMode.Images => "Retained RGBA image",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -1065,6 +1134,7 @@ internal static class NativeRendererSamplePage
             Splines,
             Paths,
             Glyphs,
+            Images,
             Rectangles
         }
 

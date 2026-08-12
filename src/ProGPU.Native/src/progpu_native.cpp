@@ -3,6 +3,7 @@
 #include "GlyphRasterizerWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "TextWgsl.generated.hpp"
+#include "TextureWgsl.generated.hpp"
 #include "VectorWgsl.generated.hpp"
 
 #include <webgpu.h>
@@ -366,6 +367,31 @@ struct progpu_native_engine {
     std::uint64_t glyph_payload_hash = 0U;
     bool glyph_cache_valid = false;
     bool glyph_gpu_cache_valid = false;
+    WGPUShaderModule image_shader = nullptr;
+    WGPURenderPipeline image_pipeline = nullptr;
+    WGPUBindGroupLayout image_uniform_layout = nullptr;
+    WGPUBindGroupLayout image_texture_layout = nullptr;
+    WGPUBuffer image_uniform_buffer = nullptr;
+    WGPUBindGroup image_uniform_bind_group = nullptr;
+    WGPUSampler image_nearest_sampler = nullptr;
+    WGPUSampler image_linear_sampler = nullptr;
+    WGPUTexture image_texture = nullptr;
+    WGPUTextureView image_texture_view = nullptr;
+    WGPUBindGroup image_nearest_bind_group = nullptr;
+    WGPUBindGroup image_linear_bind_group = nullptr;
+    WGPUBuffer image_vertex_buffer = nullptr;
+    WGPUBuffer image_index_buffer = nullptr;
+    std::array<progpu::native::vector_vertex, 4U> image_vertices{};
+    gpu_uniforms cached_image_uniforms{};
+    std::uint32_t image_revision = 0U;
+    std::uint32_t image_content_revision = 0U;
+    std::uint32_t image_width = 0U;
+    std::uint32_t image_height = 0U;
+    std::uint32_t image_texture_generation = 0U;
+    std::uint64_t image_payload_hash = 0U;
+    bool image_uniform_cache_valid = false;
+    bool image_cache_valid = false;
+    bool image_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
 
@@ -390,6 +416,52 @@ struct progpu_native_engine {
     }
 
     ~progpu_native_engine() {
+        if (image_index_buffer != nullptr) {
+            wgpuBufferDestroy(image_index_buffer);
+            wgpuBufferRelease(image_index_buffer);
+        }
+        if (image_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(image_vertex_buffer);
+            wgpuBufferRelease(image_vertex_buffer);
+        }
+        if (image_linear_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_linear_bind_group);
+        }
+        if (image_nearest_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_nearest_bind_group);
+        }
+        if (image_texture_view != nullptr) {
+            wgpuTextureViewRelease(image_texture_view);
+        }
+        if (image_texture != nullptr) {
+            wgpuTextureDestroy(image_texture);
+            wgpuTextureRelease(image_texture);
+        }
+        if (image_linear_sampler != nullptr) {
+            wgpuSamplerRelease(image_linear_sampler);
+        }
+        if (image_nearest_sampler != nullptr) {
+            wgpuSamplerRelease(image_nearest_sampler);
+        }
+        if (image_uniform_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_uniform_bind_group);
+        }
+        if (image_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(image_uniform_buffer);
+            wgpuBufferRelease(image_uniform_buffer);
+        }
+        if (image_texture_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_texture_layout);
+        }
+        if (image_uniform_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_uniform_layout);
+        }
+        if (image_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_pipeline);
+        }
+        if (image_shader != nullptr) {
+            wgpuShaderModuleRelease(image_shader);
+        }
         if (text_vertex_buffer != nullptr) {
             wgpuBufferDestroy(text_vertex_buffer);
             wgpuBufferRelease(text_vertex_buffer);
@@ -1512,6 +1584,290 @@ bool resize_glyph_atlas(
     return true;
 }
 
+WGPUBindGroup create_image_texture_bind_group(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    WGPUTextureView view,
+    const char* label) {
+    const std::array<WGPUBindGroupEntry, 2U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = label;
+    descriptor.layout = engine.image_texture_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+bool create_image_resources(progpu_native_engine& engine) {
+    if (engine.image_pipeline != nullptr) {
+        return true;
+    }
+    if (engine.image_shader != nullptr ||
+        engine.image_uniform_layout != nullptr ||
+        engine.image_texture_layout != nullptr ||
+        engine.image_uniform_buffer != nullptr ||
+        engine.image_uniform_bind_group != nullptr ||
+        engine.image_nearest_sampler != nullptr ||
+        engine.image_linear_sampler != nullptr ||
+        engine.image_vertex_buffer != nullptr ||
+        engine.image_index_buffer != nullptr) {
+        return false;
+    }
+
+    WGPUShaderModuleWGSLDescriptor wgsl{};
+    wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+    wgsl.code = reinterpret_cast<const char*>(
+        progpu::native::generated::texture_wgsl);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = &wgsl.chain;
+    shader_descriptor.label = "ProGPU shared Texture.wgsl";
+    engine.image_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &shader_descriptor);
+    if (engine.image_shader == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 7U> attributes{{
+        {WGPUVertexFormat_Float32x2, 0U, 0U},
+        {WGPUVertexFormat_Float32x4, 8U, 1U},
+        {WGPUVertexFormat_Float32x2, 24U, 2U},
+        {WGPUVertexFormat_Float32, 32U, 3U},
+        {WGPUVertexFormat_Float32x2, 36U, 4U},
+        {WGPUVertexFormat_Float32, 44U, 5U},
+        {WGPUVertexFormat_Float32, 48U, 6U}
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.image_shader;
+    vertex_state.entryPoint = "vs_main";
+    vertex_state.bufferCount = 1U;
+    vertex_state.buffers = &vertex_layout;
+    WGPUBlendState blend{};
+    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = &blend;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.image_shader;
+    fragment.entryPoint = "fs_main_unmasked";
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = "ProGPU native retained image pipeline";
+    pipeline_descriptor.vertex = vertex_state;
+    pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
+    pipeline_descriptor.multisample.count = 1U;
+    pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
+    pipeline_descriptor.fragment = &fragment;
+    engine.image_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
+    if (engine.image_pipeline == nullptr) {
+        return false;
+    }
+    engine.image_uniform_layout = wgpuRenderPipelineGetBindGroupLayout(
+        engine.image_pipeline,
+        0U);
+    engine.image_texture_layout = wgpuRenderPipelineGetBindGroupLayout(
+        engine.image_pipeline,
+        1U);
+    if (engine.image_uniform_layout == nullptr ||
+        engine.image_texture_layout == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor uniform_descriptor{};
+    uniform_descriptor.label = "ProGPU native image frame uniforms";
+    uniform_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    uniform_descriptor.size = sizeof(gpu_uniforms);
+    engine.image_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &uniform_descriptor);
+    WGPUBufferDescriptor vertex_descriptor{};
+    vertex_descriptor.label = "ProGPU native retained image vertices";
+    vertex_descriptor.usage = WGPUBufferUsage_Vertex |
+        WGPUBufferUsage_CopyDst;
+    vertex_descriptor.size = sizeof(engine.image_vertices);
+    engine.image_vertex_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &vertex_descriptor);
+    WGPUBufferDescriptor index_descriptor{};
+    index_descriptor.label = "ProGPU native retained image indices";
+    index_descriptor.usage = WGPUBufferUsage_Index |
+        WGPUBufferUsage_CopyDst;
+    index_descriptor.size = 6U * sizeof(std::uint32_t);
+    engine.image_index_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &index_descriptor);
+    if (engine.image_uniform_buffer == nullptr ||
+        engine.image_vertex_buffer == nullptr ||
+        engine.image_index_buffer == nullptr) {
+        return false;
+    }
+
+    WGPUBindGroupEntry uniform_entry{};
+    uniform_entry.binding = 0U;
+    uniform_entry.buffer = engine.image_uniform_buffer;
+    uniform_entry.size = sizeof(gpu_uniforms);
+    WGPUBindGroupDescriptor uniform_group_descriptor{};
+    uniform_group_descriptor.label = "ProGPU native image uniform bind group";
+    uniform_group_descriptor.layout = engine.image_uniform_layout;
+    uniform_group_descriptor.entryCount = 1U;
+    uniform_group_descriptor.entries = &uniform_entry;
+    engine.image_uniform_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &uniform_group_descriptor);
+    if (engine.image_uniform_bind_group == nullptr) {
+        return false;
+    }
+
+    const auto create_sampler = [&](WGPUFilterMode filter) {
+        WGPUSamplerDescriptor descriptor{};
+        descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+        descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+        descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+        descriptor.magFilter = filter;
+        descriptor.minFilter = filter;
+        descriptor.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+        descriptor.lodMinClamp = 0.0F;
+        descriptor.lodMaxClamp = 0.0F;
+        descriptor.maxAnisotropy = 1U;
+        return wgpuDeviceCreateSampler(engine.device, &descriptor);
+    };
+    engine.image_nearest_sampler = create_sampler(WGPUFilterMode_Nearest);
+    engine.image_linear_sampler = create_sampler(WGPUFilterMode_Linear);
+    if (engine.image_nearest_sampler == nullptr ||
+        engine.image_linear_sampler == nullptr) {
+        return false;
+    }
+
+    constexpr std::array<std::uint32_t, 6U> indices{
+        0U, 1U, 2U, 0U, 2U, 3U};
+    wgpuQueueWriteBuffer(
+        engine.queue,
+        engine.image_index_buffer,
+        0U,
+        indices.data(),
+        sizeof(indices));
+    return true;
+}
+
+bool upload_image_texture(
+    progpu_native_engine& engine,
+    const progpu_native_image_frame& frame) {
+    const bool replace = engine.image_texture == nullptr ||
+        engine.image_width != frame.image_width ||
+        engine.image_height != frame.image_height;
+    WGPUTexture texture = engine.image_texture;
+    WGPUTextureView view = engine.image_texture_view;
+    WGPUBindGroup nearest_group = engine.image_nearest_bind_group;
+    WGPUBindGroup linear_group = engine.image_linear_bind_group;
+    if (replace) {
+        WGPUTextureDescriptor descriptor{};
+        descriptor.label = "ProGPU native retained RGBA image";
+        descriptor.usage = WGPUTextureUsage_TextureBinding |
+            WGPUTextureUsage_CopyDst;
+        descriptor.dimension = WGPUTextureDimension_2D;
+        descriptor.size = {frame.image_width, frame.image_height, 1U};
+        descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+        descriptor.mipLevelCount = 1U;
+        descriptor.sampleCount = 1U;
+        texture = wgpuDeviceCreateTexture(engine.device, &descriptor);
+        if (texture == nullptr) {
+            return false;
+        }
+        view = wgpuTextureCreateView(texture, nullptr);
+        if (view == nullptr) {
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+            return false;
+        }
+        nearest_group = create_image_texture_bind_group(
+            engine,
+            engine.image_nearest_sampler,
+            view,
+            "ProGPU native nearest image bind group");
+        linear_group = create_image_texture_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            view,
+            "ProGPU native linear image bind group");
+        if (nearest_group == nullptr || linear_group == nullptr) {
+            if (linear_group != nullptr) {
+                wgpuBindGroupRelease(linear_group);
+            }
+            if (nearest_group != nullptr) {
+                wgpuBindGroupRelease(nearest_group);
+            }
+            wgpuTextureViewRelease(view);
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+            return false;
+        }
+    }
+
+    WGPUImageCopyTexture destination{};
+    destination.texture = texture;
+    destination.aspect = WGPUTextureAspect_All;
+    WGPUTextureDataLayout layout{};
+    layout.bytesPerRow = frame.row_bytes;
+    layout.rowsPerImage = frame.image_height;
+    const WGPUExtent3D extent{frame.image_width, frame.image_height, 1U};
+    const std::size_t upload_bytes =
+        static_cast<std::size_t>(frame.row_bytes) *
+            (frame.image_height - 1U) +
+        static_cast<std::size_t>(frame.image_width) * 4U;
+    wgpuQueueWriteTexture(
+        engine.queue,
+        &destination,
+        frame.rgba_pixels,
+        upload_bytes,
+        &layout,
+        &extent);
+
+    if (replace) {
+        if (engine.image_linear_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.image_linear_bind_group);
+        }
+        if (engine.image_nearest_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.image_nearest_bind_group);
+        }
+        if (engine.image_texture_view != nullptr) {
+            wgpuTextureViewRelease(engine.image_texture_view);
+        }
+        if (engine.image_texture != nullptr) {
+            wgpuTextureDestroy(engine.image_texture);
+            wgpuTextureRelease(engine.image_texture);
+        }
+        engine.image_texture = texture;
+        engine.image_texture_view = view;
+        engine.image_nearest_bind_group = nearest_group;
+        engine.image_linear_bind_group = linear_group;
+        engine.image_width = frame.image_width;
+        engine.image_height = frame.image_height;
+    }
+    engine.image_revision = frame.image_revision;
+    ++engine.image_texture_generation;
+    return true;
+}
+
 void clear_metrics(progpu_native_frame_metrics* metrics) noexcept {
     if (metrics == nullptr ||
         metrics->struct_size < sizeof(progpu_native_frame_metrics)) {
@@ -1562,6 +1918,16 @@ void clear_metrics(progpu_native_glyph_frame_metrics* metrics) noexcept {
     metrics->struct_size = struct_size;
 }
 
+void clear_metrics(progpu_native_image_frame_metrics* metrics) noexcept {
+    if (metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_image_frame_metrics)) {
+        return;
+    }
+    const std::uint32_t struct_size = metrics->struct_size;
+    *metrics = {};
+    metrics->struct_size = struct_size;
+}
+
 } // namespace
 
 extern "C" {
@@ -1594,7 +1960,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY |
         PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS |
         PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS |
-        PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES;
+        PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES |
+        PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -3865,6 +4232,260 @@ progpu_native_status progpu_native_engine_render_glyphs(
             : 0U;
         metrics->outline_upload_bytes = outline_upload_bytes;
         metrics->coverage_staging_bytes = coverage_staging_bytes;
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
+        metrics->submission_count = engine->submission_count;
+        metrics->payload_hash = payload_hash;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_render_image(
+    progpu_native_engine* engine,
+    const progpu_native_image_frame* frame,
+    progpu_native_image_frame_metrics* metrics) {
+    clear_metrics(metrics);
+    const auto valid_rect = [](const progpu_native_image_rect& rect) {
+        return std::isfinite(rect.x) && std::isfinite(rect.y) &&
+            std::isfinite(rect.width) && std::isfinite(rect.height) &&
+            rect.width > 0.0F && rect.height > 0.0F;
+    };
+    if (engine == nullptr || frame == nullptr ||
+        frame->struct_size < sizeof(progpu_native_image_frame) ||
+        frame->width == 0U || frame->height == 0U ||
+        !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
+        frame->target_view == 0U ||
+        frame->image_width == 0U || frame->image_height == 0U ||
+        frame->image_width > 16384U || frame->image_height > 16384U ||
+        frame->row_bytes < frame->image_width * 4U ||
+        frame->sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        frame->image_revision == 0U || frame->content_revision == 0U ||
+        !valid_rect(frame->source_rect) ||
+        !valid_rect(frame->destination_rect) ||
+        frame->source_rect.x < 0.0F || frame->source_rect.y < 0.0F ||
+        frame->source_rect.x + frame->source_rect.width >
+            static_cast<float>(frame->image_width) ||
+        frame->source_rect.y + frame->source_rect.height >
+            static_cast<float>(frame->image_height) ||
+        !progpu::native::is_finite(frame->transform) ||
+        !std::isfinite(frame->opacity) ||
+        frame->opacity < 0.0F || frame->opacity > 1.0F ||
+        frame->reserved != 0U ||
+        !progpu::native::is_finite(frame->clear_color)) {
+        return engine == nullptr
+            ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
+            : engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The retained RGBA image frame descriptor is invalid.");
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer must be used from its owner thread.");
+    }
+
+    const std::uint64_t required_upload_bytes =
+        static_cast<std::uint64_t>(frame->row_bytes) *
+            (frame->image_height - 1U) +
+        static_cast<std::uint64_t>(frame->image_width) * 4U;
+    const bool dimensions_changed = engine->image_texture != nullptr &&
+        (engine->image_width != frame->image_width ||
+         engine->image_height != frame->image_height);
+    const bool upload_texture = engine->image_texture == nullptr ||
+        engine->image_revision != frame->image_revision;
+    if ((!upload_texture && dimensions_changed) ||
+        (upload_texture &&
+            (frame->rgba_pixels == nullptr ||
+             frame->pixel_bytes < required_upload_bytes))) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The retained RGBA image revision or pixel payload is invalid.");
+    }
+
+    const bool created_resources = engine->image_pipeline == nullptr;
+    if (!create_image_resources(*engine)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image GPU resources could not be created.");
+    }
+    if (upload_texture && !upload_image_texture(*engine, *frame)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image texture could not be uploaded.");
+    }
+
+    const bool compiled_payload_hit = engine->image_cache_valid &&
+        engine->image_content_revision == frame->content_revision &&
+        !dimensions_changed;
+    if (!compiled_payload_hit) {
+        const float x0 = frame->destination_rect.x;
+        const float y0 = frame->destination_rect.y;
+        const float x1 = x0 + frame->destination_rect.width;
+        const float y1 = y0 + frame->destination_rect.height;
+        const float u0 = frame->source_rect.x /
+            static_cast<float>(frame->image_width);
+        const float v0 = frame->source_rect.y /
+            static_cast<float>(frame->image_height);
+        const float u1 = (frame->source_rect.x + frame->source_rect.width) /
+            static_cast<float>(frame->image_width);
+        const float v1 = (frame->source_rect.y + frame->source_rect.height) /
+            static_cast<float>(frame->image_height);
+        constexpr std::array<std::array<std::uint32_t, 2U>, 4U> corners{{
+            {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+        }};
+        for (std::size_t index = 0U; index < corners.size(); ++index) {
+            const float x = corners[index][0] == 0U ? x0 : x1;
+            const float y = corners[index][1] == 0U ? y0 : y1;
+            auto& vertex = engine->image_vertices[index];
+            progpu::native::transform_point(
+                frame->transform,
+                x,
+                y,
+                vertex.position[0],
+                vertex.position[1]);
+            vertex.color[0] = 1.0F;
+            vertex.color[1] = 0.0F;
+            vertex.color[2] = 1.0F;
+            vertex.color[3] = frame->opacity;
+            vertex.texture_coordinate[0] = corners[index][0] == 0U ? u0 : u1;
+            vertex.texture_coordinate[1] = corners[index][1] == 0U ? v0 : v1;
+            vertex.brush_index = 0.0F;
+            vertex.shape_size[0] = 0.0F;
+            vertex.shape_size[1] = 0.5F;
+            vertex.corner_radius = 0.0F;
+            vertex.stroke_thickness = 1.0F;
+            vertex.shape_type = 0.0F;
+        }
+        engine->image_payload_hash = append_fnv1a64(
+            14695981039346656037ULL,
+            engine->image_vertices.data(),
+            sizeof(engine->image_vertices));
+        engine->image_content_revision = frame->content_revision;
+        engine->image_cache_valid = true;
+        engine->image_gpu_cache_valid = false;
+    }
+
+    const bool upload_vertices = !engine->image_gpu_cache_valid;
+    if (upload_vertices) {
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->image_vertex_buffer,
+            0U,
+            engine->image_vertices.data(),
+            sizeof(engine->image_vertices));
+        engine->image_gpu_cache_valid = true;
+    }
+    const gpu_uniforms uniforms = create_uniforms(
+        frame->width,
+        frame->height,
+        frame->dpi_scale);
+    const bool uploaded_uniforms = engine->upload_uniform_if_changed(
+        engine->image_uniform_buffer,
+        uniforms,
+        engine->cached_image_uniforms,
+        engine->image_uniform_cache_valid);
+
+    WGPUCommandEncoderDescriptor encoder_descriptor{};
+    encoder_descriptor.label = "ProGPU native retained RGBA image encoder";
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+        engine->device,
+        &encoder_descriptor);
+    if (encoder == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image command encoder could not be created.");
+    }
+    WGPURenderPassColorAttachment attachment{};
+    attachment.view = reinterpret_cast<WGPUTextureView>(frame->target_view);
+    attachment.loadOp = WGPULoadOp_Clear;
+    attachment.storeOp = WGPUStoreOp_Store;
+    attachment.clearValue = {
+        frame->clear_color.r,
+        frame->clear_color.g,
+        frame->clear_color.b,
+        frame->clear_color.a
+    };
+    WGPURenderPassDescriptor pass_descriptor{};
+    pass_descriptor.label = "ProGPU native retained RGBA image pass";
+    pass_descriptor.colorAttachmentCount = 1U;
+    pass_descriptor.colorAttachments = &attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &pass_descriptor);
+    if (pass == nullptr) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image render pass could not be created.");
+    }
+    wgpuRenderPassEncoderSetPipeline(pass, engine->image_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 0U, engine->image_uniform_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        1U,
+        frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+            ? engine->image_nearest_bind_group
+            : engine->image_linear_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass,
+        0U,
+        engine->image_vertex_buffer,
+        0U,
+        sizeof(engine->image_vertices));
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        engine->image_index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        6U * sizeof(std::uint32_t));
+    wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+
+    WGPUCommandBufferDescriptor command_descriptor{};
+    command_descriptor.label = "ProGPU native retained RGBA image commands";
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+        encoder,
+        &command_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image command buffer could not be finished.");
+    }
+    wgpuQueueSubmit(engine->queue, 1U, &command);
+    wgpuCommandBufferRelease(command);
+    ++engine->submission_count;
+
+    std::uint64_t payload_hash = engine->image_payload_hash;
+    payload_hash = append_fnv1a64(
+        payload_hash,
+        &frame->image_revision,
+        sizeof(frame->image_revision));
+    payload_hash = append_fnv1a64(
+        payload_hash,
+        &frame->sampling,
+        sizeof(frame->sampling));
+    engine->last_error.clear();
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_image_frame_metrics)) {
+        metrics->draw_call_count = 1U;
+        metrics->vertex_count = 4U;
+        metrics->index_count = 6U;
+        metrics->texture_generation = engine->image_texture_generation;
+        metrics->vertex_upload_bytes = upload_vertices
+            ? sizeof(engine->image_vertices)
+            : 0U;
+        metrics->index_upload_bytes = created_resources
+            ? 6U * sizeof(std::uint32_t)
+            : 0U;
+        metrics->texture_upload_bytes = upload_texture
+            ? required_upload_bytes
+            : 0U;
         metrics->uniform_upload_bytes = uploaded_uniforms
             ? sizeof(gpu_uniforms)
             : 0U;

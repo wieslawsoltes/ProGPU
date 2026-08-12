@@ -200,6 +200,47 @@ internal static unsafe partial class NativeMethods
         internal ulong PayloadHash;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ImageFrame
+    {
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal NativeColor ClearColor;
+        internal byte* RgbaPixels;
+        internal nuint PixelBytes;
+        internal uint ImageWidth;
+        internal uint ImageHeight;
+        internal uint RowBytes;
+        internal NativeImageSampling Sampling;
+        internal uint ImageRevision;
+        internal uint ContentRevision;
+        internal NativeImageRect SourceRect;
+        internal NativeImageRect DestinationRect;
+        internal Matrix3x2 Transform;
+        internal float Opacity;
+        internal uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ImageFrameMetrics
+    {
+        internal uint StructSize;
+        internal uint DrawCallCount;
+        internal uint VertexCount;
+        internal uint IndexCount;
+        internal uint TextureGeneration;
+        internal uint Reserved;
+        internal ulong VertexUploadBytes;
+        internal ulong IndexUploadBytes;
+        internal ulong TextureUploadBytes;
+        internal ulong UniformUploadBytes;
+        internal ulong SubmissionCount;
+        internal ulong PayloadHash;
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal unsafe struct EngineInfo
     {
@@ -263,6 +304,13 @@ internal static unsafe partial class NativeMethods
         nint engine,
         GlyphFrame* frame,
         GlyphFrameMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus RenderImage(
+        nint engine,
+        ImageFrame* frame,
+        ImageFrameMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -327,6 +327,65 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Retained RGBA-image GPU-complete supplement
+
+The third Tranche B increment uploads one deterministic 192-by-128
+straight-alpha RGBA8 image, scales it into a 960-by-540 physical target, and
+compares the native C++ renderer against the managed compositor using the same
+production `Texture.wgsl`. Image and content revisions are independent. After
+warmup, the native metrics report zero texture, vertex, index, and uniform
+upload bytes while still encoding and submitting the target pass.
+
+An initial synchronized 3,000-frame alternating run explained the apparent
+GPU-complete parity: native/managed submission p95 was 0.2374/0.2742 ms, while
+completion-wait p95 was 3.0754/3.0757 ms. The same wgpu-native Metal queue and
+same texture shader therefore dominated total p95 at 3.2460/3.2775 ms; this was
+not evidence that managed CPU submission equaled native submission.
+
+Profiling then removed the dummy image-mask resource path for ordinary images.
+Both renderers now select the unmasked shader entry point. The C++ pipeline
+uses two bind groups instead of three and no longer owns or binds a sentinel
+mask texture, mask uniform buffer, or mask bind group. Two matched final
+3,000-frame synchronized runs produced:
+
+| Run | Native submission p95 | Managed submission p95 | Native completion p95 | Managed completion p95 | Native total p95 | Managed total p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 0.2183 ms | 0.2640 ms | 3.0628 ms | 3.0661 ms | 3.1977 ms | 3.2374 ms |
+| 2 | 0.2059 ms | 0.2655 ms | 3.0584 ms | 3.0665 ms | 3.1794 ms | 3.2430 ms |
+
+Relative to the initial run, submission p95 fell by 8.0% in C++ and 3.7% in
+managed code in run 1; run 2 confirmed the direction. GPU completion remains
+intentionally on par because both sides submit the same one-quad workload to
+the same queue. Native total p95 is now about 1.2–2.0% lower, while native
+submission p95 is 17–22% lower.
+
+DPI-1 and Retina DPI-2 readbacks are byte-exact over 518,400 pixels: maximum
+channel difference zero and identical FNV-1a hashes
+`ACB0C7F2152178C5`. The initial upload is 98,304 bytes, texture generation is
+one, and the stable replay assertion rejects any later resource upload.
+
+The matched final-binary Time Profiler trace exited zero and contains sampled
+CPU stacks. Its instrumented grouped 3,000-frame run reported native/managed
+submission p95 0.3620/1.5775 ms; these perturbed values are retained only as
+profiling evidence, not substituted for clean timings. The Allocations trace
+also exited zero, but this Xcode template exposed no allocation table on the
+host, so no native-heap claim is made. A Metal System Trace launch completed
+the workload but produced only a `RunIssues.storedata` bundle that `xctrace
+export` rejected as missing its template; the synchronized benchmark's direct
+wgpu/Metal resource snapshot reported 11,206,656 combined bytes. This failed
+trace is retained as diagnostic evidence rather than represented as a valid
+Metal capture.
+
+Retained ignored evidence:
+
+- clean synchronized JSON in `/tmp/progpu-native-image-sync-two-groups.json`
+  and `/tmp/progpu-native-image-sync-two-groups-2.json`;
+- `image-time-final.trace`, exported TOC, and instrumented JSON output;
+- `image-allocations.trace` and exported TOC;
+- the failed `image-metal-valid.trace` issue bundle;
+- native, managed, and exact-zero 64-times-amplified difference PNG images
+  under `artifacts/progpu-native/differential/`.
+
 ## Retained positioned-glyph supplement
 
 The second Tranche B increment keeps Unicode/OpenType shaping and line layout

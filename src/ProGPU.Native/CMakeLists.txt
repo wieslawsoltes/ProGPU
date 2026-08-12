@@ -19,6 +19,9 @@ set(PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER
 set(PROGPU_NATIVE_TEXT_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Text.wgsl"
     CACHE FILEPATH "Shared ProGPU text shader source")
+set(PROGPU_NATIVE_TEXTURE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Texture.wgsl"
+    CACHE FILEPATH "Shared ProGPU texture shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 
 function(progpu_native_enable_warnings target_name)
@@ -51,6 +54,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_TEXT_SHADER}")
     message(FATAL_ERROR "The shared ProGPU Text.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_TEXTURE_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU Texture.wgsl source is missing")
 endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -96,6 +102,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Text.wgsl shader"
     VERBATIM)
+set(generated_texture_shader
+    "${generated_directory}/TextureWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_texture_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_TEXTURE_SHADER}"
+        "-DOUTPUT=${generated_texture_shader}"
+        "-DSYMBOL=texture_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_TEXTURE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU Texture.wgsl shader"
+    VERBATIM)
 set(generated_path_rasterizer_shader
     "${generated_directory}/PathRasterizerWgsl.generated.hpp")
 add_custom_command(
@@ -118,7 +138,8 @@ add_library(progpu_native SHARED
     "${generated_vector_shader}"
     "${generated_path_rasterizer_shader}"
     "${generated_glyph_rasterizer_shader}"
-    "${generated_text_shader}")
+    "${generated_text_shader}"
+    "${generated_texture_shader}")
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native

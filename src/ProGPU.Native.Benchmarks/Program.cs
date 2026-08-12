@@ -95,6 +95,12 @@ bool useGlyphScene = Array.Exists(
         value,
         "--glyphs",
         StringComparison.OrdinalIgnoreCase));
+bool useImageScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--images",
+        StringComparison.OrdinalIgnoreCase));
 bool forceAtlasGrowth = Array.Exists(
     args,
     static value => string.Equals(
@@ -222,12 +228,32 @@ uint nativeAtlasGeneration = 0;
 uint nativeAtlasGrowthCount = 0;
 NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
 NativePathFrameMetrics lastNativePathMetrics = default;
+NativeImageFrameMetrics lastNativeImageMetrics = default;
+const uint benchmarkImageWidth = 192U;
+const uint benchmarkImageHeight = 128U;
+byte[] imagePixels = useImageScene
+    ? CreateImagePixels(benchmarkImageWidth, benchmarkImageHeight)
+    : [];
+bool nativeImageUploaded = false;
+ulong nativeImageTextureUploadBytes = 0UL;
+uint nativeImageTextureGeneration = 0U;
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
 using var nativeTarget = CreateTarget(context, "Native benchmark target");
 using var managedTarget = CreateTarget(context, "Managed benchmark target");
 using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+using GpuTexture? managedImageTexture = useImageScene
+    ? new GpuTexture(
+        context,
+        benchmarkImageWidth,
+        benchmarkImageHeight,
+        TextureFormat.Rgba8Unorm,
+        TextureUsage.TextureBinding | TextureUsage.CopyDst,
+        "Managed retained RGBA benchmark image",
+        alphaMode: GpuTextureAlphaMode.Straight)
+    : null;
+managedImageTexture?.WritePixels<byte>(imagePixels);
 using var managed = new Compositor(
     context,
     TextureFormat.Rgba8Unorm,
@@ -240,7 +266,14 @@ using var managed = new Compositor(
         EnableGpuHitTesting = false,
         PrimarySampleCount = 1
     });
-DrawingVisual managedVisual = useGlyphScene
+DrawingVisual managedVisual = useImageScene
+    ? CreateManagedImageVisual(
+        managedImageTexture!,
+        benchmarkImageWidth,
+        benchmarkImageHeight,
+        logicalWidth,
+        logicalHeight)
+    : useGlyphScene
     ? CreateManagedGlyphVisual(
         glyphFont!,
         managedGlyphIndices,
@@ -344,6 +377,15 @@ if (forceAtlasGrowth && usePathScene &&
     throw new InvalidOperationException(
         "Stable native path replay changed the grown atlas or uploaded retained payload.");
 }
+if (useImageScene &&
+    (lastNativeImageMetrics.TextureUploadBytes != 0UL ||
+     lastNativeImageMetrics.VertexUploadBytes != 0UL ||
+     lastNativeImageMetrics.IndexUploadBytes != 0UL ||
+     lastNativeImageMetrics.UniformUploadBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable native image replay uploaded retained texture, geometry, or uniforms.");
+}
 RenderManaged();
 context.PollDevice(wait: true);
 
@@ -352,7 +394,9 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useGlyphScene
+    string imageStem = useImageScene
+        ? "images"
+        : useGlyphScene
         ? forceAtlasGrowth ? "glyphs-growth" : "glyphs"
         : usePathScene
         ? forceAtlasGrowth ? "paths-growth" : "paths"
@@ -387,7 +431,7 @@ if (forceAtlasGrowth && useGlyphScene && nativeAtlasGrowthCount == 0U)
     throw new InvalidOperationException(
         "The native glyph atlas did not publish its growth count.");
 }
-bool requiresExactPixels = useGlyphScene ||
+bool requiresExactPixels = useImageScene || useGlyphScene ||
     (!useAnalyticScene && !useGeometryScene && !usePathScene && dpiScale == 1f);
 bool usesGeometryDifferential = useGeometryScene || usePathScene;
 bool usesTightDifferential =
@@ -563,7 +607,9 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: useGlyphScene
+    Scene: useImageScene
+        ? "RetainedRgbaImage"
+        : useGlyphScene
         ? "RetainedPositionedGlyphAtlas"
         : usePathScene
         ? "RetainedPathAtlas"
@@ -619,6 +665,8 @@ var report = new BenchmarkReport(
     NativeAtlasWidth: nativeAtlasWidth,
     NativeAtlasGeneration: nativeAtlasGeneration,
     NativeAtlasGrowthCount: nativeAtlasGrowthCount,
+    NativeImageTextureUploadBytes: nativeImageTextureUploadBytes,
+    NativeImageTextureGeneration: nativeImageTextureGeneration,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -627,6 +675,45 @@ Console.WriteLine(JsonSerializer.Serialize(
 
 ulong RenderNative(bool capturePayloadHash = false)
 {
+    if (useImageScene)
+    {
+        float destinationWidth = logicalWidth - 160f;
+        float destinationHeight = logicalHeight - 120f;
+        NativeImageFrameMetrics metrics = native.RenderImage(
+            nativeTarget,
+            dpiScale,
+            nativeImageUploaded ? ReadOnlySpan<byte>.Empty : imagePixels,
+            benchmarkImageWidth,
+            benchmarkImageHeight,
+            benchmarkImageWidth * 4U,
+            new NativeImageRect(
+                0f,
+                0f,
+                benchmarkImageWidth,
+                benchmarkImageHeight),
+            new NativeImageRect(
+                80f,
+                60f,
+                destinationWidth,
+                destinationHeight),
+            Matrix3x2.Identity,
+            1f,
+            NativeImageSampling.Nearest,
+            clearColor,
+            imageRevision: 1U,
+            contentRevision: 1U);
+        nativeImageUploaded = true;
+        lastNativeImageMetrics = metrics;
+        nativeVertexCount = metrics.VertexCount;
+        nativeIndexCount = metrics.IndexCount;
+        nativeImageTextureUploadBytes = Math.Max(
+            nativeImageTextureUploadBytes,
+            metrics.TextureUploadBytes);
+        nativeImageTextureGeneration = Math.Max(
+            nativeImageTextureGeneration,
+            metrics.TextureGeneration);
+        return metrics.PayloadHash;
+    }
     if (useGlyphScene)
     {
         NativeGlyphFrameMetrics metrics = native.RenderGlyphs(
@@ -873,6 +960,44 @@ static GpuTexture CreateTarget(WgpuContext context, string label) =>
         TextureUsage.CopySrc,
         label,
         alphaMode: GpuTextureAlphaMode.Premultiplied);
+
+static byte[] CreateImagePixels(uint imageWidth, uint imageHeight)
+{
+    var pixels = new byte[checked((int)(imageWidth * imageHeight * 4U))];
+    for (uint y = 0U; y < imageHeight; ++y)
+    {
+        for (uint x = 0U; x < imageWidth; ++x)
+        {
+            int offset = checked((int)((y * imageWidth + x) * 4U));
+            bool checker = ((x / 12U) + (y / 12U)) % 2U == 0U;
+            pixels[offset] = (byte)(checker ? 224U : x * 255U / imageWidth);
+            pixels[offset + 1] = (byte)(checker ? y * 255U / imageHeight : 48U);
+            pixels[offset + 2] = (byte)(checker ? 64U : 255U - x * 255U / imageWidth);
+            pixels[offset + 3] = byte.MaxValue;
+        }
+    }
+    return pixels;
+}
+
+static DrawingVisual CreateManagedImageVisual(
+    GpuTexture texture,
+    uint imageWidth,
+    uint imageHeight,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var visual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    visual.Context.DrawTexture(
+        texture,
+        new Rect(80f, 60f, logicalWidth - 160f, logicalHeight - 120f),
+        new Rect(0f, 0f, imageWidth, imageHeight),
+        Matrix4x4.Identity,
+        TextureSamplingMode.Nearest);
+    return visual;
+}
 
 static NativeSolidRectangle[] CreateRectangles(
     int count,
@@ -2137,6 +2262,8 @@ internal sealed record BenchmarkReport(
     uint NativeAtlasWidth,
     uint NativeAtlasGeneration,
     uint NativeAtlasGrowthCount,
+    ulong NativeImageTextureUploadBytes,
+    uint NativeImageTextureGeneration,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(

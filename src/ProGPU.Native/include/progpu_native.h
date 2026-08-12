@@ -36,8 +36,14 @@ enum {
     PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY = 1ULL << 12U,
     PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS = 1ULL << 13U,
     PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U,
-    PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U
+    PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U,
+    PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U
 };
+
+typedef enum progpu_native_image_sampling {
+    PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
+    PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1
+} progpu_native_image_sampling;
 
 enum {
     PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U,
@@ -167,6 +173,13 @@ typedef struct progpu_native_affine_2d {
     float m31;
     float m32;
 } progpu_native_affine_2d;
+
+typedef struct progpu_native_image_rect {
+    float x;
+    float y;
+    float width;
+    float height;
+} progpu_native_image_rect;
 
 /*
  * One analytic draw record. A zero stroke_thickness selects a fill; a positive
@@ -493,6 +506,43 @@ typedef struct progpu_native_glyph_frame_metrics {
     uint64_t payload_hash;
 } progpu_native_glyph_frame_metrics;
 
+typedef struct progpu_native_image_frame {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_color clear_color;
+    const uint8_t* rgba_pixels;
+    size_t pixel_bytes;
+    uint32_t image_width;
+    uint32_t image_height;
+    uint32_t row_bytes;
+    uint32_t sampling;
+    uint32_t image_revision;
+    uint32_t content_revision;
+    progpu_native_image_rect source_rect;
+    progpu_native_image_rect destination_rect;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved;
+} progpu_native_image_frame;
+
+typedef struct progpu_native_image_frame_metrics {
+    uint32_t struct_size;
+    uint32_t draw_call_count;
+    uint32_t vertex_count;
+    uint32_t index_count;
+    uint32_t texture_generation;
+    uint32_t reserved;
+    uint64_t vertex_upload_bytes;
+    uint64_t index_upload_bytes;
+    uint64_t texture_upload_bytes;
+    uint64_t uniform_upload_bytes;
+    uint64_t submission_count;
+    uint64_t payload_hash;
+} progpu_native_image_frame_metrics;
+
 PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);
 PROGPU_NATIVE_API uint8_t progpu_native_get_info(
     progpu_native_engine_info* info);
@@ -521,6 +571,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_glyphs(
     progpu_native_engine* engine,
     const progpu_native_glyph_frame* frame,
     progpu_native_glyph_frame_metrics* metrics);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_image(
+    progpu_native_engine* engine,
+    const progpu_native_image_frame* frame,
+    progpu_native_image_frame_metrics* metrics);
 PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
     const progpu_native_engine* engine,
     char* destination,
