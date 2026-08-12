@@ -140,7 +140,8 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 1;
+    private const int Version = 3;
+    private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
     private const int MaxArrayElements = 16_000_000;
@@ -172,16 +173,27 @@ internal static class PictureArchive
         Arc,
     }
 
-    public static byte[] Serialize(GpuPicture picture, SKRect cullRect)
+    public static byte[] Serialize(GpuPicture picture, SKRect cullRect) =>
+        Serialize(picture, cullRect, Version);
+
+    internal static byte[] Serialize(
+        GpuPicture picture,
+        SKRect cullRect,
+        int archiveVersion)
     {
         ArgumentNullException.ThrowIfNull(picture);
+        if (archiveVersion < MinimumSupportedVersion || archiveVersion > Version)
+        {
+            throw new ArgumentOutOfRangeException(nameof(archiveVersion));
+        }
+
         using var output = new MemoryStream();
         using (var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true))
         {
             writer.Write(Magic);
-            writer.Write(Version);
+            writer.Write(archiveVersion);
             WriteRect(writer, cullRect);
-            WritePicture(writer, picture, 0);
+            WritePicture(writer, picture, 0, archiveVersion);
         }
 
         if (output.Length > MaxArchiveBytes)
@@ -207,13 +219,19 @@ internal static class PictureArchive
         {
             using var input = new MemoryStream(data.ToArray(), writable: false);
             using var reader = new BinaryReader(input, Encoding.UTF8, leaveOpen: false);
-            if (reader.ReadUInt64() != Magic || reader.ReadInt32() != Version)
+            if (reader.ReadUInt64() != Magic)
+            {
+                return false;
+            }
+
+            var version = reader.ReadInt32();
+            if (version < MinimumSupportedVersion || version > Version)
             {
                 return false;
             }
 
             cullRect = ReadRect(reader);
-            picture = ReadPicture(reader, 0);
+            picture = ReadPicture(reader, 0, version);
             if (input.Position != input.Length)
             {
                 picture.Dispose();
@@ -240,7 +258,11 @@ internal static class PictureArchive
         }
     }
 
-    private static void WritePicture(BinaryWriter writer, GpuPicture picture, int depth)
+    private static void WritePicture(
+        BinaryWriter writer,
+        GpuPicture picture,
+        int depth,
+        int version)
     {
         EnsureDepth(depth);
         WriteVector2Array(writer, picture.PointBuffer);
@@ -250,11 +272,11 @@ internal static class PictureArchive
         WriteCount(writer, picture.RetainedCommands.Length, MaxCommands, "commands");
         foreach (var command in picture.RetainedCommands)
         {
-            WriteCommand(writer, command, depth);
+            WriteCommand(writer, command, depth, version);
         }
     }
 
-    private static GpuPicture ReadPicture(BinaryReader reader, int depth)
+    private static GpuPicture ReadPicture(BinaryReader reader, int depth, int version)
     {
         EnsureDepth(depth);
         var points = ReadVector2Array(reader);
@@ -265,12 +287,72 @@ internal static class PictureArchive
         var commands = new RenderCommand[count];
         for (var index = 0; index < commands.Length; index++)
         {
-            commands[index] = ReadCommand(reader, depth);
+            commands[index] = ReadCommand(reader, depth, version);
+            RestoreGeometryCache(ref commands[index]);
         }
         return new GpuPicture(commands, points, doubles, lines, floats);
     }
 
-    private static void WriteCommand(BinaryWriter writer, RenderCommand command, int depth)
+    private static void RestoreGeometryCache(ref RenderCommand command)
+    {
+        if (command.Type == RenderCommandType.DrawPath && command.Path != null)
+        {
+            command.GeometryCache = RenderCommandGeometryCache.ForPath(command.Path);
+            return;
+        }
+
+        var pen = command.Pen;
+        if (pen == null)
+        {
+            return;
+        }
+
+        var primitiveCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        if (primitiveCache != null)
+        {
+            command.GeometryCache = primitiveCache;
+            return;
+        }
+
+        PathGeometry? strokePath = command.Type switch
+        {
+            RenderCommandType.DrawLine when RequiresStrokePath(pen) =>
+                RenderCommandGeometryCache.CreateLinePath(
+                    command.Position,
+                    command.Position2),
+            RenderCommandType.DrawBezier when RequiresStrokePath(pen) =>
+                RenderCommandGeometryCache.CreateQuadraticBezierPath(
+                    command.Position,
+                    command.Position2,
+                    command.Position3),
+            RenderCommandType.DrawCubicBezier when RequiresStrokePath(pen) =>
+                RenderCommandGeometryCache.CreateCubicBezierPath(
+                    command.Position,
+                    command.Position2,
+                    command.Position3,
+                    command.Position4),
+            RenderCommandType.PushOpacityMask when command.Path != null =>
+                command.Path,
+            _ => null
+        };
+
+        if (strokePath != null)
+        {
+            command.GeometryCache = RenderCommandGeometryCache.ForStrokePath(strokePath);
+        }
+    }
+
+    private static bool RequiresStrokePath(Pen pen) =>
+        pen.HasDashPattern ||
+        pen.StartLineCap != PenLineCap.Flat ||
+        pen.EndLineCap != PenLineCap.Flat;
+
+    private static void WriteCommand(
+        BinaryWriter writer,
+        RenderCommand command,
+        int depth,
+        int version)
     {
         if (command.Texture is not null ||
             command.StaticBuffer is not null ||
@@ -285,8 +367,8 @@ internal static class PictureArchive
         writer.Write(command.HitTestId);
         WriteRect(writer, command.Rect);
         WriteBrush(writer, command.Brush);
-        WritePen(writer, command.Pen);
-        WritePath(writer, command.Path, depth);
+        WritePen(writer, command.Pen, version);
+        WritePath(writer, command.Path, depth, version);
         WriteString(writer, command.Text);
         WriteFont(writer, command.Font);
         writer.Write(command.FontSize);
@@ -343,7 +425,7 @@ internal static class PictureArchive
         writer.Write(command.Picture is not null);
         if (command.Picture is not null)
         {
-            WritePicture(writer, command.Picture, depth + 1);
+            WritePicture(writer, command.Picture, depth + 1, version);
         }
         WriteUShortArray(writer, command.GlyphIndices);
         WriteVector2Array(writer, command.GlyphPositions);
@@ -354,7 +436,7 @@ internal static class PictureArchive
         writer.Write(command.FloatParam);
     }
 
-    private static RenderCommand ReadCommand(BinaryReader reader, int depth)
+    private static RenderCommand ReadCommand(BinaryReader reader, int depth, int version)
     {
         var command = new RenderCommand
         {
@@ -362,8 +444,8 @@ internal static class PictureArchive
             HitTestId = reader.ReadInt32(),
             Rect = ReadSceneRect(reader),
             Brush = ReadBrush(reader),
-            Pen = ReadPen(reader),
-            Path = ReadPath(reader, depth),
+            Pen = ReadPen(reader, version),
+            Path = ReadPath(reader, depth, version),
             Text = ReadString(reader),
             Font = ReadFont(reader),
             FontSize = reader.ReadSingle(),
@@ -420,7 +502,7 @@ internal static class PictureArchive
         };
         if (reader.ReadBoolean())
         {
-            command.Picture = ReadPicture(reader, depth + 1);
+            command.Picture = ReadPicture(reader, depth + 1, version);
         }
         command.GlyphIndices = ReadNullableUShortArray(reader);
         command.GlyphPositions = ReadNullableVector2Array(reader);
@@ -693,7 +775,7 @@ internal static class PictureArchive
             UseFallback = reader.ReadBoolean(),
         };
 
-    private static void WritePen(BinaryWriter writer, Pen? pen)
+    private static void WritePen(BinaryWriter writer, Pen? pen, int version)
     {
         writer.Write(pen is not null);
         if (pen is null)
@@ -709,16 +791,20 @@ internal static class PictureArchive
         writer.Write((int)pen.DashCap);
         WriteDoubleArray(writer, pen.DashArray);
         writer.Write(pen.DashOffset);
+        if (version >= 3)
+        {
+            writer.Write((int)pen.StrokeTransformMode);
+        }
     }
 
-    private static Pen? ReadPen(BinaryReader reader)
+    private static Pen? ReadPen(BinaryReader reader, int version)
     {
         if (!reader.ReadBoolean())
         {
             return null;
         }
         var brush = ReadBrush(reader) ?? throw new InvalidDataException("Pens require a brush.");
-        return new Pen(brush)
+        var pen = new Pen(brush)
         {
             Thickness = reader.ReadSingle(),
             LineJoin = ReadEnum<PenLineJoin>(reader),
@@ -729,9 +815,18 @@ internal static class PictureArchive
             DashArray = ReadNullableDoubleArray(reader),
             DashOffset = reader.ReadDouble(),
         };
+        if (version >= 3)
+        {
+            pen.StrokeTransformMode = ReadEnum<PenStrokeTransformMode>(reader);
+        }
+        return pen;
     }
 
-    private static void WritePath(BinaryWriter writer, PathGeometry? path, int depth)
+    private static void WritePath(
+        BinaryWriter writer,
+        PathGeometry? path,
+        int depth,
+        int version)
     {
         writer.Write(path is not null);
         if (path is null)
@@ -744,8 +839,8 @@ internal static class PictureArchive
         writer.Write(path.Op);
         if (path.IsCombined)
         {
-            WritePath(writer, path.PathA, depth + 1);
-            WritePath(writer, path.PathB, depth + 1);
+            WritePath(writer, path.PathA, depth + 1, version);
+            WritePath(writer, path.PathB, depth + 1, version);
         }
         WriteCount(writer, path.Figures.Count, MaxArrayElements, "path figures");
         foreach (var figure in path.Figures)
@@ -753,6 +848,11 @@ internal static class PictureArchive
             WriteVector2(writer, figure.StartPoint);
             writer.Write(figure.IsClosed);
             writer.Write(figure.IsFilled);
+            if (version >= 2)
+            {
+                WriteNullableEnum(writer, figure.StrokeStartLineCap);
+                WriteNullableEnum(writer, figure.StrokeEndLineCap);
+            }
             WriteCount(writer, figure.Segments.Count, MaxArrayElements, "path segments");
             foreach (var segment in figure.Segments)
             {
@@ -794,7 +894,7 @@ internal static class PictureArchive
         }
     }
 
-    private static PathGeometry? ReadPath(BinaryReader reader, int depth)
+    private static PathGeometry? ReadPath(BinaryReader reader, int depth, int version)
     {
         if (!reader.ReadBoolean())
         {
@@ -809,8 +909,8 @@ internal static class PictureArchive
         };
         if (path.IsCombined)
         {
-            path.PathA = ReadPath(reader, depth + 1);
-            path.PathB = ReadPath(reader, depth + 1);
+            path.PathA = ReadPath(reader, depth + 1, version);
+            path.PathB = ReadPath(reader, depth + 1, version);
         }
         var figureCount = ReadCount(reader, MaxArrayElements, "path figures");
         for (var figureIndex = 0; figureIndex < figureCount; figureIndex++)
@@ -819,6 +919,11 @@ internal static class PictureArchive
             {
                 IsFilled = reader.ReadBoolean(),
             };
+            if (version >= 2)
+            {
+                figure.StrokeStartLineCap = ReadNullableEnum<PenLineCap>(reader);
+                figure.StrokeEndLineCap = ReadNullableEnum<PenLineCap>(reader);
+            }
             var segmentCount = ReadCount(reader, MaxArrayElements, "path segments");
             for (var segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++)
             {
@@ -1304,6 +1409,20 @@ internal static class PictureArchive
         }
         return (TEnum)Enum.ToObject(typeof(TEnum), raw);
     }
+
+    private static void WriteNullableEnum<TEnum>(BinaryWriter writer, TEnum? value)
+        where TEnum : struct, Enum
+    {
+        writer.Write(value.HasValue);
+        if (value.HasValue)
+        {
+            writer.Write(Convert.ToInt32(value.Value));
+        }
+    }
+
+    private static TEnum? ReadNullableEnum<TEnum>(BinaryReader reader)
+        where TEnum : struct, Enum =>
+        reader.ReadBoolean() ? ReadEnum<TEnum>(reader) : null;
 
     private static void WriteRect(BinaryWriter writer, SKRect value)
     {

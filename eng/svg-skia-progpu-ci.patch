@@ -10,3 +10,18 @@ index 9ed632c..48c41d0 100644
          svg.Settings.EnableSvgFonts = false;
          svg.Settings.EnableTextReferences = false;
          svg.Settings.StandaloneViewport = SkiaSharp.SKRect.Create(0f, 0f, 480f, 360f);
+diff --git a/tests/Svg.Skia.UnitTests/W3CTestSuiteTests.cs b/tests/Svg.Skia.UnitTests/W3CTestSuiteTests.cs
+--- a/tests/Svg.Skia.UnitTests/W3CTestSuiteTests.cs
++++ b/tests/Svg.Skia.UnitTests/W3CTestSuiteTests.cs
+@@ -564,7 +564,9 @@ public class W3CTestSuiteTests
+             "masking-path-06-b" => 0.095,
+             "masking-path-07-b" => 0.042,
+             // The animated dash/linecap/linejoin/miter states align with Chrome at the sampled
+             // SMIL frame; the residual delta is Skia stroke rasterization on the dense path samples.
++            // ProGPU's transform-adaptive cubic subdivision raises the anisotropic curve from 24
++            // to 29 sections to keep chord error below 0.25 device pixel.
+-            "animate-elem-35-t" => 0.1,
++            "animate-elem-35-t" => 0.1002,
+             // These two W3C rows intentionally stay on the legacy W3C pass images because current
+             // Chrome snapshots do not match the W3C discrete class/to-only non-interpolable states.
+             // The animated shape pixels match; the residual delta is text and frame rasterization.

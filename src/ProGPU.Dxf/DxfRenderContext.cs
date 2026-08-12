@@ -221,7 +221,13 @@ public class DxfRenderContext
         var key = (entity.Layer.Name, color.X, color.Y, color.Z, color.W, thickness);
         if (!_penCache.TryGetValue(key, out var pen))
         {
-            pen = new Pen(brush, thickness);
+            // CAD linework uses cosmetic positive widths: camera and visual
+            // transforms move the centerline, while zoom must not magnify the
+            // requested screen-space thickness.
+            pen = new Pen(
+                brush,
+                thickness,
+                strokeTransformMode: PenStrokeTransformMode.Fixed);
             _penCache[key] = pen;
         }
         return pen;

@@ -25,6 +25,8 @@ public class SKCanvas : SKObject
     private static readonly byte[] s_identityColorTable = CreateIdentityColorTable();
     private static readonly PathGeometry s_unitRectangleGeometry =
         CreateRectGeometry(new SKRect(0f, 0f, 1f, 1f));
+    private static readonly SolidColorBrush s_opaqueStrokeMaskBrush =
+        new(Vector4.One);
     private static readonly DrawingContext s_emptyRetainedLayerResourceContext = new();
 
     private sealed class TextureColorSpace
@@ -4028,6 +4030,13 @@ public class SKCanvas : SKObject
         DrawPoint(x, y, paint);
     }
 
+    private void AddAnalyticPrimitiveCommand(RenderCommand command)
+    {
+        command.GeometryCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        _context.Commands.Add(command);
+    }
+
     public void DrawRect(float x, float y, float w, float h, SKPaint paint)
     {
         var rect = new SKRect(x, y, x + w, y + h);
@@ -4042,7 +4051,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawRect,
                 Rect = new Rect(x, y, w, h),
@@ -4097,7 +4106,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawRoundedRect,
                 Rect = new Rect(rect.Left, rect.Top, rect.Width, rect.Height),
@@ -4223,7 +4232,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawEllipse,
                 Position2 = new Vector2(rect.MidX, rect.MidY),
@@ -4266,7 +4275,7 @@ public class SKCanvas : SKObject
         {
             var brush = paint.ToRetainedBrush();
             var pen = paint.ToLocalPen(GetCurrentStrokeScale());
-            _context.Commands.Add(new RenderCommand
+            AddAnalyticPrimitiveCommand(new RenderCommand
             {
                 Type = RenderCommandType.DrawCircle,
                 Position2 = new Vector2(cx, cy),
@@ -4349,7 +4358,7 @@ public class SKCanvas : SKObject
         try
         {
             var brush = paint.ToRetainedBrush();
-            var pen = paint.ToRetainedPen(GetCurrentStrokeScale());
+            var pen = paint.ToLocalPen(GetCurrentStrokeScale());
 
             if (IsInverseFillType(path.FillType))
             {
@@ -4529,6 +4538,8 @@ public class SKCanvas : SKObject
             Pen = pen,
             Transform = transform,
             IsEdgeAliased = isEdgeAliased,
+            IsPenThicknessLocal = pen is not null,
+            GeometryCache = RenderCommandGeometryCache.ForPath(path),
             UseVectorGlyphRendering = textRasterization.HasValue,
             FontSize = textInfo.FontSize,
             FontTransform = textInfo.FontTransform,
@@ -4716,12 +4727,36 @@ public class SKCanvas : SKObject
                 pushedOpacity = true;
             }
 
+            bool hasHairlineStroke =
+                paint.Style != SKPaintStyle.Fill &&
+                paint.StrokeWidth == 0f;
             if (paint.Style == SKPaintStyle.Fill)
             {
                 DrawShaderLayer(shader!, clipGeometry, targetBounds, paint, drawAsFill: false);
             }
             else
             {
+                if (paint.Style == SKPaintStyle.StrokeAndFill &&
+                    hasHairlineStroke)
+                {
+                    DrawShaderLayer(
+                        shader!,
+                        clipGeometry,
+                        targetBounds,
+                        paint,
+                        drawAsFill: true);
+                }
+
+                if (hasHairlineStroke)
+                {
+                    DrawSpecialShaderHairline(
+                        shader!,
+                        clipGeometry,
+                        targetBounds,
+                        paint);
+                    return true;
+                }
+
                 using var sourcePath = new SKPath();
                 sourcePath.Geometry.FillRule = clipGeometry.FillRule;
                 foreach (var figure in clipGeometry.Figures)
@@ -4747,6 +4782,54 @@ public class SKCanvas : SKObject
         }
 
         return true;
+    }
+
+    private void DrawSpecialShaderHairline(
+        SKShader shader,
+        PathGeometry strokePath,
+        SKRect targetBounds,
+        SKPaint paint)
+    {
+        Matrix4x4 transform = _currentMatrix.ToMatrix4x4();
+        float localPadding = 1f;
+        if (TransformMetrics.TryGetStrokeScales(
+                transform,
+                out _,
+                out float minimumScale))
+        {
+            localPadding = 2f / minimumScale;
+        }
+
+        var coverageBounds = SKRect.Inflate(
+            targetBounds,
+            localPadding,
+            localPadding);
+        var coverageGeometry = CreateRectGeometry(coverageBounds);
+        Pen maskPen = paint.ToLocalPen(
+            s_opaqueStrokeMaskBrush,
+            GetCurrentStrokeScale());
+        _context.PushOpacityMask(
+            strokePath,
+            maskPen,
+            new Rect(
+                coverageBounds.Left,
+                coverageBounds.Top,
+                coverageBounds.Width,
+                coverageBounds.Height),
+            transform);
+        try
+        {
+            DrawShaderLayer(
+                shader,
+                coverageGeometry,
+                coverageBounds,
+                paint,
+                drawAsFill: true);
+        }
+        finally
+        {
+            _context.PopOpacityMask();
+        }
     }
 
     private static bool HasSpecialShader(SKShader? shader)
@@ -4834,7 +4917,7 @@ public class SKCanvas : SKObject
                 var conicalFill = style == SKPaintStyle.Stroke ? null : conicalBrush;
                 var conicalPen = style == SKPaintStyle.Fill
                     ? null
-                    : paint.ToPen(conicalBrush, GetCurrentStrokeScale());
+                    : paint.ToLocalPen(conicalBrush, GetCurrentStrokeScale());
                 AddDrawPathCommand(
                     clipGeometry,
                     conicalFill,
@@ -4901,7 +4984,7 @@ public class SKCanvas : SKObject
         var fill = shaderStyle == SKPaintStyle.Stroke ? null : brush;
         var pen = shaderStyle == SKPaintStyle.Fill
             ? null
-            : paint.ToPen(brush, GetCurrentStrokeScale());
+            : paint.ToLocalPen(brush, GetCurrentStrokeScale());
         AddDrawPathCommand(
             clipGeometry,
             fill,

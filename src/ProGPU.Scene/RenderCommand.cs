@@ -400,9 +400,22 @@ internal interface IImageEffectDataProvider
 
 public sealed class RenderCommandGeometryCache
 {
-    private int _dashedStrokeSignature;
     private PathGeometry? _dashedStrokePath;
+    private float _dashedStrokeLocalThickness;
+    private double _dashedStrokeDashOffset;
+    private double[]? _dashedStrokeDashArray;
+    private PenLineCap _dashedStrokeStartLineCap;
+    private PenLineCap _dashedStrokeEndLineCap;
+    private PenLineCap _dashedStrokeDashCap;
     private Pen? _undashedStrokePen;
+    private Brush? _undashedStrokeSourceBrush;
+    private float _undashedStrokeLocalThickness;
+    private PenLineJoin _undashedStrokeLineJoin;
+    private float _undashedStrokeMiterLimit;
+    private PenLineCap _undashedStrokeStartLineCap;
+    private PenLineCap _undashedStrokeEndLineCap;
+    private PenLineCap _undashedStrokeDashCap;
+    private PenStrokeTransformMode _undashedStrokeTransformMode;
 
     private RenderCommandGeometryCache(
         PathGeometry? strokePath,
@@ -443,7 +456,66 @@ public sealed class RenderCommandGeometryCache
         return new RenderCommandGeometryCache(null, primaryPath, secondaryPath);
     }
 
+    internal static RenderCommandGeometryCache? CreateForDashedPrimitive(
+        in RenderCommand command)
+    {
+        if (command.Pen?.HasDashPattern != true)
+        {
+            return null;
+        }
+
+        var strokePath = CreatePrimitiveStrokePath(command);
+        return strokePath == null ? null : ForStrokePath(strokePath);
+    }
+
+    internal static PathGeometry? CreatePrimitiveStrokePath(
+        in RenderCommand command)
+    {
+        return command.Type switch
+        {
+            RenderCommandType.DrawRect =>
+                PrimitivePathGeometry.CreateRectangle(
+                    command.Rect.X,
+                    command.Rect.Y,
+                    command.Rect.Width,
+                    command.Rect.Height),
+            RenderCommandType.DrawRoundedRect =>
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    command.Rect.X,
+                    command.Rect.Y,
+                    command.Rect.Width,
+                    command.Rect.Height,
+                    command.RadiusX,
+                    command.RadiusY),
+            RenderCommandType.DrawEllipse =>
+                PrimitivePathGeometry.CreateEllipse(
+                    command.Position2,
+                    command.RadiusX,
+                    command.RadiusY),
+            RenderCommandType.DrawCircle =>
+                PrimitivePathGeometry.CreateEllipse(
+                    command.Position2,
+                    command.RadiusX,
+                    command.RadiusX),
+            _ => null
+        };
+    }
+
     public bool TryGetDashedStrokePath(Pen pen, out PathGeometry dashedStrokePath, out Pen undashedStrokePen)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        return TryGetDashedStrokePath(
+            pen,
+            pen.IsHairline ? 1f : pen.Thickness,
+            out dashedStrokePath,
+            out undashedStrokePen);
+    }
+
+    internal bool TryGetDashedStrokePath(
+        Pen pen,
+        float localThickness,
+        out PathGeometry dashedStrokePath,
+        out Pen undashedStrokePen)
     {
         ArgumentNullException.ThrowIfNull(pen);
 
@@ -454,26 +526,55 @@ public sealed class RenderCommandGeometryCache
             return false;
         }
 
-        int signature = ComputeDashedStrokeSignature(pen);
+        // A transformed picture reconstructs gradient brushes and their owning pens on
+        // every replay. Paint identity is deliberately excluded from this geometry key:
+        // dash placement depends on the local width, offset, and interval values, while
+        // the lowered per-figure endpoint metadata also depends on all three source caps.
+        // Comparing the exact values keeps a cache hit O(D), for D dash intervals, while
+        // avoiding both hash collisions and an O(G) path rebuild for G emitted segments.
+        var dashArray = pen.DashArrayStorage;
         if (_dashedStrokePath != null &&
-            _undashedStrokePen != null &&
-            _dashedStrokeSignature == signature)
+            DashedStrokeGeometryMatches(pen, localThickness, dashArray))
         {
             dashedStrokePath = _dashedStrokePath;
+        }
+        else
+        {
+            if (!Compositor.TryCreateDashedStrokePath(StrokePath, pen, localThickness, out dashedStrokePath))
+            {
+                undashedStrokePen = null!;
+                return false;
+            }
+
+            _dashedStrokePath = dashedStrokePath;
+            _dashedStrokeLocalThickness = localThickness;
+            _dashedStrokeDashOffset = pen.DashOffset;
+            _dashedStrokeDashArray = dashArray;
+            _dashedStrokeStartLineCap = pen.StartLineCap;
+            _dashedStrokeEndLineCap = pen.EndLineCap;
+            _dashedStrokeDashCap = pen.DashCap;
+        }
+
+        // The centerline geometry may be shared by many equivalent reconstructed pens,
+        // but the paint must never be. Reuse the derived pen only while every source
+        // input used to create it still matches, including brush reference identity.
+        // A mutable brush remains safe because the derived pen retains that same object.
+        if (_undashedStrokePen != null && UndashedStrokePenMatches(pen, localThickness))
+        {
             undashedStrokePen = _undashedStrokePen;
             return true;
         }
 
-        if (!Compositor.TryCreateDashedStrokePath(StrokePath, pen, out dashedStrokePath))
-        {
-            undashedStrokePen = null!;
-            return false;
-        }
-
-        undashedStrokePen = Compositor.CreateUndashedPen(pen);
-        _dashedStrokePath = dashedStrokePath;
+        undashedStrokePen = Compositor.CreateUndashedPen(pen, localThickness);
         _undashedStrokePen = undashedStrokePen;
-        _dashedStrokeSignature = signature;
+        _undashedStrokeSourceBrush = pen.Brush;
+        _undashedStrokeLocalThickness = localThickness;
+        _undashedStrokeLineJoin = pen.LineJoin;
+        _undashedStrokeMiterLimit = pen.MiterLimit;
+        _undashedStrokeStartLineCap = pen.StartLineCap;
+        _undashedStrokeEndLineCap = pen.EndLineCap;
+        _undashedStrokeDashCap = pen.DashCap;
+        _undashedStrokeTransformMode = pen.StrokeTransformMode;
         return true;
     }
 
@@ -542,33 +643,44 @@ public sealed class RenderCommandGeometryCache
         return SplineGeometry.CreatePath(controlPoints, knots, weights, degree, isClosed);
     }
 
-    private static int ComputeDashedStrokeSignature(Pen pen)
+    private bool DashedStrokeGeometryMatches(
+        Pen pen,
+        float localThickness,
+        double[]? dashArray)
     {
-        var hash = new HashCode();
-        hash.Add(pen.Brush);
-        hash.Add(pen.Thickness);
-        hash.Add(pen.LineJoin);
-        hash.Add(pen.MiterLimit);
-        hash.Add(pen.StartLineCap);
-        hash.Add(pen.EndLineCap);
-        hash.Add(pen.DashCap);
-        hash.Add(pen.DashOffset);
-
-        var dashArray = pen.DashArray;
-        if (dashArray != null)
+        if (_dashedStrokeLocalThickness != localThickness ||
+            _dashedStrokeDashOffset != pen.DashOffset ||
+            _dashedStrokeStartLineCap != pen.StartLineCap ||
+            _dashedStrokeEndLineCap != pen.EndLineCap ||
+            _dashedStrokeDashCap != pen.DashCap ||
+            _dashedStrokeDashArray == null ||
+            dashArray == null ||
+            _dashedStrokeDashArray.Length != dashArray.Length)
         {
-            hash.Add(dashArray.Length);
-            for (int i = 0; i < dashArray.Length; i++)
+            return false;
+        }
+
+        for (int i = 0; i < dashArray.Length; i++)
+        {
+            if (_dashedStrokeDashArray[i] != dashArray[i])
             {
-                hash.Add(dashArray[i]);
+                return false;
             }
         }
-        else
-        {
-            hash.Add(0);
-        }
 
-        return hash.ToHashCode();
+        return true;
+    }
+
+    private bool UndashedStrokePenMatches(Pen pen, float localThickness)
+    {
+        return ReferenceEquals(_undashedStrokeSourceBrush, pen.Brush) &&
+            _undashedStrokeLocalThickness == localThickness &&
+            _undashedStrokeLineJoin == pen.LineJoin &&
+            _undashedStrokeMiterLimit == pen.MiterLimit &&
+            _undashedStrokeStartLineCap == pen.StartLineCap &&
+            _undashedStrokeEndLineCap == pen.EndLineCap &&
+            _undashedStrokeDashCap == pen.DashCap &&
+            _undashedStrokeTransformMode == pen.StrokeTransformMode;
     }
 }
 
@@ -3356,6 +3468,13 @@ public class DrawingContext :
         return result;
     }
 
+    private void AddAnalyticPrimitiveCommand(RenderCommand command)
+    {
+        command.GeometryCache =
+            RenderCommandGeometryCache.CreateForDashedPrimitive(command);
+        Commands.Add(command);
+    }
+
     public void DrawRectangle(Brush? brush, Pen? pen, Rect rect)
     {
         if (brush is BackdropMaterialBrush backdropMaterial)
@@ -3369,12 +3488,13 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRect,
             Rect = rect,
             Brush = brush,
-            Pen = pen
+            Pen = pen,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -3391,13 +3511,14 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRect,
             Rect = rect,
             Brush = brush,
             Pen = pen,
-            Transform = transform
+            Transform = transform,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -3409,6 +3530,7 @@ public class DrawingContext :
             Brush = brush,
             Pen = pen,
             Path = path,
+            IsPenThicknessLocal = pen is not null,
             GeometryCache = RenderCommandGeometryCache.ForPath(path)
         });
     }
@@ -3438,6 +3560,7 @@ public class DrawingContext :
             Brush = brush,
             Pen = pen,
             Path = path,
+            IsPenThicknessLocal = pen is not null,
             GeometryCache = geometryCache
         });
     }
@@ -3451,6 +3574,7 @@ public class DrawingContext :
             Pen = pen,
             Path = path,
             Transform = transform,
+            IsPenThicknessLocal = pen is not null,
             GeometryCache = RenderCommandGeometryCache.ForPath(path)
         });
     }
@@ -3481,6 +3605,7 @@ public class DrawingContext :
             Pen = pen,
             Path = path,
             Transform = transform,
+            IsPenThicknessLocal = pen is not null,
             GeometryCache = geometryCache
         });
     }
@@ -3899,7 +4024,9 @@ public class DrawingContext :
             Path = geometry,
             Pen = pen,
             Rect = bounds,
-            Transform = transform
+            Transform = transform,
+            IsPenThicknessLocal = true,
+            GeometryCache = RenderCommandGeometryCache.ForStrokePath(geometry)
         });
     }
 
@@ -3924,13 +4051,25 @@ public class DrawingContext :
 
     public void DrawLine(Pen pen, Vector2 p1, Vector2 p2)
     {
+        DrawLine(pen, p1, p2, default);
+    }
+
+    public void DrawLine(
+        Pen pen,
+        Vector2 p1,
+        Vector2 p2,
+        Matrix4x4 transform)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawLine,
             Pen = pen,
             Position = p1,
             Position2 = p2,
-            GeometryCache = pen.HasDashPattern
+            Transform = transform,
+            IsPenThicknessLocal = true,
+            GeometryCache = RequiresEndpointCapGeometry(pen)
                 ? RenderCommandGeometryCache.ForStrokePath(
                     RenderCommandGeometryCache.CreateLinePath(p1, p2))
                 : null
@@ -3963,14 +4102,15 @@ public class DrawingContext :
 
     public void DrawEllipse(Brush? brush, Pen? pen, Vector2 center, float radiusX, float radiusY)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawEllipse,
             Brush = brush,
             Pen = pen,
             Position2 = center,
             RadiusX = radiusX,
-            RadiusY = radiusY
+            RadiusY = radiusY,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -3982,7 +4122,7 @@ public class DrawingContext :
         float radiusY,
         Matrix4x4 transform)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawEllipse,
             Brush = brush,
@@ -3990,7 +4130,8 @@ public class DrawingContext :
             Position2 = center,
             RadiusX = radiusX,
             RadiusY = radiusY,
-            Transform = transform
+            Transform = transform,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -4001,13 +4142,14 @@ public class DrawingContext :
 
     public void DrawCircle(Brush? brush, Pen? pen, Vector2 center, float radius)
     {
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawCircle,
             Brush = brush,
             Pen = pen,
             Position2 = center,
-            RadiusX = radius
+            RadiusX = radius,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -4061,14 +4203,15 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Brush = brush,
             Pen = pen,
             Rect = rect,
             RadiusX = radiusX,
-            RadiusY = radiusY
+            RadiusY = radiusY,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -4096,7 +4239,7 @@ public class DrawingContext :
             brush = null;
         }
 
-        Commands.Add(new RenderCommand
+        AddAnalyticPrimitiveCommand(new RenderCommand
         {
             Type = RenderCommandType.DrawRoundedRect,
             Brush = brush,
@@ -4104,7 +4247,8 @@ public class DrawingContext :
             Rect = rect,
             RadiusX = radiusX,
             RadiusY = radiusY,
-            Transform = transform
+            Transform = transform,
+            IsPenThicknessLocal = pen is not null
         });
     }
 
@@ -4121,7 +4265,15 @@ public class DrawingContext :
             Pen = pen,
             Position = p0,
             Position2 = p1,
-            Position3 = p2
+            Position3 = p2,
+            IsPenThicknessLocal = true,
+            GeometryCache = RequiresEndpointCapGeometry(pen)
+                ? RenderCommandGeometryCache.ForStrokePath(
+                    RenderCommandGeometryCache.CreateQuadraticBezierPath(
+                        p0,
+                        p1,
+                        p2))
+                : null
         });
     }
 
@@ -4134,7 +4286,16 @@ public class DrawingContext :
             Position = p0,
             Position2 = p1,
             Position3 = p2,
-            Position4 = p3
+            Position4 = p3,
+            IsPenThicknessLocal = true,
+            GeometryCache = RequiresEndpointCapGeometry(pen)
+                ? RenderCommandGeometryCache.ForStrokePath(
+                    RenderCommandGeometryCache.CreateCubicBezierPath(
+                        p0,
+                        p1,
+                        p2,
+                        p3))
+                : null
         });
     }
 
@@ -4228,7 +4389,8 @@ public class DrawingContext :
             Pen = pen,
             PointBufferOffset = offset,
             PointBufferCount = count,
-            IsClosed = isClosed
+            IsClosed = isClosed,
+            IsPenThicknessLocal = true
         });
     }
 
@@ -4280,9 +4442,15 @@ public class DrawingContext :
             WeightBufferOffset = weightOffset,
             WeightBufferCount = weightCount,
             SplineDegree = degree,
-            IsClosed = isClosed
+            IsClosed = isClosed,
+            IsPenThicknessLocal = true
         });
     }
+
+    private static bool RequiresEndpointCapGeometry(Pen pen) =>
+        pen.HasDashPattern ||
+        pen.StartLineCap != PenLineCap.Flat ||
+        pen.EndLineCap != PenLineCap.Flat;
 
     public void DrawAcisSolid(Pen pen, ReadOnlySpan<Line3D> edges, Matrix4x4 modelTransform)
     {
@@ -4572,6 +4740,12 @@ public class DrawingContext :
                 {
                     ComposeAppendTranslation(ref adjustedCmd, translation);
                 }
+                else if (adjustedCmd.Type == RenderCommandType.PushOpacityMask && adjustedCmd.Path != null)
+                {
+                    // Path-mask bounds and centerline are both local to the command;
+                    // composing once translates both when the mask is compiled.
+                    ComposeAppendTranslation(ref adjustedCmd, translation);
+                }
                 else if (adjustedCmd.Type == RenderCommandType.DrawRect ||
                     adjustedCmd.Type == RenderCommandType.DrawTexture ||
                     adjustedCmd.Type == RenderCommandType.DrawRoundedRect ||
@@ -4583,7 +4757,8 @@ public class DrawingContext :
                 else if (adjustedCmd.Type == RenderCommandType.PushGeometryClip ||
                          adjustedCmd.Type == RenderCommandType.DrawPath ||
                          adjustedCmd.Type == RenderCommandType.DrawVertexMesh ||
-                         adjustedCmd.Type == RenderCommandType.DrawPointBatch)
+                         adjustedCmd.Type == RenderCommandType.DrawPointBatch ||
+                         IsAppendTransformBackedCommand(adjustedCmd))
                 {
                     ComposeAppendTranslation(ref adjustedCmd, translation);
                 }
@@ -4633,9 +4808,9 @@ public class DrawingContext :
                         }
                         adjustedCmd.PolylinePoints = newPoints;
                     }
-                }
 
-                adjustedCmd.GeometryCache = null;
+                    RebuildTranslatedStrokeGeometryCache(ref adjustedCmd);
+                }
             }
 
             Commands.Add(adjustedCmd);
@@ -4801,6 +4976,45 @@ public class DrawingContext :
         }
     }
 
+    private void RebuildTranslatedStrokeGeometryCache(ref RenderCommand command)
+    {
+        var pen = command.Pen;
+        if (pen == null)
+        {
+            command.GeometryCache = null;
+            return;
+        }
+
+        PathGeometry? strokePath = command.Type switch
+        {
+            RenderCommandType.DrawRect or
+            RenderCommandType.DrawRoundedRect or
+            RenderCommandType.DrawEllipse or
+            RenderCommandType.DrawCircle when pen.HasDashPattern =>
+                RenderCommandGeometryCache.CreatePrimitiveStrokePath(command),
+            RenderCommandType.DrawLine when RequiresEndpointCapGeometry(pen) =>
+                RenderCommandGeometryCache.CreateLinePath(
+                    command.Position,
+                    command.Position2),
+            RenderCommandType.DrawBezier when RequiresEndpointCapGeometry(pen) =>
+                RenderCommandGeometryCache.CreateQuadraticBezierPath(
+                    command.Position,
+                    command.Position2,
+                    command.Position3),
+            RenderCommandType.DrawCubicBezier when RequiresEndpointCapGeometry(pen) =>
+                RenderCommandGeometryCache.CreateCubicBezierPath(
+                    command.Position,
+                    command.Position2,
+                    command.Position3,
+                    command.Position4),
+            _ => null
+        };
+
+        command.GeometryCache = strokePath == null
+            ? null
+            : RenderCommandGeometryCache.ForStrokePath(strokePath);
+    }
+
     private void TranslatePointBufferSlice(int offset, int count, Vector2 translation)
     {
         for (int i = 0; i < count; i++)
@@ -4830,6 +5044,8 @@ public class DrawingContext :
         else
         {
             command.Rect = TranslateRect(command.Rect, translation);
+            command.GeometryCache =
+                RenderCommandGeometryCache.CreateForDashedPrimitive(command);
         }
     }
 
@@ -4854,6 +5070,26 @@ public class DrawingContext :
                (command.Type == RenderCommandType.DrawExtension &&
                 (command.ExtensionId == CompositorBuiltInExtensions.GpuLineSeries ||
                  command.ExtensionId == CompositorBuiltInExtensions.GpuScatterSeries));
+    }
+
+    private static bool IsAppendTransformBackedCommand(RenderCommand command)
+    {
+        if (command.Type is RenderCommandType.DrawPicture or
+            RenderCommandType.DrawVisual or
+            RenderCommandType.DrawHatch or
+            RenderCommandType.DrawDotGrid or
+            RenderCommandType.DrawLine3D or
+            RenderCommandType.DrawAcisSolid or
+            RenderCommandType.DrawStaticDxf)
+        {
+            return true;
+        }
+
+        return command.Type == RenderCommandType.DrawExtension &&
+            command.ExtensionId is CompositorBuiltInExtensions.Hatch or
+                CompositorBuiltInExtensions.Line3D or
+                CompositorBuiltInExtensions.AcisSolid or
+                CompositorBuiltInExtensions.StaticDxf;
     }
 
     private static void TranslateGpuSeriesCommand(ref RenderCommand command, Vector2 translation)

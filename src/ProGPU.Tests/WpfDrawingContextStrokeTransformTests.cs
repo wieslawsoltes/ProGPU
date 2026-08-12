@@ -15,7 +15,7 @@ namespace ProGPU.Tests;
 public sealed class WpfDrawingContextStrokeTransformTests
 {
     [Fact]
-    public void PushTransformScalesRectanglePenThickness()
+    public void PushTransformRetainsRectanglePenThicknessInLocalSpace()
     {
         var nativeContext = new DrawingContext();
         using var context = new WpfDrawingContext(nativeContext);
@@ -34,12 +34,13 @@ public sealed class WpfDrawingContextStrokeTransformTests
         var command = Assert.Single(nativeContext.Commands);
         Assert.Equal(RenderCommandType.DrawRect, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(6f, command.Pen!.Thickness);
+        AssertNear(2f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(Matrix4x4.CreateScale(3f, 3f, 1f), command.Transform);
     }
 
     [Fact]
-    public void PushTransformScalesLinePenThickness()
+    public void PushTransformRetainsLinePenThicknessInLocalSpace()
     {
         var nativeContext = new DrawingContext();
         using var context = new WpfDrawingContext(nativeContext);
@@ -58,12 +59,13 @@ public sealed class WpfDrawingContextStrokeTransformTests
         var command = Assert.Single(nativeContext.Commands);
         Assert.Equal(RenderCommandType.DrawLine, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(7.5f, command.Pen!.Thickness);
+        AssertNear(1.5f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(ToMatrix4x4(transform), command.Transform);
     }
 
     [Fact]
-    public void PushTransformScalesGeometryPenThickness()
+    public void PushTransformRetainsGeometryPenThicknessInLocalSpace()
     {
         var nativeContext = new DrawingContext();
         using var context = new WpfDrawingContext(nativeContext);
@@ -82,7 +84,8 @@ public sealed class WpfDrawingContextStrokeTransformTests
         var command = Assert.Single(nativeContext.Commands);
         Assert.Equal(RenderCommandType.DrawPath, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(3f, command.Pen!.Thickness);
+        AssertNear(0.75f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(Matrix4x4.CreateScale(4f, 4f, 1f), command.Transform);
     }
 

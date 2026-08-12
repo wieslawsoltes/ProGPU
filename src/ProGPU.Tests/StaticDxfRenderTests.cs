@@ -133,6 +133,80 @@ public sealed class StaticDxfRenderTests
     }
 
     [Fact]
+    public void AppendedStaticDxfTranslationIsAppliedExactlyOnce()
+    {
+        using var window = new HeadlessWindow(72, 40);
+        using var buffer = CreateStaticRect(window.Compositor, new Rect(0, 8, 16, 24));
+        window.Content = new AppendedStaticDxfVisual(buffer, new Vector2(20f, 0f));
+
+        window.Render();
+
+        var pixels = window.ReadPixels();
+        var translated = ReadPixel(pixels, window.Width, x: 28, y: 20);
+        var doubleTranslated = ReadPixel(pixels, window.Width, x: 48, y: 20);
+        Assert.True(translated.R >= 220, $"Expected the appended DXF at one translation, found {translated}.");
+        Assert.True(translated.G <= 35 && translated.B <= 35, $"Expected red appended DXF content, found {translated}.");
+        Assert.True(doubleTranslated.R <= 35, $"Expected no double-translated DXF content, found {doubleTranslated}.");
+    }
+
+    [Fact]
+    public void CompileStaticDxfAppliesAppendedLineAndHatchTransforms()
+    {
+        var compositor = HeadlessWindow.Shared.Compositor;
+        var translation = new Vector2(20f, 30f);
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 2f);
+
+        var sourceLine = new DrawingContext();
+        sourceLine.DrawLine3D(
+            pen,
+            new Vector3(0f, 0f, 0f),
+            new Vector3(10f, 0f, 0f));
+        var appendedLine = new DrawingContext();
+        appendedLine.Append(sourceLine, translation);
+        using var lineBuffer = compositor.CompileStaticDxf(appendedLine);
+
+        Assert.NotEmpty(lineBuffer.VectorVertices);
+        Assert.Equal(20f, lineBuffer.VectorVertices.Min(vertex => vertex.Position.X));
+        Assert.Equal(30f, lineBuffer.VectorVertices.Max(vertex => vertex.Position.X));
+        Assert.All(lineBuffer.VectorVertices, vertex => Assert.Equal(30f, vertex.Position.Y));
+
+        var sourceHatch = new DrawingContext();
+        sourceHatch.DrawHatch(
+            new SolidColorBrush(Vector4.One),
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 10f, 12f));
+        var appendedHatch = new DrawingContext();
+        appendedHatch.Append(sourceHatch, translation);
+        using var hatchBuffer = compositor.CompileStaticDxf(appendedHatch);
+
+        Assert.NotEmpty(hatchBuffer.VectorVertices);
+        Assert.Equal(20f, hatchBuffer.VectorVertices.Min(vertex => vertex.Position.X));
+        Assert.Equal(30f, hatchBuffer.VectorVertices.Max(vertex => vertex.Position.X));
+        Assert.Equal(30f, hatchBuffer.VectorVertices.Min(vertex => vertex.Position.Y));
+        Assert.Equal(42f, hatchBuffer.VectorVertices.Max(vertex => vertex.Position.Y));
+    }
+
+    [Fact]
+    public void CompileStaticDxfBakesExplicitTransformForQuadExtensions()
+    {
+        var context = new DrawingContext();
+        context.DrawExtension(
+            CompositorBuiltInExtensions.ShaderToy,
+            dataParam: new ProGPU.Scene.Extensions.ShaderToyParams
+            {
+                Rect = new Rect(2f, 4f, 10f, 12f)
+            },
+            transform: Matrix4x4.CreateTranslation(20f, 30f, 0f));
+
+        using var buffer = HeadlessWindow.Shared.Compositor.CompileStaticDxf(context);
+
+        Assert.NotEmpty(buffer.VectorVertices);
+        Assert.Equal(22f, buffer.VectorVertices.Min(vertex => vertex.Position.X));
+        Assert.Equal(32f, buffer.VectorVertices.Max(vertex => vertex.Position.X));
+        Assert.Equal(34f, buffer.VectorVertices.Min(vertex => vertex.Position.Y));
+        Assert.Equal(46f, buffer.VectorVertices.Max(vertex => vertex.Position.Y));
+    }
+
+    [Fact]
     public void DrawStaticDxfSplineHonorsActiveBlendMode()
     {
         var window = HeadlessWindow.Shared;
@@ -466,6 +540,27 @@ public sealed class StaticDxfRenderTests
         public override void OnRender(DrawingContext context)
         {
             context.DrawStaticDxf(_buffer);
+        }
+    }
+
+    private sealed class AppendedStaticDxfVisual : FrameworkElement
+    {
+        private readonly DxfStaticBuffer _buffer;
+        private readonly Vector2 _translation;
+
+        public AppendedStaticDxfVisual(DxfStaticBuffer buffer, Vector2 translation)
+        {
+            _buffer = buffer;
+            _translation = translation;
+            Width = 72f;
+            Height = 40f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var source = new DrawingContext();
+            source.DrawStaticDxf(_buffer);
+            context.Append(source, _translation);
         }
     }
 

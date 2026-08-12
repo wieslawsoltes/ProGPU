@@ -817,7 +817,12 @@ namespace ProGPU.Vector
             for (int figureIndex = 0; figureIndex < src.Count; figureIndex++)
             {
                 var figure = src[figureIndex];
-                var newFigure = new PathFigure(figure.StartPoint, figure.IsClosed) { IsFilled = figure.IsFilled };
+                var newFigure = new PathFigure(figure.StartPoint, figure.IsClosed)
+                {
+                    IsFilled = figure.IsFilled,
+                    StrokeStartLineCap = figure.StrokeStartLineCap,
+                    StrokeEndLineCap = figure.StrokeEndLineCap
+                };
                 var figureSegments = figure.Segments;
                 for (int segmentIndex = 0; segmentIndex < figureSegments.Count; segmentIndex++)
                 {

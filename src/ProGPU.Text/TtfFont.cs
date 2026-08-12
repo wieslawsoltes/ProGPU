@@ -1957,7 +1957,12 @@ public partial class TtfFont
             foreach (var figure in rawOutline.Figures)
             {
                 var startPt = new Vector2(figure.StartPoint.X, -figure.StartPoint.Y);
-                var newFigure = new PathFigure(startPt, figure.IsClosed) { IsFilled = figure.IsFilled };
+                var newFigure = new PathFigure(startPt, figure.IsClosed)
+                {
+                    IsFilled = figure.IsFilled,
+                    StrokeStartLineCap = figure.StrokeStartLineCap,
+                    StrokeEndLineCap = figure.StrokeEndLineCap
+                };
                 foreach (var segment in figure.Segments)
                 {
                     if (segment is LineSegment line)

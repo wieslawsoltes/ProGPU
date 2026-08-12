@@ -205,6 +205,24 @@ class PathFigure
     public bool IsClosed { get; set; }
     public bool IsFilled { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets the optional stroke-cap override for the beginning of this figure.
+    /// </summary>
+    /// <remarks>
+    /// A null value inherits the start cap from the pen. Retained geometry lowering uses
+    /// this neutral metadata when one logical stroke contains figures with different caps.
+    /// </remarks>
+    public PenLineCap? StrokeStartLineCap { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional stroke-cap override for the end of this figure.
+    /// </summary>
+    /// <remarks>
+    /// A null value inherits the end cap from the pen. Closed figures ignore both cap
+    /// overrides because their first and last stroked segments meet at a join.
+    /// </remarks>
+    public PenLineCap? StrokeEndLineCap { get; set; }
+
     public PathFigure() { }
 
     public PathFigure(Vector2 startPoint, bool isClosed = false)
@@ -321,7 +339,9 @@ class PathGeometry : IGeometrySource2D
             {
                 StartPoint = Vector2.Transform(figure.StartPoint, transform),
                 IsClosed = figure.IsClosed,
-                IsFilled = figure.IsFilled
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap
             };
 
             var figureSegments = figure.Segments;

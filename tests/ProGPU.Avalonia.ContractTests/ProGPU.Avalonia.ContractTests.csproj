@@ -26,6 +26,7 @@
     <Compile Include="AvaloniaCompositionLayoutClipContractTests.cs" />
     <Compile Include="AvaloniaRetainedCommandCacheContractTests.cs" />
     <Compile Include="AvaloniaStreamPathContractTests.cs" />
+    <Compile Include="AvaloniaStrokeTransformContractTests.cs" />
     <Compile Include="ColorGlyphMetricCacheContractTests.cs" />
     <Compile Include="DawnNativeWindowSourceTests.cs" />
     <Compile Include="OffscreenTextureCacheTests.cs" />

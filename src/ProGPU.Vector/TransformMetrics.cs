@@ -15,15 +15,65 @@ static class TransformMetrics
 {
     public static float GetStrokeScale(Matrix4x4 transform)
     {
-        var a = transform.M11;
-        var b = transform.M12;
-        var c = transform.M21;
-        var d = transform.M22;
+        return TryGetStrokeScale(transform, out var scale) ? scale : 1f;
+    }
+
+    public static bool TryGetStrokeScale(Matrix4x4 transform, out float scale)
+    {
+        return TryGetStrokeScales(transform, out scale, out _);
+    }
+
+    /// <summary>
+    /// Computes the maximum and minimum singular values of the transform's
+    /// two-dimensional linear component.
+    /// </summary>
+    /// <remarks>
+    /// The singular values are the exact maximum and minimum scale factors of
+    /// the affine transform over all unit directions. The calculation performs
+    /// fixed <c>O(1)</c> work without allocation and uses double-precision
+    /// intermediates to avoid overflow and cancellation in finite float input.
+    /// </remarks>
+    public static bool TryGetStrokeScales(
+        Matrix4x4 transform,
+        out float maximumScale,
+        out float minimumScale)
+    {
+        var a = (double)transform.M11;
+        var b = (double)transform.M12;
+        var c = (double)transform.M21;
+        var d = (double)transform.M22;
+        if (!double.IsFinite(a) ||
+            !double.IsFinite(b) ||
+            !double.IsFinite(c) ||
+            !double.IsFinite(d))
+        {
+            maximumScale = 0f;
+            minimumScale = 0f;
+            return false;
+        }
+
         var sum = a * a + b * b + c * c + d * d;
         var determinant = (a * d) - (b * c);
-        var discriminant = MathF.Max(0f, (sum * sum) - (4f * determinant * determinant));
-        var scale = MathF.Sqrt(MathF.Max(0f, (sum + MathF.Sqrt(discriminant)) * 0.5f));
+        var discriminant = Math.Max(
+            0d,
+            (sum * sum) - (4d * determinant * determinant));
+        var maximum = Math.Sqrt(Math.Max(
+            0d,
+            (sum + Math.Sqrt(discriminant)) * 0.5d));
+        var minimum = Math.Abs(determinant) / maximum;
 
-        return float.IsFinite(scale) && scale > 0f ? scale : 1f;
+        maximumScale = (float)maximum;
+        minimumScale = (float)minimum;
+        if (float.IsFinite(maximumScale) &&
+            maximumScale > 0f &&
+            float.IsFinite(minimumScale) &&
+            minimumScale > 0f)
+        {
+            return true;
+        }
+
+        maximumScale = 0f;
+        minimumScale = 0f;
+        return false;
     }
 }

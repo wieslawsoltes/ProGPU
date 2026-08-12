@@ -1672,6 +1672,54 @@ public sealed class WinUiCompositionTests
     }
 
     [Fact]
+    public void NonScalingStrokeKeepsDeviceWidthUnderAnisotropicShapeScale()
+    {
+        using var window = new HeadlessWindow(96, 48);
+        var host = new FrameworkElement
+        {
+            Width = 96f,
+            Height = 48f
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            Compositor compositor = ElementCompositionPreview
+                .GetElementVisual(host)
+                .Compositor;
+            ShapeVisual visual = compositor.CreateShapeVisual();
+            visual.Size = new Vector2(96f, 48f);
+            CompositionLineGeometry line = compositor.CreateLineGeometry();
+            line.Start = new Vector2(10f, 8f);
+            line.End = new Vector2(10f, 40f);
+            CompositionSpriteShape shape = compositor.CreateSpriteShape(line);
+            shape.Scale = new Vector2(4f, 1f);
+            shape.StrokeBrush = compositor.CreateColorBrush(
+                Color.FromArgb(255, 0, 0, 255));
+            shape.StrokeThickness = 4f;
+            shape.IsStrokeNonScaling = true;
+            visual.Shapes.Add(shape);
+            ElementCompositionPreview.SetElementChildVisual(host, visual);
+
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            AssertBlue(ReadPixel(pixels, window.Width, 41, 24));
+            AssertDark(ReadPixel(pixels, window.Width, 44, 24));
+
+            shape.IsStrokeNonScaling = false;
+            window.Render();
+            pixels = window.ReadPixels();
+            AssertBlue(ReadPixel(pixels, window.Width, 44, 24));
+        }
+        finally
+        {
+            ElementCompositionPreview.SetElementChildVisual(host, null);
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void PathAndRoundedRectangleFactoriesPreserveTypedContracts()
     {
         using var compositor = new Compositor();

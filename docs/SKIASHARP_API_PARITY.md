@@ -718,12 +718,12 @@ System Trace exported zero target command-buffer, device-allocation, and Metal
 resource-allocation rows for both CPU-only binaries.
 
 The pinned Svg.Skia `03f64b67badfca9fca216dc25896d0c0ee04e7b7`
-validation remained stable after the preceding variable-font slice: native W3C
-reported 530 passed and 3 skipped; the ProGPU raw lane reported 485 passed, 45
-reviewed known differences, and 3 skipped; the resvg lane reported 927 passed
-and 37 intentional skips; and the remaining suite passed 1,147 of 1,147 tests.
-The repository's parity verifier accepted the complete reviewed-difference
-inventory.
+validation improved with the transformed-stroke slice: native W3C reported 530
+passed and 3 skipped; the ProGPU raw lane reported 486 passed, 44 reviewed known
+differences, and 3 skipped after `filters-overview-02-b` reached native image
+parity; the resvg lane reported 927 passed and 37 intentional skips; and the
+remaining suite passed 1,147 of 1,147 tests. The repository's parity verifier
+accepted the complete reviewed-difference inventory.
 
 ### Typeface arguments and path-builder metadata checkpoint
 

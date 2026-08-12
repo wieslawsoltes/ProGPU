@@ -1021,6 +1021,24 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
+    public void Test_DxfRenderContext_UsesPositiveFixedDeviceStrokeWidths()
+    {
+        EnsureFontsAndStateLoaded();
+        var context = new ProGPU.Dxf.DxfRenderContext(
+            new DrawingContext(),
+            AppState.GetFont()!);
+        var line = new netDxf.Entities.Line(
+            new netDxf.Vector2(-10d, 0d),
+            new netDxf.Vector2(10d, 0d));
+
+        var pen = context.GetCachedPen(line, 1.2f);
+
+        Assert.Equal(1.2f, pen.Thickness);
+        Assert.False(pen.IsHairline);
+        Assert.Equal(PenStrokeTransformMode.Fixed, pen.StrokeTransformMode);
+    }
+
+    [Fact]
     public void Test_DxfCanvasControl_ZoomRetainsGeometryAndGlyphOutlinesWithoutRecompilation()
     {
         EnsureFontsAndStateLoaded();
@@ -1730,32 +1748,17 @@ public class SamplePagesTests : IDisposable
     {
         EnsureFontsAndStateLoaded();
 
-        string specPath = "/Users/wieslawsoltes/Downloads/spec.txt";
-        string markdownContent = "";
-        if (File.Exists(specPath))
+        // Keep the virtualization workload hermetic. A developer-local markdown
+        // file can contain different block shapes and makes this completeness
+        // contract machine-dependent.
+        var documentBuilder = new System.Text.StringBuilder();
+        documentBuilder.AppendLine("# Mock Massive Markdown Document");
+        for (int i = 0; i < 1500; i++)
         {
-            try
-            {
-                markdownContent = File.ReadAllText(specPath);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Console.WriteLine($"[Headless] Falling back to generated markdown because '{specPath}' is inaccessible: {ex.Message}");
-            }
+            documentBuilder.AppendLine($"Paragraph {i}: This dense generated markdown content verifies virtualized block-based flow layout, scrolling, and rendering without depending on a local Downloads fixture.");
+            documentBuilder.AppendLine();
         }
-
-        if (markdownContent.Length == 0)
-        {
-            // Fallback: Generate a massive dense markdown document.
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("# Mock Massive Markdown Document");
-            for (int i = 0; i < 1500; i++)
-            {
-                sb.AppendLine($"Paragraph {i}: This dense generated markdown content verifies virtualized block-based flow layout, scrolling, and rendering without depending on a local Downloads fixture.");
-                sb.AppendLine();
-            }
-            markdownContent = sb.ToString();
-        }
+        string markdownContent = documentBuilder.ToString();
 
         var scrollViewer = new ScrollViewer
         {

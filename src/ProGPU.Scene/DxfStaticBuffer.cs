@@ -370,13 +370,29 @@ public unsafe class DxfStaticBuffer : IDisposable
     {
         if (UniformBuffer == null) return;
 
+        if (!TransformMetrics.TryGetStrokeScales(
+                modelToScreen,
+                out var maximumStrokeScale,
+                out var minimumStrokeScale))
+        {
+            maximumStrokeScale = 0f;
+            minimumStrokeScale = 0f;
+        }
+
         var uniformsData = new GpuUniforms
         {
             Projection = projection,
             Mvp = modelToScreen,
             View = Matrix4x4.Identity,
             CanvasSize = canvasSize,
-            DpiScale = dpiScale
+            DpiScale = dpiScale,
+            // GpuUniforms is a fixed 224-byte ABI shared by vector, text, and
+            // texture pipelines. Pad1 is otherwise unused and lets static
+            // vector draws cache the affine basis' maximum/minimum singular
+            // values once per viewport update. Conformal strokes use the
+            // scalar fast path; other invertible transforms retain exact local
+            // outlines without recomputing these metrics for every vertex.
+            Pad1 = new Vector2(maximumStrokeScale, minimumStrokeScale)
         };
 
         UniformBuffer.WriteSingle(uniformsData);

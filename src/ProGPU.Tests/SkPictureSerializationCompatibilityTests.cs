@@ -9,6 +9,81 @@ namespace ProGPU.Tests;
 public sealed class SkPictureSerializationCompatibilityTests
 {
     [Fact]
+    public void ArchiveRebuildsOnlyIntrinsicStrokeGeometryCaches()
+    {
+        var recorder = new GpuPictureRecorder();
+        var context = recorder.BeginRecording(new Rect(0f, 0f, 64f, 64f));
+        var pen = new Pen(
+            new SolidColorBrush(Vector4.One),
+            thickness: 3f,
+            lineJoin: PenLineJoin.Round,
+            startLineCap: PenLineCap.Round,
+            endLineCap: PenLineCap.Triangle,
+            dashCap: PenLineCap.Square,
+            dashArray: [2d, 1d]);
+        context.DrawLine(pen, new Vector2(2f, 4f), new Vector2(18f, 4f));
+        context.DrawQuadraticBezier(
+            pen,
+            new Vector2(2f, 10f),
+            new Vector2(10f, 2f),
+            new Vector2(18f, 10f));
+        context.DrawCubicBezier(
+            pen,
+            new Vector2(2f, 16f),
+            new Vector2(6f, 8f),
+            new Vector2(14f, 24f),
+            new Vector2(18f, 16f));
+        context.DrawPolyline(
+            pen,
+            [new Vector2(2f, 24f), new Vector2(10f, 18f), new Vector2(18f, 24f)]);
+        context.DrawSpline(
+            pen,
+            [new Vector2(2f, 32f), new Vector2(8f, 26f), new Vector2(14f, 38f), new Vector2(20f, 32f)],
+            [0d, 0d, 0d, 1d, 2d, 2d, 2d],
+            degree: 2);
+        var maskPath = RenderCommandGeometryCache.CreateLinePath(
+            new Vector2(2f, 42f),
+            new Vector2(20f, 42f));
+        context.PushOpacityMask(
+            maskPath,
+            pen,
+            new Rect(0f, 38f, 24f, 8f),
+            Matrix4x4.Identity);
+        context.PopOpacityMask();
+
+        using var gpuPicture = recorder.EndRecording();
+        using var picture = new SKPicture(
+            gpuPicture,
+            new SKRect(0f, 0f, 64f, 64f));
+        using var data = picture.Serialize();
+        using var copy = SKPicture.Deserialize(data);
+
+        var commands = copy!.Picture.Commands;
+        Assert.NotNull(commands[0].GeometryCache?.StrokePath);
+        Assert.NotNull(commands[1].GeometryCache?.StrokePath);
+        Assert.NotNull(commands[2].GeometryCache?.StrokePath);
+        Assert.Null(commands[3].GeometryCache);
+        Assert.Null(commands[4].GeometryCache);
+        Assert.NotNull(commands[5].GeometryCache?.StrokePath);
+        Assert.Same(commands[5].Path, commands[5].GeometryCache?.StrokePath);
+
+        foreach (var index in new[] { 0, 1, 2, 5 })
+        {
+            var cache = Assert.IsType<RenderCommandGeometryCache>(commands[index].GeometryCache);
+            Assert.True(cache.TryGetDashedStrokePath(
+                commands[index].Pen!,
+                out var firstPath,
+                out var firstPen));
+            Assert.True(cache.TryGetDashedStrokePath(
+                commands[index].Pen!,
+                out var secondPath,
+                out var secondPen));
+            Assert.Same(firstPath, secondPath);
+            Assert.Same(firstPen, secondPen);
+        }
+    }
+
+    [Fact]
     public void VectorArchiveRoundTripsPathsBrushesPensAndBuffers()
     {
         var path = new PathGeometry { FillRule = FillRule.EvenOdd };
@@ -51,7 +126,8 @@ public sealed class SkPictureSerializationCompatibilityTests
             endLineCap: PenLineCap.Round,
             dashCap: PenLineCap.Triangle,
             dashArray: [2d, 4d],
-            dashOffset: 1.5d);
+            dashOffset: 1.5d,
+            strokeTransformMode: PenStrokeTransformMode.Fixed);
         var command = new RenderCommand
         {
             Type = RenderCommandType.DrawPath,
@@ -103,9 +179,39 @@ public sealed class SkPictureSerializationCompatibilityTests
         Assert.Equal(stops.Length, actualBrush.Stops.Length);
         Assert.Equal(pen.DashArray, actual.Pen!.DashArray);
         Assert.Equal(PenLineCap.Triangle, actual.Pen.DashCap);
+        Assert.Equal(PenStrokeTransformMode.Fixed, actual.Pen.StrokeTransformMode);
         Assert.Equal(FillRule.EvenOdd, actual.Path!.FillRule);
         Assert.False(Assert.Single(actual.Path.Figures).IsFilled);
         Assert.IsType<ArcSegment>(actual.Path.Figures[0].Segments[^1]);
+        Assert.Same(actual.Path, actual.GeometryCache?.StrokePath);
+        Assert.Same(actual.Path, actual.GeometryCache?.FillPath);
+    }
+
+    [Fact]
+    public void VersionTwoArchiveDefaultsPenStrokeTransformModeToNormal()
+    {
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine,
+            Position = new Vector2(2f, 4f),
+            Position2 = new Vector2(18f, 4f),
+            Pen = new Pen(
+                new SolidColorBrush(Vector4.One),
+                3f,
+                strokeTransformMode: PenStrokeTransformMode.Fixed),
+            IsPenThicknessLocal = true
+        };
+        var picture = new GpuPicture([command], [], [], [], []);
+        var bytes = PictureArchive.Serialize(
+            picture,
+            new SKRect(0f, 0f, 24f, 8f),
+            archiveVersion: 2);
+
+        using var copy = SKPicture.Deserialize(bytes);
+
+        Assert.NotNull(copy);
+        var actual = Assert.Single(copy.Picture.Commands);
+        Assert.Equal(PenStrokeTransformMode.Normal, actual.Pen!.StrokeTransformMode);
     }
 
     [Fact]

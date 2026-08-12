@@ -297,8 +297,8 @@ internal partial class DrawingContextImpl :
         DrawingContext.DrawLine(
             translated,
             ToVector(p1),
-            ToVector(p2));
-        ApplyTransformToLastCommand();
+            ToVector(p2),
+            ToProGpuMatrix(CommandTransform));
     }
 
     public void DrawGeometry(
@@ -833,16 +833,6 @@ internal partial class DrawingContextImpl :
     {
         source.EnsureGpuTexture();
         return source.Texture;
-    }
-
-    private void ApplyTransformToLastCommand()
-    {
-        int index = DrawingContext.Commands.Count - 1;
-        if (index < 0)
-            return;
-        RenderCommand command = DrawingContext.Commands[index];
-        command.Transform = ToProGpuMatrix(CommandTransform);
-        DrawingContext.Commands[index] = command;
     }
 
     private static TextureFormat GetFramebufferFormat(

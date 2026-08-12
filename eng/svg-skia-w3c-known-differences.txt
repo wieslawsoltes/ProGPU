@@ -10,7 +10,6 @@ filters-composite-02-b
 filters-comptran-01-b
 filters-conv-04-f
 filters-morph-01-f
-filters-overview-02-b
 fonts-elem-02-t
 fonts-glyph-02-t
 linking-uri-01-b

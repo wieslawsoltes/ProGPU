@@ -1697,6 +1697,50 @@ public sealed class SkCanvasStateTests
         Assert.Equal((byte)0, pixels[(60 * 64 + 37) * 4 + 3]);
     }
 
+    [Theory]
+    [InlineData(SKPaintStyle.Stroke)]
+    [InlineData(SKPaintStyle.StrokeAndFill)]
+    public void SpecialShaderPreservesTransformedHairlineStroke(
+        SKPaintStyle style)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(
+            80,
+            80,
+            SKColorType.Rgba8888,
+            SKAlphaType.Premul));
+        using var colorShader = SKShader.CreateColor(SKColors.Red);
+        using var colorFilter = SKColorFilter.CreateLumaColor();
+        using var shader = colorShader.WithColorFilter(colorFilter);
+        using var paint = new SKPaint
+        {
+            Shader = shader,
+            Style = style,
+            StrokeWidth = 0f,
+            StrokeCap = SKStrokeCap.Butt,
+            IsAntialias = false
+        };
+        using var path = new SKPath();
+        path.AddRect(new SKRect(8f, 8f, 24f, 24f));
+
+        surface.Canvas.Clear(SKColors.Transparent);
+        surface.Canvas.SetMatrix(SKMatrix.CreateScale(2f, 3f));
+        surface.Canvas.DrawPath(path, paint);
+        surface.Flush();
+
+        using var snapshot = surface.Snapshot();
+        byte[] pixels = snapshot.Texture.ReadPixels();
+        Assert.True(pixels[(24 * 80 + 24) * 4 + 3] > 0);
+        Assert.Equal((byte)0, pixels[(22 * 80 + 24) * 4 + 3]);
+        if (style == SKPaintStyle.StrokeAndFill)
+        {
+            Assert.True(pixels[(40 * 80 + 32) * 4 + 3] > 0);
+        }
+        else
+        {
+            Assert.Equal((byte)0, pixels[(40 * 80 + 32) * 4 + 3]);
+        }
+    }
+
     [Fact]
     public void DrawTextWithStrokePaintRendersGlyphOutlines()
     {
@@ -2262,7 +2306,7 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
-    public void DrawPathScalesStrokeWidthWithSetMatrix()
+    public void DrawPathKeepsStrokeWidthInLocalCoordinatesWithSetMatrix()
     {
         var context = new DrawingContext();
         using var canvas = new SKCanvas(context, 100f, 100f);
@@ -2287,8 +2331,83 @@ public sealed class SkCanvasStateTests
         var command = Assert.Single(context.Commands);
         Assert.Equal(RenderCommandType.DrawPath, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(7.5f, command.Pen!.Thickness);
+        AssertNear(1.5f, command.Pen!.Thickness);
+        Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(matrix.ToMatrix4x4(), command.Transform);
+    }
+
+    [Fact]
+    public void DrawDashedPathRetainsAndReusesItsGeometryCache()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var path = new SKPath();
+        using var dash = SKPathEffect.CreateDash([6f, 3f], 1f);
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+            PathEffect = dash
+        };
+
+        path.MoveTo(4f, 8f);
+        path.LineTo(80f, 8f);
+        canvas.DrawPath(path, paint);
+
+        var command = Assert.Single(context.Commands);
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Assert.NotNull(command.Path);
+        Assert.NotNull(command.Pen);
+        Assert.NotNull(command.GeometryCache);
+        Assert.Same(command.Path, command.GeometryCache!.StrokePath);
+        Assert.Same(command.Path, command.GeometryCache.FillPath);
+
+        Assert.True(command.GeometryCache.TryGetDashedStrokePath(
+            command.Pen!,
+            out var firstPath,
+            out var firstPen));
+        Assert.True(command.GeometryCache.TryGetDashedStrokePath(
+            command.Pen!,
+            out var secondPath,
+            out var secondPen));
+        Assert.Same(firstPath, secondPath);
+        Assert.Same(firstPen, secondPen);
+    }
+
+    [Fact]
+    public void DashedAnalyticPrimitivesRetainSourceStrokePaths()
+    {
+        var context = new DrawingContext();
+        using var canvas = new SKCanvas(context, 100f, 100f);
+        using var dash = SKPathEffect.CreateDash([6f, 3f], 1f);
+        using var paint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2f,
+            PathEffect = dash
+        };
+
+        canvas.DrawRect(new SKRect(4f, 6f, 40f, 30f), paint);
+        canvas.DrawRoundRect(new SKRect(8f, 10f, 52f, 42f), 7f, 5f, paint);
+        canvas.DrawOval(new SKRect(12f, 14f, 60f, 48f), paint);
+        canvas.DrawCircle(38f, 36f, 18f, paint);
+
+        Assert.Collection(
+            context.Commands,
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawRect),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawRoundedRect),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawEllipse),
+            command => AssertDashedPrimitiveCache(command, RenderCommandType.DrawCircle));
+    }
+
+    private static void AssertDashedPrimitiveCache(
+        RenderCommand command,
+        RenderCommandType expectedType)
+    {
+        Assert.Equal(expectedType, command.Type);
+        Assert.True(command.Pen?.HasDashPattern);
+        Assert.NotNull(command.GeometryCache?.StrokePath);
+        Assert.NotEmpty(command.GeometryCache!.StrokePath!.Figures);
     }
 
     [Fact]
@@ -2308,7 +2427,8 @@ public sealed class SkCanvasStateTests
         var command = Assert.Single(context.Commands);
         Assert.Equal(RenderCommandType.DrawRect, command.Type);
         Assert.NotNull(command.Pen);
-        AssertNear(0.25f, command.Pen!.Thickness);
+        Assert.True(command.Pen!.IsHairline);
+        Assert.Equal(Pen.HairlineThickness, command.Pen.Thickness);
         Assert.True(command.IsPenThicknessLocal);
         AssertMatrixNear(Matrix4x4.CreateScale(4f, 4f, 1f), command.Transform);
     }

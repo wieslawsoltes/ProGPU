@@ -259,9 +259,9 @@ public sealed class CompositionEllipseGeometry : CompositionGeometry
         if (_trimmedPath is null)
         {
             _trimmedPath = CreateTrimmedPath();
-            _trimmedCache = RenderCommandGeometryCache.ForPath(
-                _trimmedPath);
         }
+        _trimmedCache ??= RenderCommandGeometryCache.ForPath(
+            _trimmedPath);
         context.DrawPath(
             fill,
             stroke,
@@ -389,9 +389,9 @@ public sealed class CompositionRectangleGeometry : CompositionGeometry
         if (_trimmedPath is null)
         {
             _trimmedPath = CreateTrimmedPath();
-            _trimmedCache = RenderCommandGeometryCache.ForPath(
-                _trimmedPath);
         }
+        _trimmedCache ??= RenderCommandGeometryCache.ForPath(
+            _trimmedPath);
         context.DrawPath(
             fill,
             stroke,
@@ -530,8 +530,8 @@ public sealed class CompositionLineGeometry : CompositionGeometry
         if (_path is null)
         {
             _path = CreatePath();
-            _pathCache = RenderCommandGeometryCache.ForPath(_path);
         }
+        _pathCache ??= RenderCommandGeometryCache.ForPath(_path);
         context.DrawPath(
             null,
             stroke,
@@ -748,6 +748,10 @@ public sealed class CompositionSpriteShape : CompositionShape,
     private readonly Pen _strokePen;
     private readonly SolidColorBrush _opaqueTextureMaskBrush;
     private double[]? _appliedDashArray;
+    private PathGeometry? _nonScalingStrokePath;
+    private PathGeometry? _nonScalingStrokeSource;
+    private RenderCommandGeometryCache? _nonScalingStrokeCache;
+    private Matrix4x4 _nonScalingStrokeTransform;
     private bool _isStrokeNonScaling;
     private CompositionStrokeCap _strokeDashCap;
     private float _strokeDashOffset;
@@ -787,6 +791,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
             _geometry?.RemoveOwner(this);
             _geometry = value;
             _geometry?.AddOwner(this);
+            InvalidateNonScalingStrokeCache();
             NotifyShapeChanged();
         }
     }
@@ -850,8 +855,11 @@ public sealed class CompositionSpriteShape : CompositionShape,
     void ICompositionBrushOwner.NotifyBrushValueChanged() =>
         NotifyShapeChanged();
 
-    void ICompositionGeometryOwner.NotifyGeometryChanged() =>
+    void ICompositionGeometryOwner.NotifyGeometryChanged()
+    {
+        InvalidateNonScalingStrokeCache();
         NotifyShapeChanged();
+    }
 
     internal override void Record(
         DrawingContext context,
@@ -874,7 +882,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
         Brush? fill = _fillBrush is null ? null : _fillSceneBrush;
         _strokeBrush?.UpdateSceneBrush(brushBounds, ref _strokeSceneBrush);
         Pen? stroke = UpdateStrokePen(_strokeSceneBrush, transform);
-        _geometry.Record(context, fill, stroke, transform);
+        RecordGeometry(context, fill, stroke, transform);
     }
 
     internal override void OnDisposed()
@@ -887,6 +895,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
         _strokeBrush = null;
         _strokeSceneBrush = null;
         _geometry = null;
+        InvalidateNonScalingStrokeCache();
         StrokeDashArray.Dispose();
         base.OnDisposed();
     }
@@ -932,7 +941,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
                         transform);
                 }
                 else if (fill is not null)
-                    _geometry!.Record(context, fill, null, transform);
+                    RecordGeometry(context, fill, null, transform);
             }
             finally
             {
@@ -964,7 +973,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
                 {
                     Pen? stroke = UpdateStrokePen(strokeBrush, transform);
                     if (stroke is not null)
-                    _geometry!.Record(context, null, stroke, transform);
+                        RecordGeometry(context, null, stroke, transform);
                 }
             }
             finally
@@ -1000,7 +1009,21 @@ public sealed class CompositionSpriteShape : CompositionShape,
             transform);
         if (path is null || maskPen is null)
             return;
-        context.PushOpacityMask(path, maskPen, brushBounds, transform);
+        if (_isStrokeNonScaling)
+        {
+            path = GetNonScalingStrokePath(path, transform);
+            var transformedBounds = new GeneralTransform(transform)
+                .TransformBounds(brushBounds);
+            context.PushOpacityMask(
+                path,
+                maskPen,
+                transformedBounds,
+                Matrix4x4.Identity);
+        }
+        else
+        {
+            context.PushOpacityMask(path, maskPen, brushBounds, transform);
+        }
         context.DrawRectangle(textureBrush, null, brushBounds);
         context.PopOpacityMask();
     }
@@ -1013,10 +1036,7 @@ public sealed class CompositionSpriteShape : CompositionShape,
             return null;
 
         _strokePen.Brush = strokeBrush;
-        _strokePen.Thickness = _isStrokeNonScaling
-            ? _strokeThickness /
-              TransformMetrics.GetStrokeScale(transform)
-            : _strokeThickness;
+        _strokePen.Thickness = _strokeThickness;
         _strokePen.LineJoin = ToLineJoin(_strokeLineJoin);
         _strokePen.MiterLimit = Math.Max(1f, _strokeMiterLimit);
         _strokePen.StartLineCap = ToLineCap(_strokeStartCap);
@@ -1030,6 +1050,62 @@ public sealed class CompositionSpriteShape : CompositionShape,
             _appliedDashArray = dashArray;
         }
         return _strokePen;
+    }
+
+    private void RecordGeometry(
+        DrawingContext context,
+        Brush? fill,
+        Pen? stroke,
+        in Matrix4x4 transform)
+    {
+        if (!_isStrokeNonScaling || stroke is null)
+        {
+            _geometry!.Record(context, fill, stroke, transform);
+            return;
+        }
+
+        if (fill is not null)
+        {
+            _geometry!.Record(context, fill, null, transform);
+        }
+
+        PathGeometry? source = _geometry!.GetClipPath();
+        if (source is null)
+            return;
+
+        PathGeometry path = GetNonScalingStrokePath(source, transform);
+        context.DrawPath(
+            null,
+            stroke,
+            path,
+            Matrix4x4.Identity,
+            _nonScalingStrokeCache!);
+    }
+
+    private PathGeometry GetNonScalingStrokePath(
+        PathGeometry source,
+        in Matrix4x4 transform)
+    {
+        if (!ReferenceEquals(_nonScalingStrokeSource, source) ||
+            _nonScalingStrokeTransform != transform ||
+            _nonScalingStrokePath is null)
+        {
+            _nonScalingStrokeSource = source;
+            _nonScalingStrokeTransform = transform;
+            _nonScalingStrokePath = source.CreateTransformed(transform);
+            _nonScalingStrokeCache = RenderCommandGeometryCache.ForPath(
+                _nonScalingStrokePath);
+        }
+
+        return _nonScalingStrokePath;
+    }
+
+    private void InvalidateNonScalingStrokeCache()
+    {
+        _nonScalingStrokeSource = null;
+        _nonScalingStrokePath = null;
+        _nonScalingStrokeCache = null;
+        _nonScalingStrokeTransform = default;
     }
 
     private void SetFinite(

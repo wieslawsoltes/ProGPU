@@ -703,6 +703,126 @@ fn stroked_segment_intersects_ellipse_region(start: vec2<f32>, end: vec2<f32>, h
     return distance_squared_to_segment(vec2<f32>(0.0, 0.0), normalized_start, normalized_end) <= hit_radius * hit_radius;
 }
 
+fn quad_intersects_ellipse_region(
+    a: vec2<f32>,
+    b: vec2<f32>,
+    c: vec2<f32>,
+    d: vec2<f32>,
+    query_center: vec2<f32>,
+    query_inverse_radii: vec2<f32>) -> bool {
+    if (contains_ellipse_from_inverse_radii(a, query_center, query_inverse_radii) ||
+        contains_ellipse_from_inverse_radii(b, query_center, query_inverse_radii) ||
+        contains_ellipse_from_inverse_radii(c, query_center, query_inverse_radii) ||
+        contains_ellipse_from_inverse_radii(d, query_center, query_inverse_radii) ||
+        point_in_quad(query_center, a, b, c, d)) {
+        return true;
+    }
+
+    return segment_intersects_ellipse_region(a, b, query_center, query_inverse_radii) ||
+        segment_intersects_ellipse_region(b, c, query_center, query_inverse_radii) ||
+        segment_intersects_ellipse_region(c, d, query_center, query_inverse_radii) ||
+        segment_intersects_ellipse_region(d, a, query_center, query_inverse_radii);
+}
+
+fn triangle_cap_intersects_ellipse_region(
+    center: vec2<f32>,
+    direction: vec2<f32>,
+    half_stroke: f32,
+    query_center: vec2<f32>,
+    query_inverse_radii: vec2<f32>) -> bool {
+    let normal = vec2<f32>(-direction.y, direction.x);
+    let a = center - normal * half_stroke;
+    let b = center + normal * half_stroke;
+    let c = center + direction * half_stroke;
+    if (contains_ellipse_from_inverse_radii(a, query_center, query_inverse_radii) ||
+        contains_ellipse_from_inverse_radii(b, query_center, query_inverse_radii) ||
+        contains_ellipse_from_inverse_radii(c, query_center, query_inverse_radii) ||
+        point_in_triangle(query_center, a, b, c)) {
+        return true;
+    }
+
+    return segment_intersects_ellipse_region(a, b, query_center, query_inverse_radii) ||
+        segment_intersects_ellipse_region(b, c, query_center, query_inverse_radii) ||
+        segment_intersects_ellipse_region(c, a, query_center, query_inverse_radii);
+}
+
+fn capped_line_stroke_intersects_ellipse_region(
+    start: vec2<f32>,
+    end: vec2<f32>,
+    half_stroke: f32,
+    start_cap: u32,
+    end_cap: u32,
+    query_center: vec2<f32>,
+    query_inverse_radii: vec2<f32>) -> bool {
+    if (half_stroke <= 0.0 || query_inverse_radii.x <= 0.0 || query_inverse_radii.y <= 0.0) {
+        return false;
+    }
+
+    let delta = end - start;
+    let segment_length = length(delta);
+    if (segment_length <= 0.0001) {
+        if (start_cap == CAP_FLAT && end_cap == CAP_FLAT) {
+            return false;
+        }
+
+        let cap_inverse_radii = vec2<f32>(1.0 / half_stroke, 1.0 / half_stroke);
+        return ellipses_may_intersect(
+            query_center,
+            query_inverse_radii,
+            start,
+            cap_inverse_radii);
+    }
+
+    let direction = delta / segment_length;
+    let normal = vec2<f32>(-direction.y, direction.x);
+    let start_extension = select(0.0, half_stroke, start_cap == CAP_SQUARE);
+    let end_extension = select(0.0, half_stroke, end_cap == CAP_SQUARE);
+    let body_start = start - direction * start_extension;
+    let body_end = end + direction * end_extension;
+    let a = body_start + normal * half_stroke;
+    let b = body_end + normal * half_stroke;
+    let c = body_end - normal * half_stroke;
+    let d = body_start - normal * half_stroke;
+    if (quad_intersects_ellipse_region(
+            a,
+            b,
+            c,
+            d,
+            query_center,
+            query_inverse_radii)) {
+        return true;
+    }
+
+    let cap_inverse_radii = vec2<f32>(1.0 / half_stroke, 1.0 / half_stroke);
+    if (start_cap == CAP_ROUND &&
+        ellipses_may_intersect(query_center, query_inverse_radii, start, cap_inverse_radii)) {
+        return true;
+    }
+
+    if (end_cap == CAP_ROUND &&
+        ellipses_may_intersect(query_center, query_inverse_radii, end, cap_inverse_radii)) {
+        return true;
+    }
+
+    if (start_cap == CAP_TRIANGLE &&
+        triangle_cap_intersects_ellipse_region(
+            start,
+            -direction,
+            half_stroke,
+            query_center,
+            query_inverse_radii)) {
+        return true;
+    }
+
+    return end_cap == CAP_TRIANGLE &&
+        triangle_cap_intersects_ellipse_region(
+            end,
+            direction,
+            half_stroke,
+            query_center,
+            query_inverse_radii);
+}
+
 fn line_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_radii: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     let stroke = abs(primitive.data1.x);
     if (stroke <= 0.0 || query_inverse_radii.x <= 0.0 || query_inverse_radii.y <= 0.0) {
@@ -712,24 +832,14 @@ fn line_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
     let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.y);
     let start_cap = u32(primitive.data1.z);
     let end_cap = u32(primitive.data1.w);
-    let direction = primitive.data2.xy;
-    let segment_length = primitive.data2.z;
-    let normalized_stroke_radius = half_stroke * max(query_inverse_radii.x, query_inverse_radii.y);
-    let hit_radius = 1.0 + normalized_stroke_radius;
-    if (segment_length <= 0.0001) {
-        if (start_cap == CAP_FLAT && end_cap == CAP_FLAT) {
-            return false;
-        }
-
-        let normalized_point = (primitive.data0.xy - query_center) * query_inverse_radii;
-        return dot(normalized_point, normalized_point) <= hit_radius * hit_radius;
-    }
-
-    let start_extension = select(half_stroke, 0.0, start_cap == CAP_FLAT);
-    let end_extension = select(half_stroke, 0.0, end_cap == CAP_FLAT);
-    let start = (primitive.data0.xy - (direction * start_extension) - query_center) * query_inverse_radii;
-    let end = (primitive.data0.zw + (direction * end_extension) - query_center) * query_inverse_radii;
-    return distance_squared_to_segment(vec2<f32>(0.0, 0.0), start, end) <= hit_radius * hit_radius;
+    return capped_line_stroke_intersects_ellipse_region(
+        primitive.data0.xy,
+        primitive.data0.zw,
+        half_stroke,
+        start_cap,
+        end_cap,
+        query_center,
+        query_inverse_radii);
 }
 
 fn distance_squared_to_rect(point: vec2<f32>, rect_min: vec2<f32>, rect_max: vec2<f32>) -> f32 {
@@ -856,23 +966,20 @@ fn triangle_cap_intersects_rect(center: vec2<f32>, direction: vec2<f32>, half_st
         segment_intersects_rect(c, a, rect_min, rect_max);
 }
 
-fn line_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primitive: HitTestPrimitive) -> bool {
-    let start = primitive.data0.xy;
-    let end = primitive.data0.zw;
-    let stroke = abs(primitive.data1.x);
-    if (stroke <= 0.0) {
-        return false;
-    }
-
-    let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.y);
+fn capped_line_stroke_intersects_rect(
+    start: vec2<f32>,
+    end: vec2<f32>,
+    half_stroke: f32,
+    start_cap: u32,
+    end_cap: u32,
+    rect_min: vec2<f32>,
+    rect_max: vec2<f32>) -> bool {
     if (half_stroke <= 0.0) {
         return false;
     }
 
-    let start_cap = u32(primitive.data1.z);
-    let end_cap = u32(primitive.data1.w);
-    let direction = primitive.data2.xy;
-    let segment_length = primitive.data2.z;
+    let delta = end - start;
+    let segment_length = length(delta);
     if (segment_length <= 0.0001) {
         if (start_cap == CAP_FLAT && end_cap == CAP_FLAT) {
             return false;
@@ -881,6 +988,7 @@ fn line_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
         return distance_squared_to_rect(start, rect_min, rect_max) <= half_stroke * half_stroke;
     }
 
+    let direction = delta / segment_length;
     let normal = vec2<f32>(-direction.y, direction.x);
     let start_extension = select(0.0, half_stroke, start_cap == CAP_SQUARE);
     let end_extension = select(0.0, half_stroke, end_cap == CAP_SQUARE);
@@ -894,23 +1002,44 @@ fn line_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
         return true;
     }
 
-    if (start_cap == CAP_ROUND && distance_squared_to_rect(start, rect_min, rect_max) <= half_stroke * half_stroke) {
+    if (start_cap == CAP_ROUND &&
+        distance_squared_to_rect(start, rect_min, rect_max) <= half_stroke * half_stroke) {
         return true;
     }
 
-    if (end_cap == CAP_ROUND && distance_squared_to_rect(end, rect_min, rect_max) <= half_stroke * half_stroke) {
+    if (end_cap == CAP_ROUND &&
+        distance_squared_to_rect(end, rect_min, rect_max) <= half_stroke * half_stroke) {
         return true;
     }
 
-    if (start_cap == CAP_TRIANGLE && triangle_cap_intersects_rect(start, -direction, half_stroke, rect_min, rect_max)) {
+    if (start_cap == CAP_TRIANGLE &&
+        triangle_cap_intersects_rect(start, -direction, half_stroke, rect_min, rect_max)) {
         return true;
     }
 
-    if (end_cap == CAP_TRIANGLE && triangle_cap_intersects_rect(end, direction, half_stroke, rect_min, rect_max)) {
-        return true;
+    return end_cap == CAP_TRIANGLE &&
+        triangle_cap_intersects_rect(end, direction, half_stroke, rect_min, rect_max);
+}
+
+fn line_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primitive: HitTestPrimitive) -> bool {
+    let start = primitive.data0.xy;
+    let end = primitive.data0.zw;
+    let stroke = abs(primitive.data1.x);
+    if (stroke <= 0.0) {
+        return false;
     }
 
-    return false;
+    let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.y);
+    let start_cap = u32(primitive.data1.z);
+    let end_cap = u32(primitive.data1.w);
+    return capped_line_stroke_intersects_rect(
+        start,
+        end,
+        half_stroke,
+        start_cap,
+        end_cap,
+        rect_min,
+        rect_max);
 }
 
 fn evaluate_quadratic(start: vec2<f32>, control: vec2<f32>, end: vec2<f32>, t: f32) -> vec2<f32> {
@@ -1300,8 +1429,175 @@ fn classify_path_fill_ellipse_region_intersection_detail(query_center: vec2<f32>
     return classify_path_fill_ellipse_region_intersection_detail_range(query_center, query_inverse_radii, start_segment, segment_count, fill_rule);
 }
 
-fn path_stroke_line_hit(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>, half_stroke: f32) -> bool {
-    return distance_squared_to_segment(point, start, end) <= half_stroke * half_stroke;
+fn path_stroke_line_hit(
+    point: vec2<f32>,
+    start: vec2<f32>,
+    end: vec2<f32>,
+    half_stroke: f32,
+    start_cap: u32,
+    end_cap: u32,
+    is_first_piece: bool,
+    is_last_piece: bool) -> bool {
+    let delta = end - start;
+    let segment_length = length(delta);
+    if (segment_length <= 0.0001) {
+        let effective_start_cap = select(CAP_ROUND, start_cap, is_first_piece);
+        let effective_end_cap = select(CAP_ROUND, end_cap, is_last_piece);
+        if (effective_start_cap == CAP_FLAT && effective_end_cap == CAP_FLAT) {
+            return false;
+        }
+
+        let point_delta = point - start;
+        return dot(point_delta, point_delta) <= half_stroke * half_stroke;
+    }
+
+    let direction = delta / segment_length;
+    let offset = point - start;
+    let along = dot(offset, direction);
+    let signed_distance = cross2(offset, direction);
+    if (along >= 0.0 && along <= segment_length && abs(signed_distance) <= half_stroke) {
+        return true;
+    }
+
+    if (along < 0.0) {
+        let cap = select(CAP_ROUND, start_cap, is_first_piece);
+        return contains_line_cap(point, start, direction, signed_distance, along, half_stroke, cap, true);
+    }
+
+    let cap = select(CAP_ROUND, end_cap, is_last_piece);
+    return contains_line_cap(point, end, direction, signed_distance, along - segment_length, half_stroke, cap, false);
+}
+
+fn path_segment_end_point(segment: PathSegment) -> vec2<f32> {
+    if (segment.segment_type == SEGMENT_QUADRATIC) {
+        return segment.p2;
+    }
+
+    if (segment.segment_type == SEGMENT_CUBIC) {
+        return segment.p3;
+    }
+
+    return segment.p1;
+}
+
+fn evaluate_arc_tangent(segment: PathSegment, t: f32) -> vec2<f32> {
+    let theta_start = bitcast<f32>(segment.pad0);
+    let delta_theta = bitcast<f32>(segment.pad1);
+    let rotation = bitcast<f32>(segment.pad2);
+    let theta = theta_start + delta_theta * t;
+    let local = vec2<f32>(
+        -sin(theta) * segment.p3.x,
+        cos(theta) * segment.p3.y) * delta_theta;
+    let c = cos(rotation);
+    let s = sin(rotation);
+    return vec2<f32>(
+        (local.x * c) - (local.y * s),
+        (local.x * s) + (local.y * c));
+}
+
+fn path_segment_start_tangent(segment: PathSegment) -> vec2<f32> {
+    if (segment.segment_type == SEGMENT_LINE) {
+        return segment.p1 - segment.p0;
+    }
+
+    if (segment.segment_type == SEGMENT_QUADRATIC) {
+        let first = segment.p1 - segment.p0;
+        return select(segment.p2 - segment.p0, first, dot(first, first) > 0.000000000001);
+    }
+
+    if (segment.segment_type == SEGMENT_CUBIC) {
+        let first = segment.p1 - segment.p0;
+        if (dot(first, first) > 0.000000000001) {
+            return first;
+        }
+
+        let second = segment.p2 - segment.p0;
+        return select(segment.p3 - segment.p0, second, dot(second, second) > 0.000000000001);
+    }
+
+    let tangent = evaluate_arc_tangent(segment, 0.0);
+    return select(segment.p1 - segment.p0, tangent, dot(tangent, tangent) > 0.000000000001);
+}
+
+fn path_segment_end_tangent(segment: PathSegment) -> vec2<f32> {
+    if (segment.segment_type == SEGMENT_LINE) {
+        return segment.p1 - segment.p0;
+    }
+
+    if (segment.segment_type == SEGMENT_QUADRATIC) {
+        let last = segment.p2 - segment.p1;
+        return select(segment.p2 - segment.p0, last, dot(last, last) > 0.000000000001);
+    }
+
+    if (segment.segment_type == SEGMENT_CUBIC) {
+        let last = segment.p3 - segment.p2;
+        if (dot(last, last) > 0.000000000001) {
+            return last;
+        }
+
+        let previous = segment.p3 - segment.p1;
+        return select(segment.p3 - segment.p0, previous, dot(previous, previous) > 0.000000000001);
+    }
+
+    let tangent = evaluate_arc_tangent(segment, 1.0);
+    return select(segment.p1 - segment.p0, tangent, dot(tangent, tangent) > 0.000000000001);
+}
+
+fn point_passes_path_endpoint_caps(
+    point: vec2<f32>,
+    half_stroke: f32,
+    start_segment: u32,
+    end_segment: u32,
+    start_cap: u32,
+    end_cap: u32) -> bool {
+    if (start_cap != CAP_ROUND) {
+        let first = path_segments[start_segment];
+        let direction_delta = path_segment_start_tangent(first);
+        let direction_length = length(direction_delta);
+        if (direction_length > 0.000001) {
+            let direction = direction_delta / direction_length;
+            let offset = point - first.p0;
+            let along = dot(offset, direction);
+            if (along < 0.0 &&
+                !contains_line_cap(
+                    point,
+                    first.p0,
+                    direction,
+                    cross2(offset, direction),
+                    along,
+                    half_stroke,
+                    start_cap,
+                    true)) {
+                return false;
+            }
+        }
+    }
+
+    if (end_cap != CAP_ROUND) {
+        let last = path_segments[end_segment - 1u];
+        let end_point = path_segment_end_point(last);
+        let direction_delta = path_segment_end_tangent(last);
+        let direction_length = length(direction_delta);
+        if (direction_length > 0.000001) {
+            let direction = direction_delta / direction_length;
+            let offset = point - end_point;
+            let along = dot(offset, direction);
+            if (along > 0.0 &&
+                !contains_line_cap(
+                    point,
+                    end_point,
+                    direction,
+                    cross2(offset, direction),
+                    along,
+                    half_stroke,
+                    end_cap,
+                    false)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
@@ -1313,7 +1609,19 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     }
 
     let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.w);
+    let start_cap = u32(primitive.data2.x + 0.5);
+    let end_cap = u32(primitive.data2.y + 0.5);
     let end_segment = min(start_segment + segment_count, query.path_segment_count);
+    if (!point_passes_path_endpoint_caps(
+            point,
+            half_stroke,
+            start_segment,
+            end_segment,
+            start_cap,
+            end_cap)) {
+        return false;
+    }
+
     var segment_index = start_segment;
     loop {
         if (segment_index >= end_segment) {
@@ -1322,7 +1630,15 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
 
         let segment = path_segments[segment_index];
         if (segment.segment_type == SEGMENT_LINE) {
-            if (path_stroke_line_hit(point, segment.p0, segment.p1, half_stroke)) {
+            if (path_stroke_line_hit(
+                    point,
+                    segment.p0,
+                    segment.p1,
+                    half_stroke,
+                    start_cap,
+                    end_cap,
+                    segment_index == start_segment,
+                    segment_index + 1u == end_segment)) {
                 return true;
             }
         } else if (segment.segment_type == SEGMENT_QUADRATIC) {
@@ -1334,7 +1650,15 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
                 }
 
                 let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
-                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                if (path_stroke_line_hit(
+                        point,
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_QUADRATIC_STEPS)) {
                     return true;
                 }
 
@@ -1350,7 +1674,15 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
                 }
 
                 let next_point = evaluate_cubic(segment.p0, segment.p1, segment.p2, segment.p3, f32(step) / f32(PATH_CUBIC_STEPS));
-                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                if (path_stroke_line_hit(
+                        point,
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_CUBIC_STEPS)) {
                     return true;
                 }
 
@@ -1366,7 +1698,15 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
                 }
 
                 let next_point = evaluate_arc(segment, f32(step) / f32(PATH_ARC_STEPS));
-                if (path_stroke_line_hit(point, previous, next_point, half_stroke)) {
+                if (path_stroke_line_hit(
+                        point,
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_ARC_STEPS)) {
                     return true;
                 }
 
@@ -1379,6 +1719,26 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     }
 
     return false;
+}
+
+fn path_stroke_piece_intersects_rect(
+    start: vec2<f32>,
+    end: vec2<f32>,
+    half_stroke: f32,
+    start_cap: u32,
+    end_cap: u32,
+    is_first_piece: bool,
+    is_last_piece: bool,
+    rect_min: vec2<f32>,
+    rect_max: vec2<f32>) -> bool {
+    return capped_line_stroke_intersects_rect(
+        start,
+        end,
+        half_stroke,
+        select(CAP_ROUND, start_cap, is_first_piece),
+        select(CAP_ROUND, end_cap, is_last_piece),
+        rect_min,
+        rect_max);
 }
 
 fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primitive: HitTestPrimitive) -> bool {
@@ -1390,6 +1750,8 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
     }
 
     let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.w);
+    let start_cap = u32(primitive.data2.x + 0.5);
+    let end_cap = u32(primitive.data2.y + 0.5);
     let end_segment = min(start_segment + segment_count, query.path_segment_count);
     var segment_index = start_segment;
     loop {
@@ -1399,7 +1761,16 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
 
         let segment = path_segments[segment_index];
         if (segment.segment_type == SEGMENT_LINE) {
-            if (stroked_segment_intersects_rect(segment.p0, segment.p1, rect_min, rect_max, half_stroke)) {
+            if (path_stroke_piece_intersects_rect(
+                    segment.p0,
+                    segment.p1,
+                    half_stroke,
+                    start_cap,
+                    end_cap,
+                    segment_index == start_segment,
+                    segment_index + 1u == end_segment,
+                    rect_min,
+                    rect_max)) {
                 return true;
             }
         } else if (segment.segment_type == SEGMENT_QUADRATIC) {
@@ -1411,7 +1782,16 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
                 }
 
                 let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
-                if (stroked_segment_intersects_rect(previous, next_point, rect_min, rect_max, half_stroke)) {
+                if (path_stroke_piece_intersects_rect(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_QUADRATIC_STEPS,
+                        rect_min,
+                        rect_max)) {
                     return true;
                 }
 
@@ -1427,7 +1807,16 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
                 }
 
                 let next_point = evaluate_cubic(segment.p0, segment.p1, segment.p2, segment.p3, f32(step) / f32(PATH_CUBIC_STEPS));
-                if (stroked_segment_intersects_rect(previous, next_point, rect_min, rect_max, half_stroke)) {
+                if (path_stroke_piece_intersects_rect(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_CUBIC_STEPS,
+                        rect_min,
+                        rect_max)) {
                     return true;
                 }
 
@@ -1443,7 +1832,16 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
                 }
 
                 let next_point = evaluate_arc(segment, f32(step) / f32(PATH_ARC_STEPS));
-                if (stroked_segment_intersects_rect(previous, next_point, rect_min, rect_max, half_stroke)) {
+                if (path_stroke_piece_intersects_rect(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_ARC_STEPS,
+                        rect_min,
+                        rect_max)) {
                     return true;
                 }
 
@@ -1458,6 +1856,26 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
     return false;
 }
 
+fn path_stroke_piece_intersects_ellipse_region(
+    start: vec2<f32>,
+    end: vec2<f32>,
+    half_stroke: f32,
+    start_cap: u32,
+    end_cap: u32,
+    is_first_piece: bool,
+    is_last_piece: bool,
+    query_center: vec2<f32>,
+    query_inverse_radii: vec2<f32>) -> bool {
+    return capped_line_stroke_intersects_ellipse_region(
+        start,
+        end,
+        half_stroke,
+        select(CAP_ROUND, start_cap, is_first_piece),
+        select(CAP_ROUND, end_cap, is_last_piece),
+        query_center,
+        query_inverse_radii);
+}
+
 fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_radii: vec2<f32>, primitive: HitTestPrimitive) -> bool {
     let start_segment = u32(primitive.data1.x + 0.5);
     let segment_count = u32(primitive.data1.y + 0.5);
@@ -1467,6 +1885,8 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
     }
 
     let half_stroke = (stroke * 0.5) + max(0.0, primitive.data1.w);
+    let start_cap = u32(primitive.data2.x + 0.5);
+    let end_cap = u32(primitive.data2.y + 0.5);
     let end_segment = min(start_segment + segment_count, query.path_segment_count);
     var segment_index = start_segment;
     loop {
@@ -1476,7 +1896,16 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
 
         let segment = path_segments[segment_index];
         if (segment.segment_type == SEGMENT_LINE) {
-            if (stroked_segment_intersects_ellipse_region(segment.p0, segment.p1, half_stroke, query_center, query_inverse_radii)) {
+            if (path_stroke_piece_intersects_ellipse_region(
+                    segment.p0,
+                    segment.p1,
+                    half_stroke,
+                    start_cap,
+                    end_cap,
+                    segment_index == start_segment,
+                    segment_index + 1u == end_segment,
+                    query_center,
+                    query_inverse_radii)) {
                 return true;
             }
         } else if (segment.segment_type == SEGMENT_QUADRATIC) {
@@ -1488,7 +1917,16 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
                 }
 
                 let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
-                if (stroked_segment_intersects_ellipse_region(previous, next_point, half_stroke, query_center, query_inverse_radii)) {
+                if (path_stroke_piece_intersects_ellipse_region(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_QUADRATIC_STEPS,
+                        query_center,
+                        query_inverse_radii)) {
                     return true;
                 }
 
@@ -1504,7 +1942,16 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
                 }
 
                 let next_point = evaluate_cubic(segment.p0, segment.p1, segment.p2, segment.p3, f32(step) / f32(PATH_CUBIC_STEPS));
-                if (stroked_segment_intersects_ellipse_region(previous, next_point, half_stroke, query_center, query_inverse_radii)) {
+                if (path_stroke_piece_intersects_ellipse_region(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_CUBIC_STEPS,
+                        query_center,
+                        query_inverse_radii)) {
                     return true;
                 }
 
@@ -1520,7 +1967,16 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
                 }
 
                 let next_point = evaluate_arc(segment, f32(step) / f32(PATH_ARC_STEPS));
-                if (stroked_segment_intersects_ellipse_region(previous, next_point, half_stroke, query_center, query_inverse_radii)) {
+                if (path_stroke_piece_intersects_ellipse_region(
+                        previous,
+                        next_point,
+                        half_stroke,
+                        start_cap,
+                        end_cap,
+                        segment_index == start_segment && step == 1u,
+                        segment_index + 1u == end_segment && step == PATH_ARC_STEPS,
+                        query_center,
+                        query_inverse_radii)) {
                     return true;
                 }
 
