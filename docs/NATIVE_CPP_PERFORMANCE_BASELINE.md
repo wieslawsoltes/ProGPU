@@ -416,9 +416,11 @@ and removal of the duplicate texture/upload resource.
 This result covers only a same-device WebGPU view. It does not yet claim
 zero-copy native decoder import, IOSurface/DXGI/DMA-BUF ownership, browser
 external textures, or explicit producer/consumer fence synchronization.
-Retained evidence is `/tmp/progpu-native-external-image-sync-final.json` plus the
+Retained ignored evidence is
+`artifacts/progpu-native/benchmarks/external-image-sync-final.json` plus the
 native, managed, and amplified-difference captures under
-`artifacts/progpu-native/differential/`.
+`artifacts/progpu-native/differential/`. No temporary profiling file remains
+under `/tmp`.
 
 ## Retained positioned-glyph supplement
 
