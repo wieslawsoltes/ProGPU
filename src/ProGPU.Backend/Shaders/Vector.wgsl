@@ -1,5 +1,5 @@
-// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; the reserved Skia hairline sentinel derives an invariant one-framebuffer-pixel width from screen-space expansion or analytic-distance derivatives, while one fixed quad regenerates each cap or join from transformed centerline directions and evaluates its exterior analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and hairline bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, hairline caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, and non-conformal or analytic-hairline stroke fragments add fixed derivative/gradient arithmetic.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad regenerates each cap or join from transformed centerline directions and evaluates its exterior analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, and non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
 struct Brush {
     brushType: u32,
@@ -682,6 +682,12 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     let isHairlineStroke =
         (isAnalyticSdf || isDirect2DStroke) &&
         input.strokeThickness == -1.0;
+    let isFixedDeviceStroke =
+        (isAnalyticSdf || isDirect2DStroke) &&
+        input.strokeThickness < -1.0;
+    let fixedDeviceStrokeThickness = max(
+        -input.strokeThickness - 1.0,
+        0.0);
     let hasLateAffineTransform = isStatic || useGpuTransforms;
     var directStrokeScales = vec2<f32>(1.0);
     if ((isAnalyticSdf || isDirect2DStroke || isLocalPolygonSdf) && hasLateAffineTransform) {
@@ -697,6 +703,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     let useLocalStrokeOutline =
         isDirect2DStroke &&
         !isHairlineStroke &&
+        !isFixedDeviceStroke &&
         hasLateAffineTransform &&
         hasValidLateAffineTransform &&
         !is_conformal_stroke_transform(directStrokeScales);
@@ -704,8 +711,13 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         input.strokeThickness,
         1.0,
         isHairlineStroke);
+    outputStrokeThickness = select(
+        outputStrokeThickness,
+        fixedDeviceStrokeThickness,
+        isFixedDeviceStroke);
     if (isDirect2DStroke &&
         !isHairlineStroke &&
+        !isFixedDeviceStroke &&
         hasLateAffineTransform &&
         hasValidLateAffineTransform &&
         !useLocalStrokeOutline) {
@@ -717,7 +729,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         useLocalStrokeOutline);
 
     if (isAnalyticSdf &&
-        isHairlineStroke &&
+        (isHairlineStroke || isFixedDeviceStroke) &&
         hasLateAffineTransform &&
         hasValidLateAffineTransform) {
         // CPU recording reserves a two-local-unit halo for a device hairline
@@ -725,9 +737,13 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         // downscale needs a larger local quad so that the same two framebuffer
         // pixels remain covered after interpolation. The SDF itself derives
         // its exact one-pixel width from fragment derivatives below.
+        let retainedPadding = select(
+            2.0,
+            fixedDeviceStrokeThickness * 0.5 + 1.5,
+            isFixedDeviceStroke);
         let extraPadding = max(
             0.0,
-            2.0 / directStrokeScales.y - 2.0);
+            retainedPadding / directStrokeScales.y - retainedPadding);
         let quadrant = select(
             vec2<f32>(-1.0),
             vec2<f32>(1.0),
@@ -737,7 +753,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     }
 
     if (sType == 12u &&
-        isHairlineStroke &&
+        (isHairlineStroke || isFixedDeviceStroke) &&
         hasLateAffineTransform &&
         hasValidLateAffineTransform) {
         // Arc stroke quads are recorded with a two-local-unit halo. Enlarge
@@ -746,9 +762,13 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         // (0.5 hairline width + 1.5 antialias fringe). Since every vector is
         // scaled by at least sigma_min, 2 / sigma_min is conservative under
         // anisotropic scale and shear.
+        let retainedPadding = select(
+            2.0,
+            fixedDeviceStrokeThickness * 0.5 + 1.5,
+            isFixedDeviceStroke);
         let extraPadding = max(
             0.0,
-            2.0 / directStrokeScales.y - 2.0);
+            retainedPadding / directStrokeScales.y - retainedPadding);
         let boundsCenter = arc_bounds_center(
             inColor.xy,
             inTexCoord,
@@ -877,19 +897,24 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let isStart = input.color.y > 0.5;
         let outward = select(direction, -direction, isStart);
         let normal = vec2<f32>(-direction.y, direction.x);
+        let deviceStrokeThickness = select(
+            1.0,
+            fixedDeviceStrokeThickness,
+            isFixedDeviceStroke);
+        let capExtent = deviceStrokeThickness * 0.5 + 1.5;
         let localIndex = vertexIndex - u32(round(input.shapeSize.x));
-        var capCoordinate = vec2<f32>(-2.0, -2.0);
+        var capCoordinate = vec2<f32>(-capExtent, -capExtent);
         if (localIndex == 1u) {
-            capCoordinate = vec2<f32>(2.0, -2.0);
+            capCoordinate = vec2<f32>(capExtent, -capExtent);
         } else if (localIndex == 2u) {
-            capCoordinate = vec2<f32>(2.0, 2.0);
+            capCoordinate = vec2<f32>(capExtent, capExtent);
         } else if (localIndex == 3u) {
-            capCoordinate = vec2<f32>(-2.0, 2.0);
+            capCoordinate = vec2<f32>(-capExtent, capExtent);
         }
         worldPos = center + outward * capCoordinate.x +
             normal * capCoordinate.y;
         texCoord = capCoordinate;
-        inShapeSize = vec2<f32>(0.0);
+        inShapeSize = vec2<f32>(deviceStrokeThickness, 0.0);
         outputCornerRadius = input.color.x;
         outputStrokeThickness = input.color.z;
         outputShapeType = 22u;
@@ -921,10 +946,15 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         }
 
         let outerSign = select(1.0, -1.0, turn > 0.0);
+        let deviceStrokeThickness = select(
+            1.0,
+            fixedDeviceStrokeThickness,
+            isFixedDeviceStroke);
+        let halfStrokeThickness = deviceStrokeThickness * 0.5;
         let previousOuter =
-            vec2<f32>(-incoming.y, incoming.x) * outerSign * 0.5;
+            vec2<f32>(-incoming.y, incoming.x) * outerSign * halfStrokeThickness;
         let nextOuter =
-            vec2<f32>(-outgoing.y, outgoing.x) * outerSign * 0.5;
+            vec2<f32>(-outgoing.y, outgoing.x) * outerSign * halfStrokeThickness;
         let denominator = cross_2d(incoming, outgoing);
         var miterPoint = vec2<f32>(0.0);
         var hasMiter = false;
@@ -934,7 +964,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
                 denominator;
             let candidate = previousOuter + incoming * intersectionDistance;
             let miterLimit = max(input.color.y, 1.0);
-            if (length(candidate) <= 0.5 * miterLimit + 0.0001) {
+            if (length(candidate) <= halfStrokeThickness * miterLimit + 0.0001) {
                 miterPoint = candidate;
                 hasMiter = true;
             }
@@ -944,8 +974,8 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         var boundsMin = min(vec2<f32>(0.0), min(previousOuter, nextOuter));
         var boundsMax = max(vec2<f32>(0.0), max(previousOuter, nextOuter));
         if (joinKind == 2u) {
-            boundsMin = vec2<f32>(-0.5);
-            boundsMax = vec2<f32>(0.5);
+            boundsMin = vec2<f32>(-halfStrokeThickness);
+            boundsMax = vec2<f32>(halfStrokeThickness);
         } else if (joinKind == 0u && hasMiter) {
             boundsMin = min(boundsMin, miterPoint);
             boundsMax = max(boundsMax, miterPoint);
@@ -1161,7 +1191,10 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     output.gridIndex = gridIndex;
     output.localStrokeMode = select(
         select(
-            select(0.0, 1.0, useLocalStrokeOutline),
+            select(
+                select(0.0, 1.0, useLocalStrokeOutline),
+                3.0,
+                isFixedDeviceStroke),
             2.0,
             isHairlineStroke),
         -1.0,
@@ -1728,7 +1761,9 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let fw = max(
             abs(dot(gradient, atlasCoordDx)) + abs(dot(gradient, atlasCoordDy)),
             0.0001);
-        let isHairline = input.localStrokeMode > 1.5;
+        let isHairline =
+            input.localStrokeMode > 1.5 &&
+            input.localStrokeMode < 2.5;
         var d_shape: f32 = 0.0;
         if (input.strokeThickness > 0.0) {
             var strokeDistance = d;
@@ -1737,10 +1772,15 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             }
             let thinStrokeInset = select(
                 0.0,
-                0.0625,
+                0.0625 * select(
+                    1.0,
+                    fw,
+                    input.localStrokeMode > 2.5),
                 !aliasedEdge && input.strokeThickness <= 1.0001);
             let ordinaryHalfWidth = max(
-                input.strokeThickness * 0.5 - thinStrokeInset,
+                input.strokeThickness *
+                    select(1.0, fw, input.localStrokeMode > 2.5) *
+                    0.5 - thinStrokeInset,
                 0.0);
             let hairlineHalfWidth = max(
                 fw * select(0.5, 0.4375, !aliasedEdge),
@@ -1780,10 +1820,14 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             1.0,
             initialDerivativeWidth,
             input.localStrokeMode > 0.5);
-        let effectiveStrokeThickness = select(
+        var effectiveStrokeThickness = select(
             input.strokeThickness,
             initialFilterWidth,
             input.localStrokeMode > 1.5);
+        effectiveStrokeThickness = select(
+            effectiveStrokeThickness,
+            input.strokeThickness * initialFilterWidth,
+            input.localStrokeMode > 2.5);
         let deviceStrokeThickness =
             effectiveStrokeThickness / initialFilterWidth;
         let thinStrokeInset = select(
@@ -2090,12 +2134,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let point = input.texCoord;
         let capKind = u32(round(input.cornerRadius));
         let isFullCap = input.strokeThickness > 0.5;
+        let halfStrokeThickness = input.shapeSize.x * 0.5;
         var exteriorDistance = 0.0;
         var exteriorGradient = vec2<f32>(1.0, 0.0);
         var internalInside = true;
         var allDistance = 0.0;
         if (capKind == 2u) {
-            exteriorDistance = length(point) - 0.5;
+            exteriorDistance = length(point) - halfStrokeThickness;
             exteriorGradient = safe_normalize(point);
             internalInside = isFullCap || point.x >= -0.001;
             allDistance = exteriorDistance;
@@ -2103,14 +2148,14 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             if (isFullCap) {
                 let distanceGradient = box_distance_gradient(
                     point,
-                    vec2<f32>(0.5),
+                    vec2<f32>(halfStrokeThickness),
                     0.0);
                 exteriorDistance = distanceGradient.x;
                 exteriorGradient = distanceGradient.yz;
                 allDistance = exteriorDistance;
             } else {
-                let forwardDistance = point.x - 0.5;
-                let sideDistance = abs(point.y) - 0.5;
+                let forwardDistance = point.x - halfStrokeThickness;
+                let sideDistance = abs(point.y) - halfStrokeThickness;
                 exteriorDistance = max(forwardDistance, sideDistance);
                 exteriorGradient = select(
                     vec2<f32>(0.0, select(-1.0, 1.0, point.y >= 0.0)),
@@ -2120,9 +2165,9 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                 allDistance = max(exteriorDistance, -point.x);
             }
         } else {
-            let p0 = vec2<f32>(0.0, -0.5);
-            let p1 = vec2<f32>(0.5, 0.0);
-            let p2 = vec2<f32>(0.0, 0.5);
+            let p0 = vec2<f32>(0.0, -halfStrokeThickness);
+            let p1 = vec2<f32>(halfStrokeThickness, 0.0);
+            let p2 = vec2<f32>(0.0, halfStrokeThickness);
             let edge0 = p1 - p0;
             let edge1 = p2 - p1;
             let edge2 = p0 - p2;
@@ -2190,7 +2235,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                 pointAngle,
                 startAngle,
                 sweep);
-            exteriorDistance = length(point) - 0.5;
+            exteriorDistance = length(point) - length(previousOuter);
             exteriorGradient = safe_normalize(point);
             allDistance = exteriorDistance;
         } else if (joinKind == 0u && input.strokeThickness > 0.5) {

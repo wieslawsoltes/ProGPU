@@ -392,6 +392,32 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheKeepsPositiveFixedLineWidthInDeviceSpace()
+    {
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine,
+            Pen = new Pen(
+                new SolidColorBrush(Vector4.One),
+                thickness: 12f,
+                strokeTransformMode: PenStrokeTransformMode.Fixed),
+            Position = new Vector2(10f, 10f),
+            Position2 = new Vector2(20f, 10f),
+            IsPenThicknessLocal = true
+        }, Matrix4x4.CreateScale(4f, 4f, 1f), id: 240);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        var primitive = Assert.Single(index.Primitives);
+        Assert.Equal(GpuHitTestPrimitiveKind.LineStroke, primitive.Kind);
+        Assert.Equal(new Vector4(40f, 40f, 80f, 40f), primitive.Data0);
+        Assert.Equal(12f, primitive.Data1.X);
+        Assert.Equal(new Vector2(34f, 34f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(86f, 46f), primitive.BoundsMax);
+    }
+
+    [Fact]
     public void RenderCommandCacheCachesEllipseHelperDataForGpuHitTesting()
     {
         var builder = new GpuRenderCommandHitTestCacheBuilder();

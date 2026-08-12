@@ -200,6 +200,18 @@ public enum PenLineCap
     Triangle = 3
 }
 
+/// <summary>
+/// Selects the coordinate space used to expand a positive-width stroke.
+/// </summary>
+public enum PenStrokeTransformMode
+{
+    /// <summary>The stroke is expanded in source space and follows the complete transform.</summary>
+    Normal = 0,
+
+    /// <summary>The centerline is transformed first and the positive width is expanded in device space.</summary>
+    Fixed = 1
+}
+
 public class Pen
 {
     /// <summary>
@@ -221,7 +233,9 @@ public class Pen
     public PenLineCap StartLineCap { get; set; }
     public PenLineCap EndLineCap { get; set; }
     public PenLineCap DashCap { get; set; }
+    public PenStrokeTransformMode StrokeTransformMode { get; set; }
     public bool IsHairline => Thickness == HairlineThickness;
+    public bool IsFixed => !IsHairline && StrokeTransformMode == PenStrokeTransformMode.Fixed;
     public bool HasDashPattern => _dashArray is { Length: > 0 };
     public double[]? DashArray
     {
@@ -240,7 +254,8 @@ public class Pen
         PenLineCap endLineCap = PenLineCap.Flat,
         PenLineCap dashCap = PenLineCap.Flat,
         double[]? dashArray = null,
-        double dashOffset = 0.0)
+        double dashOffset = 0.0,
+        PenStrokeTransformMode strokeTransformMode = PenStrokeTransformMode.Normal)
     {
         Brush = brush;
         Thickness = thickness;
@@ -251,6 +266,7 @@ public class Pen
         DashCap = dashCap;
         DashArray = dashArray;
         DashOffset = double.IsFinite(dashOffset) ? dashOffset : 0.0;
+        StrokeTransformMode = strokeTransformMode;
     }
 }
 

@@ -10,6 +10,12 @@ curves, polylines, splines, opacity masks, hit-test geometry, and Skia's
 explicit one-device-pixel hairline. Text shaping, font selection, and
 three-dimensional line width are outside this change.
 
+The follow-up DXF correction also covers an explicit positive fixed-device
+width. DXF linework opts into that mode because its cached 1.0/1.2/1.5 widths
+are cosmetic screen widths: zoom transforms the retained CAD centerline but
+must not magnify those widths. Ordinary positive-width pens remain in normal
+source-space mode.
+
 The implementation is clean-room. The primary sources below informed only
 observable contracts, coordinate-space separation, retained-scene
 architecture, and validation cases. No foreign implementation text, helper
@@ -55,6 +61,15 @@ picture beneath scales `s1`, `s2`, ... must compile each instance from the same
 source width. In particular, a scale `s` must produce `s`, never `s^2`, width
 composition. Solid brushes reuse their existing pen object when no brush-space
 rewrite is required.
+
+`PenStrokeTransformMode.Fixed` is a distinct positive-width contract. It
+retains the requested width in typed pen state, transforms the centerline by
+the complete affine matrix, and expands the body, caps, and joins in device
+space. The mode is preserved through pen clones, geometry caches, append and
+picture replay, and the versioned picture archive. It is not represented as a
+hairline, an inverse zoom scalar, or a scale-keyed CPU geometry copy. DXF uses
+this mode for every cached entity pen and for its specialized uncached
+outlines.
 
 Dash lengths, offsets, caps, joins, and miter limits are resolved from the same
 source-space thickness. A dashed command lowered to an undashed outline records
@@ -138,6 +153,17 @@ stroke bodies own their shared seams. This preserves exact one-device-pixel
 behavior under scale, reflection, anisotropy, and shear without a CPU-baked
 classifier or per-frame outline allocation.
 
+Arbitrary positive fixed-device widths reuse the same constant-size GPU
+centerline records and cap/join descriptors. A reserved negative vertex-width
+encoding distinguishes the positive fixed width from the `-1` hairline
+sentinel; the vertex shader decodes it only for analytic and direct-stroke
+shape types. Direct line, quadratic, cubic, and arc bodies expand by the
+decoded width after the late transform. Analytic rectangle, ellipse, rounded
+rectangle, and circle distance fields convert that device width into local
+distance units from fragment derivatives evaluated in uniform control flow.
+This keeps DXF static-buffer zoom entirely on WebGPU and adds no per-frame CPU
+geometry rebuild, managed allocation, or GPU readback.
+
 WinUI's explicit positive-width non-scaling stroke is lowered at the retained
 Composition boundary. The source centerline is transformed once and cached by
 source-path identity and the complete affine matrix; the unchanged positive
@@ -214,6 +240,10 @@ inverse-transpose/Jacobian rather than a scalar approximation.
 - Static conformal scale is computed once per viewport-uniform update, not once
   per command. Late-bound affine expansion remains linear in emitted outline
   vertices and does not require CPU readback.
+- Fixed-device positive strokes retain the normal constant vertex/index count.
+  Their late zoom path adds only bounded matrix, direction, and derivative
+  arithmetic per existing vertex or fragment; steady DXF zoom neither
+  recompiles the static buffer nor allocates scale-specific pen/geometry state.
 - Wavefront eligibility is checked only when that experimental engine is
   selected. A supported path scan is `O(S)` for retained segments `S`; an
   unsupported or mixed frame performs one bounded transactional recompilation
@@ -246,7 +276,11 @@ The focused tests and existing rendering suites jointly exercise:
   and sheared strokes, comparing the conformal path with transformed local
   outline expectations;
 - static-buffer and dynamic GPU-transform output for both conformal and
-  non-conformal matrices, with explicit one-device-pixel hairline coverage;
+  non-conformal matrices, with explicit one-device-pixel hairline and positive
+  fixed-device-width coverage;
+- a DXF-rendered static line plus analytic fixed-width rectangle, ellipse, and
+  rounded rectangle at zoom factors below and above one, proving unchanged
+  framebuffer thickness without static-buffer recompilation;
 - invalid and collapsed render and hit-test transforms, ensuring a bad stroke
   emits no invalid vertices or ghost hit while an independent fill survives;
 - fixed `GpuUniforms` layout, scoped vector-shader use, retained-scene reuse,

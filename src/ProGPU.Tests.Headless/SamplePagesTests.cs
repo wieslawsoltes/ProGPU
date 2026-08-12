@@ -1021,6 +1021,24 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
+    public void Test_DxfRenderContext_UsesPositiveFixedDeviceStrokeWidths()
+    {
+        EnsureFontsAndStateLoaded();
+        var context = new ProGPU.Dxf.DxfRenderContext(
+            new DrawingContext(),
+            AppState.GetFont()!);
+        var line = new netDxf.Entities.Line(
+            new netDxf.Vector2(-10d, 0d),
+            new netDxf.Vector2(10d, 0d));
+
+        var pen = context.GetCachedPen(line, 1.2f);
+
+        Assert.Equal(1.2f, pen.Thickness);
+        Assert.False(pen.IsHairline);
+        Assert.Equal(PenStrokeTransformMode.Fixed, pen.StrokeTransformMode);
+    }
+
+    [Fact]
     public void Test_DxfCanvasControl_ZoomRetainsGeometryAndGlyphOutlinesWithoutRecompilation()
     {
         EnsureFontsAndStateLoaded();

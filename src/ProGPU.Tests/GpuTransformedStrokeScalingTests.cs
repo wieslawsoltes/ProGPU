@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
+using ProGPU.Dxf;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
@@ -305,6 +306,107 @@ public sealed class GpuTransformedStrokeScalingTests
             Marshal.OffsetOf<GpuUniforms>(nameof(GpuUniforms.Pad1)).ToInt32());
     }
 
+    [Theory]
+    [InlineData(DirectStrokeKind.Line)]
+    [InlineData(DirectStrokeKind.Quadratic)]
+    [InlineData(DirectStrokeKind.Cubic)]
+    public void FixedDeviceStaticStrokeKeepsPositiveWidthAcrossZoom(
+        DirectStrokeKind kind)
+    {
+        var zoomedOut = RenderStroke(
+            kind,
+            vertical: false,
+            ScaleAboutCenter(0.5f),
+            useStaticBuffer: true,
+            fixedDeviceStroke: true);
+        var zoomedIn = RenderStroke(
+            kind,
+            vertical: false,
+            ScaleAboutCenter(4f, 4f, LargeSurfaceSize),
+            useStaticBuffer: true,
+            fixedDeviceStroke: true);
+
+        var zoomedOutRows = CountPaintedRows(
+            zoomedOut,
+            LargeSurfaceSize,
+            x: LargeSurfaceSize / 2);
+        var zoomedInRows = CountPaintedRows(
+            zoomedIn,
+            LargeSurfaceSize,
+            x: LargeSurfaceSize / 2);
+
+        Assert.InRange(zoomedOutRows, 11, 13);
+        Assert.InRange(zoomedInRows, 11, 13);
+        Assert.InRange(Math.Abs(zoomedOutRows - zoomedInRows), 0, 1);
+    }
+
+    [Fact]
+    public void FixedDeviceStaticPolylineCapsAndJoinMatchBakedAffineCenterline()
+    {
+        var late = ScaleAboutCenter(1.6f, 0.7f, LargeSurfaceSize);
+        late.M21 += 0.35f;
+        var actual = RenderStaticAffineCommand(
+            CreateFixedPolylineCommand(Matrix4x4.Identity),
+            late,
+            out var shapeTypes);
+        var expected = RenderStaticAffineCommand(
+            CreateFixedPolylineCommand(late),
+            Matrix4x4.Identity,
+            out _);
+
+        Assert.Contains(22, shapeTypes);
+        Assert.Contains(23, shapeTypes);
+        AssertImagesNear(
+            expected,
+            actual,
+            maximumAllowedDelta: 8,
+            maximumMateriallyDifferentPixels: 32);
+    }
+
+    [Theory]
+    [InlineData(FixedAnalyticStrokeKind.Rectangle)]
+    [InlineData(FixedAnalyticStrokeKind.Ellipse)]
+    [InlineData(FixedAnalyticStrokeKind.RoundedRectangle)]
+    public void FixedDeviceStaticAnalyticStrokeKeepsPositiveWidthAcrossZoom(
+        FixedAnalyticStrokeKind kind)
+    {
+        var zoomedOut = RenderFixedAnalyticStroke(kind, 0.75f);
+        var zoomedIn = RenderFixedAnalyticStroke(kind, 2f);
+
+        var zoomedOutWidth = GetMaximumPaintedColumnRun(
+            zoomedOut,
+            LargeSurfaceSize,
+            y: LargeSurfaceSize / 2);
+        var zoomedInWidth = GetMaximumPaintedColumnRun(
+            zoomedIn,
+            LargeSurfaceSize,
+            y: LargeSurfaceSize / 2);
+
+        Assert.InRange(zoomedOutWidth, 11, 13);
+        Assert.InRange(zoomedInWidth, 11, 13);
+        Assert.InRange(Math.Abs(zoomedOutWidth - zoomedInWidth), 0, 1);
+    }
+
+    [Fact]
+    public void DxfStaticLineKeepsCosmeticWidthAcrossZoom()
+    {
+        var zoomedOut = RenderDxfLine(0.75f);
+        var zoomedIn = RenderDxfLine(2f);
+
+        var zoomedOutRows = CountPaintedRows(
+            zoomedOut,
+            LargeSurfaceSize,
+            x: LargeSurfaceSize / 2);
+        var zoomedInRows = CountPaintedRows(
+            zoomedIn,
+            LargeSurfaceSize,
+            x: LargeSurfaceSize / 2);
+
+        Assert.InRange(zoomedOutRows, 1, 2);
+        Assert.InRange(zoomedInRows, 1, 2);
+        Assert.InRange(Math.Abs(zoomedOutRows - zoomedInRows), 0, 1);
+    }
+
     private static Matrix4x4 ScaleAboutCenter(float scale) =>
         ScaleAboutCenter(scale, scale, SmallSurfaceSize);
 
@@ -453,6 +555,26 @@ public sealed class GpuTransformedStrokeScalingTests
         }
 
         return command;
+    }
+
+    private static RenderCommand CreateFixedPolylineCommand(Matrix4x4 transform)
+    {
+        var path = CreatePolylinePath();
+        return new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            Path = path,
+            GeometryCache = RenderCommandGeometryCache.ForPath(path),
+            Pen = new Pen(
+                new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f)),
+                12f,
+                PenLineJoin.Round,
+                startLineCap: PenLineCap.Round,
+                endLineCap: PenLineCap.Round,
+                strokeTransformMode: PenStrokeTransformMode.Fixed),
+            Transform = transform,
+            IsPenThicknessLocal = true
+        };
     }
 
     private static PathGeometry CreatePolylinePath()
@@ -645,7 +767,8 @@ public sealed class GpuTransformedStrokeScalingTests
         bool vertical,
         Matrix4x4 transform,
         bool useStaticBuffer,
-        bool fullArc = false)
+        bool fullArc = false,
+        bool fixedDeviceStroke = false)
     {
         using var window = new HeadlessWindow(LargeSurfaceSize, LargeSurfaceSize);
         DxfStaticBuffer? buffer = null;
@@ -655,7 +778,8 @@ public sealed class GpuTransformedStrokeScalingTests
                 kind,
                 vertical,
                 LargeSurfaceSize,
-                fullArc);
+                fullArc,
+                fixedDeviceStroke);
             buffer = window.Compositor.CompileStaticDxf(context);
             window.Content = new StaticStrokeVisual(
                 buffer,
@@ -687,7 +811,8 @@ public sealed class GpuTransformedStrokeScalingTests
         DirectStrokeKind kind,
         bool vertical = false,
         int surfaceSize = SmallSurfaceSize,
-        bool fullArc = false)
+        bool fullArc = false,
+        bool fixedDeviceStroke = false)
     {
         var center = surfaceSize * 0.5f;
         var start = surfaceSize == SmallSurfaceSize ? 0f : 16f;
@@ -702,7 +827,7 @@ public sealed class GpuTransformedStrokeScalingTests
         var control2 = Vector2.Lerp(p0, p1, 2f / 3f);
 
         var context = new DrawingContext();
-        var pen = CreatePen();
+        var pen = CreatePen(fixedDeviceStroke);
         switch (kind)
         {
             case DirectStrokeKind.Line:
@@ -729,9 +854,12 @@ public sealed class GpuTransformedStrokeScalingTests
         return context;
     }
 
-    private static Pen CreatePen() => new(
+    private static Pen CreatePen(bool fixedDeviceStroke = false) => new(
         new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f)),
-        12f);
+        12f,
+        strokeTransformMode: fixedDeviceStroke
+            ? PenStrokeTransformMode.Fixed
+            : PenStrokeTransformMode.Normal);
 
     private static PathGeometry CreateArcPath()
     {
@@ -819,6 +947,102 @@ public sealed class GpuTransformedStrokeScalingTests
         return count;
     }
 
+    private static int GetMaximumPaintedColumnRun(
+        byte[] pixels,
+        int surfaceSize,
+        int y)
+    {
+        bool IsPainted(int x)
+        {
+            var offset = (y * surfaceSize + x) * 4;
+            return pixels[offset] > 128 ||
+                pixels[offset + 1] > 128 ||
+                pixels[offset + 2] > 128;
+        }
+
+        var maximum = 0;
+        var current = 0;
+        for (var x = 0; x < surfaceSize; x++)
+        {
+            if (IsPainted(x))
+            {
+                current++;
+                maximum = Math.Max(maximum, current);
+            }
+            else
+            {
+                current = 0;
+            }
+        }
+        return maximum;
+    }
+
+    private static byte[] RenderFixedAnalyticStroke(
+        FixedAnalyticStrokeKind kind,
+        float zoom)
+    {
+        const float radius = 20f;
+        var center = new Vector2(LargeSurfaceSize * 0.5f);
+        var context = new DrawingContext();
+        var pen = new Pen(
+            new SolidColorBrush(new Vector4(0f, 0f, 1f, 1f)),
+            12f,
+            strokeTransformMode: PenStrokeTransformMode.Fixed);
+        var bounds = new Rect(
+            center.X - radius,
+            center.Y - radius,
+            radius * 2f,
+            radius * 2f);
+        switch (kind)
+        {
+            case FixedAnalyticStrokeKind.Rectangle:
+                context.DrawRectangle(null, pen, bounds);
+                break;
+            case FixedAnalyticStrokeKind.Ellipse:
+                context.DrawEllipse(null, pen, center, radius, radius);
+                break;
+            case FixedAnalyticStrokeKind.RoundedRectangle:
+                context.DrawRoundedRectangle(null, pen, bounds, 6f, 6f);
+                break;
+        }
+
+        using var window = new HeadlessWindow(LargeSurfaceSize, LargeSurfaceSize);
+        using var buffer = window.Compositor.CompileStaticDxf(context);
+        window.Content = new StaticStrokeVisual(
+            buffer,
+            ScaleAboutCenter(zoom, zoom, LargeSurfaceSize),
+            LargeSurfaceSize);
+        window.Render();
+        return window.ReadPixels();
+    }
+
+    private static byte[] RenderDxfLine(float zoom)
+    {
+        var document = new netDxf.DxfDocument();
+        document.AddEntity(new netDxf.Entities.Line(
+            new netDxf.Vector2(24d, LargeSurfaceSize * 0.5d),
+            new netDxf.Vector2(104d, LargeSurfaceSize * 0.5d)));
+
+        var drawingContext = new DrawingContext();
+        var dxfContext = new DxfRenderContext(drawingContext, null!)
+        {
+            EnableGpuTransforms = true,
+            IsCompilingStatic = true,
+            Zoom = zoom
+        };
+        dxfContext.ActiveLayers.Add("0");
+        DxfDocumentRenderer.Render(document, dxfContext);
+
+        using var window = new HeadlessWindow(LargeSurfaceSize, LargeSurfaceSize);
+        using var buffer = window.Compositor.CompileStaticDxf(drawingContext);
+        window.Content = new StaticStrokeVisual(
+            buffer,
+            ScaleAboutCenter(zoom, zoom, LargeSurfaceSize),
+            LargeSurfaceSize);
+        window.Render();
+        return window.ReadPixels();
+    }
+
     private sealed class StaticStrokeVisual : FrameworkElement
     {
         private readonly DxfStaticBuffer _buffer;
@@ -836,6 +1060,13 @@ public sealed class GpuTransformedStrokeScalingTests
 
         public override void OnRender(DrawingContext context) =>
             context.DrawStaticDxf(_buffer);
+    }
+
+    public enum FixedAnalyticStrokeKind
+    {
+        Rectangle,
+        Ellipse,
+        RoundedRectangle
     }
 
     private sealed class GpuTransformStrokeVisual : FrameworkElement

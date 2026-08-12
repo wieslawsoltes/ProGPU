@@ -478,11 +478,14 @@ public unsafe partial class Compositor : IDisposable
         float LocalBoundsThickness,
         float DeviceThickness,
         bool RequiresAffineGeometry,
-        bool IsHairline)
+        bool IsHairline,
+        bool IsFixedDevice)
     {
         public float EncodedThickness => IsHairline
             ? Pen.HairlineThickness
-            : DeviceThickness;
+            : IsFixedDevice
+                ? EncodeFixedDeviceStrokeThickness(DeviceThickness)
+                : DeviceThickness;
 
         public float RetainedThickness => IsHairline
             ? Pen.HairlineThickness
@@ -498,6 +501,9 @@ public unsafe partial class Compositor : IDisposable
             float.IsFinite(DeviceThickness) &&
             DeviceThickness > 0f;
     }
+
+    private static float EncodeFixedDeviceStrokeThickness(float thickness) =>
+        -MathF.Max(thickness + 1f, MathF.BitIncrement(1f));
 
     private readonly record struct VectorGlyphPathCacheKey(
         PathGeometry Outline,
@@ -6048,7 +6054,8 @@ SceneStateUploadComplete:
                 command.Pen.EndLineCap,
                 command.Pen.DashCap,
                 command.Pen.DashArray,
-                command.Pen.DashOffset);
+                command.Pen.DashOffset,
+                command.Pen.StrokeTransformMode);
         }
     }
 
@@ -6086,7 +6093,8 @@ SceneStateUploadComplete:
             command.Pen.EndLineCap,
             command.Pen.DashCap,
             command.Pen.DashArray,
-            command.Pen.DashOffset);
+            command.Pen.DashOffset,
+            command.Pen.StrokeTransformMode);
     }
 
     private static Brush? TransformCommandBrush(Brush? brush, Matrix4x4 inverseCommandTransform)
@@ -6164,7 +6172,7 @@ SceneStateUploadComplete:
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
-            (!hasStroke || !stroke.IsHairline);
+            (!hasStroke || (!stroke.IsHairline && !stroke.IsFixedDevice));
         SwitchBatch(useSolidRectPipeline ? BatchType.SolidRect : BatchType.Vector);
         int startIndex = _vectorVerticesList.Count;
         var r = cmd.Rect;
@@ -6234,10 +6242,13 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, rectShapeType);
+            float shaderThickness = stroke.IsFixedDevice
+                ? stroke.EncodedThickness
+                : stroke.RetainedThickness;
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, shaderThickness, rectShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, 0f, shaderThickness, rectShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, 0f, shaderThickness, rectShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, 0f, shaderThickness, rectShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -7554,6 +7565,8 @@ SceneStateUploadComplete:
                                 transform,
                                 useAffineStrokeGeometry,
                                 stroke.IsHairline,
+                                stroke.IsFixedDevice,
+                                stroke.DeviceThickness,
                                 cmd.IsEdgeAliased,
                                 isStart: false,
                                 lineCap: endLineCap);
@@ -7635,6 +7648,8 @@ SceneStateUploadComplete:
                             transform,
                             useAffineStrokeGeometry,
                             stroke.IsHairline,
+                            stroke.IsFixedDevice,
+                            stroke.DeviceThickness,
                             cmd.IsEdgeAliased,
                             isStart: true,
                             lineCap: startLineCap);
@@ -7931,6 +7946,8 @@ SceneStateUploadComplete:
                         transform,
                         useAffineStrokeGeometry,
                         stroke.IsHairline,
+                        stroke.IsFixedDevice,
+                        stroke.DeviceThickness,
                         cmd.IsEdgeAliased,
                         isStart: false,
                         lineCap: endLineCap);
@@ -8509,7 +8526,8 @@ SceneStateUploadComplete:
             pen.MiterLimit,
             pen.DashCap,
             pen.DashCap,
-            pen.DashCap);
+            pen.DashCap,
+            strokeTransformMode: pen.StrokeTransformMode);
     }
 
     private static Pen CreatePenWithThickness(Pen pen, float localThickness)
@@ -8523,7 +8541,8 @@ SceneStateUploadComplete:
             pen.EndLineCap,
             pen.DashCap,
             pen.DashArray,
-            pen.DashOffset);
+            pen.DashOffset,
+            pen.StrokeTransformMode);
     }
 
     private static int CountStrokeSegmentJoinTriangleBudget(PathFigure figure)
@@ -9199,9 +9218,12 @@ SceneStateUploadComplete:
         // quad large enough for half that pixel plus the calibrated 1.5-pixel
         // antialias fringe. Late affine transforms conservatively enlarge this
         // two-unit local halo in Vector.wgsl using sigma_min.
+        float retainedDeviceThickness = thickness < Pen.HairlineThickness
+            ? -thickness - 1f
+            : thickness;
         float pad = thickness == Pen.HairlineThickness
             ? 2.0f
-            : thickness * 0.5f + 2.0f;
+            : retainedDeviceThickness * 0.5f + 2.0f;
         if (!TryGetTransformedArcBounds(segmentStart, arc, transform, pad, out Vector2 min, out Vector2 max))
         {
             Vector2 extent = new(
@@ -9330,9 +9352,9 @@ SceneStateUploadComplete:
         bool isEdgeAliased,
         bool isSmoothJoin)
     {
-        if (pen.IsHairline)
+        if (pen.IsHairline || pen.IsFixed)
         {
-            AppendHairlineJoinVertices(
+            AppendDeviceStrokeJoinVertices(
                 verticesSpan,
                 indicesSpan,
                 ref currentVertexCount,
@@ -9345,7 +9367,10 @@ SceneStateUploadComplete:
                 localOutgoingDirection,
                 transform,
                 isEdgeAliased,
-                isSmoothJoin);
+                isSmoothJoin,
+                pen.IsHairline
+                    ? Pen.HairlineThickness
+                    : EncodeFixedDeviceStrokeThickness(pen.Thickness));
             return;
         }
 
@@ -9446,13 +9471,15 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         bool useAffineStrokeGeometry,
         bool isHairline,
+        bool isFixedDevice,
+        float deviceThickness,
         bool isEdgeAliased,
         bool isStart,
         PenLineCap lineCap)
     {
-        if (isHairline)
+        if (isHairline || isFixedDevice)
         {
-            AppendHairlineCapVertices(
+            AppendDeviceStrokeCapVertices(
                 verticesSpan,
                 indicesSpan,
                 ref currentVertexCount,
@@ -9464,7 +9491,10 @@ SceneStateUploadComplete:
                 transform,
                 isEdgeAliased,
                 isStart,
-                isFullCap: false);
+                isFullCap: false,
+                isHairline
+                    ? Pen.HairlineThickness
+                    : EncodeFixedDeviceStrokeThickness(deviceThickness));
             return;
         }
 
@@ -9501,7 +9531,7 @@ SceneStateUploadComplete:
             isStart);
     }
 
-    private static void AppendHairlineCapVertices(
+    private static void AppendDeviceStrokeCapVertices(
         Span<VectorVertex> verticesSpan,
         Span<uint> indicesSpan,
         ref int currentVertexCount,
@@ -9513,7 +9543,8 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         bool isEdgeAliased,
         bool isStart,
-        bool isFullCap)
+        bool isFullCap,
+        float encodedThickness)
     {
         if (lineCap is not (
             PenLineCap.Square or
@@ -9544,7 +9575,7 @@ SceneStateUploadComplete:
             penBrushIdx,
             new Vector2(index, 0f),
             0f,
-            Pen.HairlineThickness,
+            encodedThickness,
             EncodeShapeType(isEdgeAliased, HairlineCapShapeType));
         verticesSpan.Slice(currentVertexCount, 4).Fill(descriptor);
         currentVertexCount += 4;
@@ -9554,7 +9585,7 @@ SceneStateUploadComplete:
             index);
     }
 
-    private static void AppendHairlineJoinVertices(
+    private static void AppendDeviceStrokeJoinVertices(
         Span<VectorVertex> verticesSpan,
         Span<uint> indicesSpan,
         ref int currentVertexCount,
@@ -9567,7 +9598,8 @@ SceneStateUploadComplete:
         Vector2 localOutgoingDirection,
         Matrix4x4 transform,
         bool isEdgeAliased,
-        bool isSmoothJoin)
+        bool isSmoothJoin,
+        float encodedThickness)
     {
         if (isSmoothJoin)
         {
@@ -9607,7 +9639,7 @@ SceneStateUploadComplete:
             penBrushIdx,
             outgoingDirection,
             0f,
-            Pen.HairlineThickness,
+            encodedThickness,
             EncodeShapeType(isEdgeAliased, HairlineJoinShapeType));
         verticesSpan.Slice(currentVertexCount, 4).Fill(descriptor);
         currentVertexCount += 4;
@@ -10028,12 +10060,15 @@ SceneStateUploadComplete:
             return;
         }
 
-        if (pen.IsHairline)
+        if (pen.IsHairline || pen.IsFixed)
         {
+            var encodedThickness = pen.IsHairline
+                ? Pen.HairlineThickness
+                : EncodeFixedDeviceStrokeThickness(thickness);
             if (pen.StartLineCap == pen.EndLineCap &&
                 pen.StartLineCap is PenLineCap.Round or PenLineCap.Square)
             {
-                AppendHairlineCapVertices(
+                AppendDeviceStrokeCapVertices(
                     verticesSpan,
                     indicesSpan,
                     ref currentVertexCount,
@@ -10045,11 +10080,12 @@ SceneStateUploadComplete:
                     transform,
                     isEdgeAliased,
                     isStart: false,
-                    isFullCap: true);
+                    isFullCap: true,
+                    encodedThickness: encodedThickness);
                 return;
             }
 
-            AppendHairlineCapVertices(
+            AppendDeviceStrokeCapVertices(
                 verticesSpan,
                 indicesSpan,
                 ref currentVertexCount,
@@ -10061,8 +10097,9 @@ SceneStateUploadComplete:
                 transform,
                 isEdgeAliased,
                 isStart: true,
-                isFullCap: false);
-            AppendHairlineCapVertices(
+                isFullCap: false,
+                encodedThickness: encodedThickness);
+            AppendDeviceStrokeCapVertices(
                 verticesSpan,
                 indicesSpan,
                 ref currentVertexCount,
@@ -10074,7 +10111,8 @@ SceneStateUploadComplete:
                 transform,
                 isEdgeAliased,
                 isStart: false,
-                isFullCap: false);
+                isFullCap: false,
+                encodedThickness: encodedThickness);
             return;
         }
 
@@ -10390,7 +10428,23 @@ SceneStateUploadComplete:
                 1f / minimumScale,
                 1f,
                 RequiresAffineGeometry: false,
-                IsHairline: true);
+                IsHairline: true,
+                IsFixedDevice: false);
+        }
+
+        if (cmd.Pen.IsFixed)
+        {
+            // Fixed positive strokes transform their centerline first and
+            // expand the requested width in device space. Conservative local
+            // bounds use sigma_min so late downscales cannot clip the stroke.
+            return new StrokeCompileState(
+                localThickness,
+                localThickness / maximumScale,
+                localThickness / minimumScale,
+                localThickness,
+                RequiresAffineGeometry: false,
+                IsHairline: false,
+                IsFixedDevice: true);
         }
 
         return new StrokeCompileState(
@@ -10399,7 +10453,8 @@ SceneStateUploadComplete:
             localThickness,
             localThickness * maximumScale,
             RequiresAffineStrokeGeometry(fullTransform),
-            IsHairline: false);
+            IsHairline: false,
+            IsFixedDevice: false);
     }
 
     internal static bool IsRenderableStroke(Pen? pen)
@@ -10919,6 +10974,8 @@ SceneStateUploadComplete:
                         transform,
                         useAffineStrokeGeometry,
                         stroke.IsHairline,
+                        stroke.IsFixedDevice,
+                        stroke.DeviceThickness,
                         cmd.IsEdgeAliased,
                         isStart: true,
                         lineCap: cmd.Pen.StartLineCap);
@@ -10982,6 +11039,8 @@ SceneStateUploadComplete:
                 transform,
                 useAffineStrokeGeometry,
                 stroke.IsHairline,
+                stroke.IsFixedDevice,
+                stroke.DeviceThickness,
                 cmd.IsEdgeAliased,
                 isStart: false,
                 lineCap: cmd.Pen.EndLineCap);
@@ -11538,10 +11597,13 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-rx - pad, -ry - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(rx + pad, -ry - pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(rx + pad, ry + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-rx - pad, ry + pad), penBrushIdx, shapeSize, 0f, stroke.RetainedThickness, ellipseShapeType);
+            float shaderThickness = stroke.IsFixedDevice
+                ? stroke.EncodedThickness
+                : stroke.RetainedThickness;
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-rx - pad, -ry - pad), penBrushIdx, shapeSize, 0f, shaderThickness, ellipseShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(rx + pad, -ry - pad), penBrushIdx, shapeSize, 0f, shaderThickness, ellipseShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(rx + pad, ry + pad), penBrushIdx, shapeSize, 0f, shaderThickness, ellipseShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-rx - pad, ry + pad), penBrushIdx, shapeSize, 0f, shaderThickness, ellipseShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);
@@ -11619,7 +11681,7 @@ SceneStateUploadComplete:
             (hasFill || hasStroke) &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
-            (!hasStroke || !stroke.IsHairline);
+            (!hasStroke || (!stroke.IsHairline && !stroke.IsFixedDevice));
         if (isSolidRoundedCandidate)
         {
             _currentSolidRoundedPrimitiveCount++;
@@ -11696,10 +11758,13 @@ SceneStateUploadComplete:
             CollectionsMarshal.SetCount(_vectorVerticesList, originalVertexCount + 4);
             var vertexSpan = CollectionsMarshal.AsSpan(_vectorVerticesList).Slice(originalVertexCount, 4);
 
-            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
-            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
-            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
-            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, radius, stroke.RetainedThickness, roundedRectShapeType);
+            float shaderThickness = stroke.IsFixedDevice
+                ? stroke.EncodedThickness
+                : stroke.RetainedThickness;
+            vertexSpan[0] = new VectorVertex(p0_pos, penSolidColor, new Vector2(-wHalf - pad, -hHalf - pad), penBrushIdx, shapeSize, radius, shaderThickness, roundedRectShapeType);
+            vertexSpan[1] = new VectorVertex(p1_pos, penSolidColor, new Vector2(wHalf + pad, -hHalf - pad), penBrushIdx, shapeSize, radius, shaderThickness, roundedRectShapeType);
+            vertexSpan[2] = new VectorVertex(p2_pos, penSolidColor, new Vector2(wHalf + pad, hHalf + pad), penBrushIdx, shapeSize, radius, shaderThickness, roundedRectShapeType);
+            vertexSpan[3] = new VectorVertex(p3_pos, penSolidColor, new Vector2(-wHalf - pad, hHalf + pad), penBrushIdx, shapeSize, radius, shaderThickness, roundedRectShapeType);
 
             int originalIndexCount = _vectorIndicesList.Count;
             CollectionsMarshal.SetCount(_vectorIndicesList, originalIndexCount + 6);

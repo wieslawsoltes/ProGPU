@@ -1136,7 +1136,10 @@ public class DxfViewportRenderer : IDxfEntityRenderer
                         color = lColor;
                     }
                     var brush = new SolidColorBrush(color);
-                    var pen = new ProGPU.Vector.Pen(brush, 1.0f);
+                    var pen = new ProGPU.Vector.Pen(
+                        brush,
+                        1.0f,
+                        strokeTransformMode: PenStrokeTransformMode.Fixed);
 
                     foreach (var edge in solid.Edges)
                     {
@@ -1168,7 +1171,10 @@ public class DxfViewportRenderer : IDxfEntityRenderer
                         color = lColor;
                     }
                     var brush = new SolidColorBrush(color);
-                    var pen = new ProGPU.Vector.Pen(brush, 1.5f);
+                    var pen = new ProGPU.Vector.Pen(
+                        brush,
+                        1.5f,
+                        strokeTransformMode: PenStrokeTransformMode.Fixed);
 
                     // 1. Draw leader line segments
                     foreach (var line in mleader.LeaderLines)
@@ -1305,7 +1311,10 @@ public class DxfImageRenderer : IDxfEntityRenderer
         dc.DrawRectangle(bgBrush, null, rect);
 
         // 2. Draw border
-        var borderPen = new Pen(new SolidColorBrush(new Vector4(0.4f, 0.4f, 0.45f, 0.5f)), 1f);
+        var borderPen = new Pen(
+            new SolidColorBrush(new Vector4(0.4f, 0.4f, 0.45f, 0.5f)),
+            1f,
+            strokeTransformMode: PenStrokeTransformMode.Fixed);
         dc.DrawRectangle(null, borderPen, rect);
 
         // 3. Draw a centered diagonal cross/hatch to look like standard architectural "missing image" box

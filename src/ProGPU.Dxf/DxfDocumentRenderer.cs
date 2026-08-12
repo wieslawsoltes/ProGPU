@@ -139,7 +139,10 @@ public static class DxfDocumentRenderer
                     color = lColor;
                 }
                 var brush = new SolidColorBrush(color);
-                var pen = new ProGPU.Vector.Pen(brush, 1.0f);
+                var pen = new ProGPU.Vector.Pen(
+                    brush,
+                    1.0f,
+                    strokeTransformMode: PenStrokeTransformMode.Fixed);
 
                 foreach (var edge in solid.Edges)
                 {
@@ -174,7 +177,10 @@ public static class DxfDocumentRenderer
                     color = lColor;
                 }
                 var brush = new SolidColorBrush(color);
-                var pen = new ProGPU.Vector.Pen(brush, 1.5f);
+                var pen = new ProGPU.Vector.Pen(
+                    brush,
+                    1.5f,
+                    strokeTransformMode: PenStrokeTransformMode.Fixed);
 
                 // 1. Draw leader line segments
                 foreach (var line in mleader.LeaderLines)

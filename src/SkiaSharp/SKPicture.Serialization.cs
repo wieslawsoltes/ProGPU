@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 2;
+    private const int Version = 3;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -367,7 +367,7 @@ internal static class PictureArchive
         writer.Write(command.HitTestId);
         WriteRect(writer, command.Rect);
         WriteBrush(writer, command.Brush);
-        WritePen(writer, command.Pen);
+        WritePen(writer, command.Pen, version);
         WritePath(writer, command.Path, depth, version);
         WriteString(writer, command.Text);
         WriteFont(writer, command.Font);
@@ -444,7 +444,7 @@ internal static class PictureArchive
             HitTestId = reader.ReadInt32(),
             Rect = ReadSceneRect(reader),
             Brush = ReadBrush(reader),
-            Pen = ReadPen(reader),
+            Pen = ReadPen(reader, version),
             Path = ReadPath(reader, depth, version),
             Text = ReadString(reader),
             Font = ReadFont(reader),
@@ -775,7 +775,7 @@ internal static class PictureArchive
             UseFallback = reader.ReadBoolean(),
         };
 
-    private static void WritePen(BinaryWriter writer, Pen? pen)
+    private static void WritePen(BinaryWriter writer, Pen? pen, int version)
     {
         writer.Write(pen is not null);
         if (pen is null)
@@ -791,16 +791,20 @@ internal static class PictureArchive
         writer.Write((int)pen.DashCap);
         WriteDoubleArray(writer, pen.DashArray);
         writer.Write(pen.DashOffset);
+        if (version >= 3)
+        {
+            writer.Write((int)pen.StrokeTransformMode);
+        }
     }
 
-    private static Pen? ReadPen(BinaryReader reader)
+    private static Pen? ReadPen(BinaryReader reader, int version)
     {
         if (!reader.ReadBoolean())
         {
             return null;
         }
         var brush = ReadBrush(reader) ?? throw new InvalidDataException("Pens require a brush.");
-        return new Pen(brush)
+        var pen = new Pen(brush)
         {
             Thickness = reader.ReadSingle(),
             LineJoin = ReadEnum<PenLineJoin>(reader),
@@ -811,6 +815,11 @@ internal static class PictureArchive
             DashArray = ReadNullableDoubleArray(reader),
             DashOffset = reader.ReadDouble(),
         };
+        if (version >= 3)
+        {
+            pen.StrokeTransformMode = ReadEnum<PenStrokeTransformMode>(reader);
+        }
+        return pen;
     }
 
     private static void WritePath(

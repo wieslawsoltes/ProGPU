@@ -114,7 +114,8 @@ public class SKNWayCanvas : SKNoDrawCanvas
                 command.Pen.EndLineCap,
                 command.Pen.DashCap,
                 command.Pen.DashArray,
-                command.Pen.DashOffset);
+                command.Pen.DashOffset,
+                command.Pen.StrokeTransformMode);
         }
 
         destination.AppendCommand(DrawingContext, commandIndex, command);

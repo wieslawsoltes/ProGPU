@@ -126,7 +126,8 @@ public sealed class SkPictureSerializationCompatibilityTests
             endLineCap: PenLineCap.Round,
             dashCap: PenLineCap.Triangle,
             dashArray: [2d, 4d],
-            dashOffset: 1.5d);
+            dashOffset: 1.5d,
+            strokeTransformMode: PenStrokeTransformMode.Fixed);
         var command = new RenderCommand
         {
             Type = RenderCommandType.DrawPath,
@@ -178,11 +179,39 @@ public sealed class SkPictureSerializationCompatibilityTests
         Assert.Equal(stops.Length, actualBrush.Stops.Length);
         Assert.Equal(pen.DashArray, actual.Pen!.DashArray);
         Assert.Equal(PenLineCap.Triangle, actual.Pen.DashCap);
+        Assert.Equal(PenStrokeTransformMode.Fixed, actual.Pen.StrokeTransformMode);
         Assert.Equal(FillRule.EvenOdd, actual.Path!.FillRule);
         Assert.False(Assert.Single(actual.Path.Figures).IsFilled);
         Assert.IsType<ArcSegment>(actual.Path.Figures[0].Segments[^1]);
         Assert.Same(actual.Path, actual.GeometryCache?.StrokePath);
         Assert.Same(actual.Path, actual.GeometryCache?.FillPath);
+    }
+
+    [Fact]
+    public void VersionTwoArchiveDefaultsPenStrokeTransformModeToNormal()
+    {
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawLine,
+            Position = new Vector2(2f, 4f),
+            Position2 = new Vector2(18f, 4f),
+            Pen = new Pen(
+                new SolidColorBrush(Vector4.One),
+                3f,
+                strokeTransformMode: PenStrokeTransformMode.Fixed),
+            IsPenThicknessLocal = true
+        };
+        var picture = new GpuPicture([command], [], [], [], []);
+        var bytes = PictureArchive.Serialize(
+            picture,
+            new SKRect(0f, 0f, 24f, 8f),
+            archiveVersion: 2);
+
+        using var copy = SKPicture.Deserialize(bytes);
+
+        Assert.NotNull(copy);
+        var actual = Assert.Single(copy.Picture.Commands);
+        Assert.Equal(PenStrokeTransformMode.Normal, actual.Pen!.StrokeTransformMode);
     }
 
     [Fact]

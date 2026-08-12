@@ -323,7 +323,7 @@ public sealed class SkiaHairlineRenderingTests
         Assert.Equal(arcMax.X + 2f, vertexMax.X, 3);
         Assert.Equal(arcMax.Y + 2f, vertexMax.Y, 3);
         Assert.Contains(
-            "2.0 / directStrokeScales.y - 2.0",
+            "retainedPadding / directStrokeScales.y - retainedPadding",
             Shaders.VectorShader);
     }
 

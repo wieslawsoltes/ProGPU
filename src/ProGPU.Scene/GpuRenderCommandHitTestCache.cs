@@ -12,11 +12,17 @@ namespace ProGPU.Scene;
 public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 {
     private const int MaxLineSeriesSegmentsPerPathPrimitive = 128;
-    private const int MinimumHairlineArcSubdivisions = 32;
-    private const int MaximumHairlineArcSubdivisions = 4096;
-    private const double HairlineArcMaxDeviceError = 0.25;
+    private const int MinimumDeviceStrokeArcSubdivisions = 32;
+    private const int MaximumDeviceStrokeArcSubdivisions = 4096;
+    private const double DeviceStrokeArcMaxDeviceError = 0.25;
     private const int IntersectPathOperation = 1;
     private const float OpacityEpsilon = 0.0001f;
+
+    private static bool UsesDeviceStrokeWidth(Pen pen) =>
+        pen.IsHairline || pen.IsFixed;
+
+    private static float GetDeviceStrokeWidth(Pen pen) =>
+        pen.IsHairline ? 1f : pen.Thickness;
 
     private readonly IPathHitTestCompilationCache? _pathHitTestCompilationCache;
     private readonly List<GpuHitTestPrimitive> _primitives = new();
@@ -247,9 +253,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     zIndex,
                     localThickness);
             }
-            else if (command.Pen.IsHairline)
+            else if (UsesDeviceStrokeWidth(command.Pen))
             {
-                TryAddDeviceHairlinePathStrokePrimitive(
+                TryAddDevicePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
                         PrimitivePathGeometry.CreateRectangle(
                             command.Rect.X,
@@ -290,9 +296,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     zIndex,
                     localThickness);
             }
-            else if (command.Pen.IsHairline)
+            else if (UsesDeviceStrokeWidth(command.Pen))
             {
-                TryAddDeviceHairlinePathStrokePrimitive(
+                TryAddDevicePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
                         PrimitivePathGeometry.CreateRoundedRectangle(
                             command.Rect.X,
@@ -336,9 +342,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     zIndex,
                     localThickness);
             }
-            else if (command.Pen.IsHairline)
+            else if (UsesDeviceStrokeWidth(command.Pen))
             {
-                TryAddDeviceHairlinePathStrokePrimitive(
+                TryAddDevicePathStrokePrimitive(
                     command.GeometryCache?.StrokePath ??
                         PrimitivePathGeometry.CreateEllipse(
                             center,
@@ -378,9 +384,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        if (pen.IsHairline)
+        if (UsesDeviceStrokeWidth(pen))
         {
-            TryAddDeviceHairlinePathStrokePrimitive(
+            TryAddDevicePathStrokePrimitive(
                 strokePath,
                 transform,
                 id,
@@ -424,9 +430,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
 
             if (TryGetDashedStrokePath(command, linePath, pen, localThickness, out var strokePath, out var strokePen))
             {
-                if (pen.IsHairline)
+                if (UsesDeviceStrokeWidth(pen))
                 {
-                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                    TryAddDevicePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
                 }
                 else
                 {
@@ -437,18 +443,19 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        var lineTransform = pen.IsHairline ? Matrix4x4.Identity : transform;
-        var lineStart = pen.IsHairline
+        var usesDeviceStrokeWidth = UsesDeviceStrokeWidth(pen);
+        var lineTransform = usesDeviceStrokeWidth ? Matrix4x4.Identity : transform;
+        var lineStart = usesDeviceStrokeWidth
             ? Vector2.Transform(command.Position, transform)
             : command.Position;
-        var lineEnd = pen.IsHairline
+        var lineEnd = usesDeviceStrokeWidth
             ? Vector2.Transform(command.Position2, transform)
             : command.Position2;
         AddPrimitive(GpuHitTestPrimitive.LineStroke(
             id,
             lineStart,
             lineEnd,
-            pen.IsHairline ? 1f : localThickness,
+            usesDeviceStrokeWidth ? GetDeviceStrokeWidth(pen) : localThickness,
             ToLineGeometryCap(pen.StartLineCap),
             ToLineGeometryCap(pen.EndLineCap),
             0f,
@@ -515,9 +522,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         {
             if (TryGetDashedStrokePath(geometryCache, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                if (pen.IsHairline)
+                if (UsesDeviceStrokeWidth(pen))
                 {
-                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                    TryAddDevicePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
                 }
                 else
                 {
@@ -528,9 +535,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        if (pen.IsHairline)
+        if (UsesDeviceStrokeWidth(pen))
         {
-            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+            TryAddDevicePathStrokePrimitive(path, transform, id, zIndex, pen);
         }
         else
         {
@@ -575,14 +582,15 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             if (hasLocalStroke)
             {
                 var strokeSource = command.GeometryCache?.StrokePath ?? commandPath;
-                if (pen!.IsHairline)
+                var activePen = pen!;
+                if (UsesDeviceStrokeWidth(activePen))
                 {
-                    TryAddDeviceHairlinePathStrokePrimitive(
+                    TryAddDevicePathStrokePrimitive(
                         strokeSource,
                         transform,
                         id,
                         zIndex,
-                        pen);
+                        activePen);
                 }
                 else
                 {
@@ -591,7 +599,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                         transform,
                         id,
                         zIndex,
-                        pen,
+                        activePen,
                         localThickness,
                         solidFillPath.HasValue && ReferenceEquals(strokeSource, fillSource)
                             ? solidFillPath
@@ -615,9 +623,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        if (pen.IsHairline)
+        if (UsesDeviceStrokeWidth(pen))
         {
-            TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+            TryAddDevicePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
         }
         else
         {
@@ -769,7 +777,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         float localThickness,
         CompiledHitTestPath? precompiledPath = null)
     {
-        if (!pen.IsHairline &&
+        if (!UsesDeviceStrokeWidth(pen) &&
             (HasStrokeCapOverride(path) ||
              pen.StartLineCap != PenLineCap.Round ||
              pen.EndLineCap != PenLineCap.Round))
@@ -1121,12 +1129,12 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
     }
 
     /// <summary>
-    /// Compiles a retained path into framebuffer coordinates for a Skia
-    /// device hairline. This keeps the precise GPU hit-test primitive at one
-    /// pixel under anisotropic scale and shear instead of approximating it
-    /// with one inverse-scaled local width.
+    /// Compiles a retained path into framebuffer coordinates for a device-width
+    /// stroke. This keeps both Skia hairlines and explicit positive fixed widths
+    /// exact under anisotropic scale and shear instead of approximating either
+    /// contract with one inverse-scaled local width.
     /// </summary>
-    private bool TryAddDeviceHairlinePathStrokePrimitive(
+    private bool TryAddDevicePathStrokePrimitive(
         PathGeometry path,
         Matrix4x4 transform,
         int id,
@@ -1178,7 +1186,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 switch (segment.SegmentType)
                 {
                     case 0u:
-                        AppendTransformedHairlineSegment(
+                        AppendTransformedDeviceStrokeSegment(
                             segment,
                             transform,
                             pointCount: 2,
@@ -1186,7 +1194,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                             ref transformedMax);
                         break;
                     case 1u:
-                        AppendTransformedHairlineSegment(
+                        AppendTransformedDeviceStrokeSegment(
                             segment,
                             transform,
                             pointCount: 3,
@@ -1194,7 +1202,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                             ref transformedMax);
                         break;
                     case 2u:
-                        AppendTransformedHairlineSegment(
+                        AppendTransformedDeviceStrokeSegment(
                             segment,
                             transform,
                             pointCount: 4,
@@ -1202,7 +1210,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                             ref transformedMax);
                         break;
                     case 3u:
-                        AppendTransformedHairlineArc(
+                        AppendTransformedDeviceStrokeArc(
                             segment,
                             transform,
                             ref transformedMin,
@@ -1233,7 +1241,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 Matrix4x4.Identity,
                 id,
                 zIndex,
-                localThickness: 1f,
+                localThickness: GetDeviceStrokeWidth(pen),
                 figure.IsClosed
                     ? LineGeometryCap.Round
                     : ToLineGeometryCap(figure.StrokeStartLineCap ?? pen.StartLineCap),
@@ -1267,33 +1275,33 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         }
     }
 
-    private void AppendTransformedHairlineSegment(
+    private void AppendTransformedDeviceStrokeSegment(
         GpuPathSegment segment,
         Matrix4x4 transform,
         int pointCount,
         ref Vector2 min,
         ref Vector2 max)
     {
-        segment.P0 = TransformHairlinePoint(segment.P0, transform, ref min, ref max);
-        segment.P1 = TransformHairlinePoint(segment.P1, transform, ref min, ref max);
+        segment.P0 = TransformDeviceStrokePoint(segment.P0, transform, ref min, ref max);
+        segment.P1 = TransformDeviceStrokePoint(segment.P1, transform, ref min, ref max);
         if (pointCount >= 3)
         {
-            segment.P2 = TransformHairlinePoint(segment.P2, transform, ref min, ref max);
+            segment.P2 = TransformDeviceStrokePoint(segment.P2, transform, ref min, ref max);
         }
         if (pointCount >= 4)
         {
-            segment.P3 = TransformHairlinePoint(segment.P3, transform, ref min, ref max);
+            segment.P3 = TransformDeviceStrokePoint(segment.P3, transform, ref min, ref max);
         }
         _pathSegments.Add(segment);
     }
 
-    private void AppendTransformedHairlineArc(
+    private void AppendTransformedDeviceStrokeArc(
         GpuPathSegment segment,
         Matrix4x4 transform,
         ref Vector2 min,
         ref Vector2 max)
     {
-        int arcSubdivisionCount = GetHairlineArcSubdivisionCount(
+        int arcSubdivisionCount = GetDeviceStrokeArcSubdivisionCount(
             segment,
             transform);
         var thetaStart = BitConverter.UInt32BitsToSingle(segment.Pad0);
@@ -1301,7 +1309,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         var rotation = BitConverter.UInt32BitsToSingle(segment.Pad2);
         var cosine = MathF.Cos(rotation);
         var sine = MathF.Sin(rotation);
-        var previous = TransformHairlinePoint(
+        var previous = TransformDeviceStrokePoint(
             EvaluateArc(thetaStart),
             transform,
             ref min,
@@ -1310,7 +1318,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         {
             var theta = thetaStart +
                 deltaTheta * (subdivision / (float)arcSubdivisionCount);
-            var next = TransformHairlinePoint(
+            var next = TransformDeviceStrokePoint(
                 EvaluateArc(theta),
                 transform,
                 ref min,
@@ -1335,7 +1343,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         }
     }
 
-    internal static int GetHairlineArcSubdivisionCount(
+    internal static int GetDeviceStrokeArcSubdivisionCount(
         in GpuPathSegment segment,
         Matrix4x4 transform)
     {
@@ -1359,34 +1367,34 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 ellipseTransform,
                 out float maximumRadius))
         {
-            return MinimumHairlineArcSubdivisions;
+            return MinimumDeviceStrokeArcSubdivisions;
         }
 
         double sweep = Math.Abs((double)deltaTheta);
-        if (sweep == 0d || maximumRadius <= HairlineArcMaxDeviceError)
-            return MinimumHairlineArcSubdivisions;
+        if (sweep == 0d || maximumRadius <= DeviceStrokeArcMaxDeviceError)
+            return MinimumDeviceStrokeArcSubdivisions;
 
         double cosineLimit = Math.Clamp(
-            1d - (HairlineArcMaxDeviceError / maximumRadius),
+            1d - (DeviceStrokeArcMaxDeviceError / maximumRadius),
             -1d,
             1d);
         double maximumAngle = 2d * Math.Acos(cosineLimit);
         if (!double.IsFinite(maximumAngle) || maximumAngle <= 0d)
-            return MaximumHairlineArcSubdivisions;
+            return MaximumDeviceStrokeArcSubdivisions;
 
         double required = Math.Ceiling(sweep / maximumAngle);
         if (!double.IsFinite(required) ||
-            required >= MaximumHairlineArcSubdivisions)
+            required >= MaximumDeviceStrokeArcSubdivisions)
         {
-            return MaximumHairlineArcSubdivisions;
+            return MaximumDeviceStrokeArcSubdivisions;
         }
 
         return Math.Max(
-            MinimumHairlineArcSubdivisions,
+            MinimumDeviceStrokeArcSubdivisions,
             (int)required);
     }
 
-    private static Vector2 TransformHairlinePoint(
+    private static Vector2 TransformDeviceStrokePoint(
         Vector2 point,
         Matrix4x4 transform,
         ref Vector2 min,
@@ -1614,9 +1622,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         {
             if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                if (pen.IsHairline)
+                if (UsesDeviceStrokeWidth(pen))
                 {
-                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                    TryAddDevicePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
                 }
                 else
                 {
@@ -1627,9 +1635,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        if (pen.IsHairline)
+        if (UsesDeviceStrokeWidth(pen))
         {
-            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+            TryAddDevicePathStrokePrimitive(path, transform, id, zIndex, pen);
         }
         else
         {
@@ -1701,9 +1709,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         {
             if (TryGetDashedStrokePath(command, path, pen, localThickness, out var strokePath, out var strokePen))
             {
-                if (pen.IsHairline)
+                if (UsesDeviceStrokeWidth(pen))
                 {
-                    TryAddDeviceHairlinePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
+                    TryAddDevicePathStrokePrimitive(strokePath, transform, id, zIndex, strokePen);
                 }
                 else
                 {
@@ -1714,9 +1722,9 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             return;
         }
 
-        if (pen.IsHairline)
+        if (UsesDeviceStrokeWidth(pen))
         {
-            TryAddDeviceHairlinePathStrokePrimitive(path, transform, id, zIndex, pen);
+            TryAddDevicePathStrokePrimitive(path, transform, id, zIndex, pen);
         }
         else
         {

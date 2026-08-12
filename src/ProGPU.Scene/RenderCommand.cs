@@ -415,6 +415,7 @@ public sealed class RenderCommandGeometryCache
     private PenLineCap _undashedStrokeStartLineCap;
     private PenLineCap _undashedStrokeEndLineCap;
     private PenLineCap _undashedStrokeDashCap;
+    private PenStrokeTransformMode _undashedStrokeTransformMode;
 
     private RenderCommandGeometryCache(
         PathGeometry? strokePath,
@@ -573,6 +574,7 @@ public sealed class RenderCommandGeometryCache
         _undashedStrokeStartLineCap = pen.StartLineCap;
         _undashedStrokeEndLineCap = pen.EndLineCap;
         _undashedStrokeDashCap = pen.DashCap;
+        _undashedStrokeTransformMode = pen.StrokeTransformMode;
         return true;
     }
 
@@ -677,7 +679,8 @@ public sealed class RenderCommandGeometryCache
             _undashedStrokeMiterLimit == pen.MiterLimit &&
             _undashedStrokeStartLineCap == pen.StartLineCap &&
             _undashedStrokeEndLineCap == pen.EndLineCap &&
-            _undashedStrokeDashCap == pen.DashCap;
+            _undashedStrokeDashCap == pen.DashCap &&
+            _undashedStrokeTransformMode == pen.StrokeTransformMode;
     }
 }
 
