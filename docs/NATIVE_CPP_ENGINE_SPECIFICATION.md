@@ -79,15 +79,16 @@ metadata.
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
+| [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Keep direct masks independent. The frame-group lane now uses one reusable offscreen texture and one restore/composite draw; nested semantic layer stacks and effects remain separate work. |
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
 | [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve primitive/group distinction and overlap behavior. The current frame-group kernel is reusable infrastructure, but nested `CreateLayer` stack parity remains open. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
-| [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. |
+| [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
 | [WebRender clip chains](https://searchfox.org/mozilla-central/source/gfx/wr) | Common display-item properties carry spatial and clip-chain identity so retained items reuse hierarchical clip state. | Keep clip identity in the future semantic scene rather than baking clip-dependent geometry. The frame-level fast path only supplies one resolved rectangle. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
-| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha while rendering remains GPU-oriented. | Use the pooled frame-group kernel now, while reserving explicit push/pop commands for nested clips, blends, masks, and effects in the semantic scene. |
+| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use the pooled frame-group kernel now, while reserving explicit push/pop commands and retained clip identity for nested clips, blends, masks, and effects in the semantic scene. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
 | [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
@@ -662,6 +663,64 @@ This is one isolated group around a frame family, not a nested opacity/clip
 stack. Arbitrary/path clip chains, opacity masks, blend isolation, effects,
 nested layer commands, bounded multi-layer pooling, and device-loss recreation
 remain the next semantic-scene slice.
+
+### Phase 2 common mask and clip design gate
+
+The next additive ABI increment applies one common opacity/clip mask to the
+pooled result of any implemented frame family. It deliberately starts with two
+representations already supported by the production `Texture.wgsl` contract:
+
+1. a same-device filterable R8/RGBA/BGRA unorm texture view, sampled through an
+   independent destination mapping and using its red channel as coverage; and
+2. an analytic rounded rectangle, evaluated from a physical-fragment-to-local
+   inverse affine transform, local bounds, per-corner radii, and bounded
+   opacity.
+
+The versioned mask descriptor is referenced only by an appended draw-state
+field. A 32-byte legacy state has primitive opacity and rectangle clip only, a
+40-byte state additionally has group opacity/revision, and the new full state
+may publish the mask pointer. Each prefix is read only after its own explicit
+size threshold; extending `sizeof(progpu_native_draw_state)` must never make a
+40-byte caller lose group semantics. The native boundary validates descriptor
+size/kind/flags/reserved fields, finite mapping values, dimensions, sampling,
+supported formats, same-device ownership, and source/target aliasing before it
+retains a texture view or begins command encoding. The safe .NET surface owns
+the `GpuTexture` reference and emits the raw descriptor only within the locked
+render call; raw WebGPU handles are not the ordinary public contract.
+
+A requested mask activates the existing pooled layer even when group opacity
+is one. The content pass remains transparent and unmasked. The final composite
+selects a masked premultiplied fragment entry point and binds mask state in a
+separate group, so an image's own source mask and the common group mask can
+coexist without sharing mutable resources. Analytic masks bind one retained
+one-pixel sentinel because the common WebGPU layout still requires a sampled
+texture, but their shader branch performs no mask-texture sample. Sampled
+masks add exactly one filterable texture sample per covered composite
+fragment.
+
+Mask identity, mapping, opacity, and revision are intentionally excluded from
+the retained family-content key. A mask-only mutation may update one 96-byte
+uniform and, when its borrowed view changes, two sampler bind groups; it must
+not recompile family geometry, rerasterize path/glyph coverage, or reupload an
+image. An unchanged retained replay is `O(1)` CPU work plus one composite draw
+and performs zero mask, family, vertex, index, brush, atlas, or source-texture
+upload. First use retains `O(1)` WebGPU objects in addition to the existing
+`O(W*H)` RGBA group texture; sampled masks retain but do not duplicate their
+producer texture.
+
+This increment is not arbitrary clip-chain parity. A general clip is a retained
+ordered intersection/difference expression with its own transform and fill
+rule. Under arbitrary affine transforms, reducing analytic arcs to transformed
+axis-aligned bounds or applying one scalar scale is incorrect. The later
+semantic-scene checkpoint will retain clip-chain identity, reuse the existing
+path atlas/boolean program where exact, and compose bounded R8 coverage for
+complex chains. Until differential images, retained invalidation, nested layer
+semantics, and device-loss recreation pass, the parent non-rectangular
+clip/mask/effects milestone remains open.
+
+This slice does not alter Unicode shaping, line layout, glyph selection, or
+HarfBuzz/DirectWrite/Skia shaping-plan reuse. It masks the already positioned
+glyph-family result after rendering, preserving the established text boundary.
 
 ## 10. Migration tranches
 
