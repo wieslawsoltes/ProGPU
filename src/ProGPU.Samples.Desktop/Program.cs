@@ -80,12 +80,35 @@ public static class Program
 #endif
         GlfwWindowing.Use();
         GlfwInput.RegisterPlatform();
-        AppBuilder<App>.Configure()
+        bool useNativeRenderer = Array.Exists(
+            args,
+            static argument => string.Equals(
+                argument,
+                "--native-renderer",
+                StringComparison.OrdinalIgnoreCase));
+        SamplePlatformServices.CreateNativeRendererPage =
+            NativeRendererSamplePage.Create;
+        SamplePlatformServices.InitialPage = useNativeRenderer
+            ? "Native C++ Renderer"
+            : null;
+
+        AppBuilder<App> builder = AppBuilder<App>.Configure()
             .WithTitle("ProGPU Substrate - High-Performance WinUI Gallery Dashboard")
-            .WithSize(1280, 800)
-            .WithGpuContextFactory(CreateDesktopGpuContext)
-            .Build()
-            .Run(args);
+            .WithSize(1280, 800);
+        if (!useNativeRenderer)
+        {
+            builder.WithGpuContextFactory(CreateDesktopGpuContext);
+        }
+
+        try
+        {
+            builder.Build().Run(args);
+        }
+        finally
+        {
+            SamplePlatformServices.CreateNativeRendererPage = null;
+            SamplePlatformServices.InitialPage = null;
+        }
     }
 
     private static WgpuContext CreateDesktopGpuContext(

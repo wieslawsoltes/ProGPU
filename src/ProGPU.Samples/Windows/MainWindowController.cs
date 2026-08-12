@@ -304,6 +304,10 @@ public static unsafe class MainWindowController
         var wpfShowcaseItem = PageItem("WPF Shim Showcase", "📐", WpfShowcasePage.Create);
 
         var computeItem = PageItem("Compute FX", "⚙", ComputeFxPage.Create);
+        NavigationViewItem? nativeRendererItem =
+            SamplePlatformServices.CreateNativeRendererPage is { } createNativeRendererPage
+                ? PageItem("Native C++ Renderer", "C++", createNativeRendererPage)
+                : null;
         var motionAnimationsItem = PageItem("Motion & Animations", "🎬", MotionAnimationsPage.Create);
         var advancedItem = PageItem("Advanced Controls", "🛠", AdvancedControlsPage.Create);
         var keyboardParityItem = PageItem("Keyboard & Focus", "⌨️", KeyboardParityPage.Create);
@@ -377,6 +381,10 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(textShapingItem);
         AppState._navigationView.MenuItems.Add(wpfShowcaseItem);
         AppState._navigationView.MenuItems.Add(computeItem);
+        if (nativeRendererItem is not null)
+        {
+            AppState._navigationView.MenuItems.Add(nativeRendererItem);
+        }
         AppState._navigationView.MenuItems.Add(motionAnimationsItem);
         AppState._navigationView.MenuItems.Add(advancedItem);
         AppState._navigationView.MenuItems.Add(keyboardParityItem);
@@ -414,32 +422,33 @@ public static unsafe class MainWindowController
         AppState._navigationView.MenuItems.Add(xamlPlaygroundItem);
 #endif
 
-        NavigationViewItem? activeMediaPageItem = null;
+        NavigationViewItem? activeNativeResourcePageItem = null;
         AppState._navigationView.SelectionChanged += (s, e) =>
         {
             NavigationViewItem? selectedItem =
                 AppState._navigationView.SelectedItem;
-            if (activeMediaPageItem is not null &&
+            if (activeNativeResourcePageItem is not null &&
                 !ReferenceEquals(
-                    activeMediaPageItem,
+                    activeNativeResourcePageItem,
                     selectedItem))
             {
                 FrameworkElement? page =
-                    activeMediaPageItem.Page;
+                    activeNativeResourcePageItem.Page;
                 Func<FrameworkElement?>? factory =
-                    activeMediaPageItem.PageFactory;
+                    activeNativeResourcePageItem.PageFactory;
                 page?.FireUnloaded();
                 if (factory is not null)
                 {
-                    // Media pages own native decoder/audio resources.
-                    // Recreate them on the next visit instead of retaining
-                    // a disposed player in NavigationView's page cache.
-                    activeMediaPageItem.PageFactory = factory;
+                    // Media and C++ renderer pages own native GPU, decoder,
+                    // and audio resources. Recreate them on the next visit
+                    // instead of retaining disposed native state.
+                    activeNativeResourcePageItem.PageFactory = factory;
                 }
             }
-            activeMediaPageItem =
+            activeNativeResourcePageItem =
                 ReferenceEquals(selectedItem, mediaPlayerItem) ||
-                ReferenceEquals(selectedItem, videoEditorItem)
+                ReferenceEquals(selectedItem, videoEditorItem) ||
+                ReferenceEquals(selectedItem, nativeRendererItem)
                     ? selectedItem
                     : null;
 
@@ -463,7 +472,7 @@ public static unsafe class MainWindowController
         var initialItem = ResolveInitialPage(
             AppState._navigationView.MenuItems,
             basicInputItem,
-            selectedCategory,
+            selectedCategory ?? SamplePlatformServices.InitialPage,
             SamplePerformanceBenchmark.RequestedPage);
 
         AppState._navigationView.SelectedItem = initialItem;

@@ -1,0 +1,130 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#if defined(_WIN32)
+#  if defined(PROGPU_NATIVE_BUILD)
+#    define PROGPU_NATIVE_API __declspec(dllexport)
+#  else
+#    define PROGPU_NATIVE_API __declspec(dllimport)
+#  endif
+#else
+#  define PROGPU_NATIVE_API __attribute__((visibility("default")))
+#endif
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct progpu_native_engine progpu_native_engine;
+
+enum {
+    PROGPU_NATIVE_ABI_VERSION = 1U,
+    PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
+    PROGPU_NATIVE_CAPABILITY_SOLID_RECT_BATCH = 1ULL << 0U,
+    PROGPU_NATIVE_CAPABILITY_SHARED_VECTOR_SHADER = 1ULL << 1U,
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_TARGET = 1ULL << 2U
+};
+
+typedef enum progpu_native_status {
+    PROGPU_NATIVE_STATUS_SUCCESS = 0,
+    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT = 1,
+    PROGPU_NATIVE_STATUS_UNSUPPORTED = 2,
+    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY = 3,
+    PROGPU_NATIVE_STATUS_WRONG_THREAD = 4,
+    PROGPU_NATIVE_STATUS_DEVICE_LOST = 5,
+    PROGPU_NATIVE_STATUS_INTERNAL_ERROR = 6
+} progpu_native_status;
+
+typedef enum progpu_native_texture_format {
+    PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
+    PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM = 2,
+    PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM_SRGB = 3,
+    PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM_SRGB = 4
+} progpu_native_texture_format;
+
+typedef struct progpu_native_engine_info {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t backend_abi;
+    uint32_t reserved;
+    uint64_t capabilities;
+    char name[64];
+} progpu_native_engine_info;
+
+/*
+ * The device and queue are opaque handles from the exact WebGPU C ABI named by
+ * backend_abi. The engine retains both handles until it is destroyed. A build
+ * must reject any other ABI rather than reinterpret incompatible descriptors.
+ */
+typedef struct progpu_native_engine_options {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t backend_abi;
+    uint32_t target_format;
+    uintptr_t device;
+    uintptr_t queue;
+    uint64_t flags;
+} progpu_native_engine_options;
+
+typedef struct progpu_native_color {
+    float r;
+    float g;
+    float b;
+    float a;
+} progpu_native_color;
+
+typedef struct progpu_native_rect {
+    float x;
+    float y;
+    float width;
+    float height;
+    progpu_native_color color;
+} progpu_native_rect;
+
+/*
+ * width and height are physical target pixels. Rectangle coordinates are
+ * logical pixels and dpi_scale maps logical coordinates to physical pixels.
+ * target_view is borrowed for the duration of the call.
+ */
+typedef struct progpu_native_frame {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_color clear_color;
+    const progpu_native_rect* rects;
+    size_t rect_count;
+} progpu_native_frame;
+
+typedef struct progpu_native_frame_metrics {
+    uint32_t struct_size;
+    uint32_t draw_call_count;
+    uint32_t vertex_count;
+    uint32_t reserved;
+    uint64_t vertex_upload_bytes;
+    uint64_t uniform_upload_bytes;
+    uint64_t submission_count;
+} progpu_native_frame_metrics;
+
+PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);
+PROGPU_NATIVE_API uint8_t progpu_native_get_info(
+    progpu_native_engine_info* info);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_create(
+    const progpu_native_engine_options* options,
+    progpu_native_engine** engine);
+PROGPU_NATIVE_API void progpu_native_engine_destroy(
+    progpu_native_engine* engine);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
+    progpu_native_engine* engine,
+    const progpu_native_frame* frame,
+    progpu_native_frame_metrics* metrics);
+PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
+    const progpu_native_engine* engine,
+    char* destination,
+    size_t destination_size);
+
+#ifdef __cplusplus
+}
+#endif

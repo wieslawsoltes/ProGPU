@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <PackageDescription>Typed zero-copy .NET host for the ProGPU native C++ WebGPU renderer.</PackageDescription>
+    <PackageTags>progpu;native;c++;webgpu;renderer;interop</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+</Project>
