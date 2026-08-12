@@ -98,6 +98,15 @@ and composites retained atlas quads. Add `--write-images` for native, managed,
 and amplified-difference captures. DPI-1 and Retina DPI-2 outputs are
 byte-exact against the managed compositor.
 
+Use `--glyphs` for the retained positioned-glyph lane. The managed side shapes
+and positions glyph IDs once, while C++ owns outline validation, production
+`GlyphRasterizer.wgsl` compute dispatch, the bounded R8 glyph atlas, and one
+instanced `Text.wgsl` composite. Add `--dpi 2` for the Retina gate and
+`--write-images` for exact native, managed, and amplified-difference captures.
+Use `--drain-each-pair` to bound queue depth while measuring CPU submission
+without charging the shared GPU completion wait to either renderer; use
+`--sync` when deliberately measuring complete GPU work.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -127,6 +136,10 @@ Current native parity:
 - retained filled line/quadratic/cubic/resolved-arc paths with a native-owned
   R8 coverage atlas, 64-phase tile reuse, shared compute/vector WGSL, and no
   stable-frame raster or payload upload;
+- retained positioned glyphs with deduplicated analytic outlines, a
+  native-owned R8 glyph atlas, production glyph-compute/text-composite WGSL,
+  one instanced draw, exact DPI-1/DPI-2 parity, and no stable-frame glyph
+  raster or payload upload;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

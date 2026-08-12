@@ -34,7 +34,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES = 1ULL << 10U,
     PROGPU_NATIVE_CAPABILITY_DASHED_STROKES = 1ULL << 11U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY = 1ULL << 12U,
-    PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS = 1ULL << 13U
+    PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS = 1ULL << 13U,
+    PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U
 };
 
 enum {
@@ -302,6 +303,42 @@ typedef struct progpu_native_path_fill {
 } progpu_native_path_fill;
 
 /*
+ * One immutable glyph outline references line, quadratic, or cubic records in
+ * the shared segment arena. Bounds are in font design units. raster_scale maps
+ * design units to physical atlas pixels; subpixel_x is the quarter-pixel
+ * horizontal phase in [0, 0.75]. Shaping and line layout remain caller-owned.
+ */
+typedef struct progpu_native_glyph_outline {
+    size_t segment_offset;
+    size_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    float raster_scale;
+    float subpixel_x;
+} progpu_native_glyph_outline;
+
+/*
+ * A positioned glyph references one outline. position and bases are logical
+ * coordinates after shaping. atlas_to_logical_scale preserves transform-aware
+ * raster sizing; bold_offset and italic_skew match the production Text.wgsl
+ * presentation contract. This baseline lane is solid grayscale text.
+ */
+typedef struct progpu_native_positioned_glyph {
+    uint32_t outline_index;
+    uint32_t reserved;
+    progpu_native_point position;
+    progpu_native_point basis_x;
+    progpu_native_point basis_y;
+    progpu_native_color color;
+    float atlas_to_logical_scale;
+    float bold_offset;
+    float italic_skew;
+    float reserved2;
+} progpu_native_positioned_glyph;
+
+/*
  * width and height are physical target pixels. Rectangle coordinates are
  * logical pixels and dpi_scale maps logical coordinates to physical pixels.
  * target_view is borrowed for the duration of the call.
@@ -421,6 +458,40 @@ typedef struct progpu_native_path_frame_metrics {
     uint64_t payload_hash;
 } progpu_native_path_frame_metrics;
 
+typedef struct progpu_native_glyph_frame {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_color clear_color;
+    const progpu_native_glyph_outline* outlines;
+    size_t outline_count;
+    const progpu_native_path_segment* segments;
+    size_t segment_count;
+    const progpu_native_positioned_glyph* glyphs;
+    size_t glyph_count;
+    uint32_t flags;
+    uint32_t content_revision;
+} progpu_native_glyph_frame;
+
+typedef struct progpu_native_glyph_frame_metrics {
+    uint32_t struct_size;
+    uint32_t draw_call_count;
+    uint32_t glyph_count;
+    uint32_t rasterized_glyph_count;
+    uint32_t atlas_width;
+    uint32_t atlas_height;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint64_t instance_upload_bytes;
+    uint64_t outline_upload_bytes;
+    uint64_t coverage_staging_bytes;
+    uint64_t uniform_upload_bytes;
+    uint64_t submission_count;
+    uint64_t payload_hash;
+} progpu_native_glyph_frame_metrics;
+
 PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);
 PROGPU_NATIVE_API uint8_t progpu_native_get_info(
     progpu_native_engine_info* info);
@@ -445,6 +516,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_paths(
     progpu_native_engine* engine,
     const progpu_native_path_frame* frame,
     progpu_native_path_frame_metrics* metrics);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_glyphs(
+    progpu_native_engine* engine,
+    const progpu_native_glyph_frame* frame,
+    progpu_native_glyph_frame_metrics* metrics);
 PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
     const progpu_native_engine* engine,
     char* destination,

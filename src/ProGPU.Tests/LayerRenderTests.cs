@@ -364,12 +364,18 @@ public sealed class LayerRenderTests
                 $"but uploaded {metrics.IncrementalSceneUploadBytes} bytes.");
             Assert.Equal(1, metrics.SceneUploadBatchCount);
             Assert.Equal(
-                metrics.IncrementalSceneUploadPageWrites + 1,
+                metrics.IncrementalSceneUploadPageWrites,
                 metrics.SceneUploadCopyCount);
             Assert.True(
                 metrics.SceneUploadArenaBytes >= 2UL * 4096UL,
                 "Native scene uploads should retain a bounded two-slot " +
                 "mapped ring instead of allocating queue staging per write.");
+
+            window.Render();
+
+            metrics = window.Compositor.Metrics;
+            Assert.Equal(0, metrics.IncrementalSceneUploadBytes);
+            Assert.Equal(0, metrics.SceneUploadCopyCount);
         }
         finally
         {

@@ -7,6 +7,7 @@ using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Scene;
 using ProGPU.Samples;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
 
@@ -116,6 +117,10 @@ internal static class NativeRendererSamplePage
             new NativePathFill[MaximumRectangles];
         private readonly NativePathSegment[] _pathSegments =
             new NativePathSegment[4];
+        private NativeGlyphOutline[] _glyphOutlines = [];
+        private NativePathSegment[] _glyphSegments = [];
+        private readonly NativePositionedGlyph[] _positionedGlyphs =
+            new NativePositionedGlyph[MaximumRectangles];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
@@ -171,9 +176,11 @@ internal static class NativeRendererSamplePage
                 "polygon geometry, capped GPU Bezier curves, connected " +
                 "polylines with joins, dashed strokes, adaptive rational " +
                 "splines, retained compute-rasterized paths, or the rectangle " +
-                "fast path. Stable geometry and path modes " +
+                "fast path, plus positioned glyph runs rasterized into the " +
+                "native-owned GPU atlas. Stable geometry, path, and glyph modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
-                "reuses the production Vector.wgsl module.",
+                "reuses the production Vector.wgsl, GlyphRasterizer.wgsl, or " +
+                "Text.wgsl modules.",
                 12f));
             root.AddChild(heading);
             Grid.SetRow(heading, 0);
@@ -225,7 +232,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 8);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 9);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -312,6 +319,9 @@ internal static class NativeRendererSamplePage
                         break;
                     case NativeBatchMode.Paths:
                         FillPaths(_rectangleCount, _palette);
+                        break;
+                    case NativeBatchMode.Glyphs:
+                        FillGlyphs(_rectangleCount, _palette);
                         break;
                     default:
                         FillRectangles(_rectangleCount, _palette);
@@ -411,6 +421,21 @@ internal static class NativeRendererSamplePage
                 uploadBytes = metrics.VertexUploadBytes +
                     metrics.IndexUploadBytes + metrics.BrushUploadBytes +
                     metrics.PathUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Glyphs)
+            {
+                NativeGlyphFrameMetrics metrics = _compositor.RenderGlyphs(
+                    _target,
+                    dpiScale: 1f,
+                    _glyphOutlines,
+                    _glyphSegments,
+                    _positionedGlyphs.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                    contentRevision: _contentRevision);
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.GlyphCount * 6U;
+                uploadBytes = metrics.InstanceUploadBytes +
+                    metrics.OutlineUploadBytes;
             }
             else
             {
@@ -912,6 +937,105 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillGlyphs(int count, int palette)
+        {
+            const float fontSize = 28f;
+            const string alphabet =
+                "ProGPUWebNative0123456789ABCDEFGHJKLMNQRSTUVXYZ";
+            TtfFont font = AppState._font ?? throw new InvalidOperationException(
+                "The native glyph sample requires the gallery font.");
+            float rasterScale = fontSize / font.UnitsPerEm;
+            int columns = Math.Max(1, (int)(TargetWidth / 44f));
+            int rows = Math.Max(1, (count + columns - 1) / columns);
+            float cellHeight = Math.Min(42f, TargetHeight / (float)rows);
+            var outlines = new List<NativeGlyphOutline>();
+            var segments = new List<NativePathSegment>();
+            var outlineIndices = new Dictionary<ushort, uint>();
+
+            for (int index = 0; index < count; index++)
+            {
+                ushort glyphIndex = font.GetGlyphIndex(
+                    alphabet[index % alphabet.Length]);
+                if (!outlineIndices.TryGetValue(
+                        glyphIndex,
+                        out uint outlineIndex))
+                {
+                    PathGeometry? outline = font.GetGlyphOutline(glyphIndex);
+                    if (outline == null ||
+                        !outline.TryGetBounds(
+                            out Vector2 minimum,
+                            out Vector2 maximum))
+                    {
+                        throw new InvalidOperationException(
+                            $"Glyph {glyphIndex} has no renderable outline.");
+                    }
+                    nuint segmentOffset = (nuint)segments.Count;
+                    foreach (PathFigure figure in outline.Figures)
+                    {
+                        Vector2 current = figure.StartPoint;
+                        foreach (PathSegment segment in figure.Segments)
+                        {
+                            switch (segment)
+                            {
+                                case LineSegment line:
+                                    segments.Add(new NativePathSegment(
+                                        NativePathSegmentKind.Line,
+                                        current,
+                                        line.Point));
+                                    current = line.Point;
+                                    break;
+                                case QuadraticBezierSegment quadratic:
+                                    segments.Add(new NativePathSegment(
+                                        NativePathSegmentKind.Quadratic,
+                                        current,
+                                        quadratic.ControlPoint,
+                                        quadratic.Point));
+                                    current = quadratic.Point;
+                                    break;
+                                case CubicBezierSegment cubic:
+                                    segments.Add(new NativePathSegment(
+                                        NativePathSegmentKind.Cubic,
+                                        current,
+                                        cubic.ControlPoint1,
+                                        cubic.ControlPoint2,
+                                        cubic.Point));
+                                    current = cubic.Point;
+                                    break;
+                            }
+                        }
+                        if (figure.IsClosed && current != figure.StartPoint)
+                        {
+                            segments.Add(new NativePathSegment(
+                                NativePathSegmentKind.Line,
+                                current,
+                                figure.StartPoint));
+                        }
+                    }
+                    outlineIndex = checked((uint)outlines.Count);
+                    outlineIndices.Add(glyphIndex, outlineIndex);
+                    outlines.Add(new NativeGlyphOutline(
+                        segmentOffset,
+                        (nuint)segments.Count - segmentOffset,
+                        minimum,
+                        maximum,
+                        rasterScale));
+                }
+
+                int column = index % columns;
+                int row = index / columns;
+                _positionedGlyphs[index] = new NativePositionedGlyph(
+                    outlineIndex,
+                    new Vector2(
+                        18f + column * 44f,
+                        Math.Min(TargetHeight - 10f, 34f + row * cellHeight)),
+                    Vector2.UnitX,
+                    Vector2.UnitY,
+                    Palette(index * 0.61803398875f % 1f, palette));
+            }
+            _glyphOutlines = outlines.ToArray();
+            _glyphSegments = segments.ToArray();
+        }
+
         private void UpdateCountText()
         {
             if (_countRun is not null)
@@ -925,6 +1049,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Dashes => $"Dashes: {_rectangleCount:N0}",
                     NativeBatchMode.Splines => $"Splines: {_rectangleCount:N0}",
                     NativeBatchMode.Paths => $"Paths: {_rectangleCount:N0}",
+                    NativeBatchMode.Glyphs => $"Glyphs: {_rectangleCount:N0}",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -939,6 +1064,7 @@ internal static class NativeRendererSamplePage
             Dashes,
             Splines,
             Paths,
+            Glyphs,
             Rectangles
         }
 

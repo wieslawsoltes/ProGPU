@@ -162,6 +162,44 @@ internal static unsafe partial class NativeMethods
         internal ulong PayloadHash;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GlyphFrame
+    {
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal NativeColor ClearColor;
+        internal NativeGlyphOutline* Outlines;
+        internal nuint OutlineCount;
+        internal NativePathSegment* Segments;
+        internal nuint SegmentCount;
+        internal NativePositionedGlyph* Glyphs;
+        internal nuint GlyphCount;
+        internal uint Flags;
+        internal uint ContentRevision;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GlyphFrameMetrics
+    {
+        internal uint StructSize;
+        internal uint DrawCallCount;
+        internal uint GlyphCount;
+        internal uint RasterizedGlyphCount;
+        internal uint AtlasWidth;
+        internal uint AtlasHeight;
+        internal uint Reserved0;
+        internal uint Reserved1;
+        internal ulong InstanceUploadBytes;
+        internal ulong OutlineUploadBytes;
+        internal ulong CoverageStagingBytes;
+        internal ulong UniformUploadBytes;
+        internal ulong SubmissionCount;
+        internal ulong PayloadHash;
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     internal unsafe struct EngineInfo
     {
@@ -218,6 +256,13 @@ internal static unsafe partial class NativeMethods
         nint engine,
         PathFrame* frame,
         PathFrameMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_glyphs")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus RenderGlyphs(
+        nint engine,
+        GlyphFrame* frame,
+        GlyphFrameMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_last_error")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -441,6 +441,85 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    public NativeGlyphFrameMetrics RenderGlyphs(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeGlyphOutline> outlines,
+        ReadOnlySpan<NativePathSegment> segments,
+        ReadOnlySpan<NativePositionedGlyph> glyphs,
+        Vector4 clearColor,
+        bool capturePayloadHash = false,
+        uint contentRevision = 0)
+    {
+        ValidateTarget(target);
+
+        fixed (NativeGlyphOutline* outlinePointer = outlines)
+        fixed (NativePathSegment* segmentPointer = segments)
+        fixed (NativePositionedGlyph* glyphPointer = glyphs)
+        {
+            var frame = new NativeMethods.GlyphFrame
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.GlyphFrame>(),
+                Width = target.Width,
+                Height = target.Height,
+                DpiScale = dpiScale,
+                TargetView = (nuint)target.ViewPtr,
+                ClearColor = new NativeMethods.NativeColor
+                {
+                    R = clearColor.X,
+                    G = clearColor.Y,
+                    B = clearColor.Z,
+                    A = clearColor.W
+                },
+                Outlines = outlinePointer,
+                OutlineCount = (nuint)outlines.Length,
+                Segments = segmentPointer,
+                SegmentCount = (nuint)segments.Length,
+                Glyphs = glyphPointer,
+                GlyphCount = (nuint)glyphs.Length,
+                Flags = (capturePayloadHash
+                        ? NativeMethods.GeometryFrameCapturePayloadHash
+                        : 0U) |
+                    (contentRevision != 0U
+                        ? NativeMethods.GeometryFrameRetainCompiledPayload
+                        : 0U),
+                ContentRevision = contentRevision
+            };
+            var metrics = new NativeMethods.GlyphFrameMetrics
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>()
+            };
+
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                var status = NativeMethods.RenderGlyphs(
+                    _engine,
+                    &frame,
+                    &metrics);
+                if (status != NativeRendererStatus.Success)
+                {
+                    throw new NativeRendererException(status, ReadLastError());
+                }
+                target.NotifyExternalContentChanged();
+                _context.PollDevice(wait: false);
+            }
+
+            return new NativeGlyphFrameMetrics(
+                metrics.DrawCallCount,
+                metrics.GlyphCount,
+                metrics.RasterizedGlyphCount,
+                metrics.AtlasWidth,
+                metrics.AtlasHeight,
+                metrics.InstanceUploadBytes,
+                metrics.OutlineUploadBytes,
+                metrics.CoverageStagingBytes,
+                metrics.UniformUploadBytes,
+                metrics.SubmissionCount,
+                metrics.PayloadHash);
+        }
+    }
+
     public void Dispose()
     {
         DisposeCore();

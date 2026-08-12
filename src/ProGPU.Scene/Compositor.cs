@@ -3314,10 +3314,10 @@ DynamicBufferUploadComplete:
             CanvasSize = new Vector2(renderWidth, renderHeight),
             DpiScale = _currentDpiScale
         };
-        QueuePendingSceneUpload(
+        UploadIncrementalSceneBuffer(
             _uniformBuffer,
             new ReadOnlySpan<GpuUniforms>(&uniformsData, 1),
-            0);
+            ref _uniformUploadShadow);
 
         // Upload compiled active brushes to storage buffer
         EnsureSceneStateBufferCapacity();
@@ -16216,10 +16216,10 @@ SceneStateUploadComplete:
             CanvasSize = new Vector2(targetTexture.Width, targetTexture.Height),
             DpiScale = _currentDpiScale
         };
-        QueuePendingSceneUpload(
+        UploadIncrementalSceneBuffer(
             _uniformBuffer,
             new ReadOnlySpan<GpuUniforms>(&uniformsData, 1),
-            0);
+            ref _uniformUploadShadow);
         EnsureSceneStateBufferCapacity();
         if (_activeBrushes.Count > 0)
         {

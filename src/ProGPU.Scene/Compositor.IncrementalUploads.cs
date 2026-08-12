@@ -32,6 +32,7 @@ public unsafe partial class Compositor
     private IncrementalBufferShadow? _brushUploadShadow;
     private IncrementalBufferShadow? _textStyleUploadShadow;
     private IncrementalBufferShadow? _gradientStopUploadShadow;
+    private IncrementalBufferShadow? _uniformUploadShadow;
     private int _incrementalSceneUploadPageWrites;
     private long _incrementalSceneUploadBytes;
     private long _incrementalSceneUploadShadowBytes;
@@ -375,6 +376,7 @@ public unsafe partial class Compositor
         _brushUploadShadow = null;
         _textStyleUploadShadow = null;
         _gradientStopUploadShadow = null;
+        _uniformUploadShadow = null;
         _incrementalSceneUploadShadowBytes = 0;
         _pendingSceneBufferUploads.Clear();
         _pendingSceneUploadByteCount = 0;

@@ -1,6 +1,8 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
+#include "GlyphRasterizerWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
+#include "TextWgsl.generated.hpp"
 #include "VectorWgsl.generated.hpp"
 
 #include <webgpu.h>
@@ -25,6 +27,7 @@ constexpr std::uint64_t initial_brush_buffer_size = 64U * 256U;
 constexpr std::uint64_t gpu_brush_size = 256U;
 constexpr float antialias_padding_pixels = 1.5F;
 constexpr std::uint32_t native_path_atlas_size = 1024U;
+constexpr std::uint32_t native_glyph_atlas_size = 1024U;
 constexpr std::uint32_t path_padding = 4U;
 constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
 
@@ -123,9 +126,61 @@ struct native_path_cache_key_hash {
     }
 };
 
+struct gpu_glyph_record {
+    std::uint32_t start_segment;
+    std::uint32_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    std::uint32_t pad0;
+    std::uint32_t pad1;
+};
+
+struct gpu_glyph_uniforms {
+    float x_start;
+    float y_start;
+    float scale;
+    std::uint32_t glyph_index;
+    std::uint32_t output_offset_words;
+    std::uint32_t output_row_words;
+    std::uint32_t width;
+    std::uint32_t height;
+    float subpixel_x;
+    float pad0;
+    float pad1;
+    float pad2;
+};
+
+struct gpu_glyph_instance {
+    float snapped_logical_position[2];
+    float basis_x[2];
+    float basis_y[2];
+    float bear_size[4];
+    float texture_coordinates[4];
+    float color[4];
+    float scale_bold_italic_flags[4];
+    float brush_index;
+    float padding;
+};
+
+struct native_glyph_raster {
+    std::uint32_t atlas_x;
+    std::uint32_t atlas_y;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t output_offset;
+    std::uint32_t output_bytes_per_row;
+    float x_start;
+    float y_start;
+};
+
 static_assert(sizeof(gpu_path_uniforms) == 48U);
 static_assert(sizeof(gpu_path_record) == 32U);
 static_assert(sizeof(gpu_path_record) == sizeof(progpu_native_path_segment) - 16U);
+static_assert(sizeof(gpu_glyph_record) == 32U);
+static_assert(sizeof(gpu_glyph_uniforms) == 48U);
+static_assert(sizeof(gpu_glyph_instance) == 96U);
 
 std::uint32_t align_up(
     std::uint32_t value,
@@ -237,6 +292,10 @@ struct progpu_native_engine {
     WGPUBuffer uniform_buffer = nullptr;
     WGPUBindGroup uniform_bind_group = nullptr;
     WGPUBuffer analytic_uniform_buffer = nullptr;
+    gpu_uniforms cached_uniforms{};
+    gpu_uniforms cached_analytic_uniforms{};
+    bool uniform_cache_valid = false;
+    bool analytic_uniform_cache_valid = false;
     WGPUBuffer analytic_brush_buffer = nullptr;
     std::uint64_t analytic_brush_buffer_size = 0;
     WGPUBuffer analytic_gradient_buffer = nullptr;
@@ -253,6 +312,22 @@ struct progpu_native_engine {
     WGPUTexture path_atlas_texture = nullptr;
     WGPUTextureView path_atlas_texture_view = nullptr;
     WGPUBindGroup path_atlas_bind_group = nullptr;
+    WGPUShaderModule glyph_raster_shader = nullptr;
+    WGPUComputePipeline glyph_raster_pipeline = nullptr;
+    WGPUBindGroupLayout glyph_raster_layout = nullptr;
+    WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
+    WGPUShaderModule text_shader = nullptr;
+    WGPURenderPipeline text_pipeline = nullptr;
+    WGPUBindGroupLayout text_uniform_layout = nullptr;
+    WGPUBindGroupLayout text_atlas_layout = nullptr;
+    WGPUBuffer text_style_buffer = nullptr;
+    WGPUBindGroup text_uniform_bind_group = nullptr;
+    WGPUSampler glyph_atlas_sampler = nullptr;
+    WGPUTexture glyph_atlas_texture = nullptr;
+    WGPUTextureView glyph_atlas_texture_view = nullptr;
+    WGPUBindGroup text_atlas_bind_group = nullptr;
+    WGPUBuffer text_vertex_buffer = nullptr;
+    std::uint64_t text_vertex_buffer_size = 0U;
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
     std::uint64_t vertex_buffer_size = 0;
@@ -279,10 +354,85 @@ struct progpu_native_engine {
     std::uint64_t path_payload_hash = 0U;
     bool path_cache_valid = false;
     bool path_gpu_cache_valid = false;
+    std::vector<gpu_glyph_instance> glyph_instances;
+    std::vector<native_glyph_raster> glyph_rasters;
+    std::uint32_t glyph_content_revision = 0U;
+    float glyph_dpi_scale = 0.0F;
+    std::uint64_t glyph_payload_hash = 0U;
+    bool glyph_cache_valid = false;
+    bool glyph_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
 
+    bool upload_uniform_if_changed(
+        WGPUBuffer buffer,
+        const gpu_uniforms& uniforms,
+        gpu_uniforms& cached,
+        bool& cache_valid) noexcept {
+        if (cache_valid &&
+            std::memcmp(&cached, &uniforms, sizeof(uniforms)) == 0) {
+            return false;
+        }
+        wgpuQueueWriteBuffer(
+            queue,
+            buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        cached = uniforms;
+        cache_valid = true;
+        return true;
+    }
+
     ~progpu_native_engine() {
+        if (text_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(text_vertex_buffer);
+            wgpuBufferRelease(text_vertex_buffer);
+        }
+        if (text_atlas_bind_group != nullptr) {
+            wgpuBindGroupRelease(text_atlas_bind_group);
+        }
+        if (glyph_atlas_texture_view != nullptr) {
+            wgpuTextureViewRelease(glyph_atlas_texture_view);
+        }
+        if (glyph_atlas_texture != nullptr) {
+            wgpuTextureDestroy(glyph_atlas_texture);
+            wgpuTextureRelease(glyph_atlas_texture);
+        }
+        if (glyph_atlas_sampler != nullptr) {
+            wgpuSamplerRelease(glyph_atlas_sampler);
+        }
+        if (text_uniform_bind_group != nullptr) {
+            wgpuBindGroupRelease(text_uniform_bind_group);
+        }
+        if (text_style_buffer != nullptr) {
+            wgpuBufferDestroy(text_style_buffer);
+            wgpuBufferRelease(text_style_buffer);
+        }
+        if (text_uniform_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(text_uniform_layout);
+        }
+        if (text_atlas_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(text_atlas_layout);
+        }
+        if (text_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(text_pipeline);
+        }
+        if (text_shader != nullptr) {
+            wgpuShaderModuleRelease(text_shader);
+        }
+        if (glyph_raster_pipeline != nullptr) {
+            wgpuComputePipelineRelease(glyph_raster_pipeline);
+        }
+        if (glyph_raster_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(glyph_raster_pipeline_layout);
+        }
+        if (glyph_raster_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(glyph_raster_layout);
+        }
+        if (glyph_raster_shader != nullptr) {
+            wgpuShaderModuleRelease(glyph_raster_shader);
+        }
         if (path_atlas_bind_group != nullptr) {
             wgpuBindGroupRelease(path_atlas_bind_group);
         }
@@ -451,6 +601,38 @@ struct progpu_native_engine {
         }
         index_buffer = replacement;
         index_buffer_size = new_size;
+        return true;
+    }
+
+    bool ensure_text_vertex_buffer(std::uint64_t required_size) {
+        if (required_size <= text_vertex_buffer_size &&
+            text_vertex_buffer != nullptr) {
+            return true;
+        }
+        std::uint64_t new_size = std::max(
+            initial_vertex_buffer_size,
+            text_vertex_buffer_size);
+        while (new_size < required_size) {
+            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
+                return false;
+            }
+            new_size *= 2U;
+        }
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = "ProGPU native positioned glyph instances";
+        descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        descriptor.size = new_size;
+        WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
+        if (replacement == nullptr) {
+            return false;
+        }
+        if (text_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(text_vertex_buffer);
+            wgpuBufferRelease(text_vertex_buffer);
+        }
+        text_vertex_buffer = replacement;
+        text_vertex_buffer_size = new_size;
+        glyph_gpu_cache_valid = false;
         return true;
     }
 };
@@ -939,6 +1121,267 @@ bool create_path_resources(progpu_native_engine& engine) {
     return engine.path_atlas_bind_group != nullptr;
 }
 
+bool create_glyph_resources(progpu_native_engine& engine) {
+    if (engine.glyph_raster_pipeline != nullptr &&
+        engine.text_pipeline != nullptr &&
+        engine.text_uniform_bind_group != nullptr &&
+        engine.text_atlas_bind_group != nullptr) {
+        return true;
+    }
+    if (engine.glyph_raster_shader != nullptr ||
+        engine.glyph_raster_pipeline != nullptr ||
+        engine.glyph_raster_layout != nullptr ||
+        engine.glyph_raster_pipeline_layout != nullptr ||
+        engine.text_shader != nullptr || engine.text_pipeline != nullptr ||
+        engine.text_uniform_layout != nullptr ||
+        engine.text_atlas_layout != nullptr ||
+        engine.text_style_buffer != nullptr ||
+        engine.text_uniform_bind_group != nullptr ||
+        engine.glyph_atlas_sampler != nullptr ||
+        engine.glyph_atlas_texture != nullptr ||
+        engine.glyph_atlas_texture_view != nullptr ||
+        engine.text_atlas_bind_group != nullptr) {
+        return false;
+    }
+    if (engine.analytic_pipeline == nullptr &&
+        !create_analytic_pipeline(engine)) {
+        return false;
+    }
+
+    WGPUShaderModuleWGSLDescriptor glyph_wgsl{};
+    glyph_wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+    glyph_wgsl.code = reinterpret_cast<const char*>(
+        progpu::native::generated::glyph_rasterizer_wgsl);
+    WGPUShaderModuleDescriptor glyph_shader_descriptor{};
+    glyph_shader_descriptor.nextInChain = &glyph_wgsl.chain;
+    glyph_shader_descriptor.label = "ProGPU shared GlyphRasterizer.wgsl";
+    engine.glyph_raster_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &glyph_shader_descriptor);
+    if (engine.glyph_raster_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 4U> compute_entries{};
+    for (std::uint32_t index = 0U; index < compute_entries.size(); ++index) {
+        compute_entries[index].binding = index;
+        compute_entries[index].visibility = WGPUShaderStage_Compute;
+        compute_entries[index].buffer.type = index == 0U
+            ? WGPUBufferBindingType_Uniform
+            : index == 3U
+            ? WGPUBufferBindingType_Storage
+            : WGPUBufferBindingType_ReadOnlyStorage;
+    }
+    compute_entries[0].buffer.hasDynamicOffset = true;
+    compute_entries[0].buffer.minBindingSize = sizeof(gpu_glyph_uniforms);
+    compute_entries[1].buffer.minBindingSize = sizeof(gpu_glyph_record);
+    compute_entries[2].buffer.minBindingSize = sizeof(progpu_native_path_segment);
+    compute_entries[3].buffer.minBindingSize = sizeof(std::uint32_t);
+    WGPUBindGroupLayoutDescriptor compute_layout_descriptor{};
+    compute_layout_descriptor.label = "ProGPU native glyph raster bindings";
+    compute_layout_descriptor.entryCount = compute_entries.size();
+    compute_layout_descriptor.entries = compute_entries.data();
+    engine.glyph_raster_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &compute_layout_descriptor);
+    if (engine.glyph_raster_layout == nullptr) {
+        return false;
+    }
+    WGPUPipelineLayoutDescriptor compute_pipeline_layout_descriptor{};
+    compute_pipeline_layout_descriptor.label =
+        "ProGPU native glyph raster layout";
+    compute_pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    compute_pipeline_layout_descriptor.bindGroupLayouts =
+        &engine.glyph_raster_layout;
+    engine.glyph_raster_pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &compute_pipeline_layout_descriptor);
+    if (engine.glyph_raster_pipeline_layout == nullptr) {
+        return false;
+    }
+    WGPUComputePipelineDescriptor compute_pipeline_descriptor{};
+    compute_pipeline_descriptor.label = "ProGPU native glyph raster pipeline";
+    compute_pipeline_descriptor.layout = engine.glyph_raster_pipeline_layout;
+    compute_pipeline_descriptor.compute.module = engine.glyph_raster_shader;
+    compute_pipeline_descriptor.compute.entryPoint = "cs_main";
+    engine.glyph_raster_pipeline = wgpuDeviceCreateComputePipeline(
+        engine.device,
+        &compute_pipeline_descriptor);
+    if (engine.glyph_raster_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUShaderModuleWGSLDescriptor text_wgsl{};
+    text_wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
+    text_wgsl.code = reinterpret_cast<const char*>(
+        progpu::native::generated::text_wgsl);
+    WGPUShaderModuleDescriptor text_shader_descriptor{};
+    text_shader_descriptor.nextInChain = &text_wgsl.chain;
+    text_shader_descriptor.label = "ProGPU shared Text.wgsl";
+    engine.text_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &text_shader_descriptor);
+    if (engine.text_shader == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 8U> text_attributes{{
+        {WGPUVertexFormat_Float32x2, 0U, 0U},
+        {WGPUVertexFormat_Float32x2, 8U, 1U},
+        {WGPUVertexFormat_Float32x2, 16U, 2U},
+        {WGPUVertexFormat_Float32x4, 24U, 3U},
+        {WGPUVertexFormat_Float32x4, 40U, 4U},
+        {WGPUVertexFormat_Float32x4, 56U, 5U},
+        {WGPUVertexFormat_Float32x4, 72U, 6U},
+        {WGPUVertexFormat_Float32, 88U, 7U}
+    }};
+    WGPUVertexBufferLayout text_vertex_layout{};
+    text_vertex_layout.arrayStride = sizeof(gpu_glyph_instance);
+    text_vertex_layout.stepMode = WGPUVertexStepMode_Instance;
+    text_vertex_layout.attributeCount = text_attributes.size();
+    text_vertex_layout.attributes = text_attributes.data();
+    WGPUVertexState text_vertex_state{};
+    text_vertex_state.module = engine.text_shader;
+    text_vertex_state.entryPoint = "vs_main";
+    text_vertex_state.bufferCount = 1U;
+    text_vertex_state.buffers = &text_vertex_layout;
+    WGPUBlendState text_blend{};
+    text_blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    text_blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    text_blend.color.operation = WGPUBlendOperation_Add;
+    text_blend.alpha.srcFactor = WGPUBlendFactor_One;
+    text_blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    text_blend.alpha.operation = WGPUBlendOperation_Add;
+    WGPUColorTargetState text_target{};
+    text_target.format = engine.target_format;
+    text_target.blend = &text_blend;
+    text_target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState text_fragment_state{};
+    text_fragment_state.module = engine.text_shader;
+    text_fragment_state.entryPoint = "fs_main_unmasked";
+    text_fragment_state.targetCount = 1U;
+    text_fragment_state.targets = &text_target;
+    WGPURenderPipelineDescriptor text_pipeline_descriptor{};
+    text_pipeline_descriptor.label = "ProGPU native positioned glyph pipeline";
+    text_pipeline_descriptor.vertex = text_vertex_state;
+    text_pipeline_descriptor.primitive.topology =
+        WGPUPrimitiveTopology_TriangleList;
+    text_pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    text_pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
+    text_pipeline_descriptor.multisample.count = 1U;
+    text_pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
+    text_pipeline_descriptor.fragment = &text_fragment_state;
+    engine.text_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &text_pipeline_descriptor);
+    if (engine.text_pipeline == nullptr) {
+        return false;
+    }
+    engine.text_uniform_layout = wgpuRenderPipelineGetBindGroupLayout(
+        engine.text_pipeline,
+        0U);
+    engine.text_atlas_layout = wgpuRenderPipelineGetBindGroupLayout(
+        engine.text_pipeline,
+        1U);
+    if (engine.text_uniform_layout == nullptr ||
+        engine.text_atlas_layout == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor style_descriptor{};
+    style_descriptor.label = "ProGPU native text style sentinel";
+    style_descriptor.usage = WGPUBufferUsage_Storage |
+        WGPUBufferUsage_CopyDst;
+    style_descriptor.size = 32U;
+    engine.text_style_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &style_descriptor);
+    if (engine.text_style_buffer == nullptr) {
+        return false;
+    }
+    std::array<std::byte, 32U> style_bytes{};
+    wgpuQueueWriteBuffer(
+        engine.queue,
+        engine.text_style_buffer,
+        0U,
+        style_bytes.data(),
+        style_bytes.size());
+    const std::array<WGPUBindGroupEntry, 2U> uniform_entries{{
+        {nullptr, 0U, engine.analytic_uniform_buffer, 0U,
+            sizeof(gpu_uniforms), nullptr, nullptr},
+        {nullptr, 1U, engine.text_style_buffer, 0U, 32U, nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor uniform_group_descriptor{};
+    uniform_group_descriptor.label = "ProGPU native text uniform bind group";
+    uniform_group_descriptor.layout = engine.text_uniform_layout;
+    uniform_group_descriptor.entryCount = uniform_entries.size();
+    uniform_group_descriptor.entries = uniform_entries.data();
+    engine.text_uniform_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &uniform_group_descriptor);
+    if (engine.text_uniform_bind_group == nullptr) {
+        return false;
+    }
+
+    WGPUTextureDescriptor atlas_descriptor{};
+    atlas_descriptor.label = "ProGPU native retained glyph atlas";
+    atlas_descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopyDst;
+    atlas_descriptor.dimension = WGPUTextureDimension_2D;
+    atlas_descriptor.size = {
+        native_glyph_atlas_size,
+        native_glyph_atlas_size,
+        1U
+    };
+    atlas_descriptor.format = WGPUTextureFormat_R8Unorm;
+    atlas_descriptor.mipLevelCount = 1U;
+    atlas_descriptor.sampleCount = 1U;
+    engine.glyph_atlas_texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &atlas_descriptor);
+    if (engine.glyph_atlas_texture == nullptr) {
+        return false;
+    }
+    engine.glyph_atlas_texture_view = wgpuTextureCreateView(
+        engine.glyph_atlas_texture,
+        nullptr);
+    WGPUSamplerDescriptor sampler_descriptor{};
+    sampler_descriptor.label = "ProGPU native glyph atlas sampler";
+    sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.magFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.minFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    sampler_descriptor.lodMinClamp = 0.0F;
+    sampler_descriptor.lodMaxClamp = 0.0F;
+    sampler_descriptor.maxAnisotropy = 1U;
+    engine.glyph_atlas_sampler = wgpuDeviceCreateSampler(
+        engine.device,
+        &sampler_descriptor);
+    if (engine.glyph_atlas_texture_view == nullptr ||
+        engine.glyph_atlas_sampler == nullptr) {
+        return false;
+    }
+    const std::array<WGPUBindGroupEntry, 3U> atlas_entries{{
+        {nullptr, 0U, nullptr, 0U, 0U,
+            engine.glyph_atlas_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U,
+            nullptr, engine.glyph_atlas_texture_view},
+        {nullptr, 2U, nullptr, 0U, 0U,
+            nullptr, engine.analytic_sentinel_texture_view}
+    }};
+    WGPUBindGroupDescriptor atlas_group_descriptor{};
+    atlas_group_descriptor.label = "ProGPU native text atlas bind group";
+    atlas_group_descriptor.layout = engine.text_atlas_layout;
+    atlas_group_descriptor.entryCount = atlas_entries.size();
+    atlas_group_descriptor.entries = atlas_entries.data();
+    engine.text_atlas_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &atlas_group_descriptor);
+    return engine.text_atlas_bind_group != nullptr;
+}
+
 void clear_metrics(progpu_native_frame_metrics* metrics) noexcept {
     if (metrics == nullptr ||
         metrics->struct_size < sizeof(progpu_native_frame_metrics)) {
@@ -979,6 +1422,16 @@ void clear_metrics(progpu_native_path_frame_metrics* metrics) noexcept {
     metrics->struct_size = struct_size;
 }
 
+void clear_metrics(progpu_native_glyph_frame_metrics* metrics) noexcept {
+    if (metrics == nullptr ||
+        metrics->struct_size < sizeof(progpu_native_glyph_frame_metrics)) {
+        return;
+    }
+    const std::uint32_t struct_size = metrics->struct_size;
+    *metrics = {};
+    metrics->struct_size = struct_size;
+}
+
 } // namespace
 
 extern "C" {
@@ -1009,7 +1462,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES |
         PROGPU_NATIVE_CAPABILITY_DASHED_STROKES |
         PROGPU_NATIVE_CAPABILITY_RETAINED_GEOMETRY_REPLAY |
-        PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS;
+        PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS |
+        PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1130,12 +1584,11 @@ progpu_native_status progpu_native_engine_render(
         frame->width,
         frame->height,
         frame->dpi_scale);
-    wgpuQueueWriteBuffer(
-        engine->queue,
+    const bool uploaded_uniforms = engine->upload_uniform_if_changed(
         engine->uniform_buffer,
-        0U,
-        &uniforms,
-        sizeof(uniforms));
+        uniforms,
+        engine->cached_uniforms,
+        engine->uniform_cache_valid);
     if (vertex_bytes != 0U) {
         wgpuQueueWriteBuffer(
             engine->queue,
@@ -1227,7 +1680,9 @@ progpu_native_status progpu_native_engine_render(
         metrics->vertex_count =
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->vertex_upload_bytes = vertex_bytes;
-        metrics->uniform_upload_bytes = sizeof(uniforms);
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(uniforms)
+            : 0U;
         metrics->submission_count = engine->submission_count;
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -1303,6 +1758,7 @@ progpu_native_status progpu_native_engine_render_analytic(
         engine->vertices.size() * sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes =
         engine->indices.size() * sizeof(std::uint32_t);
+    bool uploaded_uniforms = false;
     if (vertex_bytes != 0U) {
         if (engine->analytic_pipeline == nullptr &&
             !create_analytic_pipeline(*engine)) {
@@ -1321,12 +1777,11 @@ progpu_native_status progpu_native_engine_render_analytic(
             frame->width,
             frame->height,
             frame->dpi_scale);
-        wgpuQueueWriteBuffer(
-            engine->queue,
+        uploaded_uniforms = engine->upload_uniform_if_changed(
             engine->analytic_uniform_buffer,
-            0U,
-            &uniforms,
-            sizeof(uniforms));
+            uniforms,
+            engine->cached_analytic_uniforms,
+            engine->analytic_uniform_cache_valid);
         wgpuQueueWriteBuffer(
             engine->queue,
             engine->vertex_buffer,
@@ -1439,8 +1894,9 @@ progpu_native_status progpu_native_engine_render_analytic(
             static_cast<std::uint32_t>(engine->indices.size());
         metrics->vertex_upload_bytes = vertex_bytes;
         metrics->index_upload_bytes = index_bytes;
-        metrics->uniform_upload_bytes =
-            engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
         metrics->submission_count = engine->submission_count;
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -1839,6 +2295,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     const std::uint64_t brush_upload_bytes = engine->brush_bytes.size();
     const bool upload_compiled_payload =
         !compiled_payload_hit || !engine->geometry_gpu_cache_valid;
+    bool uploaded_uniforms = false;
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
             PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U &&
@@ -1879,12 +2336,11 @@ progpu_native_status progpu_native_engine_render_geometry(
             frame->width,
             frame->height,
             frame->dpi_scale);
-        wgpuQueueWriteBuffer(
-            engine->queue,
+        uploaded_uniforms = engine->upload_uniform_if_changed(
             engine->analytic_uniform_buffer,
-            0U,
-            &uniforms,
-            sizeof(uniforms));
+            uniforms,
+            engine->cached_analytic_uniforms,
+            engine->analytic_uniform_cache_valid);
         if (upload_compiled_payload) {
             wgpuQueueWriteBuffer(
                 engine->queue,
@@ -2014,8 +2470,9 @@ progpu_native_status progpu_native_engine_render_geometry(
             engine->indices.empty() || !upload_compiled_payload
                 ? 0U
                 : brush_upload_bytes;
-        metrics->uniform_upload_bytes =
-            engine->indices.empty() ? 0U : sizeof(gpu_uniforms);
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
         metrics->submission_count = engine->submission_count;
         metrics->payload_hash = payload_hash;
     }
@@ -2377,6 +2834,7 @@ progpu_native_status progpu_native_engine_render_paths(
     const std::uint64_t brush_bytes = engine->path_brush_bytes.size();
     const bool upload_draw_payload =
         !compiled_payload_hit || !engine->path_gpu_cache_valid;
+    bool uploaded_uniforms = false;
     if (vertex_bytes != 0U &&
         (!engine->ensure_vertex_buffer(vertex_bytes) ||
          !engine->ensure_index_buffer(index_bytes) ||
@@ -2390,12 +2848,11 @@ progpu_native_status progpu_native_engine_render_paths(
         frame->height,
         frame->dpi_scale);
     if (vertex_bytes != 0U) {
-        wgpuQueueWriteBuffer(
-            engine->queue,
+        uploaded_uniforms = engine->upload_uniform_if_changed(
             engine->analytic_uniform_buffer,
-            0U,
-            &uniforms,
-            sizeof(uniforms));
+            uniforms,
+            engine->cached_analytic_uniforms,
+            engine->analytic_uniform_cache_valid);
         if (upload_draw_payload) {
             wgpuQueueWriteBuffer(
                 engine->queue,
@@ -2657,9 +3114,575 @@ progpu_native_status progpu_native_engine_render_paths(
         metrics->brush_upload_bytes = upload_draw_payload ? brush_bytes : 0U;
         metrics->path_upload_bytes = path_upload_bytes;
         metrics->coverage_staging_bytes = coverage_staging_bytes;
-        metrics->uniform_upload_bytes = engine->path_indices.empty()
-            ? 0U
-            : sizeof(gpu_uniforms);
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
+        metrics->submission_count = engine->submission_count;
+        metrics->payload_hash = payload_hash;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_render_glyphs(
+    progpu_native_engine* engine,
+    const progpu_native_glyph_frame* frame,
+    progpu_native_glyph_frame_metrics* metrics) {
+    clear_metrics(metrics);
+    if (engine == nullptr || frame == nullptr ||
+        frame->struct_size < sizeof(progpu_native_glyph_frame) ||
+        frame->width == 0U || frame->height == 0U ||
+        !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
+        frame->target_view == 0U ||
+        (frame->outline_count != 0U && frame->outlines == nullptr) ||
+        (frame->segment_count != 0U && frame->segments == nullptr) ||
+        (frame->glyph_count != 0U && frame->glyphs == nullptr) ||
+        (frame->flags &
+            ~(PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH |
+              PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD)) != 0U ||
+        (((frame->flags &
+                PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U) !=
+            (frame->content_revision != 0U)) ||
+        !progpu::native::is_finite(frame->clear_color)) {
+        return engine == nullptr
+            ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
+            : engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The positioned glyph frame descriptor is invalid.");
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "The native renderer must be used from its owner thread.");
+    }
+    if (frame->outline_count > (1U << 20U) ||
+        frame->segment_count > (1U << 24U) ||
+        frame->glyph_count > (1U << 24U)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The positioned glyph batch exceeds the native safety bound.");
+    }
+
+    const bool retain_compiled_payload =
+        (frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U;
+    const bool compiled_payload_hit = retain_compiled_payload &&
+        engine->glyph_cache_valid &&
+        engine->glyph_content_revision == frame->content_revision &&
+        engine->glyph_dpi_scale == frame->dpi_scale;
+    std::vector<gpu_glyph_record> records;
+    std::vector<gpu_glyph_uniforms> uniforms;
+    std::uint64_t coverage_staging_bytes = 0U;
+    std::uint64_t outline_upload_bytes = 0U;
+    std::uint32_t rasterized_glyph_count = 0U;
+
+    if (!compiled_payload_hit) {
+        engine->glyph_cache_valid = false;
+        engine->glyph_gpu_cache_valid = false;
+        try {
+            records.reserve(frame->outline_count);
+            uniforms.reserve(frame->outline_count);
+            engine->glyph_rasters.clear();
+            engine->glyph_rasters.reserve(frame->outline_count);
+            engine->glyph_instances.clear();
+            engine->glyph_instances.reserve(frame->glyph_count);
+
+            for (std::size_t index = 0U;
+                 index < frame->segment_count;
+                 ++index) {
+                const auto& segment = frame->segments[index];
+                if (segment.kind > PROGPU_NATIVE_PATH_SEGMENT_CUBIC ||
+                    !progpu::native::is_finite(segment.p0) ||
+                    !progpu::native::is_finite(segment.p1) ||
+                    !progpu::native::is_finite(segment.p2) ||
+                    !progpu::native::is_finite(segment.p3) ||
+                    segment.pad0 != 0U || segment.pad1 != 0U ||
+                    segment.pad2 != 0U) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A glyph segment kind, point, or reserved field is invalid.");
+                }
+            }
+
+            std::uint32_t atlas_x = 2U;
+            std::uint32_t atlas_y = 2U;
+            std::uint32_t row_height = 0U;
+            std::uint32_t output_offset = 0U;
+            for (std::size_t index = 0U;
+                 index < frame->outline_count;
+                 ++index) {
+                const auto& outline = frame->outlines[index];
+                if (outline.segment_count == 0U ||
+                    outline.segment_offset > frame->segment_count ||
+                    outline.segment_count >
+                        frame->segment_count - outline.segment_offset ||
+                    !std::isfinite(outline.min_x) ||
+                    !std::isfinite(outline.min_y) ||
+                    !std::isfinite(outline.max_x) ||
+                    !std::isfinite(outline.max_y) ||
+                    outline.max_x <= outline.min_x ||
+                    outline.max_y <= outline.min_y ||
+                    !std::isfinite(outline.raster_scale) ||
+                    outline.raster_scale <= 0.0F ||
+                    !std::isfinite(outline.subpixel_x) ||
+                    outline.subpixel_x < 0.0F ||
+                    outline.subpixel_x > 0.75F ||
+                    std::abs(
+                        outline.subpixel_x * 4.0F -
+                        std::round(outline.subpixel_x * 4.0F)) > 0.0001F) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A glyph outline range, bound, scale, or phase is invalid.");
+                }
+                const float scaled_min_x =
+                    outline.min_x * outline.raster_scale;
+                const float scaled_min_y =
+                    -outline.max_y * outline.raster_scale;
+                const float scaled_max_x =
+                    outline.max_x * outline.raster_scale;
+                const float scaled_max_y =
+                    -outline.min_y * outline.raster_scale;
+                const float x_start = std::floor(scaled_min_x) - path_padding;
+                const float y_start = std::floor(scaled_min_y) - path_padding;
+                const double width_value =
+                    std::ceil(scaled_max_x) + path_padding - x_start;
+                const double height_value =
+                    std::ceil(scaled_max_y) + path_padding - y_start;
+                if (!std::isfinite(width_value) ||
+                    !std::isfinite(height_value) ||
+                    width_value <= 0.0 || height_value <= 0.0 ||
+                    width_value > native_glyph_atlas_size - 4U ||
+                    height_value > native_glyph_atlas_size - 4U) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "A glyph exceeds the bounded native atlas tile size.");
+                }
+                const auto width = static_cast<std::uint32_t>(width_value);
+                const auto height = static_cast<std::uint32_t>(height_value);
+                if (atlas_x + width + 2U > native_glyph_atlas_size) {
+                    atlas_x = 2U;
+                    atlas_y += row_height + 2U;
+                    row_height = 0U;
+                }
+                if (atlas_y + height + 2U > native_glyph_atlas_size) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The retained native glyph set does not fit the bounded atlas.");
+                }
+                const std::uint32_t output_bytes_per_row = align_up(
+                    width,
+                    webgpu_copy_row_alignment);
+                output_offset = align_up(
+                    output_offset,
+                    webgpu_copy_row_alignment);
+                const std::uint64_t next_output =
+                    static_cast<std::uint64_t>(output_offset) +
+                    static_cast<std::uint64_t>(output_bytes_per_row) * height;
+                if (next_output >
+                    std::numeric_limits<std::uint32_t>::max()) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The glyph coverage staging batch exceeds 4 GiB.");
+                }
+                engine->glyph_rasters.push_back({
+                    atlas_x,
+                    atlas_y,
+                    width,
+                    height,
+                    output_offset,
+                    output_bytes_per_row,
+                    x_start,
+                    y_start
+                });
+                records.push_back({
+                    static_cast<std::uint32_t>(outline.segment_offset),
+                    static_cast<std::uint32_t>(outline.segment_count),
+                    outline.min_x,
+                    outline.min_y,
+                    outline.max_x,
+                    outline.max_y,
+                    0U,
+                    0U
+                });
+                uniforms.push_back({
+                    x_start,
+                    y_start,
+                    outline.raster_scale,
+                    static_cast<std::uint32_t>(index),
+                    output_offset / 4U,
+                    output_bytes_per_row / 4U,
+                    width,
+                    height,
+                    outline.subpixel_x,
+                    0.0F,
+                    0.0F,
+                    0.0F
+                });
+                output_offset = static_cast<std::uint32_t>(next_output);
+                atlas_x += width + 2U;
+                row_height = std::max(row_height, height);
+            }
+
+            for (std::size_t index = 0U;
+                 index < frame->glyph_count;
+                 ++index) {
+                const auto& glyph = frame->glyphs[index];
+                if (glyph.outline_index >= frame->outline_count ||
+                    glyph.reserved != 0U || glyph.reserved2 != 0.0F ||
+                    !progpu::native::is_finite(glyph.position) ||
+                    !progpu::native::is_finite(glyph.basis_x) ||
+                    !progpu::native::is_finite(glyph.basis_y) ||
+                    !progpu::native::is_finite(glyph.color) ||
+                    !std::isfinite(glyph.atlas_to_logical_scale) ||
+                    glyph.atlas_to_logical_scale <= 0.0F ||
+                    !std::isfinite(glyph.bold_offset) ||
+                    !std::isfinite(glyph.italic_skew)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A positioned glyph reference or presentation value is invalid.");
+                }
+                const auto& raster =
+                    engine->glyph_rasters[glyph.outline_index];
+                gpu_glyph_instance instance{};
+                std::memcpy(
+                    instance.snapped_logical_position,
+                    &glyph.position,
+                    sizeof(glyph.position));
+                std::memcpy(
+                    instance.basis_x,
+                    &glyph.basis_x,
+                    sizeof(glyph.basis_x));
+                std::memcpy(
+                    instance.basis_y,
+                    &glyph.basis_y,
+                    sizeof(glyph.basis_y));
+                instance.bear_size[0] = raster.x_start;
+                instance.bear_size[1] = raster.y_start;
+                instance.bear_size[2] = static_cast<float>(raster.width);
+                instance.bear_size[3] = static_cast<float>(raster.height);
+                instance.texture_coordinates[0] =
+                    static_cast<float>(raster.atlas_x);
+                instance.texture_coordinates[1] =
+                    static_cast<float>(raster.atlas_y);
+                instance.texture_coordinates[2] =
+                    static_cast<float>(raster.atlas_x + raster.width);
+                instance.texture_coordinates[3] =
+                    static_cast<float>(raster.atlas_y + raster.height);
+                std::memcpy(
+                    instance.color,
+                    &glyph.color,
+                    sizeof(glyph.color));
+                instance.scale_bold_italic_flags[0] =
+                    glyph.atlas_to_logical_scale;
+                instance.scale_bold_italic_flags[1] = glyph.bold_offset;
+                instance.scale_bold_italic_flags[2] = glyph.italic_skew;
+                instance.scale_bold_italic_flags[3] = 0.0F;
+                instance.brush_index = -1.0F;
+                engine->glyph_instances.push_back(instance);
+            }
+
+            coverage_staging_bytes = output_offset;
+            rasterized_glyph_count = static_cast<std::uint32_t>(
+                engine->glyph_rasters.size());
+            if (retain_compiled_payload) {
+                engine->glyph_content_revision = frame->content_revision;
+                engine->glyph_dpi_scale = frame->dpi_scale;
+                engine->glyph_payload_hash = append_fnv1a64(
+                    14695981039346656037ULL,
+                    engine->glyph_instances.data(),
+                    engine->glyph_instances.size() *
+                        sizeof(gpu_glyph_instance));
+                engine->glyph_cache_valid = true;
+            }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native positioned glyph batch could not be allocated.");
+        }
+    }
+
+    if (!create_glyph_resources(*engine)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native glyph atlas WebGPU resources could not be created.");
+    }
+    const std::uint64_t instance_bytes = engine->glyph_instances.size() *
+        sizeof(gpu_glyph_instance);
+    const bool upload_instances =
+        !compiled_payload_hit || !engine->glyph_gpu_cache_valid;
+    if (instance_bytes != 0U &&
+        !engine->ensure_text_vertex_buffer(instance_bytes)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The native positioned glyph instance buffer could not be allocated.");
+    }
+    bool uploaded_uniforms = false;
+    if (instance_bytes != 0U) {
+        const gpu_uniforms frame_uniforms = create_uniforms(
+            frame->width,
+            frame->height,
+            frame->dpi_scale);
+        uploaded_uniforms = engine->upload_uniform_if_changed(
+            engine->analytic_uniform_buffer,
+            frame_uniforms,
+            engine->cached_analytic_uniforms,
+            engine->analytic_uniform_cache_valid);
+        if (upload_instances) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->text_vertex_buffer,
+                0U,
+                engine->glyph_instances.data(),
+                instance_bytes);
+            engine->glyph_gpu_cache_valid = retain_compiled_payload;
+        }
+    }
+
+    path_raster_resources temporary;
+    std::vector<std::byte> uniform_bytes;
+    if (!compiled_payload_hit && frame->outline_count != 0U) {
+        try {
+            uniform_bytes.resize(frame->outline_count * 256U);
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The glyph uniform staging arena could not be allocated.");
+        }
+        for (std::size_t index = 0U; index < uniforms.size(); ++index) {
+            std::memcpy(
+                uniform_bytes.data() + index * 256U,
+                &uniforms[index],
+                sizeof(gpu_glyph_uniforms));
+        }
+        const auto create_buffer = [&engine](
+            const char* label,
+            std::uint64_t size,
+            WGPUBufferUsageFlags usage) -> WGPUBuffer {
+            WGPUBufferDescriptor descriptor{};
+            descriptor.label = label;
+            descriptor.size = std::max<std::uint64_t>(size, 4U);
+            descriptor.usage = usage;
+            return wgpuDeviceCreateBuffer(engine->device, &descriptor);
+        };
+        temporary.uniforms = create_buffer(
+            "ProGPU native glyph uniform ring",
+            uniform_bytes.size(),
+            WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst);
+        temporary.records = create_buffer(
+            "ProGPU native glyph records",
+            records.size() * sizeof(gpu_glyph_record),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.segments = create_buffer(
+            "ProGPU native glyph segments",
+            frame->segment_count * sizeof(progpu_native_path_segment),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.coverage = create_buffer(
+            "ProGPU native glyph coverage staging",
+            coverage_staging_bytes,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        if (temporary.uniforms == nullptr || temporary.records == nullptr ||
+            temporary.segments == nullptr || temporary.coverage == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native glyph raster staging buffers could not be allocated.");
+        }
+        const std::uint64_t record_bytes = records.size() *
+            sizeof(gpu_glyph_record);
+        const std::uint64_t segment_bytes = frame->segment_count *
+            sizeof(progpu_native_path_segment);
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            temporary.uniforms,
+            0U,
+            uniform_bytes.data(),
+            uniform_bytes.size());
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            temporary.records,
+            0U,
+            records.data(),
+            record_bytes);
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            temporary.segments,
+            0U,
+            frame->segments,
+            segment_bytes);
+        outline_upload_bytes = uniform_bytes.size() +
+            record_bytes + segment_bytes;
+        const std::array<WGPUBindGroupEntry, 4U> entries{{
+            {nullptr, 0U, temporary.uniforms, 0U,
+                sizeof(gpu_glyph_uniforms), nullptr, nullptr},
+            {nullptr, 1U, temporary.records, 0U,
+                record_bytes, nullptr, nullptr},
+            {nullptr, 2U, temporary.segments, 0U,
+                segment_bytes, nullptr, nullptr},
+            {nullptr, 3U, temporary.coverage, 0U,
+                coverage_staging_bytes, nullptr, nullptr}
+        }};
+        WGPUBindGroupDescriptor bind_group_descriptor{};
+        bind_group_descriptor.label = "ProGPU native glyph raster bind group";
+        bind_group_descriptor.layout = engine->glyph_raster_layout;
+        bind_group_descriptor.entryCount = entries.size();
+        bind_group_descriptor.entries = entries.data();
+        temporary.bind_group = wgpuDeviceCreateBindGroup(
+            engine->device,
+            &bind_group_descriptor);
+        if (temporary.bind_group == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native glyph raster bind group could not be created.");
+        }
+    }
+
+    WGPUCommandEncoderDescriptor encoder_descriptor{};
+    encoder_descriptor.label = "ProGPU native positioned glyph frame encoder";
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+        engine->device,
+        &encoder_descriptor);
+    if (encoder == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native positioned glyph command encoder could not be created.");
+    }
+    if (temporary.bind_group != nullptr) {
+        WGPUComputePassDescriptor compute_descriptor{};
+        compute_descriptor.label = "ProGPU native glyph coverage pass";
+        WGPUComputePassEncoder compute_pass =
+            wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
+        if (compute_pass == nullptr) {
+            wgpuCommandEncoderRelease(encoder);
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native glyph compute pass could not be created.");
+        }
+        wgpuComputePassEncoderSetPipeline(
+            compute_pass,
+            engine->glyph_raster_pipeline);
+        for (std::uint32_t index = 0U;
+             index < engine->glyph_rasters.size();
+             ++index) {
+            const std::uint32_t dynamic_offset = index * 256U;
+            wgpuComputePassEncoderSetBindGroup(
+                compute_pass,
+                0U,
+                temporary.bind_group,
+                1U,
+                &dynamic_offset);
+            const auto& raster = engine->glyph_rasters[index];
+            wgpuComputePassEncoderDispatchWorkgroups(
+                compute_pass,
+                (raster.width + 63U) / 64U,
+                (raster.height + 15U) / 16U,
+                1U);
+        }
+        wgpuComputePassEncoderEnd(compute_pass);
+        wgpuComputePassEncoderRelease(compute_pass);
+        for (const auto& raster : engine->glyph_rasters) {
+            WGPUImageCopyBuffer source{};
+            source.buffer = temporary.coverage;
+            source.layout.offset = raster.output_offset;
+            source.layout.bytesPerRow = raster.output_bytes_per_row;
+            source.layout.rowsPerImage = raster.height;
+            WGPUImageCopyTexture destination{};
+            destination.texture = engine->glyph_atlas_texture;
+            destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
+            destination.aspect = WGPUTextureAspect_All;
+            const WGPUExtent3D extent{raster.width, raster.height, 1U};
+            wgpuCommandEncoderCopyBufferToTexture(
+                encoder,
+                &source,
+                &destination,
+                &extent);
+        }
+    }
+
+    WGPURenderPassColorAttachment color_attachment{};
+    color_attachment.view = reinterpret_cast<WGPUTextureView>(
+        frame->target_view);
+    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.storeOp = WGPUStoreOp_Store;
+    color_attachment.clearValue = {
+        frame->clear_color.r,
+        frame->clear_color.g,
+        frame->clear_color.b,
+        frame->clear_color.a
+    };
+    WGPURenderPassDescriptor pass_descriptor{};
+    pass_descriptor.label = "ProGPU native positioned glyph pass";
+    pass_descriptor.colorAttachmentCount = 1U;
+    pass_descriptor.colorAttachments = &color_attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &pass_descriptor);
+    if (pass == nullptr) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native positioned glyph render pass could not be created.");
+    }
+    if (!engine->glyph_instances.empty()) {
+        wgpuRenderPassEncoderSetPipeline(pass, engine->text_pipeline);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, 0U, engine->text_uniform_bind_group, 0U, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, 1U, engine->text_atlas_bind_group, 0U, nullptr);
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass,
+            0U,
+            engine->text_vertex_buffer,
+            0U,
+            instance_bytes);
+        wgpuRenderPassEncoderDraw(
+            pass,
+            6U,
+            static_cast<std::uint32_t>(engine->glyph_instances.size()),
+            0U,
+            0U);
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    WGPUCommandBufferDescriptor command_descriptor{};
+    command_descriptor.label = "ProGPU native positioned glyph commands";
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+        encoder,
+        &command_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native positioned glyph command buffer could not be finished.");
+    }
+    wgpuQueueSubmit(engine->queue, 1U, &command);
+    wgpuCommandBufferRelease(command);
+    ++engine->submission_count;
+
+    std::uint64_t payload_hash = 0U;
+    if ((frame->flags &
+            PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
+        payload_hash = retain_compiled_payload
+            ? engine->glyph_payload_hash
+            : append_fnv1a64(
+                14695981039346656037ULL,
+                engine->glyph_instances.data(),
+                instance_bytes);
+    }
+    engine->last_error.clear();
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_glyph_frame_metrics)) {
+        metrics->draw_call_count = engine->glyph_instances.empty() ? 0U : 1U;
+        metrics->glyph_count = static_cast<std::uint32_t>(
+            engine->glyph_instances.size());
+        metrics->rasterized_glyph_count = rasterized_glyph_count;
+        metrics->atlas_width = native_glyph_atlas_size;
+        metrics->atlas_height = native_glyph_atlas_size;
+        metrics->instance_upload_bytes = upload_instances
+            ? instance_bytes
+            : 0U;
+        metrics->outline_upload_bytes = outline_upload_bytes;
+        metrics->coverage_staging_bytes = coverage_staging_bytes;
+        metrics->uniform_upload_bytes = uploaded_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
         metrics->submission_count = engine->submission_count;
         metrics->payload_hash = payload_hash;
     }

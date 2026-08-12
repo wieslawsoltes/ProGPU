@@ -3684,8 +3684,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.True(metrics.AnalyticMaskBindGroupCount > 0);
         Assert.Equal(0, metrics.MaskRenderPassCount);
         Assert.Equal(
-            metrics.IncrementalSceneUploadPageWrites +
-            1,
+            metrics.IncrementalSceneUploadPageWrites,
             metrics.SceneUploadCopyCount);
     }
 

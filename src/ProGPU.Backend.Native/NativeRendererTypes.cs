@@ -115,7 +115,8 @@ public enum NativeRendererCapabilities : ulong
     SplineStrokes = 1UL << 10,
     DashedStrokes = 1UL << 11,
     RetainedGeometryReplay = 1UL << 12,
-    PathFillAtlas = 1UL << 13
+    PathFillAtlas = 1UL << 13,
+    PositionedGlyphAtlas = 1UL << 14
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -421,6 +422,70 @@ public readonly struct NativePathFill
     public readonly uint SampleGrid;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeGlyphOutline
+{
+    public NativeGlyphOutline(
+        nuint segmentOffset,
+        nuint segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        float rasterScale,
+        float subpixelX = 0f)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        RasterScale = rasterScale;
+        SubpixelX = subpixelX;
+    }
+
+    public readonly nuint SegmentOffset;
+    public readonly nuint SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly float RasterScale;
+    public readonly float SubpixelX;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativePositionedGlyph
+{
+    public NativePositionedGlyph(
+        uint outlineIndex,
+        Vector2 position,
+        Vector2 basisX,
+        Vector2 basisY,
+        Vector4 color,
+        float atlasToLogicalScale = 1f,
+        float boldOffset = 0f,
+        float italicSkew = 0f)
+    {
+        OutlineIndex = outlineIndex;
+        Reserved = 0U;
+        Position = position;
+        BasisX = basisX;
+        BasisY = basisY;
+        Color = color;
+        AtlasToLogicalScale = atlasToLogicalScale;
+        BoldOffset = boldOffset;
+        ItalicSkew = italicSkew;
+        Reserved2 = 0f;
+    }
+
+    public readonly uint OutlineIndex;
+    private readonly uint Reserved;
+    public readonly Vector2 Position;
+    public readonly Vector2 BasisX;
+    public readonly Vector2 BasisY;
+    public readonly Vector4 Color;
+    public readonly float AtlasToLogicalScale;
+    public readonly float BoldOffset;
+    public readonly float ItalicSkew;
+    private readonly float Reserved2;
+}
+
 public readonly record struct NativeFrameMetrics(
     uint DrawCallCount,
     uint VertexCount,
@@ -459,6 +524,19 @@ public readonly record struct NativePathFrameMetrics(
     ulong IndexUploadBytes,
     ulong BrushUploadBytes,
     ulong PathUploadBytes,
+    ulong CoverageStagingBytes,
+    ulong UniformUploadBytes,
+    ulong SubmissionCount,
+    ulong PayloadHash);
+
+public readonly record struct NativeGlyphFrameMetrics(
+    uint DrawCallCount,
+    uint GlyphCount,
+    uint RasterizedGlyphCount,
+    uint AtlasWidth,
+    uint AtlasHeight,
+    ulong InstanceUploadBytes,
+    ulong OutlineUploadBytes,
     ulong CoverageStagingBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount,

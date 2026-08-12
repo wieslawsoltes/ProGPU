@@ -13,6 +13,12 @@ set(PROGPU_NATIVE_VECTOR_SHADER
 set(PROGPU_NATIVE_PATH_RASTERIZER_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizer.wgsl"
     CACHE FILEPATH "Shared ProGPU path-rasterizer shader source")
+set(PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRasterizer.wgsl"
+    CACHE FILEPATH "Shared ProGPU glyph-rasterizer shader source")
+set(PROGPU_NATIVE_TEXT_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Text.wgsl"
+    CACHE FILEPATH "Shared ProGPU text shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 
 function(progpu_native_enable_warnings target_name)
@@ -40,6 +46,12 @@ endif()
 if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}")
     message(FATAL_ERROR "The shared ProGPU PathRasterizer.wgsl source is missing")
 endif()
+if(NOT EXISTS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU GlyphRasterizer.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_TEXT_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU Text.wgsl source is missing")
+endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(generated_vector_shader
@@ -55,6 +67,34 @@ add_custom_command(
         "${PROGPU_NATIVE_VECTOR_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Vector.wgsl shader"
+    VERBATIM)
+set(generated_glyph_rasterizer_shader
+    "${generated_directory}/GlyphRasterizerWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_glyph_rasterizer_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "-DOUTPUT=${generated_glyph_rasterizer_shader}"
+        "-DSYMBOL=glyph_rasterizer_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU GlyphRasterizer.wgsl shader"
+    VERBATIM)
+set(generated_text_shader
+    "${generated_directory}/TextWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_text_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_TEXT_SHADER}"
+        "-DOUTPUT=${generated_text_shader}"
+        "-DSYMBOL=text_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_TEXT_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU Text.wgsl shader"
     VERBATIM)
 set(generated_path_rasterizer_shader
     "${generated_directory}/PathRasterizerWgsl.generated.hpp")
@@ -76,7 +116,9 @@ add_library(progpu_native SHARED
     src/progpu_native_geometry.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
-    "${generated_path_rasterizer_shader}")
+    "${generated_path_rasterizer_shader}"
+    "${generated_glyph_rasterizer_shader}"
+    "${generated_text_shader}")
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native

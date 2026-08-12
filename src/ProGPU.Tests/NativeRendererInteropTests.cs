@@ -48,6 +48,10 @@ public class NativeRendererInteropTests
         Assert.Equal(80, Unsafe.SizeOf<NativePathFill>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.PathFrame>());
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.PathFrameMetrics>());
+        Assert.Equal(40, Unsafe.SizeOf<NativeGlyphOutline>());
+        Assert.Equal(64, Unsafe.SizeOf<NativePositionedGlyph>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
+        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -73,6 +77,9 @@ public class NativeRendererInteropTests
             4096UL,
             (ulong)NativeRendererCapabilities.RetainedGeometryReplay);
         Assert.Equal(8192UL, (ulong)NativeRendererCapabilities.PathFillAtlas);
+        Assert.Equal(
+            16384UL,
+            (ulong)NativeRendererCapabilities.PositionedGlyphAtlas);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
@@ -94,6 +101,24 @@ public class NativeRendererInteropTests
         Assert.Equal(48, OffsetOf<NativePathFill>(nameof(NativePathFill.Transform)));
         Assert.Equal(72, OffsetOf<NativePathFill>(nameof(NativePathFill.FillRule)));
         Assert.Equal(76, OffsetOf<NativePathFill>(nameof(NativePathFill.SampleGrid)));
+    }
+
+    [Fact]
+    public void PositionedGlyphRecordsMatchPublishedNativeStorageLayout()
+    {
+        Assert.Equal(0, OffsetOf<NativeGlyphOutline>(nameof(NativeGlyphOutline.SegmentOffset)));
+        Assert.Equal(16, OffsetOf<NativeGlyphOutline>(nameof(NativeGlyphOutline.Minimum)));
+        Assert.Equal(24, OffsetOf<NativeGlyphOutline>(nameof(NativeGlyphOutline.Maximum)));
+        Assert.Equal(32, OffsetOf<NativeGlyphOutline>(nameof(NativeGlyphOutline.RasterScale)));
+        Assert.Equal(36, OffsetOf<NativeGlyphOutline>(nameof(NativeGlyphOutline.SubpixelX)));
+        Assert.Equal(0, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.OutlineIndex)));
+        Assert.Equal(8, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.Position)));
+        Assert.Equal(16, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.BasisX)));
+        Assert.Equal(24, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.BasisY)));
+        Assert.Equal(32, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.Color)));
+        Assert.Equal(48, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.AtlasToLogicalScale)));
+        Assert.Equal(52, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.BoldOffset)));
+        Assert.Equal(56, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.ItalicSkew)));
     }
 
     [Fact]
@@ -212,12 +237,28 @@ public class NativeRendererInteropTests
             "../ProGPU.Backend/Shaders/Vector.wgsl",
             cmake,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "../ProGPU.Backend/Shaders/GlyphRasterizer.wgsl",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "../ProGPU.Backend/Shaders/Text.wgsl",
+            cmake,
+            StringComparison.Ordinal);
         Assert.Contains("EmbedShader.cmake", cmake, StringComparison.Ordinal);
 
         string nativeSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native.cpp"));
         Assert.Contains(
             "VectorWgsl.generated.hpp",
+            nativeSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GlyphRasterizerWgsl.generated.hpp",
+            nativeSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TextWgsl.generated.hpp",
             nativeSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain("@vertex", nativeSource, StringComparison.Ordinal);

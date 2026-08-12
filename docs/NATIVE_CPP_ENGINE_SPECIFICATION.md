@@ -471,6 +471,25 @@ segments, atlas area `A`, and sample grid `G` in `{4,8}`, validation is
 is `O(P)`. Persistent atlas storage is a bounded 1024 by 1024 R8 texture;
 temporary coverage rows obey WebGPU's 256-byte copy alignment.
 
+The second Tranche B increment adds retained positioned glyph composition.
+Managed shaping and line layout remain reusable CPU results; one typed frame
+call transfers positioned glyph IDs, affine basis vectors, colors, and a
+deduplicated outline/segment arena. C++ validates every range and finite value,
+dispatches the production `GlyphRasterizer.wgsl` once per unique outline into
+a native-owned 1024 by 1024 R8 atlas, and composites all glyph instances in one
+instanced draw through the production `Text.wgsl`. Stable content revisions
+skip outline transfer, coverage compute, and instance upload while still
+encoding and submitting the current target pass. This intentionally preserves
+the shaping/raster boundary documented by Skia, DirectWrite, Parley, and
+HarfBuzz instead of remapping characters in the renderer.
+
+For `G` positioned glyphs, `U <= G` unique outlines, `S` analytic outline
+segments, atlas area `A`, and sample grid `Q`, validation and instance creation
+are `O(G + U + S)`, raster work is `O(A * Q^2 * S_u)` over each unique
+outline's segment count `S_u`, and composition is `O(G)`. Atlas storage is
+bounded; the uniform ring obeys 256-byte dynamic-offset alignment; and warm
+resource count is constant apart from geometric instance-buffer growth.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -495,10 +514,12 @@ temporary coverage rows obey WebGPU's 256-byte copy alignment.
   ordinary-path keys, a bounded R8 atlas, and stable replay are implemented
   with the production `PathRasterizer.wgsl`; boolean programs, path strokes,
   adaptive capacity recovery/growth, and generation publication remain;
-- glyph compute orchestration reusing `GlyphRasterizer.wgsl`, vector-text
-  phase/scale policies, and atlas generation invalidation remain;
-- positioned glyph-run transfer, text atlas, retained vector glyph fallback,
-  DPI and quarter-pixel snapping;
+- positioned glyph-run transfer, glyph compute orchestration reusing
+  `GlyphRasterizer.wgsl`, a bounded native text atlas, production `Text.wgsl`
+  composition, Retina DPI, quarter-pixel phase input, and retained replay are
+  implemented; vector-text fallback, multi-page capacity recovery, phase/scale
+  cache policies, color glyphs, decorations, masks, and atlas generation
+  publication remain;
 - texture upload, sampling/mips/cubic/anisotropy, image/color transforms,
   layers, masks, and zero-copy external textures.
 
@@ -633,9 +654,9 @@ path with WebGPU validation and bounded resource policies.
    opacity, clipping, and retained reuse into C++ as one wider 2D tranche.
 3. Expand the differential to transformed and stroked primitives, multiple DPI
    values, opacity, clipping, resize, invalid input, lifetime, and device loss.
-4. Move path/glyph compute orchestration, atlases, positioned text, images,
-   layers, masks, and external media textures while continuing to reuse the
-   production WGSL modules.
+4. Complete path/glyph atlas capacity recovery, generation publication,
+   vector/color text and text masks, then move images, layers, masks, and
+   external media textures while continuing to reuse production WGSL modules.
 5. Add the Dawn/WebScene adapter using PR #10's proc resolver and exact provider
    revision, then validate zero-copy composition and synchronization.
 6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing

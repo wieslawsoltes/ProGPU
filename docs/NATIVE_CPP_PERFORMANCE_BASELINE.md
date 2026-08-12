@@ -327,6 +327,82 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Retained positioned-glyph supplement
+
+The second Tranche B increment keeps Unicode/OpenType shaping and line layout
+as reusable managed CPU results, transfers 96 positioned Inter glyphs and 42
+unique analytic outlines once, dispatches production `GlyphRasterizer.wgsl`
+into a native-owned R8 atlas, and composites one instanced draw through
+production `Text.wgsl`. The cold frame transfers 54,096 outline bytes, 9,216
+instance bytes, and uses 247,808 bytes of aligned coverage staging. The DPI-1
+fixture exercises the managed small-text 0.25-physical-pixel raster phase. A stable
+content revision performs none of those transfers or compute dispatches.
+
+An unbounded asynchronous run made native look 118 times faster at p95
+(0.0757 versus 8.9396 ms), but that number includes uneven queue
+back-pressure and is not used as the primary CPU claim. The benchmark now
+offers `--drain-each-pair`: it submits both renderers in alternating order,
+measures each submission, then drains the shared queue outside both measured
+intervals. A 3,000-pair Release run on Apple M3 Pro measured:
+
+| Bounded CPU submission | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean | 0.1477 ms | 0.2216 ms |
+| p50 | 0.1193 ms | 0.1869 ms |
+| p95 | 0.3403 ms | 0.4698 ms |
+| Managed allocation / frame | 0 bytes | 0 bytes |
+
+Native p95 is 27.6% lower on this bounded submission measurement. The C++
+stable hit allocates no glyph vectors and performs no GPU payload upload.
+
+A separate 3,000-frame synchronized run splits the complete interval into
+submission and completion phases:
+
+| GPU-complete phase (p95) | Native C++ | Managed compositor |
+|---|---:|---:|
+| Submission | 0.4067 ms | 0.5554 ms |
+| Shared completion wait | 6.4215 ms | 6.4150 ms |
+| Total | 6.6634 ms | 6.7586 ms |
+
+The nearly identical completion waits explain why total GPU-complete time is
+on par: after retained CPU preparation, both implementations execute the same
+coverage/text shaders on the same Metal queue. The result is expected and is
+not evidence that managed scene preparation costs equal native preparation.
+
+Enabling the managed whole-scene cache was also measured and rejected for this
+isolated retained `DrawingVisual`: with the same bounded queue, managed p95 was
+0.2640 ms median with the extra cache versus 0.2220 ms with its existing
+retained command cache across three alternating 1,000-pair runs (18.9% worse).
+The accepted managed optimization instead makes the 224-byte
+frame uniform use the incremental upload shadow; unchanged frames now issue
+zero scene-buffer copy operations. Native frame/analytic uniforms similarly
+skip unchanged queue writes.
+
+DPI-1 output is byte-exact across all 518,400 pixels with matching
+`60F5020BAF0150F4` hashes. The 64-times difference image is entirely black.
+DPI-2 is also byte-exact with matching `1306F12A59D53014` hashes.
+
+Final-binary Time Profiler, Allocations/VM Tracker, and synchronized Metal
+System Trace captures all completed. The 5,000-pair bounded Time Profiler
+workload reported 0.2067/0.2934 ms native/managed p95. The Metal trace contains the
+native glyph atlas, coverage pass, positioned-glyph pass, and managed
+`Offscreen Compositor Encoder` labels, has zero command-buffer-error rows, and
+peaks at 14,139,392 bytes (13.48 MiB) combined-process Metal
+`currentAllocatedSize`. That shared-process residency is not attributable to
+one renderer. The successful Allocations run preserves its tables; the
+benchmark counter under instrumentation reported 4.128/0 managed bytes per
+native/managed call, again not a native-heap measurement.
+
+Retained ignored evidence:
+
+- bounded-pair, asynchronous, synchronized, Time Profiler, Allocations, and
+  Metal JSON runs under
+  `artifacts/progpu-native/profiles/glyphs-quarter-phase-20260812/`;
+- matched Time Profiler, Allocations/VM Tracker, and Metal System Trace bundles
+  plus exported TOCs/tables in the same directory;
+- `glyphs-native.png`, `glyphs-managed.png`, and the exact-zero 64-times
+  difference image under `artifacts/progpu-native/differential/`.
+
 ## Dashed strokes and retained GPU-complete replay supplement
 
 The seventh native increment adds reusable odd/even dash styles, continuous

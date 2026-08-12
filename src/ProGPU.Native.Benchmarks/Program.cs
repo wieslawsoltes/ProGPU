@@ -4,7 +4,9 @@ using System.Numerics;
 using System.Text.Json;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
 
@@ -22,6 +24,12 @@ bool synchronizeEachFrame = Array.Exists(
         value,
         "--sync",
         StringComparison.OrdinalIgnoreCase));
+bool drainEachPair = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--drain-each-pair",
+        StringComparison.OrdinalIgnoreCase));
 bool groupMeasurements = Array.Exists(
     args,
     static value => string.Equals(
@@ -34,6 +42,11 @@ bool managedGroupFirst = Array.Exists(
         value,
         "--managed-first",
         StringComparison.OrdinalIgnoreCase));
+if (drainEachPair && (synchronizeEachFrame || groupMeasurements))
+{
+    throw new ArgumentException(
+        "--drain-each-pair cannot be combined with --sync or --grouped.");
+}
 bool useAnalyticScene = Array.Exists(
     args,
     static value => string.Equals(
@@ -75,6 +88,18 @@ bool usePathScene = Array.Exists(
     static value => string.Equals(
         value,
         "--paths",
+        StringComparison.OrdinalIgnoreCase));
+bool useGlyphScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--glyphs",
+        StringComparison.OrdinalIgnoreCase));
+bool enableManagedCompiledSceneCache = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--managed-compiled-scene-cache",
         StringComparison.OrdinalIgnoreCase));
 useGeometryScene |= useCurveGeometryScene || usePolylineGeometryScene ||
     useSplineGeometryScene || useDashedGeometryScene;
@@ -120,6 +145,14 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
     usePathScene
         ? CreateNativePaths(rectangleCount, logicalWidth, logicalHeight)
         : ([], []);
+TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
+(NativeGlyphOutline[] nativeGlyphOutlines,
+ NativePathSegment[] nativeGlyphSegments,
+ NativePositionedGlyph[] nativeGlyphs,
+ ushort[] managedGlyphIndices,
+ Vector2[] managedGlyphPositions) = useGlyphScene
+    ? CreateGlyphScene(glyphFont!, rectangleCount, dpiScale, logicalWidth, logicalHeight)
+    : ([], [], [], [], []);
 (Vector2[] geometryPoints,
  NativePolyline[] geometryPolylines,
  double[] geometryDoubles,
@@ -161,6 +194,9 @@ int managedIndexCount = 0;
 uint nativeRasterizedPathCount = 0;
 ulong nativePathUploadBytes = 0;
 ulong nativeCoverageStagingBytes = 0;
+uint nativeRasterizedGlyphCount = 0;
+ulong nativeGlyphOutlineUploadBytes = 0;
+ulong nativeGlyphInstanceUploadBytes = 0;
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
@@ -172,11 +208,21 @@ using var managed = new Compositor(
     TextureFormat.Rgba8Unorm,
     CompositorOptions.Default with
     {
-        EnableCompiledSceneCache = false,
+        // The DrawingVisual already retains its command compilation. Keep the
+        // additional whole-scene cache opt-in so its overhead can be measured
+        // independently instead of changing the established baseline.
+        EnableCompiledSceneCache = enableManagedCompiledSceneCache,
         EnableGpuHitTesting = false,
         PrimarySampleCount = 1
     });
-DrawingVisual managedVisual = usePathScene
+DrawingVisual managedVisual = useGlyphScene
+    ? CreateManagedGlyphVisual(
+        glyphFont!,
+        managedGlyphIndices,
+        managedGlyphPositions,
+        logicalWidth,
+        logicalHeight)
+    : usePathScene
     ? CreateManagedPathVisual(rectangleCount, logicalWidth, logicalHeight)
     : useGeometryScene
     ? CreateManagedGeometryVisual(
@@ -210,7 +256,9 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = usePathScene
+    string imageStem = useGlyphScene
+        ? "glyphs"
+        : usePathScene
         ? "paths"
         : useDashedGeometryScene ? "dashes" : "latest";
     WritePpm(
@@ -232,8 +280,8 @@ if (writeImages)
         amplification: 64);
 }
 PixelComparison comparison = ComparePixels(nativePixels, managedPixels);
-bool requiresExactPixels = !useAnalyticScene && !useGeometryScene &&
-    !usePathScene && dpiScale == 1f;
+bool requiresExactPixels = useGlyphScene ||
+    (!useAnalyticScene && !useGeometryScene && !usePathScene && dpiScale == 1f);
 bool usesGeometryDifferential = useGeometryScene || usePathScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
@@ -289,11 +337,20 @@ for (int index = 0; index < warmupCount; index++)
         RenderNative();
         SynchronizeIfRequested();
     }
+
+    if (drainEachPair)
+    {
+        context.PollDevice(wait: true);
+    }
 }
 context.PollDevice(wait: true);
 
 var nativeTimes = new double[iterationCount];
 var managedTimes = new double[iterationCount];
+var nativeSubmissionTimes = new double[iterationCount];
+var nativeCompletionWaitTimes = new double[iterationCount];
+var managedSubmissionTimes = new double[iterationCount];
+var managedCompletionWaitTimes = new double[iterationCount];
 long nativeAllocationStart = GC.GetAllocatedBytesForCurrentThread();
 long nativeAllocatedBytes = 0;
 long managedAllocatedBytes = 0;
@@ -306,7 +363,10 @@ if (groupMeasurements)
         GC.Collect();
         for (int index = 0; index < iterationCount; index++)
         {
-            nativeTimes[index] = MeasureNative(out long allocated);
+            nativeTimes[index] = MeasureNative(
+                out long allocated,
+                out nativeSubmissionTimes[index],
+                out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
         }
     }
@@ -318,7 +378,10 @@ if (groupMeasurements)
         GC.Collect();
         for (int index = 0; index < iterationCount; index++)
         {
-            managedTimes[index] = MeasureManaged(out long allocated);
+            managedTimes[index] = MeasureManaged(
+                out long allocated,
+                out managedSubmissionTimes[index],
+                out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
         }
     }
@@ -342,17 +405,36 @@ else
     {
         if ((index & 1) == 0)
         {
-            nativeTimes[index] = MeasureNative(out long allocated);
+            nativeTimes[index] = MeasureNative(
+                out long allocated,
+                out nativeSubmissionTimes[index],
+                out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
-            managedTimes[index] = MeasureManaged(out allocated);
+            managedTimes[index] = MeasureManaged(
+                out allocated,
+                out managedSubmissionTimes[index],
+                out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
         }
         else
         {
-            managedTimes[index] = MeasureManaged(out long allocated);
+            managedTimes[index] = MeasureManaged(
+                out long allocated,
+                out managedSubmissionTimes[index],
+                out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
-            nativeTimes[index] = MeasureNative(out allocated);
+            nativeTimes[index] = MeasureNative(
+                out allocated,
+                out nativeSubmissionTimes[index],
+                out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
+        }
+
+        if (drainEachPair)
+        {
+            // Keep the queue bounded without charging the shared GPU wait to
+            // either renderer's CPU submission interval.
+            context.PollDevice(wait: true);
         }
     }
 }
@@ -361,6 +443,10 @@ GC.KeepAlive(nativeAllocationStart);
 
 TimingSummary nativeSummary = Summarize(nativeTimes, nativeAllocatedBytes);
 TimingSummary managedSummary = Summarize(managedTimes, managedAllocatedBytes);
+TimingSummary nativeSubmissionSummary = Summarize(nativeSubmissionTimes, 0);
+TimingSummary nativeCompletionWaitSummary = Summarize(nativeCompletionWaitTimes, 0);
+TimingSummary managedSubmissionSummary = Summarize(managedSubmissionTimes, 0);
+TimingSummary managedCompletionWaitSummary = Summarize(managedCompletionWaitTimes, 0);
 ulong combinedMetalAllocatedBytes =
     context.TryCaptureNativeResourceSnapshot(out var resourceSnapshot)
         ? resourceSnapshot.MetalAllocatedBytes
@@ -370,7 +456,9 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: usePathScene
+    Scene: useGlyphScene
+        ? "RetainedPositionedGlyphAtlas"
+        : usePathScene
         ? "RetainedPathAtlas"
         : useGeometryScene
         ? useDashedGeometryScene
@@ -395,11 +483,17 @@ var report = new BenchmarkReport(
     WarmupIterations: warmupCount,
     MeasuredIterations: iterationCount,
     SynchronizeEachFrame: synchronizeEachFrame,
+    DrainEachPair: drainEachPair,
+    ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
         : "Alternating",
     Native: nativeSummary,
     Managed: managedSummary,
+    NativeSubmission: nativeSubmissionSummary,
+    NativeCompletionWait: nativeCompletionWaitSummary,
+    ManagedSubmission: managedSubmissionSummary,
+    ManagedCompletionWait: managedCompletionWaitSummary,
     NativeToManagedP95Ratio: managedSummary.P95Milliseconds == 0
         ? 0
         : nativeSummary.P95Milliseconds / managedSummary.P95Milliseconds,
@@ -412,6 +506,9 @@ var report = new BenchmarkReport(
     NativeRasterizedPathCount: nativeRasterizedPathCount,
     NativePathUploadBytes: nativePathUploadBytes,
     NativeCoverageStagingBytes: nativeCoverageStagingBytes,
+    NativeRasterizedGlyphCount: nativeRasterizedGlyphCount,
+    NativeGlyphOutlineUploadBytes: nativeGlyphOutlineUploadBytes,
+    NativeGlyphInstanceUploadBytes: nativeGlyphInstanceUploadBytes,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -420,6 +517,31 @@ Console.WriteLine(JsonSerializer.Serialize(
 
 ulong RenderNative(bool capturePayloadHash = false)
 {
+    if (useGlyphScene)
+    {
+        NativeGlyphFrameMetrics metrics = native.RenderGlyphs(
+            nativeTarget,
+            dpiScale,
+            nativeGlyphOutlines,
+            nativeGlyphSegments,
+            nativeGlyphs,
+            clearColor,
+            capturePayloadHash,
+            contentRevision: 1U);
+        nativeRasterizedGlyphCount = Math.Max(
+            nativeRasterizedGlyphCount,
+            metrics.RasterizedGlyphCount);
+        nativeGlyphOutlineUploadBytes = Math.Max(
+            nativeGlyphOutlineUploadBytes,
+            metrics.OutlineUploadBytes);
+        nativeGlyphInstanceUploadBytes = Math.Max(
+            nativeGlyphInstanceUploadBytes,
+            metrics.InstanceUploadBytes);
+        nativeCoverageStagingBytes = Math.Max(
+            nativeCoverageStagingBytes,
+            metrics.CoverageStagingBytes);
+        return metrics.PayloadHash;
+    }
     if (usePathScene)
     {
         NativePathFrameMetrics metrics = native.RenderPaths(
@@ -535,23 +657,39 @@ void SynchronizeIfRequested()
     }
 }
 
-double MeasureNative(out long allocatedBytes)
+double MeasureNative(
+    out long allocatedBytes,
+    out double submissionMilliseconds,
+    out double completionWaitMilliseconds)
 {
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderNative();
+    submissionMilliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
+    long waitTimestamp = Stopwatch.GetTimestamp();
     SynchronizeIfRequested();
+    completionWaitMilliseconds = synchronizeEachFrame
+        ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
+        : 0.0;
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
     return milliseconds;
 }
 
-double MeasureManaged(out long allocatedBytes)
+double MeasureManaged(
+    out long allocatedBytes,
+    out double submissionMilliseconds,
+    out double completionWaitMilliseconds)
 {
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderManaged();
+    submissionMilliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
+    long waitTimestamp = Stopwatch.GetTimestamp();
     SynchronizeIfRequested();
+    completionWaitMilliseconds = synchronizeEachFrame
+        ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
+        : 0.0;
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
     return milliseconds;
@@ -1560,6 +1698,158 @@ static DrawingVisual CreateManagedPathVisual(
     return visual;
 }
 
+static (
+    NativeGlyphOutline[] Outlines,
+    NativePathSegment[] Segments,
+    NativePositionedGlyph[] Glyphs,
+    ushort[] GlyphIndices,
+    Vector2[] GlyphPositions) CreateGlyphScene(
+    TtfFont font,
+    int count,
+    float dpiScale,
+    float logicalWidth,
+    float logicalHeight)
+{
+    const float fontSize = 20f;
+    const string alphabet = "ProGPUWebNative0123456789ABCDEFGHJKLMNQRSTUVXYZ";
+    float targetRasterSize = Math.Clamp(fontSize * dpiScale, 4f, 256f);
+    float rasterScale = targetRasterSize / font.UnitsPerEm;
+    float atlasToLogicalScale = fontSize * dpiScale / targetRasterSize;
+    float subpixelX = targetRasterSize <= 24f ? 0.25f : 0f;
+    int columns = Math.Max(1, (int)(logicalWidth / 44f));
+    int rows = Math.Max(1, (int)MathF.Ceiling(count / (float)columns));
+    float cellHeight = Math.Min(42f, logicalHeight / rows);
+
+    var outlines = new List<NativeGlyphOutline>();
+    var segments = new List<NativePathSegment>();
+    var glyphs = new List<NativePositionedGlyph>(count);
+    var glyphIndices = new ushort[count];
+    var glyphPositions = new Vector2[count];
+    var outlineIndices = new Dictionary<ushort, uint>();
+    Vector4 color = new(0.92f, 0.96f, 1f, 1f);
+
+    for (int index = 0; index < count; index++)
+    {
+        ushort glyphIndex = font.GetGlyphIndex(alphabet[index % alphabet.Length]);
+        int column = index % columns;
+        int row = index / columns;
+        var managedPosition = new Vector2(
+            18f + column * 44f + subpixelX / dpiScale,
+            Math.Min(logicalHeight - 10f, 34f + row * cellHeight));
+        var nativePosition = new Vector2(
+            MathF.Floor(managedPosition.X * dpiScale),
+            MathF.Round(managedPosition.Y * dpiScale)) / dpiScale;
+        glyphIndices[index] = glyphIndex;
+        glyphPositions[index] = managedPosition;
+
+        if (!outlineIndices.TryGetValue(glyphIndex, out uint outlineIndex))
+        {
+            PathGeometry? outline = font.GetGlyphOutline(glyphIndex);
+            if (outline == null ||
+                !outline.TryGetBounds(out Vector2 minimum, out Vector2 maximum))
+            {
+                throw new InvalidOperationException(
+                    $"Glyph {glyphIndex} has no renderable outline.");
+            }
+            nuint segmentOffset = (nuint)segments.Count;
+            foreach (PathFigure figure in outline.Figures)
+            {
+                Vector2 current = figure.StartPoint;
+                foreach (PathSegment segment in figure.Segments)
+                {
+                    switch (segment)
+                    {
+                        case LineSegment line:
+                            segments.Add(new NativePathSegment(
+                                NativePathSegmentKind.Line,
+                                current,
+                                line.Point));
+                            current = line.Point;
+                            break;
+                        case QuadraticBezierSegment quadratic:
+                            segments.Add(new NativePathSegment(
+                                NativePathSegmentKind.Quadratic,
+                                current,
+                                quadratic.ControlPoint,
+                                quadratic.Point));
+                            current = quadratic.Point;
+                            break;
+                        case CubicBezierSegment cubic:
+                            segments.Add(new NativePathSegment(
+                                NativePathSegmentKind.Cubic,
+                                current,
+                                cubic.ControlPoint1,
+                                cubic.ControlPoint2,
+                                cubic.Point));
+                            current = cubic.Point;
+                            break;
+                    }
+                }
+                if (figure.IsClosed && current != figure.StartPoint)
+                {
+                    segments.Add(new NativePathSegment(
+                        NativePathSegmentKind.Line,
+                        current,
+                        figure.StartPoint));
+                }
+            }
+            nuint segmentCount = (nuint)segments.Count - segmentOffset;
+            if (segmentCount == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Glyph {glyphIndex} has an empty outline.");
+            }
+            outlineIndex = checked((uint)outlines.Count);
+            outlineIndices.Add(glyphIndex, outlineIndex);
+            outlines.Add(new NativeGlyphOutline(
+                segmentOffset,
+                segmentCount,
+                minimum,
+                maximum,
+                rasterScale,
+                subpixelX));
+        }
+
+        glyphs.Add(new NativePositionedGlyph(
+            outlineIndex,
+            nativePosition,
+            Vector2.UnitX,
+            Vector2.UnitY,
+            color,
+            atlasToLogicalScale));
+    }
+
+    return (
+        outlines.ToArray(),
+        segments.ToArray(),
+        glyphs.ToArray(),
+        glyphIndices,
+        glyphPositions);
+}
+
+static DrawingVisual CreateManagedGlyphVisual(
+    TtfFont font,
+    ushort[] glyphIndices,
+    Vector2[] glyphPositions,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var visual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    visual.Context.DrawGlyphRun(
+        glyphIndices,
+        glyphPositions,
+        font,
+        20f,
+        new SolidColorBrush(new Vector4(0.92f, 0.96f, 1f, 1f)),
+        Vector2.Zero,
+        textRenderingMode: TextRenderingMode.Grayscale,
+        preferGlyphAtlas: true);
+    return visual;
+}
+
 static PixelComparison ComparePixels(
     ReadOnlySpan<byte> native,
     ReadOnlySpan<byte> managed)
@@ -1678,9 +1968,15 @@ internal sealed record BenchmarkReport(
     int WarmupIterations,
     int MeasuredIterations,
     bool SynchronizeEachFrame,
+    bool DrainEachPair,
+    bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,
     TimingSummary Managed,
+    TimingSummary NativeSubmission,
+    TimingSummary NativeCompletionWait,
+    TimingSummary ManagedSubmission,
+    TimingSummary ManagedCompletionWait,
     double NativeToManagedP95Ratio,
     ulong CombinedMetalAllocatedBytes,
     uint NativeVertexCount,
@@ -1691,6 +1987,9 @@ internal sealed record BenchmarkReport(
     uint NativeRasterizedPathCount,
     ulong NativePathUploadBytes,
     ulong NativeCoverageStagingBytes,
+    uint NativeRasterizedGlyphCount,
+    ulong NativeGlyphOutlineUploadBytes,
+    ulong NativeGlyphInstanceUploadBytes,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(
