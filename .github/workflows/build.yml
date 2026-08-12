@@ -68,6 +68,7 @@ jobs:
         shell: bash
         env:
           PROGPU_NATIVE_RUN_SANITIZERS: ${{ matrix.rid == 'linux-x64' && '1' || '0' }}
+          PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: ${{ matrix.rid == 'linux-x64' && '1' || '0' }}
         run: |
           ./eng/build-progpu-native.sh
           ./eng/progpu-stage-native-runtime.sh

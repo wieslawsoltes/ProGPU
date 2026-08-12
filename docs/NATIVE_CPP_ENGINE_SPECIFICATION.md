@@ -5,7 +5,7 @@ Status: active implementation specification, Preview.48 baseline
 Initial implementation: `src/ProGPU.Native`
 
 Managed baseline commit: `d63f5cfa10c42adf0dc1e7ba80e10854125b8112`
-Native ABI: `PROGPU_NATIVE_ABI_VERSION == 1`
+Native ABI: `PROGPU_NATIVE_ABI_VERSION == 3`
 
 ## 1. Objective and completion boundary
 
@@ -169,6 +169,23 @@ Therefore:
 - WebScene remains responsible for browser `navigator.gpu` semantics and its
   external-canvas ring; ProGPU owns UI/vector scene rendering. They can render
   into the same Dawn device and compose through GPU textures without readback.
+
+The first Dawn checkpoint is implemented as a source-level contract, not a
+runtime-handle bridge. The exact same `progpu_native.cpp` translation unit now
+compiles with warnings-as-errors against both the pinned May-2024 wgpu-native
+headers and WebScene's exact `01addc4...` WebGPU headers. A small typed
+compatibility layer accounts for string views, WGSL chained descriptors,
+renamed texel-copy records, reference operations, vertex-record initialization,
+and the different queue-completion mechanisms. CI fetches the immutable header
+commit and builds an object-only contract target. It does not link Dawn, call a
+WebScene provider, or make a Dawn object valid in the wgpu-native binary.
+
+The next checkpoint is a separately linked `progpu_native_dawn` adapter. It
+must resolve every WebGPU entry point through the ABI 2 provider, retain the
+provider instance/device/queue domain, use standard WebGPU futures for queue
+completion, and fail before handle use when the provider ABI, resolver, or
+required procedures differ. Direct Dawn linkage and cross-casting handles
+between the two binaries remain prohibited.
 
 ## 6. Stable native engine ABI
 
@@ -746,7 +763,10 @@ path with WebGPU validation and bounded resource policies.
    masks, then extend retained RGBA images with layers, masks, color processing,
    and external media textures while
    continuing to reuse production WGSL modules.
-5. Add the Dawn/WebScene adapter using PR #10's proc resolver and exact provider
-   revision, then validate zero-copy composition and synchronization.
+5. Complete the separately linked Dawn/WebScene adapter using PR #10's proc
+   resolver and exact provider revision. The shared renderer-source header
+   contract is already gated; runtime procedure dispatch, provider ownership,
+   zero-copy composition, and synchronization still require implementation and
+   validation.
 6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing
    opt-in .NET substitution to graduate beyond experimental status.

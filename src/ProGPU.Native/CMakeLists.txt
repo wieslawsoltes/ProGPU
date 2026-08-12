@@ -7,6 +7,8 @@ set(PROGPU_NATIVE_WEBGPU_INCLUDE_DIR "" CACHE PATH
     "Directory containing the pinned wgpu-native webgpu.h and wgpu.h headers")
 set(PROGPU_NATIVE_WEBGPU_LIBRARY "" CACHE FILEPATH
     "Exact wgpu-native library consumed by Silk.NET.WebGPU 2.23.0")
+set(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR "" CACHE PATH
+    "Optional directory containing WebScene's exact modern Dawn webgpu.h")
 set(PROGPU_NATIVE_VECTOR_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/Vector.wgsl"
     CACHE FILEPATH "Shared ProGPU vector shader source")
@@ -150,6 +152,7 @@ add_custom_command(
 add_library(progpu_native SHARED
     src/progpu_native.cpp
     src/progpu_native_geometry.hpp
+    src/progpu_webgpu_compat.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
     "${generated_path_rasterizer_shader}"
@@ -172,6 +175,33 @@ progpu_native_enable_sanitizers(progpu_native)
 set_target_properties(progpu_native PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES)
+
+if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
+    if(NOT EXISTS "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}/webgpu.h")
+        message(FATAL_ERROR
+            "PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR must contain webgpu.h")
+    endif()
+    add_library(progpu_native_dawn_header_contract OBJECT
+        src/progpu_native.cpp
+        src/progpu_native_geometry.hpp
+        src/progpu_webgpu_compat.hpp
+        "${generated_vector_shader}"
+        "${generated_path_rasterizer_shader}"
+        "${generated_glyph_rasterizer_shader}"
+        "${generated_text_shader}"
+        "${generated_texture_shader}")
+    target_compile_features(progpu_native_dawn_header_contract
+        PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_dawn_header_contract
+        PRIVATE PROGPU_NATIVE_DAWN_ABI=1)
+    target_include_directories(progpu_native_dawn_header_contract PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${generated_directory}")
+    target_include_directories(progpu_native_dawn_header_contract SYSTEM PRIVATE
+        "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
+    progpu_native_enable_warnings(progpu_native_dawn_header_contract)
+endif()
 
 get_filename_component(webgpu_library_directory
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}" DIRECTORY)

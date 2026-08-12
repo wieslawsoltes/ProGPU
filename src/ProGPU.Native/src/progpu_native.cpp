@@ -7,7 +7,11 @@
 #include "VectorWgsl.generated.hpp"
 
 #include <webgpu.h>
+#if !defined(PROGPU_NATIVE_DAWN_ABI)
 #include <wgpu.h>
+#endif
+
+#include "progpu_webgpu_compat.hpp"
 
 #include <algorithm>
 #include <array>
@@ -293,6 +297,7 @@ std::uint64_t append_fnv1a64(
 
 struct progpu_native_engine {
     std::thread::id owner_thread;
+    WGPUInstance instance = nullptr;
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
     WGPUTextureFormat target_format = WGPUTextureFormat_Undefined;
@@ -418,10 +423,13 @@ struct progpu_native_engine {
     bool image_gpu_cache_valid = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
-    WGPUSubmissionIndex last_submission_index = 0U;
+    std::uint64_t last_submission_index = 0U;
 
     void submit(WGPUCommandBuffer command) noexcept {
-        last_submission_index = wgpuQueueSubmitForIndex(queue, 1U, &command);
+        last_submission_index = progpu::native::webgpu::submit(
+            queue,
+            1U,
+            &command);
         ++submission_count;
     }
 
@@ -680,7 +688,7 @@ struct progpu_native_engine {
         }
 
         WGPUBufferDescriptor descriptor{};
-        descriptor.label = "ProGPU native vector vertex buffer";
+        descriptor.label = progpu::native::webgpu::string_view("ProGPU native vector vertex buffer");
         descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         descriptor.size = new_size;
         WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
@@ -713,7 +721,7 @@ struct progpu_native_engine {
         }
 
         WGPUBufferDescriptor descriptor{};
-        descriptor.label = "ProGPU native vector index buffer";
+        descriptor.label = progpu::native::webgpu::string_view("ProGPU native vector index buffer");
         descriptor.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
         descriptor.size = new_size;
         WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
@@ -745,7 +753,7 @@ struct progpu_native_engine {
             new_size *= 2U;
         }
         WGPUBufferDescriptor descriptor{};
-        descriptor.label = "ProGPU native positioned glyph instances";
+        descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph instances");
         descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
         descriptor.size = new_size;
         WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
@@ -766,13 +774,12 @@ struct progpu_native_engine {
 namespace {
 
 bool create_pipeline(progpu_native_engine& engine) {
-    WGPUShaderModuleWGSLDescriptor wgsl{};
-    wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    wgsl.code = reinterpret_cast<const char*>(
-        progpu::native::generated::vector_wgsl);
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::vector_wgsl,
+        progpu::native::generated::vector_wgsl_size);
     WGPUShaderModuleDescriptor shader_descriptor{};
-    shader_descriptor.nextInChain = &wgsl.chain;
-    shader_descriptor.label = "ProGPU shared Vector.wgsl";
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view("ProGPU shared Vector.wgsl");
     engine.shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &shader_descriptor);
@@ -781,14 +788,22 @@ bool create_pipeline(progpu_native_engine& engine) {
     }
 
     const std::array<WGPUVertexAttribute, 8U> attributes{{
-        {WGPUVertexFormat_Float32x2, 0U, 0U},
-        {WGPUVertexFormat_Float32x4, 8U, 1U},
-        {WGPUVertexFormat_Float32x2, 24U, 2U},
-        {WGPUVertexFormat_Float32, 32U, 3U},
-        {WGPUVertexFormat_Float32x2, 36U, 4U},
-        {WGPUVertexFormat_Float32, 44U, 5U},
-        {WGPUVertexFormat_Float32, 48U, 6U},
-        {WGPUVertexFormat_Float32, 52U, 7U}
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 52U, 7U)
     }};
     WGPUVertexBufferLayout vertex_buffer_layout{};
     vertex_buffer_layout.arrayStride = sizeof(progpu::native::vector_vertex);
@@ -798,7 +813,7 @@ bool create_pipeline(progpu_native_engine& engine) {
 
     WGPUVertexState vertex_state{};
     vertex_state.module = engine.shader;
-    vertex_state.entryPoint = "vs_solid_rect";
+    vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_solid_rect");
     vertex_state.bufferCount = 1U;
     vertex_state.buffers = &vertex_buffer_layout;
 
@@ -817,12 +832,12 @@ bool create_pipeline(progpu_native_engine& engine) {
 
     WGPUFragmentState fragment_state{};
     fragment_state.module = engine.shader;
-    fragment_state.entryPoint = "fs_solid_rect_main_unmasked";
+    fragment_state.entryPoint = progpu::native::webgpu::string_view("fs_solid_rect_main_unmasked");
     fragment_state.targetCount = 1U;
     fragment_state.targets = &color_target;
 
     WGPURenderPipelineDescriptor pipeline_descriptor{};
-    pipeline_descriptor.label = "ProGPU native solid rectangle pipeline";
+    pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native solid rectangle pipeline");
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
@@ -845,7 +860,7 @@ bool create_pipeline(progpu_native_engine& engine) {
     }
 
     WGPUBufferDescriptor uniform_descriptor{};
-    uniform_descriptor.label = "ProGPU native frame uniforms";
+    uniform_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame uniforms");
     uniform_descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     uniform_descriptor.size = sizeof(gpu_uniforms);
     engine.uniform_buffer = wgpuDeviceCreateBuffer(
@@ -860,7 +875,7 @@ bool create_pipeline(progpu_native_engine& engine) {
     uniform_entry.buffer = engine.uniform_buffer;
     uniform_entry.size = sizeof(gpu_uniforms);
     WGPUBindGroupDescriptor bind_group_descriptor{};
-    bind_group_descriptor.label = "ProGPU native frame uniform bind group";
+    bind_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame uniform bind group");
     bind_group_descriptor.layout = engine.uniform_layout;
     bind_group_descriptor.entryCount = 1U;
     bind_group_descriptor.entries = &uniform_entry;
@@ -883,7 +898,7 @@ WGPUBindGroup create_analytic_uniform_bind_group(
             nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};
-    descriptor.label = "ProGPU native analytic bind group";
+    descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic bind group");
     descriptor.layout = engine.analytic_uniform_layout;
     descriptor.entryCount = entries.size();
     descriptor.entries = entries.data();
@@ -910,7 +925,7 @@ bool ensure_analytic_brush_buffer(
     }
 
     WGPUBufferDescriptor descriptor{};
-    descriptor.label = "ProGPU native solid brush table";
+    descriptor.label = progpu::native::webgpu::string_view("ProGPU native solid brush table");
     descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
     descriptor.size = new_size;
     WGPUBuffer replacement = wgpuDeviceCreateBuffer(engine.device, &descriptor);
@@ -942,14 +957,22 @@ bool ensure_analytic_brush_buffer(
 
 bool create_analytic_pipeline(progpu_native_engine& engine) {
     const std::array<WGPUVertexAttribute, 8U> attributes{{
-        {WGPUVertexFormat_Float32x2, 0U, 0U},
-        {WGPUVertexFormat_Float32x4, 8U, 1U},
-        {WGPUVertexFormat_Float32x2, 24U, 2U},
-        {WGPUVertexFormat_Float32, 32U, 3U},
-        {WGPUVertexFormat_Float32x2, 36U, 4U},
-        {WGPUVertexFormat_Float32, 44U, 5U},
-        {WGPUVertexFormat_Float32, 48U, 6U},
-        {WGPUVertexFormat_Float32, 52U, 7U}
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 52U, 7U)
     }};
     WGPUVertexBufferLayout vertex_buffer_layout{};
     vertex_buffer_layout.arrayStride = sizeof(progpu::native::vector_vertex);
@@ -959,7 +982,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
 
     WGPUVertexState vertex_state{};
     vertex_state.module = engine.shader;
-    vertex_state.entryPoint = "vs_main";
+    vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_main");
     vertex_state.bufferCount = 1U;
     vertex_state.buffers = &vertex_buffer_layout;
 
@@ -978,12 +1001,12 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
 
     WGPUFragmentState fragment_state{};
     fragment_state.module = engine.shader;
-    fragment_state.entryPoint = "fs_main_unmasked";
+    fragment_state.entryPoint = progpu::native::webgpu::string_view("fs_main_unmasked");
     fragment_state.targetCount = 1U;
     fragment_state.targets = &color_target;
 
     WGPURenderPipelineDescriptor pipeline_descriptor{};
-    pipeline_descriptor.label = "ProGPU native analytic primitive pipeline";
+    pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic primitive pipeline");
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
@@ -1010,7 +1033,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     }
 
     WGPUBufferDescriptor uniform_descriptor{};
-    uniform_descriptor.label = "ProGPU native analytic frame uniforms";
+    uniform_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame uniforms");
     uniform_descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     uniform_descriptor.size = sizeof(gpu_uniforms);
     engine.analytic_uniform_buffer = wgpuDeviceCreateBuffer(
@@ -1018,7 +1041,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         &uniform_descriptor);
 
     WGPUBufferDescriptor gradient_descriptor{};
-    gradient_descriptor.label = "ProGPU native analytic gradient sentinel";
+    gradient_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic gradient sentinel");
     gradient_descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
     gradient_descriptor.size = 32U;
     engine.analytic_gradient_buffer = wgpuDeviceCreateBuffer(
@@ -1031,7 +1054,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     }
 
     WGPUTextureDescriptor texture_descriptor{};
-    texture_descriptor.label = "ProGPU native analytic sentinel texture";
+    texture_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic sentinel texture");
     texture_descriptor.usage = WGPUTextureUsage_TextureBinding;
     texture_descriptor.dimension = WGPUTextureDimension_2D;
     texture_descriptor.size = {1U, 1U, 1U};
@@ -1049,7 +1072,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         nullptr);
 
     WGPUSamplerDescriptor sampler_descriptor{};
-    sampler_descriptor.label = "ProGPU native analytic sentinel sampler";
+    sampler_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic sentinel sampler");
     sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
@@ -1096,7 +1119,8 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     }};
     WGPUBindGroupDescriptor atlas_bind_group_descriptor{};
     atlas_bind_group_descriptor.label =
-        "ProGPU native analytic atlas sentinel bind group";
+        progpu::native::webgpu::string_view(
+            "ProGPU native analytic atlas sentinel bind group");
     atlas_bind_group_descriptor.layout = engine.analytic_atlas_layout;
     atlas_bind_group_descriptor.entryCount = atlas_entries.size();
     atlas_bind_group_descriptor.entries = atlas_entries.data();
@@ -1127,13 +1151,12 @@ bool create_path_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    WGPUShaderModuleWGSLDescriptor wgsl{};
-    wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    wgsl.code = reinterpret_cast<const char*>(
-        progpu::native::generated::path_rasterizer_wgsl);
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::path_rasterizer_wgsl,
+        progpu::native::generated::path_rasterizer_wgsl_size);
     WGPUShaderModuleDescriptor shader_descriptor{};
-    shader_descriptor.nextInChain = &wgsl.chain;
-    shader_descriptor.label = "ProGPU shared PathRasterizer.wgsl";
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view("ProGPU shared PathRasterizer.wgsl");
     engine.path_raster_shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &shader_descriptor);
@@ -1155,7 +1178,7 @@ bool create_path_resources(progpu_native_engine& engine) {
     layout_entries[2].buffer.minBindingSize = sizeof(progpu_native_path_segment);
     layout_entries[3].buffer.minBindingSize = sizeof(std::uint32_t);
     WGPUBindGroupLayoutDescriptor layout_descriptor{};
-    layout_descriptor.label = "ProGPU native path raster bindings";
+    layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster bindings");
     layout_descriptor.entryCount = layout_entries.size();
     layout_descriptor.entries = layout_entries.data();
     engine.path_raster_layout = wgpuDeviceCreateBindGroupLayout(
@@ -1166,7 +1189,7 @@ bool create_path_resources(progpu_native_engine& engine) {
     }
 
     WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
-    pipeline_layout_descriptor.label = "ProGPU native path raster layout";
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster layout");
     pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
     pipeline_layout_descriptor.bindGroupLayouts = &engine.path_raster_layout;
     engine.path_raster_pipeline_layout = wgpuDeviceCreatePipelineLayout(
@@ -1177,10 +1200,10 @@ bool create_path_resources(progpu_native_engine& engine) {
     }
 
     WGPUComputePipelineDescriptor pipeline_descriptor{};
-    pipeline_descriptor.label = "ProGPU native path raster pipeline";
+    pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster pipeline");
     pipeline_descriptor.layout = engine.path_raster_pipeline_layout;
     pipeline_descriptor.compute.module = engine.path_raster_shader;
-    pipeline_descriptor.compute.entryPoint = "cs_main";
+    pipeline_descriptor.compute.entryPoint = progpu::native::webgpu::string_view("cs_main");
     engine.path_raster_pipeline = wgpuDeviceCreateComputePipeline(
         engine.device,
         &pipeline_descriptor);
@@ -1189,7 +1212,7 @@ bool create_path_resources(progpu_native_engine& engine) {
     }
 
     WGPUTextureDescriptor texture_descriptor{};
-    texture_descriptor.label = "ProGPU native retained path atlas";
+    texture_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path atlas");
     texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
         WGPUTextureUsage_CopyDst;
     texture_descriptor.dimension = WGPUTextureDimension_2D;
@@ -1212,7 +1235,7 @@ bool create_path_resources(progpu_native_engine& engine) {
         nullptr);
 
     WGPUSamplerDescriptor sampler_descriptor{};
-    sampler_descriptor.label = "ProGPU native path atlas sampler";
+    sampler_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path atlas sampler");
     sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
@@ -1237,7 +1260,7 @@ bool create_path_resources(progpu_native_engine& engine) {
             nullptr, engine.path_atlas_texture_view}
     }};
     WGPUBindGroupDescriptor atlas_descriptor{};
-    atlas_descriptor.label = "ProGPU native path atlas bind group";
+    atlas_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path atlas bind group");
     atlas_descriptor.layout = engine.analytic_atlas_layout;
     atlas_descriptor.entryCount = atlas_entries.size();
     atlas_descriptor.entries = atlas_entries.data();
@@ -1278,13 +1301,12 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    WGPUShaderModuleWGSLDescriptor glyph_wgsl{};
-    glyph_wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    glyph_wgsl.code = reinterpret_cast<const char*>(
-        progpu::native::generated::glyph_rasterizer_wgsl);
+    progpu::native::webgpu::wgsl_source glyph_wgsl(
+        progpu::native::generated::glyph_rasterizer_wgsl,
+        progpu::native::generated::glyph_rasterizer_wgsl_size);
     WGPUShaderModuleDescriptor glyph_shader_descriptor{};
-    glyph_shader_descriptor.nextInChain = &glyph_wgsl.chain;
-    glyph_shader_descriptor.label = "ProGPU shared GlyphRasterizer.wgsl";
+    glyph_shader_descriptor.nextInChain = glyph_wgsl.chain();
+    glyph_shader_descriptor.label = progpu::native::webgpu::string_view("ProGPU shared GlyphRasterizer.wgsl");
     engine.glyph_raster_shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &glyph_shader_descriptor);
@@ -1308,7 +1330,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     compute_entries[2].buffer.minBindingSize = sizeof(progpu_native_path_segment);
     compute_entries[3].buffer.minBindingSize = sizeof(std::uint32_t);
     WGPUBindGroupLayoutDescriptor compute_layout_descriptor{};
-    compute_layout_descriptor.label = "ProGPU native glyph raster bindings";
+    compute_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph raster bindings");
     compute_layout_descriptor.entryCount = compute_entries.size();
     compute_layout_descriptor.entries = compute_entries.data();
     engine.glyph_raster_layout = wgpuDeviceCreateBindGroupLayout(
@@ -1319,7 +1341,8 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     }
     WGPUPipelineLayoutDescriptor compute_pipeline_layout_descriptor{};
     compute_pipeline_layout_descriptor.label =
-        "ProGPU native glyph raster layout";
+        progpu::native::webgpu::string_view(
+            "ProGPU native glyph raster layout");
     compute_pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
     compute_pipeline_layout_descriptor.bindGroupLayouts =
         &engine.glyph_raster_layout;
@@ -1330,10 +1353,10 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         return false;
     }
     WGPUComputePipelineDescriptor compute_pipeline_descriptor{};
-    compute_pipeline_descriptor.label = "ProGPU native glyph raster pipeline";
+    compute_pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph raster pipeline");
     compute_pipeline_descriptor.layout = engine.glyph_raster_pipeline_layout;
     compute_pipeline_descriptor.compute.module = engine.glyph_raster_shader;
-    compute_pipeline_descriptor.compute.entryPoint = "cs_main";
+    compute_pipeline_descriptor.compute.entryPoint = progpu::native::webgpu::string_view("cs_main");
     engine.glyph_raster_pipeline = wgpuDeviceCreateComputePipeline(
         engine.device,
         &compute_pipeline_descriptor);
@@ -1341,13 +1364,12 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    WGPUShaderModuleWGSLDescriptor text_wgsl{};
-    text_wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    text_wgsl.code = reinterpret_cast<const char*>(
-        progpu::native::generated::text_wgsl);
+    progpu::native::webgpu::wgsl_source text_wgsl(
+        progpu::native::generated::text_wgsl,
+        progpu::native::generated::text_wgsl_size);
     WGPUShaderModuleDescriptor text_shader_descriptor{};
-    text_shader_descriptor.nextInChain = &text_wgsl.chain;
-    text_shader_descriptor.label = "ProGPU shared Text.wgsl";
+    text_shader_descriptor.nextInChain = text_wgsl.chain();
+    text_shader_descriptor.label = progpu::native::webgpu::string_view("ProGPU shared Text.wgsl");
     engine.text_shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &text_shader_descriptor);
@@ -1356,14 +1378,22 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     }
 
     const std::array<WGPUVertexAttribute, 8U> text_attributes{{
-        {WGPUVertexFormat_Float32x2, 0U, 0U},
-        {WGPUVertexFormat_Float32x2, 8U, 1U},
-        {WGPUVertexFormat_Float32x2, 16U, 2U},
-        {WGPUVertexFormat_Float32x4, 24U, 3U},
-        {WGPUVertexFormat_Float32x4, 40U, 4U},
-        {WGPUVertexFormat_Float32x4, 56U, 5U},
-        {WGPUVertexFormat_Float32x4, 72U, 6U},
-        {WGPUVertexFormat_Float32, 88U, 7U}
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 16U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 24U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 40U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 56U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 72U, 6U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 88U, 7U)
     }};
     WGPUVertexBufferLayout text_vertex_layout{};
     text_vertex_layout.arrayStride = sizeof(gpu_glyph_instance);
@@ -1372,7 +1402,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     text_vertex_layout.attributes = text_attributes.data();
     WGPUVertexState text_vertex_state{};
     text_vertex_state.module = engine.text_shader;
-    text_vertex_state.entryPoint = "vs_main";
+    text_vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_main");
     text_vertex_state.bufferCount = 1U;
     text_vertex_state.buffers = &text_vertex_layout;
     WGPUBlendState text_blend{};
@@ -1388,11 +1418,11 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     text_target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState text_fragment_state{};
     text_fragment_state.module = engine.text_shader;
-    text_fragment_state.entryPoint = "fs_main_unmasked";
+    text_fragment_state.entryPoint = progpu::native::webgpu::string_view("fs_main_unmasked");
     text_fragment_state.targetCount = 1U;
     text_fragment_state.targets = &text_target;
     WGPURenderPipelineDescriptor text_pipeline_descriptor{};
-    text_pipeline_descriptor.label = "ProGPU native positioned glyph pipeline";
+    text_pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph pipeline");
     text_pipeline_descriptor.vertex = text_vertex_state;
     text_pipeline_descriptor.primitive.topology =
         WGPUPrimitiveTopology_TriangleList;
@@ -1419,7 +1449,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     }
 
     WGPUBufferDescriptor style_descriptor{};
-    style_descriptor.label = "ProGPU native text style sentinel";
+    style_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text style sentinel");
     style_descriptor.usage = WGPUBufferUsage_Storage |
         WGPUBufferUsage_CopyDst;
     style_descriptor.size = 32U;
@@ -1442,7 +1472,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         {nullptr, 1U, engine.text_style_buffer, 0U, 32U, nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor uniform_group_descriptor{};
-    uniform_group_descriptor.label = "ProGPU native text uniform bind group";
+    uniform_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text uniform bind group");
     uniform_group_descriptor.layout = engine.text_uniform_layout;
     uniform_group_descriptor.entryCount = uniform_entries.size();
     uniform_group_descriptor.entries = uniform_entries.data();
@@ -1454,7 +1484,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     }
 
     WGPUTextureDescriptor atlas_descriptor{};
-    atlas_descriptor.label = "ProGPU native retained glyph atlas";
+    atlas_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained glyph atlas");
     atlas_descriptor.usage = WGPUTextureUsage_TextureBinding |
         WGPUTextureUsage_CopyDst;
     atlas_descriptor.dimension = WGPUTextureDimension_2D;
@@ -1476,7 +1506,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         engine.glyph_atlas_texture,
         nullptr);
     WGPUSamplerDescriptor sampler_descriptor{};
-    sampler_descriptor.label = "ProGPU native glyph atlas sampler";
+    sampler_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph atlas sampler");
     sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
     sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
@@ -1502,7 +1532,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
             nullptr, engine.analytic_sentinel_texture_view}
     }};
     WGPUBindGroupDescriptor atlas_group_descriptor{};
-    atlas_group_descriptor.label = "ProGPU native text atlas bind group";
+    atlas_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text atlas bind group");
     atlas_group_descriptor.layout = engine.text_atlas_layout;
     atlas_group_descriptor.entryCount = atlas_entries.size();
     atlas_group_descriptor.entries = atlas_entries.data();
@@ -1523,7 +1553,7 @@ bool resize_path_atlas(
         return true;
     }
     WGPUTextureDescriptor descriptor{};
-    descriptor.label = "ProGPU native retained path atlas";
+    descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path atlas");
     descriptor.usage = WGPUTextureUsage_TextureBinding |
         WGPUTextureUsage_CopyDst;
     descriptor.dimension = WGPUTextureDimension_2D;
@@ -1547,7 +1577,7 @@ bool resize_path_atlas(
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, view}
     }};
     WGPUBindGroupDescriptor group_descriptor{};
-    group_descriptor.label = "ProGPU native path atlas bind group";
+    group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path atlas bind group");
     group_descriptor.layout = engine.analytic_atlas_layout;
     group_descriptor.entryCount = entries.size();
     group_descriptor.entries = entries.data();
@@ -1580,7 +1610,7 @@ bool resize_glyph_atlas(
         return true;
     }
     WGPUTextureDescriptor descriptor{};
-    descriptor.label = "ProGPU native retained glyph atlas";
+    descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained glyph atlas");
     descriptor.usage = WGPUTextureUsage_TextureBinding |
         WGPUTextureUsage_CopyDst;
     descriptor.dimension = WGPUTextureDimension_2D;
@@ -1606,7 +1636,7 @@ bool resize_glyph_atlas(
             nullptr, engine.analytic_sentinel_texture_view}
     }};
     WGPUBindGroupDescriptor group_descriptor{};
-    group_descriptor.label = "ProGPU native text atlas bind group";
+    group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text atlas bind group");
     group_descriptor.layout = engine.text_atlas_layout;
     group_descriptor.entryCount = entries.size();
     group_descriptor.entries = entries.data();
@@ -1643,7 +1673,7 @@ WGPUBindGroup create_image_texture_bind_group(
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, view}
     }};
     WGPUBindGroupDescriptor descriptor{};
-    descriptor.label = label;
+    descriptor.label = progpu::native::webgpu::string_view(label);
     descriptor.layout = engine.image_texture_layout;
     descriptor.entryCount = entries.size();
     descriptor.entries = entries.data();
@@ -1666,13 +1696,12 @@ bool create_image_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    WGPUShaderModuleWGSLDescriptor wgsl{};
-    wgsl.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    wgsl.code = reinterpret_cast<const char*>(
-        progpu::native::generated::texture_wgsl);
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::texture_wgsl,
+        progpu::native::generated::texture_wgsl_size);
     WGPUShaderModuleDescriptor shader_descriptor{};
-    shader_descriptor.nextInChain = &wgsl.chain;
-    shader_descriptor.label = "ProGPU shared Texture.wgsl";
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view("ProGPU shared Texture.wgsl");
     engine.image_shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &shader_descriptor);
@@ -1687,7 +1716,7 @@ bool create_image_resources(progpu_native_engine& engine) {
     uniform_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
     uniform_layout_entry.buffer.minBindingSize = sizeof(gpu_uniforms);
     WGPUBindGroupLayoutDescriptor uniform_layout_descriptor{};
-    uniform_layout_descriptor.label = "ProGPU native image uniform layout";
+    uniform_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image uniform layout");
     uniform_layout_descriptor.entryCount = 1U;
     uniform_layout_descriptor.entries = &uniform_layout_entry;
     engine.image_uniform_layout = wgpuDeviceCreateBindGroupLayout(
@@ -1706,7 +1735,7 @@ bool create_image_resources(progpu_native_engine& engine) {
         WGPUTextureViewDimension_2D;
     texture_layout_entries[1].texture.multisampled = false;
     WGPUBindGroupLayoutDescriptor texture_layout_descriptor{};
-    texture_layout_descriptor.label = "ProGPU native image texture layout";
+    texture_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image texture layout");
     texture_layout_descriptor.entryCount = texture_layout_entries.size();
     texture_layout_descriptor.entries = texture_layout_entries.data();
     engine.image_texture_layout = wgpuDeviceCreateBindGroupLayout(
@@ -1722,7 +1751,7 @@ bool create_image_resources(progpu_native_engine& engine) {
         engine.image_texture_layout
     }};
     WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
-    pipeline_layout_descriptor.label = "ProGPU native unmasked image layout";
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native unmasked image layout");
     pipeline_layout_descriptor.bindGroupLayoutCount = pipeline_layouts.size();
     pipeline_layout_descriptor.bindGroupLayouts = pipeline_layouts.data();
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
@@ -1733,13 +1762,20 @@ bool create_image_resources(progpu_native_engine& engine) {
     }
 
     const std::array<WGPUVertexAttribute, 7U> attributes{{
-        {WGPUVertexFormat_Float32x2, 0U, 0U},
-        {WGPUVertexFormat_Float32x4, 8U, 1U},
-        {WGPUVertexFormat_Float32x2, 24U, 2U},
-        {WGPUVertexFormat_Float32, 32U, 3U},
-        {WGPUVertexFormat_Float32x2, 36U, 4U},
-        {WGPUVertexFormat_Float32, 44U, 5U},
-        {WGPUVertexFormat_Float32, 48U, 6U}
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U)
     }};
     WGPUVertexBufferLayout vertex_layout{};
     vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
@@ -1748,7 +1784,7 @@ bool create_image_resources(progpu_native_engine& engine) {
     vertex_layout.attributes = attributes.data();
     WGPUVertexState vertex_state{};
     vertex_state.module = engine.image_shader;
-    vertex_state.entryPoint = "vs_main";
+    vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_main");
     vertex_state.bufferCount = 1U;
     vertex_state.buffers = &vertex_layout;
     WGPUBlendState blend{};
@@ -1764,11 +1800,11 @@ bool create_image_resources(progpu_native_engine& engine) {
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
-    fragment.entryPoint = "fs_main_unmasked";
+    fragment.entryPoint = progpu::native::webgpu::string_view("fs_main_unmasked");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
-    pipeline_descriptor.label = "ProGPU native retained image pipeline";
+    pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained image pipeline");
     pipeline_descriptor.layout = pipeline_layout;
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
@@ -1786,7 +1822,7 @@ bool create_image_resources(progpu_native_engine& engine) {
     }
 
     WGPUBufferDescriptor uniform_descriptor{};
-    uniform_descriptor.label = "ProGPU native image frame uniforms";
+    uniform_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image frame uniforms");
     uniform_descriptor.usage = WGPUBufferUsage_Uniform |
         WGPUBufferUsage_CopyDst;
     uniform_descriptor.size = sizeof(gpu_uniforms);
@@ -1794,7 +1830,7 @@ bool create_image_resources(progpu_native_engine& engine) {
         engine.device,
         &uniform_descriptor);
     WGPUBufferDescriptor vertex_descriptor{};
-    vertex_descriptor.label = "ProGPU native retained image vertices";
+    vertex_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained image vertices");
     vertex_descriptor.usage = WGPUBufferUsage_Vertex |
         WGPUBufferUsage_CopyDst;
     vertex_descriptor.size = sizeof(engine.image_vertices);
@@ -1802,7 +1838,7 @@ bool create_image_resources(progpu_native_engine& engine) {
         engine.device,
         &vertex_descriptor);
     WGPUBufferDescriptor index_descriptor{};
-    index_descriptor.label = "ProGPU native retained image indices";
+    index_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained image indices");
     index_descriptor.usage = WGPUBufferUsage_Index |
         WGPUBufferUsage_CopyDst;
     index_descriptor.size = 6U * sizeof(std::uint32_t);
@@ -1820,7 +1856,7 @@ bool create_image_resources(progpu_native_engine& engine) {
     uniform_entry.buffer = engine.image_uniform_buffer;
     uniform_entry.size = sizeof(gpu_uniforms);
     WGPUBindGroupDescriptor uniform_group_descriptor{};
-    uniform_group_descriptor.label = "ProGPU native image uniform bind group";
+    uniform_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image uniform bind group");
     uniform_group_descriptor.layout = engine.image_uniform_layout;
     uniform_group_descriptor.entryCount = 1U;
     uniform_group_descriptor.entries = &uniform_entry;
@@ -1874,7 +1910,7 @@ WGPUBindGroup create_image_mask_bind_group(
             sizeof(gpu_mask_sampling_uniforms), nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};
-    descriptor.label = label;
+    descriptor.label = progpu::native::webgpu::string_view(label);
     descriptor.layout = engine.image_mask_layout;
     descriptor.entryCount = entries.size();
     descriptor.entries = entries.data();
@@ -1907,7 +1943,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     mask_entries[2].buffer.type = WGPUBufferBindingType_Uniform;
     mask_entries[2].buffer.minBindingSize = sizeof(gpu_mask_sampling_uniforms);
     WGPUBindGroupLayoutDescriptor mask_layout_descriptor{};
-    mask_layout_descriptor.label = "ProGPU native image mask layout";
+    mask_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image mask layout");
     mask_layout_descriptor.entryCount = mask_entries.size();
     mask_layout_descriptor.entries = mask_entries.data();
     engine.image_mask_layout = wgpuDeviceCreateBindGroupLayout(
@@ -1923,7 +1959,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
         engine.image_mask_layout
     }};
     WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
-    pipeline_layout_descriptor.label = "ProGPU native masked image layout";
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native masked image layout");
     pipeline_layout_descriptor.bindGroupLayoutCount = layouts.size();
     pipeline_layout_descriptor.bindGroupLayouts = layouts.data();
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
@@ -1934,13 +1970,20 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     }
 
     const std::array<WGPUVertexAttribute, 7U> attributes{{
-        {WGPUVertexFormat_Float32x2, 0U, 0U},
-        {WGPUVertexFormat_Float32x4, 8U, 1U},
-        {WGPUVertexFormat_Float32x2, 24U, 2U},
-        {WGPUVertexFormat_Float32, 32U, 3U},
-        {WGPUVertexFormat_Float32x2, 36U, 4U},
-        {WGPUVertexFormat_Float32, 44U, 5U},
-        {WGPUVertexFormat_Float32, 48U, 6U}
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U)
     }};
     WGPUVertexBufferLayout vertex_layout{};
     vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
@@ -1949,7 +1992,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     vertex_layout.attributes = attributes.data();
     WGPUVertexState vertex_state{};
     vertex_state.module = engine.image_shader;
-    vertex_state.entryPoint = "vs_main";
+    vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_main");
     vertex_state.bufferCount = 1U;
     vertex_state.buffers = &vertex_layout;
     WGPUBlendState blend{};
@@ -1965,11 +2008,11 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
-    fragment.entryPoint = "fs_main";
+    fragment.entryPoint = progpu::native::webgpu::string_view("fs_main");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
-    pipeline_descriptor.label = "ProGPU native retained masked image pipeline";
+    pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained masked image pipeline");
     pipeline_descriptor.layout = pipeline_layout;
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
@@ -1987,7 +2030,7 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     }
 
     WGPUBufferDescriptor buffer_descriptor{};
-    buffer_descriptor.label = "ProGPU native image mask sampling uniforms";
+    buffer_descriptor.label = progpu::native::webgpu::string_view("ProGPU native image mask sampling uniforms");
     buffer_descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     buffer_descriptor.size = sizeof(gpu_mask_sampling_uniforms);
     engine.image_mask_uniform_buffer = wgpuDeviceCreateBuffer(
@@ -2007,7 +2050,7 @@ bool update_image_mask(
         engine.image_mask_width != frame.mask_width ||
         engine.image_mask_height != frame.mask_height;
     if (replace) {
-        wgpuTextureViewReference(view);
+        progpu::native::webgpu::texture_view_add_ref(view);
         WGPUBindGroup nearest = create_image_mask_bind_group(
             engine,
             engine.image_nearest_sampler,
@@ -2089,7 +2132,7 @@ bool upload_image_texture(
     if (replace && external) {
         texture = nullptr;
         view = external_view;
-        wgpuTextureViewReference(view);
+        progpu::native::webgpu::texture_view_add_ref(view);
         nearest_group = create_image_texture_bind_group(
             engine,
             engine.image_nearest_sampler,
@@ -2112,7 +2155,7 @@ bool upload_image_texture(
         }
     } else if (replace) {
         WGPUTextureDescriptor descriptor{};
-        descriptor.label = "ProGPU native retained RGBA image";
+        descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image");
         descriptor.usage = WGPUTextureUsage_TextureBinding |
             WGPUTextureUsage_CopyDst;
         descriptor.dimension = WGPUTextureDimension_2D;
@@ -2155,10 +2198,10 @@ bool upload_image_texture(
     }
 
     if (!external) {
-        WGPUImageCopyTexture destination{};
+        progpu::native::webgpu::image_copy_texture destination{};
         destination.texture = texture;
         destination.aspect = WGPUTextureAspect_All;
-        WGPUTextureDataLayout layout{};
+        progpu::native::webgpu::texture_data_layout layout{};
         layout.bytesPerRow = frame.row_bytes;
         layout.rowsPerImage = frame.image_height;
         const WGPUExtent3D extent{frame.image_width, frame.image_height, 1U};
@@ -2327,8 +2370,8 @@ progpu_native_status progpu_native_engine_create(
         result->device = reinterpret_cast<WGPUDevice>(options->device);
         result->queue = reinterpret_cast<WGPUQueue>(options->queue);
         result->target_format = texture_format(options->target_format);
-        wgpuDeviceReference(result->device);
-        wgpuQueueReference(result->queue);
+        progpu::native::webgpu::device_add_ref(result->device);
+        progpu::native::webgpu::queue_add_ref(result->queue);
         if (!create_pipeline(*result) ||
             !result->ensure_vertex_buffer(initial_vertex_buffer_size)) {
             result->last_error =
@@ -2434,7 +2477,7 @@ progpu_native_status progpu_native_engine_render(
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native frame encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -2455,7 +2498,7 @@ progpu_native_status progpu_native_engine_render(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native solid rectangle pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native solid rectangle pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &color_attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -2493,7 +2536,7 @@ progpu_native_status progpu_native_engine_render(
     wgpuRenderPassEncoderRelease(pass);
 
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native frame commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native frame commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -2631,7 +2674,7 @@ progpu_native_status progpu_native_engine_render_analytic(
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native analytic frame encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -2652,7 +2695,7 @@ progpu_native_status progpu_native_engine_render_analytic(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native indexed analytic primitive pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native indexed analytic primitive pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &color_attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -2703,7 +2746,7 @@ progpu_native_status progpu_native_engine_render_analytic(
     wgpuRenderPassEncoderRelease(pass);
 
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native analytic frame commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -3198,7 +3241,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native geometry frame encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native geometry frame encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -3219,7 +3262,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native indexed geometry pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native indexed geometry pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &color_attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -3270,7 +3313,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     wgpuRenderPassEncoderRelease(pass);
 
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native geometry frame commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native geometry frame commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -3737,9 +3780,9 @@ progpu_native_status progpu_native_engine_render_paths(
     const auto create_buffer = [&](
         const char* label,
         std::uint64_t size,
-        WGPUBufferUsageFlags usage) -> WGPUBuffer {
+        progpu::native::webgpu::buffer_usage_flags usage) -> WGPUBuffer {
         WGPUBufferDescriptor descriptor{};
-        descriptor.label = label;
+        descriptor.label = progpu::native::webgpu::string_view(label);
         descriptor.size = std::max<std::uint64_t>(size, 4U);
         descriptor.usage = usage;
         return wgpuDeviceCreateBuffer(engine->device, &descriptor);
@@ -3792,7 +3835,7 @@ progpu_native_status progpu_native_engine_render_paths(
                 nullptr, nullptr}
         }};
         WGPUBindGroupDescriptor descriptor{};
-        descriptor.label = "ProGPU native path raster bind group";
+        descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster bind group");
         descriptor.layout = engine->path_raster_layout;
         descriptor.entryCount = entries.size();
         descriptor.entries = entries.data();
@@ -3807,7 +3850,7 @@ progpu_native_status progpu_native_engine_render_paths(
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native retained path frame encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path frame encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -3829,7 +3872,7 @@ progpu_native_status progpu_native_engine_render_paths(
                 (raster.height + 15U) / 16U);
         }
         WGPUComputePassDescriptor compute_descriptor{};
-        compute_descriptor.label = "ProGPU native path coverage pass";
+        compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path coverage pass");
         WGPUComputePassEncoder compute_pass =
             wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
         if (compute_pass == nullptr) {
@@ -3856,12 +3899,12 @@ progpu_native_status progpu_native_engine_render_paths(
         wgpuComputePassEncoderRelease(compute_pass);
 
         for (const auto& raster : engine->path_rasters) {
-            WGPUImageCopyBuffer source{};
+            progpu::native::webgpu::image_copy_buffer source{};
             source.buffer = coverage_buffer;
             source.layout.offset = raster.output_offset;
             source.layout.bytesPerRow = raster.output_bytes_per_row;
             source.layout.rowsPerImage = raster.height;
-            WGPUImageCopyTexture destination{};
+            progpu::native::webgpu::image_copy_texture destination{};
             destination.texture = engine->path_atlas_texture;
             destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
             destination.aspect = WGPUTextureAspect_All;
@@ -3885,7 +3928,7 @@ progpu_native_status progpu_native_engine_render_paths(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native retained path pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &color_attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -3919,7 +3962,7 @@ progpu_native_status progpu_native_engine_render_paths(
     wgpuRenderPassEncoderRelease(pass);
 
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native retained path commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -4339,9 +4382,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
         const auto create_buffer = [&engine](
             const char* label,
             std::uint64_t size,
-            WGPUBufferUsageFlags usage) -> WGPUBuffer {
+            progpu::native::webgpu::buffer_usage_flags usage) -> WGPUBuffer {
             WGPUBufferDescriptor descriptor{};
-            descriptor.label = label;
+            descriptor.label = progpu::native::webgpu::string_view(label);
             descriptor.size = std::max<std::uint64_t>(size, 4U);
             descriptor.usage = usage;
             return wgpuDeviceCreateBuffer(engine->device, &descriptor);
@@ -4403,7 +4446,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
                 coverage_staging_bytes, nullptr, nullptr}
         }};
         WGPUBindGroupDescriptor bind_group_descriptor{};
-        bind_group_descriptor.label = "ProGPU native glyph raster bind group";
+        bind_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph raster bind group");
         bind_group_descriptor.layout = engine->glyph_raster_layout;
         bind_group_descriptor.entryCount = entries.size();
         bind_group_descriptor.entries = entries.data();
@@ -4418,7 +4461,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     }
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native positioned glyph frame encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph frame encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -4429,7 +4472,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     }
     if (temporary.bind_group != nullptr) {
         WGPUComputePassDescriptor compute_descriptor{};
-        compute_descriptor.label = "ProGPU native glyph coverage pass";
+        compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph coverage pass");
         WGPUComputePassEncoder compute_pass =
             wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
         if (compute_pass == nullptr) {
@@ -4461,12 +4504,12 @@ progpu_native_status progpu_native_engine_render_glyphs(
         wgpuComputePassEncoderEnd(compute_pass);
         wgpuComputePassEncoderRelease(compute_pass);
         for (const auto& raster : engine->glyph_rasters) {
-            WGPUImageCopyBuffer source{};
+            progpu::native::webgpu::image_copy_buffer source{};
             source.buffer = temporary.coverage;
             source.layout.offset = raster.output_offset;
             source.layout.bytesPerRow = raster.output_bytes_per_row;
             source.layout.rowsPerImage = raster.height;
-            WGPUImageCopyTexture destination{};
+            progpu::native::webgpu::image_copy_texture destination{};
             destination.texture = engine->glyph_atlas_texture;
             destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
             destination.aspect = WGPUTextureAspect_All;
@@ -4491,7 +4534,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native positioned glyph pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &color_attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -4525,7 +4568,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native positioned glyph commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -4758,7 +4801,7 @@ progpu_native_status progpu_native_engine_render_image(
         engine->image_uniform_cache_valid);
 
     WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = "ProGPU native retained RGBA image encoder";
+    encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image encoder");
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
         engine->device,
         &encoder_descriptor);
@@ -4778,7 +4821,7 @@ progpu_native_status progpu_native_engine_render_image(
         frame->clear_color.a
     };
     WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = "ProGPU native retained RGBA image pass";
+    pass_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image pass");
     pass_descriptor.colorAttachmentCount = 1U;
     pass_descriptor.colorAttachments = &attachment;
     WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
@@ -4830,7 +4873,7 @@ progpu_native_status progpu_native_engine_render_image(
     wgpuRenderPassEncoderRelease(pass);
 
     WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = "ProGPU native retained RGBA image commands";
+    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image commands");
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(
         encoder,
         &command_descriptor);
@@ -4918,14 +4961,12 @@ progpu_native_status progpu_native_engine_poll_submission(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer submission timeline must be polled from its owner thread.");
     }
-    const WGPUWrappedSubmissionIndex wrapped{
-        engine->queue,
-        submission_index
-    };
-    *complete = wgpuDevicePoll(
+    *complete = progpu::native::webgpu::poll_submission(
+        engine->instance,
         engine->device,
-        wait != 0U,
-        &wrapped) != 0U
+        engine->queue,
+        submission_index,
+        wait != 0U)
         ? 1U
         : 0U;
     engine->last_error.clear();

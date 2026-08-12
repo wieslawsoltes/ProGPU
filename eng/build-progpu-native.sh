@@ -84,6 +84,10 @@ ctest --test-dir "${build_dir}" -C Release --output-on-failure
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
   "${repo_root}/eng/progpu-verify-native-exports.sh"
 
+if [[ "${PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT:-0}" == "1" ]]; then
+  "${repo_root}/eng/progpu-verify-native-dawn-header.sh" "${build_dir}"
+fi
+
 if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   sanitizer_build_dir="${build_dir}-sanitized"
   sanitizer_detect_leaks=1

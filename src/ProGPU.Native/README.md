@@ -34,6 +34,20 @@ portable desktop TFM, and opens the **Native C++ Renderer** page. The ordinary
 desktop launch remains on Dawn for native media interop. The two handle domains
 are deliberately separate.
 
+Verify that the same renderer source remains compatible with WebScene PR #10's
+exact modern WebGPU header contract:
+
+```sh
+./eng/progpu-verify-native-dawn-header.sh
+```
+
+This builds an object-only `progpu_native_dawn_header_contract` target with
+warnings as errors. It deliberately does not link Dawn or accept WebScene
+provider handles yet. Runtime provider procedure dispatch and provider-owned
+resource validation belong to the separately compiled Dawn adapter; a passing
+header-contract build must never be interpreted as object-ABI compatibility
+with the wgpu-native binary.
+
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a
 borrowed texture; stable rendering does not wait and creates no managed

@@ -1,0 +1,11 @@
+{
+  "providerRepository": "https://github.com/wieslawsoltes/WebScene.git",
+  "providerPullRequest": 10,
+  "providerRevision": "02823bf8d2e56548b2780d6b92ae7065be1d8605",
+  "providerAbi": 2,
+  "dawnRepository": "https://dawn.googlesource.com/dawn",
+  "dawnRevision": "710c33013c53ab2700d332c25ff51430251a8cc4",
+  "webGpuHeadersRepository": "https://github.com/webgpu-native/webgpu-headers.git",
+  "webGpuHeadersRevision": "01addc4ba8a2915a061b7095a6768b512071ab96",
+  "status": "source-header-contract"
+}

@@ -323,6 +323,62 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeRendererHasAnExactSourceOnlyWebSceneDawnHeaderGate()
+    {
+        string cmake = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        string compatibility = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_webgpu_compat.hpp"));
+        string verifier = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-verify-native-dawn-header.sh"));
+
+        Assert.Contains(
+            "progpu_native_dawn_header_contract OBJECT",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DAWN_ABI=1",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "target_link_libraries(progpu_native_dawn_header_contract",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUStringView", compatibility, StringComparison.Ordinal);
+        Assert.Contains("WGPUShaderSourceWGSL", compatibility, StringComparison.Ordinal);
+        Assert.Contains(
+            "wgpuQueueOnSubmittedWorkDone",
+            compatibility,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "wgpuQueueSubmitForIndex",
+            compatibility,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu-native-dawn.version.json",
+            verifier,
+            StringComparison.Ordinal);
+
+        using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
+            FindRepoFile("eng", "progpu-native-dawn.version.json")));
+        Assert.Equal(
+            "02823bf8d2e56548b2780d6b92ae7065be1d8605",
+            manifest.RootElement.GetProperty("providerRevision").GetString());
+        Assert.Equal(
+            2,
+            manifest.RootElement.GetProperty("providerAbi").GetInt32());
+        Assert.Equal(
+            "710c33013c53ab2700d332c25ff51430251a8cc4",
+            manifest.RootElement.GetProperty("dawnRevision").GetString());
+        Assert.Equal(
+            "01addc4ba8a2915a061b7095a6768b512071ab96",
+            manifest.RootElement.GetProperty("webGpuHeadersRevision").GetString());
+        Assert.Equal(
+            "source-header-contract",
+            manifest.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
     public void DesktopNativeSampleSelectsSilkWithoutReinterpretingDawnHandles()
     {
         string program = File.ReadAllText(FindRepoFile(
