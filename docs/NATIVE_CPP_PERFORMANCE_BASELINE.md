@@ -386,6 +386,40 @@ Retained ignored evidence:
 - native, managed, and exact-zero 64-times-amplified difference PNG images
   under `artifacts/progpu-native/differential/`.
 
+### Same-device external image-view supplement
+
+The follow-up image lane binds the managed benchmark's existing WebGPU texture
+view directly in C++. It therefore measures the same final shader and target
+without allocating a second native image texture or copying its 98,304-byte
+RGBA payload across the managed/native boundary. A clean synchronized
+3,000-frame alternating run produced:
+
+| Metric | Native external view | Managed compositor |
+|---|---:|---:|
+| Submission mean | 0.0716 ms | 0.0856 ms |
+| Submission p95 | 0.2027 ms | 0.2410 ms |
+| Completion-wait mean | 1.9106 ms | 1.9254 ms |
+| Completion-wait p95 | 3.0564 ms | 3.0505 ms |
+| Total mean | 1.9824 ms | 2.0111 ms |
+| Total p95 | 3.1544 ms | 3.1719 ms |
+
+The total-p95 native/managed ratio is 0.9945, while native submission p95 is
+15.9% lower. Both paths report zero managed allocation per warmed measured
+frame. Native texture-upload metrics are zero from the first native submission,
+texture generation remains one, and all 518,400 pixels are byte-exact with hash
+`ACB0C7F2152178C5`. The direct wgpu/Metal resource snapshot is 11,091,968
+bytes, 114,688 bytes below the upload-backed lane. GPU completion remains
+intentionally close because both paths submit the same one-quad `Texture.wgsl`
+work to the same Dawn/Metal queue; the zero-copy benefit is lower CPU submission
+and removal of the duplicate texture/upload resource.
+
+This result covers only a same-device WebGPU view. It does not yet claim
+zero-copy native decoder import, IOSurface/DXGI/DMA-BUF ownership, browser
+external textures, or explicit producer/consumer fence synchronization.
+Retained evidence is `/tmp/progpu-native-external-image-sync-final.json` plus the
+native, managed, and amplified-difference captures under
+`artifacts/progpu-native/differential/`.
+
 ## Retained positioned-glyph supplement
 
 The second Tranche B increment keeps Unicode/OpenType shaping and line layout

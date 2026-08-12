@@ -37,13 +37,19 @@ enum {
     PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS = 1ULL << 13U,
     PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS = 1ULL << 14U,
     PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES = 1ULL << 15U,
-    PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U
+    PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE = 1ULL << 16U,
+    PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW = 1ULL << 17U
 };
 
 typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
     PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1
 } progpu_native_image_sampling;
+
+typedef enum progpu_native_image_source_flags {
+    PROGPU_NATIVE_IMAGE_SOURCE_UPLOAD_RGBA8 = 0,
+    PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW = 1U << 0U
+} progpu_native_image_source_flags;
 
 enum {
     PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U,
@@ -526,6 +532,15 @@ typedef struct progpu_native_image_frame {
     progpu_native_affine_2d transform;
     float opacity;
     uint32_t reserved;
+    /*
+     * When PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW is set, this is a
+     * borrowed same-device WGPUTextureView. The engine retains the view until
+     * it is replaced or destroyed. The caller must keep the underlying
+     * texture alive and not destroy it during that interval.
+     */
+    uintptr_t external_source_view;
+    uint32_t source_flags;
+    uint32_t reserved2;
 } progpu_native_image_frame;
 
 typedef struct progpu_native_image_frame_metrics {

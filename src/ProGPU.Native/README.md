@@ -116,6 +116,11 @@ reuse the texture, sampler bind group, vertices, indices, and uniforms. Add
 `--dpi 2` and `--write-images` for the Retina exact-pixel gate, or `--sync` to
 separate CPU submission from the shared WebGPU/Metal completion wait.
 
+Use `--external-images` for the same-device zero-copy lane. It binds an
+existing RGBA/BGRA WebGPU texture view directly and performs no native texture
+upload. The native renderer retains the view until replacement or disposal;
+the caller must keep the underlying texture alive for that interval.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -155,6 +160,9 @@ Current native parity:
   affine destination transform, opacity, persistent nearest/linear samplers,
   production unmasked `Texture.wgsl`, exact DPI-1/DPI-2 parity, and no stable
   texture/vertex/index/uniform upload;
+- retained same-device straight-alpha RGBA/BGRA texture views with typed
+  device/usage/format/sample validation, zero CPU transfer, and explicit
+  borrowed-view lifetime ownership;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
@@ -165,7 +173,8 @@ Current native parity:
 - a typed zero-copy .NET host sharing device, queue, and render target;
 - an interactive desktop page cycling reusable 1–4,096 rectangle, analytic,
   geometry, GPU Bezier, connected polyline, dashed, rational-spline, and
-  retained compute-path batches;
+  retained compute-path batches plus upload-backed and same-device zero-copy
+  images;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in

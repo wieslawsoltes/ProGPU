@@ -222,6 +222,9 @@ internal static unsafe partial class NativeMethods
         internal Matrix3x2 Transform;
         internal float Opacity;
         internal uint Reserved;
+        internal nuint ExternalSourceView;
+        internal uint SourceFlags;
+        internal uint Reserved2;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -101,6 +101,13 @@ bool useImageScene = Array.Exists(
         value,
         "--images",
         StringComparison.OrdinalIgnoreCase));
+bool useExternalImageScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--external-images",
+        StringComparison.OrdinalIgnoreCase));
+useImageScene |= useExternalImageScene;
 bool forceAtlasGrowth = Array.Exists(
     args,
     static value => string.Equals(
@@ -242,7 +249,6 @@ using var context = new WgpuContext();
 context.Initialize(window: null);
 using var nativeTarget = CreateTarget(context, "Native benchmark target");
 using var managedTarget = CreateTarget(context, "Managed benchmark target");
-using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
 using GpuTexture? managedImageTexture = useImageScene
     ? new GpuTexture(
         context,
@@ -254,6 +260,9 @@ using GpuTexture? managedImageTexture = useImageScene
         alphaMode: GpuTextureAlphaMode.Straight)
     : null;
 managedImageTexture?.WritePixels<byte>(imagePixels);
+// Declare the native compositor after the borrowed source so reverse-order
+// disposal releases its retained view before destroying the source texture.
+using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
 using var managed = new Compositor(
     context,
     TextureFormat.Rgba8Unorm,
@@ -395,7 +404,7 @@ if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
     string imageStem = useImageScene
-        ? "images"
+        ? useExternalImageScene ? "external-images" : "images"
         : useGlyphScene
         ? forceAtlasGrowth ? "glyphs-growth" : "glyphs"
         : usePathScene
@@ -608,7 +617,9 @@ var report = new BenchmarkReport(
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
     Scene: useImageScene
-        ? "RetainedRgbaImage"
+        ? useExternalImageScene
+            ? "ZeroCopyExternalRgbaImage"
+            : "RetainedRgbaImage"
         : useGlyphScene
         ? "RetainedPositionedGlyphAtlas"
         : usePathScene
@@ -679,29 +690,44 @@ ulong RenderNative(bool capturePayloadHash = false)
     {
         float destinationWidth = logicalWidth - 160f;
         float destinationHeight = logicalHeight - 120f;
-        NativeImageFrameMetrics metrics = native.RenderImage(
-            nativeTarget,
-            dpiScale,
-            nativeImageUploaded ? ReadOnlySpan<byte>.Empty : imagePixels,
+        NativeImageRect sourceRect = new(
+            0f,
+            0f,
             benchmarkImageWidth,
-            benchmarkImageHeight,
-            benchmarkImageWidth * 4U,
-            new NativeImageRect(
-                0f,
-                0f,
+            benchmarkImageHeight);
+        NativeImageRect destinationRect = new(
+            80f,
+            60f,
+            destinationWidth,
+            destinationHeight);
+        NativeImageFrameMetrics metrics = useExternalImageScene
+            ? native.RenderExternalImage(
+                nativeTarget,
+                managedImageTexture!,
+                dpiScale,
+                sourceRect,
+                destinationRect,
+                Matrix3x2.Identity,
+                1f,
+                NativeImageSampling.Nearest,
+                clearColor,
+                sourceRevision: 1U,
+                contentRevision: 1U)
+            : native.RenderImage(
+                nativeTarget,
+                dpiScale,
+                nativeImageUploaded ? ReadOnlySpan<byte>.Empty : imagePixels,
                 benchmarkImageWidth,
-                benchmarkImageHeight),
-            new NativeImageRect(
-                80f,
-                60f,
-                destinationWidth,
-                destinationHeight),
-            Matrix3x2.Identity,
-            1f,
-            NativeImageSampling.Nearest,
-            clearColor,
-            imageRevision: 1U,
-            contentRevision: 1U);
+                benchmarkImageHeight,
+                benchmarkImageWidth * 4U,
+                sourceRect,
+                destinationRect,
+                Matrix3x2.Identity,
+                1f,
+                NativeImageSampling.Nearest,
+                clearColor,
+                imageRevision: 1U,
+                contentRevision: 1U);
         nativeImageUploaded = true;
         lastNativeImageMetrics = metrics;
         nativeVertexCount = metrics.VertexCount;

@@ -16,6 +16,8 @@ namespace ProGPU.Backend.Native;
 /// </remarks>
 public sealed unsafe class NativeCompositor : IDisposable
 {
+    private const uint ExternalImageSourceViewFlag = 1U;
+
     private readonly WgpuContext _context;
     private readonly TextureFormat _targetFormat;
     private nint _engine;
@@ -569,7 +571,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                 DestinationRect = destinationRect,
                 Transform = transform,
                 Opacity = opacity,
-                Reserved = 0U
+                Reserved = 0U,
+                ExternalSourceView = 0U,
+                SourceFlags = 0U,
+                Reserved2 = 0U
             };
             var metrics = new NativeMethods.ImageFrameMetrics
             {
@@ -603,6 +608,94 @@ public sealed unsafe class NativeCompositor : IDisposable
                 metrics.SubmissionCount,
                 metrics.PayloadHash);
         }
+    }
+
+    /// <summary>
+    /// Samples an existing texture from the compositor's WebGPU device
+    /// without transferring its pixels through the native ABI.
+    /// </summary>
+    /// <remarks>
+    /// The native renderer retains the source view until another image source
+    /// replaces it or this compositor is disposed. Keep <paramref name="source"/>
+    /// alive and undisposed for that interval. Increment
+    /// <paramref name="sourceRevision"/> after producer work changes the source
+    /// contents and increment <paramref name="contentRevision"/> when the draw
+    /// rectangle, transform, opacity, or sampling state changes.
+    /// </remarks>
+    public NativeImageFrameMetrics RenderExternalImage(
+        GpuTexture target,
+        GpuTexture source,
+        float dpiScale,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        Vector4 clearColor,
+        uint sourceRevision,
+        uint contentRevision)
+    {
+        ValidateTarget(target);
+        ValidateImageSource(source, target);
+        var frame = new NativeMethods.ImageFrame
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
+            Width = target.Width,
+            Height = target.Height,
+            DpiScale = dpiScale,
+            TargetView = (nuint)target.ViewPtr,
+            ClearColor = new NativeMethods.NativeColor
+            {
+                R = clearColor.X,
+                G = clearColor.Y,
+                B = clearColor.Z,
+                A = clearColor.W
+            },
+            RgbaPixels = null,
+            PixelBytes = 0U,
+            ImageWidth = source.Width,
+            ImageHeight = source.Height,
+            RowBytes = 0U,
+            Sampling = sampling,
+            ImageRevision = sourceRevision,
+            ContentRevision = contentRevision,
+            SourceRect = sourceRect,
+            DestinationRect = destinationRect,
+            Transform = transform,
+            Opacity = opacity,
+            Reserved = 0U,
+            ExternalSourceView = (nuint)source.ViewPtr,
+            SourceFlags = ExternalImageSourceViewFlag,
+            Reserved2 = 0U
+        };
+        var metrics = new NativeMethods.ImageFrameMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>()
+        };
+
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            if (status != NativeRendererStatus.Success)
+            {
+                throw new NativeRendererException(status, ReadLastError());
+            }
+            target.NotifyExternalContentChanged();
+            _context.PollDevice(wait: false);
+        }
+
+        return new NativeImageFrameMetrics(
+            metrics.DrawCallCount,
+            metrics.VertexCount,
+            metrics.IndexCount,
+            metrics.TextureGeneration,
+            metrics.VertexUploadBytes,
+            metrics.IndexUploadBytes,
+            metrics.TextureUploadBytes,
+            metrics.UniformUploadBytes,
+            metrics.SubmissionCount,
+            metrics.PayloadHash);
     }
 
     public void Dispose()
@@ -686,11 +779,45 @@ public sealed unsafe class NativeCompositor : IDisposable
                 "The target format and sample count must match the native pipeline.",
                 nameof(target));
         }
-        if (!target.Usage.HasFlag(TextureUsage.RenderAttachment))
+        if ((target.Usage & TextureUsage.RenderAttachment) == 0)
         {
             throw new ArgumentException(
                 "The target must allow WebGPU render-attachment usage.",
                 nameof(target));
+        }
+    }
+
+    private void ValidateImageSource(GpuTexture source, GpuTexture target)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(source, target))
+        {
+            throw new ArgumentException(
+                "An external image source cannot also be the active render target.",
+                nameof(source));
+        }
+        if (!ReferenceEquals(source.Context, _context))
+        {
+            throw new ArgumentException(
+                "The external image source must belong to the native compositor's WebGPU device domain.",
+                nameof(source));
+        }
+        if (source.IsDisposed || source.ViewPtr == null)
+        {
+            throw new ObjectDisposedException(nameof(source));
+        }
+        if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
+            source.SampleCount != 1 ||
+            source.AlphaMode != GpuTextureAlphaMode.Straight ||
+            source.Format is not (
+                TextureFormat.Rgba8Unorm or
+                TextureFormat.Bgra8Unorm or
+                TextureFormat.Rgba8UnormSrgb or
+                TextureFormat.Bgra8UnormSrgb))
+        {
+            throw new ArgumentException(
+                "The first external image lane requires a single-sample bindable straight-alpha RGBA/BGRA 8-bit texture.",
+                nameof(source));
         }
     }
 

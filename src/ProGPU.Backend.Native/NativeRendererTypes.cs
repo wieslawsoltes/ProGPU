@@ -124,7 +124,8 @@ public enum NativeRendererCapabilities : ulong
     PathFillAtlas = 1UL << 13,
     PositionedGlyphAtlas = 1UL << 14,
     ResizableAtlases = 1UL << 15,
-    RetainedRgbaImage = 1UL << 16
+    RetainedRgbaImage = 1UL << 16,
+    ExternalRgbaView = 1UL << 17
 }
 
 [StructLayout(LayoutKind.Sequential)]

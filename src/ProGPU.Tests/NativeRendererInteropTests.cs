@@ -53,8 +53,16 @@ public class NativeRendererInteropTests
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GlyphFrame>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(144, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(160, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(72, Unsafe.SizeOf<NativeMethods.ImageFrameMetrics>());
+        Assert.Equal(
+            144,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.ExternalSourceView)));
+        Assert.Equal(
+            152,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.SourceFlags)));
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -89,6 +97,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             65536UL,
             (ulong)NativeRendererCapabilities.RetainedRgbaImage);
+        Assert.Equal(
+            131072UL,
+            (ulong)NativeRendererCapabilities.ExternalRgbaView);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
@@ -322,6 +333,11 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Restart ProGPU.Samples.Desktop with --native-renderer",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains("RenderExternalImage(", page, StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuTextureAlphaMode.Straight",
             page,
             StringComparison.Ordinal);
     }

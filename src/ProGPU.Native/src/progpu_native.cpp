@@ -388,6 +388,7 @@ struct progpu_native_engine {
     std::uint32_t image_width = 0U;
     std::uint32_t image_height = 0U;
     std::uint32_t image_texture_generation = 0U;
+    bool image_source_is_external = false;
     std::uint64_t image_payload_hash = 0U;
     bool image_uniform_cache_valid = false;
     bool image_cache_valid = false;
@@ -1772,14 +1773,47 @@ bool create_image_resources(progpu_native_engine& engine) {
 bool upload_image_texture(
     progpu_native_engine& engine,
     const progpu_native_image_frame& frame) {
-    const bool replace = engine.image_texture == nullptr ||
+    const bool external = (frame.source_flags &
+        PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U;
+    WGPUTextureView external_view = reinterpret_cast<WGPUTextureView>(
+        frame.external_source_view);
+    const bool source_missing = external
+        ? engine.image_texture_view == nullptr
+        : engine.image_texture == nullptr;
+    const bool replace = source_missing ||
+        engine.image_source_is_external != external ||
         engine.image_width != frame.image_width ||
-        engine.image_height != frame.image_height;
+        engine.image_height != frame.image_height ||
+        (external && engine.image_texture_view != external_view);
     WGPUTexture texture = engine.image_texture;
     WGPUTextureView view = engine.image_texture_view;
     WGPUBindGroup nearest_group = engine.image_nearest_bind_group;
     WGPUBindGroup linear_group = engine.image_linear_bind_group;
-    if (replace) {
+    if (replace && external) {
+        texture = nullptr;
+        view = external_view;
+        wgpuTextureViewReference(view);
+        nearest_group = create_image_texture_bind_group(
+            engine,
+            engine.image_nearest_sampler,
+            view,
+            "ProGPU native external nearest image bind group");
+        linear_group = create_image_texture_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            view,
+            "ProGPU native external linear image bind group");
+        if (nearest_group == nullptr || linear_group == nullptr) {
+            if (linear_group != nullptr) {
+                wgpuBindGroupRelease(linear_group);
+            }
+            if (nearest_group != nullptr) {
+                wgpuBindGroupRelease(nearest_group);
+            }
+            wgpuTextureViewRelease(view);
+            return false;
+        }
+    } else if (replace) {
         WGPUTextureDescriptor descriptor{};
         descriptor.label = "ProGPU native retained RGBA image";
         descriptor.usage = WGPUTextureUsage_TextureBinding |
@@ -1823,24 +1857,26 @@ bool upload_image_texture(
         }
     }
 
-    WGPUImageCopyTexture destination{};
-    destination.texture = texture;
-    destination.aspect = WGPUTextureAspect_All;
-    WGPUTextureDataLayout layout{};
-    layout.bytesPerRow = frame.row_bytes;
-    layout.rowsPerImage = frame.image_height;
-    const WGPUExtent3D extent{frame.image_width, frame.image_height, 1U};
-    const std::size_t upload_bytes =
-        static_cast<std::size_t>(frame.row_bytes) *
-            (frame.image_height - 1U) +
-        static_cast<std::size_t>(frame.image_width) * 4U;
-    wgpuQueueWriteTexture(
-        engine.queue,
-        &destination,
-        frame.rgba_pixels,
-        upload_bytes,
-        &layout,
-        &extent);
+    if (!external) {
+        WGPUImageCopyTexture destination{};
+        destination.texture = texture;
+        destination.aspect = WGPUTextureAspect_All;
+        WGPUTextureDataLayout layout{};
+        layout.bytesPerRow = frame.row_bytes;
+        layout.rowsPerImage = frame.image_height;
+        const WGPUExtent3D extent{frame.image_width, frame.image_height, 1U};
+        const std::size_t upload_bytes =
+            static_cast<std::size_t>(frame.row_bytes) *
+                (frame.image_height - 1U) +
+            static_cast<std::size_t>(frame.image_width) * 4U;
+        wgpuQueueWriteTexture(
+            engine.queue,
+            &destination,
+            frame.rgba_pixels,
+            upload_bytes,
+            &layout,
+            &extent);
+    }
 
     if (replace) {
         if (engine.image_linear_bind_group != nullptr) {
@@ -1862,6 +1898,7 @@ bool upload_image_texture(
         engine.image_linear_bind_group = linear_group;
         engine.image_width = frame.image_width;
         engine.image_height = frame.image_height;
+        engine.image_source_is_external = external;
     }
     engine.image_revision = frame.image_revision;
     ++engine.image_texture_generation;
@@ -1961,7 +1998,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_PATH_FILL_ATLAS |
         PROGPU_NATIVE_CAPABILITY_POSITIONED_GLYPH_ATLAS |
         PROGPU_NATIVE_CAPABILITY_RESIZABLE_ATLASES |
-        PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE;
+        PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE |
+        PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -4258,7 +4296,15 @@ progpu_native_status progpu_native_engine_render_image(
         frame->target_view == 0U ||
         frame->image_width == 0U || frame->image_height == 0U ||
         frame->image_width > 16384U || frame->image_height > 16384U ||
-        frame->row_bytes < frame->image_width * 4U ||
+        (frame->source_flags &
+            ~PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U ||
+        (((frame->source_flags &
+                PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) == 0U) &&
+            frame->row_bytes < frame->image_width * 4U) ||
+        (((frame->source_flags &
+                PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U) &&
+            (frame->external_source_view == 0U ||
+             frame->rgba_pixels != nullptr || frame->pixel_bytes != 0U)) ||
         frame->sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
         frame->image_revision == 0U || frame->content_revision == 0U ||
         !valid_rect(frame->source_rect) ||
@@ -4271,7 +4317,7 @@ progpu_native_status progpu_native_engine_render_image(
         !progpu::native::is_finite(frame->transform) ||
         !std::isfinite(frame->opacity) ||
         frame->opacity < 0.0F || frame->opacity > 1.0F ||
-        frame->reserved != 0U ||
+        frame->reserved != 0U || frame->reserved2 != 0U ||
         !progpu::native::is_finite(frame->clear_color)) {
         return engine == nullptr
             ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
@@ -4285,17 +4331,24 @@ progpu_native_status progpu_native_engine_render_image(
             "The native renderer must be used from its owner thread.");
     }
 
-    const std::uint64_t required_upload_bytes =
-        static_cast<std::uint64_t>(frame->row_bytes) *
-            (frame->image_height - 1U) +
-        static_cast<std::uint64_t>(frame->image_width) * 4U;
-    const bool dimensions_changed = engine->image_texture != nullptr &&
+    const bool external = (frame->source_flags &
+        PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U;
+    const std::uint64_t required_upload_bytes = external
+        ? 0U
+        : static_cast<std::uint64_t>(frame->row_bytes) *
+                (frame->image_height - 1U) +
+            static_cast<std::uint64_t>(frame->image_width) * 4U;
+    const bool dimensions_changed = engine->image_texture_view != nullptr &&
         (engine->image_width != frame->image_width ||
          engine->image_height != frame->image_height);
-    const bool upload_texture = engine->image_texture == nullptr ||
-        engine->image_revision != frame->image_revision;
+    const bool upload_texture = engine->image_texture_view == nullptr ||
+        engine->image_revision != frame->image_revision ||
+        engine->image_source_is_external != external ||
+        dimensions_changed ||
+        (external && engine->image_texture_view !=
+            reinterpret_cast<WGPUTextureView>(frame->external_source_view));
     if ((!upload_texture && dimensions_changed) ||
-        (upload_texture &&
+        (!external && upload_texture &&
             (frame->rgba_pixels == nullptr ||
              frame->pixel_bytes < required_upload_bytes))) {
         return engine->fail(
@@ -4483,7 +4536,7 @@ progpu_native_status progpu_native_engine_render_image(
         metrics->index_upload_bytes = created_resources
             ? 6U * sizeof(std::uint32_t)
             : 0U;
-        metrics->texture_upload_bytes = upload_texture
+        metrics->texture_upload_bytes = upload_texture && !external
             ? required_upload_bytes
             : 0U;
         metrics->uniform_upload_bytes = uploaded_uniforms

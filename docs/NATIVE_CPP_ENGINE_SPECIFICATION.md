@@ -516,9 +516,20 @@ For image dimensions `W x H`, upload is `O(W*H)` time and `O(W*H)` retained GPU
 storage only when the image revision changes. Quad compilation and stable
 submission are `O(1)` time/storage. This slice intentionally rejects zero
 revisions, out-of-bounds sources, invalid row strides, non-finite transforms,
-and unsupported sampling. Premultiplied formats, subrect updates, mipmaps,
-cubic/anisotropic sampling, tiling, color transforms, masks, and external
-zero-copy textures remain future typed capabilities.
+and unsupported sampling.
+
+The next image increment accepts a same-device RGBA/BGRA WebGPU texture view.
+The typed managed boundary verifies device identity, texture-binding usage,
+single-sample state, straight alpha, supported format, and distinct source and
+target textures. The C++ renderer references the borrowed view, rebuilds its
+persistent sampler bind groups only when the view or source revision changes,
+and performs no pixel transfer. The reference is released when replaced or
+when the renderer is destroyed; callers must keep the underlying texture alive
+and must not destroy it while the view is retained. Native IOSurface, DXGI,
+DMA-BUF, browser-external-texture imports and explicit producer/consumer fence
+handoff remain future typed capabilities. Premultiplied formats, subrect
+updates, mipmaps, cubic/anisotropic sampling, tiling, color transforms, and
+masks also remain.
 
 ## 10. Migration tranches
 
@@ -555,9 +566,11 @@ zero-copy textures remain future typed capabilities.
 - straight-alpha RGBA8 upload, source/destination rectangles, affine transform,
   opacity, persistent nearest/linear sampling, independent image/content
   revisions, and zero-upload stable replay are implemented with production
-  `Texture.wgsl`; premultiplied formats, subrect updates, mips,
+  `Texture.wgsl`; same-device straight-alpha RGBA/BGRA texture-view sampling
+  with zero CPU transfer and explicit borrowed lifetime is implemented;
+  premultiplied formats, subrect updates, mips,
   cubic/anisotropic sampling, image/color transforms, layers, masks, tiling,
-  and zero-copy external textures remain;
+  native platform texture import and explicit fences remain;
 
 ### Tranche C — effects, extensions, media, and 3D
 
