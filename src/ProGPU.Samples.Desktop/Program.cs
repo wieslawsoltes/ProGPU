@@ -100,15 +100,10 @@ public static class Program
             builder.WithGpuContextFactory(CreateDesktopGpuContext);
         }
 
-        try
-        {
-            builder.Build().Run(args);
-        }
-        finally
-        {
-            SamplePlatformServices.CreateNativeRendererPage = null;
-            SamplePlatformServices.InitialPage = null;
-        }
+        // Run returns after scheduling the native host on platforms whose
+        // window loop owns its own thread. These process-lifetime factories
+        // must therefore remain published until process shutdown.
+        builder.Build().Run(args);
     }
 
     private static WgpuContext CreateDesktopGpuContext(

@@ -94,6 +94,7 @@ internal static class NativeRendererSamplePage
         private readonly NativeCompositor _compositor;
         private readonly GpuTexture _target;
         private readonly GpuTexture _externalImageSource;
+        private readonly GpuTexture _externalImageMask;
         private readonly NativeSolidRectangle[] _rectangles =
             new NativeSolidRectangle[MaximumRectangles];
         private readonly NativeAnalyticPrimitive[] _analyticPrimitives =
@@ -123,13 +124,14 @@ internal static class NativeRendererSamplePage
         private readonly NativePositionedGlyph[] _positionedGlyphs =
             new NativePositionedGlyph[MaximumRectangles];
         private readonly byte[] _imagePixels = new byte[192 * 128 * 4];
+        private readonly byte[] _imageMaskPixels = new byte[192 * 128 * 4];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
         private Run? _metricsRun;
         private int _rectangleCount = 384;
         private int _palette;
-        private NativeBatchMode _mode = NativeBatchMode.Analytic;
+        private NativeBatchMode _mode = NativeBatchMode.MaskedImages;
         private uint _contentRevision;
         private uint _imageRevision;
         private bool _imageNeedsUpload;
@@ -156,6 +158,14 @@ internal static class NativeRendererSamplePage
                 TextureFormat.Rgba8Unorm,
                 TextureUsage.TextureBinding | TextureUsage.CopyDst,
                 "Native C++ gallery same-device image source",
+                alphaMode: GpuTextureAlphaMode.Straight);
+            _externalImageMask = new GpuTexture(
+                context,
+                192,
+                128,
+                TextureFormat.Rgba8Unorm,
+                TextureUsage.TextureBinding | TextureUsage.CopyDst,
+                "Native C++ gallery same-device image mask",
                 alphaMode: GpuTextureAlphaMode.Straight);
             _compositor = new NativeCompositor(
                 context,
@@ -190,7 +200,8 @@ internal static class NativeRendererSamplePage
                 "splines, retained compute-rasterized paths, or the rectangle " +
                 "fast path, plus positioned glyph runs rasterized into the " +
                 "native-owned GPU atlas, retained RGBA image upload, or " +
-                "same-device zero-copy image sampling. Stable geometry, " +
+                "same-device zero-copy image and opacity-mask sampling. " +
+                "Stable geometry, " +
                 "path, glyph, and image modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
                 "reuses the production Vector.wgsl, GlyphRasterizer.wgsl, or " +
@@ -246,7 +257,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 11);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 12);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -299,6 +310,7 @@ internal static class NativeRendererSamplePage
                 return;
             }
             _compositor.Dispose();
+            _externalImageMask.Dispose();
             _externalImageSource.Dispose();
             _target.Dispose();
         }
@@ -343,6 +355,12 @@ internal static class NativeRendererSamplePage
                         break;
                     case NativeBatchMode.ExternalImages:
                         FillImage(_palette, writeExternalSource: true);
+                        break;
+                    case NativeBatchMode.MaskedImages:
+                        FillImage(
+                            _palette,
+                            writeExternalSource: true,
+                            writeExternalMask: true);
                         break;
                     default:
                         FillRectangles(_rectangleCount, _palette);
@@ -501,6 +519,31 @@ internal static class NativeRendererSamplePage
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.TextureUploadBytes +
                     metrics.VertexUploadBytes + metrics.IndexUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.MaskedImages)
+            {
+                NativeImageFrameMetrics metrics =
+                    _compositor.RenderMaskedExternalImage(
+                        _target,
+                        _externalImageSource,
+                        _externalImageMask,
+                        dpiScale: 1f,
+                        new NativeImageRect(0f, 0f, 192f, 128f),
+                        new NativeImageRect(80f, 60f, 800f, 420f),
+                        new NativeImageRect(80f, 60f, 800f, 420f),
+                        Matrix3x2.Identity,
+                        opacity: 1f,
+                        NativeImageSampling.Nearest,
+                        NativeImageSampling.Linear,
+                        new Vector4(0.015f, 0.02f, 0.035f, 1f),
+                        _imageRevision,
+                        _imageRevision,
+                        _contentRevision);
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.TextureUploadBytes +
+                    metrics.VertexUploadBytes + metrics.IndexUploadBytes +
+                    metrics.UniformUploadBytes;
             }
             else
             {
@@ -1101,7 +1144,10 @@ internal static class NativeRendererSamplePage
             _glyphSegments = segments.ToArray();
         }
 
-        private void FillImage(int palette, bool writeExternalSource)
+        private void FillImage(
+            int palette,
+            bool writeExternalSource,
+            bool writeExternalMask = false)
         {
             const int imageWidth = 192;
             const int imageHeight = 128;
@@ -1127,6 +1173,18 @@ internal static class NativeRendererSamplePage
                         0f,
                         255f);
                     _imagePixels[offset + 3] = byte.MaxValue;
+                    float normalizedX = (x + 0.5f) / imageWidth * 2f - 1f;
+                    float normalizedY = (y + 0.5f) / imageHeight * 2f - 1f;
+                    byte mask = (byte)Math.Clamp(
+                        (1f - MathF.Sqrt(
+                            normalizedX * normalizedX +
+                            normalizedY * normalizedY)) * 384f,
+                        0f,
+                        255f);
+                    _imageMaskPixels[offset] = mask;
+                    _imageMaskPixels[offset + 1] = mask;
+                    _imageMaskPixels[offset + 2] = mask;
+                    _imageMaskPixels[offset + 3] = mask;
                 }
             }
             _imageRevision++;
@@ -1137,6 +1195,10 @@ internal static class NativeRendererSamplePage
             if (writeExternalSource)
             {
                 _externalImageSource.WritePixels<byte>(_imagePixels);
+                if (writeExternalMask)
+                {
+                    _externalImageMask.WritePixels<byte>(_imageMaskPixels);
+                }
                 _imageNeedsUpload = false;
             }
             else
@@ -1161,6 +1223,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Glyphs => $"Glyphs: {_rectangleCount:N0}",
                     NativeBatchMode.Images => "Retained RGBA image",
                     NativeBatchMode.ExternalImages => "Zero-copy GPU image view",
+                    NativeBatchMode.MaskedImages => "Zero-copy GPU image + mask",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -1178,6 +1241,7 @@ internal static class NativeRendererSamplePage
             Glyphs,
             Images,
             ExternalImages,
+            MaskedImages,
             Rectangles
         }
 
