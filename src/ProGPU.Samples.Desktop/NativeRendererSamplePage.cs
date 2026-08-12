@@ -102,6 +102,12 @@ internal static class NativeRendererSamplePage
             new Vector2[MaximumRectangles * 4];
         private readonly NativePolyline[] _polylines =
             new NativePolyline[MaximumRectangles];
+        private readonly Vector2[] _splineControlPoints =
+            new Vector2[MaximumRectangles * 6];
+        private readonly double[] _splineDoubles =
+            new double[MaximumRectangles * 16];
+        private readonly NativeSpline[] _splines =
+            new NativeSpline[MaximumRectangles];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
@@ -153,7 +159,8 @@ internal static class NativeRendererSamplePage
                 $"{_info.Name}. One stable C ABI call records one GPU " +
                 "submission. Cycle indexed analytic primitives, lines and " +
                 "polygon geometry, capped GPU Bezier curves, connected " +
-                "polylines with joins, or the rectangle fast path. Every mode " +
+                "polylines with joins, adaptive rational splines, or the " +
+                "rectangle fast path. Every mode " +
                 "reuses the production Vector.wgsl module.",
                 12f));
             root.AddChild(heading);
@@ -205,7 +212,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 5);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 6);
                 UpdateCountText();
                 RenderFrame();
             };
@@ -280,6 +287,9 @@ internal static class NativeRendererSamplePage
                 case NativeBatchMode.Polylines:
                     FillPolylines(_rectangleCount, _palette);
                     break;
+                case NativeBatchMode.Splines:
+                    FillSplines(_rectangleCount, _palette);
+                    break;
                 default:
                     FillRectangles(_rectangleCount, _palette);
                     break;
@@ -320,6 +330,22 @@ internal static class NativeRendererSamplePage
                     ReadOnlySpan<NativeGeometryPrimitive>.Empty,
                     _polylinePoints.AsSpan(0, _rectangleCount * 4),
                     _polylines.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes +
+                    metrics.IndexUploadBytes + metrics.BrushUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Splines)
+            {
+                NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
+                    _target,
+                    dpiScale: 1f,
+                    ReadOnlySpan<NativeGeometryPrimitive>.Empty,
+                    _splineControlPoints.AsSpan(0, _rectangleCount * 6),
+                    ReadOnlySpan<NativePolyline>.Empty,
+                    _splineDoubles.AsSpan(0, _rectangleCount * 16),
+                    _splines.AsSpan(0, _rectangleCount),
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
@@ -632,6 +658,95 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillSplines(int count, int palette)
+        {
+            const int controlPointsPerSpline = 6;
+            const int knotsPerSpline = 10;
+            const int doublesPerSpline = 16;
+            ReadOnlySpan<double> knots = [0, 0, 0, 0, 1, 2, 3, 3, 3, 3];
+            const float inset = 24f;
+            float usableWidth = TargetWidth - inset * 2f;
+            float usableHeight = TargetHeight - inset * 2f;
+            int columns = Math.Max(
+                1,
+                (int)MathF.Ceiling(MathF.Sqrt(
+                    count * usableWidth / usableHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = usableWidth / columns;
+            float cellHeight = usableHeight / rows;
+            for (int index = 0; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                float phase = (index * 0.61803398875f + palette * 0.23f) % 1f;
+                float itemWidth = Math.Max(4f, cellWidth * 0.72f);
+                float itemHeight = Math.Max(4f, cellHeight * 0.68f);
+                int pointOffset = index * controlPointsPerSpline;
+                _splineControlPoints[pointOffset] =
+                    new Vector2(-itemWidth * 0.5f, itemHeight * 0.12f);
+                _splineControlPoints[pointOffset + 1] =
+                    new Vector2(-itemWidth * 0.34f, -itemHeight * 0.5f);
+                _splineControlPoints[pointOffset + 2] =
+                    new Vector2(-itemWidth * 0.1f, itemHeight * 0.48f);
+                _splineControlPoints[pointOffset + 3] =
+                    new Vector2(itemWidth * 0.12f, -itemHeight * 0.46f);
+                _splineControlPoints[pointOffset + 4] =
+                    new Vector2(itemWidth * 0.34f, itemHeight * 0.5f);
+                _splineControlPoints[pointOffset + 5] =
+                    new Vector2(itemWidth * 0.5f, -itemHeight * 0.1f);
+                int doubleOffset = index * doublesPerSpline;
+                knots.CopyTo(_splineDoubles.AsSpan(
+                    doubleOffset,
+                    knotsPerSpline));
+                for (int weight = 0; weight < controlPointsPerSpline; weight++)
+                {
+                    _splineDoubles[doubleOffset + knotsPerSpline + weight] =
+                        0.78 + 0.44 * Wave(phase + weight * 0.137f);
+                }
+                Matrix3x2 transform =
+                    Matrix3x2.CreateScale(
+                        0.82f + 0.38f * Wave(phase + 0.21f),
+                        0.74f + 0.52f * Wave(phase + 0.49f)) *
+                    Matrix3x2.CreateSkew(
+                        (Wave(phase + 0.77f) - 0.5f) * 0.24f,
+                        (Wave(phase + 0.43f) - 0.5f) * 0.12f) *
+                    Matrix3x2.CreateRotation(
+                        (Wave(phase + 0.91f) - 0.5f) * 0.32f) *
+                    Matrix3x2.CreateTranslation(
+                        inset + (column + 0.5f) * cellWidth,
+                        inset + (row + 0.5f) * cellHeight);
+                NativePolylineFlags flags = (index % 3) switch
+                {
+                    0 => NativePolylineFlags.Hairline,
+                    1 => NativePolylineFlags.FixedDeviceStroke,
+                    _ => NativePolylineFlags.None
+                };
+                Vector4 color = Palette(phase, palette);
+                color.W = 0.72f + 0.26f * Wave(phase + 0.17f);
+                var stroke = new NativePolyline(
+                    (nuint)pointOffset,
+                    controlPointsPerSpline,
+                    color,
+                    transform,
+                    flags == NativePolylineFlags.Hairline
+                        ? 0f
+                        : 1f + index % 4,
+                    miterLimit: 2f + index % 5,
+                    flags: flags,
+                    startCap: (NativeStrokeCap)(index % 4),
+                    endCap: (NativeStrokeCap)((index + 2) % 4),
+                    lineJoin: (NativeStrokeJoin)(index % 3),
+                    isClosed: index % 4 == 3);
+                _splines[index] = new NativeSpline(
+                    stroke,
+                    (nuint)doubleOffset,
+                    knotsPerSpline,
+                    degree: 3,
+                    weightOffset: (nuint)(doubleOffset + knotsPerSpline),
+                    weightCount: controlPointsPerSpline);
+            }
+        }
+
         private static float Wave(float phase) =>
             0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
 
@@ -658,6 +773,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
                     NativeBatchMode.Curves => $"Curves: {_rectangleCount:N0}",
                     NativeBatchMode.Polylines => $"Polylines: {_rectangleCount:N0}",
+                    NativeBatchMode.Splines => $"Splines: {_rectangleCount:N0}",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -669,6 +785,7 @@ internal static class NativeRendererSamplePage
             Geometry,
             Curves,
             Polylines,
+            Splines,
             Rectangles
         }
 

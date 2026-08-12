@@ -218,6 +218,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             primitives,
             ReadOnlySpan<Vector2>.Empty,
             ReadOnlySpan<NativePolyline>.Empty,
+            ReadOnlySpan<double>.Empty,
+            ReadOnlySpan<NativeSpline>.Empty,
             clearColor,
             capturePayloadHash);
     }
@@ -231,11 +233,36 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         bool capturePayloadHash = false)
     {
+        return RenderGeometry(
+            target,
+            dpiScale,
+            primitives,
+            points,
+            polylines,
+            ReadOnlySpan<double>.Empty,
+            ReadOnlySpan<NativeSpline>.Empty,
+            clearColor,
+            capturePayloadHash);
+    }
+
+    public NativeGeometryFrameMetrics RenderGeometry(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeGeometryPrimitive> primitives,
+        ReadOnlySpan<Vector2> points,
+        ReadOnlySpan<NativePolyline> polylines,
+        ReadOnlySpan<double> doubles,
+        ReadOnlySpan<NativeSpline> splines,
+        Vector4 clearColor,
+        bool capturePayloadHash = false)
+    {
         ValidateTarget(target);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
         fixed (Vector2* pointPointer = points)
         fixed (NativePolyline* polylinePointer = polylines)
+        fixed (double* doublePointer = doubles)
+        fixed (NativeSpline* splinePointer = splines)
         {
             var frame = new NativeMethods.GeometryFrame
             {
@@ -259,7 +286,11 @@ public sealed unsafe class NativeCompositor : IDisposable
                 Points = pointPointer,
                 PointCount = (nuint)points.Length,
                 Polylines = polylinePointer,
-                PolylineCount = (nuint)polylines.Length
+                PolylineCount = (nuint)polylines.Length,
+                Doubles = doublePointer,
+                DoubleCount = (nuint)doubles.Length,
+                Splines = splinePointer,
+                SplineCount = (nuint)splines.Length
             };
             var metrics = new NativeMethods.GeometryFrameMetrics
             {

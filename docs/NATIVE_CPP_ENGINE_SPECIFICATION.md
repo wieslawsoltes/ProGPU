@@ -37,8 +37,9 @@ The migration is complete only when all of the following are true:
 The implementation remains deliberately smaller than the managed compositor:
 it proves the engine ABI, exact WebGPU ABI selection, shared shader pipelines,
 native batching and submission, external-target ownership, hardware readback,
-the first indexed analytic/geometry batches, and quadratic/cubic curve
-strokes. It is evidence for the architecture, not a claim of full parity.
+the first indexed analytic/geometry batches, quadratic/cubic curves, connected
+polylines, and adaptive rational spline strokes. It is evidence for the
+architecture, not a claim of full parity.
 
 ## 2. Clean-room and source policy
 
@@ -383,19 +384,43 @@ bounded scratch: at most 32 vertices and 48 indices. Checked preflight reserves
 the complete worst-case output before compilation, so warmed submission has no
 per-contour allocation and no per-point ABI call.
 
+The sixth Tranche A increment adds B-spline and NURBS strokes. Each spline
+descriptor is 112 bytes on 64-bit targets and 88 bytes on 32-bit targets. It
+reuses the connected-stroke descriptor for its control-point range and stroke
+state, then references knots and optional rational weights in one borrowed
+double arena. Empty knot data produces no geometry. An invalid non-empty spline
+domain follows the managed fallback and connects the control points directly.
+
+Valid splines use the same transform-adaptive managed sampling contract: a
+transformed control hull below 2 logical pixels is culled, then hull extents
+below 20, 80, and 250 select 10, 25, and 50 segments respectively; larger
+splines use the fixed maximum of 100. Each point is evaluated with the original
+floating-point de Boor recurrence, including homogeneous rational weights, and
+the sampled contour enters the same cap/join/stroke compiler as a polyline.
+The engine owns one reusable degree-sized homogeneous workspace and one fixed
+101-point sample array. It reserves the largest submitted degree before
+compilation, so a warmed frame performs no per-spline allocation.
+
+For `S` splines, `P` control points, `K` knots/weights, `Q <= 100` sampled
+segments per visible spline, and degree `D`, validation is `O(P + K)`, sampling
+is `O(Q * D^2)`, and stroke compilation/upload is `O(Q)`. Persistent scratch
+is `O(D + 101)` and the caller-owned arenas remain `O(P + K)`. The C ABI makes
+one frame call and the complete spline batch remains one indexed draw and one
+submission.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
 - indexed analytic quad batching for rectangle, ellipse, and circular rounded
   rectangle plus capped line, triangle, and quadrilateral geometry is
-  implemented; capped quadratic/cubic curves and connected solid polylines are
-  implemented; spline remains;
+  implemented; capped quadratic/cubic curves, connected solid polylines, and
+  adaptive rational splines are implemented;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
   curve hairline/fixed-device strokes, all four line/curve cap kinds, and all
-  three solid-polyline join kinds are implemented; dashes and the remaining
-  primitives are pending;
+  three solid-polyline/spline join kinds are implemented; dashes and the
+  remaining primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

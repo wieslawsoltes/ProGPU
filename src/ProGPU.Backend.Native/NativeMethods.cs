@@ -100,6 +100,10 @@ internal static unsafe partial class NativeMethods
         internal nuint PointCount;
         internal NativePolyline* Polylines;
         internal nuint PolylineCount;
+        internal double* Doubles;
+        internal nuint DoubleCount;
+        internal NativeSpline* Splines;
+        internal nuint SplineCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]

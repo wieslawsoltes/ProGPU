@@ -30,7 +30,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES = 1ULL << 6U,
     PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U,
     PROGPU_NATIVE_CAPABILITY_STROKE_CAPS = 1ULL << 8U,
-    PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES = 1ULL << 9U
+    PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES = 1ULL << 9U,
+    PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES = 1ULL << 10U
 };
 
 enum {
@@ -220,6 +221,21 @@ typedef struct progpu_native_polyline {
 } progpu_native_polyline;
 
 /*
+ * A B-spline/NURBS stroke reuses progpu_native_polyline for its control-point
+ * range and stroke state. Knots and optional weights borrow ranges from
+ * geometry_frame.doubles. A zero weight_count selects unit weights.
+ */
+typedef struct progpu_native_spline {
+    progpu_native_polyline stroke;
+    size_t knot_offset;
+    size_t knot_count;
+    size_t weight_offset;
+    size_t weight_count;
+    uint32_t degree;
+    uint32_t reserved;
+} progpu_native_spline;
+
+/*
  * width and height are physical target pixels. Rectangle coordinates are
  * logical pixels and dpi_scale maps logical coordinates to physical pixels.
  * target_view is borrowed for the duration of the call.
@@ -282,6 +298,10 @@ typedef struct progpu_native_geometry_frame {
     size_t point_count;
     const progpu_native_polyline* polylines;
     size_t polyline_count;
+    const double* doubles;
+    size_t double_count;
+    const progpu_native_spline* splines;
+    size_t spline_count;
 } progpu_native_geometry_frame;
 
 typedef struct progpu_native_geometry_frame_metrics {

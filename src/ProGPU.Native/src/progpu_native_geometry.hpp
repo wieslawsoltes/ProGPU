@@ -34,6 +34,10 @@ static_assert(sizeof(progpu_native_affine_2d) == 24U);
 static_assert(sizeof(progpu_native_analytic_primitive) == 72U);
 static_assert(sizeof(progpu_native_point) == 8U);
 static_assert(sizeof(progpu_native_geometry_primitive) == 88U);
+static_assert(sizeof(progpu_native_polyline) ==
+    (sizeof(std::size_t) == 8U ? 72U : 64U));
+static_assert(sizeof(progpu_native_spline) ==
+    (sizeof(std::size_t) == 8U ? 112U : 88U));
 
 inline bool is_finite(const progpu_native_color& color) noexcept {
     return std::isfinite(color.r) &&
@@ -1508,6 +1512,119 @@ inline void append_device_join(
     });
 }
 
+inline bool append_connected_line_body(
+    const progpu_native_point& local_start,
+    const progpu_native_point& local_end,
+    const progpu_native_affine_2d& transform,
+    const progpu_native_color& color,
+    float local_thickness,
+    float encoded_thickness,
+    bool affine_outline,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    const float delta_x = local_end.x - local_start.x;
+    const float delta_y = local_end.y - local_start.y;
+    const float length = std::hypot(delta_x, delta_y);
+    if (!std::isfinite(length)) {
+        return false;
+    }
+    if (length <= 0.000001F) {
+        return true;
+    }
+    const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
+    const float shape_type = (affine_outline ? 14.0F : 3.0F) +
+        (aliased ? 1000.0F : 0.0F);
+    if (affine_outline) {
+        const float inverse_length = 1.0F / length;
+        const float half_thickness = local_thickness * 0.5F;
+        const float normal_x = -delta_y * inverse_length * half_thickness;
+        const float normal_y = delta_x * inverse_length * half_thickness;
+        const progpu_native_point local_points[4] = {
+            {local_start.x + normal_x, local_start.y + normal_y},
+            {local_end.x + normal_x, local_end.y + normal_y},
+            {local_end.x - normal_x, local_end.y - normal_y},
+            {local_start.x - normal_x, local_start.y - normal_y}
+        };
+        progpu_native_point points[4]{};
+        for (std::size_t index = 0U; index < 4U; ++index) {
+            points[index] = transformed_point(transform, local_points[index]);
+        }
+        float minimum_x = points[0].x;
+        float minimum_y = points[0].y;
+        float maximum_x = points[0].x;
+        float maximum_y = points[0].y;
+        for (std::size_t index = 1U; index < 4U; ++index) {
+            minimum_x = std::min(minimum_x, points[index].x);
+            minimum_y = std::min(minimum_y, points[index].y);
+            maximum_x = std::max(maximum_x, points[index].x);
+            maximum_y = std::max(maximum_y, points[index].y);
+        }
+        minimum_x -= 1.5F;
+        minimum_y -= 1.5F;
+        maximum_x += 1.5F;
+        maximum_y += 1.5F;
+        const auto append_vertex = [&](float x, float y) {
+            vector_vertex vertex{};
+            vertex.position[0] = x;
+            vertex.position[1] = y;
+            vertex.color[0] = points[0].x;
+            vertex.color[1] = points[0].y;
+            vertex.color[2] = points[1].x;
+            vertex.color[3] = points[1].y;
+            vertex.texture_coordinate[0] = x;
+            vertex.texture_coordinate[1] = y;
+            vertex.brush_index = brush_index;
+            vertex.shape_size[0] = points[2].x;
+            vertex.shape_size[1] = points[2].y;
+            vertex.corner_radius = points[3].x;
+            vertex.stroke_thickness = points[3].y;
+            vertex.shape_type = shape_type;
+            vertices.push_back(vertex);
+        };
+        append_vertex(minimum_x, minimum_y);
+        append_vertex(maximum_x, minimum_y);
+        append_vertex(maximum_x, maximum_y);
+        append_vertex(minimum_x, maximum_y);
+    } else {
+        const progpu_native_point start = transformed_point(
+            transform,
+            local_start);
+        const progpu_native_point end = transformed_point(
+            transform,
+            local_end);
+        const auto append_vertex = [&] (
+            const progpu_native_point& position,
+            float corner) {
+            vector_vertex vertex{};
+            vertex.position[0] = position.x;
+            vertex.position[1] = position.y;
+            set_color(vertex, color);
+            vertex.texture_coordinate[0] = start.x;
+            vertex.texture_coordinate[1] = start.y;
+            vertex.brush_index = brush_index;
+            vertex.shape_size[0] = end.x;
+            vertex.shape_size[1] = end.y;
+            vertex.corner_radius = corner;
+            vertex.stroke_thickness = encoded_thickness;
+            vertex.shape_type = shape_type;
+            vertices.push_back(vertex);
+        };
+        append_vertex(start, 1.0F);
+        append_vertex(start, -1.0F);
+        append_vertex(end, 2.0F);
+        append_vertex(end, -2.0F);
+    }
+    indices.push_back(base);
+    indices.push_back(base + 1U);
+    indices.push_back(base + 2U);
+    indices.push_back(affine_outline ? base : base + 1U);
+    indices.push_back(affine_outline ? base + 2U : base + 3U);
+    indices.push_back(affine_outline ? base + 3U : base + 2U);
+    return true;
+}
+
 inline bool polyline_capacity(
     const progpu_native_polyline& polyline,
     std::size_t& vertex_count,
@@ -1715,10 +1832,16 @@ inline bool append_polyline(
         : polyline.point_count - 1U;
     for (std::size_t index = 0U; index < segment_count; ++index) {
         const std::size_t next = (index + 1U) % polyline.point_count;
-        const auto segment = make_segment(index, next);
-        if (!append_geometry_primitive(
-                segment,
+        if (!append_connected_line_body(
+                points[index],
+                points[next],
+                polyline.transform,
+                polyline.color,
+                polyline.stroke_thickness,
+                encoded_thickness,
+                affine_outline,
                 brush_index,
+                aliased,
                 vertices,
                 indices)) {
             return rollback();
@@ -1752,6 +1875,260 @@ inline bool append_polyline(
         }
     }
     return true;
+}
+
+struct spline_homogeneous_point {
+    float x;
+    float y;
+    float weight;
+};
+
+inline bool try_get_spline_domain(
+    const progpu_native_spline& spline,
+    const double* knots,
+    double& start_knot,
+    double& end_knot) noexcept {
+    start_knot = 0.0;
+    end_knot = 0.0;
+    const std::size_t degree = spline.degree;
+    const std::size_t control_count = spline.stroke.point_count;
+    if (knots == nullptr || control_count < 2U ||
+        degree > std::numeric_limits<std::size_t>::max() - control_count - 1U ||
+        spline.knot_count < control_count + degree + 1U ||
+        degree >= spline.knot_count) {
+        return false;
+    }
+    const std::size_t end_index = spline.knot_count - degree - 1U;
+    if (end_index <= degree || end_index >= spline.knot_count) {
+        return false;
+    }
+    start_knot = knots[degree];
+    end_knot = knots[end_index];
+    return std::isfinite(start_knot) && std::isfinite(end_knot) &&
+        end_knot > start_knot;
+}
+
+inline bool try_get_spline_segment_count(
+    const progpu_native_spline& spline,
+    const progpu_native_point* control_points,
+    std::size_t& segment_count) noexcept {
+    segment_count = 0U;
+    if (control_points == nullptr || spline.stroke.point_count == 0U ||
+        !is_finite(spline.stroke.transform)) {
+        return false;
+    }
+    float minimum_x = std::numeric_limits<float>::max();
+    float minimum_y = std::numeric_limits<float>::max();
+    float maximum_x = std::numeric_limits<float>::lowest();
+    float maximum_y = std::numeric_limits<float>::lowest();
+    for (std::size_t index = 0U;
+         index < spline.stroke.point_count;
+         ++index) {
+        if (!is_finite(control_points[index])) {
+            return false;
+        }
+        const progpu_native_point screen = transformed_point(
+            spline.stroke.transform,
+            control_points[index]);
+        if (!is_finite(screen)) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, screen.x);
+        minimum_y = std::min(minimum_y, screen.y);
+        maximum_x = std::max(maximum_x, screen.x);
+        maximum_y = std::max(maximum_y, screen.y);
+    }
+    const float extent = std::hypot(
+        maximum_x - minimum_x,
+        maximum_y - minimum_y);
+    if (!std::isfinite(extent)) {
+        return false;
+    }
+    if (extent < 2.0F) {
+        return true;
+    }
+    segment_count = extent < 20.0F
+        ? 10U
+        : extent < 80.0F
+            ? 25U
+            : extent < 250.0F ? 50U : 100U;
+    return true;
+}
+
+inline bool try_evaluate_spline_point(
+    const progpu_native_spline& spline,
+    const progpu_native_point* control_points,
+    const double* knots,
+    const double* weights,
+    double parameter,
+    std::vector<spline_homogeneous_point>& work,
+    progpu_native_point& output) {
+    const std::size_t degree = spline.degree;
+    const std::size_t end_index = spline.knot_count - degree - 1U;
+    parameter = std::clamp(parameter, knots[degree], knots[end_index]);
+    std::size_t span = std::numeric_limits<std::size_t>::max();
+    for (std::size_t index = degree;
+         index + 1U < spline.knot_count;
+         ++index) {
+        if (parameter >= knots[index] && parameter <= knots[index + 1U]) {
+            span = index;
+            break;
+        }
+    }
+    if (span == std::numeric_limits<std::size_t>::max()) {
+        span = spline.knot_count - degree - 2U;
+    }
+
+    work.resize(degree + 1U);
+    for (std::size_t index = 0U; index <= degree; ++index) {
+        const std::ptrdiff_t control_index =
+            static_cast<std::ptrdiff_t>(span) -
+            static_cast<std::ptrdiff_t>(degree) +
+            static_cast<std::ptrdiff_t>(index);
+        if (control_index >= 0 &&
+            static_cast<std::size_t>(control_index) <
+                spline.stroke.point_count) {
+            float weight = 1.0F;
+            if (weights != nullptr &&
+                static_cast<std::size_t>(control_index) <
+                    spline.weight_count) {
+                weight = static_cast<float>(weights[control_index]);
+            }
+            const auto& control = control_points[control_index];
+            work[index] = {
+                control.x * weight,
+                control.y * weight,
+                weight
+            };
+        } else {
+            work[index] = {};
+        }
+    }
+
+    for (std::size_t level = 1U; level <= degree; ++level) {
+        for (std::size_t index = degree; index >= level; --index) {
+            const std::size_t knot_index = span - degree + index;
+            const double denominator =
+                knots[knot_index + degree + 1U - level] -
+                knots[knot_index];
+            const float alpha = denominator > 1.0e-9
+                ? static_cast<float>(
+                    (parameter - knots[knot_index]) / denominator)
+                : 0.0F;
+            const float inverse = 1.0F - alpha;
+            work[index] = {
+                inverse * work[index - 1U].x + alpha * work[index].x,
+                inverse * work[index - 1U].y + alpha * work[index].y,
+                inverse * work[index - 1U].weight +
+                    alpha * work[index].weight
+            };
+        }
+    }
+
+    const auto final = work[degree];
+    output = std::abs(final.weight) > 1.0e-9F
+        ? progpu_native_point{
+            final.x / final.weight,
+            final.y / final.weight}
+        : progpu_native_point{final.x, final.y};
+    return is_finite(output);
+}
+
+inline bool spline_capacity(
+    const progpu_native_spline& spline,
+    const progpu_native_point* control_points,
+    const double* knots,
+    std::size_t& segment_count,
+    std::size_t& vertex_count,
+    std::size_t& index_count) noexcept {
+    if (spline.reserved != 0U || spline.stroke.reserved != 0U ||
+        spline.degree > (1U << 20U)) {
+        return false;
+    }
+    if (spline.stroke.point_count < 2U || spline.knot_count == 0U) {
+        segment_count = 0U;
+        vertex_count = 0U;
+        index_count = 0U;
+        return true;
+    }
+    double start_knot = 0.0;
+    double end_knot = 0.0;
+    if (!try_get_spline_domain(
+            spline,
+            knots,
+            start_knot,
+            end_knot)) {
+        segment_count = spline.stroke.point_count - 1U;
+        return polyline_capacity(spline.stroke, vertex_count, index_count);
+    }
+    if (!try_get_spline_segment_count(
+            spline,
+            control_points,
+            segment_count)) {
+        return false;
+    }
+    if (segment_count == 0U) {
+        vertex_count = 0U;
+        index_count = 0U;
+        return true;
+    }
+    progpu_native_polyline sampled_stroke = spline.stroke;
+    sampled_stroke.point_offset = 0U;
+    sampled_stroke.point_count = segment_count + 1U;
+    return polyline_capacity(sampled_stroke, vertex_count, index_count);
+}
+
+inline bool append_spline(
+    const progpu_native_spline& spline,
+    const progpu_native_point* control_points,
+    const double* knots,
+    const double* weights,
+    std::size_t segment_count,
+    float brush_index,
+    std::array<progpu_native_point, 101U>& sampled_points,
+    std::vector<spline_homogeneous_point>& work,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    double start_knot = 0.0;
+    double end_knot = 0.0;
+    if (!try_get_spline_domain(
+            spline,
+            knots,
+            start_knot,
+            end_knot)) {
+        return append_polyline(
+            spline.stroke,
+            control_points,
+            brush_index,
+            vertices,
+            indices);
+    }
+    if (segment_count == 0U || segment_count >= sampled_points.size()) {
+        return segment_count == 0U;
+    }
+    const double delta =
+        (end_knot - start_knot) / static_cast<double>(segment_count);
+    for (std::size_t index = 0U; index <= segment_count; ++index) {
+        if (!try_evaluate_spline_point(
+                spline,
+                control_points,
+                knots,
+                weights,
+                start_knot + static_cast<double>(index) * delta,
+                work,
+                sampled_points[index])) {
+            return false;
+        }
+    }
+    progpu_native_polyline sampled_stroke = spline.stroke;
+    sampled_stroke.point_offset = 0U;
+    sampled_stroke.point_count = segment_count + 1U;
+    return append_polyline(
+        sampled_stroke,
+        sampled_points.data(),
+        brush_index,
+        vertices,
+        indices);
 }
 
 inline bool append_analytic_primitive(

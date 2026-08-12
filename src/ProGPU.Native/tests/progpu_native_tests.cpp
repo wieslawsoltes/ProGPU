@@ -57,6 +57,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_STROKE_CAPS) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 
@@ -386,6 +388,112 @@ void connected_strokes_encode_caps_joins_and_closed_contours() {
     PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 13.0F));
 }
 
+void splines_evaluate_adaptively_without_retained_graphs() {
+    const progpu_native_point points[] = {
+        {0.0F, 0.0F},
+        {10.0F, 0.0F},
+        {10.0F, 10.0F}
+    };
+    const double knots[] = {0.0, 0.0, 1.0, 2.0, 2.0};
+    progpu_native_spline spline{};
+    spline.stroke.point_count = 3U;
+    spline.stroke.color = {0.3F, 0.6F, 0.9F, 1.0F};
+    spline.stroke.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    spline.stroke.stroke_thickness = 2.0F;
+    spline.stroke.miter_limit = 4.0F;
+    spline.knot_count = 5U;
+    spline.degree = 1U;
+
+    std::size_t segment_count = 0U;
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::spline_capacity(
+        spline,
+        points,
+        knots,
+        segment_count,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(segment_count == 10U);
+
+    std::vector<progpu::native::spline_homogeneous_point> work;
+    progpu_native_point evaluated{};
+    PROGPU_REQUIRE(progpu::native::try_evaluate_spline_point(
+        spline,
+        points,
+        knots,
+        nullptr,
+        1.0,
+        work,
+        evaluated));
+    PROGPU_REQUIRE(nearly_equal(evaluated.x, 10.0F));
+    PROGPU_REQUIRE(nearly_equal(evaluated.y, 0.0F));
+
+    std::array<progpu_native_point, 101U> sampled{};
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    work.reserve(2U);
+    PROGPU_REQUIRE(progpu::native::append_spline(
+        spline,
+        points,
+        knots,
+        nullptr,
+        segment_count,
+        8.0F,
+        sampled,
+        work,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(nearly_equal(sampled.front().x, 0.0F));
+    PROGPU_REQUIRE(nearly_equal(sampled.front().y, 0.0F));
+    PROGPU_REQUIRE(nearly_equal(sampled[segment_count].x, 10.0F));
+    PROGPU_REQUIRE(nearly_equal(sampled[segment_count].y, 10.0F));
+    PROGPU_REQUIRE(!vertices.empty() && !indices.empty());
+
+    spline.stroke.transform = {10.0F, 0.0F, 0.0F, 10.0F, 0.0F, 0.0F};
+    PROGPU_REQUIRE(progpu::native::try_get_spline_segment_count(
+        spline,
+        points,
+        segment_count));
+    PROGPU_REQUIRE(segment_count == 50U);
+
+    const progpu_native_point rational_points[] = {
+        {1.0F, 0.0F},
+        {1.0F, 1.0F},
+        {0.0F, 1.0F}
+    };
+    const double rational_knots[] = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
+    const double rational_weights[] = {
+        1.0,
+        0.7071067811865476,
+        1.0
+    };
+    spline.stroke.point_count = 3U;
+    spline.knot_count = 6U;
+    spline.weight_count = 3U;
+    spline.degree = 2U;
+    PROGPU_REQUIRE(progpu::native::try_evaluate_spline_point(
+        spline,
+        rational_points,
+        rational_knots,
+        rational_weights,
+        0.5,
+        work,
+        evaluated));
+    PROGPU_REQUIRE(std::abs(evaluated.x - 0.70710677F) <= 0.00001F);
+    PROGPU_REQUIRE(std::abs(evaluated.y - 0.70710677F) <= 0.00001F);
+
+    spline.knot_count = 2U;
+    PROGPU_REQUIRE(progpu::native::spline_capacity(
+        spline,
+        rational_points,
+        rational_knots,
+        segment_count,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(segment_count == 2U);
+}
+
 void indexed_analytic_batch_preserves_affine_local_coordinates() {
     progpu_native_analytic_primitive primitive{
         PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
@@ -491,6 +599,7 @@ int main() {
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
+    splines_evaluate_adaptively_without_retained_graphs();
     invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();
     std::cout << "ProGPU native CPU/ABI tests passed.\n";

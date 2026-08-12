@@ -97,7 +97,8 @@ public enum NativeRendererCapabilities : ulong
     DeviceStrokes = 1UL << 6,
     BezierStrokes = 1UL << 7,
     StrokeCaps = 1UL << 8,
-    ConnectedStrokes = 1UL << 9
+    ConnectedStrokes = 1UL << 9,
+    SplineStrokes = 1UL << 10
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -279,6 +280,35 @@ public readonly struct NativePolyline
         (NativeStrokeJoin)(((uint)Flags >> 7) & 3U);
 
     public bool IsClosed => (Flags & NativePolylineFlags.Closed) != 0;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSpline
+{
+    public NativeSpline(
+        NativePolyline stroke,
+        nuint knotOffset,
+        nuint knotCount,
+        uint degree,
+        nuint weightOffset = 0,
+        nuint weightCount = 0)
+    {
+        Stroke = stroke;
+        KnotOffset = knotOffset;
+        KnotCount = knotCount;
+        WeightOffset = weightOffset;
+        WeightCount = weightCount;
+        Degree = degree;
+        Reserved = 0U;
+    }
+
+    public readonly NativePolyline Stroke;
+    public readonly nuint KnotOffset;
+    public readonly nuint KnotCount;
+    public readonly nuint WeightOffset;
+    public readonly nuint WeightCount;
+    public readonly uint Degree;
+    private readonly uint Reserved;
 }
 
 public readonly record struct NativeFrameMetrics(

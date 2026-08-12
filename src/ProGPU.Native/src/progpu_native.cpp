@@ -123,6 +123,10 @@ struct progpu_native_engine {
     std::vector<std::uint32_t> indices;
     std::vector<std::uint32_t> primitive_brush_indices;
     std::vector<std::uint32_t> polyline_brush_indices;
+    std::vector<std::uint32_t> spline_brush_indices;
+    std::vector<std::size_t> spline_segment_counts;
+    std::array<progpu_native_point, 101U> spline_sampled_points{};
+    std::vector<progpu::native::spline_homogeneous_point> spline_work;
     std::vector<std::byte> brush_bytes;
     std::string last_error;
     std::uint64_t submission_count = 0;
@@ -675,7 +679,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES |
         PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES |
         PROGPU_NATIVE_CAPABILITY_STROKE_CAPS |
-        PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES;
+        PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES |
+        PROGPU_NATIVE_CAPABILITY_SPLINE_STROKES;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1121,6 +1126,9 @@ progpu_native_status progpu_native_engine_render_geometry(
         (frame->primitive_count != 0U && frame->primitives == nullptr) ||
         (frame->point_count != 0U && frame->points == nullptr) ||
         (frame->polyline_count != 0U && frame->polylines == nullptr) ||
+        (frame->spline_count != 0U && frame->points == nullptr) ||
+        (frame->double_count != 0U && frame->doubles == nullptr) ||
+        (frame->spline_count != 0U && frame->splines == nullptr) ||
         (frame->flags &
             ~PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U ||
         frame->reserved != 0U ||
@@ -1138,7 +1146,9 @@ progpu_native_status progpu_native_engine_render_geometry(
     }
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
+        frame->spline_count > (1U << 24U) ||
         frame->point_count > (1U << 28U) ||
+        frame->double_count > (1U << 28U) ||
         frame->primitive_count >
             std::numeric_limits<std::uint32_t>::max() / 6U ||
         frame->primitive_count >
@@ -1147,9 +1157,14 @@ progpu_native_status progpu_native_engine_render_geometry(
             std::numeric_limits<std::size_t>::max() / gpu_brush_size ||
         frame->polyline_count >
             std::numeric_limits<std::size_t>::max() / gpu_brush_size ||
+        frame->spline_count >
+            std::numeric_limits<std::size_t>::max() / gpu_brush_size ||
         frame->primitive_count >
             std::numeric_limits<std::size_t>::max() - frame->polyline_count ||
-        frame->primitive_count + frame->polyline_count > (1U << 24U)) {
+        frame->primitive_count + frame->polyline_count >
+            std::numeric_limits<std::size_t>::max() - frame->spline_count ||
+        frame->primitive_count + frame->polyline_count +
+            frame->spline_count > (1U << 24U)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The geometry primitive batch is too large.");
@@ -1160,6 +1175,8 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine->indices.clear();
         engine->primitive_brush_indices.clear();
         engine->polyline_brush_indices.clear();
+        engine->spline_brush_indices.clear();
+        engine->spline_segment_counts.clear();
         std::size_t vertex_capacity = 0U;
         std::size_t index_capacity = 0U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
@@ -1209,10 +1226,75 @@ progpu_native_status progpu_native_engine_render_geometry(
             vertex_capacity += vertices_to_add;
             index_capacity += indices_to_add;
         }
+        std::size_t maximum_spline_degree = 0U;
+        engine->spline_segment_counts.resize(frame->spline_count);
+        for (std::size_t index = 0; index < frame->spline_count; ++index) {
+            const auto& spline = frame->splines[index];
+            const auto& stroke = spline.stroke;
+            std::size_t segment_count = 0U;
+            std::size_t vertices_to_add = 0U;
+            std::size_t indices_to_add = 0U;
+            if (stroke.point_offset > frame->point_count ||
+                stroke.point_count >
+                    frame->point_count - stroke.point_offset ||
+                spline.knot_offset > frame->double_count ||
+                spline.knot_count >
+                    frame->double_count - spline.knot_offset ||
+                spline.weight_offset > frame->double_count ||
+                spline.weight_count >
+                    frame->double_count - spline.weight_offset ||
+                !progpu::native::spline_capacity(
+                    spline,
+                    frame->points + stroke.point_offset,
+                    spline.knot_count == 0U
+                        ? nullptr
+                        : frame->doubles + spline.knot_offset,
+                    segment_count,
+                    vertices_to_add,
+                    indices_to_add) ||
+                vertex_capacity >
+                    std::numeric_limits<std::uint32_t>::max() -
+                        vertices_to_add ||
+                vertex_capacity >
+                    std::numeric_limits<std::size_t>::max() -
+                        vertices_to_add ||
+                index_capacity >
+                    std::numeric_limits<std::size_t>::max() -
+                        indices_to_add) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A spline range, degree, or indexed upload bound is invalid.");
+            }
+            for (std::size_t knot = 0U; knot < spline.knot_count; ++knot) {
+                if (!std::isfinite(frame->doubles[spline.knot_offset + knot])) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A spline knot is not finite.");
+                }
+            }
+            for (std::size_t weight = 0U;
+                 weight < spline.weight_count;
+                 ++weight) {
+                if (!std::isfinite(
+                        frame->doubles[spline.weight_offset + weight])) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A spline weight is not finite.");
+                }
+            }
+            engine->spline_segment_counts[index] = segment_count;
+            maximum_spline_degree = std::max(
+                maximum_spline_degree,
+                static_cast<std::size_t>(spline.degree));
+            vertex_capacity += vertices_to_add;
+            index_capacity += indices_to_add;
+        }
         engine->vertices.reserve(vertex_capacity);
         engine->indices.reserve(index_capacity);
         engine->primitive_brush_indices.resize(frame->primitive_count);
         engine->polyline_brush_indices.resize(frame->polyline_count);
+        engine->spline_brush_indices.resize(frame->spline_count);
+        engine->spline_work.reserve(maximum_spline_degree + 1U);
         std::uint32_t brush_count = 1U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
             const std::uint32_t brush_index =
@@ -1246,6 +1328,34 @@ progpu_native_status progpu_native_engine_render_geometry(
                     "A connected stroke contains invalid points, stroke state, transform, join, or flags.");
             }
         }
+        for (std::size_t index = 0; index < frame->spline_count; ++index) {
+            const auto& spline = frame->splines[index];
+            const std::size_t segment_count =
+                engine->spline_segment_counts[index];
+            const std::uint32_t brush_index = segment_count == 0U
+                ? 0U
+                : brush_count++;
+            engine->spline_brush_indices[index] = brush_index;
+            if (!progpu::native::append_spline(
+                    spline,
+                    frame->points + spline.stroke.point_offset,
+                    spline.knot_count == 0U
+                        ? nullptr
+                        : frame->doubles + spline.knot_offset,
+                    spline.weight_count == 0U
+                        ? nullptr
+                        : frame->doubles + spline.weight_offset,
+                    segment_count,
+                    static_cast<float>(brush_index),
+                    engine->spline_sampled_points,
+                    engine->spline_work,
+                    engine->vertices,
+                    engine->indices)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A spline contains invalid control points, knots, weights, stroke state, or transform.");
+            }
+        }
 
         engine->brush_bytes.clear();
         engine->brush_bytes.resize(
@@ -1277,6 +1387,19 @@ progpu_native_status progpu_native_engine_render_geometry(
             std::memcpy(
                 brush + 64U,
                 &frame->polylines[index].color,
+                sizeof(progpu_native_color));
+        }
+        for (std::size_t index = 0; index < frame->spline_count; ++index) {
+            const std::uint32_t brush_index =
+                engine->spline_brush_indices[index];
+            if (brush_index == 0U) {
+                continue;
+            }
+            std::byte* brush = engine->brush_bytes.data() +
+                static_cast<std::size_t>(brush_index) * gpu_brush_size;
+            std::memcpy(
+                brush + 64U,
+                &frame->splines[index].stroke.color,
                 sizeof(progpu_native_color));
         }
     } catch (const std::bad_alloc&) {

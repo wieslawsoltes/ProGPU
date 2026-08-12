@@ -327,6 +327,66 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Adaptive rational-spline supplement
+
+The sixth native increment evaluates B-spline/NURBS control points, knots, and
+optional rational weights from borrowed arenas, selects the managed
+10/25/50/100 screen-size subdivision policy, and feeds the sampled contour to
+the shared connected-stroke compiler. The representative scene contains 512
+six-control-point rational cubic splines, all transform/stroke/join modes, open
+and closed contours, and one indexed draw. Native and managed output contain
+116,204/116,208 vector vertices respectively.
+
+The optimized repeated 5,000-iteration Release run on the same Apple M3
+Pro/Metal device reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU encode/upload/submit | 2.0981 ms | 2.6349 ms |
+| p50 CPU encode/upload/submit | 2.0772 ms | 2.3908 ms |
+| p95 CPU encode/upload/submit | 2.3278 ms | 4.8132 ms |
+| Worst observed submission | 3.8352 ms | 6.5160 ms |
+| Managed allocation total | 2,352 bytes | 11,640,000 bytes |
+| Managed allocation / frame | 0.4704 bytes | 2,328 bytes |
+
+Native is about 20.4% faster by mean and 51.6% faster by p95 on the queue path.
+An immediately preceding 5,000-frame run measured 2.2214/2.7231 ms mean and
+2.7015/4.8389 ms p95, but included one isolated 34.47 ms native frame; the
+repeat's 3.84 ms maximum did not reproduce it. The isolated stall is retained
+as evidence rather than omitted.
+
+Five paired 1,000-frame synchronized runs showed high system/GPU scheduling
+variance. The median per-run native/managed ratio was 1.011 for mean and 1.005
+for p95—within 1.1% rather than a demonstrated GPU-complete improvement. The
+range was 0.948–1.138 for mean and 0.989–1.229 for p95, so a longer controlled
+Metal interval is required before making a spline GPU-time superiority claim.
+
+The 512-spline image differs at one raster edge pixel: maximum channel
+difference 17/255, one pixel above 3/255, total absolute channel difference 57,
+and mean absolute channel difference 0.00002749. All nine forced
+stroke-transform/join combinations pass; six have maximum difference 1/255 or
+less, fixed-device round is byte-exact, and ordinary miter has two isolated
+edge pixels above 3/255 with mean absolute difference 0.00005642.
+
+Final-binary Time Profiler and 200-frame synchronized Metal System Trace
+captures both exited zero. The Metal trace contains `ProGPU native indexed
+geometry pass` and `Offscreen Compositor Encoder`, no command-buffer error row,
+and a 52,133,888-byte (49.72 MiB) peak combined-process Metal
+`currentAllocatedSize`; it cannot attribute that shared-process residency to
+one renderer. Xcode Allocations remains unavailable on this host as documented
+for the preceding slices, so no native-heap Instruments claim is made.
+
+Retained ignored evidence:
+
+- two optimized 5,000-frame JSON runs and five synchronized 1,000-frame JSON
+  runs;
+- all nine forced stroke-mode/join JSON differentials;
+- `native-managed-splines-time-profiler-valid.trace` and exported TOC;
+- `native-managed-splines-metal-valid.trace`, exported TOC, labels,
+  command-buffer errors, and allocation-size table;
+- native, managed, and 64-times-amplified difference PNG images under
+  `artifacts/progpu-native/differential/`.
+
 ## Connected solid-polyline supplement
 
 The fifth native increment accepts one borrowed point arena and a compact

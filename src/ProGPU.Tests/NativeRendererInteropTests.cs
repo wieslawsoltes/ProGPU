@@ -38,10 +38,11 @@ public class NativeRendererInteropTests
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
         Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
-        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(128, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeGeometryPrimitive>());
         Assert.Equal(72, Unsafe.SizeOf<NativePolyline>());
+        Assert.Equal(112, Unsafe.SizeOf<NativeSpline>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -61,6 +62,7 @@ public class NativeRendererInteropTests
         Assert.Equal(128UL, (ulong)NativeRendererCapabilities.BezierStrokes);
         Assert.Equal(256UL, (ulong)NativeRendererCapabilities.StrokeCaps);
         Assert.Equal(512UL, (ulong)NativeRendererCapabilities.ConnectedStrokes);
+        Assert.Equal(1024UL, (ulong)NativeRendererCapabilities.SplineStrokes);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
@@ -129,6 +131,14 @@ public class NativeRendererInteropTests
             1f,
             float.NaN);
         Assert.Equal(1f, normalizedMiter.MiterLimit);
+
+        var spline = new NativeSpline(polyline, 3, 12, 4, 20, 8);
+        Assert.Equal(polyline, spline.Stroke);
+        Assert.Equal((nuint)3, spline.KnotOffset);
+        Assert.Equal((nuint)12, spline.KnotCount);
+        Assert.Equal((nuint)20, spline.WeightOffset);
+        Assert.Equal((nuint)8, spline.WeightCount);
+        Assert.Equal(4U, spline.Degree);
     }
 
     [Fact]
