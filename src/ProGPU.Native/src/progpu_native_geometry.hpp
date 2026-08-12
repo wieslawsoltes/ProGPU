@@ -1295,6 +1295,465 @@ inline bool append_geometry_primitive(
     return true;
 }
 
+inline float cross_product(
+    const progpu_native_point& left,
+    const progpu_native_point& right) noexcept {
+    return left.x * right.y - left.y * right.x;
+}
+
+inline bool try_intersect_lines(
+    const progpu_native_point& first_point,
+    const progpu_native_point& first_direction,
+    const progpu_native_point& second_point,
+    const progpu_native_point& second_direction,
+    progpu_native_point& intersection) noexcept {
+    const float denominator = cross_product(
+        first_direction,
+        second_direction);
+    if (!std::isfinite(denominator) || std::abs(denominator) <= 0.0001F) {
+        intersection = {};
+        return false;
+    }
+    const progpu_native_point delta{
+        second_point.x - first_point.x,
+        second_point.y - first_point.y
+    };
+    const float distance =
+        cross_product(delta, second_direction) / denominator;
+    intersection = {
+        first_point.x + first_direction.x * distance,
+        first_point.y + first_direction.y * distance
+    };
+    return is_finite(intersection);
+}
+
+inline std::size_t create_join_triangles(
+    std::array<stroke_triangle, 8U>& triangles,
+    std::uint32_t join,
+    float thickness,
+    float miter_limit,
+    const progpu_native_point& join_point,
+    progpu_native_point incoming,
+    progpu_native_point outgoing) noexcept {
+    if (!try_normalize(incoming, {}, incoming) ||
+        !try_normalize(outgoing, {}, outgoing) ||
+        !std::isfinite(thickness) || thickness <= 0.0001F) {
+        return 0U;
+    }
+    const float turn = cross_product(incoming, outgoing);
+    if (!std::isfinite(turn) || std::abs(turn) <= 0.0001F) {
+        return 0U;
+    }
+    const float radius = thickness * 0.5F;
+    const float outer_sign = turn > 0.0F ? -1.0F : 1.0F;
+    const progpu_native_point previous_outer{
+        join_point.x - incoming.y * outer_sign * radius,
+        join_point.y + incoming.x * outer_sign * radius
+    };
+    const progpu_native_point next_outer{
+        join_point.x - outgoing.y * outer_sign * radius,
+        join_point.y + outgoing.x * outer_sign * radius
+    };
+    if (join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
+        triangles[0] = {previous_outer, join_point, next_outer};
+        return 1U;
+    }
+    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER) {
+        progpu_native_point miter{};
+        const float resolved_limit =
+            std::isfinite(miter_limit) && miter_limit >= 1.0F
+            ? miter_limit
+            : 1.0F;
+        const bool has_miter = try_intersect_lines(
+            previous_outer,
+            incoming,
+            next_outer,
+            outgoing,
+            miter) &&
+            std::hypot(
+                miter.x - join_point.x,
+                miter.y - join_point.y) <=
+                radius * resolved_limit + 0.0001F;
+        triangles[0] = {previous_outer, join_point, next_outer};
+        if (!has_miter) {
+            return 1U;
+        }
+        triangles[1] = {previous_outer, miter, next_outer};
+        return 2U;
+    }
+
+    float start = std::atan2(
+        previous_outer.y - join_point.y,
+        previous_outer.x - join_point.x);
+    float end = std::atan2(
+        next_outer.y - join_point.y,
+        next_outer.x - join_point.x);
+    constexpr float two_pi = std::numbers::pi_v<float> * 2.0F;
+    if (turn > 0.0F) {
+        while (end < start) {
+            end += two_pi;
+        }
+    } else {
+        while (end > start) {
+            end -= two_pi;
+        }
+    }
+    const float sweep = end - start;
+    const std::size_t segment_count = std::clamp(
+        static_cast<std::size_t>(std::ceil(
+            std::abs(sweep) / (std::numbers::pi_v<float> / 8.0F))),
+        std::size_t{1U},
+        triangles.size());
+    for (std::size_t index = 0U; index < segment_count; ++index) {
+        const float angle0 = start + sweep * static_cast<float>(index) /
+            static_cast<float>(segment_count);
+        const float angle1 = start + sweep * static_cast<float>(index + 1U) /
+            static_cast<float>(segment_count);
+        triangles[index] = {
+            join_point,
+            {join_point.x + std::cos(angle0) * radius,
+                join_point.y + std::sin(angle0) * radius},
+            {join_point.x + std::cos(angle1) * radius,
+                join_point.y + std::sin(angle1) * radius}
+        };
+    }
+    return segment_count;
+}
+
+inline bool append_cpu_join(
+    std::uint32_t join,
+    float thickness,
+    float miter_limit,
+    const progpu_native_point& join_point,
+    const progpu_native_point& incoming,
+    const progpu_native_point& outgoing,
+    const progpu_native_affine_2d* outline_transform,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    std::array<stroke_triangle, 8U> triangles{};
+    const std::size_t count = create_join_triangles(
+        triangles,
+        join,
+        thickness,
+        miter_limit,
+        join_point,
+        incoming,
+        outgoing);
+    for (std::size_t index = 0U; index < count; ++index) {
+        std::uint32_t exterior_mask = 0U;
+        std::uint32_t owned_internal_mask = 0U;
+        classify_triangle_edges(
+            triangles.data(),
+            count,
+            index,
+            false,
+            {},
+            {},
+            exterior_mask,
+            owned_internal_mask);
+        stroke_triangle output = triangles[index];
+        if (outline_transform != nullptr) {
+            output.p0 = transformed_point(*outline_transform, output.p0);
+            output.p1 = transformed_point(*outline_transform, output.p1);
+            output.p2 = transformed_point(*outline_transform, output.p2);
+        }
+        if (!append_stroke_triangle(
+                output,
+                brush_index,
+                exterior_mask,
+                owned_internal_mask,
+                aliased,
+                vertices,
+                indices)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline void append_device_join(
+    std::uint32_t join,
+    float miter_limit,
+    const progpu_native_point& join_point,
+    const progpu_native_point& incoming,
+    const progpu_native_point& outgoing,
+    float encoded_thickness,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
+    vector_vertex descriptor{};
+    descriptor.position[0] = join_point.x;
+    descriptor.position[1] = join_point.y;
+    descriptor.color[0] = static_cast<float>(join);
+    descriptor.color[1] =
+        std::isfinite(miter_limit) && miter_limit >= 1.0F
+        ? miter_limit
+        : 1.0F;
+    descriptor.color[2] = static_cast<float>(base);
+    descriptor.texture_coordinate[0] = incoming.x;
+    descriptor.texture_coordinate[1] = incoming.y;
+    descriptor.brush_index = brush_index;
+    descriptor.shape_size[0] = outgoing.x;
+    descriptor.shape_size[1] = outgoing.y;
+    descriptor.stroke_thickness = encoded_thickness;
+    descriptor.shape_type = 23.0F + (aliased ? 1000.0F : 0.0F);
+    vertices.insert(vertices.end(), 4U, descriptor);
+    indices.insert(indices.end(), {
+        base, base + 1U, base + 2U,
+        base, base + 2U, base + 3U
+    });
+}
+
+inline bool polyline_capacity(
+    const progpu_native_polyline& polyline,
+    std::size_t& vertex_count,
+    std::size_t& index_count) noexcept {
+    const bool closed =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U;
+    if (polyline.point_count < 2U ||
+        (closed && polyline.point_count < 3U)) {
+        return false;
+    }
+    const std::size_t segment_count = closed
+        ? polyline.point_count
+        : polyline.point_count - 1U;
+    const std::size_t join_count = closed
+        ? polyline.point_count
+        : polyline.point_count - 2U;
+    const std::size_t cap_count = closed
+        ? 0U
+        : ((polyline.flags & PROGPU_NATIVE_POLYLINE_START_CAP_MASK) != 0U
+            ? 1U : 0U) +
+          ((polyline.flags & PROGPU_NATIVE_POLYLINE_END_CAP_MASK) != 0U
+            ? 1U : 0U);
+    if (segment_count > std::numeric_limits<std::size_t>::max() / 4U ||
+        join_count > std::numeric_limits<std::size_t>::max() / 32U ||
+        cap_count > std::numeric_limits<std::size_t>::max() / 32U) {
+        return false;
+    }
+    vertex_count = segment_count * 4U + join_count * 32U + cap_count * 32U;
+    index_count = segment_count * 6U + join_count * 48U + cap_count * 48U;
+    return true;
+}
+
+inline bool append_polyline(
+    const progpu_native_polyline& polyline,
+    const progpu_native_point* points,
+    float brush_index,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    constexpr std::uint32_t all_flags =
+        PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
+        PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
+        PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE |
+        PROGPU_NATIVE_POLYLINE_START_CAP_MASK |
+        PROGPU_NATIVE_POLYLINE_END_CAP_MASK |
+        PROGPU_NATIVE_POLYLINE_JOIN_MASK |
+        PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
+    const std::uint32_t join =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_JOIN_MASK) >>
+        PROGPU_NATIVE_POLYLINE_JOIN_SHIFT;
+    const bool closed =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U;
+    const bool hairline =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE) != 0U;
+    const bool fixed_device =
+        (polyline.flags &
+            PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE) != 0U;
+    if (points == nullptr || polyline.point_count < 2U ||
+        (closed && polyline.point_count < 3U) ||
+        (polyline.flags & ~all_flags) != 0U ||
+        join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+        polyline.reserved != 0U ||
+        !is_finite(polyline.color) || !is_finite(polyline.transform) ||
+        !std::isfinite(polyline.stroke_thickness) ||
+        !std::isfinite(polyline.miter_limit) ||
+        (hairline && fixed_device) ||
+        (hairline && polyline.stroke_thickness != 0.0F) ||
+        (!hairline && polyline.stroke_thickness <= 0.0F)) {
+        return false;
+    }
+    for (std::size_t index = 0U; index < polyline.point_count; ++index) {
+        if (!is_finite(points[index])) {
+            return false;
+        }
+    }
+
+    std::size_t capacity_vertices = 0U;
+    std::size_t capacity_indices = 0U;
+    if (!polyline_capacity(polyline, capacity_vertices, capacity_indices) ||
+        vertices.size() > std::numeric_limits<std::uint32_t>::max() -
+            capacity_vertices ||
+        vertices.size() > std::numeric_limits<std::size_t>::max() -
+            capacity_vertices ||
+        indices.size() > std::numeric_limits<std::size_t>::max() -
+            capacity_indices) {
+        return false;
+    }
+    const std::size_t initial_vertex_count = vertices.size();
+    const std::size_t initial_index_count = indices.size();
+    const bool aliased =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED) != 0U;
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    if (!try_get_stroke_scales(
+            polyline.transform,
+            maximum_scale,
+            minimum_scale)) {
+        return false;
+    }
+    const bool affine_outline = !hairline && !fixed_device &&
+        requires_affine_stroke_geometry(polyline.transform);
+    const float encoded_thickness = hairline
+        ? -1.0F
+        : fixed_device
+            ? -std::max(
+                polyline.stroke_thickness + 1.0F,
+                std::nextafter(1.0F, 2.0F))
+            : polyline.stroke_thickness * maximum_scale;
+    const std::uint32_t primitive_flags =
+        (aliased ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED : 0U) |
+        (hairline ? PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE : 0U) |
+        (fixed_device
+            ? PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE
+            : 0U);
+
+    const auto make_segment = [&](std::size_t first, std::size_t second) {
+        progpu_native_geometry_primitive segment{};
+        segment.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+        segment.flags = primitive_flags;
+        segment.p0 = points[first];
+        segment.p1 = points[second];
+        segment.stroke_thickness = polyline.stroke_thickness;
+        segment.color = polyline.color;
+        segment.transform = polyline.transform;
+        return segment;
+    };
+    const auto rollback = [&]() {
+        vertices.resize(initial_vertex_count);
+        indices.resize(initial_index_count);
+        return false;
+    };
+    const auto append_join_at = [&](std::size_t previous,
+                                    std::size_t current,
+                                    std::size_t next) {
+        const progpu_native_point incoming{
+            points[current].x - points[previous].x,
+            points[current].y - points[previous].y
+        };
+        const progpu_native_point outgoing{
+            points[next].x - points[current].x,
+            points[next].y - points[current].y
+        };
+        if (hairline || fixed_device) {
+            append_device_join(
+                join,
+                polyline.miter_limit,
+                transformed_point(polyline.transform, points[current]),
+                transformed_direction(polyline.transform, incoming),
+                transformed_direction(polyline.transform, outgoing),
+                encoded_thickness,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+            return true;
+        }
+        if (affine_outline) {
+            return append_cpu_join(
+                join,
+                polyline.stroke_thickness,
+                polyline.miter_limit,
+                points[current],
+                incoming,
+                outgoing,
+                &polyline.transform,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+        }
+        return append_cpu_join(
+            join,
+            polyline.stroke_thickness * maximum_scale,
+            polyline.miter_limit,
+            transformed_point(polyline.transform, points[current]),
+            transformed_direction(polyline.transform, incoming),
+            transformed_direction(polyline.transform, outgoing),
+            nullptr,
+            brush_index,
+            aliased,
+            vertices,
+            indices);
+    };
+
+    if (!closed) {
+        auto start = make_segment(0U, 1U);
+        start.flags |= polyline.flags & PROGPU_NATIVE_POLYLINE_START_CAP_MASK;
+        if (!append_primitive_caps(
+                start,
+                hairline,
+                fixed_device,
+                affine_outline,
+                maximum_scale,
+                encoded_thickness,
+                brush_index,
+                aliased,
+                1U,
+                vertices,
+                indices)) {
+            return rollback();
+        }
+    }
+
+    const std::size_t segment_count = closed
+        ? polyline.point_count
+        : polyline.point_count - 1U;
+    for (std::size_t index = 0U; index < segment_count; ++index) {
+        const std::size_t next = (index + 1U) % polyline.point_count;
+        const auto segment = make_segment(index, next);
+        if (!append_geometry_primitive(
+                segment,
+                brush_index,
+                vertices,
+                indices)) {
+            return rollback();
+        }
+        if (closed || next + 1U < polyline.point_count) {
+            const std::size_t after = (next + 1U) % polyline.point_count;
+            if (!append_join_at(index, next, after)) {
+                return rollback();
+            }
+        }
+    }
+
+    if (!closed) {
+        auto end = make_segment(
+            polyline.point_count - 2U,
+            polyline.point_count - 1U);
+        end.flags |= polyline.flags & PROGPU_NATIVE_POLYLINE_END_CAP_MASK;
+        if (!append_primitive_caps(
+                end,
+                hairline,
+                fixed_device,
+                affine_outline,
+                maximum_scale,
+                encoded_thickness,
+                brush_index,
+                aliased,
+                2U,
+                vertices,
+                indices)) {
+            return rollback();
+        }
+    }
+    return true;
+}
+
 inline bool append_analytic_primitive(
     const progpu_native_analytic_primitive& primitive,
     float antialias_padding,

@@ -326,3 +326,58 @@ Retained ignored evidence:
 - `capped-curves-async-5000.json` plus five synchronized JSON runs;
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
+
+## Connected solid-polyline supplement
+
+The fifth native increment accepts one borrowed point arena and a compact
+descriptor span for open and closed solid polylines. The representative scene
+contains 512 four-point contours, mixes all three stroke-transform modes and
+all three join kinds, and submits the resulting bodies, caps, and joins as one
+indexed draw. The native implementation retains neither caller span.
+
+The clean 5,000-iteration Release run on the same Apple M3 Pro/Metal device
+reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU encode/upload/submit | 0.5223 ms | 1.2462 ms |
+| p50 CPU encode/upload/submit | 0.5169 ms | 1.0434 ms |
+| p95 CPU encode/upload/submit | 0.5933 ms | 2.5393 ms |
+| Worst observed submission | 0.8441 ms | 4.1782 ms |
+| Managed allocation total | 0 bytes | 11,640,000 bytes |
+| Managed allocation / frame | 0 bytes | 2,328 bytes |
+
+Native is about 2.39 times faster by mean and 4.28 times faster by p95 on the
+queue-submission path. Five independent 1,000-frame synchronized runs, each
+waiting for device completion inside the measured interval, produced median
+native/managed means of 2.6396/3.5481 ms and median p95 values of
+3.8879/4.8371 ms. Native therefore remained about 25.6% faster by synchronized
+mean and 19.6% faster by synchronized p95.
+
+The 512-contour readback has maximum channel difference 1/255, zero pixels
+above 3/255, four total channel values of absolute difference, and mean
+absolute channel difference 0.000001929. The compiled native payload hash is
+`E30B42132C4EA863`; native/managed image hashes are
+`6FE076D0C2EA196C`/`E6F641221BDC0C34`. Forced 96-contour differentials for all
+nine stroke-mode/join combinations also pass the same tolerance; six are
+byte-exact and the remaining three differ by at most 1/255.
+
+Matched final-binary Time Profiler and synchronized Metal System Trace captures
+both exited zero. The Metal trace contains both `ProGPU native indexed geometry
+pass` and `Offscreen Compositor Encoder`, has no command-buffer error row, and
+reports 21,299,200 bytes (20.31 MiB) peak combined-process Metal
+`currentAllocatedSize`; the memory value is not separable by renderer. As with
+the cap slice, Xcode Allocations launch/attach is not producing a valid trace on
+this host, so no Instruments native-heap claim is made. The benchmark's managed
+allocation counter reports zero native-call managed bytes over the clean
+5,000-frame run, and ASan/UBSan passes with macOS leak detection disabled
+because this ASan runtime explicitly does not support `detect_leaks`.
+
+Retained ignored evidence:
+
+- `polylines-async-5000.json` plus five synchronized JSON runs;
+- `native-managed-polylines-time-profiler-valid.trace` and exported TOC;
+- `native-managed-polylines-metal-valid.trace`, exported TOC, labels,
+  command-buffer errors, and allocation-size table;
+- native, managed, and 64-times-amplified difference PNG images under
+  `artifacts/progpu-native/differential/`.

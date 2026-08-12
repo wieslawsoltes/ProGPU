@@ -212,9 +212,30 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         bool capturePayloadHash = false)
     {
+        return RenderGeometry(
+            target,
+            dpiScale,
+            primitives,
+            ReadOnlySpan<Vector2>.Empty,
+            ReadOnlySpan<NativePolyline>.Empty,
+            clearColor,
+            capturePayloadHash);
+    }
+
+    public NativeGeometryFrameMetrics RenderGeometry(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<NativeGeometryPrimitive> primitives,
+        ReadOnlySpan<Vector2> points,
+        ReadOnlySpan<NativePolyline> polylines,
+        Vector4 clearColor,
+        bool capturePayloadHash = false)
+    {
         ValidateTarget(target);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
+        fixed (Vector2* pointPointer = points)
+        fixed (NativePolyline* polylinePointer = polylines)
         {
             var frame = new NativeMethods.GeometryFrame
             {
@@ -234,7 +255,11 @@ public sealed unsafe class NativeCompositor : IDisposable
                 PrimitiveCount = (nuint)primitives.Length,
                 Flags = capturePayloadHash
                     ? NativeMethods.GeometryFrameCapturePayloadHash
-                    : 0U
+                    : 0U,
+                Points = pointPointer,
+                PointCount = (nuint)points.Length,
+                Polylines = polylinePointer,
+                PolylineCount = (nuint)polylines.Length
             };
             var metrics = new NativeMethods.GeometryFrameMetrics
             {

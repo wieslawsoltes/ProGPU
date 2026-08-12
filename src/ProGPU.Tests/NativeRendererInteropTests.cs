@@ -38,9 +38,10 @@ public class NativeRendererInteropTests
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.AnalyticFrame>());
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.AnalyticFrameMetrics>());
         Assert.Equal(72, Unsafe.SizeOf<NativeAnalyticPrimitive>());
-        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.GeometryFrame>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.GeometryFrameMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeGeometryPrimitive>());
+        Assert.Equal(72, Unsafe.SizeOf<NativePolyline>());
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(1U, NativeMethods.AbiVersion);
@@ -59,6 +60,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64UL, (ulong)NativeRendererCapabilities.DeviceStrokes);
         Assert.Equal(128UL, (ulong)NativeRendererCapabilities.BezierStrokes);
         Assert.Equal(256UL, (ulong)NativeRendererCapabilities.StrokeCaps);
+        Assert.Equal(512UL, (ulong)NativeRendererCapabilities.ConnectedStrokes);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
@@ -101,6 +103,32 @@ public class NativeRendererInteropTests
             endCap: NativeStrokeCap.Triangle);
         Assert.Equal(NativeStrokeCap.Round, capped.StartCap);
         Assert.Equal(NativeStrokeCap.Triangle, capped.EndCap);
+
+        var polyline = new NativePolyline(
+            4,
+            8,
+            Vector4.One,
+            Matrix3x2.Identity,
+            3f,
+            startCap: NativeStrokeCap.Square,
+            endCap: NativeStrokeCap.Round,
+            lineJoin: NativeStrokeJoin.Bevel,
+            isClosed: true);
+        Assert.Equal((nuint)4, polyline.PointOffset);
+        Assert.Equal((nuint)8, polyline.PointCount);
+        Assert.Equal(NativeStrokeCap.Square, polyline.StartCap);
+        Assert.Equal(NativeStrokeCap.Round, polyline.EndCap);
+        Assert.Equal(NativeStrokeJoin.Bevel, polyline.LineJoin);
+        Assert.True(polyline.IsClosed);
+
+        var normalizedMiter = new NativePolyline(
+            0,
+            2,
+            Vector4.One,
+            Matrix3x2.Identity,
+            1f,
+            float.NaN);
+        Assert.Equal(1f, normalizedMiter.MiterLimit);
     }
 
     [Fact]

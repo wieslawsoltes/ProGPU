@@ -98,6 +98,10 @@ internal static class NativeRendererSamplePage
             new NativeAnalyticPrimitive[MaximumRectangles];
         private readonly NativeGeometryPrimitive[] _geometryPrimitives =
             new NativeGeometryPrimitive[MaximumRectangles];
+        private readonly Vector2[] _polylinePoints =
+            new Vector2[MaximumRectangles * 4];
+        private readonly NativePolyline[] _polylines =
+            new NativePolyline[MaximumRectangles];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
@@ -148,7 +152,8 @@ internal static class NativeRendererSamplePage
             heading.AddChild(CreateText(
                 $"{_info.Name}. One stable C ABI call records one GPU " +
                 "submission. Cycle indexed analytic primitives, lines and " +
-                "polygon geometry, GPU Bezier curves, or the rectangle fast path. Every mode " +
+                "polygon geometry, capped GPU Bezier curves, connected " +
+                "polylines with joins, or the rectangle fast path. Every mode " +
                 "reuses the production Vector.wgsl module.",
                 12f));
             root.AddChild(heading);
@@ -200,7 +205,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 4);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 5);
                 UpdateCountText();
                 RenderFrame();
             };
@@ -272,6 +277,9 @@ internal static class NativeRendererSamplePage
                 case NativeBatchMode.Curves:
                     FillCurvePrimitives(_rectangleCount, _palette);
                     break;
+                case NativeBatchMode.Polylines:
+                    FillPolylines(_rectangleCount, _palette);
+                    break;
                 default:
                     FillRectangles(_rectangleCount, _palette);
                     break;
@@ -298,6 +306,20 @@ internal static class NativeRendererSamplePage
                     _target,
                     dpiScale: 1f,
                     _geometryPrimitives.AsSpan(0, _rectangleCount),
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = metrics.VertexCount;
+                uploadBytes = metrics.VertexUploadBytes +
+                    metrics.IndexUploadBytes + metrics.BrushUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Polylines)
+            {
+                NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
+                    _target,
+                    dpiScale: 1f,
+                    ReadOnlySpan<NativeGeometryPrimitive>.Empty,
+                    _polylinePoints.AsSpan(0, _rectangleCount * 4),
+                    _polylines.AsSpan(0, _rectangleCount),
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
@@ -545,6 +567,71 @@ internal static class NativeRendererSamplePage
             }
         }
 
+        private void FillPolylines(int count, int palette)
+        {
+            const float inset = 24f;
+            float usableWidth = TargetWidth - inset * 2f;
+            float usableHeight = TargetHeight - inset * 2f;
+            int columns = Math.Max(
+                1,
+                (int)MathF.Ceiling(MathF.Sqrt(
+                    count * usableWidth / usableHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = usableWidth / columns;
+            float cellHeight = usableHeight / rows;
+            for (int index = 0; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                float phase = (index * 0.61803398875f + palette * 0.23f) % 1f;
+                float itemWidth = Math.Max(3f, cellWidth * 0.62f);
+                float itemHeight = Math.Max(3f, cellHeight * 0.58f);
+                int pointOffset = index * 4;
+                _polylinePoints[pointOffset] =
+                    new Vector2(-itemWidth * 0.5f, itemHeight * 0.22f);
+                _polylinePoints[pointOffset + 1] =
+                    new Vector2(-itemWidth * 0.18f, -itemHeight * 0.46f);
+                _polylinePoints[pointOffset + 2] =
+                    new Vector2(itemWidth * 0.16f, itemHeight * 0.44f);
+                _polylinePoints[pointOffset + 3] =
+                    new Vector2(itemWidth * 0.5f, -itemHeight * 0.18f);
+                Matrix3x2 transform =
+                    Matrix3x2.CreateScale(
+                        0.8f + 0.4f * Wave(phase + 0.21f),
+                        0.72f + 0.56f * Wave(phase + 0.49f)) *
+                    Matrix3x2.CreateSkew(
+                        (Wave(phase + 0.77f) - 0.5f) * 0.28f,
+                        (Wave(phase + 0.43f) - 0.5f) * 0.14f) *
+                    Matrix3x2.CreateRotation(
+                        (Wave(phase + 0.91f) - 0.5f) * 0.36f) *
+                    Matrix3x2.CreateTranslation(
+                        inset + (column + 0.5f) * cellWidth,
+                        inset + (row + 0.5f) * cellHeight);
+                NativePolylineFlags flags = (index % 3) switch
+                {
+                    0 => NativePolylineFlags.Hairline,
+                    1 => NativePolylineFlags.FixedDeviceStroke,
+                    _ => NativePolylineFlags.None
+                };
+                Vector4 color = Palette(phase, palette);
+                color.W = 0.72f + 0.26f * Wave(phase + 0.17f);
+                _polylines[index] = new NativePolyline(
+                    (nuint)pointOffset,
+                    4,
+                    color,
+                    transform,
+                    flags == NativePolylineFlags.Hairline
+                        ? 0f
+                        : 1f + index % 4,
+                    miterLimit: 2f + index % 5,
+                    flags: flags,
+                    startCap: (NativeStrokeCap)(index % 4),
+                    endCap: (NativeStrokeCap)((index + 2) % 4),
+                    lineJoin: (NativeStrokeJoin)(index % 3),
+                    isClosed: index % 4 == 3);
+            }
+        }
+
         private static float Wave(float phase) =>
             0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
 
@@ -570,6 +657,7 @@ internal static class NativeRendererSamplePage
                     NativeBatchMode.Analytic => $"Analytic: {_rectangleCount:N0}",
                     NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
                     NativeBatchMode.Curves => $"Curves: {_rectangleCount:N0}",
+                    NativeBatchMode.Polylines => $"Polylines: {_rectangleCount:N0}",
                     _ => $"Rectangles: {_rectangleCount:N0}"
                 };
             }
@@ -580,6 +668,7 @@ internal static class NativeRendererSamplePage
             Analytic,
             Geometry,
             Curves,
+            Polylines,
             Rectangles
         }
 

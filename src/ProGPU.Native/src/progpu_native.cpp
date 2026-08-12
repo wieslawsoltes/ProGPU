@@ -122,6 +122,7 @@ struct progpu_native_engine {
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<std::uint32_t> primitive_brush_indices;
+    std::vector<std::uint32_t> polyline_brush_indices;
     std::vector<std::byte> brush_bytes;
     std::string last_error;
     std::uint64_t submission_count = 0;
@@ -673,7 +674,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH |
         PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES |
         PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES |
-        PROGPU_NATIVE_CAPABILITY_STROKE_CAPS;
+        PROGPU_NATIVE_CAPABILITY_STROKE_CAPS |
+        PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1117,8 +1119,11 @@ progpu_native_status progpu_native_engine_render_geometry(
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
         (frame->primitive_count != 0U && frame->primitives == nullptr) ||
+        (frame->point_count != 0U && frame->points == nullptr) ||
+        (frame->polyline_count != 0U && frame->polylines == nullptr) ||
         (frame->flags &
             ~PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U ||
+        frame->reserved != 0U ||
         !progpu::native::is_finite(frame->clear_color)) {
         return engine == nullptr
             ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
@@ -1132,12 +1137,19 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The native renderer must be used from its owner thread.");
     }
     if (frame->primitive_count > (1U << 24U) ||
+        frame->polyline_count > (1U << 24U) ||
+        frame->point_count > (1U << 28U) ||
         frame->primitive_count >
             std::numeric_limits<std::uint32_t>::max() / 6U ||
         frame->primitive_count >
             std::numeric_limits<std::size_t>::max() / 6U ||
         frame->primitive_count >
-            std::numeric_limits<std::size_t>::max() / gpu_brush_size) {
+            std::numeric_limits<std::size_t>::max() / gpu_brush_size ||
+        frame->polyline_count >
+            std::numeric_limits<std::size_t>::max() / gpu_brush_size ||
+        frame->primitive_count >
+            std::numeric_limits<std::size_t>::max() - frame->polyline_count ||
+        frame->primitive_count + frame->polyline_count > (1U << 24U)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The geometry primitive batch is too large.");
@@ -1147,6 +1159,7 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine->vertices.clear();
         engine->indices.clear();
         engine->primitive_brush_indices.clear();
+        engine->polyline_brush_indices.clear();
         std::size_t vertex_capacity = 0U;
         std::size_t index_capacity = 0U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
@@ -1169,9 +1182,37 @@ progpu_native_status progpu_native_engine_render_geometry(
             vertex_capacity += vertices_to_add;
             index_capacity += indices_to_add;
         }
+        for (std::size_t index = 0; index < frame->polyline_count; ++index) {
+            const auto& polyline = frame->polylines[index];
+            std::size_t vertices_to_add = 0U;
+            std::size_t indices_to_add = 0U;
+            if (polyline.point_offset > frame->point_count ||
+                polyline.point_count >
+                    frame->point_count - polyline.point_offset ||
+                !progpu::native::polyline_capacity(
+                    polyline,
+                    vertices_to_add,
+                    indices_to_add) ||
+                vertex_capacity >
+                    std::numeric_limits<std::uint32_t>::max() -
+                        vertices_to_add ||
+                vertex_capacity >
+                    std::numeric_limits<std::size_t>::max() -
+                        vertices_to_add ||
+                index_capacity >
+                    std::numeric_limits<std::size_t>::max() -
+                        indices_to_add) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A connected stroke range exceeds the point arena or indexed upload limits.");
+            }
+            vertex_capacity += vertices_to_add;
+            index_capacity += indices_to_add;
+        }
         engine->vertices.reserve(vertex_capacity);
         engine->indices.reserve(index_capacity);
         engine->primitive_brush_indices.resize(frame->primitive_count);
+        engine->polyline_brush_indices.resize(frame->polyline_count);
         std::uint32_t brush_count = 1U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {
             const std::uint32_t brush_index =
@@ -1188,6 +1229,21 @@ progpu_native_status progpu_native_engine_render_geometry(
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                     "A geometry primitive contains invalid points, stroke state, color, transform, or flags.");
+            }
+        }
+        for (std::size_t index = 0; index < frame->polyline_count; ++index) {
+            const std::uint32_t brush_index = brush_count++;
+            engine->polyline_brush_indices[index] = brush_index;
+            const auto& polyline = frame->polylines[index];
+            if (!progpu::native::append_polyline(
+                    polyline,
+                    frame->points + polyline.point_offset,
+                    static_cast<float>(brush_index),
+                    engine->vertices,
+                    engine->indices)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A connected stroke contains invalid points, stroke state, transform, join, or flags.");
             }
         }
 
@@ -1211,6 +1267,16 @@ progpu_native_status progpu_native_engine_render_geometry(
             std::memcpy(
                 brush + 64U,
                 &frame->primitives[index].color,
+                sizeof(progpu_native_color));
+        }
+        for (std::size_t index = 0; index < frame->polyline_count; ++index) {
+            const std::uint32_t brush_index =
+                engine->polyline_brush_indices[index];
+            std::byte* brush = engine->brush_bytes.data() +
+                static_cast<std::size_t>(brush_index) * gpu_brush_size;
+            std::memcpy(
+                brush + 64U,
+                &frame->polylines[index].color,
                 sizeof(progpu_native_color));
         }
     } catch (const std::bad_alloc&) {

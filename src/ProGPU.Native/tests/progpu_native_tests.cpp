@@ -55,6 +55,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_STROKE_CAPS) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 
@@ -314,6 +316,76 @@ void invalid_geometry_flags_fail_without_partial_append() {
     PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
+void connected_strokes_encode_caps_joins_and_closed_contours() {
+    const progpu_native_point points[] = {
+        {2.0F, 3.0F},
+        {12.0F, 3.0F},
+        {12.0F, 13.0F},
+        {22.0F, 13.0F}
+    };
+    progpu_native_polyline open{
+        0U,
+        4U,
+        {0.2F, 0.4F, 0.8F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        0.0F,
+        6.0F,
+        PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
+            (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                PROGPU_NATIVE_POLYLINE_START_CAP_SHIFT) |
+            (PROGPU_NATIVE_STROKE_CAP_TRIANGLE <<
+                PROGPU_NATIVE_POLYLINE_END_CAP_SHIFT) |
+            (PROGPU_NATIVE_STROKE_JOIN_ROUND <<
+                PROGPU_NATIVE_POLYLINE_JOIN_SHIFT),
+        0U
+    };
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::polyline_capacity(
+        open,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(vertex_capacity == 140U);
+    PROGPU_REQUIRE(index_capacity == 210U);
+
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        open,
+        points,
+        5.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 28U);
+    PROGPU_REQUIRE(indices.size() == 42U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 22.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[8].shape_type, 23.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[12].shape_type, 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[16].shape_type, 23.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[20].shape_type, 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[24].shape_type, 22.0F));
+
+    vertices.clear();
+    indices.clear();
+    open.point_count = 3U;
+    open.stroke_thickness = 4.0F;
+    open.flags = PROGPU_NATIVE_POLYLINE_FLAG_CLOSED |
+        (PROGPU_NATIVE_STROKE_JOIN_BEVEL <<
+            PROGPU_NATIVE_POLYLINE_JOIN_SHIFT);
+    open.transform = {2.0F, 0.25F, 0.5F, 1.0F, 3.0F, 5.0F};
+    PROGPU_REQUIRE(progpu::native::append_polyline(
+        open,
+        points,
+        6.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 24U);
+    PROGPU_REQUIRE(indices.size() == 36U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 14.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[4].shape_type, 13.0F));
+}
+
 void indexed_analytic_batch_preserves_affine_local_coordinates() {
     progpu_native_analytic_primitive primitive{
         PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
@@ -418,6 +490,7 @@ int main() {
     geometry_batch_encodes_device_strokes_and_fills();
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     geometry_batch_preserves_cap_order_and_space();
+    connected_strokes_encode_caps_joins_and_closed_contours();
     invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();
     std::cout << "ProGPU native CPU/ABI tests passed.\n";

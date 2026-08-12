@@ -46,6 +46,13 @@ public enum NativeStrokeCap : uint
     Triangle = 3
 }
 
+public enum NativeStrokeJoin : uint
+{
+    Miter = 0,
+    Bevel = 1,
+    Round = 2
+}
+
 [Flags]
 public enum NativeAnalyticPrimitiveFlags : uint
 {
@@ -65,6 +72,19 @@ public enum NativeGeometryPrimitiveFlags : uint
 }
 
 [Flags]
+public enum NativePolylineFlags : uint
+{
+    None = 0,
+    EdgeAliased = 1U << 0,
+    Hairline = 1U << 1,
+    FixedDeviceStroke = 1U << 2,
+    StartCapMask = 3U << 3,
+    EndCapMask = 3U << 5,
+    JoinMask = 3U << 7,
+    Closed = 1U << 9
+}
+
+[Flags]
 public enum NativeRendererCapabilities : ulong
 {
     None = 0,
@@ -76,7 +96,8 @@ public enum NativeRendererCapabilities : ulong
     IndexedGeometryBatch = 1UL << 5,
     DeviceStrokes = 1UL << 6,
     BezierStrokes = 1UL << 7,
-    StrokeCaps = 1UL << 8
+    StrokeCaps = 1UL << 8,
+    ConnectedStrokes = 1UL << 9
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -194,6 +215,70 @@ public readonly struct NativeGeometryPrimitive
 
     public NativeStrokeCap EndCap =>
         (NativeStrokeCap)(((uint)Flags >> 5) & 3U);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativePolyline
+{
+    public NativePolyline(
+        nuint pointOffset,
+        nuint pointCount,
+        Vector4 color,
+        Matrix3x2 transform,
+        float strokeThickness,
+        float miterLimit = 10f,
+        NativePolylineFlags flags = NativePolylineFlags.None,
+        NativeStrokeCap startCap = NativeStrokeCap.Flat,
+        NativeStrokeCap endCap = NativeStrokeCap.Flat,
+        NativeStrokeJoin lineJoin = NativeStrokeJoin.Miter,
+        bool isClosed = false)
+    {
+        if ((uint)startCap > (uint)NativeStrokeCap.Triangle)
+            throw new ArgumentOutOfRangeException(nameof(startCap));
+        if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
+            throw new ArgumentOutOfRangeException(nameof(endCap));
+        if ((uint)lineJoin > (uint)NativeStrokeJoin.Round)
+            throw new ArgumentOutOfRangeException(nameof(lineJoin));
+
+        PointOffset = pointOffset;
+        PointCount = pointCount;
+        Color = color;
+        Transform = transform;
+        StrokeThickness = strokeThickness;
+        MiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f
+            ? miterLimit
+            : 1f;
+        Flags = (flags & ~(
+                NativePolylineFlags.StartCapMask |
+                NativePolylineFlags.EndCapMask |
+                NativePolylineFlags.JoinMask |
+                NativePolylineFlags.Closed)) |
+            (NativePolylineFlags)((uint)startCap << 3) |
+            (NativePolylineFlags)((uint)endCap << 5) |
+            (NativePolylineFlags)((uint)lineJoin << 7) |
+            (isClosed ? NativePolylineFlags.Closed : 0);
+        Reserved = 0U;
+    }
+
+    public readonly nuint PointOffset;
+    public readonly nuint PointCount;
+    public readonly Vector4 Color;
+    public readonly Matrix3x2 Transform;
+    public readonly float StrokeThickness;
+    public readonly float MiterLimit;
+    public readonly NativePolylineFlags Flags;
+    private readonly uint Reserved;
+
+    public NativeStrokeCap StartCap =>
+        (NativeStrokeCap)(((uint)Flags >> 3) & 3U);
+
+    public NativeStrokeCap EndCap =>
+        (NativeStrokeCap)(((uint)Flags >> 5) & 3U);
+
+    public NativeStrokeJoin LineJoin =>
+        (NativeStrokeJoin)(((uint)Flags >> 7) & 3U);
+
+    public bool IsClosed => (Flags & NativePolylineFlags.Closed) != 0;
 }
 
 public readonly record struct NativeFrameMetrics(

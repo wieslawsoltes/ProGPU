@@ -40,7 +40,13 @@ bool useCurveGeometryScene = Array.Exists(
         value,
         "--geometry-curves",
         StringComparison.OrdinalIgnoreCase));
-useGeometryScene |= useCurveGeometryScene;
+bool usePolylineGeometryScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--geometry-polylines",
+        StringComparison.OrdinalIgnoreCase));
+useGeometryScene |= useCurveGeometryScene || usePolylineGeometryScene;
 bool writeImages = Array.Exists(
     args,
     static value => string.Equals(
@@ -52,6 +58,7 @@ int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
 int geometryStartCap = ReadArgument("--geometry-start-cap", -1);
 int geometryEndCap = ReadArgument("--geometry-end-cap", -1);
+int geometryJoin = ReadArgument("--geometry-join", -1);
 
 NativeSolidRectangle[] rectangles = CreateRectangles(
     rectangleCount,
@@ -65,6 +72,7 @@ NativeAnalyticPrimitive[] analyticPrimitives = useAnalyticScene
         logicalHeight)
     : [];
 NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
+    && !usePolylineGeometryScene
     ? CreateGeometryPrimitives(
         rectangleCount,
         geometryKind,
@@ -75,6 +83,17 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
         logicalWidth,
         logicalHeight)
     : [];
+(Vector2[] geometryPoints, NativePolyline[] geometryPolylines) =
+    usePolylineGeometryScene
+        ? CreatePolylines(
+            rectangleCount,
+            geometryLineMode,
+            geometryStartCap,
+            geometryEndCap,
+            geometryJoin,
+            logicalWidth,
+            logicalHeight)
+        : ([], []);
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
 
 using var context = new WgpuContext();
@@ -94,6 +113,8 @@ using var managed = new Compositor(
 DrawingVisual managedVisual = useGeometryScene
     ? CreateManagedGeometryVisual(
         geometryPrimitives,
+        geometryPoints,
+        geometryPolylines,
         logicalWidth,
         logicalHeight)
     : useAnalyticScene
@@ -226,7 +247,9 @@ var report = new BenchmarkReport(
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
     Scene: useGeometryScene
-        ? useCurveGeometryScene
+        ? usePolylineGeometryScene
+            ? "IndexedGeometryPolylines"
+            : useCurveGeometryScene
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
@@ -259,12 +282,22 @@ ulong RenderNative(bool capturePayloadHash = false)
 {
     if (useGeometryScene)
     {
-        return native.RenderGeometry(
-            nativeTarget,
-            dpiScale,
-            geometryPrimitives,
-            clearColor,
-            capturePayloadHash).PayloadHash;
+        NativeGeometryFrameMetrics metrics = usePolylineGeometryScene
+            ? native.RenderGeometry(
+                nativeTarget,
+                dpiScale,
+                geometryPrimitives,
+                geometryPoints,
+                geometryPolylines,
+                clearColor,
+                capturePayloadHash)
+            : native.RenderGeometry(
+                nativeTarget,
+                dpiScale,
+                geometryPrimitives,
+                clearColor,
+                capturePayloadHash);
+        return metrics.PayloadHash;
     }
     if (useAnalyticScene)
     {
@@ -702,8 +735,99 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
         0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
 }
 
+static (Vector2[] Points, NativePolyline[] Polylines) CreatePolylines(
+    int count,
+    int forcedLineMode,
+    int forcedStartCap,
+    int forcedEndCap,
+    int forcedJoin,
+    float logicalWidth,
+    float logicalHeight)
+{
+    const int pointsPerPolyline = 4;
+    var points = new Vector2[count * pointsPerPolyline];
+    var polylines = new NativePolyline[count];
+    const float inset = 24f;
+    float usableWidth = logicalWidth - inset * 2f;
+    float usableHeight = logicalHeight - inset * 2f;
+    int columns = Math.Max(
+        1,
+        (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = usableWidth / columns;
+    float cellHeight = usableHeight / rows;
+    NativeStrokeCap startCap = forcedStartCap is >= 0 and <= 3
+        ? (NativeStrokeCap)forcedStartCap
+        : NativeStrokeCap.Round;
+    NativeStrokeCap endCap = forcedEndCap is >= 0 and <= 3
+        ? (NativeStrokeCap)forcedEndCap
+        : NativeStrokeCap.Triangle;
+
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float phase = index * 0.61803398875f % 1f;
+        float itemWidth = Math.Max(3f, cellWidth * 0.62f);
+        float itemHeight = Math.Max(3f, cellHeight * 0.58f);
+        int offset = index * pointsPerPolyline;
+        points[offset] = new(-itemWidth * 0.5f, itemHeight * 0.22f);
+        points[offset + 1] = new(-itemWidth * 0.18f, -itemHeight * 0.46f);
+        points[offset + 2] = new(itemWidth * 0.16f, itemHeight * 0.44f);
+        points[offset + 3] = new(itemWidth * 0.5f, -itemHeight * 0.18f);
+        Vector2 center = new(
+            inset + (column + 0.5f) * cellWidth,
+            inset + (row + 0.5f) * cellHeight);
+        Matrix3x2 transform =
+            Matrix3x2.CreateScale(
+                0.8f + 0.4f * Wave(phase + 0.21f),
+                0.72f + 0.56f * Wave(phase + 0.49f)) *
+            Matrix3x2.CreateSkew(
+                (Wave(phase + 0.77f) - 0.5f) * 0.28f,
+                (Wave(phase + 0.43f) - 0.5f) * 0.14f) *
+            Matrix3x2.CreateRotation(
+                (Wave(phase + 0.91f) - 0.5f) * 0.36f) *
+            Matrix3x2.CreateTranslation(center);
+        Vector4 color = new(
+            0.16f + 0.68f * Wave(phase),
+            0.2f + 0.72f * Wave(phase + 0.333f),
+            0.25f + 0.7f * Wave(phase + 0.666f),
+            0.6f + 0.35f * Wave(phase + 0.17f));
+        int lineMode = forcedLineMode is >= 0 and <= 2
+            ? forcedLineMode
+            : index % 9 / 3;
+        NativePolylineFlags flags = lineMode switch
+        {
+            0 => NativePolylineFlags.Hairline,
+            1 => NativePolylineFlags.FixedDeviceStroke,
+            _ => NativePolylineFlags.None
+        };
+        NativeStrokeJoin join = forcedJoin is >= 0 and <= 2
+            ? (NativeStrokeJoin)forcedJoin
+            : (NativeStrokeJoin)(index % 3);
+        polylines[index] = new NativePolyline(
+            (nuint)offset,
+            (nuint)pointsPerPolyline,
+            color,
+            transform,
+            flags == NativePolylineFlags.Hairline ? 0f : 1f + index % 4,
+            miterLimit: 2f + index % 5,
+            flags: flags,
+            startCap: startCap,
+            endCap: endCap,
+            lineJoin: join,
+            isClosed: index % 4 == 3);
+    }
+    return (points, polylines);
+
+    static float Wave(float phase) =>
+        0.5f + 0.5f * MathF.Sin(phase * MathF.Tau);
+}
+
 static DrawingVisual CreateManagedGeometryVisual(
     ReadOnlySpan<NativeGeometryPrimitive> primitives,
+    ReadOnlySpan<Vector2> points,
+    ReadOnlySpan<NativePolyline> polylines,
     float logicalWidth,
     float logicalHeight)
 {
@@ -808,6 +932,41 @@ static DrawingVisual CreateManagedGeometryVisual(
                     $"Unsupported geometry primitive {primitive.Kind}.");
         }
     }
+    foreach (ref readonly NativePolyline polyline in polylines)
+    {
+        int offset = checked((int)polyline.PointOffset);
+        int count = checked((int)polyline.PointCount);
+        var brush = new SolidColorBrush(polyline.Color);
+        var mode = (polyline.Flags &
+            NativePolylineFlags.FixedDeviceStroke) != 0
+            ? PenStrokeTransformMode.Fixed
+            : PenStrokeTransformMode.Normal;
+        float thickness = (polyline.Flags & NativePolylineFlags.Hairline) != 0
+            ? Pen.HairlineThickness
+            : polyline.StrokeThickness;
+        visual.Context.DrawPolyline(
+            new Pen(
+                brush,
+                thickness,
+                lineJoin: ToPenLineJoin(polyline.LineJoin),
+                miterLimit: polyline.MiterLimit,
+                startLineCap: ToPenLineCap(polyline.StartCap),
+                endLineCap: ToPenLineCap(polyline.EndCap),
+                strokeTransformMode: mode),
+            points.Slice(offset, count),
+            polyline.IsClosed);
+        RenderCommand command = visual.Context.Commands[^1];
+        Matrix3x2 affine = polyline.Transform;
+        command.Transform = new Matrix4x4(
+            affine.M11, affine.M12, 0f, 0f,
+            affine.M21, affine.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            affine.M31, affine.M32, 0f, 1f);
+        command.IsPenThicknessLocal = true;
+        command.IsEdgeAliased =
+            (polyline.Flags & NativePolylineFlags.EdgeAliased) != 0;
+        visual.Context.Commands[^1] = command;
+    }
     return visual;
 
     static PenLineCap ToPenLineCap(NativeStrokeCap cap) => cap switch
@@ -816,6 +975,13 @@ static DrawingVisual CreateManagedGeometryVisual(
         NativeStrokeCap.Round => PenLineCap.Round,
         NativeStrokeCap.Triangle => PenLineCap.Triangle,
         _ => PenLineCap.Flat
+    };
+
+    static PenLineJoin ToPenLineJoin(NativeStrokeJoin join) => join switch
+    {
+        NativeStrokeJoin.Bevel => PenLineJoin.Bevel,
+        NativeStrokeJoin.Round => PenLineJoin.Round,
+        _ => PenLineJoin.Miter
     };
 }
 

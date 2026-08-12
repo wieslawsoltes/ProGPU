@@ -29,7 +29,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH = 1ULL << 5U,
     PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES = 1ULL << 6U,
     PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U,
-    PROGPU_NATIVE_CAPABILITY_STROKE_CAPS = 1ULL << 8U
+    PROGPU_NATIVE_CAPABILITY_STROKE_CAPS = 1ULL << 8U,
+    PROGPU_NATIVE_CAPABILITY_CONNECTED_STROKES = 1ULL << 9U
 };
 
 enum {
@@ -115,6 +116,25 @@ typedef enum progpu_native_stroke_cap {
     PROGPU_NATIVE_STROKE_CAP_TRIANGLE = 3
 } progpu_native_stroke_cap;
 
+typedef enum progpu_native_stroke_join {
+    PROGPU_NATIVE_STROKE_JOIN_MITER = 0,
+    PROGPU_NATIVE_STROKE_JOIN_BEVEL = 1,
+    PROGPU_NATIVE_STROKE_JOIN_ROUND = 2
+} progpu_native_stroke_join;
+
+enum {
+    PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED = 1U << 0U,
+    PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE = 1U << 1U,
+    PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE = 1U << 2U,
+    PROGPU_NATIVE_POLYLINE_START_CAP_SHIFT = 3U,
+    PROGPU_NATIVE_POLYLINE_START_CAP_MASK = 3U << 3U,
+    PROGPU_NATIVE_POLYLINE_END_CAP_SHIFT = 5U,
+    PROGPU_NATIVE_POLYLINE_END_CAP_MASK = 3U << 5U,
+    PROGPU_NATIVE_POLYLINE_JOIN_SHIFT = 7U,
+    PROGPU_NATIVE_POLYLINE_JOIN_MASK = 3U << 7U,
+    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED = 1U << 9U
+};
+
 typedef enum progpu_native_geometry_primitive_kind {
     PROGPU_NATIVE_GEOMETRY_LINE = 0,
     PROGPU_NATIVE_GEOMETRY_TRIANGLE = 1,
@@ -183,6 +203,23 @@ typedef struct progpu_native_geometry_primitive {
 } progpu_native_geometry_primitive;
 
 /*
+ * A connected stroke borrows a contiguous range from geometry_frame.points.
+ * Open records apply their endpoint caps; closed records ignore caps and join
+ * the last point back to the first. The point arena remains caller-owned only
+ * until progpu_native_engine_render_geometry returns.
+ */
+typedef struct progpu_native_polyline {
+    size_t point_offset;
+    size_t point_count;
+    progpu_native_color color;
+    progpu_native_affine_2d transform;
+    float stroke_thickness;
+    float miter_limit;
+    uint32_t flags;
+    uint32_t reserved;
+} progpu_native_polyline;
+
+/*
  * width and height are physical target pixels. Rectangle coordinates are
  * logical pixels and dpi_scale maps logical coordinates to physical pixels.
  * target_view is borrowed for the duration of the call.
@@ -241,6 +278,10 @@ typedef struct progpu_native_geometry_frame {
     size_t primitive_count;
     uint32_t flags;
     uint32_t reserved;
+    const progpu_native_point* points;
+    size_t point_count;
+    const progpu_native_polyline* polylines;
+    size_t polyline_count;
 } progpu_native_geometry_frame;
 
 typedef struct progpu_native_geometry_frame_metrics {

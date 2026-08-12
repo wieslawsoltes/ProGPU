@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -95,6 +96,10 @@ internal static unsafe partial class NativeMethods
         internal nuint PrimitiveCount;
         internal uint Flags;
         internal uint Reserved;
+        internal Vector2* Points;
+        internal nuint PointCount;
+        internal NativePolyline* Polylines;
+        internal nuint PolylineCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -361,18 +361,41 @@ The optional frame payload hash is `O(V + I + B)` over compiled vertices,
 indices, and brushes and is disabled by default; benchmark correctness enables
 it for one warmed frame only, never in timed steady-state submissions.
 
+The fifth Tranche A increment adds connected open and closed solid polylines.
+The frame borrows one caller-owned point arena plus compact 72-byte polyline
+descriptors; each descriptor references its points by checked offset and count.
+The native call does not retain either span after submission. One brush is
+uploaded per polyline, while every line body, cap, and join is appended to the
+same pre-reserved indexed batch and submitted in one draw.
+
+Hairline and fixed-device joins transform their adjacent centerline points
+first and use production GPU shape 23, preserving their requested device-space
+width under anisotropic scale and shear. Ordinary affine joins construct the
+complete miter, bevel, or eight-section round outline in local space and then
+apply the full affine transform. Open contours emit their start cap, connected
+segments and joins, then their end cap. Closed contours emit the closing
+segment and every cyclic join while intentionally ignoring endpoint caps.
+
+For `P` source points and `J` joins, validation, compilation, and upload are
+`O(P + J)` time. The borrowed point arena is `O(P)` caller storage and the
+descriptor array is `O(L)` for `L` polylines. Each join and cap has fixed
+bounded scratch: at most 32 vertices and 48 indices. Checked preflight reserves
+the complete worst-case output before compilation, so warmed submission has no
+per-contour allocation and no per-point ABI call.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
 - indexed analytic quad batching for rectangle, ellipse, and circular rounded
   rectangle plus capped line, triangle, and quadrilateral geometry is
-  implemented; capped quadratic/cubic curves are implemented; polyline and
-  spline remain;
+  implemented; capped quadratic/cubic curves and connected solid polylines are
+  implemented; spline remains;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
-  curve hairline/fixed-device strokes and all four line/curve cap kinds are
-  implemented; joins, dashes, and the remaining primitives are pending;
+  curve hairline/fixed-device strokes, all four line/curve cap kinds, and all
+  three solid-polyline join kinds are implemented; dashes and the remaining
+  primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
