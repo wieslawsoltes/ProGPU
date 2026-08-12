@@ -57,6 +57,9 @@ public class NativeRendererInteropTests
         Assert.Equal(16UL, (ulong)NativeRendererCapabilities.Affine2D);
         Assert.Equal(32UL, (ulong)NativeRendererCapabilities.IndexedGeometryBatch);
         Assert.Equal(64UL, (ulong)NativeRendererCapabilities.DeviceStrokes);
+        Assert.Equal(128UL, (ulong)NativeRendererCapabilities.BezierStrokes);
+        Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
+        Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
     }

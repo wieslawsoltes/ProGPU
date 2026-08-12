@@ -27,7 +27,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_INDEXED_ANALYTIC_BATCH = 1ULL << 3U,
     PROGPU_NATIVE_CAPABILITY_AFFINE_2D = 1ULL << 4U,
     PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH = 1ULL << 5U,
-    PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES = 1ULL << 6U
+    PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES = 1ULL << 6U,
+    PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES = 1ULL << 7U
 };
 
 typedef enum progpu_native_status {
@@ -101,7 +102,9 @@ enum {
 typedef enum progpu_native_geometry_primitive_kind {
     PROGPU_NATIVE_GEOMETRY_LINE = 0,
     PROGPU_NATIVE_GEOMETRY_TRIANGLE = 1,
-    PROGPU_NATIVE_GEOMETRY_QUADRILATERAL = 2
+    PROGPU_NATIVE_GEOMETRY_QUADRILATERAL = 2,
+    PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER = 3,
+    PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER = 4
 } progpu_native_geometry_primitive_kind;
 
 typedef struct progpu_native_point {
@@ -142,10 +145,12 @@ typedef struct progpu_native_analytic_primitive {
 
 /*
  * A geometry record uses p0/p1 for a flat-cap line, p0..p2 for a filled
- * triangle, or p0..p3 for a filled quadrilateral. A normal line stroke scales
- * with transform; HAIRLINE selects one framebuffer pixel and
+ * triangle or quadratic Bezier stroke, and p0..p3 for a filled quadrilateral
+ * or cubic Bezier stroke. A normal stroke scales with transform; HAIRLINE
+ * selects one framebuffer pixel and
  * FIXED_DEVICE_STROKE keeps stroke_thickness in framebuffer pixels. The two
- * device-stroke flags are mutually exclusive and apply only to lines.
+ * device-stroke flags are mutually exclusive and apply only to stroked lines
+ * and curves. Curve endpoints use flat caps.
  */
 typedef struct progpu_native_geometry_primitive {
     uint32_t kind;

@@ -660,7 +660,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_INDEXED_ANALYTIC_BATCH |
         PROGPU_NATIVE_CAPABILITY_AFFINE_2D |
         PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH |
-        PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES;
+        PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES |
+        PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES;
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
@@ -1132,8 +1133,30 @@ progpu_native_status progpu_native_engine_render_geometry(
         engine->vertices.clear();
         engine->indices.clear();
         engine->primitive_brush_indices.clear();
-        engine->vertices.reserve(frame->primitive_count * 4U);
-        engine->indices.reserve(frame->primitive_count * 6U);
+        std::size_t vertex_capacity = 0U;
+        std::size_t index_capacity = 0U;
+        for (std::size_t index = 0; index < frame->primitive_count; ++index) {
+            std::size_t vertices_to_add = 0U;
+            std::size_t indices_to_add = 0U;
+            if (!progpu::native::geometry_primitive_capacity(
+                    frame->primitives[index],
+                    vertices_to_add,
+                    indices_to_add) ||
+                vertex_capacity >
+                    std::numeric_limits<std::uint32_t>::max() - vertices_to_add ||
+                vertex_capacity >
+                    std::numeric_limits<std::size_t>::max() - vertices_to_add ||
+                index_capacity >
+                    std::numeric_limits<std::size_t>::max() - indices_to_add) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "The geometry primitive batch exceeds the indexed upload limits.");
+            }
+            vertex_capacity += vertices_to_add;
+            index_capacity += indices_to_add;
+        }
+        engine->vertices.reserve(vertex_capacity);
+        engine->indices.reserve(index_capacity);
         engine->primitive_brush_indices.resize(frame->primitive_count);
         std::uint32_t brush_count = 1U;
         for (std::size_t index = 0; index < frame->primitive_count; ++index) {

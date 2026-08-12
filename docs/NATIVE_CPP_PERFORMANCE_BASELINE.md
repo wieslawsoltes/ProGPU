@@ -215,3 +215,53 @@ Additional ignored evidence:
   errors, and allocation-size table;
 - native, managed, and absolute-difference PPM/PNG images under
   `artifacts/progpu-native/differential/`.
+
+## Indexed Bezier curve Tranche A supplement
+
+The next native increment adds quadratic and cubic Bezier records to the same
+indexed geometry batch. The deterministic 512-record scene alternates both
+curve orders and covers direct GPU hairline/fixed-device evaluation plus the
+adaptive exact-outline route for ordinary anisotropic/sheared strokes.
+
+The clean 5,000-iteration Release run on the same Apple M3 Pro/Metal device
+reported:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| Mean CPU encode/upload/submit | 0.6077 ms | 1.4740 ms |
+| p50 CPU encode/upload/submit | 0.5987 ms | 1.0487 ms |
+| p95 CPU encode/upload/submit | 0.6857 ms | 4.0898 ms |
+| Worst observed submission | 1.1144 ms | 5.8367 ms |
+| Managed allocation total | 5,904 bytes | 11,640,000 bytes |
+| Managed allocation / frame | 1.1808 bytes | 2,328 bytes |
+
+This is about 2.43 times lower mean CPU submission time and 5.96 times lower
+p95 for the curve slice. A separate 1,000-iteration synchronized run drains
+each renderer within its measured interval: native/managed mean was
+3.8158/4.4721 ms and p95 was 6.7292/7.4126 ms. Native is about 1.17 times
+faster by mean and 1.10 times by p95 when GPU completion dominates. The
+combined native+managed process reported 23,314,432 bytes (22.23 MiB) from
+Metal `currentAllocatedSize`; this is not separable per renderer.
+
+The 512-curve readback has maximum channel difference 1/255, no pixel above
+3/255, mean absolute channel difference 0.000000482, and hashes
+`2AF3B48986292CB2`/`68FC62AC0D4A68BB`. The difference is one channel value in
+the entire image. A 4,096-curve DPI-2 stress has maximum 3/255, no pixel above
+tolerance, and mean absolute difference 0.000324.
+
+Matched Instruments captures used the same Release binary. The 5,000-frame
+Time Profiler run reported native/managed mean 0.6259/1.4395 ms and p95
+0.7068/4.0695 ms. The 2,000-frame Allocations run reported 3.048/2,328 bytes
+of managed allocation per frame. The 200-frame synchronized Metal trace
+reported native/managed mean 3.5193/4.0674 ms and p95 6.5500/7.1007 ms,
+identified `ProGPU native indexed geometry pass` and
+`Offscreen Compositor Encoder`, and contained no command-buffer error row.
+
+Additional ignored evidence:
+
+- `native-managed-curves-time-profiler.trace` plus JSON and exported TOC;
+- `native-managed-curves-allocations.trace` plus JSON and exported TOC;
+- `native-managed-curves-metal.trace` plus JSON, exported TOC, labels,
+  command-buffer errors, and memory schema;
+- curve native, managed, and absolute-difference PPM/PNG images under
+  `artifacts/progpu-native/differential/`.

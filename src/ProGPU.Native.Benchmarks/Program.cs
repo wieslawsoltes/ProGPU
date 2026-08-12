@@ -34,6 +34,13 @@ bool useGeometryScene = Array.Exists(
         value,
         "--geometry",
         StringComparison.OrdinalIgnoreCase));
+bool useCurveGeometryScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--geometry-curves",
+        StringComparison.OrdinalIgnoreCase));
+useGeometryScene |= useCurveGeometryScene;
 bool writeImages = Array.Exists(
     args,
     static value => string.Equals(
@@ -60,6 +67,7 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
         rectangleCount,
         geometryKind,
         geometryLineMode,
+        useCurveGeometryScene,
         logicalWidth,
         logicalHeight)
     : [];
@@ -196,13 +204,19 @@ GC.KeepAlive(nativeAllocationStart);
 
 TimingSummary nativeSummary = Summarize(nativeTimes, nativeAllocatedBytes);
 TimingSummary managedSummary = Summarize(managedTimes, managedAllocatedBytes);
+ulong combinedMetalAllocatedBytes =
+    context.TryCaptureNativeResourceSnapshot(out var resourceSnapshot)
+        ? resourceSnapshot.MetalAllocatedBytes
+        : 0UL;
 var report = new BenchmarkReport(
     RuntimeInformation: System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
     Scene: useGeometryScene
-        ? "IndexedGeometry"
+        ? useCurveGeometryScene
+            ? "IndexedGeometryCurves"
+            : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: requiresExactPixels
         ? "Exact"
@@ -221,6 +235,7 @@ var report = new BenchmarkReport(
     NativeToManagedP95Ratio: managedSummary.P95Milliseconds == 0
         ? 0
         : nativeSummary.P95Milliseconds / managedSummary.P95Milliseconds,
+    CombinedMetalAllocatedBytes: combinedMetalAllocatedBytes,
     PixelParity: comparison);
 
 Console.WriteLine(JsonSerializer.Serialize(
@@ -540,6 +555,7 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
     int count,
     int forcedKind,
     int forcedLineMode,
+    bool curvesOnly,
     float logicalWidth,
     float logicalHeight)
 {
@@ -578,7 +594,9 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
             Matrix3x2.CreateRotation(
                 (Wave(phase + 0.91f) - 0.5f) * 0.32f) *
             Matrix3x2.CreateTranslation(center);
-        int kind = forcedKind is >= 0 and <= 2 ? forcedKind : index % 3;
+        int kind = forcedKind is >= 0 and <= 4
+            ? forcedKind
+            : curvesOnly ? 3 + index % 2 : index % 3;
         switch (kind)
         {
             case 0:
@@ -611,7 +629,7 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
                     transform,
                     p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.45f));
                 break;
-            default:
+            case 2:
                 result[index] = new NativeGeometryPrimitive(
                     NativeGeometryPrimitiveKind.Quadrilateral,
                     new Vector2(-itemWidth * 0.5f, -itemHeight * 0.35f),
@@ -621,6 +639,34 @@ static NativeGeometryPrimitive[] CreateGeometryPrimitives(
                     p2: new Vector2(itemWidth * 0.5f, itemHeight * 0.35f),
                     p3: new Vector2(-itemWidth * 0.35f, itemHeight * 0.5f));
                 break;
+            case 3:
+            case 4:
+                int curveLineMode = forcedLineMode is >= 0 and <= 2
+                    ? forcedLineMode
+                    : index % 9 / 3;
+                NativeGeometryPrimitiveFlags curveFlags = curveLineMode switch
+                {
+                    0 => NativeGeometryPrimitiveFlags.Hairline,
+                    1 => NativeGeometryPrimitiveFlags.FixedDeviceStroke,
+                    _ => NativeGeometryPrimitiveFlags.None
+                };
+                result[index] = new NativeGeometryPrimitive(
+                    kind == 3
+                        ? NativeGeometryPrimitiveKind.QuadraticBezier
+                        : NativeGeometryPrimitiveKind.CubicBezier,
+                    new Vector2(-itemWidth * 0.5f, itemHeight * 0.22f),
+                    new Vector2(-itemWidth * 0.18f, -itemHeight * 0.62f),
+                    color,
+                    transform,
+                    p2: new Vector2(itemWidth * 0.18f, itemHeight * 0.58f),
+                    p3: new Vector2(itemWidth * 0.5f, -itemHeight * 0.18f),
+                    strokeThickness: curveFlags == NativeGeometryPrimitiveFlags.Hairline
+                        ? 0f
+                        : 1f + index % 4,
+                    flags: curveFlags);
+                break;
+            default:
+                throw new InvalidOperationException("Unsupported geometry kind.");
         }
     }
     return result;
@@ -681,6 +727,36 @@ static DrawingVisual CreateManagedGeometryVisual(
                     Vector2.Transform(primitive.P1, affine),
                     Vector2.Transform(primitive.P2, affine),
                     Vector2.Transform(primitive.P3, affine));
+                break;
+            case NativeGeometryPrimitiveKind.QuadraticBezier:
+            case NativeGeometryPrimitiveKind.CubicBezier:
+                var curveMode = (primitive.Flags &
+                    NativeGeometryPrimitiveFlags.FixedDeviceStroke) != 0
+                    ? PenStrokeTransformMode.Fixed
+                    : PenStrokeTransformMode.Normal;
+                float curveThickness = (primitive.Flags &
+                    NativeGeometryPrimitiveFlags.Hairline) != 0
+                    ? Pen.HairlineThickness
+                    : primitive.StrokeThickness;
+                var curvePen = new Pen(
+                    brush,
+                    curveThickness,
+                    strokeTransformMode: curveMode);
+                visual.Context.Commands.Add(new RenderCommand
+                {
+                    Type = primitive.Kind == NativeGeometryPrimitiveKind.QuadraticBezier
+                        ? RenderCommandType.DrawBezier
+                        : RenderCommandType.DrawCubicBezier,
+                    Pen = curvePen,
+                    Position = primitive.P0,
+                    Position2 = primitive.P1,
+                    Position3 = primitive.P2,
+                    Position4 = primitive.P3,
+                    Transform = transform,
+                    IsPenThicknessLocal = true,
+                    IsEdgeAliased = (primitive.Flags &
+                        NativeGeometryPrimitiveFlags.EdgeAliased) != 0
+                });
                 break;
             default:
                 throw new InvalidOperationException(
@@ -804,6 +880,7 @@ internal sealed record BenchmarkReport(
     TimingSummary Native,
     TimingSummary Managed,
     double NativeToManagedP95Ratio,
+    ulong CombinedMetalAllocatedBytes,
     PixelComparison PixelParity);
 
 internal sealed record TimingSummary(

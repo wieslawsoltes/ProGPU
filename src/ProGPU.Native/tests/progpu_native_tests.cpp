@@ -51,6 +51,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_INDEXED_GEOMETRY_BATCH) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_DEVICE_STROKES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_BEZIER_STROKES) != 0U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }
 
@@ -163,6 +165,72 @@ void geometry_batch_encodes_device_strokes_and_fills() {
     PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 5.0F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 10.0F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 7.0F));
+}
+
+void geometry_batch_encodes_gpu_and_affine_bezier_strokes() {
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    progpu_native_geometry_primitive quadratic{
+        PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE,
+        {1.0F, 2.0F},
+        {3.0F, 8.0F},
+        {9.0F, 4.0F},
+        {},
+        2.5F,
+        0.0F,
+        {0.1F, 0.2F, 0.3F, 0.8F},
+        {2.0F, 0.0F, 0.0F, 2.0F, 5.0F, 7.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        quadratic,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 50U && indices.size() == 144U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 7.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 11.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], 11.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[1], 23.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[0], 23.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[1], 15.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, -3.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 5.0F));
+    PROGPU_REQUIRE(indices[0] == 0U && indices[143] == 48U);
+
+    vertices.clear();
+    indices.clear();
+    progpu_native_geometry_primitive cubic{
+        PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER,
+        0U,
+        {0.0F, 0.0F},
+        {10.0F, 30.0F},
+        {20.0F, -20.0F},
+        {40.0F, 0.0F},
+        4.0F,
+        0.0F,
+        {0.8F, 0.4F, 0.2F, 1.0F},
+        {2.0F, 0.25F, 0.5F, 1.0F, 3.0F, 5.0F}
+    };
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::geometry_primitive_capacity(
+        cubic,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(vertex_capacity >= 96U && vertex_capacity <= 4096U);
+    PROGPU_REQUIRE(index_capacity * 2U == vertex_capacity * 3U);
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        cubic,
+        4.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(!vertices.empty() && !indices.empty());
+    PROGPU_REQUIRE(vertices.size() <= vertex_capacity);
+    PROGPU_REQUIRE(indices.size() <= index_capacity);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].brush_index, 4.0F));
+    PROGPU_REQUIRE(vertices[0].shape_type == 16.0F);
+    PROGPU_REQUIRE(vertices[vertices.size() - 1U].shape_type == 17.0F);
 }
 
 void invalid_geometry_flags_fail_without_partial_append() {
@@ -291,6 +359,7 @@ int main() {
     singular_analytic_transform_fails_closed();
     geometry_batch_encodes_direct_and_affine_lines();
     geometry_batch_encodes_device_strokes_and_fills();
+    geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     invalid_geometry_flags_fail_without_partial_append();
     invalid_rectangles_fail_without_partial_append();
     std::cout << "ProGPU native CPU/ABI tests passed.\n";

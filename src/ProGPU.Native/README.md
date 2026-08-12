@@ -75,7 +75,10 @@ DYLD_LIBRARY_PATH="$PWD/artifacts/progpu-native/build:$PWD/artifacts/progpu-nati
 ```
 
 Use `--geometry-kind 0 --geometry-line-mode 0|1|2` to isolate hairline,
-fixed-device, or ordinary transformed lines. `--sync` includes an individual
+fixed-device, or ordinary transformed lines. Use `--geometry-kind 3|4` for an
+isolated quadratic/cubic Bezier, or `--geometry-curves` for a deterministic
+mixed curve scene covering hairline, fixed-device, and ordinary affine
+strokes. `--sync` includes an individual
 device-completion wait inside each renderer's measured interval. Generated
 native, managed, and absolute-difference images are written under
 `artifacts/progpu-native/differential/`.
@@ -92,6 +95,10 @@ Current native parity:
 - indexed flat-cap line, triangle, and quadrilateral batches, including
   one-device-pixel hairlines, positive fixed-device strokes, conformal scalar
   expansion, and transformed local outlines under anisotropic scale/shear;
+- indexed quadratic/cubic Bezier batches: conformal and device-space strokes
+  are evaluated by the production 24-section GPU curve shader, while ordinary
+  anisotropic/sheared strokes use bounded 24–1,024-section exact local-outline
+  compilation before the same indexed GPU pass;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
@@ -101,7 +108,7 @@ Current native parity:
 - headless hardware-WebGPU image verification.
 - a typed zero-copy .NET host sharing device, queue, and render target;
 - an interactive desktop page cycling reusable 1–4,096 rectangle, mixed
-  analytic, and mixed geometry batches;
+  analytic, mixed geometry, and mixed GPU Bezier batches;
 - exact managed/native pixel differential and matched submission benchmark.
 
 The complete migration sequence and .NET substitution gates are in

@@ -37,8 +37,8 @@ The migration is complete only when all of the following are true:
 The implementation remains deliberately smaller than the managed compositor:
 it proves the engine ABI, exact WebGPU ABI selection, shared shader pipelines,
 native batching and submission, external-target ownership, hardware readback,
-and the first indexed analytic primitive batch. It is evidence for the
-architecture, not a claim of full parity.
+the first indexed analytic/geometry batches, and quadratic/cubic curve
+strokes. It is evidence for the architecture, not a claim of full parity.
 
 ## 2. Clean-room and source policy
 
@@ -322,17 +322,40 @@ channel difference 0.000179); the gate permits exactly that one deterministic
 tie and rejects any wider drift. Normal anisotropic/sheared line, hairline,
 and fixed-device line isolates are byte-exact.
 
+The third Tranche A increment extends the unchanged 88-byte geometry record
+with quadratic and cubic Bezier strokes. Conformal ordinary strokes, one-pixel
+hairlines, and positive fixed-device strokes transform their control points
+and use shapes 5/6 in the production `Vector.wgsl`; the vertex shader evaluates
+24 curve sections and expands them in device space. Ordinary strokes under
+anisotropic scale or shear preserve directional thickness by adaptively
+sampling 24–1,024 source-curve sections, expanding each local outline, and
+transforming the resulting quadrilateral strip. The error-based section count
+is bounded and matches the managed compositor's 0.25-device-pixel policy.
+
+For `C` direct curves, compilation and upload are `O(C)` with 50 vertices and
+144 indices per record. For affine curves with `S` total sampled sections,
+compilation/upload are `O(S)`, with at most `4S` vertices and `6S` indices.
+Checked preflight sums the exact upper bound before the reusable vectors grow;
+all curves share one indexed draw, one brush upload, and one submission. No
+curve creates a WebGPU object or crosses the C ABI independently.
+
+The deterministic 512-curve scene differs from the managed compositor by one
+channel value of 1/255 across 518,400 pixels (mean absolute error
+0.000000482), with no pixel above 3/255. A 4,096-curve DPI-2 scene remains at
+maximum 3/255 with no pixel above tolerance and mean absolute error 0.000324.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
 
 - indexed analytic quad batching for rectangle, ellipse, and circular rounded
   rectangle plus flat-cap line, triangle, and quadrilateral geometry is
-  implemented; curves, polyline, and spline remain;
+  implemented; quadratic/cubic curves are implemented; polyline and spline
+  remain;
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
-  caps, joins, dashes, curve device strokes, and the remaining primitives are
-  pending;
+  curve hairline/fixed-device strokes are implemented; caps, joins, dashes,
+  and the remaining primitives are pending;
 - transforms, scissor clips, opacity stack, blend stack, static buffers, and
   compiled-scene reuse;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;

@@ -33,7 +33,9 @@ public enum NativeGeometryPrimitiveKind : uint
 {
     Line = 0,
     Triangle = 1,
-    Quadrilateral = 2
+    Quadrilateral = 2,
+    QuadraticBezier = 3,
+    CubicBezier = 4
 }
 
 [Flags]
@@ -62,7 +64,8 @@ public enum NativeRendererCapabilities : ulong
     IndexedAnalyticBatch = 1UL << 3,
     Affine2D = 1UL << 4,
     IndexedGeometryBatch = 1UL << 5,
-    DeviceStrokes = 1UL << 6
+    DeviceStrokes = 1UL << 6,
+    BezierStrokes = 1UL << 7
 }
 
 [StructLayout(LayoutKind.Sequential)]
