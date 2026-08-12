@@ -548,3 +548,19 @@ template, and binding patches with safe root fallback; cross-platform stress,
 performance, visual, accessibility, and collectible-context gates; and
 published-feed host/productization evidence. The broader F1-F9 program remains
 unchanged, and parsing or generation alone is not a runtime or product claim.
+
+## Preview.48 compiler handoff
+
+Preview.48 intentionally ships no new XAML compiler feature claim. It preserves
+the Preview.47 syntax, schema, semantic, lowering, structured Roslyn emission,
+source-generator/MSBuild/CLI/workspace packages, pinned Fluent corpus,
+transactional preview path, and changed-identity diagnostic-origin projection.
+The compiler remains pre-MVP.
+
+The next compiler work starts from the immutable Preview.48 tag with the same
+five explicit blockers: complete runtime capability adapters; atomic metadata
+and XAML publication with rollback/recovery; fine-grained namescope, resource,
+template, and binding patches with safe root fallback; cross-platform stress,
+performance, visual, accessibility, and collectible-context gates; and
+published-feed host/productization evidence. The broader F1-F9 program remains
+unchanged, and parsing or generation alone is not a runtime or product claim.

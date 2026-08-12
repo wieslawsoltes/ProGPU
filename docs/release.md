@@ -5,18 +5,19 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.47 delivers the broad Avalonia.Skia retained picture, immutable-image,
-layer, and positioned-text tranche on top of the successfully published
-preview.46 boundary. Frequent picture operations now use an original ordered
-token stream with typed compact records; consecutive immutable-image draws
-reuse their context-owned texture; synchronous WebGPU readback no longer pays
-a fixed one-millisecond polling floor; and the common single-run text builder
-avoids list mutation. Rounded rectangles and retained visuals also use compact
-analytic records. Rendering, effects, and composition remain on the retained
-WebGPU path without a CPU renderer, reflection, or a foreign command encoding.
-The clean-room research, complexity, rejected experiments, benchmark
-distributions, and matched Instruments evidence are recorded in
-`docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.
+Preview.48 delivers exact transformed-stroke semantics on top of the
+successfully published preview.47 boundary. Source-space thickness provenance
+now survives Scene, Avalonia, WPF, System.Drawing, Skia, retained pictures,
+append/replay, static buffers, GPU transforms, archives, and GPU hit testing.
+Conformal scale is applied exactly once; anisotropic and sheared strokes lower
+through transformed local outlines; and fixed-device, non-scaling, dashed,
+cap, join, shader-hairline, and DXF cosmetic strokes retain their intended
+device-space behavior. Indexed polyline and spline recording remains
+allocation-free, with bounded direct compilation and transform-adaptive spline
+sampling. Rendering stays on the typed retained WebGPU path without a CPU
+renderer or reflection bridge. The clean-room architecture, mathematical
+contract, complexity, and cross-engine research are recorded in
+`docs/STROKE_TRANSFORM_RESEARCH.md`.
 
 WinUI remains at 4,952 exact of 16,579 official declarations with 11,627
 remaining, and the XAML compiler remains pre-MVP. These are continuation
@@ -24,7 +25,7 @@ ledgers rather than behavioral-completion claims. Detailed remaining work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.47 closure and continuation
+## Preview.48 closure and continuation
 
 The release boundary includes the reusable, framework-neutral media engine,
 native platform media/audio providers, WebGPU presentation and effects, the
@@ -33,7 +34,7 @@ The WinUI-shaped media surface remains reusable by Avalonia, LibreWPF, and
 LibreWinForms without making the editor API part of the official WinUI parity
 claim.
 
-The next WinUI parity branch starts from the immutable preview.47 tag. It must
+The next WinUI parity branch starts from the immutable preview.48 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -41,7 +42,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.47 retains automatic projection of
+The XAML compiler remains pre-MVP. Preview.48 retains automatic projection of
 changed stable XAML identities to detached Roslyn metadata diagnostic origins.
 The five remaining product blockers are runtime capability adapters; atomic
 metadata apply, XAML publication, joint commit, and recovery;
@@ -50,28 +51,26 @@ stress, performance, visual, accessibility, and collectible-context gates; and
 published-feed host and productization evidence.
 
 SkiaSharp's official metadata ledger remains closed at 4,222/4,222 with zero
-missing. Against the preceding source-equivalent endpoint, repeated immutable
-image `Disallow` readback improves 91.8%, direct surface readback 85.1%, and
-conversion readback 85.9%. Mixed picture recording falls from 1,627 to 424
-managed B/op; the common layer shape reaches 8,180 B/op; and the focused
-positioned-text workload measures 268.375 ns and 89 B/op versus official
-SkiaSharp at 289.270 ns and 136 B/op. Official CPU-raster surfaces remain much
-faster for synchronous readback, so this is not a universal superiority claim.
+missing. The stroke compiler keeps common indexed polyline and spline recording
+free of geometry-graph allocation; direct bounded polyline compilation is
+`O(N)`, while spline tessellation adapts to the current device transform rather
+than forcing 100 segments for every replay. Fixed-device and framebuffer
+hairlines are expanded after the full affine centerline transform, while normal
+strokes preserve exact source-local outline semantics. This release makes no
+universal performance-superiority claim; performance and pixel correctness
+remain one contract.
 
-Matched Xcode Allocations, Time Profiler, and Metal System Trace retain the
-same composition checksum and 992 B/op. Persistent heap plus anonymous VM
-changes by only 0.019%, with zero drawable waits, compiler spills, hangs, or
-command-buffer errors. All raw trace, ETLX, XML-export, and Xcode scratch data
-was removed after compact evidence was retained.
-
-The exact PR #84 head passed all 15 checks across Ubuntu, macOS, Windows,
-portable and mobile packaging, source-built Avalonia, native Dawn, image
-parity, official metadata, and matched native/ProGPU benchmarks. Local final
-gates pass 3,305 core tests, 225 headless tests, 28 Avalonia compositor tests,
-287 Avalonia text tests including the focused corpus, and the patched Avalonia
-12.0.5 ControlCatalog source build. Remaining path combination, full
-application P95, retained/native heap, and other Avalonia-used API work remains
-on the next broad-tranche ledger.
+The exact PR #87 head passed all 16 checks across Ubuntu, macOS, and Windows
+build/test lanes, portable and mobile packaging, source-built Avalonia, native
+Dawn, native/ProGPU SVG image parity and CPU benchmarks, official SkiaSharp and
+WinUI metadata, and release documentation. Local final gates pass 3,569 core
+tests, 240 headless tests, and 185 focused stroke/hairline/hit-test cases. A
+fresh exact-head macOS Release host exercised retained-static, GPU-camera,
+dynamic GPU-transform, and dynamic CPU-recorded DXF paths through zoom and pan;
+the measured cosmetic segment changed length by about 7.7 times while retaining
+the same two dominant device-pixel rows. Ordinary vector-shape scaling was also
+manually checked, with exact normal-stroke scaling covered by the automated
+transform suite.
 
 ## NuGet Packages
 
@@ -119,19 +118,19 @@ on the next broad-tranche ledger.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.47`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.47`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.47`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.47`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.48`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.48`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.48`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.48`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.47` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.48` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.47 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.48 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -149,7 +148,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.47 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.48 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -167,7 +166,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.47`.
+for example `v0.1.0-preview.48`.
 
 ## NuGet Publishing
 
