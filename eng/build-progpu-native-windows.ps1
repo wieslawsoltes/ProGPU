@@ -103,6 +103,21 @@ $NativeDll = Join-Path $BuildDir "Release/progpu_native.dll"
 if (-not (Test-Path $NativeDll)) {
     throw "The native renderer DLL was not produced: $NativeDll"
 }
+$ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Sort-Object -Unique
+$ActualNativeExports = & dumpbin.exe /nologo /exports $NativeDll |
+    ForEach-Object {
+        if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_[A-Za-z0-9_]+)') {
+            $Matches[1]
+        }
+    } |
+    Sort-Object -Unique
+$ExportDifference = Compare-Object $ExpectedNativeExports $ActualNativeExports
+if ($ExportDifference) {
+    $ExportDifference | Format-Table | Out-String | Write-Error
+    throw "The ProGPU native exported-symbol surface changed."
+}
 Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
 $NativePdb = Join-Path $BuildDir "Release/progpu_native.pdb"
 if (Test-Path $NativePdb) {

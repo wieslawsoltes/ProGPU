@@ -81,6 +81,8 @@ cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
   -DBUILD_TESTING=ON
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
+PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
+  "${repo_root}/eng/progpu-verify-native-exports.sh"
 
 mkdir -p "${sample_dir}"
 "${build_dir}/progpu_native_sample" \
