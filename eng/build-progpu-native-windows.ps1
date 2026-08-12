@@ -7,8 +7,10 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ExpectedCommit = "33133da4ec5a0174cb21539ef2d3346f75200411"
 $ExpectedHeadersCommit = "aef5e428a1fdab2ea770581ae7c95d8779984e0a"
+$ExpectedDawnHeadersCommit = "01addc4ba8a2915a061b7095a6768b512071ab96"
 $PackageVersion = "2.23.0"
 $SourceDir = Join-Path $RepoRoot "artifacts/wgpu-native-src"
+$DawnHeadersDir = Join-Path $RepoRoot "artifacts/webgpu-headers-dawn"
 $BuildDir = Join-Path $RepoRoot "artifacts/progpu-native/build-$Rid"
 $IncludeDir = Join-Path $RepoRoot "artifacts/progpu-native/include-$Rid"
 $RuntimeDir = Join-Path $RepoRoot "artifacts/progpu-native/runtime-$Rid"
@@ -53,6 +55,17 @@ if ((git -C $SourceDir rev-parse HEAD).Trim() -ne $ExpectedCommit) {
 if ((git -C (Join-Path $SourceDir "ffi/webgpu-headers") rev-parse HEAD).Trim() -ne $ExpectedHeadersCommit) {
     throw "The pinned WebGPU headers checkout is incorrect."
 }
+if (-not (Test-Path (Join-Path $DawnHeadersDir ".git"))) {
+    git clone --filter=blob:none https://github.com/webgpu-native/webgpu-headers.git $DawnHeadersDir
+}
+if (git -C $DawnHeadersDir status --porcelain --untracked-files=no) {
+    throw "Refusing to change a modified Dawn WebGPU header checkout."
+}
+git -C $DawnHeadersDir fetch --depth 1 origin $ExpectedDawnHeadersCommit
+git -C $DawnHeadersDir checkout --detach $ExpectedDawnHeadersCommit
+if ((git -C $DawnHeadersDir rev-parse HEAD).Trim() -ne $ExpectedDawnHeadersCommit) {
+    throw "The pinned Dawn WebGPU headers checkout is incorrect."
+}
 
 $GlobalPackagesLine = (dotnet nuget locals global-packages --list | Select-Object -First 1)
 $GlobalPackages = ($GlobalPackagesLine -replace '^[^:]+:\s*', '').TrimEnd('/', '\')
@@ -95,6 +108,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ImportLibrary)) {
 cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchitecture `
     -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="$IncludeDir" `
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="$ImportLibrary" `
+    -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnHeadersDir" `
     -DPROGPU_NATIVE_BUILD_SAMPLE=ON `
     -DBUILD_TESTING=ON
 cmake --build $BuildDir --config Release --parallel
@@ -102,6 +116,10 @@ cmake --build $BuildDir --config Release --parallel
 $NativeDll = Join-Path $BuildDir "Release/progpu_native.dll"
 if (-not (Test-Path $NativeDll)) {
     throw "The native renderer DLL was not produced: $NativeDll"
+}
+$DawnDll = Join-Path $BuildDir "Release/progpu_native_dawn.dll"
+if (-not (Test-Path $DawnDll)) {
+    throw "The provider-resolved Dawn renderer DLL was not produced: $DawnDll"
 }
 $ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
@@ -118,12 +136,38 @@ if ($ExportDifference) {
     $ExportDifference | Format-Table | Out-String | Write-Error
     throw "The ProGPU native exported-symbol surface changed."
 }
+$ExpectedDawnExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-dawn-exports.txt") |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Sort-Object -Unique
+$ActualDawnExports = & dumpbin.exe /nologo /exports $DawnDll |
+    ForEach-Object {
+        if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_[A-Za-z0-9_]+)') {
+            $Matches[1]
+        }
+    } |
+    Sort-Object -Unique
+$DawnExportDifference = Compare-Object $ExpectedDawnExports $ActualDawnExports
+if ($DawnExportDifference) {
+    $DawnExportDifference | Format-Table | Out-String | Write-Error
+    throw "The ProGPU Dawn adapter exported-symbol surface changed."
+}
+$DawnImports = & dumpbin.exe /nologo /imports $DawnDll
+if ($DawnImports | Select-String -Pattern '\bwgpu[A-Z]' -CaseSensitive) {
+    throw "The ProGPU Dawn adapter imports WebGPU procedures directly."
+}
 Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
+Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
 $NativePdb = Join-Path $BuildDir "Release/progpu_native.pdb"
-if (Test-Path $NativePdb) {
+$DawnPdb = Join-Path $BuildDir "Release/progpu_native_dawn.pdb"
+if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb)) {
     $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
     New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
-    Copy-Item $NativePdb $SymbolStage -Force
+    if (Test-Path $NativePdb) {
+        Copy-Item $NativePdb $SymbolStage -Force
+    }
+    if (Test-Path $DawnPdb) {
+        Copy-Item $DawnPdb $SymbolStage -Force
+    }
 }
 
 $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture

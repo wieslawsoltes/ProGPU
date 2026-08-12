@@ -11,6 +11,17 @@ if (info.AbiVersion != 3 ||
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
 
+NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
+if (dawnInfo.AbiVersion != 3 ||
+    dawnInfo.BackendAbi != NativeDawnAdapter.BackendAbi ||
+    NativeDawnAdapter.AdapterAbiVersion != 1 ||
+    NativeDawnAdapter.RequiredProviderAbiVersion != 2 ||
+    !dawnInfo.Name.Contains("Dawn provider", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException(
+        "The packaged provider-resolved Dawn adapter is incomplete.");
+}
+
 using var context = new WgpuContext();
 context.Initialize(window: null);
 using var target = new GpuTexture(
@@ -57,4 +68,5 @@ if (metrics.DrawCallCount != 1 || pixels.All(static value => value == 0))
 
 Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
+    $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");

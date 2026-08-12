@@ -54,6 +54,13 @@ integration must create the exact WebScene provider/device/canvas, render and
 wait on the same Dawn instance, present the provider texture, and verify the
 external-texture retain/release and fence lifecycle without CPU readback.
 
+Both `progpu_native` and `progpu_native_dawn` are staged in the
+`ProGPU.Backend.Native` RID package for Linux, macOS, and Windows x64/arm64.
+The source-independent package consumer loads both binaries and validates their
+distinct backend identities; it executes the existing wgpu-native hardware
+render smoke and leaves provider-backed Dawn creation to the WebScene
+integration gate.
+
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a
 borrowed texture; stable rendering does not wait and creates no managed

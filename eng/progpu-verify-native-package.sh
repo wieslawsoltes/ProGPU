@@ -13,12 +13,19 @@ fi
 
 required_entries=(
   runtimes/linux-x64/native/libprogpu_native.so
+  runtimes/linux-x64/native/libprogpu_native_dawn.so
   runtimes/linux-arm64/native/libprogpu_native.so
+  runtimes/linux-arm64/native/libprogpu_native_dawn.so
   runtimes/osx-x64/native/libprogpu_native.dylib
+  runtimes/osx-x64/native/libprogpu_native_dawn.dylib
   runtimes/osx-arm64/native/libprogpu_native.dylib
+  runtimes/osx-arm64/native/libprogpu_native_dawn.dylib
   runtimes/win-x64/native/progpu_native.dll
+  runtimes/win-x64/native/progpu_native_dawn.dll
   runtimes/win-arm64/native/progpu_native.dll
+  runtimes/win-arm64/native/progpu_native_dawn.dll
   build/native/include/progpu_native.h
+  build/native/include/progpu_native_dawn.h
 )
 for entry in "${required_entries[@]}"; do
   if ! unzip -Z1 "${package}" | grep -Fx "${entry}" >/dev/null; then

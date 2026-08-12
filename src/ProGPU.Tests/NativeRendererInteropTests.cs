@@ -75,6 +75,10 @@ public class NativeRendererInteropTests
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(3U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
+        Assert.Equal(2U, NativeMethods.DawnWebScene2026JulyBackendAbi);
+        Assert.Equal(1U, NativeDawnAdapter.AdapterAbiVersion);
+        Assert.Equal(2U, NativeDawnAdapter.RequiredProviderAbiVersion);
+        Assert.Equal(2U, NativeDawnAdapter.BackendAbi);
     }
 
     [Fact]
@@ -331,6 +335,8 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_webgpu_compat.hpp"));
         string verifier = File.ReadAllText(FindRepoFile(
             "eng", "progpu-verify-native-dawn-header.sh"));
+        string packageProject = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "ProGPU.Backend.Native.csproj"));
 
         Assert.Contains(
             "add_library(progpu_native_dawn SHARED",
@@ -361,6 +367,14 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "imports WebGPU procedures directly",
             verifier,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_dawn",
+            packageProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_dawn.h",
+            packageProject,
             StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(

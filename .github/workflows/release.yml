@@ -73,6 +73,8 @@ jobs:
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
         run: |
           ./eng/build-progpu-native.sh
           ./eng/progpu-stage-native-runtime.sh
@@ -198,6 +200,71 @@ jobs:
             artifacts/packages-avalonia/Release/*.snupkg
           if-no-files-found: error
 
+  native-package-consumer:
+    name: Native release package consumer (${{ matrix.rid }})
+    needs: portable
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+
+      - name: Resolve release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${{ inputs.version }}"
+          fi
+          echo "PROGPU_PACKAGE_VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Download portable packages
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-portable-${{ env.PROGPU_PACKAGE_VERSION }}
+          path: artifacts/packages/Release
+
+      - name: Restore and run source-independent package consumer
+        shell: bash
+        run: |
+          dotnet restore tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
+            -p:ProGpuNativePackageVersion="${PROGPU_PACKAGE_VERSION}"
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
+            -p:ProGpuNativePackageVersion="${PROGPU_PACKAGE_VERSION}"
+
   mobile:
     name: Pack mobile packages
     runs-on: macos-26
@@ -245,7 +312,7 @@ jobs:
 
   publish:
     name: Verify and publish complete release
-    needs: [portable, mobile]
+    needs: [portable, native-package-consumer, mobile]
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
