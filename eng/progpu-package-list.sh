@@ -4,6 +4,7 @@
 # separately on macOS, then both groups are verified together before publishing.
 progpu_portable_package_ids=(
   ProGPU.Backend
+  ProGPU.Backend.Native
   ProGPU.Backend.Dawn
   ProGPU.Media
   ProGPU.Media.Editing
@@ -44,6 +45,7 @@ progpu_portable_package_ids=(
 
 progpu_portable_package_projects=(
   src/ProGPU.Backend/ProGPU.Backend.csproj
+  src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj
   src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj
   src/ProGPU.Media/ProGPU.Media.csproj
   src/ProGPU.Media.Editing/ProGPU.Media.Editing.csproj
@@ -84,6 +86,7 @@ progpu_portable_package_projects=(
 
 progpu_portable_package_purposes=(
   "WebGPU device, swapchain, Silk.NET windowing, and platform backend services."
+  "Experimental typed .NET host plus validated x64/arm64 desktop runtimes for the ProGPU C++ WebGPU renderer."
   "Exact-ABI Dawn shared texture memory and cross-queue fence extensions."
   "Framework-neutral media playback, diagnostics, audio processing, effects, and provider contracts."
   "Reusable non-destructive composition, project serialization, overlays, effects, and native export coordination."
@@ -195,7 +198,6 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
-  src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj
   src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj
   src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj
   src/ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj
@@ -216,7 +218,6 @@ progpu_nonshipping_projects=(
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
-  "Experimental typed .NET host for the non-shipping native C++ renderer."
   "Native C++ renderer differential and performance benchmark."
   "Native C++ renderer managed-host sample."
   "Activity Monitor sample application."

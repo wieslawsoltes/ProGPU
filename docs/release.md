@@ -75,6 +75,7 @@ transform suite.
 ## NuGet Packages
 
 - `ProGPU.Backend`
+- `ProGPU.Backend.Native`
 - `ProGPU.Backend.Dawn`
 - `ProGPU.Media`
 - `ProGPU.Media.Editing`

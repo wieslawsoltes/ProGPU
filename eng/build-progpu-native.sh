@@ -11,6 +11,9 @@ expected_commit="33133da4ec5a0174cb21539ef2d3346f75200411"
 expected_headers_commit="aef5e428a1fdab2ea770581ae7c95d8779984e0a"
 package_version="2.23.0"
 
+dotnet restore \
+  "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj"
+
 if [[ ! -d "${source_dir}/.git" ]]; then
   git clone --filter=blob:none https://github.com/gfx-rs/wgpu-native.git \
     "${source_dir}"

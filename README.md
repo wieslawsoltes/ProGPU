@@ -17,6 +17,7 @@ intentionally not packed.
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.Backend` | WebGPU device, swapchain, Silk.NET windowing, and platform backend services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.svg)](https://www.nuget.org/packages/ProGPU.Backend/) |
+| `ProGPU.Backend.Native` | Experimental typed .NET host and desktop x64/arm64 runtimes for the parallel C++ WebGPU renderer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Native.svg)](https://www.nuget.org/packages/ProGPU.Backend.Native/) |
 | `ProGPU.Backend.Dawn` | Typed Dawn native presentation, shared texture memory, and cross-queue fence services. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Backend.Dawn.svg)](https://www.nuget.org/packages/ProGPU.Backend.Dawn/) |
 | `ProGPU.Media` | Framework-neutral media playback, diagnostics, audio processing, effects, and provider contracts. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Media.svg)](https://www.nuget.org/packages/ProGPU.Media/) |
 | `ProGPU.Media.Editing` | Reusable non-destructive composition, project serialization, overlays, effects, and native export coordination. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Media.Editing.svg)](https://www.nuget.org/packages/ProGPU.Media.Editing/) |

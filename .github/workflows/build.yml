@@ -13,6 +13,190 @@ permissions:
   contents: read
 
 jobs:
+  native-cpp:
+    name: Native C++ renderer (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
+
+      - name: Build and integration-test native renderer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./eng/build-progpu-native.sh
+          ./eng/progpu-stage-native-runtime.sh
+
+      - name: Build and integration-test native renderer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./eng/build-progpu-native-windows.ps1 -Rid "${{ matrix.rid }}"
+
+      - name: Upload native runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-native/package
+          if-no-files-found: error
+
+      - name: Upload native symbols
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-symbols-${{ matrix.rid }}
+          path: artifacts/progpu-native/symbols/${{ matrix.rid }}
+          if-no-files-found: warn
+
+  native-package:
+    name: Native C++ NuGet package
+    needs: native-cpp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+
+      - name: Download native runtimes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-native-runtime-*
+          path: artifacts/progpu-native/package
+          merge-multiple: true
+
+      - name: Pack and run source-independent consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          echo "PROGPU_NATIVE_CI_VERSION=${version}" >> "${GITHUB_ENV}"
+          output="${GITHUB_WORKSPACE}/artifacts/packages-native/Release"
+          dotnet pack src/ProGPU.Backend/ProGPU.Backend.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
+          dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
+          PROGPU_PACKAGE_VERSION="${version}" \
+          PROGPU_PACKAGE_OUTPUT="${output}" \
+            ./eng/progpu-verify-native-package.sh
+
+      - name: Upload native NuGet package
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-package
+          path: |
+            artifacts/packages-native/Release/*.nupkg
+            artifacts/packages-native/Release/*.snupkg
+          if-no-files-found: error
+
+  native-package-consumer:
+    name: Native package consumer (${{ matrix.rid }})
+    needs: native-package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+
+      - name: Download native NuGet package
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-native-package
+          path: artifacts/packages-native/Release
+
+      - name: Restore and run package consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          dotnet restore tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+
   avalonia-compositor-contract:
     name: Avalonia retained compositor contract
     runs-on: ubuntu-latest

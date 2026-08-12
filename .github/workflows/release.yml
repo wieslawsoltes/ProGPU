@@ -20,8 +20,78 @@ permissions:
   contents: write
 
 jobs:
+  native-runtime:
+    name: Build native runtime (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
+
+      - name: Build and integration-test native renderer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./eng/build-progpu-native.sh
+          ./eng/progpu-stage-native-runtime.sh
+
+      - name: Build and integration-test native renderer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./eng/build-progpu-native-windows.ps1 -Rid "${{ matrix.rid }}"
+
+      - name: Upload native runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-native/package
+          if-no-files-found: error
+
   portable:
     name: Validate and pack portable packages
+    needs: native-runtime
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -64,6 +134,13 @@ jobs:
           echo "PROGPU_PACKAGE_VERSION=${version}" >> "${GITHUB_ENV}"
           echo "Resolved ProGPU package version: ${version}"
 
+      - name: Download native runtimes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-native-runtime-*
+          path: artifacts/progpu-native/package
+          merge-multiple: true
+
       - name: Verify docs and package manifest
         run: ./eng/progpu-verify-docs.sh
 
@@ -93,6 +170,12 @@ jobs:
 
       - name: Pack portable packages
         run: PROGPU_PACKAGE_GROUP=portable ./eng/progpu-pack.sh
+
+      - name: Run native package consumer
+        run: |
+          PROGPU_PACKAGE_VERSION="${PROGPU_PACKAGE_VERSION}" \
+          PROGPU_PACKAGE_OUTPUT="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
+            ./eng/progpu-verify-native-package.sh
 
       - name: Pack Avalonia integration packages
         run: PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
