@@ -26,8 +26,12 @@ atlas keys, alignment, and subpixel phase math live in
 header: `progpu_native_geometry_base.hpp` owns shared math and ABI assertions,
 while the stroke, dash/polyline, spline, and analytic headers own their
 respective algorithms. The four-line `progpu_native_geometry.hpp` remains the
-compatibility aggregator. Both wgpu-native and Dawn targets compile the same
-private module set. The CPU-only modules are also compiled directly into
+compatibility aggregator. `progpu_native_engine.hpp` now owns the opaque
+engine's WebGPU handles, cache state, release ordering, and buffer-growth
+invariants; `progpu_native_webgpu_resources.hpp` owns the non-copyable temporary
+path-raster handle group. Exported entry points and pipeline construction stay
+in the main translation unit. Both wgpu-native and Dawn targets compile the
+same private module set. The CPU-only modules are also compiled directly into
 focused internal tests so their behavior cannot depend on WebGPU startup.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor

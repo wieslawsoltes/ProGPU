@@ -199,6 +199,14 @@ monolithic geometry header is an include-only facade over independent base,
 stroke/cap/join, dash/polyline, rational-spline, and analytic modules. This
 split preserves the same inline algorithms and therefore changes neither
 geometry complexity nor the public C ABI.
+The opaque engine's WebGPU handle graph, retained cache state, release order,
+and geometrically growing buffer ownership now live in
+`progpu_native_engine.hpp`. Temporary path-raster buffers are an explicitly
+non-copyable RAII group in `progpu_native_webgpu_resources.hpp`; releasing
+caller ownership never destroys a buffer still retained by an encoder or
+submitted command buffer. Exported C entry points and pipeline-construction
+helpers remain in `progpu_native.cpp`, so backend selection and ABI policy stay
+centralized while lifetime ownership is independently reviewable.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally

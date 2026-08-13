@@ -255,6 +255,7 @@ add_custom_command(
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
+    src/progpu_native_engine.hpp
     src/progpu_native_effect_plan.cpp
     src/progpu_native_effect_plan.hpp
     src/progpu_native_geometry.hpp
@@ -273,6 +274,7 @@ add_library(progpu_native SHARED
     src/progpu_native_semantic_state.hpp
     src/progpu_native_semantic_validation.cpp
     src/progpu_native_semantic_validation.hpp
+    src/progpu_native_webgpu_resources.hpp
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
@@ -309,6 +311,7 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     endif()
     add_library(progpu_native_dawn SHARED
         src/progpu_native.cpp
+        src/progpu_native_engine.hpp
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
         src/progpu_native_geometry.hpp
@@ -327,6 +330,7 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp
         src/progpu_native_semantic_validation.hpp
+        src/progpu_native_webgpu_resources.hpp
         src/progpu_webgpu_compat.hpp
         include/progpu_native.h
         include/progpu_native_dawn.h
