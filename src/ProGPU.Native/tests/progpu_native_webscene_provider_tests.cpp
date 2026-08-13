@@ -412,6 +412,7 @@ int main(int argc, char** argv) {
     draw_state.opacity = 0.5F;
     draw_state.clip_rect = {10.25F, 8.25F, 10.5F, 10.5F};
     draw_state.group_opacity = 1.0F;
+    draw_state.group_blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
     progpu_native_frame frame{
         sizeof(progpu_native_frame),
         64U,
@@ -457,6 +458,11 @@ int main(int argc, char** argv) {
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
         "out-of-range group opacity did not fail closed");
     draw_state.group_opacity = 1.0F;
+    draw_state.group_blend_mode = PROGPU_NATIVE_BLEND_MODULATE + 1U;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "unknown group blend mode did not fail closed");
+    draw_state.group_blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
     draw_state.clip_rect = {10.0F, 8.0F, 0.0F, 10.0F};
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
@@ -876,6 +882,51 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "post-effect retained group replay failed");
+    draw_state.group_mask = nullptr;
+    draw_state.flags = 0U;
+    draw_state.clip_rect = {};
+    for (std::uint32_t blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+         blend_mode <= PROGPU_NATIVE_BLEND_MODULATE;
+         ++blend_mode) {
+        draw_state.group_blend_mode = blend_mode;
+        require(progpu_native_engine_render(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+            "group blend-mode replay failed");
+        require(progpu_native_engine_get_layer_metrics(
+            engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            layer_metrics.content_pass_count == 0U &&
+            layer_metrics.composite_pass_count == 1U &&
+            layer_metrics.cache_hit == 1U &&
+            layer_metrics.blend_mode == blend_mode &&
+            layer_metrics.blend_source_pass_count <= 1U,
+            "group blend-mode metrics are invalid");
+        require(progpu_native_engine_render(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+            "stable group blend-mode replay failed");
+        require(progpu_native_engine_get_layer_metrics(
+            engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            layer_metrics.content_pass_count == 0U &&
+            layer_metrics.composite_pass_count == 1U &&
+            layer_metrics.cache_hit == 1U &&
+            layer_metrics.blend_mode == blend_mode &&
+            layer_metrics.blend_source_pass_count == 0U &&
+            layer_metrics.blend_pipeline_cache_hit == 1U,
+            "stable group blend-mode replay rebuilt retained state");
+        if (blend_mode == PROGPU_NATIVE_BLEND_MULTIPLY) {
+            require(
+                layer_metrics.blend_source_texture_generation != 0U &&
+                layer_metrics.blend_source_allocation_count != 0U &&
+                layer_metrics.blend_source_texture_bytes == 64U * 48U * 4U,
+                "advanced group blend did not expose bounded scratch metrics");
+        }
+    }
+    draw_state.group_blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    draw_state.group_mask = &group_mask;
+    draw_state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
+    draw_state.clip_rect = {10.25F, 8.25F, 10.5F, 10.5F};
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "post-blend baseline replay failed");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,

@@ -209,6 +209,28 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                 @SceneArgs
         }
     }
+    foreach ($BlendMode in @("SrcAtop", "Overlay")) {
+        foreach ($Scene in $EffectScenes) {
+            $SceneArgs = @()
+            if ($Scene) {
+                $SceneArgs += $Scene
+            }
+            $SceneArgs += @(
+                "--group-blend-mode", $BlendMode,
+                "--rectangles", "96", "--warmup", "2", "--iterations", "4")
+            dotnet run `
+                --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
+                -c Release -- `
+                @SceneArgs
+        }
+    }
+    foreach ($BlendMode in @("ColorDodge", "Saturation")) {
+        dotnet run `
+            --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
+            -c Release -- `
+            --group-blend-mode $BlendMode `
+            --rectangles 96 --warmup 2 --iterations 4
+    }
 } else {
     Write-Host "Cross-compiled $Rid; execution is deferred to a matching-architecture CI lane."
 }

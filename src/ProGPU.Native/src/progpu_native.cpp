@@ -5,6 +5,7 @@
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
 #include "GaussianBlurVerticalWgsl.generated.hpp"
 #include "GroupDropShadowComposeWgsl.generated.hpp"
+#include "GroupBlendWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "TextWgsl.generated.hpp"
 #include "TextureWgsl.generated.hpp"
@@ -84,6 +85,14 @@ struct gpu_drop_shadow_params {
 };
 
 static_assert(sizeof(gpu_drop_shadow_params) == 32U);
+
+struct gpu_group_blend_uniforms {
+    float backdrop[4];
+    std::uint32_t blend_mode;
+    std::uint32_t padding[3];
+};
+
+static_assert(sizeof(gpu_group_blend_uniforms) == 32U);
 
 static_assert(sizeof(gpu_mask_sampling_uniforms) == 96U);
 
@@ -347,6 +356,7 @@ struct resolved_draw_state {
     float opacity = 1.0F;
     float group_opacity = 1.0F;
     std::uint32_t group_revision = 0U;
+    std::uint32_t group_blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
     bool has_clip = false;
     bool has_drawable_clip = true;
     std::uint32_t clip_x = 0U;
@@ -633,6 +643,21 @@ bool resolve_draw_state(
             return false;
         }
     }
+    constexpr std::uint32_t blend_mode_size =
+        offsetof(progpu_native_draw_state, group_blend_mode) +
+        sizeof(state->group_blend_mode);
+    if (state->struct_size >= blend_mode_size) {
+        if (state->group_blend_mode > PROGPU_NATIVE_BLEND_MODULATE) {
+            return false;
+        }
+        resolved.group_blend_mode = state->group_blend_mode;
+    }
+    constexpr std::uint32_t reserved2_size =
+        offsetof(progpu_native_draw_state, reserved2) +
+        sizeof(state->reserved2);
+    if (state->struct_size >= reserved2_size && state->reserved2 != 0U) {
+        return false;
+    }
     if ((state->flags & PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) == 0U) {
         return state->clip_rect.x == 0.0F && state->clip_rect.y == 0.0F &&
             state->clip_rect.width == 0.0F &&
@@ -846,6 +871,10 @@ struct progpu_native_engine {
     bool image_gpu_cache_valid = false;
     WGPURenderPipeline layer_composite_pipeline = nullptr;
     WGPURenderPipeline layer_mask_pipeline = nullptr;
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_blend_pipelines{};
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_mask_blend_pipelines{};
     WGPUBindGroupLayout layer_mask_layout = nullptr;
     WGPUBuffer layer_mask_uniform_buffer = nullptr;
     WGPUTexture layer_mask_dummy_texture = nullptr;
@@ -859,6 +888,21 @@ struct progpu_native_engine {
     std::uint32_t layer_mask_bind_group_generation = 0U;
     gpu_mask_sampling_uniforms cached_layer_mask_uniforms{};
     bool layer_mask_uniform_cache_valid = false;
+    WGPUShaderModule group_blend_shader = nullptr;
+    WGPURenderPipeline group_blend_pipeline = nullptr;
+    WGPUBindGroupLayout group_blend_layout = nullptr;
+    WGPUBuffer group_blend_uniform_buffer = nullptr;
+    WGPUTexture group_blend_source_texture = nullptr;
+    WGPUTextureView group_blend_source_view = nullptr;
+    WGPUBindGroup group_blend_bind_group = nullptr;
+    gpu_group_blend_uniforms cached_group_blend_uniforms{};
+    std::uint32_t group_blend_source_width = 0U;
+    std::uint32_t group_blend_source_height = 0U;
+    std::uint32_t group_blend_source_texture_generation = 0U;
+    std::uint32_t group_blend_source_allocation_count = 0U;
+    std::uint64_t group_blend_source_signature = 0U;
+    bool group_blend_uniform_cache_valid = false;
+    bool group_blend_source_cache_valid = false;
     WGPUShaderModule clip_compose_shader = nullptr;
     WGPURenderPipeline clip_path_pipeline = nullptr;
     WGPURenderPipeline clip_compose_pipeline = nullptr;
@@ -1246,6 +1290,29 @@ struct progpu_native_engine {
             &webgpu_dispatch);
         release_effect_resources();
         release_clip_resources();
+        if (group_blend_bind_group != nullptr) {
+            wgpuBindGroupRelease(group_blend_bind_group);
+        }
+        if (group_blend_source_view != nullptr) {
+            wgpuTextureViewRelease(group_blend_source_view);
+        }
+        if (group_blend_source_texture != nullptr) {
+            wgpuTextureDestroy(group_blend_source_texture);
+            wgpuTextureRelease(group_blend_source_texture);
+        }
+        if (group_blend_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(group_blend_uniform_buffer);
+            wgpuBufferRelease(group_blend_uniform_buffer);
+        }
+        if (group_blend_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(group_blend_layout);
+        }
+        if (group_blend_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(group_blend_pipeline);
+        }
+        if (group_blend_shader != nullptr) {
+            wgpuShaderModuleRelease(group_blend_shader);
+        }
         if (layer_external_mask_linear_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_external_mask_linear_bind_group);
         }
@@ -1274,6 +1341,16 @@ struct progpu_native_engine {
         }
         if (layer_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(layer_mask_pipeline);
+        }
+        for (auto pipeline : layer_mask_blend_pipelines) {
+            if (pipeline != nullptr) {
+                wgpuRenderPipelineRelease(pipeline);
+            }
+        }
+        for (auto pipeline : layer_blend_pipelines) {
+            if (pipeline != nullptr) {
+                wgpuRenderPipelineRelease(pipeline);
+            }
         }
         if (layer_texture_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_texture_bind_group);
@@ -3084,6 +3161,397 @@ bool create_layer_mask_resources(progpu_native_engine& engine) {
         return false;
     }
     ++engine.layer_mask_bind_group_generation;
+    return true;
+}
+
+bool is_advanced_group_blend(std::uint32_t blend_mode) noexcept {
+    return (blend_mode >= PROGPU_NATIVE_BLEND_MULTIPLY &&
+            blend_mode <= PROGPU_NATIVE_BLEND_EXCLUSION) ||
+        (blend_mode >= PROGPU_NATIVE_BLEND_OVERLAY &&
+            blend_mode <= PROGPU_NATIVE_BLEND_LUMINOSITY);
+}
+
+bool configure_fixed_group_blend(
+    std::uint32_t blend_mode,
+    WGPUBlendState& blend) noexcept {
+    blend = {};
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    switch (blend_mode) {
+        case PROGPU_NATIVE_BLEND_SRC_OVER:
+            blend.color.srcFactor = WGPUBlendFactor_One;
+            blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_One;
+            blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_SRC:
+            blend.color.srcFactor = WGPUBlendFactor_One;
+            blend.color.dstFactor = WGPUBlendFactor_Zero;
+            blend.alpha.srcFactor = WGPUBlendFactor_One;
+            blend.alpha.dstFactor = WGPUBlendFactor_Zero;
+            return true;
+        case PROGPU_NATIVE_BLEND_DST:
+            blend.color.srcFactor = WGPUBlendFactor_Zero;
+            blend.color.dstFactor = WGPUBlendFactor_One;
+            blend.alpha.srcFactor = WGPUBlendFactor_Zero;
+            blend.alpha.dstFactor = WGPUBlendFactor_One;
+            return true;
+        case PROGPU_NATIVE_BLEND_SRC_IN:
+            blend.color.srcFactor = WGPUBlendFactor_DstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_Zero;
+            blend.alpha.srcFactor = WGPUBlendFactor_DstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_Zero;
+            return true;
+        case PROGPU_NATIVE_BLEND_DST_IN:
+            blend.color.srcFactor = WGPUBlendFactor_Zero;
+            blend.color.dstFactor = WGPUBlendFactor_SrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_Zero;
+            blend.alpha.dstFactor = WGPUBlendFactor_SrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_SRC_OUT:
+            blend.color.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_Zero;
+            blend.alpha.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_Zero;
+            return true;
+        case PROGPU_NATIVE_BLEND_DST_OUT:
+            blend.color.srcFactor = WGPUBlendFactor_Zero;
+            blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_Zero;
+            blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_SRC_ATOP:
+            blend.color.srcFactor = WGPUBlendFactor_DstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_DstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_DST_ATOP:
+            blend.color.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_SrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_SrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_XOR:
+            blend.color.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            blend.alpha.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+            return true;
+        case PROGPU_NATIVE_BLEND_DST_OVER:
+            blend.color.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.color.dstFactor = WGPUBlendFactor_One;
+            blend.alpha.srcFactor = WGPUBlendFactor_OneMinusDstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_One;
+            return true;
+        case PROGPU_NATIVE_BLEND_PLUS:
+            blend.color.srcFactor = WGPUBlendFactor_One;
+            blend.color.dstFactor = WGPUBlendFactor_One;
+            blend.alpha.srcFactor = WGPUBlendFactor_One;
+            blend.alpha.dstFactor = WGPUBlendFactor_One;
+            return true;
+        case PROGPU_NATIVE_BLEND_CLEAR:
+            blend.color.srcFactor = WGPUBlendFactor_Zero;
+            blend.color.dstFactor = WGPUBlendFactor_Zero;
+            blend.alpha.srcFactor = WGPUBlendFactor_Zero;
+            blend.alpha.dstFactor = WGPUBlendFactor_Zero;
+            return true;
+        case PROGPU_NATIVE_BLEND_MODULATE:
+            blend.color.srcFactor = WGPUBlendFactor_Dst;
+            blend.color.dstFactor = WGPUBlendFactor_Zero;
+            blend.alpha.srcFactor = WGPUBlendFactor_DstAlpha;
+            blend.alpha.dstFactor = WGPUBlendFactor_Zero;
+            return true;
+        default:
+            return false;
+    }
+}
+
+WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
+    progpu_native_engine& engine,
+    std::uint32_t blend_mode,
+    bool masked,
+    bool& cache_hit) {
+    if (blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
+        cache_hit = true;
+        return masked
+            ? engine.layer_mask_pipeline
+            : engine.layer_composite_pipeline;
+    }
+    if (blend_mode > PROGPU_NATIVE_BLEND_MODULATE ||
+        is_advanced_group_blend(blend_mode)) {
+        return nullptr;
+    }
+    auto& pipelines = masked
+        ? engine.layer_mask_blend_pipelines
+        : engine.layer_blend_pipelines;
+    if (pipelines[blend_mode] != nullptr) {
+        cache_hit = true;
+        return pipelines[blend_mode];
+    }
+    cache_hit = false;
+    if (!create_layer_resources(engine) ||
+        (masked && !create_layer_mask_resources(engine))) {
+        return nullptr;
+    }
+
+    std::array<WGPUBindGroupLayout, 3U> layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout,
+        engine.layer_mask_layout
+    }};
+    WGPUPipelineLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native fixed group-blend layout");
+    layout_descriptor.bindGroupLayoutCount = masked ? 3U : 2U;
+    layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return nullptr;
+    }
+
+    const std::array<WGPUVertexAttribute, 7U> attributes{{
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x4, 8U, 1U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 24U, 2U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 32U, 3U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 36U, 4U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 44U, 5U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32, 48U, 6U)
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(progpu::native::vector_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.image_shader;
+    vertex_state.entryPoint =
+        progpu::native::webgpu::string_view("vs_main");
+    vertex_state.bufferCount = 1U;
+    vertex_state.buffers = &vertex_layout;
+
+    WGPUBlendState blend{};
+    if (!configure_fixed_group_blend(blend_mode, blend)) {
+        wgpuPipelineLayoutRelease(pipeline_layout);
+        return nullptr;
+    }
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = &blend;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.image_shader;
+    fragment.entryPoint = progpu::native::webgpu::string_view(
+        masked ? "fs_main" : "fs_main_unmasked");
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native fixed group-blend pipeline");
+    descriptor.layout = pipeline_layout;
+    descriptor.vertex = vertex_state;
+    descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    descriptor.primitive.cullMode = WGPUCullMode_None;
+    descriptor.multisample.count = 1U;
+    descriptor.multisample.mask = 0xFFFFFFFFU;
+    descriptor.fragment = &fragment;
+    pipelines[blend_mode] = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    return pipelines[blend_mode];
+}
+
+bool create_advanced_group_blend_resources(progpu_native_engine& engine) {
+    if (engine.group_blend_pipeline != nullptr &&
+        engine.group_blend_layout != nullptr &&
+        engine.group_blend_uniform_buffer != nullptr) {
+        return true;
+    }
+    if (engine.group_blend_shader != nullptr ||
+        engine.group_blend_pipeline != nullptr ||
+        engine.group_blend_layout != nullptr ||
+        engine.group_blend_uniform_buffer != nullptr) {
+        return false;
+    }
+
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::group_blend_wgsl,
+        progpu::native::generated::group_blend_wgsl_size);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU shared GroupBlend.wgsl");
+    engine.group_blend_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &shader_descriptor);
+    if (engine.group_blend_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 2U> entries{};
+    entries[0].binding = 0U;
+    entries[0].visibility = WGPUShaderStage_Fragment;
+    entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+    entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[0].texture.multisampled = false;
+    entries[1].binding = 1U;
+    entries[1].visibility = WGPUShaderStage_Fragment;
+    entries[1].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[1].buffer.minBindingSize = sizeof(gpu_group_blend_uniforms);
+    WGPUBindGroupLayoutDescriptor bind_layout_descriptor{};
+    bind_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend bind layout");
+    bind_layout_descriptor.entryCount = entries.size();
+    bind_layout_descriptor.entries = entries.data();
+    engine.group_blend_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &bind_layout_descriptor);
+    if (engine.group_blend_layout == nullptr) {
+        return false;
+    }
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend pipeline layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts = &engine.group_blend_layout;
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+    WGPUVertexState vertex_state{};
+    vertex_state.module = engine.group_blend_shader;
+    vertex_state.entryPoint =
+        progpu::native::webgpu::string_view("vs_main");
+    WGPUColorTargetState target{};
+    target.format = engine.target_format;
+    target.blend = nullptr;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState fragment{};
+    fragment.module = engine.group_blend_shader;
+    fragment.entryPoint =
+        progpu::native::webgpu::string_view("fs_main");
+    fragment.targetCount = 1U;
+    fragment.targets = &target;
+    WGPURenderPipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend pipeline");
+    pipeline_descriptor.layout = pipeline_layout;
+    pipeline_descriptor.vertex = vertex_state;
+    pipeline_descriptor.primitive.topology =
+        WGPUPrimitiveTopology_TriangleList;
+    pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
+    pipeline_descriptor.multisample.count = 1U;
+    pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
+    pipeline_descriptor.fragment = &fragment;
+    engine.group_blend_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.group_blend_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUBufferDescriptor uniform_descriptor{};
+    uniform_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend uniforms");
+    uniform_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    uniform_descriptor.size = sizeof(gpu_group_blend_uniforms);
+    engine.group_blend_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &uniform_descriptor);
+    return engine.group_blend_uniform_buffer != nullptr;
+}
+
+bool ensure_advanced_group_blend_source(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (!create_advanced_group_blend_resources(engine)) {
+        return false;
+    }
+    if (engine.group_blend_source_texture != nullptr &&
+        engine.group_blend_source_width == width &&
+        engine.group_blend_source_height == height) {
+        return true;
+    }
+
+    WGPUTextureDescriptor texture_descriptor{};
+    texture_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend source");
+    texture_descriptor.usage = WGPUTextureUsage_RenderAttachment |
+        WGPUTextureUsage_TextureBinding;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {width, height, 1U};
+    texture_descriptor.format = engine.target_format;
+    texture_descriptor.mipLevelCount = 1U;
+    texture_descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &texture_descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    const std::array<WGPUBindGroupEntry, 2U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, nullptr, view},
+        {nullptr, 1U, engine.group_blend_uniform_buffer, 0U,
+            sizeof(gpu_group_blend_uniforms), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor bind_group_descriptor{};
+    bind_group_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend bind group");
+    bind_group_descriptor.layout = engine.group_blend_layout;
+    bind_group_descriptor.entryCount = entries.size();
+    bind_group_descriptor.entries = entries.data();
+    WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &bind_group_descriptor);
+    if (bind_group == nullptr) {
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    if (engine.group_blend_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.group_blend_bind_group);
+    }
+    if (engine.group_blend_source_view != nullptr) {
+        wgpuTextureViewRelease(engine.group_blend_source_view);
+    }
+    if (engine.group_blend_source_texture != nullptr) {
+        wgpuTextureDestroy(engine.group_blend_source_texture);
+        wgpuTextureRelease(engine.group_blend_source_texture);
+    }
+    engine.group_blend_source_texture = texture;
+    engine.group_blend_source_view = view;
+    engine.group_blend_bind_group = bind_group;
+    engine.group_blend_source_width = width;
+    engine.group_blend_source_height = height;
+    engine.group_blend_source_cache_valid = false;
+    ++engine.group_blend_source_texture_generation;
+    ++engine.group_blend_source_allocation_count;
     return true;
 }
 
@@ -5511,12 +5979,290 @@ void reset_layer_metrics(progpu_native_engine& engine) noexcept {
         engine.layer_height * 4U;
 }
 
+WGPUBindGroup select_layer_source_bind_group(
+    progpu_native_engine& engine,
+    const resolved_draw_state& draw_state) noexcept {
+    if (!draw_state.has_group_effect) {
+        return engine.layer_texture_bind_group;
+    }
+    if (draw_state.effect_count > 1U) {
+        return engine.effect_chain_output_bind_groups[
+            engine.effect_chain_final_texture_index];
+    }
+    return draw_state.group_effect.kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW
+        ? engine.effect_drop_shadow_output_bind_group
+        : engine.effect_output_bind_group;
+}
+
+WGPUBindGroup select_layer_mask_bind_group(
+    progpu_native_engine& engine,
+    const resolved_draw_state& draw_state) noexcept {
+    if (!draw_state.has_group_mask) {
+        return nullptr;
+    }
+    if (draw_state.group_mask.kind == PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
+        return draw_state.group_mask.sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+            ? engine.layer_external_mask_nearest_bind_group
+            : engine.layer_external_mask_linear_bind_group;
+    }
+    if (draw_state.group_mask.kind ==
+        PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
+        return engine.layer_clip_mask_bind_groups[engine.clip_final_index];
+    }
+    return engine.layer_analytic_mask_bind_group;
+}
+
+std::uint64_t calculate_group_blend_source_signature(
+    const resolved_draw_state& draw_state) noexcept {
+    std::uint64_t hash = 14695981039346656037ULL;
+    hash = append_fnv1a64(
+        hash,
+        &draw_state.group_revision,
+        sizeof(draw_state.group_revision));
+    hash = append_fnv1a64(
+        hash,
+        &draw_state.group_opacity,
+        sizeof(draw_state.group_opacity));
+    hash = append_fnv1a64(
+        hash,
+        &draw_state.has_group_mask,
+        sizeof(draw_state.has_group_mask));
+    if (draw_state.has_group_mask) {
+        const auto& mask = draw_state.group_mask;
+        hash = append_fnv1a64(
+            hash,
+            &mask.kind,
+            sizeof(mask.kind));
+        hash = append_fnv1a64(
+            hash,
+            &mask.external_view,
+            sizeof(mask.external_view));
+        hash = append_fnv1a64(hash, &mask.width, sizeof(mask.width));
+        hash = append_fnv1a64(hash, &mask.height, sizeof(mask.height));
+        hash = append_fnv1a64(hash, &mask.sampling, sizeof(mask.sampling));
+        hash = append_fnv1a64(
+            hash,
+            &mask.texture_format,
+            sizeof(mask.texture_format));
+        hash = append_fnv1a64(hash, &mask.revision, sizeof(mask.revision));
+        hash = append_fnv1a64(
+            hash,
+            &mask.destination_rect,
+            sizeof(mask.destination_rect));
+        hash = append_fnv1a64(hash, &mask.bounds, sizeof(mask.bounds));
+        hash = append_fnv1a64(hash, &mask.transform, sizeof(mask.transform));
+        hash = append_fnv1a64(
+            hash,
+            mask.corner_radii_x,
+            sizeof(mask.corner_radii_x));
+        hash = append_fnv1a64(
+            hash,
+            mask.corner_radii_y,
+            sizeof(mask.corner_radii_y));
+        hash = append_fnv1a64(hash, &mask.opacity, sizeof(mask.opacity));
+    }
+    hash = append_fnv1a64(
+        hash,
+        &draw_state.effect_count,
+        sizeof(draw_state.effect_count));
+    hash = append_fnv1a64(
+        hash,
+        &draw_state.effect_chain_revision,
+        sizeof(draw_state.effect_chain_revision));
+    if (draw_state.effect_count != 0U) {
+        hash = append_fnv1a64(
+            hash,
+            draw_state.group_effects.data(),
+            draw_state.effect_count * sizeof(progpu_native_group_effect));
+    }
+    return hash;
+}
+
+float quantize_unorm8(float value) noexcept {
+    return std::round(std::clamp(value, 0.0F, 1.0F) * 255.0F) / 255.0F;
+}
+
+bool encode_layer_quad(
+    progpu_native_engine& engine,
+    WGPURenderPassEncoder pass,
+    WGPURenderPipeline pipeline,
+    const resolved_draw_state& draw_state,
+    bool apply_final_clip) {
+    WGPUBindGroup mask_bind_group = select_layer_mask_bind_group(
+        engine,
+        draw_state);
+    WGPUBindGroup source_bind_group = select_layer_source_bind_group(
+        engine,
+        draw_state);
+    if (pipeline == nullptr || source_bind_group == nullptr ||
+        (draw_state.has_group_mask && mask_bind_group == nullptr)) {
+        return false;
+    }
+    if (apply_final_clip) {
+        apply_scissor(pass, draw_state);
+    }
+    wgpuRenderPassEncoderSetPipeline(pass, pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        0U,
+        engine.layer_uniform_bind_group,
+        0U,
+        nullptr);
+    if (draw_state.has_group_mask) {
+        wgpuRenderPassEncoderSetBindGroup(
+            pass,
+            2U,
+            mask_bind_group,
+            0U,
+            nullptr);
+    }
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        1U,
+        source_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass,
+        0U,
+        engine.layer_vertex_buffer,
+        0U,
+        sizeof(engine.layer_vertices));
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        engine.layer_index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        6U * sizeof(std::uint32_t));
+    wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
+    return true;
+}
+
+bool encode_advanced_group_blend(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    WGPUTextureView target_view,
+    const progpu_native_color& clear_color,
+    const resolved_draw_state& draw_state) {
+    const std::uint64_t source_signature =
+        calculate_group_blend_source_signature(draw_state);
+    const bool source_cache_hit = draw_state.group_revision != 0U &&
+        engine.group_blend_source_cache_valid &&
+        engine.group_blend_source_signature == source_signature;
+    if (!source_cache_hit) {
+        WGPURenderPassColorAttachment source_attachment{};
+        progpu::native::webgpu::initialize_color_attachment(source_attachment);
+        source_attachment.view = engine.group_blend_source_view;
+        source_attachment.loadOp = WGPULoadOp_Clear;
+        source_attachment.storeOp = WGPUStoreOp_Store;
+        source_attachment.clearValue = {0.0, 0.0, 0.0, 0.0};
+        WGPURenderPassDescriptor source_descriptor{};
+        source_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native advanced group-blend source pass");
+        source_descriptor.colorAttachmentCount = 1U;
+        source_descriptor.colorAttachments = &source_attachment;
+        WGPURenderPassEncoder source_pass = wgpuCommandEncoderBeginRenderPass(
+            encoder,
+            &source_descriptor);
+        if (source_pass == nullptr) {
+            return false;
+        }
+        const bool source_encoded = encode_layer_quad(
+            engine,
+            source_pass,
+            draw_state.has_group_mask
+                ? engine.layer_mask_pipeline
+                : engine.layer_composite_pipeline,
+            draw_state,
+            false);
+        wgpuRenderPassEncoderEnd(source_pass);
+        wgpuRenderPassEncoderRelease(source_pass);
+        if (!source_encoded) {
+            return false;
+        }
+        engine.last_layer_metrics.blend_source_pass_count = 1U;
+        engine.group_blend_source_signature = source_signature;
+        engine.group_blend_source_cache_valid =
+            draw_state.group_revision != 0U;
+    }
+
+    const gpu_group_blend_uniforms uniforms{{
+        quantize_unorm8(clear_color.r),
+        quantize_unorm8(clear_color.g),
+        quantize_unorm8(clear_color.b),
+        quantize_unorm8(clear_color.a)
+    }, draw_state.group_blend_mode, {0U, 0U, 0U}};
+    if (!engine.group_blend_uniform_cache_valid ||
+        std::memcmp(
+            &engine.cached_group_blend_uniforms,
+            &uniforms,
+            sizeof(uniforms)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.group_blend_uniform_buffer,
+            0U,
+            &uniforms,
+            sizeof(uniforms));
+        engine.cached_group_blend_uniforms = uniforms;
+        engine.group_blend_uniform_cache_valid = true;
+        engine.last_layer_metrics.uniform_upload_bytes += sizeof(uniforms);
+    }
+
+    WGPURenderPassColorAttachment attachment{};
+    progpu::native::webgpu::initialize_color_attachment(attachment);
+    attachment.view = target_view;
+    attachment.loadOp = WGPULoadOp_Clear;
+    attachment.storeOp = WGPUStoreOp_Store;
+    attachment.clearValue = {
+        clear_color.r,
+        clear_color.g,
+        clear_color.b,
+        clear_color.a
+    };
+    WGPURenderPassDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native advanced group-blend composite pass");
+    descriptor.colorAttachmentCount = 1U;
+    descriptor.colorAttachments = &attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &descriptor);
+    if (pass == nullptr) {
+        return false;
+    }
+    apply_scissor(pass, draw_state);
+    wgpuRenderPassEncoderSetPipeline(pass, engine.group_blend_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        0U,
+        engine.group_blend_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    engine.last_layer_metrics.composite_pass_count = 1U;
+    return true;
+}
+
 bool encode_layer_composite(
     progpu_native_engine& engine,
     WGPUCommandEncoder encoder,
     WGPUTextureView target_view,
     const progpu_native_color& clear_color,
     const resolved_draw_state& draw_state) {
+    if (draw_state.group_opacity != 0.0F &&
+        draw_state.has_drawable_clip &&
+        is_advanced_group_blend(draw_state.group_blend_mode)) {
+        return encode_advanced_group_blend(
+            engine,
+            encoder,
+            target_view,
+            clear_color,
+            draw_state);
+    }
     WGPURenderPassColorAttachment attachment{};
     progpu::native::webgpu::initialize_color_attachment(attachment);
     attachment.view = target_view;
@@ -5541,75 +6287,23 @@ bool encode_layer_composite(
     }
     if (draw_state.group_opacity != 0.0F &&
         draw_state.has_drawable_clip) {
-        apply_scissor(pass, draw_state);
-        WGPUBindGroup mask_bind_group = nullptr;
-        if (draw_state.has_group_mask) {
-            if (draw_state.group_mask.kind ==
-                PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
-                mask_bind_group =
-                    draw_state.group_mask.sampling ==
-                        PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-                    ? engine.layer_external_mask_nearest_bind_group
-                    : engine.layer_external_mask_linear_bind_group;
-            } else if (draw_state.group_mask.kind ==
-                PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
-                mask_bind_group = engine.layer_clip_mask_bind_groups[
-                    engine.clip_final_index];
-            } else {
-                mask_bind_group = engine.layer_analytic_mask_bind_group;
-            }
-            if (mask_bind_group == nullptr) {
-                wgpuRenderPassEncoderEnd(pass);
-                wgpuRenderPassEncoderRelease(pass);
-                return false;
-            }
-        }
-        wgpuRenderPassEncoderSetPipeline(
-            pass,
-            draw_state.has_group_mask
-                ? engine.layer_mask_pipeline
-                : engine.layer_composite_pipeline);
-        wgpuRenderPassEncoderSetBindGroup(
-            pass,
-            0U,
-            engine.layer_uniform_bind_group,
-            0U,
-            nullptr);
-        if (draw_state.has_group_mask) {
-            wgpuRenderPassEncoderSetBindGroup(
+        bool ignored_cache_hit = false;
+        WGPURenderPipeline pipeline =
+            get_or_create_fixed_group_blend_pipeline(
+                engine,
+                draw_state.group_blend_mode,
+                draw_state.has_group_mask,
+                ignored_cache_hit);
+        if (!encode_layer_quad(
+                engine,
                 pass,
-                2U,
-                mask_bind_group,
-                0U,
-                nullptr);
+                pipeline,
+                draw_state,
+                true)) {
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            return false;
         }
-        wgpuRenderPassEncoderSetBindGroup(
-            pass,
-            1U,
-            draw_state.has_group_effect
-                ? draw_state.effect_count > 1U
-                    ? engine.effect_chain_output_bind_groups[
-                        engine.effect_chain_final_texture_index]
-                    : draw_state.group_effect.kind ==
-                            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW
-                        ? engine.effect_drop_shadow_output_bind_group
-                        : engine.effect_output_bind_group
-                : engine.layer_texture_bind_group,
-            0U,
-            nullptr);
-        wgpuRenderPassEncoderSetVertexBuffer(
-            pass,
-            0U,
-            engine.layer_vertex_buffer,
-            0U,
-            sizeof(engine.layer_vertices));
-        wgpuRenderPassEncoderSetIndexBuffer(
-            pass,
-            engine.layer_index_buffer,
-            WGPUIndexFormat_Uint32,
-            0U,
-            6U * sizeof(std::uint32_t));
-        wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
         engine.last_layer_metrics.composite_pass_count = 1U;
     }
     wgpuRenderPassEncoderEnd(pass);
@@ -5631,7 +6325,8 @@ progpu_native_status prepare_group_layer(
     use_group_layer = draw_state.group_opacity < 1.0F ||
         draw_state.group_revision != 0U ||
         draw_state.has_group_mask ||
-        draw_state.has_group_effect;
+        draw_state.has_group_effect ||
+        draw_state.group_blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER;
     submitted_cache_hit = false;
     if (!use_group_layer) {
         return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -5667,6 +6362,45 @@ progpu_native_status prepare_group_layer(
         engine.last_layer_metrics.uniform_upload_bytes +=
             sizeof(gpu_mask_sampling_uniforms);
     }
+    engine.last_layer_metrics.blend_mode = draw_state.group_blend_mode;
+    if (draw_state.group_opacity != 0.0F &&
+        draw_state.has_drawable_clip) {
+        if (is_advanced_group_blend(draw_state.group_blend_mode)) {
+            const bool cache_hit = engine.group_blend_pipeline != nullptr &&
+                engine.group_blend_source_texture != nullptr &&
+                engine.group_blend_source_width == width &&
+                engine.group_blend_source_height == height;
+            if (!ensure_advanced_group_blend_source(
+                    engine,
+                    width,
+                    height)) {
+                return engine.fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The advanced group-blend resources could not be prepared.");
+            }
+            engine.last_layer_metrics.blend_pipeline_cache_hit =
+                cache_hit ? 1U : 0U;
+            engine.last_layer_metrics.blend_source_texture_generation =
+                engine.group_blend_source_texture_generation;
+            engine.last_layer_metrics.blend_source_allocation_count =
+                engine.group_blend_source_allocation_count;
+            engine.last_layer_metrics.blend_source_texture_bytes =
+                static_cast<std::uint64_t>(width) * height * 4U;
+        } else {
+            bool pipeline_cache_hit = false;
+            if (get_or_create_fixed_group_blend_pipeline(
+                    engine,
+                    draw_state.group_blend_mode,
+                    draw_state.has_group_mask,
+                    pipeline_cache_hit) == nullptr) {
+                return engine.fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The fixed-function group-blend pipeline could not be prepared.");
+            }
+            engine.last_layer_metrics.blend_pipeline_cache_hit =
+                pipeline_cache_hit ? 1U : 0U;
+        }
+    }
     const bool cache_hit = draw_state.group_revision != 0U &&
         engine.layer_content_cache_valid &&
         engine.layer_cached_family ==
@@ -5676,6 +6410,7 @@ progpu_native_status prepare_group_layer(
         engine.layer_cached_primitive_opacity == draw_state.opacity;
     if (!cache_hit) {
         engine.effect_cache_valid = false;
+        engine.group_blend_source_cache_valid = false;
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
@@ -6237,7 +6972,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN |
         PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR |
         PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW |
-        PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN;
+        PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN |
+        PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else

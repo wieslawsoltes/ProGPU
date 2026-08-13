@@ -129,7 +129,13 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.EffectCount,
             metrics.EffectChainRevision,
             metrics.EffectTextureGeneration,
-            metrics.EffectAllocationCount);
+            metrics.EffectAllocationCount,
+            metrics.BlendMode,
+            metrics.BlendSourcePassCount,
+            metrics.BlendPipelineCacheHit != 0U,
+            metrics.BlendSourceTextureGeneration,
+            metrics.BlendSourceAllocationCount,
+            metrics.BlendSourceTextureBytes);
     }
 
     /// <summary>
@@ -1282,7 +1288,9 @@ public sealed unsafe class NativeCompositor : IDisposable
             GroupRevision = state.GroupRevision,
             GroupMask = groupMaskPointer,
             GroupEffect = groupEffectPointer,
-            GroupEffectChain = groupEffectChainPointer
+            GroupEffectChain = groupEffectChainPointer,
+            GroupBlendMode = state.EffectiveGroupBlendMode,
+            Reserved2 = 0U
         };
     }
 

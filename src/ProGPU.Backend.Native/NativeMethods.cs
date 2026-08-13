@@ -26,6 +26,8 @@ internal static unsafe partial class NativeMethods
         internal nuint GroupMask;
         internal nuint GroupEffect;
         internal nuint GroupEffectChain;
+        internal GpuBlendMode GroupBlendMode;
+        internal uint Reserved2;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -372,6 +374,13 @@ internal static unsafe partial class NativeMethods
         internal uint EffectChainRevision;
         internal uint EffectTextureGeneration;
         internal uint EffectAllocationCount;
+        internal GpuBlendMode BlendMode;
+        internal uint BlendSourcePassCount;
+        internal uint BlendPipelineCacheHit;
+        internal uint BlendSourceTextureGeneration;
+        internal uint BlendSourceAllocationCount;
+        internal uint Reserved;
+        internal ulong BlendSourceTextureBytes;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

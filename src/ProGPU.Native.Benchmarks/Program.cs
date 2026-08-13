@@ -152,6 +152,16 @@ bool useGroupOpacity = Array.Exists(
         value,
         "--group-opacity",
         StringComparison.OrdinalIgnoreCase));
+string? groupBlendModeArgument = ReadStringArgument("--group-blend-mode");
+bool useGroupBlend = groupBlendModeArgument is not null;
+GpuBlendMode groupBlendMode = GpuBlendMode.SrcOver;
+if (useGroupBlend &&
+    (!Enum.TryParse(groupBlendModeArgument, ignoreCase: true, out groupBlendMode) ||
+     !Enum.IsDefined(groupBlendMode)))
+{
+    throw new ArgumentException(
+        $"Unknown --group-blend-mode value '{groupBlendModeArgument}'.");
+}
 bool useGaussianGroupEffect = Array.Exists(
     args,
     static value => string.Equals(
@@ -188,6 +198,11 @@ if (recomputeGroupEffect && !useGroupEffect)
 {
     throw new ArgumentException(
         "--recompute-group-effect requires a retained group effect.");
+}
+if (recomputeGroupEffect && useGroupBlend)
+{
+    throw new ArgumentException(
+        "The initial matched group-blend lane does not combine effect recomputation.");
 }
 float gaussianSigma = ReadPositiveFloatArgument("--blur-sigma", 2f);
 Vector2 dropShadowOffset = new(7.5f, 5.25f);
@@ -351,6 +366,9 @@ using var context = new WgpuContext();
 context.Initialize(window: null);
 using var nativeTarget = CreateTarget(context, "Native benchmark target");
 using var managedTarget = CreateTarget(context, "Managed benchmark target");
+using GpuTexture? managedBlendSourceTarget = useGroupBlend
+    ? CreateTarget(context, "Managed retained group-blend source")
+    : null;
 using GpuTexture? managedImageTexture = useImageScene
     ? new GpuTexture(
         context,
@@ -447,6 +465,7 @@ NativeGroupEffectChain? timedEffectChainB = useGroupEffectChain
         revision: 101U)
     : null;
 nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
+    useGroupBlend ||
     useGroupEffect
     ? nativeGroupEffectChain is not null
         ? new NativeDrawState(
@@ -466,10 +485,16 @@ nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
                 ? NativeDrawStateFlags.ClipRect
                 : NativeDrawStateFlags.None,
             useGroupOpacity ? benchmarkGroupOpacity : 1f,
-            useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
+            useGroupOpacity || useGroupMask || useGroupEffect || useGroupBlend
+                ? 1U
+                : 0U,
             nativeGroupMask,
             nativeGroupEffect)
     : default;
+if (useGroupBlend)
+{
+    nativeDrawState = nativeDrawState.WithGroupBlendMode(groupBlendMode);
+}
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
 using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
@@ -637,6 +662,31 @@ if (useGroupEffectChain)
         logicalHeight);
     outerEffectVisual.EffectRasterPadding = 0f;
     managedRenderRoot = outerEffectVisual;
+}
+Visual? managedBlendSourceRoot = null;
+if (useGroupBlend)
+{
+    managedBlendSourceRoot = managedRenderRoot;
+    var blendCompositeVisual = new DrawingVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    blendCompositeVisual.Context.PushBlendMode(groupBlendMode);
+    blendCompositeVisual.Context.DrawTexture(
+        managedBlendSourceTarget!,
+        new Rect(0f, 0f, logicalWidth, logicalHeight));
+    blendCompositeVisual.Context.PopBlendMode();
+    managedRenderRoot = blendCompositeVisual;
+
+    managed.RenderOffscreen(
+        managedBlendSourceRoot,
+        Math.Max(1U, (uint)MathF.Round(logicalWidth)),
+        Math.Max(1U, (uint)MathF.Round(logicalHeight)),
+        managedBlendSourceTarget!,
+        padding: 0f,
+        dpiScale,
+        Vector4.Zero);
+    context.PollDevice(wait: true);
 }
 
 // A growth gate first establishes the ordinary 1024-square resource, then
@@ -930,6 +980,17 @@ if (useGroupEffect &&
         "Stable group-effect replay dispatched compute work or " +
         "rebuilt retained content.");
 }
+if (useGroupBlend &&
+    (!stableLayerMetrics.CacheHit ||
+     stableLayerMetrics.ContentPassCount != 0U ||
+     stableLayerMetrics.CompositePassCount != 1U ||
+     stableLayerMetrics.BlendMode != groupBlendMode ||
+     stableLayerMetrics.BlendSourcePassCount != 0U ||
+     !stableLayerMetrics.BlendPipelineCacheHit))
+{
+    throw new InvalidOperationException(
+        "Stable group-blend replay rebuilt retained source or pipeline state.");
+}
 if (useDrawState && useGeometryScene &&
     (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
      lastNativeGeometryMetrics.IndexUploadBytes != 0UL ||
@@ -1014,6 +1075,8 @@ if (writeImages)
         ? $"group-drop-shadow-{familyStem}"
         : useGaussianGroupEffect
         ? $"group-gaussian-blur-{familyStem}"
+        : useGroupBlend
+        ? $"group-blend-{groupBlendMode.ToString().ToLowerInvariant()}-{familyStem}"
         : useVectorClipChain
         ? useImageScene
             ? "group-vector-clip-images"
@@ -1125,6 +1188,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? usesGeometryDifferential ? 204 : 64
     : useGaussianGroupEffect
     ? 64
+    : useGroupBlend
+    ? usesGeometryDifferential ? 204 : 64
     : useMaskedImageScene
     ? 1
     : usesCommonMaskDifferential ? 3
@@ -1134,6 +1199,8 @@ int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
         : useGroupEffect
+        ? Math.Max(1, comparison.PixelCount / 100)
+        : useGroupBlend
         ? Math.Max(1, comparison.PixelCount / 100)
         : useVectorClipChain
         ? Math.Max(1, comparison.PixelCount / 100)
@@ -1166,6 +1233,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     ? useAnalyticScene ? 0.125 : 0.1
     : useGaussianGroupEffect
     ? 0.075
+    : useGroupBlend
+    ? 0.125
     : useVectorClipChain
     ? 0.075
     : useMaskedImageScene
@@ -1392,6 +1461,8 @@ var report = new BenchmarkReport(
         ? "Bounded retained drop-shadow differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 for analytic source coverage and 0.1/255 otherwise"
         : useGaussianGroupEffect
         ? "Bounded separable Gaussian-blur differential: max 64/255, under 1% pixels beyond 3/255, mean under 0.075/255 per channel"
+        : useGroupBlend
+        ? "Bounded group-blend differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 per channel"
         : useVectorClipChain
         ? "Bounded retained vector-clip AA differential: max 64/255, under 1% edge pixels beyond 3/255, mean under 0.075/255 per channel"
         : useMaskedImageScene
@@ -1435,6 +1506,7 @@ var report = new BenchmarkReport(
             : useDropShadowGroupEffect
             ? "DropShadow"
             : useGaussianGroupEffect ? "GaussianBlur" : "None",
+    GroupBlend: useGroupBlend ? groupBlendMode.ToString() : "SrcOver",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -3331,6 +3403,7 @@ internal sealed record BenchmarkReport(
     bool GroupOpacity,
     string GroupMask,
     string GroupEffect,
+    string GroupBlend,
     bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,

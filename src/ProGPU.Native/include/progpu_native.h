@@ -49,7 +49,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U,
     PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U,
     PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U,
-    PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U
+    PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U,
+    PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U
 };
 
 enum {
@@ -78,6 +79,39 @@ typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
     PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2
 } progpu_native_group_effect_kind;
+
+/* Values intentionally match ProGPU.Backend.GpuBlendMode. */
+typedef enum progpu_native_blend_mode {
+    PROGPU_NATIVE_BLEND_SRC_OVER = 0,
+    PROGPU_NATIVE_BLEND_SRC = 1,
+    PROGPU_NATIVE_BLEND_DST = 2,
+    PROGPU_NATIVE_BLEND_SRC_IN = 3,
+    PROGPU_NATIVE_BLEND_DST_IN = 4,
+    PROGPU_NATIVE_BLEND_SRC_OUT = 5,
+    PROGPU_NATIVE_BLEND_DST_OUT = 6,
+    PROGPU_NATIVE_BLEND_SRC_ATOP = 7,
+    PROGPU_NATIVE_BLEND_DST_ATOP = 8,
+    PROGPU_NATIVE_BLEND_XOR = 9,
+    PROGPU_NATIVE_BLEND_DST_OVER = 10,
+    PROGPU_NATIVE_BLEND_MULTIPLY = 11,
+    PROGPU_NATIVE_BLEND_SCREEN = 12,
+    PROGPU_NATIVE_BLEND_DARKEN = 13,
+    PROGPU_NATIVE_BLEND_LIGHTEN = 14,
+    PROGPU_NATIVE_BLEND_EXCLUSION = 15,
+    PROGPU_NATIVE_BLEND_PLUS = 16,
+    PROGPU_NATIVE_BLEND_CLEAR = 17,
+    PROGPU_NATIVE_BLEND_OVERLAY = 18,
+    PROGPU_NATIVE_BLEND_COLOR_DODGE = 19,
+    PROGPU_NATIVE_BLEND_COLOR_BURN = 20,
+    PROGPU_NATIVE_BLEND_HARD_LIGHT = 21,
+    PROGPU_NATIVE_BLEND_SOFT_LIGHT = 22,
+    PROGPU_NATIVE_BLEND_DIFFERENCE = 23,
+    PROGPU_NATIVE_BLEND_HUE = 24,
+    PROGPU_NATIVE_BLEND_SATURATION = 25,
+    PROGPU_NATIVE_BLEND_COLOR = 26,
+    PROGPU_NATIVE_BLEND_LUMINOSITY = 27,
+    PROGPU_NATIVE_BLEND_MODULATE = 28
+} progpu_native_blend_mode;
 
 enum {
     PROGPU_NATIVE_MAX_GROUP_EFFECTS = 8U
@@ -520,7 +554,8 @@ typedef struct progpu_native_group_effect_chain {
  * struct_size keeps ABI-v3 append compatibility: the original 32-byte prefix
  * defaults group_opacity to one and group_revision to zero; the 40-byte
  * prefix has group state but no common mask; the 48/44-byte mask prefix has
- * no group effect. The 56/48-byte effect prefix has no effect chain.
+ * no group effect. The 56/48-byte effect prefix has no effect chain. The
+ * 64/52-byte effect-chain prefix defaults group_blend_mode to SrcOver.
  */
 typedef struct progpu_native_draw_state {
     uint32_t struct_size;
@@ -533,6 +568,8 @@ typedef struct progpu_native_draw_state {
     const progpu_native_group_mask* group_mask;
     const progpu_native_group_effect* group_effect;
     const progpu_native_group_effect_chain* group_effect_chain;
+    uint32_t group_blend_mode;
+    uint32_t reserved2;
 } progpu_native_draw_state;
 
 typedef struct progpu_native_layer_metrics {
@@ -569,6 +606,13 @@ typedef struct progpu_native_layer_metrics {
     uint32_t effect_chain_revision;
     uint32_t effect_texture_generation;
     uint32_t effect_allocation_count;
+    uint32_t blend_mode;
+    uint32_t blend_source_pass_count;
+    uint32_t blend_pipeline_cache_hit;
+    uint32_t blend_source_texture_generation;
+    uint32_t blend_source_allocation_count;
+    uint32_t reserved;
+    uint64_t blend_source_texture_bytes;
 } progpu_native_layer_metrics;
 
 /*

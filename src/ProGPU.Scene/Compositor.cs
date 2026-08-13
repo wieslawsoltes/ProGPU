@@ -105,11 +105,12 @@ internal struct MaskSamplingUniforms : IEquatable<MaskSamplingUniforms>
             Options);
 }
 
-[StructLayout(LayoutKind.Explicit, Size = 16)]
+[StructLayout(LayoutKind.Explicit, Size = 32)]
 internal struct AdvancedBlendSamplingUniforms
 {
     [FieldOffset(0)] public Vector2 SourceOrigin;
     [FieldOffset(8)] public Vector2 SourceExtent;
+    [FieldOffset(16)] public uint BlendMode;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -1074,6 +1075,7 @@ public unsafe partial class Compositor : IDisposable
     private GpuTexture? _advancedBlendSourceTexture;
     private BindGroupLayout* _advancedBlendBindGroupLayout;
     private PipelineLayout* _advancedBlendPipelineLayout;
+    private RenderPipeline* _advancedBlendPipeline;
     private readonly List<AdvancedBlendPassResource> _advancedBlendPassResources = new();
     private int _advancedBlendPassResourceCount;
     private uint _advancedBlendSourceUnderutilizedFrames;
@@ -14315,7 +14317,7 @@ SceneStateUploadComplete:
         return drawCall.Type == DrawCallType.Texture &&
             IsTextureBindable(drawCall.Texture) &&
             RequiresDestinationSampling(drawCall.BlendMode) &&
-            targetTexture.Usage.HasFlag(TextureUsage.TextureBinding);
+            (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
     }
 
     private bool TryGetAdvancedBlendSourceBounds(
@@ -14575,7 +14577,8 @@ SceneStateUploadComplete:
 
     private AdvancedBlendPassResource AcquireAdvancedBlendPassResource(
         MaskPixelBounds bounds,
-        GpuTexture sourceTarget)
+        GpuTexture sourceTarget,
+        GpuBlendMode blendMode)
     {
         AdvancedBlendPassResource resource;
         if (_advancedBlendPassResourceCount < _advancedBlendPassResources.Count)
@@ -14648,32 +14651,34 @@ SceneStateUploadComplete:
             new AdvancedBlendSamplingUniforms
             {
                 SourceOrigin = new Vector2(bounds.X, bounds.Y),
-                SourceExtent = new Vector2(bounds.Width, bounds.Height)
+                SourceExtent = new Vector2(bounds.Width, bounds.Height),
+                BlendMode = (uint)blendMode
             },
             256);
         return resource;
     }
 
-    private RenderPipeline* GetAdvancedBlendPipeline(GpuBlendMode blendMode)
+    private RenderPipeline* GetAdvancedBlendPipeline()
     {
+        if (_advancedBlendPipeline != null)
+        {
+            return _advancedBlendPipeline;
+        }
+
         EnsureAdvancedBlendLayout();
-        var shaderKey = $"AdvancedBlend_{blendMode}";
-        var shaderCode = Shaders.AdvancedBlendShader.Replace(
-            "__BLEND_MODE__",
-            ((int)blendMode).ToString(CultureInfo.InvariantCulture),
-            StringComparison.Ordinal);
         var shader = _pipelineCache.GetOrCreateShader(
-            shaderKey,
-            shaderCode,
-            $"Advanced blend {blendMode} shader");
-        return _pipelineCache.GetOrCreateRenderPipeline(
-            $"AdvancedBlendPipeline_{blendMode}_{RenderFormat}",
+            "AdvancedBlend",
+            Shaders.AdvancedBlendShader,
+            "Advanced blend shader");
+        _advancedBlendPipeline = _pipelineCache.GetOrCreateRenderPipeline(
+            $"AdvancedBlendPipeline_{RenderFormat}",
             shader,
             ReadOnlySpan<VertexBufferLayout>.Empty,
             targetFormat: RenderFormat,
             enableBlend: false,
             sampleCount: 1,
             pipelineLayout: _advancedBlendPipelineLayout);
+        return _advancedBlendPipeline;
     }
 
     private RenderPassEncoder* BeginOffscreenTexturePass(
@@ -14823,7 +14828,6 @@ SceneStateUploadComplete:
         GpuTexture destination,
         GpuTexture source,
         GpuTexture output,
-        GpuBlendMode blendMode,
         AdvancedBlendPassResource passResource)
     {
         EnsureAdvancedBlendLayout();
@@ -14868,7 +14872,7 @@ SceneStateUploadComplete:
         {
             _context.Api.RenderPassEncoderSetPipeline(
                 pass,
-                GetAdvancedBlendPipeline(blendMode));
+                GetAdvancedBlendPipeline());
             _context.Api.RenderPassEncoderSetBindGroup(pass, 0, bindGroup, 0, null);
             _context.Api.RenderPassEncoderDraw(pass, 3, 1, 0, 0);
         }
@@ -16333,7 +16337,8 @@ SceneStateUploadComplete:
                     : targetTexture;
                 var advancedBlendPassResource = AcquireAdvancedBlendPassResource(
                     advancedBlendBounds,
-                    _advancedBlendSourceTexture!);
+                    _advancedBlendSourceTexture!,
+                    dc.BlendMode);
                 EncodeAdvancedBlendSource(
                     encoder,
                     _advancedBlendSourceTexture!,
@@ -16345,7 +16350,6 @@ SceneStateUploadComplete:
                     currentRenderTarget,
                     _advancedBlendSourceTexture!,
                     output,
-                    dc.BlendMode,
                     advancedBlendPassResource);
                 currentRenderTarget = output;
 
@@ -16615,13 +16619,13 @@ SceneStateUploadComplete:
                 targetTexture.Height);
             var copyPassResource = AcquireAdvancedBlendPassResource(
                 targetBounds,
-                currentRenderTarget);
+                currentRenderTarget,
+                GpuBlendMode.Src);
             EncodeAdvancedBlendFullscreen(
                 encoder,
                 currentRenderTarget,
                 currentRenderTarget,
                 targetTexture,
-                GpuBlendMode.Src,
                 copyPassResource);
         }
         RestorePreparedExtensionDrawCalls(

@@ -164,7 +164,8 @@ public enum NativeRendererCapabilities : ulong
     RetainedVectorClipChain = 1UL << 24,
     GroupGaussianBlur = 1UL << 25,
     GroupDropShadow = 1UL << 26,
-    BoundedGroupEffectChain = 1UL << 27
+    BoundedGroupEffectChain = 1UL << 27,
+    GroupBlendModes = 1UL << 28
 }
 
 [Flags]
@@ -473,7 +474,29 @@ public readonly struct NativeDrawState
             groupOpacity,
             groupRevision,
             default,
-            default(NativeGroupEffect))
+            default(NativeGroupEffect),
+            null,
+            GpuBlendMode.SrcOver)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision,
+        GpuBlendMode groupBlendMode)
+        : this(
+            opacity,
+            clipRect,
+            flags,
+            groupOpacity,
+            groupRevision,
+            default,
+            default(NativeGroupEffect),
+            null,
+            groupBlendMode)
     {
     }
 
@@ -491,7 +514,9 @@ public readonly struct NativeDrawState
             groupOpacity,
             groupRevision,
             groupMask,
-            default(NativeGroupEffect))
+            default(NativeGroupEffect),
+            null,
+            GpuBlendMode.SrcOver)
     {
     }
 
@@ -511,7 +536,8 @@ public readonly struct NativeDrawState
             groupRevision,
             groupMask,
             groupEffect,
-            null)
+            null,
+            GpuBlendMode.SrcOver)
     {
     }
 
@@ -531,7 +557,8 @@ public readonly struct NativeDrawState
             groupRevision,
             groupMask,
             default,
-            groupEffectChain)
+            groupEffectChain,
+            GpuBlendMode.SrcOver)
     {
     }
 
@@ -543,8 +570,13 @@ public readonly struct NativeDrawState
         uint groupRevision,
         NativeGroupMask groupMask,
         NativeGroupEffect groupEffect,
-        NativeGroupEffectChain? groupEffectChain)
+        NativeGroupEffectChain? groupEffectChain,
+        GpuBlendMode groupBlendMode)
     {
+        if ((uint)groupBlendMode > (uint)GpuBlendMode.Modulate)
+        {
+            throw new ArgumentOutOfRangeException(nameof(groupBlendMode));
+        }
         Opacity = opacity;
         ClipRect = clipRect;
         Flags = flags;
@@ -553,6 +585,7 @@ public readonly struct NativeDrawState
         GroupMask = groupMask;
         GroupEffect = groupEffect;
         GroupEffectChain = groupEffectChain;
+        GroupBlendMode = groupBlendMode;
         _initialized = 1;
     }
 
@@ -566,6 +599,19 @@ public readonly struct NativeDrawState
     public readonly NativeGroupMask GroupMask;
     public readonly NativeGroupEffect GroupEffect;
     public readonly NativeGroupEffectChain? GroupEffectChain;
+    public readonly GpuBlendMode GroupBlendMode;
+
+    public NativeDrawState WithGroupBlendMode(GpuBlendMode groupBlendMode) =>
+        new(
+            EffectiveOpacity,
+            ClipRect,
+            Flags,
+            EffectiveGroupOpacity,
+            GroupRevision,
+            GroupMask,
+            GroupEffect,
+            GroupEffectChain,
+            groupBlendMode);
 
     private readonly byte _initialized;
 
@@ -573,6 +619,9 @@ public readonly struct NativeDrawState
 
     internal float EffectiveGroupOpacity =>
         _initialized == 0 ? 1f : GroupOpacity;
+
+    internal GpuBlendMode EffectiveGroupBlendMode =>
+        _initialized == 0 ? GpuBlendMode.SrcOver : GroupBlendMode;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -1180,7 +1229,13 @@ public readonly record struct NativeLayerMetrics(
     uint EffectCount,
     uint EffectChainRevision,
     uint EffectTextureGeneration,
-    uint EffectAllocationCount);
+    uint EffectAllocationCount,
+    GpuBlendMode BlendMode,
+    uint BlendSourcePassCount,
+    bool BlendPipelineCacheHit,
+    uint BlendSourceTextureGeneration,
+    uint BlendSourceAllocationCount,
+    ulong BlendSourceTextureBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

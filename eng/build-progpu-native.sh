@@ -428,6 +428,29 @@ for effect_mode in \
     --images "${effect_mode}" --warmup 2 --iterations 4
 done
 
+# Root-group compositing uses fixed-function WebGPU blend state when the
+# equation is exactly representable and one bounded destination-sampling pass
+# for advanced blend modes. Exercise both routes over every retained family;
+# the real-provider CTest separately creates and stably replays all 29 modes.
+for blend_mode in SrcAtop Overlay; do
+  run_common_mask_benchmark \
+    --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --analytic --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --geometry --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --paths --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --glyphs --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --images --group-blend-mode "${blend_mode}" --warmup 2 --iterations 4
+done
+for blend_mode in ColorDodge Saturation; do
+  run_common_mask_benchmark \
+    --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
+done
+
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"
 echo "Managed sample: ${sample_dir}/progpu-native-managed-sample.ppm"

@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Xunit;
 
@@ -72,7 +73,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(72, Unsafe.SizeOf<NativeMethods.DrawState>());
         Assert.Equal(
             0,
             OffsetOf<NativeMethods.DrawState>(
@@ -101,6 +102,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             56,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupEffectChain)));
+        Assert.Equal(
+            64,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupBlendMode)));
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GroupEffect>());
         Assert.Equal(
             16,
@@ -136,7 +140,7 @@ public class NativeRendererInteropTests
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ClipChain)));
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.ClipChain>());
         Assert.Equal(72, Unsafe.SizeOf<NativeClipPath>());
-        Assert.Equal(168, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(200, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(
             56,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskKind)));
@@ -158,6 +162,12 @@ public class NativeRendererInteropTests
         Assert.Equal(
             144,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.EffectTextureBytes)));
+        Assert.Equal(
+            168,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.BlendMode)));
+        Assert.Equal(
+            192,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.BlendSourceTextureBytes)));
         Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
@@ -208,6 +218,28 @@ public class NativeRendererInteropTests
         Assert.Equal(17U, state.GroupRevision);
         Assert.Equal(1f, NativeDrawState.Default.EffectiveOpacity);
         Assert.Equal(1f, NativeDrawState.Default.EffectiveGroupOpacity);
+        Assert.Equal(GpuBlendMode.SrcOver, NativeDrawState.Default.EffectiveGroupBlendMode);
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesTypedGroupBlendMode()
+    {
+        var state = new NativeDrawState(
+            0.75f,
+            default,
+            NativeDrawStateFlags.None,
+            0.5f,
+            19U,
+            GpuBlendMode.Overlay);
+        var defaultWithBlend = default(NativeDrawState)
+            .WithGroupBlendMode(GpuBlendMode.Multiply);
+
+        Assert.Equal(GpuBlendMode.Overlay, state.GroupBlendMode);
+        Assert.Equal(GpuBlendMode.Multiply, defaultWithBlend.GroupBlendMode);
+        Assert.Equal(1f, defaultWithBlend.EffectiveOpacity);
+        Assert.Equal(1f, defaultWithBlend.EffectiveGroupOpacity);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            state.WithGroupBlendMode((GpuBlendMode)29));
     }
 
     [Fact]
@@ -449,6 +481,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             16777216UL,
             (ulong)NativeRendererCapabilities.RetainedVectorClipChain);
+        Assert.Equal(
+            268435456UL,
+            (ulong)NativeRendererCapabilities.GroupBlendModes);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

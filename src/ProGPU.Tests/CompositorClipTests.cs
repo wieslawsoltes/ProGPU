@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Scene;
@@ -11,6 +12,16 @@ namespace ProGPU.Tests;
 
 public sealed class CompositorClipTests
 {
+    [Fact]
+    public void AdvancedBlendSamplingUniformLayoutCarriesRuntimeMode()
+    {
+        Assert.Equal(32, Marshal.SizeOf<AdvancedBlendSamplingUniforms>());
+        Assert.Equal(
+            16,
+            Marshal.OffsetOf<AdvancedBlendSamplingUniforms>(
+                nameof(AdvancedBlendSamplingUniforms.BlendMode)).ToInt32());
+    }
+
     [Fact]
     public void MaskSamplingUniformEqualityIsAllocationFree()
     {
