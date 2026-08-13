@@ -136,6 +136,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 72U);
@@ -146,9 +148,13 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, transform) == 80U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, opacity) == 136U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, clip_chain) == 144U);
-    PROGPU_REQUIRE(sizeof(progpu_native_draw_state) == 48U);
+    PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 32U);
+    PROGPU_REQUIRE(offsetof(progpu_native_group_effect, sigma_x) == 16U);
+    PROGPU_REQUIRE(offsetof(progpu_native_group_effect, sigma_y) == 20U);
+    PROGPU_REQUIRE(sizeof(progpu_native_draw_state) == 56U);
     PROGPU_REQUIRE(offsetof(progpu_native_draw_state, group_mask) == 40U);
-    PROGPU_REQUIRE(sizeof(progpu_native_layer_metrics) == 120U);
+    PROGPU_REQUIRE(offsetof(progpu_native_draw_state, group_effect) == 48U);
+    PROGPU_REQUIRE(sizeof(progpu_native_layer_metrics) == 152U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_layer_metrics,
         mask_kind) == 56U);
@@ -161,6 +167,15 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(
         progpu_native_layer_metrics,
         clip_path_upload_bytes) == 96U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_layer_metrics,
+        effect_kind) == 120U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_layer_metrics,
+        effect_uniform_upload_bytes) == 136U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_layer_metrics,
+        effect_texture_bytes) == 144U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_frame) == 104U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_frame_metrics) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_image_rect) == 16U);

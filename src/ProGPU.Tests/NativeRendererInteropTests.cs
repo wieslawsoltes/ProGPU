@@ -72,7 +72,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(48, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.DrawState>());
         Assert.Equal(
             0,
             OffsetOf<NativeMethods.DrawState>(
@@ -95,6 +95,16 @@ public class NativeRendererInteropTests
         Assert.Equal(
             40,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupMask)));
+        Assert.Equal(
+            48,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupEffect)));
+        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.GroupEffect>());
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.SigmaX)));
+        Assert.Equal(
+            20,
+            OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.SigmaY)));
         Assert.Equal(152, Unsafe.SizeOf<NativeMethods.GroupMask>());
         Assert.Equal(
             16,
@@ -113,7 +123,7 @@ public class NativeRendererInteropTests
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ClipChain)));
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.ClipChain>());
         Assert.Equal(72, Unsafe.SizeOf<NativeClipPath>());
-        Assert.Equal(120, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(152, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(
             56,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskKind)));
@@ -126,6 +136,15 @@ public class NativeRendererInteropTests
         Assert.Equal(
             96,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.ClipPathUploadBytes)));
+        Assert.Equal(
+            120,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.EffectKind)));
+        Assert.Equal(
+            136,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.EffectUniformUploadBytes)));
+        Assert.Equal(
+            144,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.EffectTextureBytes)));
         Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
@@ -201,6 +220,26 @@ public class NativeRendererInteropTests
         Assert.Equal(6f, state.GroupMask.CornerRadiiX.Z);
         Assert.Equal(11f, state.GroupMask.CornerRadiiY.W);
         Assert.Equal(0.75f, state.GroupMask.Opacity);
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesTypedGaussianGroupEffect()
+    {
+        var effect = NativeGroupEffect.GaussianBlur(2.5f, 4.5f, 23U);
+        var state = new NativeDrawState(
+            1f,
+            default,
+            NativeDrawStateFlags.None,
+            0.75f,
+            19U,
+            default,
+            effect);
+
+        Assert.Equal(NativeGroupEffectKind.GaussianBlur, state.GroupEffect.Kind);
+        Assert.Equal(2.5f, state.GroupEffect.SigmaX);
+        Assert.Equal(4.5f, state.GroupEffect.SigmaY);
+        Assert.Equal(23U, state.GroupEffect.Revision);
+        Assert.True(state.GroupEffect.IsEnabled);
     }
 
     [Fact]

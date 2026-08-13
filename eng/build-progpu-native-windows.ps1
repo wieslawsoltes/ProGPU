@@ -192,6 +192,18 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             -c Release -- `
             @SceneArgs
     }
+    $GaussianEffectScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
+    foreach ($Scene in $GaussianEffectScenes) {
+        $SceneArgs = @()
+        if ($Scene) {
+            $SceneArgs += $Scene
+        }
+        $SceneArgs += @("--group-gaussian-blur", "--rectangles", "96", "--warmup", "2", "--iterations", "4")
+        dotnet run `
+            --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
+            -c Release -- `
+            @SceneArgs
+    }
 } else {
     Write-Host "Cross-compiled $Rid; execution is deferred to a matching-architecture CI lane."
 }

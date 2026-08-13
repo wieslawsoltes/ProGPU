@@ -78,6 +78,9 @@ cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="${include_dir}" \
   -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}" \
+  -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR= \
+  -DPROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR= \
+  -DPROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY= \
   -DPROGPU_NATIVE_BUILD_SAMPLE=ON \
   -DBUILD_TESTING=ON
 cmake --build "${build_dir}" --config Release --parallel
@@ -403,6 +406,22 @@ for mask_mode in \
   run_common_mask_benchmark \
     --images "${mask_mode}" --warmup 2 --iterations 4
 done
+
+# Gaussian group effects share one retained layer/effect-cache contract across
+# every native frame family. Stable replay must skip family uploads and both
+# separable compute passes while preserving managed-renderer image parity.
+run_common_mask_benchmark \
+  --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
+run_common_mask_benchmark \
+  --analytic --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
+run_common_mask_benchmark \
+  --geometry --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
+run_common_mask_benchmark \
+  --paths --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
+run_common_mask_benchmark \
+  --glyphs --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
+run_common_mask_benchmark \
+  --images --group-gaussian-blur --warmup 2 --iterations 4
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"

@@ -13,6 +13,49 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Theory]
+    [InlineData(0.02f)]
+    [InlineData(0.25f)]
+    [InlineData(1f)]
+    [InlineData(6f)]
+    [InlineData(42.666f)]
+    public void GaussianWeightRecurrenceMatchesNormalizedKernel(float sigma)
+    {
+        int radius = Math.Min(128, (int)MathF.Ceiling(3f * sigma));
+        float inverseVariance = 0.5f / (sigma * sigma);
+        float weight = MathF.Exp(-inverseVariance);
+        float ratioStep = MathF.Exp(-2f * inverseVariance);
+        float weightRatio = weight * ratioStep;
+        float recurrenceSum = 1f;
+        float exactSum = 1f;
+        var recurrenceWeights = new float[radius + 1];
+        var exactWeights = new float[radius + 1];
+        recurrenceWeights[0] = 1f;
+        exactWeights[0] = 1f;
+
+        for (int offset = 1; offset <= radius; offset++)
+        {
+            float exactWeight = MathF.Exp(
+                -(offset * offset) * inverseVariance);
+            recurrenceWeights[offset] = weight;
+            exactWeights[offset] = exactWeight;
+            recurrenceSum += 2f * weight;
+            exactSum += 2f * exactWeight;
+            weight *= weightRatio;
+            weightRatio *= ratioStep;
+        }
+
+        for (int offset = 0; offset <= radius; offset++)
+        {
+            Assert.InRange(
+                MathF.Abs(
+                    recurrenceWeights[offset] / recurrenceSum -
+                    exactWeights[offset] / exactSum),
+                0f,
+                0.000001f);
+        }
+    }
+
     [Fact]
     public void ShaderResourceCachesDecodedSourceByReference()
     {

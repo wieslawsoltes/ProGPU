@@ -152,6 +152,24 @@ bool useGroupOpacity = Array.Exists(
         value,
         "--group-opacity",
         StringComparison.OrdinalIgnoreCase));
+bool useGaussianGroupEffect = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-gaussian-blur",
+        StringComparison.OrdinalIgnoreCase));
+bool recomputeGaussianEffect = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--recompute-group-effect",
+        StringComparison.OrdinalIgnoreCase));
+if (recomputeGaussianEffect && !useGaussianGroupEffect)
+{
+    throw new ArgumentException(
+        "--recompute-group-effect requires --group-gaussian-blur.");
+}
+float gaussianSigma = ReadPositiveFloatArgument("--blur-sigma", 2f);
 bool useTextureGroupMask = Array.Exists(
     args,
     static value => string.Equals(
@@ -274,6 +292,10 @@ NativeImageRect drawClip = new(
     logicalHeight * 0.65f);
 const float benchmarkGroupOpacity = 0.625f;
 NativeDrawState nativeDrawState = default;
+bool effectTimingActive = false;
+uint nativeEffectTimingRevision = 100U;
+int nativeEffectTimingIndex = 0;
+int managedEffectTimingIndex = 0;
 uint nativeVertexCount = 0;
 uint nativeIndexCount = 0;
 int managedVertexCount = 0;
@@ -357,7 +379,11 @@ NativeGroupMask nativeGroupMask = useTextureGroupMask
     : useVectorClipChain
     ? NativeGroupMask.VectorClipChain(vectorClipChain.Native, revision: 1U)
     : default;
-nativeDrawState = useDrawState || useGroupOpacity || useGroupMask
+NativeGroupEffect nativeGroupEffect = useGaussianGroupEffect
+    ? NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 1U)
+    : default;
+nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
+    useGaussianGroupEffect
     ? new NativeDrawState(
         useDrawState ? 0.625f : 1f,
         useDrawState ? drawClip : default,
@@ -365,8 +391,9 @@ nativeDrawState = useDrawState || useGroupOpacity || useGroupMask
             ? NativeDrawStateFlags.ClipRect
             : NativeDrawStateFlags.None,
         useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask ? 1U : 0U,
-        nativeGroupMask)
+        useGroupOpacity || useGroupMask || useGaussianGroupEffect ? 1U : 0U,
+        nativeGroupMask,
+        nativeGroupEffect)
     : default;
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
@@ -420,6 +447,7 @@ DrawingVisual managedVisual = useImageScene
         logicalWidth,
         logicalHeight)
         : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
+BlurEffect? managedBlurEffect = null;
 if (useDrawState)
 {
     var clip = new Rect(
@@ -488,6 +516,17 @@ else if (useVectorClipChain)
 {
     managedVisual.GeometryClip = vectorClipChain.Managed;
 }
+if (useGaussianGroupEffect)
+{
+    managedBlurEffect = new BlurEffect(gaussianSigma);
+    managedVisual.Effect = managedBlurEffect;
+    managedVisual.EffectContentBounds = new Rect(
+        0f,
+        0f,
+        logicalWidth,
+        logicalHeight);
+    managedVisual.EffectRasterPadding = 0f;
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -550,8 +589,9 @@ if (useDrawState &&
         drawClip,
         NativeDrawStateFlags.ClipRect,
         useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask ? 1U : 0U,
-        nativeGroupMask);
+        useGroupOpacity || useGroupMask || useGaussianGroupEffect ? 1U : 0U,
+        nativeGroupMask,
+        nativeGroupEffect);
     RenderNative();
     if (useGeometryScene &&
         (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
@@ -627,7 +667,8 @@ if (useGroupMask)
         originalDrawState.Flags,
         originalDrawState.GroupOpacity,
         originalDrawState.GroupRevision,
-        mutatedMask);
+        mutatedMask,
+        originalDrawState.GroupEffect);
     RenderNative();
     NativeLayerMetrics mutatedLayerMetrics = native.GetLayerMetrics();
     bool validMutation = !mutatedLayerMetrics.CacheHit ||
@@ -645,6 +686,43 @@ if (useGroupMask)
         throw new InvalidOperationException(
             "Mask-only mutation rebuilt retained content or did not update " +
             "exactly one common-mask uniform block.");
+    }
+
+    nativeDrawState = originalDrawState;
+    RenderNative();
+}
+
+// An effect-only mutation reuses the retained family content while dispatching
+// exactly the two separable compute passes for the changed effect revision.
+if (useGaussianGroupEffect)
+{
+    NativeDrawState originalDrawState = nativeDrawState;
+    NativeGroupEffect mutatedEffect = NativeGroupEffect.GaussianBlur(
+        gaussianSigma + 1f,
+        revision: 2U);
+    nativeDrawState = new NativeDrawState(
+        originalDrawState.Opacity,
+        originalDrawState.ClipRect,
+        originalDrawState.Flags,
+        originalDrawState.GroupOpacity,
+        originalDrawState.GroupRevision,
+        originalDrawState.GroupMask,
+        mutatedEffect);
+    RenderNative();
+    NativeLayerMetrics mutatedEffectMetrics = native.GetLayerMetrics();
+    if (!mutatedEffectMetrics.CacheHit ||
+        mutatedEffectMetrics.ContentPassCount != 0U ||
+        mutatedEffectMetrics.CompositePassCount != 1U ||
+        mutatedEffectMetrics.EffectKind !=
+            NativeGroupEffectKind.GaussianBlur ||
+        mutatedEffectMetrics.EffectRevision != 2U ||
+        mutatedEffectMetrics.EffectPassCount != 2U ||
+        mutatedEffectMetrics.EffectCacheHit ||
+        mutatedEffectMetrics.EffectUniformUploadBytes != 32UL)
+    {
+        throw new InvalidOperationException(
+            "Effect-only mutation rebuilt retained content or did not " +
+            "dispatch exactly two Gaussian compute passes.");
     }
 
     nativeDrawState = originalDrawState;
@@ -671,6 +749,21 @@ if (useGroupMask &&
 {
     throw new InvalidOperationException(
         "Stable common-mask replay rebuilt content or uploaded composite state.");
+}
+if (useGaussianGroupEffect &&
+    (!stableLayerMetrics.CacheHit ||
+     stableLayerMetrics.ContentPassCount != 0U ||
+     stableLayerMetrics.CompositePassCount != 1U ||
+     stableLayerMetrics.EffectKind != NativeGroupEffectKind.GaussianBlur ||
+     stableLayerMetrics.EffectRevision != 1U ||
+     stableLayerMetrics.EffectPassCount != 0U ||
+     !stableLayerMetrics.EffectCacheHit ||
+     stableLayerMetrics.EffectUniformUploadBytes != 0UL ||
+     stableLayerMetrics.EffectTextureBytes != (ulong)width * height * 8UL))
+{
+    throw new InvalidOperationException(
+        "Stable Gaussian group-effect replay dispatched compute work or " +
+        "rebuilt retained content.");
 }
 if (useDrawState && useGeometryScene &&
     (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
@@ -739,7 +832,20 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useVectorClipChain
+    string familyStem = useImageScene
+        ? "images"
+        : useGlyphScene
+        ? "glyphs"
+        : usePathScene
+        ? "paths"
+        : useGeometryScene
+        ? "geometry"
+        : useAnalyticScene
+        ? "analytic"
+        : "solid";
+    string imageStem = useGaussianGroupEffect
+        ? $"group-gaussian-blur-{familyStem}"
+        : useVectorClipChain
         ? useImageScene
             ? "group-vector-clip-images"
             : useGlyphScene
@@ -844,6 +950,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
     : useVectorClipChain
     ? usesGeometryDifferential ? 204 : 64
+    : useGaussianGroupEffect
+    ? 64
     : useMaskedImageScene
     ? 1
     : usesCommonMaskDifferential ? 3
@@ -852,6 +960,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
 int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
+        : useGaussianGroupEffect
+        ? Math.Max(1, comparison.PixelCount / 100)
         : useVectorClipChain
         ? Math.Max(1, comparison.PixelCount / 100)
         : usesGeometryDifferential
@@ -867,6 +977,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useGaussianGroupEffect
+    ? 0.075
     : useVectorClipChain
     ? 0.075
     : useMaskedImageScene
@@ -897,6 +1009,8 @@ if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
         $"nativeHash={comparison.NativeFnv1A64}, " +
         $"managedHash={comparison.ManagedFnv1A64}.");
 }
+
+effectTimingActive = recomputeGaussianEffect;
 
 for (int index = 0; index < warmupCount; index++)
 {
@@ -931,6 +1045,10 @@ var managedCompletionWaitTimes = new double[iterationCount];
 long nativeAllocationStart = GC.GetAllocatedBytesForCurrentThread();
 long nativeAllocatedBytes = 0;
 long managedAllocatedBytes = 0;
+long nativeSubmissionAllocatedBytes = 0;
+long nativeCompletionAllocatedBytes = 0;
+long managedSubmissionAllocatedBytes = 0;
+long managedCompletionAllocatedBytes = 0;
 if (groupMeasurements)
 {
     void MeasureNativeGroup()
@@ -942,9 +1060,13 @@ if (groupMeasurements)
         {
             nativeTimes[index] = MeasureNative(
                 out long allocated,
+                out long submissionAllocated,
+                out long completionAllocated,
                 out nativeSubmissionTimes[index],
                 out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
+            nativeSubmissionAllocatedBytes += submissionAllocated;
+            nativeCompletionAllocatedBytes += completionAllocated;
         }
     }
 
@@ -957,9 +1079,13 @@ if (groupMeasurements)
         {
             managedTimes[index] = MeasureManaged(
                 out long allocated,
+                out long submissionAllocated,
+                out long completionAllocated,
                 out managedSubmissionTimes[index],
                 out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
+            managedSubmissionAllocatedBytes += submissionAllocated;
+            managedCompletionAllocatedBytes += completionAllocated;
         }
     }
 
@@ -984,27 +1110,43 @@ else
         {
             nativeTimes[index] = MeasureNative(
                 out long allocated,
+                out long submissionAllocated,
+                out long completionAllocated,
                 out nativeSubmissionTimes[index],
                 out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
+            nativeSubmissionAllocatedBytes += submissionAllocated;
+            nativeCompletionAllocatedBytes += completionAllocated;
             managedTimes[index] = MeasureManaged(
                 out allocated,
+                out submissionAllocated,
+                out completionAllocated,
                 out managedSubmissionTimes[index],
                 out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
+            managedSubmissionAllocatedBytes += submissionAllocated;
+            managedCompletionAllocatedBytes += completionAllocated;
         }
         else
         {
             managedTimes[index] = MeasureManaged(
                 out long allocated,
+                out long submissionAllocated,
+                out long completionAllocated,
                 out managedSubmissionTimes[index],
                 out managedCompletionWaitTimes[index]);
             managedAllocatedBytes += allocated;
+            managedSubmissionAllocatedBytes += submissionAllocated;
+            managedCompletionAllocatedBytes += completionAllocated;
             nativeTimes[index] = MeasureNative(
                 out allocated,
+                out submissionAllocated,
+                out completionAllocated,
                 out nativeSubmissionTimes[index],
                 out nativeCompletionWaitTimes[index]);
             nativeAllocatedBytes += allocated;
+            nativeSubmissionAllocatedBytes += submissionAllocated;
+            nativeCompletionAllocatedBytes += completionAllocated;
         }
 
         if (drainEachPair)
@@ -1057,6 +1199,8 @@ var report = new BenchmarkReport(
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
+        : useGaussianGroupEffect
+        ? "Bounded separable Gaussian-blur differential: max 64/255, under 1% pixels beyond 3/255, mean under 0.075/255 per channel"
         : useVectorClipChain
         ? "Bounded retained vector-clip AA differential: max 64/255, under 1% edge pixels beyond 3/255, mean under 0.075/255 per channel"
         : useMaskedImageScene
@@ -1089,6 +1233,9 @@ var report = new BenchmarkReport(
             : useVectorClipChain
                 ? "VectorClipChain"
             : "None",
+    GroupEffect: recomputeGaussianEffect
+        ? "GaussianBlurRecomputed"
+        : useGaussianGroupEffect ? "GaussianBlur" : "None",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -1099,6 +1246,14 @@ var report = new BenchmarkReport(
     NativeCompletionWait: nativeCompletionWaitSummary,
     ManagedSubmission: managedSubmissionSummary,
     ManagedCompletionWait: managedCompletionWaitSummary,
+    NativeSubmissionAllocatedBytesPerFrame:
+        nativeSubmissionAllocatedBytes / (double)iterationCount,
+    NativeCompletionAllocatedBytesPerFrame:
+        nativeCompletionAllocatedBytes / (double)iterationCount,
+    ManagedSubmissionAllocatedBytesPerFrame:
+        managedSubmissionAllocatedBytes / (double)iterationCount,
+    ManagedCompletionAllocatedBytesPerFrame:
+        managedCompletionAllocatedBytes / (double)iterationCount,
     NativeToManagedP95Ratio: managedSummary.P95Milliseconds == 0
         ? 0
         : nativeSummary.P95Milliseconds / managedSummary.P95Milliseconds,
@@ -1135,6 +1290,21 @@ if (!string.IsNullOrWhiteSpace(outputJsonPath))
 
 ulong RenderNative(bool capturePayloadHash = false)
 {
+    if (effectTimingActive)
+    {
+        float sigma = gaussianSigma +
+            ((nativeEffectTimingIndex++ & 1) == 0 ? 0f : 0.25f);
+        nativeDrawState = new NativeDrawState(
+            nativeDrawState.Opacity,
+            nativeDrawState.ClipRect,
+            nativeDrawState.Flags,
+            nativeDrawState.GroupOpacity,
+            nativeDrawState.GroupRevision,
+            nativeDrawState.GroupMask,
+            NativeGroupEffect.GaussianBlur(
+                sigma,
+                nativeEffectTimingRevision++));
+    }
     if (useImageScene)
     {
         float destinationWidth = logicalWidth - 160f;
@@ -1348,6 +1518,11 @@ ulong RenderNative(bool capturePayloadHash = false)
 
 void RenderManaged()
 {
+    if (effectTimingActive)
+    {
+        managedBlurEffect!.BlurRadius = gaussianSigma +
+            ((managedEffectTimingIndex++ & 1) == 0 ? 0f : 0.25f);
+    }
     managed.RenderOffscreen(
         managedVisual,
         Math.Max(1U, (uint)MathF.Round(logicalWidth)),
@@ -1381,12 +1556,16 @@ void SynchronizeManagedIfRequested()
 
 double MeasureNative(
     out long allocatedBytes,
+    out long submissionAllocatedBytes,
+    out long completionAllocatedBytes,
     out double submissionMilliseconds,
     out double completionWaitMilliseconds)
 {
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderNative();
+    long submissionAllocationEnd = GC.GetAllocatedBytesForCurrentThread();
+    submissionAllocatedBytes = submissionAllocationEnd - allocationStart;
     NativeSubmissionToken submission = synchronizeEachFrame
         ? native.GetLastSubmissionToken()
         : default;
@@ -1399,27 +1578,35 @@ double MeasureNative(
     completionWaitMilliseconds = synchronizeEachFrame
         ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
         : 0.0;
+    completionAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - submissionAllocationEnd;
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
-    allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+    allocatedBytes = submissionAllocatedBytes + completionAllocatedBytes;
     return milliseconds;
 }
 
 double MeasureManaged(
     out long allocatedBytes,
+    out long submissionAllocatedBytes,
+    out long completionAllocatedBytes,
     out double submissionMilliseconds,
     out double completionWaitMilliseconds)
 {
     long allocationStart = GC.GetAllocatedBytesForCurrentThread();
     long timestamp = Stopwatch.GetTimestamp();
     RenderManaged();
+    long submissionAllocationEnd = GC.GetAllocatedBytesForCurrentThread();
+    submissionAllocatedBytes = submissionAllocationEnd - allocationStart;
     submissionMilliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
     long waitTimestamp = Stopwatch.GetTimestamp();
     SynchronizeManagedIfRequested();
     completionWaitMilliseconds = synchronizeEachFrame
         ? Stopwatch.GetElapsedTime(waitTimestamp).TotalMilliseconds
         : 0.0;
+    completionAllocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - submissionAllocationEnd;
     double milliseconds = Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
-    allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+    allocatedBytes = submissionAllocatedBytes + completionAllocatedBytes;
     return milliseconds;
 }
 
@@ -2915,6 +3102,7 @@ internal sealed record BenchmarkReport(
     bool DrawState,
     bool GroupOpacity,
     string GroupMask,
+    string GroupEffect,
     bool ManagedCompiledSceneCache,
     string MeasurementOrder,
     TimingSummary Native,
@@ -2923,6 +3111,10 @@ internal sealed record BenchmarkReport(
     TimingSummary NativeCompletionWait,
     TimingSummary ManagedSubmission,
     TimingSummary ManagedCompletionWait,
+    double NativeSubmissionAllocatedBytesPerFrame,
+    double NativeCompletionAllocatedBytesPerFrame,
+    double ManagedSubmissionAllocatedBytesPerFrame,
+    double ManagedCompletionAllocatedBytesPerFrame,
     double NativeToManagedP95Ratio,
     ulong CombinedMetalAllocatedBytes,
     uint NativeVertexCount,

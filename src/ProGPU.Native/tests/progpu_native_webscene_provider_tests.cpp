@@ -444,6 +444,12 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "40-byte ABI-v3 group draw-state prefix failed");
+    draw_state.struct_size = offsetof(
+        progpu_native_draw_state,
+        group_effect);
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "48-byte ABI-v3 mask draw-state prefix failed");
     draw_state.struct_size = sizeof(draw_state);
     draw_state.group_revision = 0U;
     draw_state.group_opacity = 1.1F;
@@ -673,6 +679,69 @@ int main(int argc, char** argv) {
         layer_metrics.clip_path_upload_bytes == 0U &&
         layer_metrics.clip_coverage_staging_bytes == 0U,
         "unchanged vector clip-chain replay rebuilt coverage");
+
+    progpu_native_group_effect group_effect{};
+    group_effect.struct_size = sizeof(group_effect);
+    group_effect.kind = 0xFFFFFFFFU;
+    draw_state.group_effect = &group_effect;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "unknown group-effect kind did not fail closed");
+    group_effect = {};
+    group_effect.struct_size = sizeof(group_effect);
+    group_effect.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+    group_effect.revision = 1U;
+    group_effect.sigma_x = 32.0F;
+    group_effect.sigma_y = 2.0F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "out-of-range physical Gaussian sigma did not fail closed");
+    group_effect.sigma_x = 2.0F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "retained Gaussian group-effect replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.effect_kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+        layer_metrics.effect_revision == 1U &&
+        layer_metrics.effect_pass_count == 2U &&
+        layer_metrics.effect_cache_hit == 0U &&
+        layer_metrics.effect_uniform_upload_bytes == 32U &&
+        layer_metrics.effect_texture_bytes == 64U * 48U * 8U,
+        "changed Gaussian group-effect metrics are invalid");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "unchanged Gaussian group-effect replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.effect_pass_count == 0U &&
+        layer_metrics.effect_cache_hit == 1U &&
+        layer_metrics.effect_uniform_upload_bytes == 0U &&
+        layer_metrics.effect_texture_bytes == 64U * 48U * 8U,
+        "unchanged Gaussian group-effect replay dispatched work");
+    group_effect.revision = 2U;
+    group_effect.sigma_x = 3.0F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "changed Gaussian group-effect replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.effect_pass_count == 2U &&
+        layer_metrics.effect_cache_hit == 0U &&
+        layer_metrics.effect_uniform_upload_bytes == 16U,
+        "changed Gaussian group-effect replay did not reuse content");
+    draw_state.group_effect = nullptr;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "post-effect retained group replay failed");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,
