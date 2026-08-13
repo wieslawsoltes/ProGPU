@@ -255,6 +255,8 @@ add_custom_command(
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
+    src/progpu_native_draw_state.cpp
+    src/progpu_native_draw_state.hpp
     src/progpu_native_engine.hpp
     src/progpu_native_effect_plan.cpp
     src/progpu_native_effect_plan.hpp
@@ -270,6 +272,7 @@ add_library(progpu_native SHARED
     src/progpu_native_semantic_budget.hpp
     src/progpu_native_semantic_effect_cache.cpp
     src/progpu_native_semantic_effect_cache.hpp
+    src/progpu_native_semantic_replay.hpp
     src/progpu_native_semantic_state.cpp
     src/progpu_native_semantic_state.hpp
     src/progpu_native_semantic_validation.cpp
@@ -311,6 +314,8 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     endif()
     add_library(progpu_native_dawn SHARED
         src/progpu_native.cpp
+        src/progpu_native_draw_state.cpp
+        src/progpu_native_draw_state.hpp
         src/progpu_native_engine.hpp
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
@@ -326,6 +331,7 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_semantic_budget.hpp
         src/progpu_native_semantic_effect_cache.cpp
         src/progpu_native_semantic_effect_cache.hpp
+        src/progpu_native_semantic_replay.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp
@@ -444,6 +450,8 @@ endif()
 if(BUILD_TESTING)
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
+        src/progpu_native_draw_state.cpp
+        src/progpu_native_draw_state.hpp
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
         src/progpu_native_geometry_analytic.hpp
@@ -457,6 +465,7 @@ if(BUILD_TESTING)
         src/progpu_native_semantic_budget.hpp
         src/progpu_native_semantic_effect_cache.cpp
         src/progpu_native_semantic_effect_cache.hpp
+        src/progpu_native_semantic_replay.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp

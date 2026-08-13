@@ -193,6 +193,10 @@ live in `progpu_native_semantic_state.cpp`; analytic/path/glyph/image preflight
 and checked coverage sizing live in `progpu_native_semantic_validation.cpp`.
 Retained semantic effect-output keying and invalidation live in
 `progpu_native_semantic_effect_cache.cpp`.
+Legacy frame-family draw-state validation and compatibility-prefix resolution,
+including physical-scissor rounding, mask normalization, effect-chain copying,
+and retained payload hashing, live in the WebGPU-independent
+`progpu_native_draw_state.cpp` module.
 GPU-visible uniform/record layouts, bounded atlas keys, alignment, and
 subpixel-phase quantization live in `progpu_native_gpu_records.hpp`. The former
 monolithic geometry header is an include-only facade over independent base,
@@ -201,7 +205,10 @@ split preserves the same inline algorithms and therefore changes neither
 geometry complexity nor the public C ABI.
 The opaque engine's WebGPU handle graph, retained cache state, release order,
 and geometrically growing buffer ownership now live in
-`progpu_native_engine.hpp`. Temporary path-raster buffers are an explicitly
+`progpu_native_engine.hpp`. Retained GPU page, render-bundle span,
+effect-dispatch, and layer-slot records are isolated in
+`progpu_native_semantic_replay.hpp`, keeping replay data reviewable separately
+from engine lifetime. Temporary path-raster buffers are an explicitly
 non-copyable RAII group in `progpu_native_webgpu_resources.hpp`; releasing
 caller ownership never destroys a buffer still retained by an encoder or
 submitted command buffer. Exported C entry points and pipeline-construction

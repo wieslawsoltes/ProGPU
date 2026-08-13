@@ -1,3 +1,4 @@
+#include "progpu_native_draw_state.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -290,6 +291,73 @@ void semantic_payload_validation_is_bounded_and_cpu_only() {
     require(!progpu::native::semantic::is_valid_semantic_image(image, 15U));
 }
 
+void draw_state_resolution_is_cpu_only_and_bounded() {
+    resolved_draw_state resolved{};
+    require(resolve_draw_state(nullptr, 0U, 32U, 24U, 2.0F, resolved));
+    require(resolved.opacity == 1.0F);
+    require(resolved.group_opacity == 1.0F);
+    require(!resolved.has_clip);
+
+    progpu_native_group_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
+    mask.bounds = {0.0F, 0.0F, 10.0F, 8.0F};
+    mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    mask.corner_radii_x[0] = 10.0F;
+    mask.corner_radii_x[1] = 10.0F;
+    mask.corner_radii_x[2] = 10.0F;
+    mask.corner_radii_x[3] = 10.0F;
+    mask.corner_radii_y[0] = 8.0F;
+    mask.corner_radii_y[1] = 8.0F;
+    mask.corner_radii_y[2] = 8.0F;
+    mask.corner_radii_y[3] = 8.0F;
+    mask.opacity = 0.75F;
+
+    const std::array effects{
+        effect(PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR),
+        effect(PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW)};
+    const progpu_native_group_effect_chain effect_chain{
+        sizeof(progpu_native_group_effect_chain),
+        static_cast<std::uint32_t>(effects.size()),
+        12U,
+        0U,
+        effects.data()};
+    progpu_native_draw_state state{};
+    state.struct_size = sizeof(state);
+    state.flags = PROGPU_NATIVE_DRAW_STATE_CLIP_RECT;
+    state.opacity = 0.8F;
+    state.clip_rect = {-0.2F, 0.2F, 10.4F, 8.6F};
+    state.group_opacity = 0.5F;
+    state.group_revision = 7U;
+    state.group_mask = &mask;
+    state.group_effect_chain = &effect_chain;
+    state.group_blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
+
+    require(resolve_draw_state(&state, 0U, 32U, 24U, 2.0F, resolved));
+    require(resolved.opacity == 0.8F);
+    require(resolved.group_opacity == 0.5F);
+    require(resolved.group_revision == 7U);
+    require(resolved.group_blend_mode == PROGPU_NATIVE_BLEND_MULTIPLY);
+    require(resolved.has_clip && resolved.has_drawable_clip);
+    require(resolved.clip_x == 0U && resolved.clip_y == 0U);
+    require(resolved.clip_width == 21U && resolved.clip_height == 18U);
+    require(resolved.has_group_mask);
+    require(resolved.group_mask.corner_radii_x[0] == 5.0F);
+    require(resolved.group_mask.corner_radii_y[0] == 4.0F);
+    require(resolved.has_group_effect && resolved.effect_count == 2U);
+    require(resolved.effect_chain_revision == 12U);
+
+    state.reserved2 = 1U;
+    require(!resolve_draw_state(&state, 0U, 32U, 24U, 2.0F, resolved));
+
+    constexpr std::uint64_t seed = 1469598103934665603ULL;
+    const std::array<std::uint32_t, 3U> words{1U, 2U, 3U};
+    const auto first = append_fnv1a64(seed, words.data(), sizeof(words));
+    const auto second = append_fnv1a64(seed, words.data(), sizeof(words));
+    require(first == second);
+    require(first != append_fnv1a64(seed, words.data(), sizeof(words[0])));
+}
+
 } // namespace
 
 int main() {
@@ -301,5 +369,6 @@ int main() {
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_payload_validation_is_bounded_and_cpu_only();
+    draw_state_resolution_is_cpu_only_and_bounded();
     return 0;
 }
