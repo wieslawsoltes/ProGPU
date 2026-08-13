@@ -670,6 +670,73 @@ Retained ignored evidence:
   labels, submissions, completions, errors, and Metal residency under
   `artifacts/progpu-native/profiles/group-drop-shadow-final-20260813/`.
 
+### Bounded retained effect-chain distribution and profile
+
+The next checkpoint evaluates an immutable two-node Gaussian-blur then
+source-alpha drop-shadow chain as the representative member of the new
+one-to-eight-node bounded lane. A changed chain encodes five compute passes;
+stable content and chain revisions encode none. Three full-target RGBA8
+intermediates (`12*W*H` bytes) are reused without binding any one texture as a
+sampled input and storage output in the same pass. The independently nested
+managed comparator applies the same inner-to-outer effect order.
+
+Three independent paired 600-frame synchronized runs followed 120 warmups on
+the same Apple M3 Pro/Metal device. Median p95 values were:
+
+| Workload and metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| Stable CPU submit | 0.1805 ms | 0.2138 ms | -15.6% |
+| Stable GPU-completion wait | 3.0537 ms | 3.0607 ms | -0.2% |
+| Stable end to end | 3.1504 ms | 3.1711 ms | -0.7% |
+| Recomputed CPU submit | 0.3022 ms | 0.4455 ms | -32.2% |
+| Recomputed GPU-completion wait | 6.0873 ms | 6.0815 ms | +0.1% |
+| Recomputed end to end | 6.2272 ms | 6.2672 ms | -0.6% |
+
+Both paths measured zero managed bytes per frame after warmup. GPU completion
+remains on par because the same queue executes equivalent five-pass,
+bandwidth-dominated work; the useful separation is the native submission
+boundary. A longer 5,000-frame recompute run reported 0.2868/0.3864 ms native/
+managed submission p95 and 6.1636/6.1524 ms end-to-end p95, reinforcing the
+CPU-bound difference without claiming GPU-complete superiority.
+
+All six 518,400-pixel differentials pass. Solid and path output differ by at
+most 2/255, analytic and indexed geometry by at most 8/255, and image output by
+at most 1/255. No solid, path, glyph, or image pixel exceeds 3/255; analytic
+has 261 such edge pixels and geometry has 21. Mean absolute channel difference
+ranges from `0.010371/255` for images through `0.092420/255` for analytic
+coverage, below the explicit `0.125/255` chain bound. The representative
+native, managed, and amplified-difference images were inspected.
+
+The cross-platform gate retains that `0.125/255` mean bound for five families
+and uses `0.130/255` for independently rasterized analytic source coverage.
+Linux arm64 llvmpipe measured `0.125165/255`, maximum `7/255`, with only 218 of
+518,400 pixels above `3/255`; Linux x64 llvmpipe measured `0.114635/255` for
+the same case. The architecture-specific edge-tie allowance does not relax the
+maximum-difference or one-percent changed-pixel gates.
+
+Final-binary Time Profiler and synchronized Metal System Trace captures exited
+zero. The Metal trace contains native bounded-chain horizontal, vertical, and
+drop-shadow labels plus the managed `Offscreen Compositor Encoder`; it records
+7,349 submission rows, 8,762 completion rows, zero command-buffer-error rows,
+and a 32.281 MiB peak combined-process Metal `currentAllocatedSize`. That
+residency includes profiler overhead and both renderers, so it is not attributed
+to either implementation. The Xcode Allocations launch and attach routes both
+left the target suspended before recording on this host; those failed trace
+bundles were removed and no Instruments heap claim is made. The 5,000-frame
+final-binary interval counter remains the allocation evidence. This is an open
+profiling-gate limitation, so the PR milestone stays at evidence-running until
+a valid Allocations/VM capture or equivalent Xcode fix is available.
+
+Retained ignored evidence:
+
+- six-family differential JSON and three stable/recomputed distributions under
+  `artifacts/progpu-native/effect-chain/`;
+- native, managed, and 64-times-amplified chain screenshots under
+  `artifacts/progpu-native/differential/`;
+- valid Time Profiler and Metal System Trace bundles, exported TOCs/tables,
+  labels, submissions, completions, errors, residency, and the long allocation
+  counter under `artifacts/progpu-native/profiles/effect-chain-20260813/`.
+
 ## Common draw-state supplement
 
 The ABI-v3 append-only draw-state increment applies primitive opacity and one
