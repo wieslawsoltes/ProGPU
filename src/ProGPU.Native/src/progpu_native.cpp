@@ -1342,14 +1342,14 @@ struct progpu_native_engine {
         if (layer_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(layer_mask_pipeline);
         }
-        for (auto pipeline : layer_mask_blend_pipelines) {
-            if (pipeline != nullptr) {
-                wgpuRenderPipelineRelease(pipeline);
+        for (auto mask_blend_pipeline : layer_mask_blend_pipelines) {
+            if (mask_blend_pipeline != nullptr) {
+                wgpuRenderPipelineRelease(mask_blend_pipeline);
             }
         }
-        for (auto pipeline : layer_blend_pipelines) {
-            if (pipeline != nullptr) {
-                wgpuRenderPipelineRelease(pipeline);
+        for (auto blend_pipeline : layer_blend_pipelines) {
+            if (blend_pipeline != nullptr) {
+                wgpuRenderPipelineRelease(blend_pipeline);
             }
         }
         if (layer_texture_bind_group != nullptr) {
