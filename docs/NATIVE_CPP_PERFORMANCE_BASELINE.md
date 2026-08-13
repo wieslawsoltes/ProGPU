@@ -527,6 +527,76 @@ Retained ignored evidence:
   Metal residency under
   `artifacts/progpu-native/traces/vector-clips-20260813/`.
 
+### Retained Gaussian group-effect distribution and profile
+
+The next native checkpoint applies one anisotropic Gaussian blur to the pooled
+result of all six frame families. Effect and family-content revisions are
+independent: an effect-only mutation reuses family pixels and records two
+separable compute passes, while a stable revision reuses the blurred texture
+and records no compute pass. Both native and managed implementations embed the
+same production horizontal/vertical WGSL resources.
+
+Three independent paired 300-frame synchronized runs followed 60 warmups on
+the same Apple M3 Pro/Metal device. The representative scene used 384 solid
+rectangles and sigma 6. Median p95 values were:
+
+| Workload and metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| Stable CPU submit | 0.2328 ms | 0.2997 ms | -22.3% |
+| Stable GPU-completion wait | 3.0517 ms | 3.0311 ms | +0.7% |
+| Stable end to end | 3.1402 ms | 3.1025 ms | +1.2% |
+| Recomputed CPU submit | 0.1756 ms | 0.3877 ms | -54.7% |
+| Recomputed GPU-completion wait | 6.0621 ms | 6.0538 ms | +0.1% |
+| Recomputed end to end | 6.1507 ms | 6.3140 ms | -2.6% |
+
+The stable GPU-complete paths are intentionally on par: both reuse the final
+blur output, target the same queue/device, and perform one final texture
+composite. Recomputed completion is also on par because both execute the same
+two memory-bandwidth-dominated kernels. The native advantage is at the CPU
+boundary: it reuses retained family content and encodes both compute passes and
+the composite in one command buffer. The managed effect path still performs
+its existing source, compute, and main-composite submissions.
+
+Native measured zero managed bytes in both submission and completion intervals.
+The recomputed managed submission initially measured 2,552 bytes/frame.
+Replacing two per-frame blur command-label marshalling allocations with static
+UTF-8 spans reduced that to 2,328 bytes/frame (-8.8%) without dropping Metal
+labels; its completion observer measured zero additional bytes in this runner.
+The shared Gaussian shaders now derive tap weights from two `exp` evaluations
+and a multiplicative recurrence instead of one `exp` per tap. Matched
+before/after distributions show no repeatable completion-time shift because
+the workload is dominated by texture reads and queue/GPU scheduling; the
+change reduces shader transcendental instruction count but is not presented as
+a measured latency win.
+
+All six 518,400-pixel differentials pass. Solid rectangles, retained paths,
+positioned glyphs, and retained images are byte-exact. Analytic primitives have
+maximum difference 7/255 and mean absolute difference `0.006746/255`;
+indexed geometry has maximum difference 8/255 and mean `0.000183/255`, confined
+to the independently rasterized source edges. The inspected sigma-6 solid
+native/managed images are byte-identical and their 64-times difference image
+is black.
+
+Final-binary Xcode Allocations/VM Tracker, Time Profiler, and synchronized Metal
+System Trace captures are retained with this checkpoint. All three workloads
+exited zero. The Allocations trace recorded Heap and VM allocation mode, but
+this command-line export exposes no allocation table on this macOS build, so
+the per-interval benchmark counters above remain the allocation evidence. The
+Metal trace contains both managed and native horizontal/vertical Gaussian
+labels, 5,236 submission rows, 6,405 completion rows, zero command-buffer-error
+rows, and a 25.359 MiB peak combined-process Metal `currentAllocatedSize`.
+That shared value is not attributed to either renderer.
+
+Retained ignored evidence:
+
+- six final 300-frame JSON distributions plus the allocation-split and
+  before/after recurrence runs under `artifacts/progpu-native/benchmarks/`;
+- native, managed, and 64-times-amplified difference PNGs under
+  `artifacts/progpu-native/differential/`;
+- Time Profiler, Allocations/VM Tracker, Metal System Trace, exported TOCs,
+  samples, labels, submissions, completions, errors, and Metal residency under
+  `artifacts/progpu-native/profiles/group-gaussian-final-20260813/`.
+
 ## Common draw-state supplement
 
 The ABI-v3 append-only draw-state increment applies primitive opacity and one

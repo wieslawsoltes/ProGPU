@@ -83,6 +83,7 @@ metadata.
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Keep direct masks independent. The frame-group lane now uses one reusable offscreen texture and one restore/composite draw; nested semantic layer stacks and effects remain separate work. |
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
+| [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
 | [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve primitive/group distinction and overlap behavior. The current frame-group kernel is reusable infrastructure, but nested `CreateLayer` stack parity remains open. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
@@ -773,6 +774,53 @@ This slice does not alter Unicode shaping, line layout, glyph selection, or
 HarfBuzz/DirectWrite/Skia shaping-plan reuse. It masks the already positioned
 glyph-family result after rendering, preserving the established text boundary.
 
+### Phase 2 retained Gaussian group-effect checkpoint
+
+The sixth additive ABI-v3 extension applies an anisotropic Gaussian blur to
+the pooled result of any implemented frame family. A new 32-byte effect
+descriptor carries kind, caller-owned nonzero revision, and logical X/Y sigma.
+Its pointer is appended to the draw state after the existing mask pointer, so
+the 32-byte primitive-state, 40-byte group-state, and 48/44-byte mask-state
+prefixes retain their behavior. The full draw state is 56 bytes on 64-bit and
+48 bytes on 32-bit. Raw callers fail closed on unknown kind/flags, nonzero
+reserved fields, non-finite or non-positive sigma, zero revision, and a
+physical three-sigma radius above the shader's fixed 128-pixel bound.
+
+First use lazily creates two shared compute pipelines, two 16-byte uniform
+buffers, and two full-target `RGBA8Unorm` textures with sampled/storage usage.
+The family renders once to the existing transparent group texture. Horizontal
+blur writes the first effect texture, vertical blur writes the second, and the
+existing mask/opacity composite samples that result. Mask state remains a
+final-composite concern, so mask-only changes neither rerun the effect nor
+invalidate retained family content. Effect-only changes reuse family content
+and encode exactly two compute passes. A matching content revision, effect
+revision, DPI, and target size reuses the completed effect texture and encodes
+zero compute passes, zero effect-uniform uploads, and one final composite.
+
+For target area `P = W*H` and physical radii `Rx`/`Ry`, a changed effect uses
+`O(P*(Rx+Ry))` shader work, exactly `2Rx+1` plus `2Ry+1` texture loads per
+output pair, `O(1)` CPU descriptor work, and `8*W*H` retained effect-texture
+bytes. The shared managed/native WGSL derives Gaussian weights with two
+transcendental evaluations per pixel and an `O(R)` multiplicative recurrence
+instead of evaluating `exp` at every tap. Stable replay is `O(1)` CPU work and
+one texture composite. Resource creation/replacement is transactional; partial
+pipeline or texture creation is released before retry. The layer metrics append
+effect kind/revision/pass/cache state, uniform bytes, and texture bytes to a
+152-byte record while the getter still accepts every older prefix.
+
+The matched Release gate covers solid, analytic, indexed geometry, retained
+path, positioned glyph, and retained image families. It proves effect-only
+content reuse, changed two-pass dispatch, unchanged zero-dispatch replay,
+bounded resources, legacy prefixes, invalid descriptors, exact Dawn/Metal
+provider execution, and managed/native pixel bounds. The implementation reuses
+the same production shader resources as the managed compositor; it does not
+copy or introduce a second foreign blur implementation. Nested effects,
+drop-shadow/color/filter graphs, backdrop inputs, non-source-over blends,
+device-loss recreation, and semantic-scene effect nodes remain open.
+
+This effect is downstream from already positioned text and does not change
+Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -792,8 +840,10 @@ glyph-family result after rendering, preserving the established text boundary.
   compatibility; true frame-group opacity and retained pooled-layer replay are
   implemented for all six families; sampled texture and analytic rounded
   common masks are also implemented at the final pooled composite for all six
-  families. Arbitrary vector clip chains, nested clip/opacity stacks, blend
-  stack, static buffers, and full compiled-scene reuse remain;
+  families. Arbitrary retained vector clip chains and one retained anisotropic
+  Gaussian group effect are implemented across the same six families; nested
+  clip/opacity/effect stacks, blend stack, static buffers, and full
+  compiled-scene reuse remain;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
 - deterministic pixel differential suite against the managed compositor.
 
@@ -824,7 +874,10 @@ glyph-family result after rendering, preserving the established text boundary.
 
 ### Tranche C — effects, extensions, media, and 3D
 
-- advanced blend, blur, image/color filters, backdrop and shader effects;
+- one retained anisotropic Gaussian group blur with independent content/effect
+  revisions, bounded pooled textures, stable zero-dispatch replay, and shared
+  managed/native WGSL is implemented across all six frame families; advanced
+  blend, nested effects, image/color filters, backdrop and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
