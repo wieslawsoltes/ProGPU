@@ -112,6 +112,8 @@ struct semantic_render_bundle_span {
     std::uint32_t target_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t source_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t first_composite_vertex = 0U;
+    std::uint32_t first_resolve_vertex = 0U;
+    std::uint32_t first_copy_vertex = 0U;
     std::uint32_t blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
     std::uint32_t first_effect_dispatch = 0U;
     std::uint32_t effect_count = 0U;
@@ -119,6 +121,12 @@ struct semantic_render_bundle_span {
     std::uint64_t operation_id = 0U;
     WGPUBuffer mask_uniform_buffer = nullptr;
     WGPUBindGroup mask_bind_group = nullptr;
+    WGPUBindGroup advanced_blend_bind_group = nullptr;
+    std::uint32_t advanced_uniform_offset = 0U;
+    std::uint32_t target_width = 0U;
+    std::uint32_t target_height = 0U;
+    std::uint32_t source_width = 0U;
+    std::uint32_t source_height = 0U;
 };
 
 struct semantic_layer_slot {

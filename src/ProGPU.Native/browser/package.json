@@ -1,0 +1,11 @@
+{
+  "name": "progpu-native-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>ProGPU native C++ browser backend</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #07101e; color: #eef7ff; font: 16px system-ui, sans-serif; }
+    main { min-height: 100vh; display: grid; place-content: center; gap: 18px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
+    p { margin: 0; color: #9ab1c9; }
+    canvas { width: min(80vw, 640px); height: auto; border: 1px solid #29435c; border-radius: 14px; box-shadow: 0 24px 80px #0008; }
+  </style>
+</head>
+<body data-progpu-native="loading">
+  <main>
+    <h1>ProGPU native browser renderer</h1>
+    <p id="native-status">Starting C++ / WebGPU backend…</p>
+    <canvas id="progpu-native-canvas" width="640" height="360"></canvas>
+  </main>
+  {{{ SCRIPT }}}
+</body>
+</html>

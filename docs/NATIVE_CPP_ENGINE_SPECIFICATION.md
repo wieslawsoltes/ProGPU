@@ -74,6 +74,7 @@ metadata.
 | [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
+| [Dawn Emdawnwebgpu build and package guidance](https://dawn.googlesource.com/dawn/+/HEAD/src/emdawnwebgpu/README.md) and the [stable WebGPU C headers](https://github.com/webgpu-native/webgpu-headers) | Emdawnwebgpu maps the stable `webgpu.h` contract to JavaScript WebGPU for WebAssembly; Dawn documents `emcmake` builds and browser-served HTML tests. | Compile the same private renderer modules and shared WGSL with the pinned Emscripten Emdawnwebgpu port, expose a distinct browser ABI, keep browser queue completion in the host scheduler, and gate the result through a real `navigator.gpu` Chromium run rather than a mock proc table. |
 | [Skia Graphite `Recorder`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Recorder.h) and [`Context`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Context.h) | Recording is separable from device submission; recordings own transferable GPU work while context/device resources remain explicit. | Separate semantic scene recording, native compilation, and queue submission. Make recordings immutable and device-domain caches explicit. |
 | [Skia `SkImage`](https://api.skia.org/classSkImage.html) | Images are immutable logical resources and may be raster- or texture-backed; drawing does not imply rebuilding their pixel payload. | Treat image and draw-content revisions independently. A changed image revision updates the retained GPU texture; a changed content revision alone recompiles the transformed destination quad. |
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Initially preserve ProGPU.Text shaping results and transfer positioned glyph IDs/runs. Native shaping is a later parallel implementation, never a prerequisite for moving raster/upload/composition to C++. |
@@ -92,7 +93,7 @@ metadata.
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
 | [WebRender clip chains](https://searchfox.org/mozilla-central/source/gfx/wr) | Common display-item properties carry spatial and clip-chain identity so retained items reuse hierarchical clip state. | Keep clip identity in the future semantic scene rather than baking clip-dependent geometry. The frame-level fast path only supplies one resolved rectangle. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
-| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use explicit semantic push/pop commands with depth-indexed pooled targets for nested opacity, fixed-function blends, masks, and bounded effect chains; retain advanced destination sampling and general effect graphs as typed future work. |
+| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use explicit semantic push/pop commands with depth-indexed pooled targets for nested opacity, blend, masks, and bounded effect chains. Destination-aware modes sample the actual parent through bounded scratch; general effect graphs and explicit backdrop input remain typed future work. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
 | [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
@@ -874,8 +875,9 @@ bounded resources, legacy prefixes, invalid descriptors, exact Dawn/Metal
 provider execution, and managed/native pixel bounds. The implementation reuses
 the same production shader resources as the managed compositor; it does not
 copy or introduce a second foreign blur implementation. General branching
-effect/color-filter graphs, backdrop inputs, advanced destination-sampling
-blends, and device-loss recreation remain open.
+effect/color-filter graphs, backdrop inputs, and device-loss recreation remain
+open; destination-aware blend restore is implemented by the later semantic
+scene tranche.
 
 This effect is downstream from already positioned text and does not change
 Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
@@ -1025,8 +1027,8 @@ and device-loss recreation remain open.
   with independent content/effect revisions, bounded pooled textures, stable
   zero-dispatch replay, and shared managed/native WGSL are implemented across
   all six frame families; all 29 blend modes are implemented for the retained
-  root group. Branching graphs, semantic nested blend/layers, image/color
-  filters, arbitrary backdrop inputs, and shader effects remain;
+  root group and destination-aware nested semantic layers. Branching graphs,
+  image/color filters, arbitrary backdrop inputs, and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
@@ -1037,7 +1039,9 @@ and device-loss recreation remain open.
 - versioned semantic scene builder and incremental updates from .NET;
 - WebScene Dawn-provider adapter and zero-copy canvas composition;
 - native presentation for Metal, D3D12, Vulkan/X11/Wayland, Android, and iOS;
-- browser adapter using the same semantic stream and WGSL modules;
+- Emscripten/Emdawnwebgpu browser adapter compiling the same renderer modules,
+  semantic stream, and WGSL, with a real Chromium WebGPU ABI/render/console
+  integration gate; complete semantic-family browser pixel differentials remain;
 - runtime/NuGet packages, symbols, license manifests, and device-loss recovery.
 
 ### Tranche E — full parallel C++ framework core
@@ -1148,19 +1152,20 @@ transform is composed after the draw-local transform and its opacity
 multiplies draw alpha once while changed pages are compiled. Its optional
 logical target rectangle is lowered to a retained physical scissor span;
 an inline pointer-free layer descriptor and its aggregate resource budget are
-validated before rendering. Physical bounded opacity and fixed-function blend
-layers, analytic rounded masks, and one-to-eight-node Gaussian/drop-shadow
-effect chains now use the retained d3b2 executor; backdrop and advanced
-destination-sampling descriptors still fail at a typed `UNSUPPORTED` boundary.
+validated before rendering. Physical bounded opacity, fixed-function and
+destination-aware blend layers, analytic rounded masks, and one-to-eight-node
+Gaussian/drop-shadow effect chains now use the retained d3b2 executor.
+Backdrop descriptors still fail at a typed `UNSUPPORTED` boundary.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
 path segments, 40-byte semantic glyph outlines with 64-bit segment indices,
 64-byte positioned glyphs, and 88-byte image draws. Current x64/arm64 packages
 consume the two 64-bit-index records zero-copy because their native family
-layouts are statically proven identical. A future wasm32 compiler must
-translate those two fixed records; it must not redefine the version-one stream
-around 32-bit `size_t`.
+layouts are statically proven identical. The wasm32 browser compiler performs
+checked translation into host path/glyph records before compilation; overflow
+fails closed. It does not redefine the version-one stream around 32-bit
+`size_t`.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical
@@ -1253,10 +1258,12 @@ Multiplication and accumulation are checked before an encoder is created. A
 valid bounded or full-target layer renders when it has no backdrop dependency
 and its blend has an exact fixed-function coefficient equation; its optional
 effect chain executes before an optional typed analytic rounded mask is applied
-during the final composite. Backdrop and advanced destination-sampling blend
-descriptors still reach a typed `UNSUPPORTED` boundary. An oversized layer
-returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
-timeline.
+during the final composite. Destination-aware blend descriptors resolve the
+masked/effected source into a bounded scratch texture, sample the actual
+rendered parent through shared `AdvancedBlend.wgsl`, and replace that parent in
+the same command buffer. Backdrop descriptors still reach a typed
+`UNSUPPORTED` boundary. An oversized layer returns `OUT_OF_MEMORY` first and
+cannot mutate the target or submission timeline.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1415,16 +1422,19 @@ allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
 The pointer-free typed mask/effect resource contract, canonical validation,
-analytic rounded-mask execution, and retained effect-chain execution are now
-implemented. The next execution checkpoint publishes matched aggregate
-mask/effect evidence, then adds advanced destination-sampling `GpuBlendMode`
-values and backdrop input. The contract permits at most 16 simultaneously
+analytic rounded-mask execution, retained effect-chain execution, and
+destination-aware `GpuBlendMode` restore are now implemented. The next
+execution checkpoint adds explicit backdrop input and complete browser
+semantic-family pixel differentials. The contract permits at most 16 simultaneously
 materialized layers, eight effect nodes per layer, and 16,384 effect passes per
 scene. Each extended layer runs its retained effect chain, applies mask and
 opacity once, then composites into the parent. Advanced
-blend or backdrop effects must sample the actual parent texture, never the
-frame clear-color approximation. Storage remains `O(sum(Wd*Hd))` across the
-bounded reusable depth slots; direct scopes add no texture. Pool entries
+blend samples the actual parent texture, never the frame clear-color
+approximation. Its reusable scratch is two full-target textures plus one
+maximum bounded-source texture and is included in the checked 256 MiB layer
+budget and public allocation/byte metrics. Storage otherwise remains
+`O(sum(Wd*Hd))` across the bounded reusable depth slots; direct scopes add no
+texture. Pool entries
 are reusable only after their submission token completes and are released on
 device loss.
 

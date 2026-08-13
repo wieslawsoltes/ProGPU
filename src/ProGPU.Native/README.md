@@ -6,10 +6,13 @@ lifetime, batching, submission, and validation while consuming the exact same
 [`Vector.wgsl`](../ProGPU.Backend/Shaders/Vector.wgsl) source as the managed
 renderer.
 
-The current ABI accepts an existing wgpu-native device, queue, and target view.
-It intentionally supports only the May-2024 WebGPU C ABI used by
-Silk.NET.WebGPU 2.23.0 and rejects all other ABI identifiers. This prevents a
-Dawn handle from being interpreted through wgpu-native descriptor layouts.
+The native ABI accepts an existing device, queue, and target view through an
+explicit backend adapter. Desktop/mobile packages retain the pinned May-2024
+wgpu-native ABI or the separately resolved WebScene Dawn ABI. Browser builds
+use Emdawnwebgpu's stable WebGPU C surface and advertise a distinct browser
+backend ABI. Every constructor rejects all other ABI identifiers, preventing
+handles from one descriptor/procedure domain from being cross-cast into
+another.
 
 Production implementation is split behind the unchanged public C ABI. The
 main translation unit owns exported entry points and device lifetime;
@@ -64,6 +67,25 @@ The command writes the verified sample image to
 typed .NET host to produce `progpu-native-managed-sample.ppm` through the same
 C++ engine. Third-party headers remain under ignored `artifacts/`; no upstream
 implementation is vendored into ProGPU.
+
+Build the same C++ renderer as WebAssembly and execute it against a real
+`navigator.gpu` device in Chromium:
+
+```sh
+PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM=1 \
+  ./eng/progpu-test-native-browser.sh
+```
+
+The Emscripten/Emdawnwebgpu lane compiles the shared renderer modules and WGSL,
+serves the generated page over HTTP, and runs a Playwright integration test.
+The gate validates the browser-specific ABI/capability identity, renders a
+640x360 frame through the C++ engine in one draw/24 vertices/one submission,
+rejects console errors, and saves the exact canvas plus a JSON contract under
+`artifacts/progpu-native/browser-evidence/`. The browser adapter deliberately
+does not advertise the native synchronous submission-index timeline; browser
+hosts use JavaScript `GPUQueue.onSubmittedWorkDone()` at their scheduling
+boundary. Page-owned device/surface handles remain alive for the page resource
+domain and are reclaimed with the WebAssembly instance.
 
 Run the interactive desktop gallery directly on the exact wgpu-native backend:
 
@@ -277,8 +299,10 @@ canonical validation, and a checked preflight budget. Analytic rounded masks
 execute through retained per-occurrence uniforms in nested bounded parents;
 one-to-eight-node Gaussian/drop-shadow chains execute through depth-indexed
 three-texture intermediates and one packed dynamic-offset uniform page before
-mask/opacity composition. Advanced destination-sampling and backdrop input
-remain the active follow-up.
+mask/opacity composition. Advanced destination-sampling now resolves the
+effected/masked source into bounded scratch, samples the actual rendered
+parent, and replaces the parent through shared `AdvancedBlend.wgsl`. Explicit
+backdrop input remains the active follow-up.
 
 Current native parity:
 
@@ -341,6 +365,10 @@ Current native parity:
   parent-local coordinates, and effect chains execute in declared order through
   a bounded depth-indexed GPU pool before mask/opacity composition. Stable
   replay retains every texture/binding and uploads zero effect or mask bytes;
+- destination-aware semantic nested blend restore using the actual rendered
+  parent texture, shared `AdvancedBlend.wgsl`, and a checked three-texture
+  scratch budget; empty bounded layers avoid invalid zero-size scissors and
+  backdrop-input layers remain an explicit unsupported boundary;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

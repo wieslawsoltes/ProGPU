@@ -22,6 +22,7 @@
 #include <vector>
 
 using progpu::native::gpu_drop_shadow_params;
+using progpu::native::gpu_advanced_blend_sampling_uniforms;
 using progpu::native::gpu_gaussian_blur_params;
 using progpu::native::gpu_glyph_instance;
 using progpu::native::gpu_group_blend_uniforms;
@@ -340,12 +341,22 @@ struct progpu_native_engine {
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> semantic_layer_slots{};
+    semantic_layer_slot semantic_root_slot{};
+    semantic_layer_slot semantic_advanced_source_slot{};
+    semantic_layer_slot semantic_advanced_output_slot{};
     WGPUBuffer semantic_layer_vertex_buffer = nullptr;
     std::uint64_t semantic_layer_vertex_buffer_size = 0U;
     WGPUBuffer semantic_effect_uniform_buffer = nullptr;
     std::uint64_t semantic_effect_uniform_buffer_size = 0U;
     std::uint32_t semantic_layer_allocation_count = 0U;
     std::uint32_t semantic_effect_allocation_count = 0U;
+    WGPUShaderModule semantic_advanced_blend_shader = nullptr;
+    WGPURenderPipeline semantic_advanced_blend_pipeline = nullptr;
+    WGPUBindGroupLayout semantic_advanced_blend_layout = nullptr;
+    WGPUBuffer semantic_advanced_blend_uniform_buffer = nullptr;
+    std::uint64_t semantic_advanced_blend_uniform_buffer_size = 0U;
+    bool semantic_destination_sampling_active = false;
+    std::uint32_t semantic_root_copy_vertex = 0U;
     bool semantic_render_bundle_valid = false;
     std::uint64_t semantic_render_bundle_scene_hash = 0U;
     float semantic_render_bundle_dpi_scale = 0.0F;
@@ -664,6 +675,10 @@ struct progpu_native_engine {
 
     void release_semantic_render_bundle() noexcept {
         for (auto& span : semantic_render_bundle_spans) {
+            if (span.advanced_blend_bind_group != nullptr) {
+                wgpuBindGroupRelease(span.advanced_blend_bind_group);
+                span.advanced_blend_bind_group = nullptr;
+            }
             if (span.mask_bind_group != nullptr) {
                 wgpuBindGroupRelease(span.mask_bind_group);
                 span.mask_bind_group = nullptr;
@@ -687,6 +702,8 @@ struct progpu_native_engine {
         semantic_render_bundle_height = 0U;
         semantic_render_bundle_draw_call_count = 0U;
         semantic_render_bundle_family_switch_count = 0U;
+        semantic_destination_sampling_active = false;
+        semantic_root_copy_vertex = 0U;
     }
 
     void release_semantic_layer_resources() noexcept {
@@ -695,7 +712,7 @@ struct progpu_native_engine {
             wgpuBufferRelease(semantic_layer_vertex_buffer);
             semantic_layer_vertex_buffer = nullptr;
         }
-        for (auto& slot : semantic_layer_slots) {
+        const auto release_slot = [](semantic_layer_slot& slot) noexcept {
             for (auto& bind_group : slot.effect_drop_shadow_bind_groups) {
                 if (bind_group != nullptr) {
                     wgpuBindGroupRelease(bind_group);
@@ -766,7 +783,13 @@ struct progpu_native_engine {
             slot.effect_height = 0U;
             progpu::native::effects::invalidate_semantic_output_cache(
                 slot.effect_output_cache);
+        };
+        for (auto& slot : semantic_layer_slots) {
+            release_slot(slot);
         }
+        release_slot(semantic_root_slot);
+        release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_advanced_output_slot);
         if (semantic_effect_uniform_buffer != nullptr) {
             wgpuBufferDestroy(semantic_effect_uniform_buffer);
             wgpuBufferRelease(semantic_effect_uniform_buffer);
@@ -774,6 +797,12 @@ struct progpu_native_engine {
         }
         semantic_layer_vertex_buffer_size = 0U;
         semantic_effect_uniform_buffer_size = 0U;
+        if (semantic_advanced_blend_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(semantic_advanced_blend_uniform_buffer);
+            wgpuBufferRelease(semantic_advanced_blend_uniform_buffer);
+            semantic_advanced_blend_uniform_buffer = nullptr;
+        }
+        semantic_advanced_blend_uniform_buffer_size = 0U;
     }
 
     void release_semantic_image_page() noexcept {
@@ -915,6 +944,15 @@ struct progpu_native_engine {
         release_semantic_analytic_page();
         release_effect_resources();
         release_clip_resources();
+        if (semantic_advanced_blend_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_advanced_blend_layout);
+        }
+        if (semantic_advanced_blend_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_advanced_blend_pipeline);
+        }
+        if (semantic_advanced_blend_shader != nullptr) {
+            wgpuShaderModuleRelease(semantic_advanced_blend_shader);
+        }
         if (group_blend_bind_group != nullptr) {
             wgpuBindGroupRelease(group_blend_bind_group);
         }

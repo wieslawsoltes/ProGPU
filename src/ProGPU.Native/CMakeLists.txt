@@ -43,6 +43,9 @@ set(PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER
 set(PROGPU_NATIVE_GROUP_BLEND_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GroupBlend.wgsl"
     CACHE FILEPATH "Shared ProGPU group blend shader source")
+set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/AdvancedBlend.wgsl"
+    CACHE FILEPATH "Shared ProGPU destination-aware blend shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 option(PROGPU_NATIVE_ENABLE_SANITIZERS
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -70,15 +73,17 @@ function(progpu_native_enable_sanitizers target_name)
     endif()
 endfunction()
 
-if(NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/webgpu.h"
-    OR NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/wgpu.h")
-    message(FATAL_ERROR
-        "PROGPU_NATIVE_WEBGPU_INCLUDE_DIR must contain the exact pinned "
-        "webgpu.h and wgpu.h headers")
-endif()
-if(NOT EXISTS "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
-    message(FATAL_ERROR
-        "PROGPU_NATIVE_WEBGPU_LIBRARY must name the exact native library")
+if(NOT EMSCRIPTEN)
+    if(NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/webgpu.h"
+        OR NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/wgpu.h")
+        message(FATAL_ERROR
+            "PROGPU_NATIVE_WEBGPU_INCLUDE_DIR must contain the exact pinned "
+            "webgpu.h and wgpu.h headers")
+    endif()
+    if(NOT EXISTS "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
+        message(FATAL_ERROR
+            "PROGPU_NATIVE_WEBGPU_LIBRARY must name the exact native library")
+    endif()
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_VECTOR_SHADER}")
     message(FATAL_ERROR "The shared ProGPU Vector.wgsl source is missing")
@@ -109,6 +114,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_GROUP_BLEND_SHADER}")
     message(FATAL_ERROR "The shared ProGPU group-blend shader source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_ADVANCED_BLEND_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU advanced-blend shader source is missing")
 endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -252,8 +260,23 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU group-blend shader"
     VERBATIM)
+set(generated_advanced_blend_shader
+    "${generated_directory}/AdvancedBlendWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_advanced_blend_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_ADVANCED_BLEND_SHADER}"
+        "-DOUTPUT=${generated_advanced_blend_shader}"
+        "-DSYMBOL=advanced_blend_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_ADVANCED_BLEND_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU advanced-blend shader"
+    VERBATIM)
 
-add_library(progpu_native SHARED
+set(PROGPU_NATIVE_RENDERER_SOURCES
+    src/progpu_native_advanced_blend_execution.cpp
     src/progpu_native.cpp
     src/progpu_native_draw_state.cpp
     src/progpu_native_draw_state.hpp
@@ -303,7 +326,12 @@ add_library(progpu_native SHARED
     "${generated_gaussian_blur_horizontal_shader}"
     "${generated_gaussian_blur_vertical_shader}"
     "${generated_group_drop_shadow_compose_shader}"
-    "${generated_group_blend_shader}")
+    "${generated_group_blend_shader}"
+    "${generated_advanced_blend_shader}")
+
+if(NOT EMSCRIPTEN)
+add_library(progpu_native SHARED
+    ${PROGPU_NATIVE_RENDERER_SOURCES})
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native
@@ -320,64 +348,17 @@ progpu_native_enable_sanitizers(progpu_native)
 set_target_properties(progpu_native PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN YES)
+endif()
 
-if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
+if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     if(NOT EXISTS "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}/webgpu.h")
         message(FATAL_ERROR
             "PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR must contain webgpu.h")
     endif()
     add_library(progpu_native_dawn SHARED
-        src/progpu_native.cpp
-        src/progpu_native_draw_state.cpp
-        src/progpu_native_draw_state.hpp
-        src/progpu_native_engine.hpp
-        src/progpu_native_effect_plan.cpp
-        src/progpu_native_effect_plan.hpp
-        src/progpu_native_frame_execution.hpp
-        src/progpu_native_frame_execution_common.hpp
-        src/progpu_native_geometry.hpp
-        src/progpu_native_geometry_analytic.hpp
-        src/progpu_native_geometry_base.hpp
-        src/progpu_native_geometry_dash.hpp
-        src/progpu_native_geometry_spline.hpp
-        src/progpu_native_geometry_stroke.hpp
-        src/progpu_native_gpu_records.hpp
-        src/progpu_native_clip_execution.cpp
-        src/progpu_native_clip_resources.cpp
-        src/progpu_native_image_execution.cpp
-        src/progpu_native_image_layer_resources.cpp
-        src/progpu_native_layer_effect_execution.cpp
-        src/progpu_native_path_text_resources.cpp
-        src/progpu_native_pipeline.cpp
-        src/progpu_native_pipeline.hpp
-        src/progpu_native_raster_execution.cpp
-        src/progpu_native_replay_execution.hpp
-        src/progpu_native_scene.cpp
-        src/progpu_native_scene.hpp
-        src/progpu_native_semantic_budget.hpp
-        src/progpu_native_semantic_effect_cache.cpp
-        src/progpu_native_semantic_effect_cache.hpp
-        src/progpu_native_semantic_execution.cpp
-        src/progpu_native_semantic_replay.hpp
-        src/progpu_native_semantic_state.cpp
-        src/progpu_native_semantic_state.hpp
-        src/progpu_native_semantic_validation.cpp
-        src/progpu_native_semantic_validation.hpp
-        src/progpu_native_webgpu_resources.hpp
-        src/progpu_native_vector_execution.cpp
-        src/progpu_webgpu_compat.hpp
-        include/progpu_native.h
+        ${PROGPU_NATIVE_RENDERER_SOURCES}
         include/progpu_native_dawn.h
-        "${generated_vector_shader}"
-        "${generated_path_rasterizer_shader}"
-        "${generated_glyph_rasterizer_shader}"
-        "${generated_text_shader}"
-        "${generated_texture_shader}"
-        "${generated_clip_compose_shader}"
-        "${generated_gaussian_blur_horizontal_shader}"
-        "${generated_gaussian_blur_vertical_shader}"
-        "${generated_group_drop_shadow_compose_shader}"
-        "${generated_group_blend_shader}")
+        )
     target_compile_features(progpu_native_dawn
         PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_dawn PRIVATE
@@ -433,6 +414,8 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             endif()
             add_executable(progpu_native_webscene_provider_tests
                 tests/progpu_native_webscene_provider_tests.cpp
+                tests/progpu_native_webscene_advanced_blend_fixture.cpp
+                tests/progpu_native_webscene_advanced_blend_fixture.hpp
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
                 tests/progpu_native_webscene_semantic_effect_fixture.hpp)
             target_compile_features(progpu_native_webscene_provider_tests
@@ -463,6 +446,38 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     endif()
 endif()
 
+if(EMSCRIPTEN)
+    add_executable(progpu_native_browser_smoke
+        ${PROGPU_NATIVE_RENDERER_SOURCES}
+        include/progpu_native_browser.h
+        include/progpu_native_dawn.h
+        browser/progpu_native_browser_smoke.cpp)
+    target_compile_features(progpu_native_browser_smoke PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_browser_smoke PRIVATE
+        PROGPU_NATIVE_BUILD=1
+        PROGPU_NATIVE_DAWN_ABI=1
+        PROGPU_NATIVE_BROWSER=1)
+    target_include_directories(progpu_native_browser_smoke PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
+        "${generated_directory}")
+    target_compile_options(progpu_native_browser_smoke PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false)
+    target_link_options(progpu_native_browser_smoke PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false
+        --pre-js=${CMAKE_CURRENT_SOURCE_DIR}/browser/pre.js
+        --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/browser/shell.html
+        -sALLOW_MEMORY_GROWTH=1
+        -sEXIT_RUNTIME=1
+        -sENVIRONMENT=web
+        -sASSERTIONS=1)
+    progpu_native_enable_warnings(progpu_native_browser_smoke)
+    set_target_properties(progpu_native_browser_smoke PROPERTIES
+        SUFFIX ".html")
+endif()
+
+if(NOT EMSCRIPTEN)
 get_filename_component(webgpu_library_directory
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}" DIRECTORY)
 if(APPLE)
@@ -474,8 +489,9 @@ elseif(UNIX)
         BUILD_RPATH "$ORIGIN;${webgpu_library_directory}"
         INSTALL_RPATH "$ORIGIN")
 endif()
+endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
         src/progpu_native_draw_state.cpp
@@ -525,7 +541,7 @@ if(BUILD_TESTING)
     set_tests_properties(progpu_native_tests PROPERTIES TIMEOUT 60)
 endif()
 
-if(PROGPU_NATIVE_BUILD_SAMPLE)
+if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN)
     add_executable(progpu_native_sample
         samples/progpu_native_sample.cpp)
     target_compile_features(progpu_native_sample PRIVATE cxx_std_20)

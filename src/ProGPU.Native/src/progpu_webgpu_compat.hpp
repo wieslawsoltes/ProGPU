@@ -96,6 +96,15 @@ struct dispatch final {
 #undef PROGPU_NATIVE_DECLARE_DAWN_PROC
 
     bool load(void* context, proc_resolver resolver) noexcept {
+#if defined(PROGPU_NATIVE_BROWSER)
+        (void)context;
+        (void)resolver;
+#define PROGPU_NATIVE_LOAD_BROWSER_PROC(Name) \
+        wgpu##Name = &::wgpu##Name;
+        PROGPU_NATIVE_DAWN_PROC_LIST(PROGPU_NATIVE_LOAD_BROWSER_PROC)
+#undef PROGPU_NATIVE_LOAD_BROWSER_PROC
+        return true;
+#else
         if (resolver == nullptr) {
             return false;
         }
@@ -107,6 +116,7 @@ struct dispatch final {
         PROGPU_NATIVE_DAWN_PROC_LIST(PROGPU_NATIVE_LOAD_DAWN_PROC)
 #undef PROGPU_NATIVE_LOAD_DAWN_PROC
         return complete;
+#endif
     }
 };
 
@@ -207,6 +217,11 @@ inline std::uint64_t submit(
     WGPUQueue queue,
     std::size_t command_count,
     WGPUCommandBuffer const* commands) noexcept {
+#if defined(PROGPU_NATIVE_BROWSER)
+    static thread_local std::uint64_t submission_count = 0U;
+    active_dispatch().wgpuQueueSubmit(queue, command_count, commands);
+    return ++submission_count;
+#else
     active_dispatch().wgpuQueueSubmit(queue, command_count, commands);
     WGPUQueueWorkDoneCallbackInfo callback{};
     callback.mode = WGPUCallbackMode_WaitAnyOnly;
@@ -214,6 +229,7 @@ inline std::uint64_t submit(
     return active_dispatch()
         .wgpuQueueOnSubmittedWorkDone(queue, callback)
         .id;
+#endif
 }
 
 inline bool poll_submission(
@@ -222,6 +238,12 @@ inline bool poll_submission(
     WGPUQueue,
     std::uint64_t submission_index,
     bool wait) noexcept {
+#if defined(PROGPU_NATIVE_BROWSER)
+    (void)instance;
+    (void)submission_index;
+    (void)wait;
+    return false;
+#else
     WGPUFutureWaitInfo future{};
     future.future.id = submission_index;
     const WGPUWaitStatus status = active_dispatch().wgpuInstanceWaitAny(
@@ -230,6 +252,7 @@ inline bool poll_submission(
         &future,
         wait ? UINT64_MAX : 0U);
     return status == WGPUWaitStatus_Success && future.completed != 0U;
+#endif
 }
 
 #else

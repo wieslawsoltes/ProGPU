@@ -398,23 +398,19 @@ bool ensure_semantic_layer_slot_bindings(
 void release_semantic_effect_bindings(
     semantic_layer_slot& slot) noexcept;
 
-bool ensure_semantic_layer_slot(
+bool ensure_semantic_texture_slot(
     progpu_native_engine& engine,
-    std::uint32_t index,
+    semantic_layer_slot& slot,
     std::uint32_t width,
-    std::uint32_t height) {
-    if (index >= engine.semantic_layer_slots.size()) {
-        return false;
-    }
-    auto& slot = engine.semantic_layer_slots[index];
+    std::uint32_t height,
+    const char* label) {
     if (slot.texture != nullptr && slot.uniform_buffer != nullptr &&
         slot.width == width && slot.height == height) {
         return ensure_semantic_layer_slot_bindings(engine, slot);
     }
 
     WGPUTextureDescriptor descriptor{};
-    descriptor.label = ::progpu::native::webgpu::string_view(
-        "ProGPU semantic depth-indexed isolated layer");
+    descriptor.label = ::progpu::native::webgpu::string_view(label);
     descriptor.usage = WGPUTextureUsage_RenderAttachment |
         WGPUTextureUsage_TextureBinding;
     descriptor.dimension = WGPUTextureDimension_2D;
@@ -503,6 +499,20 @@ bool ensure_semantic_layer_slot(
     ++slot.generation;
     ++engine.semantic_layer_allocation_count;
     return ensure_semantic_layer_slot_bindings(engine, slot);
+}
+
+bool ensure_semantic_layer_slot(
+    progpu_native_engine& engine,
+    std::uint32_t index,
+    std::uint32_t width,
+    std::uint32_t height) {
+    return index < engine.semantic_layer_slots.size() &&
+        ensure_semantic_texture_slot(
+            engine,
+            engine.semantic_layer_slots[index],
+            width,
+            height,
+            "ProGPU semantic depth-indexed isolated layer");
 }
 
 bool ensure_semantic_layer_vertex_buffer(

@@ -1431,6 +1431,14 @@ public class NativeRendererInteropTests
             "src/progpu_native_semantic_execution.cpp",
             cmake,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_advanced_blend_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "../ProGPU.Backend/Shaders/AdvancedBlend.wgsl",
+            cmake,
+            StringComparison.Ordinal);
 
         string pipelineSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_pipeline.cpp"));
@@ -1464,6 +1472,8 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_raster_execution.cpp"));
         string semanticExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_semantic_execution.cpp"));
+        string advancedBlendSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_advanced_blend_execution.cpp"));
         string frameExecutionCommonSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_frame_execution_common.hpp"));
         Assert.Contains(
@@ -1486,6 +1496,7 @@ public class NativeRendererInteropTests
                      vectorExecutionSource,
                      rasterExecutionSource,
                      semanticExecutionSource,
+                     advancedBlendSource,
                      frameExecutionCommonSource,
                  })
         {
@@ -1515,6 +1526,48 @@ public class NativeRendererInteropTests
             "<PackageVersion Include=\"Silk.NET.WebGPU.Native.WGPU\" Version=\"2.23.0\" />",
             packages,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeRendererHasARealBrowserWebGpuGate()
+    {
+        string cmake = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        string browserHeader = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native_browser.h"));
+        string browserSmoke = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "browser", "progpu_native_browser_smoke.cpp"));
+        string browserTest = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "browser", "test.mjs"));
+        string verifier = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-test-native-browser.sh"));
+        string workflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "build.yml"));
+
+        Assert.Contains("if(EMSCRIPTEN)", cmake, StringComparison.Ordinal);
+        Assert.Contains(
+            "--use-port=emdawnwebgpu:cpp_bindings=false",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION",
+            browserHeader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("navigator.gpu", File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "browser", "pre.js")), StringComparison.Ordinal);
+        Assert.Contains("channel: \"chromium\"", browserTest, StringComparison.Ordinal);
+        Assert.Contains("--enable-unsafe-webgpu", browserTest, StringComparison.Ordinal);
+        Assert.Contains("emcmake", verifier, StringComparison.Ordinal);
+        Assert.Contains("native-cpp-browser", workflow, StringComparison.Ordinal);
+        Assert.Contains("Upload native browser evidence", workflow, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "webscene_gpu_provider.h"
 
@@ -24,7 +25,10 @@
 namespace {
 
 using progpu::native::tests::
+    create_semantic_advanced_blend_scene_stream;
+using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
+using progpu::native::tests::verify_semantic_advanced_blend_scene;
 using progpu::native::tests::verify_semantic_masked_effect_layer_scene;
 
 [[noreturn]] void fail(const char* message) {
@@ -2131,6 +2135,93 @@ int main(int argc, char** argv) {
             opacity_layer_external.shared_handle),
         "progpu-native-semantic-layers.ppm");
     api.release_external(provider, &opacity_layer_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic advanced-blend canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic advanced-blend canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic advanced-blend target view creation failed");
+
+    auto advanced_blend_scene =
+        create_semantic_advanced_blend_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        advanced_blend_scene.data(),
+        advanced_blend_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 4U &&
+        scene_metrics.resource_count == 2U &&
+        scene_metrics.draw_count == 2U &&
+        scene_metrics.maximum_stack_depth == 1U,
+        "semantic advanced-blend scene update failed");
+    progpu_native_scene_frame advanced_blend_frame = semantic_frame;
+    advanced_blend_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    advanced_blend_frame.scene_id = 97U;
+    advanced_blend_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &advanced_blend_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 6U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes != 0U,
+        "semantic destination-aware blend rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U &&
+        semantic_layer_metrics.cache_hit == 0U,
+        "semantic destination-aware blend metrics are incorrect");
+    std::uint64_t advanced_blend_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &advanced_blend_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic advanced-blend submission token unavailable");
+    std::uint8_t advanced_blend_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        advanced_blend_submission,
+        1U,
+        &advanced_blend_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        advanced_blend_complete != 0U,
+        "semantic advanced-blend scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture advanced_blend_external{};
+    advanced_blend_external.struct_size =
+        sizeof(advanced_blend_external);
+    require(api.present(provider, canvas, &advanced_blend_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        advanced_blend_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (advanced_blend_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic advanced-blend presentation failed");
+    verify_semantic_advanced_blend_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            advanced_blend_external.shared_handle),
+        "progpu-native-semantic-advanced-blend.ppm");
+    api.release_external(provider, &advanced_blend_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

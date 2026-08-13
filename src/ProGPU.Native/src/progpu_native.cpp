@@ -1,4 +1,7 @@
 #include "progpu_native.h"
+#if defined(PROGPU_NATIVE_BROWSER)
+#include "progpu_native_browser.h"
+#endif
 #include "progpu_native_frame_execution.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_scene.hpp"
@@ -80,7 +83,10 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
     *info = {};
     info->struct_size = sizeof(progpu_native_engine_info);
     info->abi_version = PROGPU_NATIVE_ABI_VERSION;
-#if defined(PROGPU_NATIVE_DAWN_ABI)
+#if defined(PROGPU_NATIVE_BROWSER)
+    info->backend_abi =
+        PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10;
+#elif defined(PROGPU_NATIVE_DAWN_ABI)
     info->backend_abi = PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07;
 #else
     info->backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
@@ -105,7 +111,9 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_RETAINED_RGBA_IMAGE |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_RGBA_VIEW |
         PROGPU_NATIVE_CAPABILITY_EXTERNAL_IMAGE_MASK |
+#if !defined(PROGPU_NATIVE_BROWSER)
         PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE |
+#endif
         PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE |
         PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY |
         PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK |
@@ -117,7 +125,9 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING;
-#if defined(PROGPU_NATIVE_DAWN_ABI)
+#if defined(PROGPU_NATIVE_BROWSER)
+    constexpr char name[] = "ProGPU C++ core renderer / browser WebGPU";
+#elif defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
     constexpr char name[] = "ProGPU C++ core renderer / wgpu-native";
@@ -166,7 +176,7 @@ progpu_native_status progpu_native_engine_create(
 #endif
 }
 
-#if defined(PROGPU_NATIVE_DAWN_ABI)
+#if defined(PROGPU_NATIVE_DAWN_ABI) && !defined(PROGPU_NATIVE_BROWSER)
 static_assert(sizeof(progpu_native_dawn_engine_options) == 72U);
 
 uint32_t progpu_native_dawn_get_adapter_abi_version(void) {
@@ -205,6 +215,44 @@ progpu_native_status progpu_native_dawn_engine_create(
     }
     return create_engine(
         reinterpret_cast<WGPUInstance>(options->instance),
+        reinterpret_cast<WGPUDevice>(options->device),
+        reinterpret_cast<WGPUQueue>(options->queue),
+        texture_format(options->target_format),
+        webgpu_dispatch,
+        engine);
+}
+#endif
+
+#if defined(PROGPU_NATIVE_BROWSER)
+uint32_t progpu_native_browser_get_adapter_abi_version(void) {
+    return PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION;
+}
+
+progpu_native_status progpu_native_browser_engine_create(
+    const progpu_native_browser_engine_options* options,
+    progpu_native_engine** engine) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *engine = nullptr;
+    if (options == nullptr ||
+        options->struct_size < sizeof(progpu_native_browser_engine_options) ||
+        options->native_abi_version != PROGPU_NATIVE_ABI_VERSION ||
+        options->adapter_abi_version !=
+            PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION ||
+        options->reserved0 != 0U || options->reserved1 != 0U ||
+        options->flags != 0U || options->device == 0U ||
+        options->queue == 0U ||
+        texture_format(options->target_format) ==
+            WGPUTextureFormat_Undefined) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    progpu::native::webgpu::dispatch webgpu_dispatch{};
+    if (!webgpu_dispatch.load(nullptr, nullptr)) {
+        return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    }
+    return create_engine(
+        nullptr,
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),

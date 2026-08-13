@@ -59,6 +59,15 @@ struct gpu_group_blend_uniforms {
     std::uint32_t padding[3];
 };
 
+struct gpu_advanced_blend_sampling_uniforms {
+    float source_origin[2];
+    float source_extent[2];
+    std::uint32_t blend_mode;
+    std::uint32_t padding[3];
+};
+
+static_assert(sizeof(gpu_advanced_blend_sampling_uniforms) == 32U);
+
 struct gpu_gaussian_blur_params {
     float sigma;
     std::uint32_t radius;

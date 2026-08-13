@@ -32,6 +32,42 @@ bool prepare_semantic_layer_resources(
     std::uint32_t composite_count,
     std::uint64_t& uploaded_uniform_bytes);
 
+bool ensure_semantic_texture_slot(
+    progpu_native_engine& engine,
+    semantic_layer_slot& slot,
+    std::uint32_t width,
+    std::uint32_t height,
+    const char* label);
+
+bool prepare_semantic_advanced_blend_resources(
+    progpu_native_engine& engine,
+    std::uint32_t frame_width,
+    std::uint32_t frame_height,
+    std::uint32_t source_width,
+    std::uint32_t source_height,
+    std::uint32_t operation_count,
+    float dpi_scale,
+    std::uint64_t& uploaded_uniform_bytes);
+
+bool create_semantic_advanced_blend_binding(
+    progpu_native_engine& engine,
+    WGPUTextureView destination_view,
+    const gpu_advanced_blend_sampling_uniforms& uniforms,
+    semantic_render_bundle_span& operation);
+
+bool encode_semantic_advanced_blend(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    WGPUTextureView parent_view,
+    WGPUBindGroup parent_uniform_group,
+    const semantic_render_bundle_span& operation);
+
+bool encode_semantic_root_copy(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    WGPUTextureView target_view,
+    std::uint32_t first_vertex);
+
 void append_semantic_layer_quad(
     std::vector<vector_vertex>& vertices,
     const semantic::scissor& source,
