@@ -548,7 +548,7 @@ state. Changed-scene compilation is O(C) for C commands; stable pass encoding
 is O(K) for K clip spans, bounded by drawable commands and equal to one for an
 unclipped scene.
 
-The warnings-as-errors native build, ASan/UBSan local/provider suites, and 23
+The warnings-as-errors native build, ASan/UBSan local/provider suites, and 25
 focused managed interop tests in both Debug and Release pass. The real pinned
 WebScene/Dawn/Metal provider test also passes with eleven commands, nine
 semantic draw records, eight emitted ordered draws, eight family switches, one
@@ -595,24 +595,29 @@ same full-target descriptor at 65,536×65,536 returns `OUT_OF_MEMORY` before
 submission and preserves the previous GPU token. This is validation/budget
 evidence only: no layer pixel output or performance milestone is claimed yet.
 
-### Retained full-target fixed-function layer execution checkpoint
+### Retained bounded fixed-function layer execution checkpoint
 
-The next increments materialize the first exact layer subset: unbounded group
-opacity, `FORCE_ISOLATION`, and every blend with an exact fixed-function
-coefficient equation. Changed scenes compile ordered retained bundle,
-transparent-clear, and composite operations. Two reusable textures are enough
-for the current nested depth-two fixture even though it contains three
-materialized occurrences; sequential scopes reuse depth zero safely because
-their four-vertex composite quads occupy distinct ranges in one retained GPU
-page. Layer-free semantic scenes keep the earlier single-pass path.
+The next increments materialize bounded and unbounded group opacity,
+`FORCE_ISOLATION`, and every blend with an exact fixed-function coefficient
+equation. Changed scenes compile ordered retained bundle, transparent-clear,
+and composite operations. Two reusable textures are enough for the current
+nested depth-two fixture even though it contains three materialized
+occurrences. Each physical depth slot retains the maximum dimensions needed at
+that depth; sequential scopes reuse depth zero safely because geometry is
+target-local and their four-vertex composite quads occupy distinct ranges in
+one retained GPU page. Layer-free semantic scenes keep the earlier single-pass
+path.
 
-The real Dawn/Metal fixture renders an opaque red rectangle before the layer,
-an outer translated 50% green group, a nested 50% blue group, a sequential 25%
-magenta `Plus` group at the reused outer depth, and an opaque yellow rectangle after
-pop inside a direct-folded unit-opacity `SrcOver` scope. It proves state
-scoping/restoration, nested premultiplied composition, same-depth reuse, and
-that a non-isolating layer adds no materialized pass. Representative BGRA
-pixels are:
+The real Dawn/Metal fixture renders an opaque red analytic rectangle before the
+layer, an outer translated 50% green retained path bounded to 28x16 physical
+pixels, a nested 50% blue retained glyph bounded to 16x16, a sequential 25%
+magenta retained image in a different 16x16 extent at the reused outer depth,
+and an opaque yellow analytic rectangle after pop inside a direct-folded
+unit-opacity `SrcOver` scope. It proves all four semantic draw pipelines against
+bounded target-local projections, state scoping/restoration, parent-child
+extent intersection, left-edge crop, nested premultiplied composition,
+different-origin same-depth reuse, and that a non-isolating layer adds no
+materialized pass. Representative BGRA pixels are:
 
 | Sample | BGRA |
 |---|---:|
@@ -626,14 +631,20 @@ pixels are:
 Both changed and stable frames use one queue submission. The stable frame
 reports zero vertex, index, texture, uniform, and coverage-staging uploads;
 layer metrics report three content passes, three composites, a retained cache
-hit, unchanged allocation count, depth-two residency of exactly 24,576 bytes,
+hit, unchanged allocation count, and depth-two pooled residency of exactly
+2,816 bytes (28x16 plus 16x16 RGBA8),
 and zero layer vertex/uniform upload. The inspected capture is
 `artifacts/progpu-native/build/progpu-native-semantic-layers.png` with SHA-256
-`6951096aeb596f0337d7c7b993765aceb8c14e5c785d545566e6e815ef4fcc88`.
+`a12415a253827d15b0ccd223c65a827abe9cd9c40344c80b7c6ad25ccc5dafaf`.
+The same logical fixture also passes at DPI 2 after its immutable glyph resource
+is regenerated at physical raster scale 2: the pool grows exactly to 11,264
+bytes (56x32 plus 32x32 RGBA8), stable replay again uploads zero bytes, and the
+inspected `progpu-native-semantic-layers-2x.png` capture has SHA-256
+`6a2bddb6e366128238a315a43cb6d13606bd78454d0ff1d864a24589f7103f16`.
 This is functional and retained-resource evidence, not yet the required
 matched managed/native nested-layer distribution or Instruments comparison.
-Bounded layers, masks, effects, advanced destination-sampling blend modes, and
-backdrop input remain explicitly unsupported.
+Masks, effects, advanced destination-sampling blend modes, and backdrop input
+remain explicitly unsupported.
 
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at

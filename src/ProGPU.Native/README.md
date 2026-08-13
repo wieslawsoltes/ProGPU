@@ -271,10 +271,11 @@ Current native parity:
   exact coefficient equations and one destination-aware static WGSL pipeline
   for advanced modes, retained across all six frame families;
 - pointer-free semantic layer descriptors plus checked 256 MiB peak/512 MiB
-  combined budgets, and retained full-target opacity/forced-isolation plus
-  fixed-function Porter-Duff execution through a depth-indexed texture pool,
-  occurrence-packed composite quads, nested state restoration, and zero stable
-  retained uploads;
+  combined budgets, and retained physical bounded/full-target
+  opacity/forced-isolation plus fixed-function Porter-Duff execution through a
+  depth-indexed maximum-extent texture pool, target-local analytic/path/glyph/
+  image compilation, occurrence-packed composite quads, nested state
+  restoration, and zero stable retained uploads;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

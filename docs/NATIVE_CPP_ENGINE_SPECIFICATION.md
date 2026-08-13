@@ -1092,8 +1092,9 @@ transform is composed after the draw-local transform and its opacity
 multiplies draw alpha once while changed pages are compiled. Its optional
 logical target rectangle is lowered to a retained physical scissor span;
 an inline pointer-free layer descriptor and its aggregate resource budget are
-validated before rendering. Layer pixels still fail with typed `UNSUPPORTED`
-status until the next d3b2 compilation checkpoint.
+validated before rendering. Physical bounded opacity and fixed-function blend
+layers now use the retained d3b2 executor; backdrop, mask/effect, and advanced
+destination-sampling descriptors still fail at a typed `UNSUPPORTED` boundary.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1171,15 +1172,17 @@ therefore cannot submit or mutate an earlier target result. The same pass now
 uses checked 64-bit accumulation to bound draw passes, expanded vertices,
 indices, image bytes, aligned path/glyph coverage, and their aggregate before
 encoder creation. Layer preflight converts logical bounds to conservative
-physical extents with the target DPI, tracks the live nested-byte sum on a
-fixed 64-entry structural scope stack while separately limiting materialized
-depth to 16, caps peak layer pixels at 256 MiB, and includes that peak in the
-existing 512 MiB combined scene budget. Multiplication and accumulation are
-checked before an encoder is created. A valid budgeted layer renders when it
-is full-target, has no backdrop/mask/effect dependency, and its blend has an
-exact fixed-function coefficient equation. Bounded, backdrop, mask/effect,
-and advanced destination-sampling blend descriptors still reach a typed
-`UNSUPPORTED` boundary. An oversized layer
+physical extents with the target DPI, intersects every materialized child with
+its materialized parent, and tracks both the live nested-byte sum and the
+componentwise maximum physical dimensions needed by each reusable depth slot.
+The fixed 64-entry structural scope stack separately limits materialized depth
+to 16. Both live and pooled layer pixels are capped at 256 MiB and their
+maximum participates in the existing 512 MiB combined scene budget.
+Multiplication and accumulation are checked before an encoder is created. A
+valid bounded or full-target layer renders when it has no backdrop/mask/effect
+dependency and its blend has an exact fixed-function coefficient equation.
+Backdrop, mask/effect, and advanced destination-sampling blend descriptors
+still reach a typed `UNSUPPORTED` boundary. An oversized layer
 returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
 timeline.
 
@@ -1194,20 +1197,29 @@ rendering observably incorrect. Otherwise its state is folded into the parent
 batch. This preserves group-opacity overlap behavior without allocating a
 texture for every save/restore pair.
 
-The initial implemented executor covers full-target group opacity, forced
+The implemented executor covers bounded and full-target group opacity, forced
 isolation, and every blend with an exact fixed-function coefficient equation,
 including the Porter-Duff family and `Plus`. It compiles one retained replay
 program containing ordered bundle, clear-layer, and composite operations. A
-pool indexed by live
-materialized depth owns at most 16 reusable RGBA target textures. Composite
-quads are packed per layer occurrence in one retained vertex page, so
-sequential scopes at the same depth can keep distinct opacity without mutable
-buffer aliasing. Push clears the selected depth texture to transparent
-premultiplied RGBA, nested pop composites into the parent texture, and the
-outer pop composites into the caller target. Parent passes resume with `Load`;
-the layer-free route retains its existing single-pass replay. Stable replay is
-O(B + L) for B retained bundle spans and L layer transitions, allocates no new
-pool texture, uploads no retained payload, and performs one queue submission.
+pool indexed by live materialized depth owns at most 16 reusable RGBA target
+textures. Each slot uses the maximum width and height required by any scene
+occurrence at that depth, while each occurrence retains its own intersected
+global physical extent. Analytic, path, glyph, and image geometry is compiled
+once into the current target's local coordinate system; per-depth projection
+uniforms therefore depend only on slot size. Target-local scissors crop draw
+state, and each occurrence's composite quad samples only the valid UV prefix
+of its pooled texture and places it relative to the actual parent extent.
+Composite quads are packed per occurrence in one retained vertex page, so
+sequential scopes at the same depth can differ in origin, size, opacity, and
+fixed-function blend without mutable buffer aliasing. Push clears the selected
+depth texture to transparent premultiplied RGBA, nested pop composites into the
+parent texture, and the outer pop composites into the caller target. Parent
+passes resume with `Load`; the layer-free route retains its existing
+single-pass replay. Stable replay is O(B + L) for B retained bundle spans and L
+layer transitions, allocates no new pool texture, uploads no retained payload,
+and performs one queue submission. Pool storage is `O(sum(Wd*Hd))` for the
+maximum physical width Wd and height Hd retained at each live depth d, rather
+than `O(L*frameWidth*frameHeight)`.
 
 The current d3b1 checkpoint crosses the public ABI once per frame and prepares
 changed path/glyph coverage in compute passes. Once every referenced GPU page
@@ -1287,15 +1299,15 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-The next checkpoint extends the depth-indexed pool to physical content bounds,
-typed mask/effect resources, advanced destination-sampling `GpuBlendMode`
-values, and backdrop input. The
+The next checkpoint extends the bounded depth-indexed pool to typed mask/effect
+resources, advanced destination-sampling `GpuBlendMode` values, and backdrop
+input. The
 contract continues to permit at most 16 simultaneously materialized layers and
 eight effect nodes per layer. Each extended layer will run its retained effect
 chain, apply mask and opacity once, then composite into the parent. Advanced
 blend or backdrop effects must sample the actual parent texture, never the
-frame clear-color approximation. Storage remains O(L*W*H) for bounded peak
-materialized depth L; direct scopes add no full-target texture. Pool entries
+frame clear-color approximation. Storage remains `O(sum(Wd*Hd))` across the
+bounded reusable depth slots; direct scopes add no texture. Pool entries
 are reusable only after their submission token completes and are released on
 device loss.
 

@@ -544,7 +544,9 @@ std::vector<std::byte> create_semantic_layer_scene_stream() {
     return stream;
 }
 
-std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
+std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
+    std::uint64_t generation = 1U,
+    float glyph_raster_scale = 1.0F) {
     constexpr std::uint32_t command_count = 13U;
     constexpr std::uint32_t resource_count = 6U;
     constexpr std::uint32_t command_offset =
@@ -557,30 +559,109 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
 
     constexpr progpu_native_affine_2d identity{
         1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-    const progpu_native_analytic_primitive primitives[]{
-        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
-            4.0F, 4.0F, 12.0F, 12.0F, 0.0F, 0.0F,
-            {1.0F, 0.0F, 0.0F, 1.0F}, identity},
-        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
-            20.0F, 4.0F, 12.0F, 12.0F, 0.0F, 0.0F,
-            {0.0F, 1.0F, 0.0F, 1.0F}, identity},
-        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
-            36.0F, 4.0F, 12.0F, 12.0F, 0.0F, 0.0F,
-            {0.0F, 0.0F, 1.0F, 1.0F}, identity},
-        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+    const progpu_native_analytic_primitive root_analytic{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+        4.0F, 4.0F, 12.0F, 12.0F, 0.0F, 0.0F,
+        {1.0F, 0.0F, 0.0F, 1.0F}, identity};
+    const progpu_native_analytic_primitive direct_analytic{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
             52.0F, 4.0F, 8.0F, 12.0F, 0.0F, 0.0F,
-            {1.0F, 1.0F, 0.0F, 1.0F}, identity},
-        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
-            4.0F, 24.0F, 12.0F, 12.0F, 0.0F, 0.0F,
-            {1.0F, 0.0F, 1.0F, 1.0F}, identity}
+            {1.0F, 1.0F, 0.0F, 1.0F}, identity};
+    const std::uint32_t root_analytic_offset = append_scene_payload(
+        stream,
+        &root_analytic,
+        1U);
+    const std::uint32_t direct_analytic_offset = append_scene_payload(
+        stream,
+        &direct_analytic,
+        1U);
+
+    const progpu_native_path_segment square_segments[]{
+        {{0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{12.0F, 0.0F}, {12.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{12.0F, 12.0F}, {0.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{0.0F, 12.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
     };
-    std::array<std::uint32_t, 5U> primitive_offsets{};
-    for (std::size_t index = 0U; index < std::size(primitives); ++index) {
-        primitive_offsets[index] = append_scene_payload(
-            stream,
-            &primitives[index],
-            1U);
-    }
+    const progpu_native_scene_path_fill outer_path{
+        0U,
+        std::size(square_segments),
+        0.0F,
+        0.0F,
+        12.0F,
+        12.0F,
+        {0.0F, 1.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 20.0F, 4.0F},
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U};
+    const std::uint32_t outer_path_offset = append_scene_payload(
+        stream,
+        &outer_path,
+        1U);
+    const std::uint32_t outer_path_segment_offset = append_scene_payload(
+        stream,
+        square_segments,
+        std::size(square_segments));
+
+    const progpu_native_scene_glyph_outline inner_outline{
+        0U,
+        std::size(square_segments),
+        0.0F,
+        0.0F,
+        12.0F,
+        12.0F,
+        glyph_raster_scale,
+        0.0F};
+    const std::uint32_t inner_outline_offset = append_scene_payload(
+        stream,
+        &inner_outline,
+        1U);
+    const std::uint32_t inner_outline_segment_offset = append_scene_payload(
+        stream,
+        square_segments,
+        std::size(square_segments));
+    const progpu_native_positioned_glyph inner_glyph{
+        0U,
+        0U,
+        {36.0F, 18.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {0.0F, 0.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    const std::uint32_t inner_glyph_offset = append_scene_payload(
+        stream,
+        &inner_glyph,
+        1U);
+
+    const std::array<std::uint8_t, 16U> sequential_image_pixels{
+        255U, 0U, 255U, 255U, 255U, 0U, 255U, 255U,
+        255U, 0U, 255U, 255U, 255U, 0U, 255U, 255U};
+    const std::uint32_t sequential_image_offset = append_scene_payload(
+        stream,
+        sequential_image_pixels.data(),
+        sequential_image_pixels.size());
+    const progpu_native_scene_image_draw sequential_image{
+        sizeof(progpu_native_scene_image_draw),
+        0U,
+        2U,
+        2U,
+        8U,
+        PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST,
+        {0.0F, 0.0F, 2.0F, 2.0F},
+        {4.0F, 24.0F, 12.0F, 12.0F},
+        identity,
+        1.0F,
+        0U};
+    const std::uint32_t sequential_image_draw_offset = append_scene_payload(
+        stream,
+        &sequential_image,
+        1U);
     const progpu_native_scene_state layer_state{
         sizeof(progpu_native_scene_state),
         0U,
@@ -596,8 +677,9 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
         1U);
     const progpu_native_scene_layer outer_layer{
         sizeof(progpu_native_scene_layer),
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
-        {},
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        {22.0F, 22.0F, 28.0F, 16.0F},
         0.5F,
         PROGPU_NATIVE_BLEND_SRC_OVER,
         PROGPU_NATIVE_SCENE_NO_INDEX,
@@ -608,8 +690,9 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
         0U};
     const progpu_native_scene_layer inner_layer{
         sizeof(progpu_native_scene_layer),
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
-        {},
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        {34.0F, 22.0F, 16.0F, 16.0F},
         0.5F,
         PROGPU_NATIVE_BLEND_SRC_OVER,
         PROGPU_NATIVE_SCENE_NO_INDEX,
@@ -620,8 +703,9 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
         0U};
     const progpu_native_scene_layer sequential_layer{
         sizeof(progpu_native_scene_layer),
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
-        {},
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        {2.0F, 22.0F, 16.0F, 16.0F},
         0.25F,
         PROGPU_NATIVE_BLEND_PLUS,
         PROGPU_NATIVE_SCENE_NO_INDEX,
@@ -666,7 +750,7 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
     header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
     header.total_size = static_cast<std::uint32_t>(stream.size());
     header.scene_id = 94U;
-    header.generation = 1U;
+    header.generation = generation;
     header.command_offset = command_offset;
     header.command_count = command_count;
     header.command_stride = sizeof(progpu_native_scene_command);
@@ -678,26 +762,68 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
     std::memcpy(stream.data(), &header, sizeof(header));
 
     std::array<progpu_native_scene_resource, resource_count> resources{};
-    for (std::uint32_t index = 0U; index < 5U; ++index) {
-        resources[index] = {
-            sizeof(progpu_native_scene_resource),
-            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U,
-            501U + index,
-            1U,
-            primitive_offsets[index],
-            sizeof(progpu_native_analytic_primitive),
-            0U,
-            0U};
-    }
+    resources[0] = {
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        501U,
+        generation,
+        root_analytic_offset,
+        sizeof(root_analytic),
+        0U,
+        0U};
+    resources[1] = {
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        502U,
+        generation,
+        outer_path_offset,
+        sizeof(outer_path),
+        outer_path_segment_offset,
+        sizeof(square_segments)};
+    resources[2] = {
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        503U,
+        generation,
+        inner_outline_offset,
+        sizeof(inner_outline),
+        inner_outline_segment_offset,
+        sizeof(square_segments)};
+    resources[3] = {
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        504U,
+        generation,
+        direct_analytic_offset,
+        sizeof(direct_analytic),
+        0U,
+        0U};
+    resources[4] = {
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_IMAGE,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        505U,
+        generation,
+        sequential_image_offset,
+        sequential_image_pixels.size(),
+        0U,
+        0U};
     resources[5] = {
         sizeof(progpu_native_scene_resource),
         PROGPU_NATIVE_SCENE_RESOURCE_STATE,
         PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
         0U,
         506U,
-        1U,
+        generation,
         state_offset,
         sizeof(layer_state),
         0U,
@@ -720,7 +846,7 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
             outer_layer_offset, sizeof(outer_layer),
             0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 603U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 1U, 0U, 0U,
             20.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
@@ -731,9 +857,10 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
             inner_layer_offset, sizeof(inner_layer),
             0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 605U,
-            PROGPU_NATIVE_SCENE_NO_INDEX, 2U, 0U, 0U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 2U,
+            inner_glyph_offset, sizeof(inner_glyph),
             36.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
@@ -752,9 +879,10 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
             sequential_layer_offset, sizeof(sequential_layer),
             0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 609U,
-            PROGPU_NATIVE_SCENE_NO_INDEX, 4U, 0U, 0U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 4U,
+            sequential_image_draw_offset, sizeof(sequential_image),
             4.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
@@ -1082,7 +1210,8 @@ void verify_semantic_scene(
 
 void verify_semantic_layer_scene(
     IOSurfaceRef surface,
-    const char* output_path) {
+    const char* output_path,
+    std::size_t scale = 1U) {
     require(surface != nullptr, "semantic layer scene has no IOSurface");
     require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
         kIOReturnSuccess, "could not lock semantic layer IOSurface");
@@ -1091,7 +1220,8 @@ void verify_semantic_layer_scene(
     const std::size_t width = IOSurfaceGetWidth(surface);
     const std::size_t height = IOSurfaceGetHeight(surface);
     const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
-    require(bytes != nullptr && width == 64U && height == 48U &&
+    require(bytes != nullptr && width == 64U * scale &&
+        height == 48U * scale &&
         row_bytes >= width * 4U,
         "unexpected semantic layer IOSurface storage");
     const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
@@ -1107,13 +1237,14 @@ void verify_semantic_layer_scene(
             std::abs(static_cast<int>(value[2]) - r) <= tolerance &&
             value[3] >= 240U;
     };
-    const auto* clear = pixel(2U, 2U);
-    const auto* red = pixel(8U, 8U);
-    const auto* unshifted_green = pixel(24U, 8U);
-    const auto* green = pixel(24U, 28U);
-    const auto* blue = pixel(40U, 28U);
-    const auto* magenta = pixel(8U, 28U);
-    const auto* yellow = pixel(56U, 8U);
+    const auto* clear = pixel(2U * scale, 2U * scale);
+    const auto* red = pixel(8U * scale, 8U * scale);
+    const auto* unshifted_green = pixel(24U * scale, 8U * scale);
+    const auto* bounded_green = pixel(20U * scale, 28U * scale);
+    const auto* green = pixel(24U * scale, 28U * scale);
+    const auto* blue = pixel(40U * scale, 28U * scale);
+    const auto* magenta = pixel(8U * scale, 28U * scale);
+    const auto* yellow = pixel(56U * scale, 8U * scale);
     std::fprintf(stderr,
         "semantic-layer clear=%u,%u,%u,%u red=%u,%u,%u,%u "
         "green=%u,%u,%u,%u blue=%u,%u,%u,%u "
@@ -1131,6 +1262,8 @@ void verify_semantic_layer_scene(
         "draw before semantic layer is missing");
     require(is_bgra(unshifted_green, 10U, 8U, 5U),
         "semantic layer state transform was not scoped");
+    require(is_bgra(bounded_green, 10U, 8U, 5U),
+        "bounded semantic layer did not crop its left edge");
     require(is_bgra(green, 5U, 131U, 3U),
         "outer semantic group opacity is incorrect");
     require(is_bgra(blue, 71U, 6U, 4U),
@@ -1569,6 +1702,16 @@ int main(int argc, char** argv) {
         &semantic_metrics) == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY &&
         semantic_metrics.submission_count == 0U,
         "semantic layer pixel budget did not fail before submission");
+    layer_frame.width = std::numeric_limits<std::uint32_t>::max();
+    layer_frame.height = std::numeric_limits<std::uint32_t>::max();
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &layer_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY &&
+        semantic_metrics.submission_count == 0U,
+        "semantic layer pixel-budget arithmetic did not fail closed");
     std::uint64_t submission_after_layer_failure{};
     require(progpu_native_engine_get_last_submission(
         engine,
@@ -1641,13 +1784,13 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_get_layer_metrics(
         engine,
         &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_layer_metrics.texture_width == 64U &&
-        semantic_layer_metrics.texture_height == 48U &&
+        semantic_layer_metrics.texture_width == 28U &&
+        semantic_layer_metrics.texture_height == 16U &&
         semantic_layer_metrics.allocation_count >= 2U &&
         semantic_layer_metrics.content_pass_count == 3U &&
         semantic_layer_metrics.composite_pass_count == 3U &&
         semantic_layer_metrics.cache_hit == 0U &&
-        semantic_layer_metrics.texture_bytes == 24576U &&
+        semantic_layer_metrics.texture_bytes == 2816U &&
         semantic_layer_metrics.vertex_upload_bytes != 0U,
         "semantic opacity-layer allocation metrics are incorrect");
     const std::uint32_t semantic_layer_allocation_count =
@@ -1714,7 +1857,7 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.content_pass_count == 3U &&
         semantic_layer_metrics.composite_pass_count == 3U &&
         semantic_layer_metrics.cache_hit == 0U &&
-        semantic_layer_metrics.texture_bytes == 24576U &&
+        semantic_layer_metrics.texture_bytes == 2816U &&
         semantic_layer_metrics.vertex_upload_bytes != 0U &&
         semantic_layer_metrics.uniform_upload_bytes != 0U,
         "interleaved semantic opacity-layer metrics are incorrect");
@@ -1744,7 +1887,7 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.content_pass_count == 3U &&
         semantic_layer_metrics.composite_pass_count == 3U &&
         semantic_layer_metrics.cache_hit == 1U &&
-        semantic_layer_metrics.texture_bytes == 24576U &&
+        semantic_layer_metrics.texture_bytes == 2816U &&
         semantic_layer_metrics.vertex_upload_bytes == 0U &&
         semantic_layer_metrics.uniform_upload_bytes == 0U,
         "stable semantic opacity-layer metrics did not report retained reuse");
@@ -1780,6 +1923,101 @@ int main(int argc, char** argv) {
             opacity_layer_external.shared_handle),
         "progpu-native-semantic-layers.ppm");
     api.release_external(provider, &opacity_layer_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 128U, 96U);
+    require(canvas != nullptr,
+        "DPI-2 semantic layer canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "DPI-2 semantic layer canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "DPI-2 semantic layer target view creation failed");
+
+    auto dpi2_opacity_layer_scene =
+        create_semantic_opacity_layer_scene_stream(2U, 2.0F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        dpi2_opacity_layer_scene.data(),
+        dpi2_opacity_layer_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 13U &&
+        scene_metrics.draw_count == 5U &&
+        scene_metrics.maximum_stack_depth == 2U,
+        "DPI-2 bounded semantic layer update failed");
+    progpu_native_scene_frame dpi2_layer_frame = opacity_layer_frame;
+    dpi2_layer_frame.width = 128U;
+    dpi2_layer_frame.height = 96U;
+    dpi2_layer_frame.dpi_scale = 2.0F;
+    dpi2_layer_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    dpi2_layer_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &dpi2_layer_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 13U &&
+        semantic_metrics.draw_call_count == 8U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes != 0U &&
+        semantic_metrics.uniform_upload_bytes != 0U,
+        "DPI-2 bounded semantic layer rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 56U &&
+        semantic_layer_metrics.texture_height == 32U &&
+        semantic_layer_metrics.texture_bytes == 11264U &&
+        semantic_layer_metrics.content_pass_count == 3U &&
+        semantic_layer_metrics.composite_pass_count == 3U &&
+        semantic_layer_metrics.cache_hit == 0U,
+        "DPI-2 bounded semantic layer metrics are incorrect");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &dpi2_layer_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 13U &&
+        semantic_metrics.draw_call_count == 8U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "stable DPI-2 bounded semantic layer replay rebuilt resources");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture dpi2_layer_external{};
+    dpi2_layer_external.struct_size = sizeof(dpi2_layer_external);
+    require(api.present(provider, canvas, &dpi2_layer_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        dpi2_layer_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (dpi2_layer_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "DPI-2 bounded semantic layer presentation failed");
+    verify_semantic_layer_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            dpi2_layer_external.shared_handle),
+        "progpu-native-semantic-layers-2x.ppm",
+        2U);
+    api.release_external(provider, &dpi2_layer_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(
