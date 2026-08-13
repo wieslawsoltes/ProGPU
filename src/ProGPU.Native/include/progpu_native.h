@@ -103,6 +103,10 @@ enum {
     PROGPU_NATIVE_DRAW_STATE_CLIP_RECT = 1U << 0U
 };
 
+enum {
+    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U
+};
+
 typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
     PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1
@@ -382,6 +386,25 @@ typedef struct progpu_native_image_rect {
     float width;
     float height;
 } progpu_native_image_rect;
+
+/*
+ * Pointer-free semantic draw state. Transform and opacity are absolute for
+ * the state resource: a SAVE command carrying this state makes it current
+ * until its matching RESTORE, while a draw command carrying it overrides the
+ * current state for that draw only. The clip rectangle is expressed in
+ * logical target coordinates and is enabled by
+ * PROGPU_NATIVE_SCENE_STATE_CLIP_RECT. Reserved fields must remain zero.
+ */
+typedef struct progpu_native_scene_state {
+    uint32_t struct_size;
+    uint32_t flags;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved;
+    progpu_native_image_rect clip_rect;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_state;
 
 /*
  * Version-one upload-backed image command payload. Its resource payload is a

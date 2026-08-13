@@ -521,8 +521,62 @@ coverage staging, and 512 MiB across those compiled domains. Accumulation uses
 checked 64-bit arithmetic and runs in O(C + V) time for C commands and V typed
 values with O(1) budget storage. A valid 16,385-draw stream fails with
 `OUT_OF_MEMORY` before encoder creation, preserves the submission timeline,
-and leaves the target unchanged. State resources and isolated layers remain
-d3b2.
+and leaves the target unchanged. Rectangular semantic clip state and isolated
+layers remain d3b2.
+
+## Semantic save/restore state checkpoint
+
+The first M2.4d3b2 checkpoint adds a 64-byte pointer-free semantic state and a
+typed allocation-free .NET builder entry point. Absolute affine transforms and
+opacity now flow through save/restore scopes and per-draw overrides across
+analytic, retained-path, positioned-glyph, and retained-image commands. The
+compiler composes and bakes those values only when immutable family pages
+change; stable replay retains the same render bundle and reports zero vertex,
+index, texture, uniform, and coverage uploads. Rectangular clip state and
+isolated layers remain intentionally unsupported by rendering and keep d3b2
+unchecked.
+
+The warnings-as-errors native build, local native scene tests, and 23 focused
+managed interop tests pass. The real pinned WebScene/Dawn/Metal provider test
+also passes with ten commands, eight ordered draws, eight family switches, one
+submission, and zero stable retained uploads. Its lower row is generated from
+top-row source coordinates by `Save(state)` with translation `(0,20)` and
+opacity `0.5`, followed by `Restore`. Exact observed BGRA interior pixels are:
+
+| Sample | BGRA |
+|---|---:|
+| clear | `10,8,5,255` |
+| transformed half-opacity path | `132,4,130,255` |
+| transformed half-opacity glyph | `5,68,130,255` |
+| transformed half-opacity image | `132,131,3,255` |
+| transformed half-opacity analytic | `132,131,3,255` |
+
+The inspected provider capture is retained at
+`artifacts/progpu-native/build/progpu-native-semantic-scene-state.png` with
+SHA-256 `20d0ea8acc7f3b785f937547c69f7041e2e1870d0ab5ee14f55efdb97107bbe6`.
+This is functional retained-state evidence, not yet a new matched C++/managed
+state-bearing performance distribution; a matched state-bearing benchmark and
+profiler comparison remain required before the state/layer milestone can be
+checked.
+
+Three additional state-free 384-item regression runs (600 synchronized paired
+frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at
+SHA-256 `8428aaec5aed39480f7e4be8f780f71e80733504cf384e3ebd89c09a33c9fba9`.
+Their median p95 values were:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| CPU submission | 0.2885 ms | 0.5000 ms | 42.3% lower |
+| GPU-completion wait | 3.0865 ms | 3.0907 ms | within 0.2% |
+| Synchronized end to end | 3.3314 ms | 3.5831 ms | 7.0% lower |
+| Stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+Pixel parity is unchanged at 284 of 518,400 pixels above 3/255, maximum
+68/255, and mean `0.003582658179/255`. The completion-wait cluster is materially
+higher than the earlier accepted low-noise baseline for both routes, so these
+runs are retained as state-change regression corroboration and do not replace
+the accepted baseline. Raw reports are under
+`artifacts/progpu-native/performance/semantic-state-run{1,2,3}/results.json`.
 
 ## Root-group blend/compositing supplement
 

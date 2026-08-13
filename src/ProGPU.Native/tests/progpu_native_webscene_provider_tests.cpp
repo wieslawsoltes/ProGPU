@@ -100,8 +100,8 @@ std::uint32_t append_scene_payload(
 
 std::vector<std::byte> create_renderable_semantic_scene_stream(
     std::uint64_t generation) {
-    constexpr std::uint32_t command_count = 8U;
-    constexpr std::uint32_t resource_count = 8U;
+    constexpr std::uint32_t command_count = 10U;
+    constexpr std::uint32_t resource_count = 9U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -129,7 +129,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
         0U,
         4.0F,
-        24.0F,
+        4.0F,
         12.0F,
         12.0F,
         0.0F,
@@ -167,7 +167,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     progpu_native_scene_path_fill second_path = path;
     second_path.color = {1.0F, 0.0F, 1.0F, 1.0F};
     second_path.transform.m31 = 20.0F;
-    second_path.transform.m32 = 24.0F;
+    second_path.transform.m32 = 4.0F;
     const std::uint32_t second_path_offset = append_scene_payload(
         stream, &second_path, 1U);
     const std::uint32_t second_path_segment_offset = append_scene_payload(
@@ -204,7 +204,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const std::uint32_t second_outline_segment_offset = append_scene_payload(
         stream, path_segments, std::size(path_segments));
     progpu_native_positioned_glyph second_glyph = glyph;
-    second_glyph.position.y = 38.0F;
+    second_glyph.position.y = 18.0F;
     second_glyph.color = {1.0F, 0.5F, 0.0F, 1.0F};
     const std::uint32_t second_glyph_offset = append_scene_payload(
         stream, &second_glyph, 1U);
@@ -234,9 +234,20 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const std::uint32_t second_image_offset = append_scene_payload(
         stream, second_image_pixels.data(), second_image_pixels.size());
     progpu_native_scene_image_draw second_image = image;
-    second_image.destination_rect.y = 24.0F;
+    second_image.destination_rect.y = 4.0F;
     const std::uint32_t second_image_draw_offset = append_scene_payload(
         stream, &second_image, 1U);
+    const progpu_native_scene_state second_row_state{
+        sizeof(progpu_native_scene_state),
+        0U,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 20.0F},
+        0.5F,
+        0U,
+        {},
+        0U,
+        0U};
+    const std::uint32_t second_row_state_offset = append_scene_payload(
+        stream, &second_row_state, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -292,7 +303,11 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 108U, 1U,
-            second_image_offset, second_image_pixels.size(), 0U, 0U}
+            second_image_offset, second_image_pixels.size(), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 109U, 1U,
+            second_row_state_offset, sizeof(second_row_state), 0U, 0U}
     };
     std::memcpy(
         stream.data() + resource_offset,
@@ -323,27 +338,37 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             image_draw_offset, sizeof(image),
             50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
+            PROGPU_NATIVE_SCENE_COMMAND_SAVE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 205U,
+            8U, PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U,
+            0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 206U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 5U, 0U, 0U,
             20.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 206U,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 207U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 6U,
             second_glyph_offset, sizeof(second_glyph),
             36.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 207U,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 208U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 7U,
             second_image_draw_offset, sizeof(second_image),
             50.0F, 24.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 208U,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 209U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 4U, 0U, 0U,
-            4.0F, 24.0F, 12.0F, 12.0F, 0U, 0U}
+            4.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_RESTORE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 210U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U}
     };
     std::memcpy(
         stream.data() + command_offset,
@@ -697,13 +722,13 @@ void verify_semantic_scene(
         "semantic positioned-glyph draw is missing");
     require(is_bgra(pixel(54U, 8U), 0U, 255U, 255U),
         "semantic image draw is missing");
-    require(is_bgra(pixel(24U, 28U), 255U, 0U, 255U),
+    require(is_bgra(pixel(24U, 28U), 132U, 4U, 130U),
         "second distinct semantic path draw is missing");
-    require(is_bgra(pixel(40U, 28U), 0U, 128U, 255U),
+    require(is_bgra(pixel(40U, 28U), 5U, 68U, 130U),
         "second distinct semantic glyph draw is missing");
-    require(is_bgra(pixel(54U, 28U), 255U, 255U, 0U),
+    require(is_bgra(pixel(54U, 28U), 132U, 132U, 3U),
         "second distinct semantic image draw is missing");
-    require(is_bgra(pixel(8U, 28U), 255U, 255U, 0U),
+    require(is_bgra(pixel(8U, 28U), 132U, 132U, 3U),
         "second distinct semantic analytic draw is missing");
 
     if (output_path != nullptr && output_path[0] != '\0') {
@@ -967,7 +992,7 @@ int main(int argc, char** argv) {
         &semantic_frame,
         &semantic_metrics);
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        semantic_metrics.command_count != 8U ||
+        semantic_metrics.command_count != 10U ||
         semantic_metrics.draw_call_count != 8U ||
         semantic_metrics.family_switch_count != 8U ||
         semantic_metrics.submission_count != 1U ||
@@ -988,7 +1013,7 @@ int main(int argc, char** argv) {
             semantic_error.data());
     }
     require(semantic_status == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 8U &&
+        semantic_metrics.command_count == 10U &&
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
@@ -1002,7 +1027,7 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 8U &&
+        semantic_metrics.command_count == 10U &&
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&

@@ -905,6 +905,125 @@ bool is_valid_semantic_image(
         image.opacity <= 1.0F;
 }
 
+progpu_native_scene_state semantic_identity_state() noexcept {
+    progpu_native_scene_state state{};
+    state.struct_size = sizeof(state);
+    state.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    state.opacity = 1.0F;
+    return state;
+}
+
+class semantic_state_cursor final {
+public:
+    semantic_state_cursor(
+        const std::byte* bytes,
+        const progpu_native_scene_header& header) noexcept
+        : bytes_(bytes), header_(header), current_(semantic_identity_state()) {
+    }
+
+    progpu_native_scene_state advance(
+        const progpu_native_scene_command& command) noexcept {
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+            stack_[depth_++] = current_;
+            if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                current_ = read_state(command.state_index);
+            }
+            return current_;
+        }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+            current_ = stack_[--depth_];
+            return current_;
+        }
+        if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return read_state(command.state_index);
+        }
+        return current_;
+    }
+
+private:
+    progpu_native_scene_state read_state(std::uint32_t index) const noexcept {
+        progpu_native_scene_resource resource{};
+        std::memcpy(
+            &resource,
+            bytes_ + header_.resource_offset +
+                static_cast<std::size_t>(index) * header_.resource_stride,
+            sizeof(resource));
+        progpu_native_scene_state state{};
+        std::memcpy(
+            &state,
+            bytes_ + resource.payload_offset,
+            sizeof(state));
+        return state;
+    }
+
+    const std::byte* bytes_;
+    const progpu_native_scene_header& header_;
+    std::array<progpu_native_scene_state,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack_{};
+    std::uint32_t depth_ = 0U;
+    progpu_native_scene_state current_{};
+};
+
+void apply_semantic_state(
+    progpu_native_analytic_primitive& primitive,
+    const progpu_native_scene_state& state) noexcept {
+    primitive.transform = progpu::native::compose_affine(
+        primitive.transform,
+        state.transform);
+    primitive.color.a *= state.opacity;
+}
+
+void apply_semantic_state(
+    progpu_native_scene_path_fill& path,
+    const progpu_native_scene_state& state) noexcept {
+    path.transform = progpu::native::compose_affine(
+        path.transform,
+        state.transform);
+    path.color.a *= state.opacity;
+}
+
+void apply_semantic_state(
+    progpu_native_path_fill& path,
+    const progpu_native_scene_state& state) noexcept {
+    path.transform = progpu::native::compose_affine(
+        path.transform,
+        state.transform);
+    path.color.a *= state.opacity;
+}
+
+void apply_semantic_state(
+    progpu_native_positioned_glyph& glyph,
+    const progpu_native_scene_state& state) noexcept {
+    progpu::native::transform_point(
+        state.transform,
+        glyph.position.x,
+        glyph.position.y,
+        glyph.position.x,
+        glyph.position.y);
+    progpu::native::transform_vector(
+        state.transform,
+        glyph.basis_x.x,
+        glyph.basis_x.y,
+        glyph.basis_x.x,
+        glyph.basis_x.y);
+    progpu::native::transform_vector(
+        state.transform,
+        glyph.basis_y.x,
+        glyph.basis_y.y,
+        glyph.basis_y.x,
+        glyph.basis_y.y);
+    glyph.color.a *= state.opacity;
+}
+
+void apply_semantic_state(
+    progpu_native_scene_image_draw& image,
+    const progpu_native_scene_state& state) noexcept {
+    image.transform = progpu::native::compose_affine(
+        image.transform,
+        state.transform);
+    image.opacity *= state.opacity;
+}
+
 constexpr std::uint32_t semantic_max_draw_passes = 16U * 1024U;
 constexpr std::uint64_t semantic_max_vertex_bytes = 256ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t semantic_max_index_bytes = 64ULL * 1024ULL * 1024ULL;
@@ -11255,15 +11374,12 @@ progpu_native_status progpu_native_engine_render_scene(
     std::uint64_t semantic_glyph_segment_count = 0U;
     std::uint64_t semantic_glyph_count = 0U;
     semantic_compilation_budget compilation_budget{};
+    semantic_state_cursor preflight_state_cursor(bytes, header);
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
+        const auto state = preflight_state_cursor.advance(command);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
-            if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                    "Semantic save/restore state resources are not implemented yet.");
-            }
             continue;
         }
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
@@ -11276,10 +11392,10 @@ progpu_native_status progpu_native_engine_render_scene(
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             continue;
         }
-        if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                "Semantic draw-state resources are delivered by M2.4d3b2.");
+                "Semantic retained rectangular clips are delivered by the next M2.4d3b2 slice.");
         }
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
@@ -11312,6 +11428,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + resource.payload_offset +
                             primitive_index * sizeof(primitive),
                         sizeof(primitive));
+                    apply_semantic_state(primitive, state);
                     valid = is_valid_semantic_analytic(primitive);
                 }
                 break;
@@ -11356,6 +11473,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + resource.payload_offset +
                             path_index * sizeof(path),
                         sizeof(path));
+                    apply_semantic_state(path, state);
                     std::uint64_t path_coverage_bytes = 0U;
                     valid = is_valid_semantic_path(
                         path,
@@ -11434,6 +11552,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + command.payload_offset +
                             glyph_index * sizeof(glyph),
                         sizeof(glyph));
+                    apply_semantic_state(glyph, state);
                     valid = is_valid_semantic_positioned_glyph(
                         glyph,
                         outline_count);
@@ -11450,6 +11569,7 @@ progpu_native_status progpu_native_engine_render_scene(
                     &image,
                     bytes + command.payload_offset,
                     sizeof(image));
+                apply_semantic_state(image, state);
                 valid = image.struct_size >= sizeof(image) &&
                     image.struct_size <= command.payload_size &&
                     resource.auxiliary_size == 0U &&
@@ -11563,10 +11683,12 @@ progpu_native_status progpu_native_engine_render_scene(
             engine->geometry_cache_valid = false;
             engine->geometry_gpu_cache_valid = false;
 
+            semantic_state_cursor state_cursor(bytes, header);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
                 const auto command = read_command(index);
+                const auto state = state_cursor.advance(command);
                 if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
                     continue;
@@ -11585,6 +11707,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + resource.payload_offset +
                             primitive_index * sizeof(primitive),
                         sizeof(primitive));
+                    apply_semantic_state(primitive, state);
                     float minimum_scale = 0.0F;
                     if (!progpu::native::try_get_minimum_scale(
                             primitive.transform,
@@ -11682,10 +11805,12 @@ progpu_native_status progpu_native_engine_render_scene(
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_path_segment_count));
             compiled_draws.reserve(semantic_path_draw_count);
+            semantic_state_cursor state_cursor(bytes, header);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
                 const auto command = read_command(index);
+                const auto state = state_cursor.advance(command);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
                     continue;
                 }
@@ -11713,6 +11838,7 @@ progpu_native_status progpu_native_engine_render_scene(
                             path_index *
                                 sizeof(progpu_native_scene_path_fill),
                         sizeof(path));
+                    apply_semantic_state(path, state);
                     path.segment_offset += segment_start;
                     compiled_paths.push_back(path);
                 }
@@ -11768,10 +11894,12 @@ progpu_native_status progpu_native_engine_render_scene(
             compiled_glyphs.reserve(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
+            semantic_state_cursor state_cursor(bytes, header);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
                 const auto command = read_command(index);
+                const auto state = state_cursor.advance(command);
                 if (command.kind !=
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
                     continue;
@@ -11815,6 +11943,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + command.payload_offset +
                             glyph_index * sizeof(glyph),
                         sizeof(glyph));
+                    apply_semantic_state(glyph, state);
                     glyph.outline_index += static_cast<std::uint32_t>(
                         outline_start);
                     compiled_glyphs.push_back(glyph);
@@ -11900,10 +12029,12 @@ progpu_native_status progpu_native_engine_render_scene(
             vertices.reserve(
                 static_cast<std::size_t>(semantic_image_draw_count) * 4U);
             compiled_draws.reserve(semantic_image_draw_count);
+            semantic_state_cursor state_cursor(bytes, header);
             for (std::uint32_t index = 0U;
                  index < header.command_count;
                  ++index) {
                 const auto command = read_command(index);
+                const auto state = state_cursor.advance(command);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                     continue;
                 }
@@ -11913,6 +12044,7 @@ progpu_native_status progpu_native_engine_render_scene(
                     &image,
                     bytes + command.payload_offset,
                     sizeof(image));
+                apply_semantic_state(image, state);
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
                 const float x0 = image.destination_rect.x;

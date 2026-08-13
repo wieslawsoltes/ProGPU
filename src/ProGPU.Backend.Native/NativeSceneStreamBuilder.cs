@@ -250,14 +250,43 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             flags: flags);
 
-    public bool TrySave(ulong commandId) =>
-        TryPushControl(NativeSceneCommandKind.Save, commandId, isLayer: false);
+    public bool TryAddStateResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneState state,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.State,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in state),
+                    1)),
+            out resourceIndex,
+            flags: flags);
+
+    public bool TrySave(
+        ulong commandId,
+        uint stateIndex = NativeMethods.SceneNoIndex) =>
+        TryPushControl(
+            NativeSceneCommandKind.Save,
+            commandId,
+            isLayer: false,
+            stateIndex: stateIndex);
 
     public bool TryRestore(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.Restore, commandId, isLayer: false);
 
-    public bool TryPushLayer(ulong commandId) =>
-        TryPushControl(NativeSceneCommandKind.PushLayer, commandId, isLayer: true);
+    public bool TryPushLayer(
+        ulong commandId,
+        uint stateIndex = NativeMethods.SceneNoIndex) =>
+        TryPushControl(
+            NativeSceneCommandKind.PushLayer,
+            commandId,
+            isLayer: true,
+            stateIndex: stateIndex);
 
     public bool TryPopLayer(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.PopLayer, commandId, isLayer: true);
@@ -428,10 +457,16 @@ public ref struct NativeSceneStreamBuilder
     private bool TryPushControl(
         NativeSceneCommandKind kind,
         ulong commandId,
-        bool isLayer)
+        bool isLayer,
+        uint stateIndex)
     {
         if ((uint)_stackDepth == NativeMethods.SceneMaximumStackDepth ||
-            !TryWriteControl(kind, commandId))
+            (stateIndex != NativeMethods.SceneNoIndex &&
+                (stateIndex >= (uint)_resourceCount ||
+                    !ResourceHasKind(
+                        stateIndex,
+                        NativeSceneResourceKind.State))) ||
+            !TryWriteControl(kind, commandId, stateIndex))
         {
             return false;
         }
@@ -454,7 +489,11 @@ public ref struct NativeSceneStreamBuilder
         }
         bool topIsLayer =
             (_layerStackBits & (1UL << (_stackDepth - 1))) != 0U;
-        if (topIsLayer != isLayer || !TryWriteControl(kind, commandId))
+        if (topIsLayer != isLayer ||
+            !TryWriteControl(
+                kind,
+                commandId,
+                NativeMethods.SceneNoIndex))
         {
             return false;
         }
@@ -465,7 +504,8 @@ public ref struct NativeSceneStreamBuilder
 
     private bool TryWriteControl(
         NativeSceneCommandKind kind,
-        ulong commandId)
+        ulong commandId,
+        uint stateIndex)
     {
         if (_built || _commandCount == _commandCapacity ||
             commandId == 0U || commandId <= _lastCommandId)
@@ -478,7 +518,7 @@ public ref struct NativeSceneStreamBuilder
             Kind = kind,
             Flags = NativeSceneRecordFlags.Required,
             CommandId = commandId,
-            StateIndex = NativeMethods.SceneNoIndex,
+            StateIndex = stateIndex,
             ResourceIndex = NativeMethods.SceneNoIndex
         };
         Write(_commandOffset + _commandCount++ * CommandSize, command);

@@ -113,6 +113,27 @@ bool finite_bounds(const progpu_native_scene_command& command) noexcept {
         command.bounds_width >= 0.0F && command.bounds_height >= 0.0F;
 }
 
+bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
+    return state.struct_size == sizeof(progpu_native_scene_state) &&
+        (state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U &&
+        state.reserved == 0U && state.reserved0 == 0U &&
+        state.reserved1 == 0U &&
+        std::isfinite(state.transform.m11) &&
+        std::isfinite(state.transform.m12) &&
+        std::isfinite(state.transform.m21) &&
+        std::isfinite(state.transform.m22) &&
+        std::isfinite(state.transform.m31) &&
+        std::isfinite(state.transform.m32) &&
+        std::isfinite(state.opacity) && state.opacity >= 0.0F &&
+        state.opacity <= 1.0F &&
+        std::isfinite(state.clip_rect.x) &&
+        std::isfinite(state.clip_rect.y) &&
+        std::isfinite(state.clip_rect.width) &&
+        std::isfinite(state.clip_rect.height) &&
+        state.clip_rect.width >= 0.0F &&
+        state.clip_rect.height >= 0.0F;
+}
+
 bool command_ids_are_unique(
     const std::byte* bytes,
     const progpu_native_scene_header& header) {
@@ -266,6 +287,24 @@ validation_result validate(
         if (is_known_resource(resource.kind) && resource.payload_size == 0U) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            if (resource.payload_size != sizeof(progpu_native_scene_state) ||
+                resource.auxiliary_size != 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const auto state = read_record<progpu_native_scene_state>(
+                bytes,
+                resource.payload_offset);
+            if (!valid_scene_state(state)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.payload_offset);
+            }
+        }
         previous_resource_id = resource.resource_id;
         payload_bytes += resource.payload_size;
         payload_bytes += resource.auxiliary_size;
@@ -322,6 +361,13 @@ validation_result validate(
             continue;
         }
         if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
+                command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
             if (command.state_index >= header.resource_count) {
                 return fail(
                     header,

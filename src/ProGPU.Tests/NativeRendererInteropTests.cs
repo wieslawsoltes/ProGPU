@@ -197,6 +197,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneCommand>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
@@ -209,6 +210,15 @@ public class NativeRendererInteropTests
             56,
             OffsetOf<NativeSceneImageDraw>(
                 nameof(NativeSceneImageDraw.Transform)));
+        Assert.Equal(
+            8,
+            OffsetOf<NativeSceneState>(nameof(NativeSceneState.Transform)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeSceneState>(nameof(NativeSceneState.Opacity)));
+        Assert.Equal(
+            40,
+            OffsetOf<NativeSceneState>(nameof(NativeSceneState.ClipRect)));
         Assert.Equal(
             32,
             OffsetOf<NativeScenePathFill>(
@@ -686,6 +696,75 @@ public class NativeRendererInteropTests
         Assert.False(unbalanced.TryBuild(out _));
         Assert.True(success);
         Assert.Equal(0L, allocated);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesTypedAbsoluteStateReferences()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            1f,
+            2f,
+            3f,
+            4f,
+            new Vector4(1f),
+            Matrix3x2.Identity);
+        var state = new NativeSceneState(
+            Matrix3x2.CreateScale(2f) *
+                Matrix3x2.CreateTranslation(5f, 7f),
+            opacity: 0.5f);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 8U,
+            generation: 2U,
+            commandCapacity: 4,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddAnalyticResource(
+            1U,
+            1U,
+            analytic,
+            out uint analyticIndex));
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            state,
+            out uint stateIndex));
+        Assert.False(builder.TrySave(9U, analyticIndex));
+        Assert.True(builder.TrySave(10U, stateIndex));
+        Assert.True(builder.TryDrawAnalytic(
+            11U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 10f, 10f)));
+        Assert.True(builder.TryRestore(12U));
+        Assert.True(builder.TryDrawAnalytic(
+            13U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 10f, 10f),
+            stateIndex: stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var stateResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        var storedState = MemoryMarshal.Read<NativeSceneState>(
+            stream[(int)stateResource.PayloadOffset..]);
+        Assert.Equal(NativeSceneResourceKind.State, stateResource.Kind);
+        Assert.Equal(64U, stateResource.PayloadSize);
+        Assert.Equal(0.5f, storedState.Opacity);
+        Assert.Equal(state.Transform, storedState.Transform);
+
+        var save = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        var inheritedDraw = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[((int)header.CommandOffset + 64)..]);
+        var overrideDraw = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[((int)header.CommandOffset + 192)..]);
+        Assert.Equal(stateIndex, save.StateIndex);
+        Assert.Equal(NativeMethods.SceneNoIndex, inheritedDraw.StateIndex);
+        Assert.Equal(stateIndex, overrideDraw.StateIndex);
     }
 
     [Fact]

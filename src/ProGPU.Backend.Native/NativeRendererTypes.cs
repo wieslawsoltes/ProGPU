@@ -198,6 +198,13 @@ public enum NativeSceneRecordFlags : uint
     Required = 1U << 0
 }
 
+[Flags]
+public enum NativeSceneStateFlags : uint
+{
+    None = 0,
+    ClipRect = 1U << 0
+}
+
 public enum NativeSceneValidationError : uint
 {
     None = 0,
@@ -257,6 +264,45 @@ public readonly struct NativeSceneImageDraw
     public readonly Matrix3x2 Transform;
     public readonly float Opacity;
     private readonly uint Reserved;
+}
+
+/// <summary>
+/// Pointer-free state referenced by semantic save and draw commands.
+/// </summary>
+/// <remarks>
+/// The transform and opacity are absolute. A save command makes its referenced
+/// state current until the matching restore; a draw command uses its state for
+/// that draw only. Clip coordinates are logical target coordinates.
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneState
+{
+    public NativeSceneState(
+        Matrix3x2 transform,
+        float opacity = 1f,
+        NativeSceneStateFlags flags = NativeSceneStateFlags.None,
+        NativeImageRect clipRect = default)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneState>();
+        Flags = flags;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved = 0U;
+        ClipRect = clipRect;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public static NativeSceneState Identity => new(Matrix3x2.Identity);
+
+    public readonly uint StructSize;
+    public readonly NativeSceneStateFlags Flags;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved;
+    public readonly NativeImageRect ClipRect;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
 }
 
 /// <summary>

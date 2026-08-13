@@ -1086,8 +1086,12 @@ this ownership foundation. The additive `SEMANTIC_SCENE_RENDERING` capability
 now advertises the first mixed-render checkpoint:
 `progpu_native_engine_render_scene` consumes the installed scene id/generation
 and renders ordered analytic, path, positioned-glyph, and upload-backed image
-commands. State resources and isolated layers fail with typed `UNSUPPORTED`
-status and remain d3b2 work.
+commands. The first d3b2 checkpoint also consumes a pointer-free absolute
+state resource for save/restore scopes and per-draw overrides: its affine
+transform is composed after the draw-local transform and its opacity
+multiplies draw alpha once while changed pages are compiled. Rectangular clip
+state and isolated layers still fail with typed `UNSUPPORTED` status and
+remain d3b2 work.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1097,6 +1101,15 @@ consume the two 64-bit-index records zero-copy because their native family
 layouts are statically proven identical. A future wasm32 compiler must
 translate those two fixed records; it must not redefine the version-one stream
 around 32-bit `size_t`.
+
+The semantic state payload is a 64-byte fixed-width record: declared size and
+flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical
+target clip rectangle, and zeroed reserved fields. A save with a state index
+pushes the preceding current state and installs the referenced absolute state;
+restore reinstates the pushed state. A draw state index overrides the current
+state for that draw only. Restore and pop commands cannot carry state indices.
+`CLIP_RECT` is structurally validated but rendering it is deliberately
+rejected until retained clip lowering is complete.
 
 The command vocabulary is deliberately semantic:
 
@@ -1124,6 +1137,13 @@ bounds, typed references, generation monotonicity, and a maximum balanced stack
 depth of 64. It is O(C + R) time with O(C + D) bounded scratch for command-id
 radix validation and stack depth D; the canonical resource table needs no
 lookup allocation. No partial snapshot becomes visible on failure.
+
+State-resource validation also checks the exact 64-byte payload, zero
+auxiliary bytes and reserved fields, known flags, finite affine/clip values,
+non-negative clip extent, and opacity in `[0,1]`. State resolution uses a
+fixed 64-entry native stack. It adds O(C) time and O(D) bounded stack storage,
+with no managed allocation and no native heap allocation proportional to state
+transition count.
 
 The current mixed renderer preflights all four typed payloads before its first
 submission. It validates analytic geometry and transforms; path/glyph segment
@@ -1190,6 +1210,15 @@ instances, and K atlas/coverage bytes. A changed image page is O(C + I + B)
 time and O(I + B) retained storage for I image draws and B texture/quad bytes.
 Stable replay has O(C) bounded semantic validation, O(1) native WebGPU command
 recording, and zero vertex, index, texture, coverage, or uniform upload.
+
+The first d3b2 state checkpoint preserves those stable-replay bounds. State
+affines and opacity are baked only when immutable analytic/path/glyph/image
+pages are compiled; they add no per-frame uniform upload, bind-group change,
+P/Invoke, or WebGPU draw-recording call. A real Dawn/Metal fixture places its
+second mixed-family row at the same source coordinates as the first, then
+produces the lower row solely through `Save(state)` with a +20 logical Y
+translation and 0.5 opacity followed by `Restore`. Unchanged replay remains
+one render bundle, pass, command buffer, and submission.
 
 The cross-engine substitution harness now exercises this exact boundary with
 one equivalent managed retained visual tree and one pointer-free native scene.

@@ -32,6 +32,10 @@ static_assert(offsetof(vector_vertex, shape_size) == 36U);
 static_assert(offsetof(vector_vertex, shape_type) == 52U);
 static_assert(sizeof(progpu_native_affine_2d) == 24U);
 static_assert(sizeof(progpu_native_image_rect) == 16U);
+static_assert(sizeof(progpu_native_scene_state) == 64U);
+static_assert(offsetof(progpu_native_scene_state, transform) == 8U);
+static_assert(offsetof(progpu_native_scene_state, opacity) == 32U);
+static_assert(offsetof(progpu_native_scene_state, clip_rect) == 40U);
 static_assert(sizeof(progpu_native_analytic_primitive) == 72U);
 static_assert(sizeof(progpu_native_point) == 8U);
 static_assert(sizeof(progpu_native_geometry_primitive) == 88U);
@@ -107,6 +111,28 @@ inline void transform_point(
     float& result_y) noexcept {
     result_x = x * transform.m11 + y * transform.m21 + transform.m31;
     result_y = x * transform.m12 + y * transform.m22 + transform.m32;
+}
+
+inline void transform_vector(
+    const progpu_native_affine_2d& transform,
+    float x,
+    float y,
+    float& result_x,
+    float& result_y) noexcept {
+    result_x = x * transform.m11 + y * transform.m21;
+    result_y = x * transform.m12 + y * transform.m22;
+}
+
+inline progpu_native_affine_2d compose_affine(
+    const progpu_native_affine_2d& first,
+    const progpu_native_affine_2d& second) noexcept {
+    return {
+        first.m11 * second.m11 + first.m12 * second.m21,
+        first.m11 * second.m12 + first.m12 * second.m22,
+        first.m21 * second.m11 + first.m22 * second.m21,
+        first.m21 * second.m12 + first.m22 * second.m22,
+        first.m31 * second.m11 + first.m32 * second.m21 + second.m31,
+        first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
 }
 
 inline bool try_get_stroke_scales(
