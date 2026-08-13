@@ -738,6 +738,59 @@ int main(int argc, char** argv) {
         layer_metrics.effect_cache_hit == 0U &&
         layer_metrics.effect_uniform_upload_bytes == 16U,
         "changed Gaussian group-effect replay did not reuse content");
+    group_effect.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
+    group_effect.revision = 3U;
+    group_effect.sigma_x = 2.0F;
+    group_effect.sigma_y = 2.0F;
+    group_effect.offset_x = 3.5F;
+    group_effect.offset_y = -1.25F;
+    group_effect.color_r = 0.1F;
+    group_effect.color_g = 0.2F;
+    group_effect.color_b = 0.3F;
+    group_effect.color_a = 1.5F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "out-of-range drop-shadow color did not fail closed");
+    group_effect.color_a = 0.75F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "retained drop-shadow group-effect replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.effect_kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+        layer_metrics.effect_revision == 3U &&
+        layer_metrics.effect_pass_count == 3U &&
+        layer_metrics.effect_cache_hit == 0U &&
+        layer_metrics.effect_uniform_upload_bytes == 48U &&
+        layer_metrics.effect_texture_bytes == 64U * 48U * 8U,
+        "changed drop-shadow group-effect metrics are invalid");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "unchanged drop-shadow group-effect replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.effect_pass_count == 0U &&
+        layer_metrics.effect_cache_hit == 1U &&
+        layer_metrics.effect_uniform_upload_bytes == 0U,
+        "unchanged drop-shadow group-effect replay dispatched work");
+    group_effect.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "same-revision group-effect kind transition failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.effect_kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+        layer_metrics.effect_pass_count == 2U &&
+        layer_metrics.effect_cache_hit == 0U,
+        "same-revision group-effect kind transition reused stale output");
     draw_state.group_effect = nullptr;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,

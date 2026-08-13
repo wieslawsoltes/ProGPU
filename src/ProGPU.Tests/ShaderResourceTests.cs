@@ -57,6 +57,15 @@ public class ShaderResourceTests
     }
 
     [Fact]
+    public void ShadowBlurShadersUseBoundedGaussianWeightRecurrence()
+    {
+        Assert.Contains("let ratioStep = exp(-2.0 * inverseVariance);", ComputeShaders.ShadowBlurHorizontal, StringComparison.Ordinal);
+        Assert.Contains("weightRatio = weightRatio * ratioStep;", ComputeShaders.ShadowBlurHorizontal, StringComparison.Ordinal);
+        Assert.Contains("let ratioStep = exp(-2.0 * inverseVariance);", ComputeShaders.ShadowBlurVertical, StringComparison.Ordinal);
+        Assert.Contains("weightRatio = weightRatio * ratioStep;", ComputeShaders.ShadowBlurVertical, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ShaderResourceCachesDecodedSourceByReference()
     {
         string first = ShaderResource.Load(typeof(Shaders), "Vector.wgsl");

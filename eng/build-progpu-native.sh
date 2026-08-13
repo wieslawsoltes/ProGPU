@@ -407,21 +407,23 @@ for mask_mode in \
     --images "${mask_mode}" --warmup 2 --iterations 4
 done
 
-# Gaussian group effects share one retained layer/effect-cache contract across
-# every native frame family. Stable replay must skip family uploads and both
-# separable compute passes while preserving managed-renderer image parity.
-run_common_mask_benchmark \
-  --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
-run_common_mask_benchmark \
-  --analytic --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
-run_common_mask_benchmark \
-  --geometry --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
-run_common_mask_benchmark \
-  --paths --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
-run_common_mask_benchmark \
-  --glyphs --group-gaussian-blur --rectangles 96 --warmup 2 --iterations 4
-run_common_mask_benchmark \
-  --images --group-gaussian-blur --warmup 2 --iterations 4
+# Retained effects share one layer/effect-cache contract across every native
+# frame family. Stable replay must skip family uploads and effect dispatches
+# while preserving managed-renderer image parity.
+for effect_mode in --group-gaussian-blur --group-drop-shadow; do
+  run_common_mask_benchmark \
+    "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --analytic "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --geometry "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --paths "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --glyphs "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
+  run_common_mask_benchmark \
+    --images "${effect_mode}" --warmup 2 --iterations 4
+done
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"

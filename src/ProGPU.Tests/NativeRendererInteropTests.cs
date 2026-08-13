@@ -98,13 +98,19 @@ public class NativeRendererInteropTests
         Assert.Equal(
             48,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupEffect)));
-        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.GroupEffect>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GroupEffect>());
         Assert.Equal(
             16,
             OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.SigmaX)));
         Assert.Equal(
             20,
             OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.SigmaY)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.OffsetX)));
+        Assert.Equal(
+            52,
+            OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.ColorA)));
         Assert.Equal(152, Unsafe.SizeOf<NativeMethods.GroupMask>());
         Assert.Equal(
             16,
@@ -240,6 +246,22 @@ public class NativeRendererInteropTests
         Assert.Equal(4.5f, state.GroupEffect.SigmaY);
         Assert.Equal(23U, state.GroupEffect.Revision);
         Assert.True(state.GroupEffect.IsEnabled);
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesTypedDropShadowGroupEffect()
+    {
+        var effect = NativeGroupEffect.DropShadow(
+            3.5f,
+            new Vector2(7f, -2f),
+            new Vector4(0.1f, 0.2f, 0.3f, 0.75f),
+            29U);
+
+        Assert.Equal(NativeGroupEffectKind.DropShadow, effect.Kind);
+        Assert.Equal(3.5f, effect.SigmaX);
+        Assert.Equal(new Vector2(7f, -2f), effect.Offset);
+        Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0.75f), effect.Color);
+        Assert.Equal(29U, effect.Revision);
     }
 
     [Fact]

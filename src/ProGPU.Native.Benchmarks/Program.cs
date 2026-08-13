@@ -158,18 +158,31 @@ bool useGaussianGroupEffect = Array.Exists(
         value,
         "--group-gaussian-blur",
         StringComparison.OrdinalIgnoreCase));
-bool recomputeGaussianEffect = Array.Exists(
+bool useDropShadowGroupEffect = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-drop-shadow",
+        StringComparison.OrdinalIgnoreCase));
+if (useGaussianGroupEffect && useDropShadowGroupEffect)
+{
+    throw new ArgumentException("Select only one retained group effect.");
+}
+bool useGroupEffect = useGaussianGroupEffect || useDropShadowGroupEffect;
+bool recomputeGroupEffect = Array.Exists(
     args,
     static value => string.Equals(
         value,
         "--recompute-group-effect",
         StringComparison.OrdinalIgnoreCase));
-if (recomputeGaussianEffect && !useGaussianGroupEffect)
+if (recomputeGroupEffect && !useGroupEffect)
 {
     throw new ArgumentException(
-        "--recompute-group-effect requires --group-gaussian-blur.");
+        "--recompute-group-effect requires a retained group effect.");
 }
 float gaussianSigma = ReadPositiveFloatArgument("--blur-sigma", 2f);
+Vector2 dropShadowOffset = new(7.5f, 5.25f);
+Vector4 dropShadowColor = new(0.08f, 0.16f, 0.32f, 0.72f);
 bool useTextureGroupMask = Array.Exists(
     args,
     static value => string.Equals(
@@ -381,9 +394,15 @@ NativeGroupMask nativeGroupMask = useTextureGroupMask
     : default;
 NativeGroupEffect nativeGroupEffect = useGaussianGroupEffect
     ? NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 1U)
+    : useDropShadowGroupEffect
+    ? NativeGroupEffect.DropShadow(
+        gaussianSigma,
+        dropShadowOffset,
+        dropShadowColor,
+        revision: 1U)
     : default;
 nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
-    useGaussianGroupEffect
+    useGroupEffect
     ? new NativeDrawState(
         useDrawState ? 0.625f : 1f,
         useDrawState ? drawClip : default,
@@ -391,7 +410,7 @@ nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
             ? NativeDrawStateFlags.ClipRect
             : NativeDrawStateFlags.None,
         useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask || useGaussianGroupEffect ? 1U : 0U,
+        useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
         nativeGroupMask,
         nativeGroupEffect)
     : default;
@@ -448,6 +467,7 @@ DrawingVisual managedVisual = useImageScene
         logicalHeight)
         : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
 BlurEffect? managedBlurEffect = null;
+DropShadowEffect? managedDropShadowEffect = null;
 if (useDrawState)
 {
     var clip = new Rect(
@@ -527,6 +547,20 @@ if (useGaussianGroupEffect)
         logicalHeight);
     managedVisual.EffectRasterPadding = 0f;
 }
+else if (useDropShadowGroupEffect)
+{
+    managedDropShadowEffect = new DropShadowEffect(
+        gaussianSigma,
+        dropShadowOffset,
+        dropShadowColor);
+    managedVisual.Effect = managedDropShadowEffect;
+    managedVisual.EffectContentBounds = new Rect(
+        0f,
+        0f,
+        logicalWidth,
+        logicalHeight);
+    managedVisual.EffectRasterPadding = 0f;
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -589,7 +623,7 @@ if (useDrawState &&
         drawClip,
         NativeDrawStateFlags.ClipRect,
         useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask || useGaussianGroupEffect ? 1U : 0U,
+        useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
         nativeGroupMask,
         nativeGroupEffect);
     RenderNative();
@@ -693,13 +727,19 @@ if (useGroupMask)
 }
 
 // An effect-only mutation reuses the retained family content while dispatching
-// exactly the two separable compute passes for the changed effect revision.
-if (useGaussianGroupEffect)
+// only the retained effect graph for the changed effect revision.
+if (useGroupEffect)
 {
     NativeDrawState originalDrawState = nativeDrawState;
-    NativeGroupEffect mutatedEffect = NativeGroupEffect.GaussianBlur(
-        gaussianSigma + 1f,
-        revision: 2U);
+    NativeGroupEffect mutatedEffect = useDropShadowGroupEffect
+        ? NativeGroupEffect.DropShadow(
+            gaussianSigma,
+            dropShadowOffset + new Vector2(1f, 0f),
+            dropShadowColor,
+            revision: 2U)
+        : NativeGroupEffect.GaussianBlur(
+            gaussianSigma + 1f,
+            revision: 2U);
     nativeDrawState = new NativeDrawState(
         originalDrawState.Opacity,
         originalDrawState.ClipRect,
@@ -713,16 +753,16 @@ if (useGaussianGroupEffect)
     if (!mutatedEffectMetrics.CacheHit ||
         mutatedEffectMetrics.ContentPassCount != 0U ||
         mutatedEffectMetrics.CompositePassCount != 1U ||
-        mutatedEffectMetrics.EffectKind !=
-            NativeGroupEffectKind.GaussianBlur ||
+        mutatedEffectMetrics.EffectKind != mutatedEffect.Kind ||
         mutatedEffectMetrics.EffectRevision != 2U ||
-        mutatedEffectMetrics.EffectPassCount != 2U ||
+        mutatedEffectMetrics.EffectPassCount !=
+            (useDropShadowGroupEffect ? 3U : 2U) ||
         mutatedEffectMetrics.EffectCacheHit ||
         mutatedEffectMetrics.EffectUniformUploadBytes != 32UL)
     {
         throw new InvalidOperationException(
             "Effect-only mutation rebuilt retained content or did not " +
-            "dispatch exactly two Gaussian compute passes.");
+            "dispatch the expected retained compute graph.");
     }
 
     nativeDrawState = originalDrawState;
@@ -750,11 +790,11 @@ if (useGroupMask &&
     throw new InvalidOperationException(
         "Stable common-mask replay rebuilt content or uploaded composite state.");
 }
-if (useGaussianGroupEffect &&
+if (useGroupEffect &&
     (!stableLayerMetrics.CacheHit ||
      stableLayerMetrics.ContentPassCount != 0U ||
      stableLayerMetrics.CompositePassCount != 1U ||
-     stableLayerMetrics.EffectKind != NativeGroupEffectKind.GaussianBlur ||
+     stableLayerMetrics.EffectKind != nativeGroupEffect.Kind ||
      stableLayerMetrics.EffectRevision != 1U ||
      stableLayerMetrics.EffectPassCount != 0U ||
      !stableLayerMetrics.EffectCacheHit ||
@@ -762,7 +802,7 @@ if (useGaussianGroupEffect &&
      stableLayerMetrics.EffectTextureBytes != (ulong)width * height * 8UL))
 {
     throw new InvalidOperationException(
-        "Stable Gaussian group-effect replay dispatched compute work or " +
+        "Stable group-effect replay dispatched compute work or " +
         "rebuilt retained content.");
 }
 if (useDrawState && useGeometryScene &&
@@ -843,7 +883,9 @@ if (writeImages)
         : useAnalyticScene
         ? "analytic"
         : "solid";
-    string imageStem = useGaussianGroupEffect
+    string imageStem = useDropShadowGroupEffect
+        ? $"group-drop-shadow-{familyStem}"
+        : useGaussianGroupEffect
         ? $"group-gaussian-blur-{familyStem}"
         : useVectorClipChain
         ? useImageScene
@@ -950,6 +992,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
     : useVectorClipChain
     ? usesGeometryDifferential ? 204 : 64
+    : useDropShadowGroupEffect
+    ? usesGeometryDifferential ? 204 : 64
     : useGaussianGroupEffect
     ? 64
     : useMaskedImageScene
@@ -960,7 +1004,7 @@ int maximumAllowedDifference = usesDrawStateClipImage
 int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
-        : useGaussianGroupEffect
+        : useGroupEffect
         ? Math.Max(1, comparison.PixelCount / 100)
         : useVectorClipChain
         ? Math.Max(1, comparison.PixelCount / 100)
@@ -977,6 +1021,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useDropShadowGroupEffect
+    ? 0.1
     : useGaussianGroupEffect
     ? 0.075
     : useVectorClipChain
@@ -1010,7 +1056,7 @@ if (comparison.MaximumChannelDifference > maximumAllowedDifference ||
         $"managedHash={comparison.ManagedFnv1A64}.");
 }
 
-effectTimingActive = recomputeGaussianEffect;
+effectTimingActive = recomputeGroupEffect;
 
 for (int index = 0; index < warmupCount; index++)
 {
@@ -1199,6 +1245,8 @@ var report = new BenchmarkReport(
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
+        : useDropShadowGroupEffect
+        ? "Bounded retained drop-shadow differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.1/255 per channel"
         : useGaussianGroupEffect
         ? "Bounded separable Gaussian-blur differential: max 64/255, under 1% pixels beyond 3/255, mean under 0.075/255 per channel"
         : useVectorClipChain
@@ -1233,9 +1281,13 @@ var report = new BenchmarkReport(
             : useVectorClipChain
                 ? "VectorClipChain"
             : "None",
-    GroupEffect: recomputeGaussianEffect
-        ? "GaussianBlurRecomputed"
-        : useGaussianGroupEffect ? "GaussianBlur" : "None",
+    GroupEffect: recomputeGroupEffect
+        ? useDropShadowGroupEffect
+            ? "DropShadowRecomputed"
+            : "GaussianBlurRecomputed"
+        : useDropShadowGroupEffect
+            ? "DropShadow"
+            : useGaussianGroupEffect ? "GaussianBlur" : "None",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
         ? managedGroupFirst ? "GroupedManagedFirst" : "GroupedNativeFirst"
@@ -1292,8 +1344,16 @@ ulong RenderNative(bool capturePayloadHash = false)
 {
     if (effectTimingActive)
     {
-        float sigma = gaussianSigma +
-            ((nativeEffectTimingIndex++ & 1) == 0 ? 0f : 0.25f);
+        bool alternate = (nativeEffectTimingIndex++ & 1) != 0;
+        NativeGroupEffect timedEffect = useDropShadowGroupEffect
+            ? NativeGroupEffect.DropShadow(
+                gaussianSigma,
+                dropShadowOffset + new Vector2(alternate ? 0.25f : 0f, 0f),
+                dropShadowColor,
+                nativeEffectTimingRevision++)
+            : NativeGroupEffect.GaussianBlur(
+                gaussianSigma + (alternate ? 0.25f : 0f),
+                nativeEffectTimingRevision++);
         nativeDrawState = new NativeDrawState(
             nativeDrawState.Opacity,
             nativeDrawState.ClipRect,
@@ -1301,9 +1361,7 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativeDrawState.GroupOpacity,
             nativeDrawState.GroupRevision,
             nativeDrawState.GroupMask,
-            NativeGroupEffect.GaussianBlur(
-                sigma,
-                nativeEffectTimingRevision++));
+            timedEffect);
     }
     if (useImageScene)
     {
@@ -1520,8 +1578,17 @@ void RenderManaged()
 {
     if (effectTimingActive)
     {
-        managedBlurEffect!.BlurRadius = gaussianSigma +
-            ((managedEffectTimingIndex++ & 1) == 0 ? 0f : 0.25f);
+        bool alternate = (managedEffectTimingIndex++ & 1) != 0;
+        if (useDropShadowGroupEffect)
+        {
+            managedDropShadowEffect!.Offset = dropShadowOffset +
+                new Vector2(alternate ? 0.25f : 0f, 0f);
+        }
+        else
+        {
+            managedBlurEffect!.BlurRadius = gaussianSigma +
+                (alternate ? 0.25f : 0f);
+        }
     }
     managed.RenderOffscreen(
         managedVisual,

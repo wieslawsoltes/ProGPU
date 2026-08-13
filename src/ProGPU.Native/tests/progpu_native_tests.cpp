@@ -138,6 +138,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 72U);
@@ -148,9 +150,11 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, transform) == 80U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, opacity) == 136U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, clip_chain) == 144U);
-    PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 32U);
+    PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 56U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_effect, sigma_x) == 16U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_effect, sigma_y) == 20U);
+    PROGPU_REQUIRE(offsetof(progpu_native_group_effect, offset_x) == 32U);
+    PROGPU_REQUIRE(offsetof(progpu_native_group_effect, color_a) == 52U);
     PROGPU_REQUIRE(sizeof(progpu_native_draw_state) == 56U);
     PROGPU_REQUIRE(offsetof(progpu_native_draw_state, group_mask) == 40U);
     PROGPU_REQUIRE(offsetof(progpu_native_draw_state, group_effect) == 48U);
