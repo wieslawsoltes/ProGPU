@@ -59,7 +59,11 @@ try {
   const screenshotPath = path.join(
     evidenceDirectory,
     "progpu-native-browser-webgpu.png");
-  const screenshot = await page.locator("canvas").screenshot({
+  await page.waitForFunction(
+    () => document.body.dataset.progpuNativeEvidence === "ready",
+    undefined,
+    { timeout: 30_000 });
+  const screenshot = await page.locator("#progpu-native-evidence").screenshot({
     path: screenshotPath
   });
   const pixels = await page.evaluate(async (png) => {

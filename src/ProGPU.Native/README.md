@@ -89,7 +89,12 @@ advanced-blend browser differentials remain a later parity checkpoint. The
 surface texture is acquired and rendered inside `requestAnimationFrame`, as
 required by Emdawnwebgpu, and the following animation frame marks the output
 inspectable for deterministic browser capture. The Emscripten runtime remains
-alive across those callbacks and page navigation owns final teardown. The
+alive across those callbacks and page navigation owns final teardown. Because
+Linux headless Chromium omits WebGPU canvases from compositor screenshots, the
+test-only evidence module copies the rendered surface to a mapped buffer and
+reconstructs an RGBA evidence canvas. This extra diagnostic submission/readback
+is outside renderer metrics and is never compiled into production native
+libraries. The
 browser adapter deliberately
 does not advertise the native synchronous submission-index timeline; browser
 hosts use JavaScript `GPUQueue.onSubmittedWorkDone()` at their scheduling

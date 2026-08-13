@@ -453,6 +453,8 @@ if(EMSCRIPTEN)
         ${PROGPU_NATIVE_RENDERER_SOURCES}
         include/progpu_native_browser.h
         include/progpu_native_dawn.h
+        browser/progpu_native_browser_evidence.cpp
+        browser/progpu_native_browser_evidence.hpp
         tests/progpu_native_semantic_advanced_blend_scene.cpp
         tests/progpu_native_semantic_advanced_blend_scene.hpp
         browser/progpu_native_browser_smoke.cpp)

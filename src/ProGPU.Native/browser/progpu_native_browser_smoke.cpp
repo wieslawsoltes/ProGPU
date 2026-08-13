@@ -1,4 +1,5 @@
 #include "progpu_native_browser.h"
+#include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_semantic_advanced_blend_scene.hpp"
 
 #include <emscripten.h>
@@ -54,6 +55,17 @@ bool finish_browser_frame(double, void*) {
     return false;
 }
 
+void finish_browser_evidence(bool success) {
+    if (!success) {
+        fail("The browser WebGPU evidence readback failed.");
+    }
+    if (emscripten_request_animation_frame(
+            finish_browser_frame,
+            nullptr) < 0) {
+        fail("The browser presentation completion frame could not be scheduled.");
+    }
+}
+
 bool render_browser_frame(double, void*) {
     WGPUSurfaceTexture surface_texture = WGPU_SURFACE_TEXTURE_INIT;
     wgpuSurfaceGetCurrentTexture(resources.surface, &surface_texture);
@@ -103,10 +115,14 @@ bool render_browser_frame(double, void*) {
     }
     resources.texture = surface_texture.texture;
     resources.view = view;
-    if (emscripten_request_animation_frame(
-            finish_browser_frame,
-            nullptr) < 0) {
-        fail("The browser presentation completion frame could not be scheduled.");
+    if (!progpu::native::browser::begin_evidence_readback(
+            resources.device,
+            resources.queue,
+            resources.texture,
+            width,
+            height,
+            finish_browser_evidence)) {
+        fail("The browser WebGPU evidence copy could not be scheduled.");
     }
     return false;
 }
@@ -153,7 +169,8 @@ int main() {
         WGPU_SURFACE_CONFIGURATION_INIT;
     configuration.device = device;
     configuration.format = target_format;
-    configuration.usage = WGPUTextureUsage_RenderAttachment;
+    configuration.usage =
+        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
     configuration.width = width;
     configuration.height = height;
     configuration.presentMode = WGPUPresentMode_Fifo;

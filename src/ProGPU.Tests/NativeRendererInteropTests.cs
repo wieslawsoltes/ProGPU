@@ -1537,6 +1537,8 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "include", "progpu_native_browser.h"));
         string browserSmoke = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "browser", "progpu_native_browser_smoke.cpp"));
+        string browserEvidence = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "browser", "progpu_native_browser_evidence.cpp"));
         string browserTest = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "browser", "test.mjs"));
         string verifier = File.ReadAllText(FindRepoFile(
@@ -1582,6 +1584,12 @@ public class NativeRendererInteropTests
             "emscripten_request_animation_frame(\n            render_browser_frame",
             browserSmoke,
             StringComparison.Ordinal);
+        Assert.Contains("WGPUTextureUsage_CopySrc", browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("wgpuCommandEncoderCopyTextureToBuffer", browserEvidence,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUCallbackMode_AllowSpontaneous", browserEvidence,
+            StringComparison.Ordinal);
         Assert.Contains("navigator.gpu", File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "browser", "pre.js")), StringComparison.Ordinal);
         Assert.Contains("uncapturederror", File.ReadAllText(FindRepoFile(
@@ -1590,7 +1598,7 @@ public class NativeRendererInteropTests
         Assert.Contains("--enable-unsafe-webgpu", browserTest, StringComparison.Ordinal);
         Assert.Contains("Browser semantic isolated layer was not composited", browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("locator(\"canvas\").screenshot", browserTest,
+        Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
             StringComparison.Ordinal);
         Assert.Contains("emcmake", verifier, StringComparison.Ordinal);
         Assert.Contains("native-cpp-browser", workflow, StringComparison.Ordinal);
