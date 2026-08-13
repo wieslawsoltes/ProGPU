@@ -750,12 +750,16 @@ public ref struct NativeSceneStreamBuilder
             IsFiniteNonnegative(mask.CornerRadiiX) &&
             IsFiniteNonnegative(mask.CornerRadiiY);
         float determinant = mask.Transform.GetDeterminant();
+        bool inverseIsRepresentable = Matrix3x2.Invert(
+            mask.Transform,
+            out Matrix3x2 inverse) && IsFinite(inverse);
         return mask.StructSize == Unsafe.SizeOf<NativeSceneLayerMask>() &&
             mask.Kind == NativeSceneLayerMaskKind.RoundedRectangle &&
             mask.Flags == 0U && mask.HasCanonicalReservedFields &&
             IsFinitePositive(mask.Bounds) &&
             IsFinite(mask.Transform) && float.IsFinite(determinant) &&
-            MathF.Abs(determinant) > 0.000001f && finiteRadii &&
+            MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&
+            finiteRadii &&
             float.IsFinite(mask.Opacity) &&
             mask.Opacity is >= 0f and <= 1f;
     }

@@ -604,7 +604,8 @@ counts/revisions, invalid effect parameters, and layer references to the wrong
 resource kind. The .NET builder writes the same stream from caller-owned spans
 with exactly 0 managed bytes allocated across 10,000 complete mask/effect/layer
 builds after warm-up. This checkpoint types and validates ownership only; GPU
-mask/effect replay, screenshots, and comparative performance remain open.
+execution was intentionally evaluated in the following checkpoint rather than
+claimed from validation alone.
 
 ### Retained bounded fixed-function layer execution checkpoint
 
@@ -654,8 +655,29 @@ inspected `progpu-native-semantic-layers-2x.png` capture has SHA-256
 `6a2bddb6e366128238a315a43cb6d13606bd78454d0ff1d864a24589f7103f16`.
 This is functional and retained-resource evidence, not yet the required
 matched managed/native nested-layer distribution or Instruments comparison.
-Masks, effects, advanced destination-sampling blend modes, and backdrop input
-remain explicitly unsupported.
+Effects, advanced destination-sampling blend modes, and backdrop input remain
+explicitly unsupported.
+
+### Retained semantic rounded-mask execution checkpoint
+
+The analytic rounded-mask resource now executes in the retained nested-layer
+replay. The real Dawn/Metal fixture materializes a 40x32 bounded parent and a
+32x24 masked child, draws an opaque analytic rectangle into the child, then
+composites through an 8-pixel-radius mask into the nonzero-origin parent before
+the parent returns to the root. This specifically validates global-to-parent-
+local mask coordinates instead of covering only the root-target special case.
+
+The changed frame uses two content passes, two composites, one submission, and
+8,192 bytes of depth-two RGBA8 pool storage. The mask adds one retained 96-byte
+uniform and bind group. Stable replay keeps their generation unchanged and
+reports exactly zero vertex, index, texture, uniform, mask-uniform, and coverage
+upload with one submission. The inspected provider capture is
+`artifacts/progpu-native/build/progpu-native-semantic-masked-layer.ppm` with
+SHA-256 `bdfdbea152c64c6f409de48438c232c87b6290a5ed7db8cd00bc08abfc5c93dc`.
+Corner, top-center, center, and clear pixels are asserted from the GPU-complete
+IOSurface. This is functional/retention evidence; the matched managed/native
+mask distribution and Instruments comparison remain part of the aggregate
+mask/effect evidence item.
 
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at

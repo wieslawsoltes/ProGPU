@@ -166,6 +166,25 @@ bool valid_scene_layer_mask(
     const double determinant =
         static_cast<double>(mask.transform.m11) * mask.transform.m22 -
         static_cast<double>(mask.transform.m12) * mask.transform.m21;
+    const double inverse = determinant != 0.0 ? 1.0 / determinant : 0.0;
+    const std::array<double, 6U> inverse_values{
+        mask.transform.m22 * inverse,
+        -mask.transform.m12 * inverse,
+        -mask.transform.m21 * inverse,
+        mask.transform.m11 * inverse,
+        (static_cast<double>(mask.transform.m21) * mask.transform.m32 -
+            static_cast<double>(mask.transform.m22) * mask.transform.m31) *
+            inverse,
+        (static_cast<double>(mask.transform.m12) * mask.transform.m31 -
+            static_cast<double>(mask.transform.m11) * mask.transform.m32) *
+            inverse};
+    const bool inverse_is_representable = std::ranges::all_of(
+        inverse_values,
+        [](double value) noexcept {
+            return std::isfinite(value) &&
+                value >= -std::numeric_limits<float>::max() &&
+                value <= std::numeric_limits<float>::max();
+        });
     const auto valid_radius = [](float value) noexcept {
         return std::isfinite(value) && value >= 0.0F;
     };
@@ -185,6 +204,7 @@ bool valid_scene_layer_mask(
         std::isfinite(mask.transform.m31) &&
         std::isfinite(mask.transform.m32) &&
         std::isfinite(determinant) && std::abs(determinant) > 0.000001 &&
+        inverse_is_representable &&
         std::ranges::all_of(mask.corner_radii_x, valid_radius) &&
         std::ranges::all_of(mask.corner_radii_y, valid_radius) &&
         std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&

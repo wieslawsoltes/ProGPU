@@ -951,6 +951,16 @@ void semantic_scene_layer_resources_are_typed_and_canonical() {
         &mask,
         invalid_stream.data() + mask_resource.payload_offset,
         sizeof(mask));
+    mask.transform.m11 = 1.0e-39F;
+    mask.transform.m22 = 3.0e34F;
+    write_scene_record(invalid_stream, mask_resource.payload_offset, mask);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    std::memcpy(
+        &mask,
+        invalid_stream.data() + mask_resource.payload_offset,
+        sizeof(mask));
     mask.opacity = 1.01F;
     write_scene_record(invalid_stream, mask_resource.payload_offset, mask);
     rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);

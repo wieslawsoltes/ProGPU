@@ -1027,6 +1027,23 @@ public class NativeRendererInteropTests
             in invalidMask,
             out _));
 
+        var unrepresentableInverseMask = new NativeSceneLayerMask(
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            new Matrix3x2(1.0e-39f, 0f, 0f, 3.0e34f, 0f, 0f),
+            Vector4.Zero,
+            Vector4.Zero);
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            15U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddLayerMaskResource(
+            1U,
+            1U,
+            in unrepresentableInverseMask,
+            out _));
+
         Span<NativeSceneEffect> invalidEffects = stackalloc NativeSceneEffect[1];
         invalidEffects[0] = NativeSceneEffect.GaussianBlur(
             0f,
@@ -1034,7 +1051,7 @@ public class NativeRendererInteropTests
             revision: 1U);
         invalidBuilder = new NativeSceneStreamBuilder(
             destination,
-            15U,
+            16U,
             1U,
             commandCapacity: 1,
             resourceCapacity: 1);
@@ -1049,7 +1066,7 @@ public class NativeRendererInteropTests
         validEffects[0] = effect;
         var wrongKindBuilder = new NativeSceneStreamBuilder(
             destination,
-            16U,
+            17U,
             1U,
             commandCapacity: 2,
             resourceCapacity: 1);

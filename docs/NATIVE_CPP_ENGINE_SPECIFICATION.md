@@ -1093,8 +1093,9 @@ multiplies draw alpha once while changed pages are compiled. Its optional
 logical target rectangle is lowered to a retained physical scissor span;
 an inline pointer-free layer descriptor and its aggregate resource budget are
 validated before rendering. Physical bounded opacity and fixed-function blend
-layers now use the retained d3b2 executor; backdrop, mask/effect, and advanced
-destination-sampling descriptors still fail at a typed `UNSUPPORTED` boundary.
+layers plus analytic rounded masks now use the retained d3b2 executor;
+backdrop, effect, and advanced destination-sampling descriptors still fail at a
+typed `UNSUPPORTED` boundary.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1188,10 +1189,11 @@ The fixed 64-entry structural scope stack separately limits materialized depth
 to 16. Both live and pooled layer pixels are capped at 256 MiB and their
 maximum participates in the existing 512 MiB combined scene budget.
 Multiplication and accumulation are checked before an encoder is created. A
-valid bounded or full-target layer renders when it has no backdrop/mask/effect
-dependency and its blend has an exact fixed-function coefficient equation.
-Backdrop, mask/effect, and advanced destination-sampling blend descriptors
-still reach a typed `UNSUPPORTED` boundary. An oversized layer
+valid bounded or full-target layer renders when it has no backdrop/effect
+dependency and its blend has an exact fixed-function coefficient equation; an
+optional typed analytic rounded mask is applied during its final composite.
+Backdrop, effect, and advanced destination-sampling blend descriptors still
+reach a typed `UNSUPPORTED` boundary. An oversized layer
 returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
 timeline.
 
@@ -1224,7 +1226,15 @@ fixed-function blend without mutable buffer aliasing. Push clears the selected
 depth texture to transparent premultiplied RGBA, nested pop composites into the
 parent texture, and the outer pop composites into the caller target. Parent
 passes resume with `Load`; the layer-free route retains its existing
-single-pass replay. Stable replay is O(B + L) for B retained bundle spans and L
+single-pass replay. A masked pop uses the existing production masked-texture
+pipeline. Its inverse affine and normalized corner radii are compiled once into
+a retained 96-byte uniform buffer and bind group for that occurrence. The mask
+transform is translated from global logical coordinates into the actual parent
+layer's physical-local coordinate system, so nested bounded parents do not
+shift mask coverage. Opacity is multiplied once in the premultiplied composite.
+Changed mask compilation is O(M) time and storage for M masked occurrences;
+stable replay performs no mask uniform write or bind-group allocation.
+Stable replay is O(B + L) for B retained bundle spans and L
 layer transitions, allocates no new pool texture, uploads no retained payload,
 and performs one queue submission. Pool storage is `O(sum(Wd*Hd))` for the
 maximum physical width Wd and height Hd retained at each live depth d, rather
@@ -1308,10 +1318,10 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-The pointer-free typed mask/effect resource contract and canonical validation
-are now implemented. The next execution checkpoint resolves those resources in
-the bounded depth-indexed pool, then adds advanced destination-sampling
-`GpuBlendMode` values and backdrop input. The
+The pointer-free typed mask/effect resource contract, canonical validation, and
+analytic rounded-mask execution are now implemented. The next execution
+checkpoint resolves effect chains in the bounded depth-indexed pool, then adds
+advanced destination-sampling `GpuBlendMode` values and backdrop input. The
 contract continues to permit at most 16 simultaneously materialized layers and
 eight effect nodes per layer. Each extended layer will run its retained effect
 chain, apply mask and opacity once, then composite into the parent. Advanced

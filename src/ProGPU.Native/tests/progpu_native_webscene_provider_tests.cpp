@@ -913,6 +913,145 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
     return stream;
 }
 
+std::vector<std::byte> create_semantic_masked_layer_scene_stream() {
+    constexpr std::uint32_t command_count = 5U;
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+
+    constexpr progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const progpu_native_analytic_primitive analytic{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+        12.0F, 12.0F, 32.0F, 24.0F, 0.0F, 0.0F,
+        {1.0F, 0.0F, 0.0F, 1.0F}, identity};
+    const std::uint32_t analytic_offset = append_scene_payload(
+        stream,
+        &analytic,
+        1U);
+
+    progpu_native_scene_layer_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+    mask.bounds = {0.0F, 0.0F, 32.0F, 24.0F};
+    mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 12.0F, 12.0F};
+    std::fill_n(mask.corner_radii_x, 4U, 8.0F);
+    std::fill_n(mask.corner_radii_y, 4U, 8.0F);
+    mask.opacity = 1.0F;
+    const std::uint32_t mask_offset = append_scene_payload(
+        stream,
+        &mask,
+        1U);
+
+    const progpu_native_scene_layer outer_layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        {8.0F, 8.0F, 40.0F, 32.0F},
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        41U,
+        51U,
+        0U,
+        0U};
+    const progpu_native_scene_layer masked_layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        {12.0F, 12.0F, 32.0F, 24.0F},
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        1U,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        42U,
+        52U,
+        0U,
+        0U};
+    const std::uint32_t outer_layer_offset = append_scene_payload(
+        stream,
+        &outer_layer,
+        1U);
+    const std::uint32_t masked_layer_offset = append_scene_payload(
+        stream,
+        &masked_layer,
+        1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 95U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const std::array<progpu_native_scene_resource, resource_count> resources{{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 701U, 1U,
+            analytic_offset, sizeof(analytic), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 702U, 1U,
+            mask_offset, sizeof(mask), 0U, 0U}
+    }};
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources.data(),
+        sizeof(resources));
+
+    const progpu_native_scene_command commands[]{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 801U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            outer_layer_offset, sizeof(outer_layer),
+            0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 802U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            masked_layer_offset, sizeof(masked_layer),
+            0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 803U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, 0U,
+            12.0F, 12.0F, 32.0F, 24.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 804U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 805U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U}
+    };
+    std::memcpy(
+        stream.data() + command_offset,
+        commands,
+        sizeof(commands));
+    return stream;
+}
+
 template<typename T>
 T load_symbol(void* module, const char* name) {
     static_assert(std::is_pointer_v<T>);
@@ -1292,6 +1431,70 @@ void verify_semantic_layer_scene(
     }
     require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
         kIOReturnSuccess, "could not unlock semantic layer IOSurface");
+}
+
+void verify_semantic_masked_layer_scene(
+    IOSurfaceRef surface,
+    const char* output_path) {
+    require(surface != nullptr,
+        "semantic masked layer scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess,
+        "could not lock semantic masked layer IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected semantic masked layer IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto is_bgra = [](const std::uint8_t* value,
+                            std::uint8_t b,
+                            std::uint8_t g,
+                            std::uint8_t r,
+                            int tolerance = 24) {
+        return std::abs(static_cast<int>(value[0]) - b) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - g) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - r) <= tolerance &&
+            value[3] >= 240U;
+    };
+    const auto* clear = pixel(2U, 2U);
+    const auto* rounded_corner = pixel(13U, 13U);
+    const auto* top_center = pixel(28U, 13U);
+    const auto* center = pixel(28U, 24U);
+    require(is_bgra(clear, 10U, 8U, 5U),
+        "semantic masked layer clear color is missing");
+    require(is_bgra(rounded_corner, 10U, 8U, 5U),
+        "semantic rounded mask did not remove its corner");
+    require(is_bgra(top_center, 0U, 0U, 255U),
+        "semantic rounded mask removed its top-center interior");
+    require(is_bgra(center, 0U, 0U, 255U),
+        "semantic rounded mask removed its center interior");
+
+    if (output_path != nullptr && output_path[0] != '\0') {
+        std::FILE* output = std::fopen(output_path, "wb");
+        require(output != nullptr,
+            "could not create semantic masked layer capture");
+        std::fprintf(output, "P6\n%zu %zu\n255\n", width, height);
+        for (std::size_t y = 0; y < height; ++y) {
+            for (std::size_t x = 0; x < width; ++x) {
+                const std::uint8_t* source = pixel(x, y);
+                const std::uint8_t rgb[]{
+                    source[2], source[1], source[0]};
+                require(std::fwrite(rgb, sizeof(rgb), 1U, output) == 1U,
+                    "semantic masked layer capture write failed");
+            }
+        }
+        require(std::fclose(output) == 0,
+            "semantic masked layer capture close failed");
+    }
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess,
+        "could not unlock semantic masked layer IOSurface");
 }
 
 void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
@@ -1923,6 +2126,129 @@ int main(int argc, char** argv) {
             opacity_layer_external.shared_handle),
         "progpu-native-semantic-layers.ppm");
     api.release_external(provider, &opacity_layer_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic masked layer canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic masked layer canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic masked layer target view creation failed");
+
+    auto masked_layer_scene =
+        create_semantic_masked_layer_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        masked_layer_scene.data(),
+        masked_layer_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 5U &&
+        scene_metrics.resource_count == 2U &&
+        scene_metrics.draw_count == 1U &&
+        scene_metrics.maximum_stack_depth == 2U,
+        "semantic masked layer update failed");
+    progpu_native_scene_frame masked_layer_frame = semantic_frame;
+    masked_layer_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    masked_layer_frame.scene_id = 95U;
+    masked_layer_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &masked_layer_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 5U &&
+        semantic_metrics.draw_call_count == 3U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.uniform_upload_bytes != 0U,
+        "semantic masked layer rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 40U &&
+        semantic_layer_metrics.texture_height == 32U &&
+        semantic_layer_metrics.content_pass_count == 2U &&
+        semantic_layer_metrics.composite_pass_count == 2U &&
+        semantic_layer_metrics.cache_hit == 0U &&
+        semantic_layer_metrics.texture_bytes == 8192U &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE &&
+        semantic_layer_metrics.mask_uniform_upload_bytes ==
+            24U * sizeof(float),
+        "semantic masked layer metrics are incorrect");
+    const std::uint32_t masked_layer_allocation_count =
+        semantic_layer_metrics.allocation_count;
+    const std::uint32_t masked_bind_group_generation =
+        semantic_layer_metrics.mask_bind_group_generation;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &masked_layer_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "stable semantic masked layer replay rebuilt retained resources");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.allocation_count ==
+            masked_layer_allocation_count &&
+        semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.mask_bind_group_generation ==
+            masked_bind_group_generation &&
+        semantic_layer_metrics.mask_uniform_upload_bytes == 0U &&
+        semantic_layer_metrics.uniform_upload_bytes == 0U,
+        "stable semantic masked layer metrics did not retain resources");
+    std::uint64_t masked_layer_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &masked_layer_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic masked layer submission token unavailable");
+    std::uint8_t masked_layer_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        masked_layer_submission,
+        1U,
+        &masked_layer_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        masked_layer_complete != 0U,
+        "semantic masked layer scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture masked_layer_external{};
+    masked_layer_external.struct_size = sizeof(masked_layer_external);
+    require(api.present(provider, canvas, &masked_layer_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        masked_layer_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (masked_layer_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic masked layer presentation failed");
+    verify_semantic_masked_layer_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            masked_layer_external.shared_handle),
+        "progpu-native-semantic-masked-layer.ppm");
+    api.release_external(provider, &masked_layer_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

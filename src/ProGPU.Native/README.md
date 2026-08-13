@@ -219,9 +219,9 @@ skips the source-family pass, reuses its pipeline and texture, and allocates
 zero managed bytes after warm-up. The current ABI applies the mode to the root
 group against the frame clear color. Semantic nested/backdrop layers now have
 an exact pointer-free descriptor, typed analytic-mask/effect-chain resources,
-canonical validation, and a checked preflight budget, but mask/effect pixel
-execution remains an intentionally unsupported follow-up rather than a later
-tranche.
+canonical validation, and a checked preflight budget. Analytic rounded masks
+execute through retained per-occurrence uniforms in nested bounded parents;
+effect pixel execution remains the active follow-up.
 
 Current native parity:
 
@@ -280,7 +280,9 @@ Current native parity:
 - pointer-free semantic rounded-rectangle-mask and one-to-eight-node
   effect-chain resources with exact native/.NET layout, typed references,
   canonical validation, and zero managed allocation across 10,000 complete
-  caller-buffer builds; GPU execution remains the active continuation;
+  caller-buffer builds; rounded masks execute in retained nested composites with
+  parent-local coordinates and zero stable upload, while effect-chain execution
+  remains the active continuation;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,
