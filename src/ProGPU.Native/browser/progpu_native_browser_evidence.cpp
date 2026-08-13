@@ -130,12 +130,10 @@ bool begin_evidence_readback(
     WGPUDevice device,
     WGPUQueue queue,
     WGPUTexture source_texture,
-    WGPUTexture presentation_texture,
     std::uint32_t width,
     std::uint32_t height,
     evidence_completion completion) {
     if (device == nullptr || queue == nullptr || source_texture == nullptr ||
-        presentation_texture == nullptr ||
         width == 0U || height == 0U || completion == nullptr ||
         state.buffer != nullptr) {
         return false;
@@ -165,20 +163,11 @@ bool begin_evidence_readback(
     WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
     source.texture = source_texture;
     source.aspect = WGPUTextureAspect_All;
-    WGPUTexelCopyTextureInfo presentation =
-        WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-    presentation.texture = presentation_texture;
-    presentation.aspect = WGPUTextureAspect_All;
     WGPUTexelCopyBufferInfo destination = WGPU_TEXEL_COPY_BUFFER_INFO_INIT;
     destination.buffer = buffer;
     destination.layout.bytesPerRow = row_bytes;
     destination.layout.rowsPerImage = height;
     const WGPUExtent3D extent{width, height, 1U};
-    wgpuCommandEncoderCopyTextureToTexture(
-        encoder,
-        &source,
-        &presentation,
-        &extent);
     wgpuCommandEncoderCopyTextureToBuffer(
         encoder,
         &source,

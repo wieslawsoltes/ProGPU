@@ -1588,7 +1588,7 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("wgpuCommandEncoderCopyTextureToBuffer", browserEvidence,
             StringComparison.Ordinal);
-        Assert.Contains("wgpuCommandEncoderCopyTextureToTexture", browserEvidence,
+        Assert.DoesNotContain("wgpuCommandEncoderCopyTextureToTexture", browserEvidence,
             StringComparison.Ordinal);
         Assert.Contains("WGPUCallbackMode_AllowSpontaneous", browserEvidence,
             StringComparison.Ordinal);
@@ -1598,6 +1598,10 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "browser", "pre.js")), StringComparison.Ordinal);
         Assert.Contains("channel: \"chromium\"", browserTest, StringComparison.Ordinal);
         Assert.Contains("--enable-unsafe-webgpu", browserTest, StringComparison.Ordinal);
+        Assert.DoesNotContain("--enable-features=Vulkan", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("offscreen-texture-readback", browserTest,
+            StringComparison.Ordinal);
         Assert.Contains("Browser semantic isolated layer was not composited", browserTest,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
@@ -1605,6 +1609,30 @@ public class NativeRendererInteropTests
         Assert.Contains("emcmake", verifier, StringComparison.Ordinal);
         Assert.Contains("native-cpp-browser", workflow, StringComparison.Ordinal);
         Assert.Contains("Upload native browser evidence", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeRendererGeneratesSharedShadersOnceForEveryVariant()
+    {
+        string cmake = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+
+        Assert.Contains(
+            "add_custom_target(progpu_native_generated_shaders",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "add_dependencies(progpu_native progpu_native_generated_shaders)",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "add_dependencies(progpu_native_dawn progpu_native_generated_shaders)",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_browser_smoke\n        progpu_native_generated_shaders",
+            cmake,
+            StringComparison.Ordinal);
     }
 
     [Fact]

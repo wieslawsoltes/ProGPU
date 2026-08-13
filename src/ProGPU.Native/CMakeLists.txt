@@ -275,6 +275,23 @@ add_custom_command(
     COMMENT "Embedding the shared ProGPU advanced-blend shader"
     VERBATIM)
 
+# All renderer variants include the same generated headers. Model generation
+# as one target so multi-config generators cannot race two custom commands
+# writing the same output files.
+add_custom_target(progpu_native_generated_shaders
+    DEPENDS
+        "${generated_vector_shader}"
+        "${generated_path_rasterizer_shader}"
+        "${generated_glyph_rasterizer_shader}"
+        "${generated_text_shader}"
+        "${generated_texture_shader}"
+        "${generated_clip_compose_shader}"
+        "${generated_gaussian_blur_horizontal_shader}"
+        "${generated_gaussian_blur_vertical_shader}"
+        "${generated_group_drop_shadow_compose_shader}"
+        "${generated_group_blend_shader}"
+        "${generated_advanced_blend_shader}")
+
 set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_advanced_blend_execution.cpp
     src/progpu_native.cpp
@@ -316,22 +333,12 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_webgpu_resources.hpp
     src/progpu_native_vector_execution.cpp
     src/progpu_webgpu_compat.hpp
-    include/progpu_native.h
-    "${generated_vector_shader}"
-    "${generated_path_rasterizer_shader}"
-    "${generated_glyph_rasterizer_shader}"
-    "${generated_text_shader}"
-    "${generated_texture_shader}"
-    "${generated_clip_compose_shader}"
-    "${generated_gaussian_blur_horizontal_shader}"
-    "${generated_gaussian_blur_vertical_shader}"
-    "${generated_group_drop_shadow_compose_shader}"
-    "${generated_group_blend_shader}"
-    "${generated_advanced_blend_shader}")
+    include/progpu_native.h)
 
 if(NOT EMSCRIPTEN)
 add_library(progpu_native SHARED
     ${PROGPU_NATIVE_RENDERER_SOURCES})
+add_dependencies(progpu_native progpu_native_generated_shaders)
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native
@@ -359,6 +366,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         ${PROGPU_NATIVE_RENDERER_SOURCES}
         include/progpu_native_dawn.h
         )
+    add_dependencies(progpu_native_dawn progpu_native_generated_shaders)
     target_compile_features(progpu_native_dawn
         PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_dawn PRIVATE
@@ -458,6 +466,9 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_advanced_blend_scene.cpp
         tests/progpu_native_semantic_advanced_blend_scene.hpp
         browser/progpu_native_browser_smoke.cpp)
+    add_dependencies(
+        progpu_native_browser_smoke
+        progpu_native_generated_shaders)
     target_compile_features(progpu_native_browser_smoke PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_browser_smoke PRIVATE
         PROGPU_NATIVE_BUILD=1

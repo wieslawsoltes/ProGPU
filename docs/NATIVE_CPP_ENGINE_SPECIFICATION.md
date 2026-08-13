@@ -1043,12 +1043,14 @@ and device-loss recreation remain open.
   semantic stream, and WGSL, with a real Chromium WebGPU ABI/render/console
   integration gate covering a retained bounded isolated layer, exact metrics,
   deterministic clear/parent/composite pixels, and Emdawnwebgpu-compliant
-  acquire/render scheduling inside `requestAnimationFrame`; a browser-test-only
-  WebGPU target is copied to both presentation and mapped evidence when headless
-  compositing omits the canvas and remains outside production/renderer metrics;
-  actual-parent advanced
-  blending remains hardware-Dawn-gated while complete browser differentials
-  remain;
+  render scheduling inside `requestAnimationFrame`; a browser-test-only
+  offscreen WebGPU target is copied to mapped evidence and remains outside
+  production/renderer metrics. This gate proves browser device ownership,
+  shader compilation, renderer submission, isolated-layer compositing, and
+  readback without claiming swapchain presentation; browser surface acquisition
+  and presentation remain in the native-platform presentation tranche.
+  Actual-parent advanced blending remains hardware-Dawn-gated while complete
+  browser differentials remain;
 - runtime/NuGet packages, symbols, license manifests, and device-loss recovery.
 
 ### Tranche E — full parallel C++ framework core

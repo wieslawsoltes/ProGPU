@@ -16,7 +16,6 @@ const browser = await chromium.launch({
   headless: true,
   args: [
     "--enable-unsafe-webgpu",
-    "--enable-features=Vulkan",
     "--use-angle=swiftshader"
   ]
 });
@@ -40,7 +39,9 @@ try {
     semanticCommands: document.body.dataset.progpuNativeSemanticCommands,
     semanticResources: document.body.dataset.progpuNativeSemanticResources,
     semanticDraws: document.body.dataset.progpuNativeSemanticDraws,
-    totalSubmissions: document.body.dataset.progpuNativeTotalSubmissions,
+    rendererSubmissions:
+      document.body.dataset.progpuNativeRendererSubmissions,
+    evidenceTarget: document.body.dataset.progpuNativeEvidenceTarget,
     backendAbi: document.body.dataset.progpuNativeBackendAbi,
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
@@ -51,7 +52,8 @@ try {
     semanticCommands: "4",
     semanticResources: "2",
     semanticDraws: "3",
-    totalSubmissions: "1",
+    rendererSubmissions: "1",
+    evidenceTarget: "offscreen-texture-readback",
     backendAbi: "3",
     explicitTimeline: "0",
     error: ""

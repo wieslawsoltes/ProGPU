@@ -16,12 +16,8 @@ constexpr std::uint32_t height = 360U;
 
 struct browser_resources final {
     progpu_native_engine* engine = nullptr;
-    WGPUInstance instance = nullptr;
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
-    WGPUSurface surface = nullptr;
-    WGPUTexture surface_texture = nullptr;
-    WGPUTextureView surface_view = nullptr;
     WGPUTexture render_texture = nullptr;
     WGPUTextureView render_view = nullptr;
 };
@@ -38,22 +34,23 @@ browser_resources resources{};
     emscripten_force_exit(1);
 }
 
-bool finish_browser_frame(double, void*) {
+bool finish_evidence_frame(double, void*) {
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
         document.body.dataset.progpuNativeSemanticCommands = "4";
         document.body.dataset.progpuNativeSemanticResources = "2";
         document.body.dataset.progpuNativeSemanticDraws = "3";
-        document.body.dataset.progpuNativeTotalSubmissions = "1";
+        document.body.dataset.progpuNativeRendererSubmissions = "1";
+        document.body.dataset.progpuNativeEvidenceTarget =
+            "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU semantic backend active — isolated layer submitted";
+            "C++ / WebGPU semantic backend active — isolated layer verified";
     });
-    // A browser host owns its canvas resource domain for the page lifetime.
-    // Keeping these handles alive also lets the browser composite the frame
-    // after this requestAnimationFrame callback returns. Navigation releases
-    // the WebAssembly instance and the associated Emdawnwebgpu handle table.
+    // The test page owns the offscreen texture until navigation releases the
+    // WebAssembly instance and its Emdawnwebgpu handle table. The visible
+    // canvas is populated only from the mapped test evidence.
     return false;
 }
 
@@ -62,28 +59,13 @@ void finish_browser_evidence(bool success) {
         fail("The browser WebGPU evidence readback failed.");
     }
     if (emscripten_request_animation_frame(
-            finish_browser_frame,
+            finish_evidence_frame,
             nullptr) < 0) {
-        fail("The browser presentation completion frame could not be scheduled.");
+        fail("The browser evidence completion frame could not be scheduled.");
     }
 }
 
 bool render_browser_frame(double, void*) {
-    WGPUSurfaceTexture surface_texture = WGPU_SURFACE_TEXTURE_INIT;
-    wgpuSurfaceGetCurrentTexture(resources.surface, &surface_texture);
-    if (surface_texture.texture == nullptr ||
-        (surface_texture.status !=
-            WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-         surface_texture.status !=
-            WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)) {
-        fail("The browser WebGPU surface texture is unavailable.");
-    }
-    WGPUTextureView view = wgpuTextureCreateView(
-        surface_texture.texture,
-        nullptr);
-    if (view == nullptr) {
-        fail("The browser WebGPU target view could not be created.");
-    }
     WGPUTexture render_texture = nullptr;
     WGPUTextureView render_view = nullptr;
     if (!progpu::native::browser::create_evidence_target(
@@ -126,15 +108,12 @@ bool render_browser_frame(double, void*) {
         layer_metrics.texture_bytes == 0U) {
         fail("The ProGPU C++ browser semantic layer metrics are invalid.");
     }
-    resources.surface_texture = surface_texture.texture;
-    resources.surface_view = view;
     resources.render_texture = render_texture;
     resources.render_view = render_view;
     if (!progpu::native::browser::begin_evidence_readback(
             resources.device,
             resources.queue,
             resources.render_texture,
-            resources.surface_texture,
             width,
             height,
             finish_browser_evidence)) {
@@ -162,36 +141,9 @@ int main() {
         fail("The browser did not provide a WebGPU device.");
     }
     WGPUQueue queue = wgpuDeviceGetQueue(device);
-    WGPUInstanceDescriptor instance_descriptor = WGPU_INSTANCE_DESCRIPTOR_INIT;
-    WGPUInstance instance = wgpuCreateInstance(&instance_descriptor);
-    if (instance == nullptr || queue == nullptr) {
-        fail("The Emdawnwebgpu instance or queue is unavailable.");
+    if (queue == nullptr) {
+        fail("The Emdawnwebgpu queue is unavailable.");
     }
-
-    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas_source =
-        WGPU_EMSCRIPTEN_SURFACE_SOURCE_CANVAS_HTML_SELECTOR_INIT;
-    canvas_source.selector = WGPUStringView{"#progpu-native-canvas", 21U};
-    WGPUSurfaceDescriptor surface_descriptor = WGPU_SURFACE_DESCRIPTOR_INIT;
-    surface_descriptor.nextInChain = &canvas_source.chain;
-    WGPUSurface surface = wgpuInstanceCreateSurface(
-        instance,
-        &surface_descriptor);
-    if (surface == nullptr) {
-        fail("The browser WebGPU canvas surface could not be created.");
-    }
-    const WGPUTextureFormat target_format =
-        WGPUTextureFormat_BGRA8Unorm;
-    WGPUSurfaceConfiguration configuration =
-        WGPU_SURFACE_CONFIGURATION_INIT;
-    configuration.device = device;
-    configuration.format = target_format;
-    configuration.usage =
-        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopyDst;
-    configuration.width = width;
-    configuration.height = height;
-    configuration.presentMode = WGPUPresentMode_Fifo;
-    configuration.alphaMode = WGPUCompositeAlphaMode_Opaque;
-    wgpuSurfaceConfigure(surface, &configuration);
 
     progpu_native_browser_engine_options options{};
     options.struct_size = sizeof(options);
@@ -228,18 +180,14 @@ int main() {
     }
     resources = {
         engine,
-        instance,
         device,
         queue,
-        surface,
-        nullptr,
-        nullptr,
         nullptr,
         nullptr};
     if (emscripten_request_animation_frame(
             render_browser_frame,
             nullptr) < 0) {
-        fail("The browser presentation frame could not be scheduled.");
+        fail("The browser render frame could not be scheduled.");
     }
     return 0;
 }

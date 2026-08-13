@@ -20,7 +20,6 @@ bool begin_evidence_readback(
     WGPUDevice device,
     WGPUQueue queue,
     WGPUTexture source_texture,
-    WGPUTexture presentation_texture,
     std::uint32_t width,
     std::uint32_t height,
     evidence_completion completion);
