@@ -756,9 +756,10 @@ bool is_valid_semantic_segment(
     const progpu_native_path_segment& segment,
     bool allow_arc) noexcept {
     const bool is_arc = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
-    return segment.kind <= (allow_arc
-            ? PROGPU_NATIVE_PATH_SEGMENT_ARC
-            : PROGPU_NATIVE_PATH_SEGMENT_CUBIC) &&
+    const std::uint32_t maximum_kind = static_cast<std::uint32_t>(allow_arc
+        ? PROGPU_NATIVE_PATH_SEGMENT_ARC
+        : PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+    return segment.kind <= maximum_kind &&
         progpu::native::is_finite(segment.p0) &&
         progpu::native::is_finite(segment.p1) &&
         progpu::native::is_finite(segment.p2) &&
