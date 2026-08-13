@@ -115,6 +115,9 @@ before creating an encoder: 16,384 draw passes, 256 MiB of expanded vertices,
 64 MiB of indices, 256 MiB each of textures and aligned coverage staging, and
 512 MiB total across those domains. This bounds adversarial expansion while
 the broader stream-format limits remain available for future non-draw records.
+Identical repeated-family commands use a content-addressed retained revision,
+so intervening families do not force a flush or extra submission. Distinct
+repeated payloads remain the paged-buffer continuation.
 
 Add `--group-vector-clip-chain --write-images` to apply the retained
 intersection/difference path-mask gate to the selected family. The chain uses

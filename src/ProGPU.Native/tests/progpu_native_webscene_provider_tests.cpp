@@ -100,7 +100,7 @@ std::uint32_t append_scene_payload(
 
 std::vector<std::byte> create_renderable_semantic_scene_stream(
     std::uint64_t generation) {
-    constexpr std::uint32_t command_count = 4U;
+    constexpr std::uint32_t command_count = 5U;
     constexpr std::uint32_t resource_count = 4U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
@@ -264,7 +264,12 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 204U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 3U,
             image_draw_offset, sizeof(image),
-            50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U}
+            50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 205U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, 0U,
+            4.0F, 4.0F, 12.0F, 12.0F, 0U, 0U}
     };
     std::memcpy(
         stream.data() + command_offset,
@@ -839,7 +844,7 @@ int main(int argc, char** argv) {
         renderable_scene.data(),
         renderable_scene.size(),
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        scene_metrics.draw_count == 4U,
+        scene_metrics.draw_count == 5U,
         "renderable semantic scene update failed");
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -866,9 +871,9 @@ int main(int argc, char** argv) {
         &semantic_frame,
         &semantic_metrics);
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        semantic_metrics.command_count != 4U ||
-        semantic_metrics.draw_call_count != 4U ||
-        semantic_metrics.family_switch_count != 4U ||
+        semantic_metrics.command_count != 5U ||
+        semantic_metrics.draw_call_count != 5U ||
+        semantic_metrics.family_switch_count != 5U ||
         semantic_metrics.submission_count != 1U ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
@@ -887,9 +892,9 @@ int main(int argc, char** argv) {
             semantic_error.data());
     }
     require(semantic_status == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 4U &&
-        semantic_metrics.draw_call_count == 4U &&
-        semantic_metrics.family_switch_count == 4U &&
+        semantic_metrics.command_count == 5U &&
+        semantic_metrics.draw_call_count == 5U &&
+        semantic_metrics.family_switch_count == 5U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.payload_hash != 0U,
         "mixed semantic scene rendering failed");
@@ -901,9 +906,9 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 4U &&
-        semantic_metrics.draw_call_count == 4U &&
-        semantic_metrics.family_switch_count == 4U &&
+        semantic_metrics.command_count == 5U &&
+        semantic_metrics.draw_call_count == 5U &&
+        semantic_metrics.family_switch_count == 5U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.index_upload_bytes == 0U &&

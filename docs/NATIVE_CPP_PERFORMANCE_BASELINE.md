@@ -337,17 +337,22 @@ Analytic, path, glyph, and image use distinct retained buffer domains and share
 the encoder. It is not yet the final paged/coalesced topology.
 
 The real pinned WebScene `02823bf` / Dawn `710c33013` / Metal provider test
-renders to a 64 by 48 GPU canvas, waits for the native submission token, and
-presents an IOSurface marked GPU-complete. Exact interior pixel checks observe
-the dark clear color plus red analytic, green path, blue glyph, and yellow
-image regions in display-list order. The generated native checkpoint image is
+renders an analytic→path→glyph→image→analytic stream to a 64 by 48 GPU
+canvas, waits for the native submission token, and presents an IOSurface marked
+GPU-complete. The repeated analytic command is separated by all other buffer
+domains but references identical immutable content. Content-addressed family
+revisions coalesce both analytic uses onto the same retained payload, so all
+five passes remain ordered in one encoder and one queue submission. Exact
+interior pixel checks observe the dark clear color plus red analytic, green
+path, blue glyph, and yellow image regions in display-list order. The generated
+native checkpoint image is
 `artifacts/progpu-native/build/progpu-native-semantic-scene.ppm` (with a local
 PNG inspection conversion beside it). The managed typed builder separately
 writes all four resource/command payloads into caller-owned memory with exactly
 zero managed bytes over 10,000 builds. A second render of the identical scene
 retains the snapshot hash and analytic vertex/index payload by immutable
 command revision, issues no vertex, index, image-texture, or path/glyph
-coverage upload, and submits the same four ordered passes in one command
+coverage upload, and submits the same five ordered passes in one command
 buffer. Analytic draws no longer evict the distinct retained path buffers.
 Solid and geometry draws explicitly invalidate the shared analytic CPU/GPU
 payload so a later semantic replay cannot observe overwritten shared vectors.
@@ -412,8 +417,9 @@ Retained ignored evidence:
 - inspected semantic native, managed, and 64-times difference PNGs under
   `artifacts/progpu-native/differential/`.
 
-This checkpoint does not close d3b1. The native compiler must still complete
-repeated-domain coalescing/paged buffers and stable native-allocation counters.
+This checkpoint does not close d3b1. Identical repeated-domain commands now
+coalesce without a flush; distinct payloads still require retained buffer,
+atlas, and texture pages. Stable native-allocation counters also remain open.
 Whole-scene preflight now checks a maximum 16,384 draw passes, 256 MiB of
 expanded vertices, 64 MiB of indices, 256 MiB each of textures and aligned
 coverage staging, and 512 MiB across those compiled domains. Accumulation uses

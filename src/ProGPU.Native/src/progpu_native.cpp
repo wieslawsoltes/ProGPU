@@ -10788,7 +10788,11 @@ progpu_native_status progpu_native_engine_render_scene(
         hash = append_fnv1a64(
             hash, &resource.generation, sizeof(resource.generation));
         hash = append_fnv1a64(
-            hash, &command.command_id, sizeof(command.command_id));
+            hash, &command.kind, sizeof(command.kind));
+        hash = append_fnv1a64(
+            hash,
+            bytes + command.payload_offset,
+            command.payload_size);
         return revision32(hash);
     };
     const auto span_is_multiple = [](std::uint32_t size,
@@ -11037,7 +11041,7 @@ progpu_native_status progpu_native_engine_render_scene(
     std::uint64_t coverage_staging_bytes = 0U;
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
     bool target_has_content = false;
-    std::uint32_t encoded_buffer_domains = 0U;
+    std::array<std::uint32_t, 4U> encoded_buffer_revisions{};
 
     const auto discard_encoder = [&]() noexcept {
         if (engine->semantic_encoder != nullptr) {
@@ -11077,7 +11081,7 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         engine->submit(command);
         wgpuCommandBufferRelease(command);
-        encoded_buffer_domains = 0U;
+        encoded_buffer_revisions.fill(0U);
         return PROGPU_NATIVE_STATUS_SUCCESS;
     };
 
@@ -11102,15 +11106,19 @@ progpu_native_status progpu_native_engine_render_scene(
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             continue;
         }
-        const std::uint32_t buffer_domain =
+        const std::uint32_t buffer_domain_index =
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
-            ? 1U
+            ? 0U
             : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH
-                ? 2U
+                ? 1U
                 : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
-                    ? 4U
-                    : 8U;
-        if ((encoded_buffer_domains & buffer_domain) != 0U) {
+                    ? 2U
+                    : 3U;
+        const auto resource = read_resource(command.resource_index);
+        const std::uint32_t buffer_revision =
+            command_revision(command, resource);
+        if (encoded_buffer_revisions[buffer_domain_index] != 0U &&
+            encoded_buffer_revisions[buffer_domain_index] != buffer_revision) {
             const auto flush_status = flush_encoder();
             if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                 return flush_status;
@@ -11122,8 +11130,7 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic scene command encoder could not be created.");
         }
-        encoded_buffer_domains |= buffer_domain;
-        const auto resource = read_resource(command.resource_index);
+        encoded_buffer_revisions[buffer_domain_index] = buffer_revision;
         progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
