@@ -180,6 +180,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --group-opacity --rectangles 384 --warmup 4 --iterations 8
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --external-images --warmup 2 --iterations 4
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --masked-images --warmup 2 --iterations 4
+    dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --semantic-scene --rectangles 96 --warmup 2 --iterations 4
     $VectorClipScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
     foreach ($Scene in $VectorClipScenes) {
         $SceneArgs = @()

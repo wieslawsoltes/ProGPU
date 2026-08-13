@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
@@ -101,6 +102,12 @@ bool useImageScene = Array.Exists(
     static value => string.Equals(
         value,
         "--images",
+        StringComparison.OrdinalIgnoreCase));
+bool useSemanticScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--semantic-scene",
         StringComparison.OrdinalIgnoreCase));
 bool useExternalImageScene = Array.Exists(
     args,
@@ -240,6 +247,16 @@ int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
 int geometryStartCap = ReadArgument("--geometry-start-cap", -1);
 int geometryEndCap = ReadArgument("--geometry-end-cap", -1);
 int geometryJoin = ReadArgument("--geometry-join", -1);
+if (useSemanticScene &&
+    (useAnalyticScene || useGeometryScene || usePathScene || useGlyphScene ||
+     useImageScene || forceAtlasGrowth || useDrawState || useGroupOpacity ||
+     useGroupMask || useGroupBlend || useGroupEffect))
+{
+    throw new ArgumentException(
+        "--semantic-scene is a complete mixed workload and cannot be " +
+        "combined with a single-family, atlas-growth, draw-state, group, " +
+        "blend, or effect mode.");
+}
 
 NativeSolidRectangle[] rectangles = CreateRectangles(
     rectangleCount,
@@ -274,7 +291,9 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
             logicalHeight,
             forceAtlasGrowth)
         : ([], []);
-TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
+TtfFont? glyphFont = useGlyphScene || useSemanticScene
+    ? InterFontFamily.Regular
+    : null;
 (NativeGlyphOutline[] nativeGlyphOutlines,
  NativePathSegment[] nativeGlyphSegments,
  NativePositionedGlyph[] nativeGlyphs,
@@ -321,6 +340,37 @@ TtfFont? glyphFont = useGlyphScene ? InterFontFamily.Regular : null;
             logicalWidth,
             logicalHeight)
         : ([], [], [], [], []);
+int semanticFamilyCount = Math.Max(8, rectangleCount / 8);
+float semanticWidth = logicalWidth * 0.5f;
+float semanticHeight = logicalHeight * 0.5f;
+NativeAnalyticPrimitive[] semanticAnalyticPrimitives = useSemanticScene
+    ? CreateAnalyticPrimitives(
+        semanticFamilyCount,
+        forcedKind: -1,
+        semanticWidth,
+        semanticHeight)
+    : [];
+(NativeScenePathFill[] semanticPaths,
+ NativePathSegment[] semanticPathSegments) = useSemanticScene
+    ? CreateSemanticPaths(
+        semanticFamilyCount,
+        semanticWidth,
+        semanticHeight,
+        xOffset: semanticWidth)
+    : ([], []);
+(NativeSceneGlyphOutline[] semanticGlyphOutlines,
+ NativePathSegment[] semanticGlyphSegments,
+ NativePositionedGlyph[] semanticGlyphs,
+ ushort[] semanticManagedGlyphIndices,
+ Vector2[] semanticManagedGlyphPositions) = useSemanticScene
+    ? CreateSemanticGlyphScene(
+        glyphFont!,
+        semanticFamilyCount,
+        dpiScale,
+        semanticWidth,
+        semanticHeight,
+        yOffset: semanticHeight)
+    : ([], [], [], [], []);
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
 NativeImageRect drawClip = new(
     logicalWidth * 0.2f,
@@ -350,9 +400,11 @@ NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
 NativePathFrameMetrics lastNativePathMetrics = default;
 NativeGeometryFrameMetrics lastNativeGeometryMetrics = default;
 NativeImageFrameMetrics lastNativeImageMetrics = default;
+NativeSceneUpdateMetrics nativeSceneUpdateMetrics = default;
+NativeSceneFrameMetrics lastNativeSceneMetrics = default;
 const uint benchmarkImageWidth = 192U;
 const uint benchmarkImageHeight = 128U;
-byte[] imagePixels = useImageScene
+byte[] imagePixels = useImageScene || useSemanticScene
     ? CreateImagePixels(benchmarkImageWidth, benchmarkImageHeight)
     : [];
 byte[] imageMaskPixels = useMaskedImageScene || useTextureGroupMask
@@ -369,7 +421,7 @@ using var managedTarget = CreateTarget(context, "Managed benchmark target");
 using GpuTexture? managedBlendSourceTarget = useGroupBlend
     ? CreateTarget(context, "Managed retained group-blend source")
     : null;
-using GpuTexture? managedImageTexture = useImageScene
+using GpuTexture? managedImageTexture = useImageScene || useSemanticScene
     ? new GpuTexture(
         context,
         benchmarkImageWidth,
@@ -498,6 +550,68 @@ if (useGroupBlend)
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
 using var native = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+const ulong semanticSceneId = 0x53454D414E544943UL;
+const ulong semanticSceneGeneration = 1UL;
+byte[] semanticSceneBuffer = useSemanticScene
+    ? new byte[GetSemanticSceneBufferSize(
+        semanticAnalyticPrimitives,
+        semanticPaths,
+        semanticPathSegments,
+        semanticGlyphOutlines,
+        semanticGlyphSegments,
+        semanticGlyphs,
+        imagePixels)]
+    : [];
+int semanticSceneLength = 0;
+if (useSemanticScene)
+{
+    var semanticImageDraw = new NativeSceneImageDraw(
+        benchmarkImageWidth,
+        benchmarkImageHeight,
+        benchmarkImageWidth * 4U,
+        NativeImageSampling.Nearest,
+        new NativeImageRect(
+            0f,
+            0f,
+            benchmarkImageWidth,
+            benchmarkImageHeight),
+        new NativeImageRect(
+            semanticWidth + 80f,
+            semanticHeight + 60f,
+            semanticWidth - 160f,
+            semanticHeight - 120f),
+        Matrix3x2.Identity,
+        1f);
+    semanticSceneLength = BuildSemanticScene(
+        semanticSceneBuffer,
+        semanticSceneId,
+        semanticSceneGeneration,
+        semanticAnalyticPrimitives,
+        semanticPaths,
+        semanticPathSegments,
+        semanticGlyphOutlines,
+        semanticGlyphSegments,
+        semanticGlyphs,
+        imagePixels,
+        in semanticImageDraw,
+        logicalWidth,
+        logicalHeight);
+    nativeSceneUpdateMetrics = native.UpdateScene(
+        semanticSceneBuffer.AsSpan(0, semanticSceneLength));
+    NativeSceneUpdateMetrics retainedUpdate = native.UpdateScene(
+        semanticSceneBuffer.AsSpan(0, semanticSceneLength));
+    if (nativeSceneUpdateMetrics.CommandCount != 4U ||
+        nativeSceneUpdateMetrics.ResourceCount != 4U ||
+        nativeSceneUpdateMetrics.DrawCount != 4U ||
+        nativeSceneUpdateMetrics.SnapshotReused ||
+        !retainedUpdate.SnapshotReused ||
+        retainedUpdate.SnapshotBytes != nativeSceneUpdateMetrics.SnapshotBytes)
+    {
+        throw new InvalidOperationException(
+            "The retained mixed semantic-scene snapshot contract was not met: " +
+            $"initial={nativeSceneUpdateMetrics}, retained={retainedUpdate}.");
+    }
+}
 using var managed = new Compositor(
     context,
     TextureFormat.Rgba8Unorm,
@@ -547,6 +661,21 @@ DrawingVisual managedVisual = useImageScene
         logicalWidth,
         logicalHeight)
         : CreateManagedVisual(rectangles, logicalWidth, logicalHeight);
+Visual managedContentRoot = useSemanticScene
+    ? CreateManagedSemanticScene(
+        semanticAnalyticPrimitives,
+        semanticManagedGlyphIndices,
+        semanticManagedGlyphPositions,
+        glyphFont!,
+        managedImageTexture!,
+        benchmarkImageWidth,
+        benchmarkImageHeight,
+        semanticFamilyCount,
+        semanticWidth,
+        semanticHeight,
+        logicalWidth,
+        logicalHeight)
+    : managedVisual;
 BlurEffect? managedBlurEffect = null;
 DropShadowEffect? managedDropShadowEffect = null;
 if (useDrawState)
@@ -642,7 +771,7 @@ else if (useDropShadowGroupEffect)
         logicalHeight);
     managedVisual.EffectRasterPadding = 0f;
 }
-Visual managedRenderRoot = managedVisual;
+Visual managedRenderRoot = managedContentRoot;
 if (useGroupEffectChain)
 {
     var outerEffectVisual = new ContainerVisual
@@ -942,6 +1071,18 @@ if (useGroupEffect)
 // Compare a second fully warmed submission, not the pipeline's first draw.
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
 NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
+if (useSemanticScene &&
+    (lastNativeSceneMetrics.CommandCount != 4U ||
+     lastNativeSceneMetrics.DrawCallCount != 4U ||
+     lastNativeSceneMetrics.FamilySwitchCount != 4U ||
+     lastNativeSceneMetrics.SubmissionCount != 1UL ||
+     lastNativeSceneMetrics.TextureUploadBytes != 0UL ||
+     lastNativeSceneMetrics.CoverageStagingBytes != 0UL))
+{
+    throw new InvalidOperationException(
+        "Stable mixed semantic-scene replay did not preserve one ordered " +
+        "submission with retained image/path/glyph resources.");
+}
 if (useGroupMask &&
     (!stableLayerMetrics.CacheHit ||
      stableLayerMetrics.ContentPassCount != 0U ||
@@ -1058,7 +1199,9 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string familyStem = useImageScene
+    string familyStem = useSemanticScene
+        ? "semantic-scene"
+        : useImageScene
         ? "images"
         : useGlyphScene
         ? "glyphs"
@@ -1069,7 +1212,9 @@ if (writeImages)
         : useAnalyticScene
         ? "analytic"
         : "solid";
-    string imageStem = useGroupEffectChain
+    string imageStem = useSemanticScene
+        ? "semantic-scene"
+        : useGroupEffectChain
         ? $"group-effect-chain-{familyStem}"
         : useDropShadowGroupEffect
         ? $"group-drop-shadow-{familyStem}"
@@ -1164,10 +1309,11 @@ if (forceAtlasGrowth && useGlyphScene && nativeAtlasGrowthCount == 0U)
     throw new InvalidOperationException(
         "The native glyph atlas did not publish its growth count.");
 }
-bool requiresExactPixels = (useImageScene && !useMaskedImageScene) || useGlyphScene ||
+bool requiresExactPixels = !useSemanticScene &&
+    ((useImageScene && !useMaskedImageScene) || useGlyphScene ||
     (!useImageScene && !useGlyphScene && !useAnalyticScene &&
-     !useGeometryScene && !usePathScene && dpiScale == 1f);
-bool usesGeometryDifferential = useGeometryScene || usePathScene;
+     !useGeometryScene && !usePathScene && dpiScale == 1f));
+bool usesGeometryDifferential = useSemanticScene || useGeometryScene || usePathScene;
 bool usesTightDifferential =
     (useAnalyticScene && analyticKind is 1 or 2) ||
     (!useAnalyticScene && !useGeometryScene && !requiresExactPixels);
@@ -1180,6 +1326,8 @@ bool usesCommonMaskDifferential = useGroupMask &&
 bool usesDrawStateClipImage = useDrawState && useImageScene;
 int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
+    : useSemanticScene
+    ? 64
     : useVectorClipChain
     ? usesGeometryDifferential ? 204 : 64
     : useGroupEffectChain
@@ -1198,6 +1346,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
 int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
+        : useSemanticScene
+        ? Math.Max(1, comparison.PixelCount / 1000)
         : useGroupEffect
         ? Math.Max(1, comparison.PixelCount / 100)
         : useGroupBlend
@@ -1217,6 +1367,11 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useSemanticScene
+    // The managed and native retained path/glyph atlases independently own
+    // subpixel coverage ties. The image and analytic quadrants remain exact;
+    // constrain the mixed aggregate to two thousandths of one byte/channel.
+    ? 0.002
     : useGroupEffectChain
     // Two independently quantized RGBA8 intermediate graphs can accumulate
     // two one-byte edge decisions. Analytic source coverage is independently
@@ -1432,7 +1587,9 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: useImageScene
+    Scene: useSemanticScene
+        ? "RetainedMixedSemanticScene"
+        : useImageScene
         ? useExternalImageScene
             ? useMaskedImageScene
                 ? "ZeroCopyMaskedExternalRgbaImage"
@@ -1453,7 +1610,9 @@ var report = new BenchmarkReport(
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
-    DifferentialContract: usesDrawStateClipImage
+    DifferentialContract: useSemanticScene
+        ? "Matched retained analytic/path/glyph/image semantic scene; bounded independent path/glyph coverage edge ownership"
+        : usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
         : useGroupEffectChain
         ? "Bounded two-node blur/drop-shadow chain differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.130/255 for analytic source coverage and 0.125/255 otherwise"
@@ -1545,6 +1704,8 @@ var report = new BenchmarkReport(
     NativeAtlasGrowthCount: nativeAtlasGrowthCount,
     NativeImageTextureUploadBytes: nativeImageTextureUploadBytes,
     NativeImageTextureGeneration: nativeImageTextureGeneration,
+    NativeSceneUpdateMetrics: nativeSceneUpdateMetrics,
+    NativeSceneFrameMetrics: lastNativeSceneMetrics,
     NativeLayerMetrics: nativeLayerMetrics,
     PixelParity: comparison);
 
@@ -1595,6 +1756,26 @@ ulong RenderNative(bool capturePayloadHash = false)
                 nativeDrawState.GroupMask,
                 timedEffect);
         }
+    }
+    if (useSemanticScene)
+    {
+        lastNativeSceneMetrics = native.RenderScene(
+            nativeTarget,
+            dpiScale,
+            semanticSceneId,
+            semanticSceneGeneration,
+            clearColor);
+        nativePathUploadBytes = Math.Max(
+            nativePathUploadBytes,
+            lastNativeSceneMetrics.VertexUploadBytes +
+            lastNativeSceneMetrics.IndexUploadBytes);
+        nativeCoverageStagingBytes = Math.Max(
+            nativeCoverageStagingBytes,
+            lastNativeSceneMetrics.CoverageStagingBytes);
+        nativeImageTextureUploadBytes = Math.Max(
+            nativeImageTextureUploadBytes,
+            lastNativeSceneMetrics.TextureUploadBytes);
+        return lastNativeSceneMetrics.PayloadHash;
     }
     if (useImageScene)
     {
@@ -2054,6 +2235,164 @@ static DrawingVisual CreateManagedImageVisual(
         visual.OpacityMaskBounds = destination;
     }
     return visual;
+}
+
+static ContainerVisual CreateManagedSemanticScene(
+    ReadOnlySpan<NativeAnalyticPrimitive> analyticPrimitives,
+    ushort[] glyphIndices,
+    Vector2[] glyphPositions,
+    TtfFont glyphFont,
+    GpuTexture imageTexture,
+    uint imageWidth,
+    uint imageHeight,
+    int familyCount,
+    float quadrantWidth,
+    float quadrantHeight,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var root = new ContainerVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    DrawingVisual analytic = CreateManagedAnalyticVisual(
+        analyticPrimitives,
+        quadrantWidth,
+        quadrantHeight);
+    DrawingVisual paths = CreateManagedPathVisual(
+        familyCount,
+        quadrantWidth,
+        quadrantHeight,
+        forceAtlasGrowth: false);
+    paths.Offset = new Vector2(quadrantWidth, 0f);
+    DrawingVisual glyphs = CreateManagedGlyphVisual(
+        glyphFont,
+        glyphIndices,
+        glyphPositions,
+        quadrantWidth,
+        quadrantHeight);
+    glyphs.Offset = new Vector2(0f, quadrantHeight);
+    DrawingVisual image = CreateManagedImageVisual(
+        imageTexture,
+        maskTexture: null,
+        imageWidth,
+        imageHeight,
+        quadrantWidth,
+        quadrantHeight);
+    image.Offset = new Vector2(quadrantWidth, quadrantHeight);
+    root.AddChild(analytic);
+    root.AddChild(paths);
+    root.AddChild(glyphs);
+    root.AddChild(image);
+    return root;
+}
+
+static int GetSemanticSceneBufferSize(
+    ReadOnlySpan<NativeAnalyticPrimitive> analyticPrimitives,
+    ReadOnlySpan<NativeScenePathFill> paths,
+    ReadOnlySpan<NativePathSegment> pathSegments,
+    ReadOnlySpan<NativeSceneGlyphOutline> glyphOutlines,
+    ReadOnlySpan<NativePathSegment> glyphSegments,
+    ReadOnlySpan<NativePositionedGlyph> glyphs,
+    ReadOnlySpan<byte> imagePixels)
+{
+    int arenaCapacity = checked(
+        analyticPrimitives.Length * Unsafe.SizeOf<NativeAnalyticPrimitive>() +
+        paths.Length * Unsafe.SizeOf<NativeScenePathFill>() +
+        pathSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
+        glyphOutlines.Length * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
+        glyphSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
+        glyphs.Length * Unsafe.SizeOf<NativePositionedGlyph>() +
+        imagePixels.Length +
+        Unsafe.SizeOf<NativeSceneImageDraw>() +
+        128);
+    return NativeSceneStreamBuilder.GetRequiredBufferSize(
+        commandCapacity: 4,
+        resourceCapacity: 4,
+        arenaCapacity);
+}
+
+static int BuildSemanticScene(
+    Span<byte> destination,
+    ulong sceneId,
+    ulong generation,
+    ReadOnlySpan<NativeAnalyticPrimitive> analyticPrimitives,
+    ReadOnlySpan<NativeScenePathFill> paths,
+    ReadOnlySpan<NativePathSegment> pathSegments,
+    ReadOnlySpan<NativeSceneGlyphOutline> glyphOutlines,
+    ReadOnlySpan<NativePathSegment> glyphSegments,
+    ReadOnlySpan<NativePositionedGlyph> glyphs,
+    ReadOnlySpan<byte> imagePixels,
+    in NativeSceneImageDraw imageDraw,
+    float logicalWidth,
+    float logicalHeight)
+{
+    var builder = new NativeSceneStreamBuilder(
+        destination,
+        sceneId,
+        generation,
+        commandCapacity: 4,
+        resourceCapacity: 4);
+    ReadOnlySpan<byte> stream = default;
+    bool success = builder.TryAddAnalyticResource(
+            resourceId: 1U,
+            generation,
+            analyticPrimitives,
+            out uint analyticResource) &&
+        builder.TryAddPathResource(
+            resourceId: 2U,
+            generation,
+            paths,
+            pathSegments,
+            out uint pathResource) &&
+        builder.TryAddGlyphResource(
+            resourceId: 3U,
+            generation,
+            glyphOutlines,
+            glyphSegments,
+            out uint glyphResource) &&
+        builder.TryAddImageResource(
+            resourceId: 4U,
+            generation,
+            imagePixels,
+            out uint imageResource) &&
+        builder.TryDrawAnalytic(
+            commandId: 1U,
+            analyticResource,
+            new NativeImageRect(0f, 0f, logicalWidth * 0.5f, logicalHeight * 0.5f)) &&
+        builder.TryDrawPath(
+            commandId: 2U,
+            pathResource,
+            new NativeImageRect(
+                logicalWidth * 0.5f,
+                0f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f)) &&
+        builder.TryDrawGlyphRun(
+            commandId: 3U,
+            glyphResource,
+            new NativeImageRect(
+                0f,
+                logicalHeight * 0.5f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f),
+            glyphs) &&
+        builder.TryDrawImage(
+            commandId: 4U,
+            imageResource,
+            new NativeImageRect(
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f),
+            in imageDraw) &&
+        builder.TryBuild(out stream);
+    if (!success)
+    {
+        throw new InvalidOperationException(
+            "The matched semantic-scene benchmark stream could not be built.");
+    }
+    return stream.Length;
 }
 
 static NativeSolidRectangle[] CreateRectangles(
@@ -2952,6 +3291,91 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
     return (paths, segments);
 }
 
+static (NativeScenePathFill[] Paths, NativePathSegment[] Segments)
+    CreateSemanticPaths(
+        int count,
+        float logicalWidth,
+        float logicalHeight,
+        float xOffset)
+{
+    (NativePathFill[] sourcePaths, NativePathSegment[] segments) =
+        CreateNativePaths(
+            count,
+            logicalWidth,
+            logicalHeight,
+            forceUniqueOutlines: false);
+    var paths = new NativeScenePathFill[sourcePaths.Length];
+    for (int index = 0; index < sourcePaths.Length; ++index)
+    {
+        NativePathFill source = sourcePaths[index];
+        Matrix3x2 transform = source.Transform;
+        transform.M31 += xOffset;
+        paths[index] = new NativeScenePathFill(
+            (ulong)source.SegmentOffset,
+            (ulong)source.SegmentCount,
+            source.Minimum,
+            source.Maximum,
+            source.Color,
+            transform,
+            source.FillRule,
+            source.SampleGrid);
+    }
+    return (paths, segments);
+}
+
+static (
+    NativeSceneGlyphOutline[] Outlines,
+    NativePathSegment[] Segments,
+    NativePositionedGlyph[] Glyphs,
+    ushort[] GlyphIndices,
+    Vector2[] GlyphPositions) CreateSemanticGlyphScene(
+        TtfFont font,
+        int count,
+        float dpiScale,
+        float logicalWidth,
+        float logicalHeight,
+        float yOffset)
+{
+    (NativeGlyphOutline[] sourceOutlines,
+     NativePathSegment[] segments,
+     NativePositionedGlyph[] sourceGlyphs,
+     ushort[] glyphIndices,
+     Vector2[] glyphPositions) = CreateGlyphScene(
+        font,
+        count,
+        dpiScale,
+        logicalWidth,
+        logicalHeight,
+        forceUniqueOutlines: false);
+    var outlines = new NativeSceneGlyphOutline[sourceOutlines.Length];
+    for (int index = 0; index < sourceOutlines.Length; ++index)
+    {
+        NativeGlyphOutline source = sourceOutlines[index];
+        outlines[index] = new NativeSceneGlyphOutline(
+            (ulong)source.SegmentOffset,
+            (ulong)source.SegmentCount,
+            source.Minimum,
+            source.Maximum,
+            source.RasterScale,
+            source.SubpixelX);
+    }
+    var glyphs = new NativePositionedGlyph[sourceGlyphs.Length];
+    for (int index = 0; index < sourceGlyphs.Length; ++index)
+    {
+        NativePositionedGlyph source = sourceGlyphs[index];
+        glyphs[index] = new NativePositionedGlyph(
+            source.OutlineIndex,
+            source.Position + new Vector2(0f, yOffset),
+            source.BasisX,
+            source.BasisY,
+            source.Color,
+            source.AtlasToLogicalScale,
+            source.BoldOffset,
+            source.ItalicSkew);
+    }
+    return (outlines, segments, glyphs, glyphIndices, glyphPositions);
+}
+
 static (NativeClipChain Native, PathGeometry Managed) CreateVectorClipChain(
     float logicalWidth,
     float logicalHeight)
@@ -3434,6 +3858,8 @@ internal sealed record BenchmarkReport(
     uint NativeAtlasGrowthCount,
     ulong NativeImageTextureUploadBytes,
     uint NativeImageTextureGeneration,
+    NativeSceneUpdateMetrics NativeSceneUpdateMetrics,
+    NativeSceneFrameMetrics NativeSceneFrameMetrics,
     NativeLayerMetrics NativeLayerMetrics,
     PixelComparison PixelParity);
 

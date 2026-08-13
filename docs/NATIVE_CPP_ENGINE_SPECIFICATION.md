@@ -1161,6 +1161,16 @@ O(C) CPU work and O(C) submissions in an adversarial repeated-domain sequence;
 the target is O(C) compilation with submissions bounded by the compiled render
 graph rather than command count.
 
+The cross-engine substitution harness now exercises this exact boundary with
+one equivalent managed retained visual tree and one pointer-free native scene.
+It publishes CPU submission and GPU-completion distributions separately,
+allocation/upload/submission metrics, and native/managed/amplified-difference
+captures. The native path is required to report one ABI call, four ordered
+draws, and one submission for the four distinct domains. This closes the
+functional matched-scene evidence item, not the d3b1 performance item: long
+paired distributions, Instruments correlation, checked aggregate budgets, and
+repeated-domain compiled pages remain required.
+
 Materialized layers use a depth-indexed pool keyed by device-loss generation,
 format, physical extent, usage, and sample count. The initial contract permits
 at most 16 simultaneously materialized layers and eight effect nodes per layer.

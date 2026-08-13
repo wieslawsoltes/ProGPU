@@ -355,12 +355,26 @@ it before submission, preserves the prior submission token, and the subsequent
 IOSurface pixel verification proves that no earlier draw or clear reached the
 target.
 
+The managed/native application harness now exposes `--semantic-scene` for the
+same substitution boundary at 960 by 540. It retains four quadrant-local
+families through the managed production visual tree and installs the equivalent
+four-resource pointer-free native snapshot once. Every measured native frame
+must report four ordered draws, four family entries, one command buffer/queue
+submission, no stable image upload, and no stable path/glyph coverage staging.
+Both measured routes allocate exactly zero managed bytes after warm-up. The
+native, managed, and 64-times-amplified difference captures are written as
+`semantic-scene-{native,managed,difference-64x}.ppm`; the first Apple M3 Pro
+functional run changed 106 of 518,400 pixels beyond 3/255, with maximum 55/255
+and mean absolute difference 0.001334/255 per channel, confined to independent
+path/glyph coverage ties. macOS/Linux and runnable Windows native build lanes
+execute this mode as an integration smoke. This short functional run is not a
+timing claim; matched long distributions and Instruments evidence remain open.
+
 This checkpoint does not close d3b1. Before performance evidence is recorded,
 the native compiler must complete checked whole-scene compilation budgets,
-adjacent family batching and encoder reuse, complete stable upload/allocation
-counters, a matched managed scene, differential screenshots, distributions,
-and macOS native/.NET/GPU profiles. State resources and isolated layers remain
-d3b2.
+repeated-domain coalescing/paged buffers, complete stable native-allocation
+counters, matched long distributions, and macOS native/.NET/GPU profiles.
+State resources and isolated layers remain d3b2.
 
 ## Root-group blend/compositing supplement
 

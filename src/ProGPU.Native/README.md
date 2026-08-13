@@ -91,6 +91,25 @@ the same retained scene into two textures on one device, rejects pixel drift,
 alternates measurement order, and reports p50/p95/worst CPU submission plus
 managed allocation. It does not by itself establish whole-engine parity.
 
+Use `--semantic-scene` for the first whole-scene substitution benchmark rather
+than a single-family call:
+
+```sh
+DYLD_LIBRARY_PATH="$PWD/artifacts/progpu-native/build:$PWD/artifacts/progpu-native/runtime" \
+  dotnet run --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj -c Release -- \
+  --semantic-scene --rectangles 384 --warmup 120 --iterations 600 --sync --write-images
+```
+
+Both sides retain the same four-quadrant analytic/path/glyph/image workload.
+The native side installs one versioned pointer-free snapshot and renders it
+through one C ABI call, one command buffer, and one queue submission. The
+managed side uses the production retained `Visual`/`Compositor` path. The
+report separates CPU submission from GPU-completion wait, publishes snapshot
+and frame metrics, checks zero managed allocation after warm-up, and writes
+native, managed, and amplified-difference images. Use multiple alternating
+Release runs and the required platform profilers before making a performance
+claim from this mode.
+
 Add `--group-vector-clip-chain --write-images` to apply the retained
 intersection/difference path-mask gate to the selected family. The chain uses
 independent affine transforms and cubic coverage, validates mutation rebuilds,
