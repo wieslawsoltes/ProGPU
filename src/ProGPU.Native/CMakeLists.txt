@@ -267,6 +267,11 @@ add_library(progpu_native SHARED
     src/progpu_native_geometry_spline.hpp
     src/progpu_native_geometry_stroke.hpp
     src/progpu_native_gpu_records.hpp
+    src/progpu_native_clip_resources.cpp
+    src/progpu_native_image_layer_resources.cpp
+    src/progpu_native_path_text_resources.cpp
+    src/progpu_native_pipeline.cpp
+    src/progpu_native_pipeline.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
     src/progpu_native_semantic_budget.hpp
@@ -326,6 +331,11 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_geometry_spline.hpp
         src/progpu_native_geometry_stroke.hpp
         src/progpu_native_gpu_records.hpp
+        src/progpu_native_clip_resources.cpp
+        src/progpu_native_image_layer_resources.cpp
+        src/progpu_native_path_text_resources.cpp
+        src/progpu_native_pipeline.cpp
+        src/progpu_native_pipeline.hpp
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp

@@ -1420,22 +1420,38 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("EmbedShader.cmake", cmake, StringComparison.Ordinal);
 
-        string nativeSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native.cpp"));
+        string pipelineSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_pipeline.cpp"));
         Assert.Contains(
             "VectorWgsl.generated.hpp",
-            nativeSource,
+            pipelineSource,
             StringComparison.Ordinal);
+        string pathTextSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_path_text_resources.cpp"));
         Assert.Contains(
             "GlyphRasterizerWgsl.generated.hpp",
-            nativeSource,
+            pathTextSource,
             StringComparison.Ordinal);
         Assert.Contains(
             "TextWgsl.generated.hpp",
-            nativeSource,
+            pathTextSource,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("@vertex", nativeSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("@fragment", nativeSource, StringComparison.Ordinal);
+        string imageLayerSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_image_layer_resources.cpp"));
+        string clipSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_clip_resources.cpp"));
+        foreach (string source in new[]
+                 {
+                     pipelineSource,
+                     pathTextSource,
+                     imageLayerSource,
+                     clipSource,
+                 })
+        {
+            Assert.DoesNotContain("@vertex", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("@fragment", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("@compute", source, StringComparison.Ordinal);
+        }
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-wgpu.version.json")));

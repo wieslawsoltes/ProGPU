@@ -34,7 +34,13 @@ engine's WebGPU handles, cache state, release ordering, and buffer-growth
 invariants; `progpu_native_semantic_replay.hpp` owns the retained GPU page,
 bundle-span, effect-dispatch, and layer-slot records; and
 `progpu_native_webgpu_resources.hpp` owns the non-copyable temporary path-raster
-handle group. Exported entry points and pipeline construction stay in the main
+handle group. Pipeline ownership is split by resource family:
+`progpu_native_pipeline.cpp` owns vector/analytic construction and shared
+uniform creation, `progpu_native_path_text_resources.cpp` owns path and glyph
+compute/atlas/text resources, `progpu_native_image_layer_resources.cpp` owns
+image, layer-mask, and fixed/advanced blend pipelines, and
+`progpu_native_clip_resources.cpp` owns retained clip textures, buffers, and
+bindings. Exported entry points and frame execution stay in the main
 translation unit. Both wgpu-native and Dawn targets compile the same private
 module set. The CPU-only modules are also compiled directly into focused
 internal tests so their behavior cannot depend on WebGPU startup.

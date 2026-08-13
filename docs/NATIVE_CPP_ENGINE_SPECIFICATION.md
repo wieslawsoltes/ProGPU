@@ -211,9 +211,15 @@ effect-dispatch, and layer-slot records are isolated in
 from engine lifetime. Temporary path-raster buffers are an explicitly
 non-copyable RAII group in `progpu_native_webgpu_resources.hpp`; releasing
 caller ownership never destroys a buffer still retained by an encoder or
-submitted command buffer. Exported C entry points and pipeline-construction
-helpers remain in `progpu_native.cpp`, so backend selection and ABI policy stay
-centralized while lifetime ownership is independently reviewable.
+submitted command buffer. Vector/analytic construction and common uniform
+creation live in `progpu_native_pipeline.cpp`; path/text compute, atlas, and
+draw resources live in `progpu_native_path_text_resources.cpp`; image,
+layer-mask, and blend pipelines live in
+`progpu_native_image_layer_resources.cpp`; and retained clip GPU resources live
+in `progpu_native_clip_resources.cpp`. Exported C entry points and frame
+execution remain in `progpu_native.cpp`, so backend selection and ABI policy
+stay centralized while pipeline and lifetime ownership are independently
+reviewable.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally
