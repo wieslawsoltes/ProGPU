@@ -600,9 +600,9 @@ if (useSemanticScene)
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
     NativeSceneUpdateMetrics retainedUpdate = native.UpdateScene(
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
-    if (nativeSceneUpdateMetrics.CommandCount != 4U ||
-        nativeSceneUpdateMetrics.ResourceCount != 4U ||
-        nativeSceneUpdateMetrics.DrawCount != 4U ||
+    if (nativeSceneUpdateMetrics.CommandCount != 5U ||
+        nativeSceneUpdateMetrics.ResourceCount != 5U ||
+        nativeSceneUpdateMetrics.DrawCount != 5U ||
         nativeSceneUpdateMetrics.SnapshotReused ||
         !retainedUpdate.SnapshotReused ||
         retainedUpdate.SnapshotBytes != nativeSceneUpdateMetrics.SnapshotBytes)
@@ -1072,9 +1072,9 @@ if (useGroupEffect)
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
 NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
 if (useSemanticScene &&
-    (lastNativeSceneMetrics.CommandCount != 4U ||
-     lastNativeSceneMetrics.DrawCallCount != 4U ||
-     lastNativeSceneMetrics.FamilySwitchCount != 4U ||
+    (lastNativeSceneMetrics.CommandCount != 5U ||
+     lastNativeSceneMetrics.DrawCallCount != 5U ||
+     lastNativeSceneMetrics.FamilySwitchCount != 5U ||
      lastNativeSceneMetrics.SubmissionCount != 1UL ||
      lastNativeSceneMetrics.VertexUploadBytes != 0UL ||
      lastNativeSceneMetrics.IndexUploadBytes != 0UL ||
@@ -2309,8 +2309,8 @@ static int GetSemanticSceneBufferSize(
         Unsafe.SizeOf<NativeSceneImageDraw>() +
         128);
     return NativeSceneStreamBuilder.GetRequiredBufferSize(
-        commandCapacity: 4,
-        resourceCapacity: 4,
+        commandCapacity: 5,
+        resourceCapacity: 5,
         arenaCapacity);
 }
 
@@ -2329,17 +2329,27 @@ static int BuildSemanticScene(
     float logicalWidth,
     float logicalHeight)
 {
+    int analyticSplit = Math.Max(1, analyticPrimitives.Length / 2);
+    ReadOnlySpan<NativeAnalyticPrimitive> firstAnalytic =
+        analyticPrimitives[..analyticSplit];
+    ReadOnlySpan<NativeAnalyticPrimitive> secondAnalytic =
+        analyticPrimitives[analyticSplit..];
+    if (secondAnalytic.IsEmpty)
+    {
+        throw new InvalidOperationException(
+            "The matched semantic scene requires two analytic payloads.");
+    }
     var builder = new NativeSceneStreamBuilder(
         destination,
         sceneId,
         generation,
-        commandCapacity: 4,
-        resourceCapacity: 4);
+        commandCapacity: 5,
+        resourceCapacity: 5);
     ReadOnlySpan<byte> stream = default;
     bool success = builder.TryAddAnalyticResource(
             resourceId: 1U,
             generation,
-            analyticPrimitives,
+            firstAnalytic,
             out uint analyticResource) &&
         builder.TryAddPathResource(
             resourceId: 2U,
@@ -2358,6 +2368,11 @@ static int BuildSemanticScene(
             generation,
             imagePixels,
             out uint imageResource) &&
+        builder.TryAddAnalyticResource(
+            resourceId: 5U,
+            generation,
+            secondAnalytic,
+            out uint secondAnalyticResource) &&
         builder.TryDrawAnalytic(
             commandId: 1U,
             analyticResource,
@@ -2388,6 +2403,14 @@ static int BuildSemanticScene(
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f),
             in imageDraw) &&
+        builder.TryDrawAnalytic(
+            commandId: 5U,
+            secondAnalyticResource,
+            new NativeImageRect(
+                0f,
+                0f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f)) &&
         builder.TryBuild(out stream);
     if (!success)
     {

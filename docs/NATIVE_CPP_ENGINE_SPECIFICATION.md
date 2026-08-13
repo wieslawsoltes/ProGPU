@@ -1129,11 +1129,11 @@ submission. It validates analytic geometry and transforms; path/glyph segment
 kinds, points, reserved encodings, ranges, bounds, transforms, sample grids,
 raster scales, phases, and positioned-glyph values; and complete image sizes,
 strides, rectangles, transforms, sampling, and opacity. A late invalid draw
-therefore cannot submit or mutate an earlier target result. Therefore d3b1
-remains incomplete only at the checked compilation-budget boundary: the next
-pass must compute exact or checked upper bounds for batch vertices, indices,
-glyph instances, aggregate atlas demand, layer pixels, and effect passes and
-reject a live set above configured budgets before target mutation.
+therefore cannot submit or mutate an earlier target result. The same pass now
+uses checked 64-bit accumulation to bound draw passes, expanded vertices,
+indices, image bytes, aligned path/glyph coverage, and their aggregate before
+encoder creation. Layer pixels and effect-pass budgets join this preflight when
+nested state is enabled in d3b2.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1151,25 +1151,32 @@ contents across family switches by clearing on the first draw and loading on
 later draws. It crosses the public ABI once per frame and shares one encoder
 across dedicated analytic, retained-path, glyph-instance, and image buffer
 domains. The four-family fixture therefore needs one command buffer and one
-submission instead of four. Reusing a domain flushes the current graph before
-its payload can be overwritten, so arbitrary display-list order remains
-correct. This is intentionally a conservative batching checkpoint, not the
-final performance topology: adjacent same-family coalescing, paged buffers,
-visibility culling, and stable multi-command compiled pages remain required
-before the d3b1 checkbox closes. For C semantic commands, dispatch is currently
-O(C) CPU work and O(C) submissions in an adversarial repeated-domain sequence;
-the target is O(C) compilation with submissions bounded by the compiled render
-graph rather than command count.
+submission instead of four. All analytic commands in an immutable scene compile
+into one retained vertex/index page with per-draw offsets. Distinct analytic
+payloads can therefore recur around other families without overwriting data or
+flushing the encoder; an analytic→path→glyph→image→different-analytic hardware
+fixture proves five ordered passes in one submission. Reusing a distinct path,
+glyph, or image domain remains conservative and flushes before its shared
+payload can be overwritten. Equivalent retained pages, visibility culling, and
+stable multi-command atlas/texture ownership remain required before the d3b1
+checkbox closes. Dispatch remains O(C) CPU work; submissions are already
+independent of analytic command count and will become bounded by the compiled
+render graph for every family as their pages land. A changed analytic page is
+O(C + A) time and O(Ca + A) temporary/retained storage for C commands, Ca
+analytic commands, and A expanded analytic vertices/indices. Stable replay is
+O(C) command dispatch with O(1) engine-owned auxiliary storage and zero
+analytic payload upload.
 
 The cross-engine substitution harness now exercises this exact boundary with
 one equivalent managed retained visual tree and one pointer-free native scene.
 It publishes CPU submission and GPU-completion distributions separately,
 allocation/upload/submission metrics, and native/managed/amplified-difference
 captures. The native path is required to report one ABI call, four ordered
-draws, and one submission for the four distinct domains. This closes the
+family domains, five ordered draws, and one submission. This closes the
 functional matched-scene evidence item, not the d3b1 performance item: long
-paired distributions, Instruments correlation, checked aggregate budgets, and
-repeated-domain compiled pages remain required.
+paired distributions, Instruments correlation, and checked aggregate budgets
+are published; distinct path/glyph/image pages plus native-allocation proof
+remain required.
 
 Materialized layers use a depth-indexed pool keyed by device-loss generation,
 format, physical extent, usage, and sample count. The initial contract permits

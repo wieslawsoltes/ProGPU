@@ -332,30 +332,36 @@ Retained ignored evidence:
 The first d3b1 rendering checkpoint installs one immutable pointer-free scene
 and renders analytic, retained-path, positioned-glyph, and upload-backed image
 commands through one public native entry point. The compiler preserves order
-with one native command buffer/submission for the four-command fixture.
+with one native command buffer/submission for a five-command, four-family
+fixture whose analytic family has two distinct resources.
 Analytic, path, glyph, and image use distinct retained buffer domains and share
-the encoder. It is not yet the final paged/coalesced topology.
+the encoder. Analytic commands now use one scene-wide packed vertex/index page;
+path, glyph, and image still need equivalent distinct-content pages.
 
 The real pinned WebScene `02823bf` / Dawn `710c33013` / Metal provider test
 renders an analytic→path→glyph→image→analytic stream to a 64 by 48 GPU
 canvas, waits for the native submission token, and presents an IOSurface marked
 GPU-complete. The repeated analytic command is separated by all other buffer
-domains but references identical immutable content. Content-addressed family
-revisions coalesce both analytic uses onto the same retained payload, so all
-five passes remain ordered in one encoder and one queue submission. Exact
-interior pixel checks observe the dark clear color plus red analytic, green
-path, blue glyph, and yellow image regions in display-list order. The generated
-native checkpoint image is
+domains and references a second immutable resource with different geometry and
+color. The native compiler expands both resources into one packed analytic GPU
+page and records byte offsets for each draw, so all five passes remain ordered
+in one encoder and one queue submission without overwriting the first payload.
+Exact interior pixel checks observe the dark clear color plus red and cyan
+analytic regions, green path, blue glyph, and yellow image regions in
+display-list order. The generated native checkpoint image is
 `artifacts/progpu-native/build/progpu-native-semantic-scene.ppm` (with a local
 PNG inspection conversion beside it). The managed typed builder separately
 writes all four resource/command payloads into caller-owned memory with exactly
 zero managed bytes over 10,000 builds. A second render of the identical scene
-retains the snapshot hash and analytic vertex/index payload by immutable
-command revision, issues no vertex, index, image-texture, or path/glyph
+retains the snapshot hash and scene-wide analytic vertex/index page by immutable
+scene hash and DPI, issues no vertex, index, image-texture, or path/glyph
 coverage upload, and submits the same five ordered passes in one command
-buffer. Analytic draws no longer evict the distinct retained path buffers.
-Solid and geometry draws explicitly invalidate the shared analytic CPU/GPU
-payload so a later semantic replay cannot observe overwritten shared vectors.
+buffer. The packed page owns separate WebGPU buffers, so later path, glyph,
+image, solid, or geometry scratch compilation cannot overwrite it.
+Changed-page compilation is O(C + A) time and O(Ca + A) storage for C scene
+commands, Ca analytic commands, and A expanded vertices/indices; stable replay
+performs O(C) dispatch with O(1) engine-owned auxiliary storage and zero
+analytic payload upload.
 
 The same hardware gate then installs a structurally valid scene whose fourth
 image draw contains a non-finite opacity. Whole-scene value preflight rejects
@@ -366,8 +372,8 @@ target.
 The managed/native application harness exposes `--semantic-scene` for the same
 substitution boundary at 960 by 540. It retains four quadrant-local families
 through the managed production visual tree and installs the equivalent
-four-resource pointer-free native snapshot once. Every measured native frame
-must report four ordered draws, four family entries, one command buffer/queue
+five-resource pointer-free native snapshot once. Every measured native frame
+must report five ordered draws, five family entries, one command buffer/queue
 submission, and zero stable vertex, index, image, and coverage uploads. Both
 measured routes allocate exactly zero managed bytes after warm-up. The native,
 managed, and 64-times-amplified difference captures are written as
@@ -381,8 +387,9 @@ more than 0.005/255; stricter single-family contracts are unchanged. macOS,
 Linux, and runnable Windows native build lanes execute this mode as an
 integration smoke.
 
-Three independent paired 600-frame synchronized runs after 120 warm-ups
-produced these optimized median p95 values:
+Before the distinct-resource split, three independent paired 600-frame
+synchronized runs after 120 warm-ups produced these optimized median p95
+values:
 
 | Metric | Native C++ | Managed compositor | Native delta |
 | --- | ---: | ---: | ---: |
@@ -396,6 +403,23 @@ The matched pre-optimization distributions reported 21,504 stable vertex and
 ratio of 1.068. The optimized distributions report zero for both uploads and a
 ratio of 0.966. Absolute timings varied with machine load, so the paired ratio
 and retained-upload counters are the regression signals.
+
+The packed-page candidate repeats the same three-by-600 protocol with two
+distinct analytic resources and five ordered draws. Its median p95 values are:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+| --- | ---: | ---: | ---: |
+| CPU encode/upload/submit | 0.2416 ms | 0.2685 ms | 10.0% lower |
+| GPU-completion wait | 1.5436 ms | 1.5385 ms | within 0.4% |
+| Synchronized end to end | 1.7963 ms | 1.7797 ms | within 1.0% |
+| Stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+Every run reports five commands, five draws, five family entries, one
+submission, and zero stable vertex, index, texture, or coverage upload. The
+native end-to-end samples span both sides of managed across the three runs, so
+the 0.9% median difference is classified as on par rather than a regression or
+improvement. Raw reports are under
+`artifacts/progpu-native/performance/semantic-analytic-packed-page/run-{1,2,3}.json`.
 
 Correlated final-binary Time Profiler, Allocations plus VM Tracker, and Metal
 System Trace captures completed before and after. In the Metal capture, native
@@ -417,10 +441,11 @@ Retained ignored evidence:
 - inspected semantic native, managed, and 64-times difference PNGs under
   `artifacts/progpu-native/differential/`.
 
-This checkpoint does not close d3b1. Identical repeated-domain commands now
-coalesce without a flush; distinct payloads still require retained buffer,
-atlas, and texture pages. Stable native-allocation counters also remain open.
-Whole-scene preflight now checks a maximum 16,384 draw passes, 256 MiB of
+This checkpoint does not close d3b1. Identical analytic repeats coalesce and
+distinct analytic payloads share one retained packed page without a flush;
+distinct path, glyph, and image payloads still require retained buffer, atlas,
+and texture pages. Stable native-allocation counters also remain open.
+Whole-scene preflight checks a maximum 16,384 draw passes, 256 MiB of
 expanded vertices, 64 MiB of indices, 256 MiB each of textures and aligned
 coverage staging, and 512 MiB across those compiled domains. Accumulation uses
 checked 64-bit arithmetic and runs in O(C + V) time for C commands and V typed

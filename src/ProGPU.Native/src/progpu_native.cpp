@@ -966,6 +966,26 @@ struct semantic_compilation_budget {
 
 } // namespace
 
+struct semantic_analytic_draw {
+    std::uint64_t vertex_offset_bytes = 0U;
+    std::uint64_t index_offset_bytes = 0U;
+    std::uint32_t vertex_count = 0U;
+    std::uint32_t index_count = 0U;
+};
+
+struct semantic_analytic_page {
+    WGPUBuffer vertex_buffer = nullptr;
+    WGPUBuffer index_buffer = nullptr;
+    std::uint64_t vertex_buffer_size = 0U;
+    std::uint64_t index_buffer_size = 0U;
+    std::uint64_t vertex_bytes = 0U;
+    std::uint64_t index_bytes = 0U;
+    std::uint64_t scene_hash = 0U;
+    float dpi_scale = 0.0F;
+    bool cache_valid = false;
+    std::vector<semantic_analytic_draw> draws;
+};
+
 struct progpu_native_engine {
     std::thread::id owner_thread;
     progpu::native::webgpu::dispatch webgpu_dispatch{};
@@ -1040,12 +1060,6 @@ struct progpu_native_engine {
     std::array<progpu_native_point, 101U> spline_sampled_points{};
     std::vector<progpu::native::spline_homogeneous_point> spline_work;
     std::vector<std::byte> brush_bytes;
-    std::uint32_t semantic_analytic_revision = 0U;
-    std::uint32_t analytic_content_revision = 0U;
-    float analytic_dpi_scale = 0.0F;
-    float analytic_opacity = 1.0F;
-    bool analytic_cache_valid = false;
-    bool analytic_gpu_cache_valid = false;
     std::uint32_t geometry_content_revision = 0U;
     float geometry_opacity = 1.0F;
     std::uint64_t geometry_payload_hash = 0U;
@@ -1270,6 +1284,7 @@ struct progpu_native_engine {
     std::uint64_t semantic_scene_hash = 0U;
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
+    semantic_analytic_page semantic_analytic_cache;
     WGPUCommandEncoder semantic_encoder = nullptr;
     bool semantic_load_target = false;
     std::string last_error;
@@ -1532,6 +1547,112 @@ struct progpu_native_engine {
         effect_chain_drop_shadow_uniform_cache_valid.fill(false);
     }
 
+    void release_semantic_analytic_page() noexcept {
+        auto& page = semantic_analytic_cache;
+        if (page.index_buffer != nullptr) {
+            wgpuBufferDestroy(page.index_buffer);
+            wgpuBufferRelease(page.index_buffer);
+            page.index_buffer = nullptr;
+        }
+        if (page.vertex_buffer != nullptr) {
+            wgpuBufferDestroy(page.vertex_buffer);
+            wgpuBufferRelease(page.vertex_buffer);
+            page.vertex_buffer = nullptr;
+        }
+        page.index_buffer_size = 0U;
+        page.vertex_buffer_size = 0U;
+        page.index_bytes = 0U;
+        page.vertex_bytes = 0U;
+        page.scene_hash = 0U;
+        page.dpi_scale = 0.0F;
+        page.cache_valid = false;
+        page.draws.clear();
+    }
+
+    bool ensure_semantic_analytic_page_buffers(
+        std::uint64_t required_vertex_bytes,
+        std::uint64_t required_index_bytes) noexcept {
+        auto& page = semantic_analytic_cache;
+        const auto required_capacity = [](std::uint64_t current,
+                                          std::uint64_t required,
+                                          std::uint64_t& capacity) noexcept {
+            capacity = std::max<std::uint64_t>(256U, current);
+            while (capacity < required) {
+                if (capacity >
+                    std::numeric_limits<std::uint64_t>::max() / 2U) {
+                    return false;
+                }
+                capacity *= 2U;
+            }
+            return true;
+        };
+        const bool grow_vertex = page.vertex_buffer == nullptr ||
+            required_vertex_bytes > page.vertex_buffer_size;
+        const bool grow_index = page.index_buffer == nullptr ||
+            required_index_bytes > page.index_buffer_size;
+        std::uint64_t vertex_capacity = page.vertex_buffer_size;
+        std::uint64_t index_capacity = page.index_buffer_size;
+        if ((grow_vertex && !required_capacity(
+                page.vertex_buffer_size,
+                required_vertex_bytes,
+                vertex_capacity)) ||
+            (grow_index && !required_capacity(
+                page.index_buffer_size,
+                required_index_bytes,
+                index_capacity))) {
+            return false;
+        }
+
+        WGPUBuffer replacement_vertex = nullptr;
+        WGPUBuffer replacement_index = nullptr;
+        if (grow_vertex) {
+            WGPUBufferDescriptor descriptor{};
+            descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU semantic analytic packed vertex page");
+            descriptor.usage =
+                WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            descriptor.size = vertex_capacity;
+            replacement_vertex = wgpuDeviceCreateBuffer(device, &descriptor);
+            if (replacement_vertex == nullptr) {
+                return false;
+            }
+        }
+        if (grow_index) {
+            WGPUBufferDescriptor descriptor{};
+            descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU semantic analytic packed index page");
+            descriptor.usage =
+                WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+            descriptor.size = index_capacity;
+            replacement_index = wgpuDeviceCreateBuffer(device, &descriptor);
+            if (replacement_index == nullptr) {
+                if (replacement_vertex != nullptr) {
+                    wgpuBufferDestroy(replacement_vertex);
+                    wgpuBufferRelease(replacement_vertex);
+                }
+                return false;
+            }
+        }
+
+        if (replacement_vertex != nullptr) {
+            if (page.vertex_buffer != nullptr) {
+                wgpuBufferDestroy(page.vertex_buffer);
+                wgpuBufferRelease(page.vertex_buffer);
+            }
+            page.vertex_buffer = replacement_vertex;
+            page.vertex_buffer_size = vertex_capacity;
+        }
+        if (replacement_index != nullptr) {
+            if (page.index_buffer != nullptr) {
+                wgpuBufferDestroy(page.index_buffer);
+                wgpuBufferRelease(page.index_buffer);
+            }
+            page.index_buffer = replacement_index;
+            page.index_buffer_size = index_capacity;
+        }
+        return true;
+    }
+
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
@@ -1539,6 +1660,7 @@ struct progpu_native_engine {
             wgpuCommandEncoderRelease(semantic_encoder);
             semantic_encoder = nullptr;
         }
+        release_semantic_analytic_page();
         release_effect_resources();
         release_clip_resources();
         if (group_blend_bind_group != nullptr) {
@@ -1890,7 +2012,6 @@ struct progpu_native_engine {
         }
         vertex_buffer = replacement;
         vertex_buffer_size = new_size;
-        analytic_gpu_cache_valid = false;
         geometry_gpu_cache_valid = false;
         return true;
     }
@@ -1925,7 +2046,6 @@ struct progpu_native_engine {
         }
         index_buffer = replacement;
         index_buffer_size = new_size;
-        analytic_gpu_cache_valid = false;
         geometry_gpu_cache_valid = false;
         return true;
     }
@@ -7216,6 +7336,110 @@ void clear_metrics(progpu_native_image_frame_metrics* metrics) noexcept {
     metrics->struct_size = struct_size;
 }
 
+progpu_native_status encode_semantic_analytic_draw(
+    progpu_native_engine& engine,
+    const progpu_native_scene_frame& frame,
+    const semantic_analytic_draw& draw,
+    bool load_target,
+    bool& uploaded_uniforms) {
+    auto& page = engine.semantic_analytic_cache;
+    if (!page.cache_valid || page.vertex_buffer == nullptr ||
+        page.index_buffer == nullptr || engine.semantic_encoder == nullptr ||
+        draw.vertex_count == 0U || draw.index_count == 0U ||
+        draw.vertex_offset_bytes >= page.vertex_bytes ||
+        draw.index_offset_bytes >= page.index_bytes ||
+        draw.vertex_count >
+            (page.vertex_bytes - draw.vertex_offset_bytes) /
+                sizeof(progpu::native::vector_vertex) ||
+        draw.index_count >
+            (page.index_bytes - draw.index_offset_bytes) /
+                sizeof(std::uint32_t)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic analytic packed page is incomplete.");
+    }
+    if (engine.analytic_pipeline == nullptr &&
+        !create_analytic_pipeline(engine)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic analytic WebGPU pipeline could not be created.");
+    }
+
+    const gpu_uniforms uniforms = create_uniforms(
+        frame.width,
+        frame.height,
+        frame.dpi_scale);
+    uploaded_uniforms = engine.upload_uniform_if_changed(
+        engine.analytic_uniform_buffer,
+        uniforms,
+        engine.cached_analytic_uniforms,
+        engine.analytic_uniform_cache_valid);
+
+    WGPURenderPassColorAttachment color_attachment{};
+    progpu::native::webgpu::initialize_color_attachment(color_attachment);
+    color_attachment.view = reinterpret_cast<WGPUTextureView>(
+        frame.target_view);
+    color_attachment.loadOp = load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
+    color_attachment.storeOp = WGPUStoreOp_Store;
+    color_attachment.clearValue = WGPUColor{
+        frame.clear_color.r,
+        frame.clear_color.g,
+        frame.clear_color.b,
+        frame.clear_color.a};
+    WGPURenderPassDescriptor pass_descriptor{};
+    pass_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU semantic analytic packed-page pass");
+    pass_descriptor.colorAttachmentCount = 1U;
+    pass_descriptor.colorAttachments = &color_attachment;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
+        engine.semantic_encoder,
+        &pass_descriptor);
+    if (pass == nullptr) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic analytic render pass could not be created.");
+    }
+
+    wgpuRenderPassEncoderSetPipeline(pass, engine.analytic_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        0U,
+        engine.analytic_uniform_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        1U,
+        engine.analytic_atlas_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass,
+        0U,
+        page.vertex_buffer,
+        0U,
+        page.vertex_bytes);
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        page.index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        page.index_bytes);
+    wgpuRenderPassEncoderDrawIndexed(
+        pass,
+        draw.index_count,
+        1U,
+        static_cast<std::uint32_t>(
+            draw.index_offset_bytes / sizeof(std::uint32_t)),
+        0,
+        0U);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status create_engine(
     WGPUInstance instance,
     WGPUDevice device,
@@ -7562,8 +7786,6 @@ progpu_native_status progpu_native_engine_render(
             "The native renderer must be used from its owner thread.");
     }
     reset_layer_metrics(*engine);
-    engine->analytic_cache_valid = false;
-    engine->analytic_gpu_cache_valid = false;
     engine->geometry_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->rect_count >
@@ -7852,66 +8074,45 @@ progpu_native_status progpu_native_engine_render_analytic(
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
-    const bool retain_compiled_payload =
-        engine->semantic_analytic_revision != 0U;
-    const bool compiled_payload_hit = retain_compiled_payload &&
-        engine->analytic_cache_valid &&
-        engine->analytic_content_revision ==
-            engine->semantic_analytic_revision &&
-        engine->analytic_dpi_scale == frame->dpi_scale &&
-        engine->analytic_opacity == draw_state.opacity;
-    if (!compiled_payload_hit) {
-        engine->analytic_cache_valid = false;
-        engine->analytic_gpu_cache_valid = false;
-        try {
-            engine->vertices.clear();
-            engine->indices.clear();
-            engine->vertices.reserve(frame->primitive_count * 4U);
-            engine->indices.reserve(frame->primitive_count * 6U);
-            for (std::size_t index = 0;
-                 index < frame->primitive_count;
-                 ++index) {
-                float minimum_scale = 0.0F;
-                if (!progpu::native::try_get_minimum_scale(
-                        frame->primitives[index].transform,
-                        minimum_scale)) {
-                    return engine->fail(
-                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                        "An analytic primitive has a non-invertible affine transform.");
-                }
-                const float local_padding =
-                    antialias_padding_pixels / minimum_scale;
-                if (!progpu::native::append_analytic_primitive(
-                        frame->primitives[index],
-                        local_padding,
-                        engine->vertices,
-                        engine->indices)) {
-                    return engine->fail(
-                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                        "An analytic primitive contains invalid geometry, color, or flags.");
-                }
+    try {
+        engine->vertices.clear();
+        engine->indices.clear();
+        engine->vertices.reserve(frame->primitive_count * 4U);
+        engine->indices.reserve(frame->primitive_count * 6U);
+        for (std::size_t index = 0;
+             index < frame->primitive_count;
+             ++index) {
+            float minimum_scale = 0.0F;
+            if (!progpu::native::try_get_minimum_scale(
+                    frame->primitives[index].transform,
+                    minimum_scale)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "An analytic primitive has a non-invertible affine transform.");
             }
-            multiply_vertex_alpha(engine->vertices, draw_state.opacity);
-            if (retain_compiled_payload) {
-                engine->analytic_content_revision =
-                    engine->semantic_analytic_revision;
-                engine->analytic_dpi_scale = frame->dpi_scale;
-                engine->analytic_opacity = draw_state.opacity;
-                engine->analytic_cache_valid = true;
+            const float local_padding =
+                antialias_padding_pixels / minimum_scale;
+            if (!progpu::native::append_analytic_primitive(
+                    frame->primitives[index],
+                    local_padding,
+                    engine->vertices,
+                    engine->indices)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "An analytic primitive contains invalid geometry, color, or flags.");
             }
-        } catch (const std::bad_alloc&) {
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-                "The native analytic batch could not be allocated.");
         }
+        multiply_vertex_alpha(engine->vertices, draw_state.opacity);
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The native analytic batch could not be allocated.");
     }
 
     const std::uint64_t vertex_bytes =
         engine->vertices.size() * sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes =
         engine->indices.size() * sizeof(std::uint32_t);
-    const bool upload_compiled_payload =
-        !compiled_payload_hit || !engine->analytic_gpu_cache_valid;
     bool uploaded_uniforms = false;
     if (vertex_bytes != 0U) {
         if (engine->analytic_pipeline == nullptr &&
@@ -7936,21 +8137,18 @@ progpu_native_status progpu_native_engine_render_analytic(
             uniforms,
             engine->cached_analytic_uniforms,
             engine->analytic_uniform_cache_valid);
-        if (upload_compiled_payload) {
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->vertex_buffer,
-                0U,
-                engine->vertices.data(),
-                static_cast<std::size_t>(vertex_bytes));
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->index_buffer,
-                0U,
-                engine->indices.data(),
-                static_cast<std::size_t>(index_bytes));
-            engine->analytic_gpu_cache_valid = retain_compiled_payload;
-        }
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->vertex_buffer,
+            0U,
+            engine->vertices.data(),
+            static_cast<std::size_t>(vertex_bytes));
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            engine->index_buffer,
+            0U,
+            engine->indices.data(),
+            static_cast<std::size_t>(index_bytes));
     }
 
     const bool owns_encoder = engine->semantic_encoder == nullptr;
@@ -8099,12 +8297,8 @@ progpu_native_status progpu_native_engine_render_analytic(
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->index_count =
             static_cast<std::uint32_t>(engine->indices.size());
-        metrics->vertex_upload_bytes = upload_compiled_payload
-            ? vertex_bytes
-            : 0U;
-        metrics->index_upload_bytes = upload_compiled_payload
-            ? index_bytes
-            : 0U;
+        metrics->vertex_upload_bytes = vertex_bytes;
+        metrics->index_upload_bytes = index_bytes;
         metrics->uniform_upload_bytes = uploaded_uniforms
             ? sizeof(gpu_uniforms)
             : 0U;
@@ -8167,8 +8361,6 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The native renderer must be used from its owner thread.");
     }
     reset_layer_metrics(*engine);
-    engine->analytic_cache_valid = false;
-    engine->analytic_gpu_cache_valid = false;
     engine->path_gpu_cache_valid = false;
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
@@ -10802,6 +10994,9 @@ progpu_native_status progpu_native_engine_render_scene(
 
     /* Preflight every typed payload before the first target submission. */
     std::uint32_t semantic_draw_count = 0U;
+    std::uint32_t semantic_analytic_draw_count = 0U;
+    std::uint64_t semantic_analytic_vertex_bytes = 0U;
+    std::uint64_t semantic_analytic_index_bytes = 0U;
     semantic_compilation_budget compilation_budget{};
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
@@ -11027,20 +11222,156 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+            ++semantic_analytic_draw_count;
+            semantic_analytic_vertex_bytes += compiled_vertex_bytes;
+            semantic_analytic_index_bytes += compiled_index_bytes;
+        }
         ++semantic_draw_count;
+    }
+
+    std::uint64_t semantic_analytic_vertex_upload_bytes = 0U;
+    std::uint64_t semantic_analytic_index_upload_bytes = 0U;
+    auto& semantic_analytic_page = engine->semantic_analytic_cache;
+    const bool semantic_analytic_page_hit =
+        semantic_analytic_draw_count != 0U &&
+        semantic_analytic_page.cache_valid &&
+        semantic_analytic_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_analytic_page.dpi_scale == frame->dpi_scale &&
+        semantic_analytic_page.draws.size() ==
+            semantic_analytic_draw_count;
+    if (semantic_analytic_draw_count != 0U &&
+        !semantic_analytic_page_hit) {
+        std::vector<semantic_analytic_draw> compiled_draws;
+        try {
+            compiled_draws.reserve(semantic_analytic_draw_count);
+            engine->vertices.clear();
+            engine->indices.clear();
+            engine->vertices.reserve(static_cast<std::size_t>(
+                semantic_analytic_vertex_bytes /
+                    sizeof(progpu::native::vector_vertex)));
+            engine->indices.reserve(static_cast<std::size_t>(
+                semantic_analytic_index_bytes /
+                    sizeof(std::uint32_t)));
+            engine->geometry_cache_valid = false;
+            engine->geometry_gpu_cache_valid = false;
+
+            for (std::uint32_t index = 0U;
+                 index < header.command_count;
+                 ++index) {
+                const auto command = read_command(index);
+                if (command.kind !=
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+                    continue;
+                }
+                const auto resource = read_resource(command.resource_index);
+                const std::size_t vertex_start = engine->vertices.size();
+                const std::size_t index_start = engine->indices.size();
+                const std::size_t primitive_count = resource.payload_size /
+                    sizeof(progpu_native_analytic_primitive);
+                for (std::size_t primitive_index = 0U;
+                     primitive_index < primitive_count;
+                     ++primitive_index) {
+                    progpu_native_analytic_primitive primitive{};
+                    std::memcpy(
+                        &primitive,
+                        bytes + resource.payload_offset +
+                            primitive_index * sizeof(primitive),
+                        sizeof(primitive));
+                    float minimum_scale = 0.0F;
+                    if (!progpu::native::try_get_minimum_scale(
+                            primitive.transform,
+                            minimum_scale) ||
+                        !progpu::native::append_analytic_primitive(
+                            primitive,
+                            antialias_padding_pixels / minimum_scale,
+                            engine->vertices,
+                            engine->indices)) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            "A preflighted semantic analytic payload could not be compiled.");
+                    }
+                }
+                const std::size_t vertex_count =
+                    engine->vertices.size() - vertex_start;
+                const std::size_t index_count =
+                    engine->indices.size() - index_start;
+                if (vertex_count >
+                        std::numeric_limits<std::uint32_t>::max() ||
+                    index_count >
+                        std::numeric_limits<std::uint32_t>::max()) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "A semantic analytic packed draw exceeds WebGPU index limits.");
+                }
+                compiled_draws.push_back({
+                    vertex_start *
+                        sizeof(progpu::native::vector_vertex),
+                    index_start * sizeof(std::uint32_t),
+                    static_cast<std::uint32_t>(vertex_count),
+                    static_cast<std::uint32_t>(index_count)});
+            }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic analytic packed page could not be compiled.");
+        }
+
+        const std::uint64_t compiled_vertex_bytes =
+            engine->vertices.size() *
+                sizeof(progpu::native::vector_vertex);
+        const std::uint64_t compiled_index_bytes =
+            engine->indices.size() * sizeof(std::uint32_t);
+        if (compiled_draws.size() != semantic_analytic_draw_count ||
+            compiled_vertex_bytes != semantic_analytic_vertex_bytes ||
+            compiled_index_bytes != semantic_analytic_index_bytes) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic analytic packed-page budget did not match compilation.");
+        }
+        if (!engine->ensure_semantic_analytic_page_buffers(
+                compiled_vertex_bytes,
+                compiled_index_bytes)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic analytic packed GPU page could not be allocated.");
+        }
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            semantic_analytic_page.vertex_buffer,
+            0U,
+            engine->vertices.data(),
+            static_cast<std::size_t>(compiled_vertex_bytes));
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            semantic_analytic_page.index_buffer,
+            0U,
+            engine->indices.data(),
+            static_cast<std::size_t>(compiled_index_bytes));
+        semantic_analytic_page.draws = std::move(compiled_draws);
+        semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
+        semantic_analytic_page.index_bytes = compiled_index_bytes;
+        semantic_analytic_page.scene_hash = engine->semantic_scene_hash;
+        semantic_analytic_page.dpi_scale = frame->dpi_scale;
+        semantic_analytic_page.cache_valid = true;
+        semantic_analytic_vertex_upload_bytes = compiled_vertex_bytes;
+        semantic_analytic_index_upload_bytes = compiled_index_bytes;
     }
 
     const std::uint64_t submission_start = engine->submission_count;
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
     std::uint32_t previous_family = 0U;
-    std::uint64_t vertex_upload_bytes = 0U;
-    std::uint64_t index_upload_bytes = 0U;
+    std::uint64_t vertex_upload_bytes =
+        semantic_analytic_vertex_upload_bytes;
+    std::uint64_t index_upload_bytes =
+        semantic_analytic_index_upload_bytes;
     std::uint64_t texture_upload_bytes = 0U;
     std::uint64_t uniform_upload_bytes = 0U;
     std::uint64_t coverage_staging_bytes = 0U;
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
     bool target_has_content = false;
+    std::uint32_t semantic_analytic_draw_index = 0U;
     std::array<std::uint32_t, 4U> encoded_buffer_revisions{};
 
     const auto discard_encoder = [&]() noexcept {
@@ -11117,7 +11448,8 @@ progpu_native_status progpu_native_engine_render_scene(
         const auto resource = read_resource(command.resource_index);
         const std::uint32_t buffer_revision =
             command_revision(command, resource);
-        if (encoded_buffer_revisions[buffer_domain_index] != 0U &&
+        if (buffer_domain_index != 0U &&
+            encoded_buffer_revisions[buffer_domain_index] != 0U &&
             encoded_buffer_revisions[buffer_domain_index] != buffer_revision) {
             const auto flush_status = flush_encoder();
             if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
@@ -11130,34 +11462,35 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic scene command encoder could not be created.");
         }
-        encoded_buffer_revisions[buffer_domain_index] = buffer_revision;
+        if (buffer_domain_index != 0U) {
+            encoded_buffer_revisions[buffer_domain_index] = buffer_revision;
+        }
         progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
-                progpu_native_analytic_frame family{};
-                family.struct_size = sizeof(family);
-                family.width = frame->width;
-                family.height = frame->height;
-                family.dpi_scale = frame->dpi_scale;
-                family.target_view = frame->target_view;
-                family.clear_color = frame->clear_color;
-                family.primitives =
-                    reinterpret_cast<const progpu_native_analytic_primitive*>(
-                        bytes + resource.payload_offset);
-                family.primitive_count = resource.payload_size /
-                    sizeof(progpu_native_analytic_primitive);
-                progpu_native_analytic_frame_metrics family_metrics{};
-                family_metrics.struct_size = sizeof(family_metrics);
+                if (semantic_analytic_draw_index >=
+                    semantic_analytic_page.draws.size()) {
+                    discard_encoder();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "The semantic analytic packed-page index is invalid.");
+                }
                 prepare_family(command.kind);
-                engine->semantic_analytic_revision =
-                    command_revision(command, resource);
-                status = finish_family(progpu_native_engine_render_analytic(
-                    engine, &family, &family_metrics));
-                engine->semantic_analytic_revision = 0U;
-                draw_calls += family_metrics.draw_call_count;
-                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
-                index_upload_bytes += family_metrics.index_upload_bytes;
-                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                bool uploaded_uniforms = false;
+                status = finish_family(encode_semantic_analytic_draw(
+                    *engine,
+                    *frame,
+                    semantic_analytic_page.draws[
+                        semantic_analytic_draw_index],
+                    engine->semantic_load_target,
+                    uploaded_uniforms));
+                ++semantic_analytic_draw_index;
+                if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                    ++draw_calls;
+                    uniform_upload_bytes += uploaded_uniforms
+                        ? sizeof(gpu_uniforms)
+                        : 0U;
+                }
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
@@ -11305,6 +11638,13 @@ progpu_native_status progpu_native_engine_render_scene(
             discard_encoder();
             return status;
         }
+    }
+
+    if (semantic_analytic_draw_index != semantic_analytic_draw_count) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic analytic packed-page draw count is inconsistent.");
     }
 
     const auto flush_status = flush_encoder();
