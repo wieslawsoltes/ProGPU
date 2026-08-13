@@ -1095,13 +1095,19 @@ public ref struct NativeSceneStreamBuilder
             uint spread = (uint)brush.Spread;
             bool conical = brush.Kind ==
                 NativeSceneBrushKind.TwoPointConicalGradient;
+            bool perlin = brush.Kind == NativeSceneBrushKind.PerlinNoise;
             bool supported = brush.Kind is
                 NativeSceneBrushKind.Solid or
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
                 NativeSceneBrushKind.TwoPointConicalGradient or
+                NativeSceneBrushKind.SweepGradient or
+                NativeSceneBrushKind.PerlinNoise;
+            bool gradient = brush.Kind is
+                NativeSceneBrushKind.LinearGradient or
+                NativeSceneBrushKind.RadialGradient or
+                NativeSceneBrushKind.TwoPointConicalGradient or
                 NativeSceneBrushKind.SweepGradient;
-            bool gradient = brush.Kind != NativeSceneBrushKind.Solid;
             if (!supported || !brush.HasCanonicalReservedFields ||
                 !float.IsFinite(brush.Opacity) ||
                 brush.Opacity is < 0f or > 1f ||
@@ -1126,6 +1132,24 @@ public ref struct NativeSceneStreamBuilder
                 ((spread & 0x80000000U) != 0U && !conical))
             {
                 return false;
+            }
+            if (perlin)
+            {
+                uint tableRecordCount = brush.StopCount == 0U ||
+                    brush.Interpolation ==
+                        NativeSceneGradientInterpolation.SRgb
+                    ? 0U
+                    : NativeSceneBrush.PerlinTableRecordCount;
+                if (brush.StopCount > NativeSceneBrush.MaximumPerlinOctaves ||
+                    spread > 1U ||
+                    (tableRecordCount == 0U && brush.StopOffset != 0U) ||
+                    brush.StopOffset > (uint)gradientStops.Length ||
+                    tableRecordCount >
+                        (uint)gradientStops.Length - brush.StopOffset)
+                {
+                    return false;
+                }
+                continue;
             }
             if (!gradient)
             {

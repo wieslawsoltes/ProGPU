@@ -532,6 +532,8 @@ endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
+        tests/progpu_native_semantic_brush_tests.cpp
+        tests/progpu_native_semantic_brush_tests.hpp
         src/progpu_native_draw_state.cpp
         src/progpu_native_draw_state.hpp
         src/progpu_native_effect_plan.cpp

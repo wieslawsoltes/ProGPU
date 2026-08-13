@@ -99,7 +99,11 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
             PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U}
     }};
     const float decoration_width = static_cast<float>(width) - 16.0F;
-    const std::array<progpu_native_analytic_primitive, 2U> decorations{{
+    const std::array<progpu_native_analytic_primitive, 3U> decorations{{
+        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            2.0F, 2.0F, 12.0F, 7.0F, 0.0F, 0.0F,
+            {1.0F, 0.0F, 1.0F, 1.0F},
+            {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}},
         {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
             8.0F, static_cast<float>(height) * 0.54F,
             decoration_width, 1.5F, 0.0F, 0.0F,
@@ -111,22 +115,39 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
             {1.0F, 1.0F, 1.0F, 1.0F},
             {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}}
     }};
-    std::array<progpu_native_scene_brush, 3U> brushes{};
+    std::array<progpu_native_scene_brush, 4U> brushes{};
     for (auto& brush : brushes) {
         brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
         brush.opacity = 1.0F;
         brush.coordinate_transform0[0] = 1.0F;
         brush.coordinate_transform1[1] = 1.0F;
     }
-    brushes[0].colors[0] = {1.0F, 0.0F, 1.0F, 1.0F};
+    brushes[0].type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    brushes[0].end_point = {5.0F, 0.0F};
+    brushes[0].stop_count = 2U;
+    brushes[0].coordinate_transform0[0] = 0.5F;
     brushes[1].colors[0] = {0.0F, 1.0F, 1.0F, 1.0F};
     brushes[2].colors[0] = {1.0F, 1.0F, 1.0F, 0.85F};
+    brushes[3].type = PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE;
+    brushes[3].start_point = {0.18F, 0.23F};
+    brushes[3].center = {12.0F, 7.0F};
+    brushes[3].radius = 17.0F;
+    brushes[3].stop_count = 3U;
+    brushes[3].coordinate_transform0[0] = 0.75F;
+    brushes[3].coordinate_transform0[2] = 1.0F;
+    brushes[3].coordinate_transform1[1] = 1.25F;
+    brushes[3].coordinate_transform1[2] = -0.5F;
+    const std::array<progpu_native_scene_gradient_stop, 2U> vector_stops{{
+        {{1.0F, 0.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        {{0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}
+    }};
     const progpu_native_scene_draw_brushes vector_draw_brushes{
         sizeof(progpu_native_scene_draw_brushes), 4U, 2U, 0U};
     constexpr std::array<std::uint32_t, 2U> vector_brush_indices{0U, 1U};
     const progpu_native_scene_draw_brushes decoration_draw_brushes{
-        sizeof(progpu_native_scene_draw_brushes), 4U, 2U, 0U};
-    constexpr std::array<std::uint32_t, 2U> decoration_brush_indices{2U, 2U};
+        sizeof(progpu_native_scene_draw_brushes), 4U, 3U, 0U};
+    constexpr std::array<std::uint32_t, 3U>
+        decoration_brush_indices{3U, 2U, 2U};
 
     const auto bitmap_offset = append_payload(stream, &bitmap, 1U);
     const auto pixel_offset = append_payload(
@@ -142,6 +163,8 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
         stream, decorations.data(), decorations.size());
     const auto brush_offset = append_payload(
         stream, brushes.data(), brushes.size());
+    const auto vector_stop_offset = append_payload(
+        stream, vector_stops.data(), vector_stops.size());
     const auto vector_brush_offset = append_payload(
         stream, &vector_draw_brushes, 1U);
     append_payload(
@@ -199,7 +222,8 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
             PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
             0U, 9705U, 1U,
-            brush_offset, sizeof(brushes), 0U, 0U}
+            brush_offset, sizeof(brushes),
+            vector_stop_offset, sizeof(vector_stops)}
     }};
     std::memcpy(
         stream.data() + resource_offset,
@@ -230,9 +254,9 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
             decoration_brush_offset,
             sizeof(decoration_draw_brushes) +
                 sizeof(decoration_brush_indices),
-            8.0F, static_cast<float>(height) * 0.54F,
-            decoration_width,
-            static_cast<float>(height) * 0.46F - 6.5F,
+            2.0F, 2.0F,
+            static_cast<float>(width) - 4.0F,
+            static_cast<float>(height) - 8.5F,
             0U, 0U}
     }};
     std::memcpy(

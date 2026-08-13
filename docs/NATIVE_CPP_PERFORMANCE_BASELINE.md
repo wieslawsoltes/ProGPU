@@ -1913,3 +1913,38 @@ vector-layer colors, and both decorations, then writes
 This fixture proves correctness and retention; matched managed/native
 performance distributions remain part of the next expanded semantic benchmark
 before any color-glyph speed claim.
+
+## Retained brush-coordinate and procedural-noise supplement
+
+The semantic material ABI now accepts production brush kind 7 instead of
+silently substituting a gradient or solid. Its compact fields preserve the
+managed `PerlinNoiseBrush` contract: base frequency, stitch period, tile size,
+normalized seed, at most 255 octaves, fractal/turbulence selection, and the
+same affine brush-coordinate transform consumed by `Vector.wgsl`. A fallback
+record has no table storage. An exact record owns precisely 512 validated
+permutation/gradient entries even though `StopCount` continues to mean octave
+count; native compilation remaps that physical range once while retaining the
+logical octave count. This fixes the former gradient-only stop-count
+assumption and keeps unchanged replay at zero upload.
+
+The clean-room behavior is based on primary public contracts:
+
+- [W3C Filter Effects `feTurbulence`](https://www.w3.org/TR/filter-effects-1/#feTurbulenceElement)
+  defines base frequency, seed, octaves, stitch behavior, and fractal versus
+  turbulence accumulation;
+- [Direct2D turbulence](https://learn.microsoft.com/en-us/windows/win32/direct2d/turbulence)
+  confirms DIP-space frequency/offset semantics, bounded octave accumulation,
+  seed, and stitchable output;
+- [Skia coordinate spaces](https://skia.org/docs/user/coordinates/)
+  demonstrates a shader-local matrix independent from geometry transforms;
+- [Vello `DrawGlyphs::brush_transform`](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html#method.brush_transform)
+  likewise keeps paint transforms separate from the global run transform.
+
+ProGPU adopts explicit brush-local coordinates and retained bounded tables. It
+rejects per-frame noise textures, a C++ source-language brush graph, an
+unbounded octave loop, and interpreting the 512 physical table entries as 512
+octaves. A CPU-only exact-table test covers truncation, reserved values,
+deduplication, remapping, and the 255-octave bound; managed construction remains
+allocation-free. The shared real Dawn/Metal and browser fixture additionally
+proves a non-identity transformed linear gradient plus transformed fallback
+noise through the production vector shader.

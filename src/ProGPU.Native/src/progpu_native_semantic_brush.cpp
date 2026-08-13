@@ -43,11 +43,27 @@ bool supported_brush_kind(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT ||
-        kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT;
+        kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE;
 }
 
 bool gradient_brush_kind(std::uint32_t kind) noexcept {
-    return kind != PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    return kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT;
+}
+
+std::uint32_t stored_stop_count(
+    const progpu_native_scene_brush& brush) noexcept {
+    if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE) {
+        return brush.stop_count == 0U ||
+                brush.color_interpolation_mode ==
+                    PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB
+            ? 0U
+            : PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS;
+    }
+    return gradient_brush_kind(brush.type) ? brush.stop_count : 0U;
 }
 
 bool valid_brush(
@@ -80,6 +96,31 @@ bool valid_brush(
         if (!finite_color(color)) {
             return false;
         }
+    }
+
+    if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE) {
+        const std::uint32_t table_count = stored_stop_count(brush);
+        if (outside_color || spread > 1U ||
+            brush.stop_count > PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES ||
+            (table_count == 0U && brush.stop_offset != 0U) ||
+            brush.stop_offset > stop_count ||
+            table_count > stop_count - brush.stop_offset) {
+            return false;
+        }
+        for (std::uint32_t index = 0U; index < table_count; ++index) {
+            const auto record =
+                read_record<progpu_native_scene_gradient_stop>(
+                    stop_bytes,
+                    static_cast<std::size_t>(brush.stop_offset + index) *
+                        sizeof(progpu_native_scene_gradient_stop));
+            if (!finite_color(record.color) ||
+                !std::isfinite(record.offset) ||
+                record.reserved0 != 0U || record.reserved1 != 0U ||
+                record.reserved2 != 0U) {
+                return false;
+            }
+        }
+        return true;
     }
 
     if (!gradient_brush_kind(brush.type)) {
@@ -351,18 +392,20 @@ bool compile_brush_page(
                         static_cast<std::size_t>(local_index) *
                             sizeof(progpu_native_scene_brush));
                 brush.opacity *= opacity;
-                if (brush.stop_count != 0U) {
+                const std::uint32_t physical_stop_count =
+                    stored_stop_count(brush);
+                if (physical_stop_count != 0U) {
                     const brush_stop_key stop_key{
                         draw.brush_resource_index,
                         brush.stop_offset,
-                        brush.stop_count};
+                        physical_stop_count};
                     const auto retained_range = stop_ranges.find(stop_key);
                     if (retained_range != stop_ranges.end()) {
                         brush.stop_offset = retained_range->second;
                     } else {
                         const std::size_t retained_stop_count =
                             compiled.gradient_stops.size() - 1U;
-                        if (brush.stop_count >
+                        if (physical_stop_count >
                             PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS -
                                 retained_stop_count) {
                             return false;
@@ -371,7 +414,7 @@ bool compile_brush_page(
                             static_cast<std::uint32_t>(
                                 compiled.gradient_stops.size());
                         for (std::uint32_t stop_index = 0U;
-                             stop_index < brush.stop_count;
+                             stop_index < physical_stop_count;
                              ++stop_index) {
                             compiled.gradient_stops.push_back(
                                 read_record<

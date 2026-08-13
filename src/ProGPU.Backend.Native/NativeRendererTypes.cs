@@ -203,7 +203,8 @@ public enum NativeSceneBrushKind : uint
     LinearGradient = 1,
     RadialGradient = 2,
     TwoPointConicalGradient = 5,
-    SweepGradient = 6
+    SweepGradient = 6,
+    PerlinNoise = 7
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -332,6 +333,9 @@ public readonly struct NativeSceneGradientStop
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct NativeSceneBrush
 {
+    public const uint PerlinTableRecordCount = 512U;
+    public const uint MaximumPerlinOctaves = 255U;
+
     [FieldOffset(0)] public NativeSceneBrushKind Kind;
     [FieldOffset(4)] public float Opacity;
     [FieldOffset(8)] public Vector2 StartPoint;
@@ -479,6 +483,46 @@ public struct NativeSceneBrush
             coordinateTransform ?? Matrix3x2.Identity);
         brush.Center = center;
         brush.StartPoint = new Vector2(startAngle, endAngle);
+        return brush;
+    }
+
+    /// <summary>
+    /// Creates a retained procedural Perlin-noise brush. When
+    /// <paramref name="useExactTable"/> is true, the owning brush resource
+    /// must contain exactly <see cref="PerlinTableRecordCount"/> table records
+    /// beginning at <paramref name="tableOffset"/>. The fallback path carries
+    /// no table records and remains deterministic for the same parameters.
+    /// </summary>
+    public static NativeSceneBrush PerlinNoise(
+        Vector2 baseFrequency,
+        Vector2 stitchPeriod,
+        Vector2 tileSize,
+        float seed,
+        uint octaveCount,
+        bool turbulence,
+        uint tableOffset = 0U,
+        bool useExactTable = false,
+        float opacity = 1f,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.PerlinNoise,
+            opacity,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.StartPoint = baseFrequency;
+        brush.EndPoint = stitchPeriod;
+        brush.Center = tileSize;
+        brush.Radius = seed;
+        brush.StopCount = Math.Min(octaveCount, MaximumPerlinOctaves);
+        brush.Spread = turbulence
+            ? (NativeSceneGradientSpread)1U
+            : NativeSceneGradientSpread.Pad;
+        brush.Interpolation = useExactTable
+            ? NativeSceneGradientInterpolation.ScRgb
+            : NativeSceneGradientInterpolation.SRgb;
+        brush.StopOffset = useExactTable && brush.StopCount != 0U
+            ? tableOffset
+            : 0U;
         return brush;
     }
 

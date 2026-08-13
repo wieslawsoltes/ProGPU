@@ -402,6 +402,10 @@ Current native parity:
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only
   gradient evaluation, transactional material-buffer growth, and zero stable
   brush/stop upload on Metal and browser WebGPU;
+- retained Perlin-noise brushes with independent affine brush coordinates,
+  bounded 255-octave evaluation, a zero-table deterministic fallback, or one
+  exact validated/remapped 512-record permutation/gradient table; stable replay
+  reuses the production `Vector.wgsl` material page without a noise texture;
 - pointer-free retained semantic solid text styles with exact production
   `GpuTextStyle` storage, grayscale/aliased/ClearType mode selection,
   scene-state opacity variants, one shared storage buffer, and zero stable

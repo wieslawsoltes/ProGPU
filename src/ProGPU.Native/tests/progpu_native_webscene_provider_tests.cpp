@@ -1413,14 +1413,25 @@ void verify_semantic_color_glyph_scene(
         "color-glyph blue quadrant is missing");
     require(near_bgra(pixel(34U, 30U), 11, 85, 97),
         "color-glyph translucent quadrant is missing");
-    require(near_bgra(pixel(46U, 14U), 255, 0, 255),
-        "vector color-glyph outer layer is missing");
+    require(near_bgra(pixel(46U, 14U), 26, 0, 230),
+        "vector color-glyph transformed-gradient start is missing");
+    require(near_bgra(pixel(54U, 14U), 230, 0, 26),
+        "vector color-glyph transformed-gradient end is missing");
     require(near_bgra(pixel(50U, 18U), 255, 255, 0),
         "vector color-glyph inner layer is missing");
     require(near_bgra(pixel(10U, 26U), 218, 218, 218),
         "color-glyph strikethrough lowering is missing");
     require(near_bgra(pixel(10U, 40U), 218, 218, 218),
         "color-glyph underline lowering is missing");
+    const auto* noise_a = pixel(3U, 3U);
+    const auto* noise_b = pixel(10U, 6U);
+    const int noise_delta =
+        std::abs(static_cast<int>(noise_a[0]) - noise_b[0]) +
+        std::abs(static_cast<int>(noise_a[1]) - noise_b[1]) +
+        std::abs(static_cast<int>(noise_a[2]) - noise_b[2]);
+    require(noise_a[3] >= 240U && noise_b[3] >= 240U &&
+            noise_delta >= 20,
+        "transformed retained Perlin-noise brush is missing");
 
     if (output_path != nullptr && output_path[0] != '\0') {
         std::FILE* output = std::fopen(output_path, "wb");

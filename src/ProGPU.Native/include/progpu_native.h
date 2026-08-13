@@ -112,8 +112,14 @@ typedef enum progpu_native_scene_brush_kind {
     PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT = 1,
     PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT = 2,
     PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT = 5,
-    PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT = 6
+    PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT = 6,
+    PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE = 7
 } progpu_native_scene_brush_kind;
+
+enum {
+    PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS = 512U,
+    PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES = 255U
+};
 
 typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
@@ -540,9 +546,14 @@ typedef struct progpu_native_scene_image_draw {
  * is local to that resource. The semantic compiler packs referenced brushes
  * and stops into one retained scene-wide GPU page and rewrites indices once.
  *
- * The initial native semantic lane accepts solid, linear, radial, two-point
- * conical, and sweep brushes. Hatch and procedural noise remain explicit
- * future kinds and therefore fail closed instead of degrading to a gradient.
+ * The native semantic lane accepts solid, linear, radial, two-point conical,
+ * sweep, and Perlin-noise brushes. Perlin overloads StartPoint/EndPoint/Center
+ * as base frequency, stitch period, and tile size; Radius is the normalized
+ * seed, StopCount is the bounded octave count, and SpreadMethod 0/1 selects
+ * fractal/turbulence noise. Interpolation 0 selects the bounded hash fallback;
+ * interpolation 1 references exactly 512 packed permutation/gradient records
+ * at StopOffset. Hatch remains an explicit extension command rather than a
+ * semantic brush kind and therefore fails closed here.
  */
 typedef struct progpu_native_scene_brush {
     uint32_t type;

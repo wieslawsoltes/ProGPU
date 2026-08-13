@@ -986,6 +986,76 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticPerlinBrushTableIsBoundedAndAllocationFree()
+    {
+        Span<byte> destination = stackalloc byte[24 * 1024];
+        Span<NativeSceneGradientStop> table =
+            stackalloc NativeSceneGradientStop[
+                checked((int)NativeSceneBrush.PerlinTableRecordCount)];
+        for (int index = 0; index < table.Length; index++)
+        {
+            table[index] = new NativeSceneGradientStop(
+                new Vector4(
+                    (index & 1) == 0 ? -0.5f : 0.5f,
+                    (index & 2) == 0 ? -0.25f : 0.25f,
+                    0.75f,
+                    -0.75f),
+                (index * 73) & 255);
+        }
+        Span<NativeSceneBrush> brushes = stackalloc NativeSceneBrush[1];
+        brushes[0] = NativeSceneBrush.PerlinNoise(
+            new Vector2(0.08f, 0.12f),
+            new Vector2(16f, 16f),
+            new Vector2(128f, 128f),
+            17f,
+            3U,
+            turbulence: true,
+            useExactTable: true,
+            coordinateTransform: new Matrix3x2(
+                0.5f, 0f, 0f, 0.75f, 2f, -1f));
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<NativeSceneBrush> brushTable,
+            ReadOnlySpan<NativeSceneGradientStop> stopTable)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                31U,
+                1U,
+                commandCapacity: 0,
+                resourceCapacity: 1);
+            return builder.TryAddBrushTableResource(
+                    1U,
+                    1U,
+                    brushTable,
+                    stopTable,
+                    out _) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(destination, brushes, table));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            success &= Build(destination, brushes, table);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.False(Build(destination, brushes, table[..^1]));
+
+        brushes[0] = NativeSceneBrush.PerlinNoise(
+            new Vector2(0.08f, 0.12f),
+            Vector2.Zero,
+            Vector2.Zero,
+            17f,
+            3U,
+            turbulence: false);
+        Assert.True(Build(destination, brushes, []));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesTypedLayersWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];
