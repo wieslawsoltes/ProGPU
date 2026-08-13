@@ -377,7 +377,8 @@ Changed glyph-page assembly and compilation is O(C + O + S + G + K) time and
 storage for O outlines, S segments, G positioned instances, and K
 atlas/coverage bytes. Changed image-page compilation is O(C + I + B) time and
 O(I + B) retained storage for I draws and B texture/quad bytes. Stable replay
-of either page is O(C) dispatch with zero payload upload.
+of either page has O(C) scene validation, O(1) WebGPU command recording through
+one retained render-bundle execution, and zero payload upload.
 
 The eight-command matched benchmark retains the same 384-item pixel contract:
 284 of 518,400 pixels exceed 3/255, maximum difference is 68/255, and mean
@@ -387,20 +388,23 @@ current native dylib, produce these median p95 values:
 
 | Metric | Native C++ | Managed compositor | Native delta |
 | --- | ---: | ---: | ---: |
-| CPU encode/submit | 0.2442 ms | 0.4440 ms | 45.0% lower |
-| GPU-completion wait | 1.3008 ms | 1.2945 ms | within 0.5% |
-| Synchronized end to end | 1.5270 ms | 1.7347 ms | 12.0% lower |
+| CPU encode/submit | 0.2797 ms | 0.7746 ms | 63.9% lower |
+| GPU-completion wait | 1.3330 ms | 1.3340 ms | within 0.1% |
+| Synchronized end to end | 1.6044 ms | 2.1029 ms | 23.7% lower |
 | Stable managed allocation | 0 B/frame | 0 B/frame | equal |
 
 Every native frame reports eight draws/family entries, one render pass and
 submission, and zero stable vertex, index, texture, uniform, or coverage
-upload. The exact reports are under
-`semantic-single-pass-exact-run{1,2,3}/results.json`. Earlier measurements made
-before the benchmark project copied the current CMake output are retained only
-as rejected evidence and are not used for comparison. The project now links
-the current local native build with `CopyToOutputDirectory=PreserveNewest`, and
-the measured output dylib hash must match the CMake artifact before a result is
-accepted.
+upload. The render pass executes one retained WebGPU bundle rather than issuing
+eight per-command WebGPU recording sequences on every frame. The exact reports
+are under `semantic-render-bundle-exact-run{1,2,3}/results.json`. Their native
+and benchmark-output dylibs both have SHA-256
+`96d0af862d3f9ff093eb4655169f626213e00f462437ce47a08f47a41ba87027`.
+Earlier measurements made before the benchmark project copied the current
+CMake output are retained only as rejected evidence and are not used for
+comparison. The project links the current local native build with
+`CopyToOutputDirectory=PreserveNewest`, and the measured output dylib hash must
+match the CMake artifact before a result is accepted.
 
 The same hardware gate then installs a structurally valid scene whose fourth
 image draw contains a non-finite opacity. Whole-scene value preflight rejects
@@ -462,17 +466,27 @@ the 0.9% median difference is classified as on par rather than a regression or
 improvement. Raw reports are under
 `artifacts/progpu-native/performance/semantic-analytic-packed-page/run-{1,2,3}.json`.
 
-The exact current dylib was also captured with a 1,200-frame grouped Time
-Profiler run and a 200-frame grouped Metal System Trace. The instrumented Time
-Profiler result reports native/managed p95 of 0.1490/0.3245 ms for submission,
-1.2962/1.3019 ms for GPU wait, and 1.4357/1.6158 ms end to end. Its stacks show
-the one `progpu_native_engine_render_scene` pass boundary; the old per-family
-render-pass helper signatures are absent. The Metal trace contains the
-`ProGPU semantic ordered mixed-scene pass` label, 2,169 command-buffer
-submission rows, 2,189 completion rows, zero command-buffer-error rows, and a
-16,072,704-byte peak combined-process Metal `currentAllocatedSize`. The
-Allocations template again produced only `RunIssues.storedata` on this host;
-that invalid temporary bundle was removed, and no native-heap claim is made.
+The exact render-bundle dylib was also captured with a 600-frame alternating
+Time Profiler run. Its instrumented native/managed p95 is 0.2755/0.7852 ms for
+submission, 1.3338/1.3332 ms for GPU wait, and 1.5975/2.1087 ms end to end.
+The perturbed values are profiling evidence only. Native sampled stacks enter
+`wgpu_core::command::bundle::RenderBundle::execute` beneath
+`progpu_native_engine_render_scene`; no native per-draw
+`wgpu_render_pass_draw*` recording stack is present after warm-up. The managed
+route still shows `wgpu_render_pass_draw_indexed` growing its command vector.
+The valid trace, TOC, table export, and exact instrumented JSON are under
+`semantic-render-bundle-final/instruments/`.
+
+A fresh post-bundle Metal System Trace completed from the same exact dylib. It
+contains the `ProGPU retained semantic bundle replay pass` label, 4,569
+command-buffer submission rows, 4,581 completion rows, zero command-buffer
+error rows, 611 resource-allocation rows, and the same 16,072,704-byte peak
+combined-process Metal `currentAllocatedSize`. Retained bundle execution
+changes CPU command recording, not shaders, textures, passes, draw order, or
+GPU completion. Its trace, TOC, table exports, and instrumented JSON are stored
+beside the Time Profiler evidence. The Allocations template again produced
+only `RunIssues.storedata` on this host; the hung process and invalid temporary
+bundle were removed, and no total native-heap claim is made.
 
 The earlier correlated before/after traces remain retained as historical
 evidence. Their optimized Metal capture reported native/managed submission p95
@@ -489,13 +503,18 @@ Retained ignored evidence:
 - exact single-pass Time Profiler and Metal System Trace bundles, table exports,
   and JSON under
   `artifacts/progpu-native/performance/semantic-single-pass-final/instruments/`;
+- exact retained-bundle three-run JSON and Time Profiler evidence under
+  `artifacts/progpu-native/performance/semantic-render-bundle-exact-run{1,2,3}/`
+  and `semantic-render-bundle-final/instruments/`;
 - inspected semantic native, managed, and 64-times difference PNGs under
   `artifacts/progpu-native/differential/`.
 
 This checkpoint completes distinct retained analytic, path, glyph, and image
-pages plus single-render-pass stable replay. D3b1 remains open because a
-separately attributable stable native-allocation counter is still required;
-the failed Allocations capture is not treated as proof.
+pages, single-render-pass stable replay, and elimination of per-command native
+WebGPU recording through one retained bundle. D3b1 remains open because a
+separately attributable counter for allocations below the remaining
+pass/submit boundary is still required; the failed Allocations capture is not
+treated as proof.
 Whole-scene preflight checks a maximum 16,384 draw passes, 256 MiB of
 expanded vertices, 64 MiB of indices, 256 MiB each of textures and aligned
 coverage staging, and 512 MiB across those compiled domains. Accumulation uses

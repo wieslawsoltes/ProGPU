@@ -67,6 +67,7 @@ metadata.
 | System | Observable architecture | ProGPU decision |
 | --- | --- | --- |
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
+| [WebGPU render bundles](https://www.w3.org/TR/webgpu/#render-bundles) | A render bundle records reusable draw commands independently of a target render pass; execution validates attachment formats/sample state and replays the retained command sequence. | Compile an immutable mixed scene into one device-owned bundle after its GPU pages are ready. Stable frames create only the current clear/store pass and execute that bundle once. Scene, DPI, device-domain, or shared-resource ownership changes release the bundle before any referenced page or binding is replaced. |
 | [WebGPU blend state and render-pass load/store operations](https://gpuweb.github.io/gpuweb/#blend-state) | A render attachment can be cleared/stored explicitly, then sampled by a later pass; premultiplied source-over uses source color factor one and destination factor one-minus-source-alpha. | Clear a pooled layer to transparent, store the family result, and sample it once through a dedicated premultiplied composite pipeline in the same command buffer. Never use the straight-alpha image blend for layer pixels. |
 | [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
@@ -1146,17 +1147,20 @@ rendering observably incorrect. Otherwise its state is folded into the parent
 batch. This preserves group-opacity overlap behavior without allocating a
 texture for every save/restore pair.
 
-The current d3b1 checkpoint crosses the public ABI once per frame, prepares
-changed path/glyph coverage in compute passes, and then records every ordered
-analytic, retained-path, positioned-glyph, and image draw into one target
-render pass, one command buffer, and one submission. All analytic commands in
-an immutable scene compile into one retained vertex/index page with per-draw
-offsets. Path commands compile into one aggregate path/segment page, one
-retained atlas, and one vertex/index payload with per-command index ranges.
-Glyph commands likewise share one aggregate outline/segment/instance page and
-atlas with per-command instance ranges. Each image command owns an immutable
-retained texture and bind groups, while all image quads share one scene-wide
-vertex page and common index buffer. An
+The current d3b1 checkpoint crosses the public ABI once per frame and prepares
+changed path/glyph coverage in compute passes. Once every referenced GPU page
+is ready, it records all ordered analytic, retained-path, positioned-glyph,
+and image commands into one immutable `WGPURenderBundle`. Stable frames create
+only the current target clear/store pass and execute that retained bundle once
+inside one command buffer and submission; they do not rebuild wgpu-native's
+per-draw command vectors. All analytic commands in an immutable scene compile
+into one retained vertex/index page with per-draw offsets. Path commands
+compile into one aggregate path/segment page, one retained atlas, and one
+vertex/index payload with per-command index ranges. Glyph commands likewise
+share one aggregate outline/segment/instance page and atlas with per-command
+instance ranges. Each image command owns an immutable retained texture and bind
+groups, while all image quads share one scene-wide vertex page and common index
+buffer. An
 analytic→path→glyph→image→different-path→different-glyph→different-image→
 different-analytic hardware fixture proves eight ordered draws in the single
 render pass without payload overwrite or an intermediate submission.
@@ -1166,12 +1170,17 @@ caches after standalone family use, independently of the public 32-bit content
 revision, so a revision collision cannot replay a foreign page. Image-page
 replacement is transactional: every new texture, view, bind group, and vertex
 buffer is constructed and uploaded before the preceding immutable page is
-released. Visibility culling and per-resource incremental page replacement
-remain later optimization work, but stable multi-command ownership is complete
-for all four d3b1 draw families.
+released. The render bundle is keyed by full scene hash and DPI and is released
+before page replacement or standalone family mutation; destruction also
+releases it before the resources it references. Visibility culling and
+per-resource incremental page replacement remain later optimization work, but
+stable multi-command ownership is complete for all four d3b1 draw families.
 
-Dispatch remains O(C) CPU work and uses one render pass/submission independent
-of draw-family switches. A changed analytic page is O(C + A) time and
+Whole-scene value/budget validation remains O(C) CPU work for C commands.
+Changed-scene bundle recording is also O(C), but stable target encoding is
+O(1) in scene-command count: begin one clear/store pass, execute one bundle,
+end, and submit. It uses one render pass/submission independent of draw-family
+switches. A changed analytic page is O(C + A) time and
 O(Ca + A) temporary/retained storage for C commands, Ca analytic commands, and
 A expanded analytic vertices/indices. A changed path page is O(C + P + S + K)
 time and O(P + S + K) retained CPU/GPU storage for P fills, S source segments,
@@ -1179,8 +1188,8 @@ and K expanded draw/coverage bytes. A changed glyph page is
 O(C + O + S + G + K) time and storage for O outlines, S segments, G positioned
 instances, and K atlas/coverage bytes. A changed image page is O(C + I + B)
 time and O(I + B) retained storage for I image draws and B texture/quad bytes.
-Stable replay is O(C) command dispatch with zero vertex, index, texture,
-coverage, or uniform upload.
+Stable replay has O(C) bounded semantic validation, O(1) native WebGPU command
+recording, and zero vertex, index, texture, coverage, or uniform upload.
 
 The cross-engine substitution harness now exercises this exact boundary with
 one equivalent managed retained visual tree and one pointer-free native scene.
@@ -1190,9 +1199,12 @@ captures. The native path is required to report one ABI call, four retained
 family domains, eight ordered draws/family entries, one render pass, and one
 submission. Long paired distributions, exact-binary Instruments correlation,
 and checked aggregate budgets are published. Stable caller-owned C++ page
-dispatch performs no container growth after warm-up; a separately attributable
-native-allocation counter for the wgpu-native/Metal command-recording layer
-remains required before the allocation item is checked.
+dispatch performs no container growth after warm-up, and retained bundle replay
+removes per-command native recording calls. Exact-binary Time Profiler stacks
+must show bundle execution on the native side while the managed comparator
+retains its ordinary per-draw recording path. A separately attributable native
+allocation counter for the remaining wgpu-native/Metal pass/submit layer is
+still required before making a total native-allocation claim.
 
 Materialized layers use a depth-indexed pool keyed by device-loss generation,
 format, physical extent, usage, and sample count. The initial contract permits

@@ -44,6 +44,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(DeviceCreateCommandEncoder) \
     X(DeviceCreateComputePipeline) \
     X(DeviceCreatePipelineLayout) \
+    X(DeviceCreateRenderBundleEncoder) \
     X(DeviceCreateRenderPipeline) \
     X(DeviceCreateSampler) \
     X(DeviceCreateShaderModule) \
@@ -62,12 +63,22 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(RenderPassEncoderDraw) \
     X(RenderPassEncoderDrawIndexed) \
     X(RenderPassEncoderEnd) \
+    X(RenderPassEncoderExecuteBundles) \
     X(RenderPassEncoderRelease) \
     X(RenderPassEncoderSetBindGroup) \
     X(RenderPassEncoderSetIndexBuffer) \
     X(RenderPassEncoderSetPipeline) \
     X(RenderPassEncoderSetScissorRect) \
     X(RenderPassEncoderSetVertexBuffer) \
+    X(RenderBundleEncoderDraw) \
+    X(RenderBundleEncoderDrawIndexed) \
+    X(RenderBundleEncoderFinish) \
+    X(RenderBundleEncoderRelease) \
+    X(RenderBundleEncoderSetBindGroup) \
+    X(RenderBundleEncoderSetIndexBuffer) \
+    X(RenderBundleEncoderSetPipeline) \
+    X(RenderBundleEncoderSetVertexBuffer) \
+    X(RenderBundleRelease) \
     X(RenderPipelineGetBindGroupLayout) \
     X(RenderPipelineRelease) \
     X(SamplerRelease) \
@@ -368,6 +379,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateComputePipeline)
 #define wgpuDeviceCreatePipelineLayout \
     (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreatePipelineLayout)
+#define wgpuDeviceCreateRenderBundleEncoder \
+    (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateRenderBundleEncoder)
 #define wgpuDeviceCreateRenderPipeline \
     (::progpu::native::webgpu::active_dispatch().wgpuDeviceCreateRenderPipeline)
 #define wgpuDeviceCreateSampler \
@@ -392,6 +405,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderDrawIndexed)
 #define wgpuRenderPassEncoderEnd \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderEnd)
+#define wgpuRenderPassEncoderExecuteBundles \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderExecuteBundles)
 #define wgpuRenderPassEncoderRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderRelease)
 #define wgpuRenderPassEncoderSetBindGroup \
@@ -404,6 +419,24 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetScissorRect)
 #define wgpuRenderPassEncoderSetVertexBuffer \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetVertexBuffer)
+#define wgpuRenderBundleEncoderDraw \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderDraw)
+#define wgpuRenderBundleEncoderDrawIndexed \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderDrawIndexed)
+#define wgpuRenderBundleEncoderFinish \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderFinish)
+#define wgpuRenderBundleEncoderRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderRelease)
+#define wgpuRenderBundleEncoderSetBindGroup \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetBindGroup)
+#define wgpuRenderBundleEncoderSetIndexBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetIndexBuffer)
+#define wgpuRenderBundleEncoderSetPipeline \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetPipeline)
+#define wgpuRenderBundleEncoderSetVertexBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetVertexBuffer)
+#define wgpuRenderBundleRelease \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleRelease)
 #define wgpuRenderPipelineGetBindGroupLayout \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineGetBindGroupLayout)
 #define wgpuRenderPipelineRelease \
