@@ -176,7 +176,8 @@ enum {
 
 typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
-    PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1
+    PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1,
+    PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC = 2
 } progpu_native_image_sampling;
 
 typedef enum progpu_native_group_mask_kind {
@@ -538,6 +539,18 @@ typedef struct progpu_native_scene_image_draw {
     float opacity;
     uint32_t reserved;
 } progpu_native_scene_image_draw;
+
+/*
+ * Optional suffix required by semantic image draws whose sampling mode is
+ * CUBIC. The B/C parameters feed the production Texture.wgsl fixed 4x4
+ * Mitchell-Netravali kernel. Other sampling modes must not carry this suffix.
+ */
+typedef struct progpu_native_scene_image_sampling_options {
+    uint32_t struct_size;
+    uint32_t flags;
+    float cubic_b;
+    float cubic_c;
+} progpu_native_scene_image_sampling_options;
 
 /*
  * Exact pointer-free storage layout consumed by production Vector.wgsl.

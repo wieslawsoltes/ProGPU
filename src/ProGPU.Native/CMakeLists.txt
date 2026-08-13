@@ -328,6 +328,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_semantic_brush.hpp
     src/progpu_native_semantic_color_glyph.cpp
     src/progpu_native_semantic_color_glyph.hpp
+    src/progpu_native_semantic_image.cpp
+    src/progpu_native_semantic_image.hpp
     src/progpu_native_semantic_text_style.cpp
     src/progpu_native_semantic_text_style.hpp
     src/progpu_native_semantic_effect_cache.cpp
@@ -481,6 +483,8 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_backdrop_scene.hpp
         tests/progpu_native_semantic_color_glyph_scene.cpp
         tests/progpu_native_semantic_color_glyph_scene.hpp
+        tests/progpu_native_semantic_image_scene.cpp
+        tests/progpu_native_semantic_image_scene.hpp
         tests/progpu_native_semantic_text_scene.cpp
         tests/progpu_native_semantic_text_scene.hpp
         browser/progpu_native_browser_smoke.cpp)
@@ -534,6 +538,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_internal_tests.cpp
         tests/progpu_native_semantic_brush_tests.cpp
         tests/progpu_native_semantic_brush_tests.hpp
+        tests/progpu_native_semantic_image_tests.cpp
+        tests/progpu_native_semantic_image_tests.hpp
         src/progpu_native_draw_state.cpp
         src/progpu_native_draw_state.hpp
         src/progpu_native_effect_plan.cpp
@@ -551,6 +557,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_brush.hpp
         src/progpu_native_semantic_color_glyph.cpp
         src/progpu_native_semantic_color_glyph.hpp
+        src/progpu_native_semantic_image.cpp
+        src/progpu_native_semantic_image.hpp
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp
         src/progpu_native_semantic_effect_cache.cpp

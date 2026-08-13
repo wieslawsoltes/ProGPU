@@ -254,14 +254,21 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const std::uint32_t image_draw_offset = append_scene_payload(
         stream, &image, 1U);
     const std::array<std::uint8_t, 16U> second_image_pixels{
-        0U, 255U, 255U, 255U, 0U, 255U, 255U, 255U,
-        0U, 255U, 255U, 255U, 0U, 255U, 255U, 255U};
+        255U, 0U, 0U, 255U, 0U, 255U, 0U, 255U,
+        0U, 0U, 255U, 255U, 255U, 255U, 255U, 255U};
     const std::uint32_t second_image_offset = append_scene_payload(
         stream, second_image_pixels.data(), second_image_pixels.size());
     progpu_native_scene_image_draw second_image = image;
+    second_image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     second_image.destination_rect.y = 4.0F;
     const std::uint32_t second_image_draw_offset = append_scene_payload(
         stream, &second_image, 1U);
+    const progpu_native_scene_image_sampling_options second_sampling{
+        sizeof(progpu_native_scene_image_sampling_options),
+        0U,
+        1.0F / 3.0F,
+        1.0F / 3.0F};
+    append_scene_payload(stream, &second_sampling, 1U);
     const progpu_native_scene_state second_row_state{
         sizeof(progpu_native_scene_state),
         PROGPU_NATIVE_SCENE_STATE_CLIP_RECT,
@@ -403,7 +410,8 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 208U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 7U,
-            second_image_draw_offset, sizeof(second_image),
+            second_image_draw_offset,
+            sizeof(second_image) + sizeof(second_sampling),
             50.0F, 24.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
@@ -1349,8 +1357,14 @@ void verify_semantic_scene(
         "second distinct semantic path draw is missing");
     require(is_bgra(pixel(40U, 28U), 11U, 22U, 118U),
         "second state-opacity semantic styled glyph draw is missing");
-    require(is_bgra(pixel(54U, 28U), 132U, 132U, 3U),
-        "second distinct semantic image draw is missing");
+    require(semantic_second_image[0] > 20U &&
+            semantic_second_image[0] < 180U &&
+            semantic_second_image[1] > 20U &&
+            semantic_second_image[1] < 180U &&
+            semantic_second_image[2] > 20U &&
+            semantic_second_image[2] < 180U &&
+            semantic_second_image[3] >= 240U,
+        "Mitchell-Netravali semantic image sampling is missing");
     require(is_bgra(pixel(8U, 28U), 132U, 132U, 3U),
         "second distinct semantic analytic draw is missing");
     require(is_bgra(pixel(6U, 28U), 10U, 8U, 5U),

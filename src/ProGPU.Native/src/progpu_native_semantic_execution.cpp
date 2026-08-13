@@ -934,12 +934,14 @@ progpu_native_status render_scene(
                     bytes + command.payload_offset,
                     sizeof(image));
                 apply_semantic_state(image, state);
-                valid = image.struct_size >= sizeof(image) &&
-                    image.struct_size <= command.payload_size &&
-                    resource.auxiliary_size == 0U &&
-                    is_valid_semantic_image(
+                semantic_image_sampling_options sampling_options{};
+                valid = resource.auxiliary_size == 0U &&
+                    validate_image_draw_payload(
+                        bytes,
+                        command,
                         image,
-                        resource.payload_size);
+                        resource.payload_size,
+                        sampling_options);
                 compiled_vertex_bytes =
                     4U * sizeof(progpu::native::vector_vertex);
                 compiled_index_bytes = 6U * sizeof(std::uint32_t);
@@ -1813,6 +1815,20 @@ progpu_native_status render_scene(
                     bytes + command.payload_offset,
                     sizeof(image));
                 apply_semantic_state(image, state);
+                semantic_image_sampling_options sampling_options{};
+                if (!validate_image_draw_payload(
+                        bytes,
+                        command,
+                        image,
+                        resource.payload_size,
+                        sampling_options)) {
+                    release_compiled();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A retained image sampling payload is invalid.");
+                }
+                const bool cubic_sampling =
+                    image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
                 const float x0 = image.destination_rect.x;
@@ -1846,14 +1862,20 @@ progpu_native_status render_scene(
                     vertex.color[0] = 1.0F;
                     vertex.color[1] = 0.0F;
                     vertex.color[2] = 1.0F;
-                    vertex.color[3] = image.opacity;
+                    vertex.color[3] = cubic_sampling
+                        ? -image.opacity
+                        : image.opacity;
                     vertex.texture_coordinate[0] =
                         corner[0] == 0U ? u0 : u1;
                     vertex.texture_coordinate[1] =
                         corner[1] == 0U ? v0 : v1;
                     vertex.brush_index = 0.0F;
-                    vertex.shape_size[0] = 0.0F;
-                    vertex.shape_size[1] = 0.5F;
+                    vertex.shape_size[0] = cubic_sampling
+                        ? sampling_options.cubic_b
+                        : 0.0F;
+                    vertex.shape_size[1] = cubic_sampling
+                        ? sampling_options.cubic_c
+                        : 0.5F;
                     vertex.corner_radius = 0.0F;
                     vertex.stroke_thickness = 1.0F;
                     vertex.shape_type = 0.0F;

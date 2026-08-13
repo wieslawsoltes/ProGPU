@@ -197,6 +197,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneCommand>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeSceneImageSamplingOptions>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
@@ -235,6 +236,10 @@ public class NativeRendererInteropTests
             56,
             OffsetOf<NativeSceneImageDraw>(
                 nameof(NativeSceneImageDraw.Transform)));
+        Assert.Equal(
+            8,
+            OffsetOf<NativeSceneImageSamplingOptions>(
+                nameof(NativeSceneImageSamplingOptions.CubicB)));
         Assert.Equal(
             8,
             OffsetOf<NativeSceneState>(nameof(NativeSceneState.Transform)));
@@ -1531,6 +1536,73 @@ public class NativeRendererInteropTests
         Assert.Equal(
             0L,
             GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
+    public void SemanticCubicImageBuilderRequiresCanonicalSuffixWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        Span<byte> pixels = stackalloc byte[16];
+        var image = new NativeSceneImageDraw(
+            2,
+            2,
+            8,
+            NativeImageSampling.Cubic,
+            new NativeImageRect(0f, 0f, 2f, 2f),
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            Matrix3x2.Identity,
+            1f);
+        var sampling = NativeSceneImageSamplingOptions.Mitchell;
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> imagePayload,
+            in NativeSceneImageDraw draw,
+            in NativeSceneImageSamplingOptions options)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                91U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddImageResource(
+                    1U, 1U, imagePayload, out uint resource) &&
+                !builder.TryDrawImage(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 8f, 8f),
+                    in draw) &&
+                builder.TryDrawImage(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 8f, 8f),
+                    in draw,
+                    in options) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(destination, pixels, in image, in sampling));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, pixels, in image, in sampling);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+
+        var invalid = new NativeSceneImageSamplingOptions(float.NaN, 0.5f);
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination, 92U, 1U, commandCapacity: 1, resourceCapacity: 1);
+        Assert.True(invalidBuilder.TryAddImageResource(
+            1U, 1U, pixels, out uint invalidResource));
+        Assert.False(invalidBuilder.TryDrawImage(
+            1U,
+            invalidResource,
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            in image,
+            in invalid));
     }
 
     [Fact]

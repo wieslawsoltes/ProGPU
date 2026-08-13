@@ -71,7 +71,8 @@ public enum NativeFillRule : uint
 public enum NativeImageSampling : uint
 {
     Nearest = 0,
-    Linear = 1
+    Linear = 1,
+    Cubic = 2
 }
 
 public enum NativeGroupMaskKind : uint
@@ -757,6 +758,36 @@ public readonly struct NativeSceneImageDraw
     public readonly Matrix3x2 Transform;
     public readonly float Opacity;
     private readonly uint Reserved;
+}
+
+/// <summary>
+/// Optional pointer-free suffix for a semantic cubic image draw.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImageSamplingOptions
+{
+    public NativeSceneImageSamplingOptions(float cubicB, float cubicC)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImageSamplingOptions>();
+        Flags = 0U;
+        CubicB = cubicB;
+        CubicC = cubicC;
+    }
+
+    public static NativeSceneImageSamplingOptions Mitchell =>
+        new(1f / 3f, 1f / 3f);
+
+    public static NativeSceneImageSamplingOptions CatmullRom => new(0f, 0.5f);
+
+    public readonly uint StructSize;
+    private readonly uint Flags;
+    public readonly float CubicB;
+    public readonly float CubicC;
+
+    internal bool HasCanonicalFields =>
+        StructSize == Unsafe.SizeOf<NativeSceneImageSamplingOptions>() &&
+        Flags == 0U && float.IsFinite(CubicB) && float.IsFinite(CubicC) &&
+        MathF.Abs(CubicB) <= 16f && MathF.Abs(CubicC) <= 16f;
 }
 
 /// <summary>

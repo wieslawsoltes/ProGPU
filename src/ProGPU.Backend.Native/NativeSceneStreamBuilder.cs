@@ -671,7 +671,7 @@ public ref struct NativeSceneStreamBuilder
         ulong commandId,
         uint resourceIndex,
         NativeImageRect bounds,
-        ReadOnlySpan<byte> payload = default,
+        scoped ReadOnlySpan<byte> payload = default,
         uint stateIndex = uint.MaxValue) =>
         TryDraw(
             NativeSceneCommandKind.DrawImage,
@@ -686,8 +686,13 @@ public ref struct NativeSceneStreamBuilder
         uint resourceIndex,
         NativeImageRect bounds,
         in NativeSceneImageDraw image,
-        uint stateIndex = uint.MaxValue) =>
-        TryDrawImage(
+        uint stateIndex = uint.MaxValue)
+    {
+        if (image.Sampling == NativeImageSampling.Cubic)
+        {
+            return false;
+        }
+        return TryDrawImage(
             commandId,
             resourceIndex,
             bounds,
@@ -696,6 +701,35 @@ public ref struct NativeSceneStreamBuilder
                     ref Unsafe.AsRef(in image),
                     1)),
             stateIndex);
+    }
+
+    public bool TryDrawImage(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        in NativeSceneImageSamplingOptions samplingOptions,
+        uint stateIndex = uint.MaxValue)
+    {
+        if (image.Sampling != NativeImageSampling.Cubic ||
+            !samplingOptions.HasCanonicalFields)
+        {
+            return false;
+        }
+        Span<byte> payload = stackalloc byte[
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            Unsafe.SizeOf<NativeSceneImageSamplingOptions>()];
+        MemoryMarshal.Write(payload, in image);
+        MemoryMarshal.Write(
+            payload[Unsafe.SizeOf<NativeSceneImageDraw>()..],
+            in samplingOptions);
+        return TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            payload,
+            stateIndex);
+    }
 
     public bool TryBuild(out ReadOnlySpan<byte> stream)
     {
@@ -734,7 +768,7 @@ public ref struct NativeSceneStreamBuilder
         ulong commandId,
         uint resourceIndex,
         NativeImageRect bounds,
-        ReadOnlySpan<byte> payload,
+        scoped ReadOnlySpan<byte> payload,
         uint stateIndex)
     {
         if (_built || _commandCount == _commandCapacity ||

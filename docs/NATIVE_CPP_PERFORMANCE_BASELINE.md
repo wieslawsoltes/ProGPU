@@ -1948,3 +1948,49 @@ deduplication, remapping, and the 255-octave bound; managed construction remains
 allocation-free. The shared real Dawn/Metal and browser fixture additionally
 proves a non-identity transformed linear gradient plus transformed fallback
 noise through the production vector shader.
+
+## Retained cubic image-sampling supplement
+
+The semantic image command now preserves nearest, linear, and caller-selected
+two-parameter cubic reconstruction without changing the established 88-byte
+image record. Cubic draws append one exact 16-byte pointer-free suffix carrying
+the `B` and `C` coefficients. Native preflight rejects a missing, oversized,
+reserved, non-finite, or unreasonably large suffix before allocating a texture.
+The packed image page encodes cubic selection and coefficients in the existing
+production texture-vertex ABI; `Texture.wgsl` then performs a fixed 4 by 4
+Mitchell-Netravali reconstruction with clamped integer `textureLoad` accesses.
+Nearest and linear draws retain their hardware sampler paths and existing ABI.
+
+The clean-room design used these primary public contracts:
+
+- [Mitchell and Netravali, “Reconstruction Filters in Computer Graphics”](https://doi.org/10.1145/54852.378514)
+  defines the bounded two-parameter piecewise cubic reconstruction family;
+- [Skia `SkCubicResampler`](https://api.skia.org/structSkCubicResampler.html)
+  exposes `B`/`C` as the public sampling contract, including Mitchell and
+  Catmull-Rom presets;
+- [Direct2D interpolation modes](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_interpolation_mode)
+  distinguish nearest, linear, cubic, and high-quality cubic at the image draw
+  boundary;
+- [WebGPU textures and samplers](https://www.w3.org/TR/webgpu/#textures)
+  define immutable texture storage, filtering samplers, and explicit texture
+  access used by the native/browser implementation;
+- [Vello retained scenes](https://docs.rs/vello/latest/vello/struct.Scene.html)
+  retain image identity and transforms instead of rebuilding an image object
+  graph for replay.
+
+ProGPU adopts the shared explicit sampling contract and retained image
+identity. It rejects an opaque quality enum for cubic coefficients, runtime
+shader generation, a per-frame texture, and a CPU resize fallback. Cubic work
+is fixed `O(16)` samples and `O(1)` private storage per fragment; stream
+validation and command compilation remain `O(1)` per image, with one texture
+upload on the first immutable-scene render and zero upload on stable replay.
+
+Focused validation passes 32 managed native-interop tests with zero allocation
+over 10,000 cubic stream builds, warnings-as-errors C++ layout/validation
+tests, ASan/UBSan internal tests, real Dawn/Metal provider rendering, and the
+Emscripten/Chromium WebGPU contract. The Metal provider capture at
+`artifacts/progpu-native/build-sanitized-provider/progpu-native-webscene-provider.ppm`
+contains the transformed four-color cubic image and validates mixed interior
+samples. The browser gate requires exactly 16 image-upload bytes on first
+render and zero vertex/texture upload on stable replay before its final GPU
+readback.

@@ -2,6 +2,7 @@
 #include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
+#include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
 #include <emscripten.h>
@@ -60,6 +61,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeRendererSubmissions = "1";
         document.body.dataset.progpuNativeRetainedTextStyles = "passed";
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
+        document.body.dataset.progpuNativeCubicImages = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
@@ -147,6 +149,46 @@ bool render_browser_frame(double, void*) {
         color_metrics.coverage_staging_bytes != 0U) {
         fail_engine(
             "The stable browser color-glyph page was rebuilt.");
+    }
+
+    auto cubic_image_scene =
+        progpu::native::tests::create_semantic_cubic_image_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics image_scene_metrics{};
+    image_scene_metrics.struct_size = sizeof(image_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            cubic_image_scene.data(),
+            cubic_image_scene.size(),
+            &image_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        image_scene_metrics.command_count != 1U ||
+        image_scene_metrics.resource_count != 1U ||
+        image_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser cubic image scene update failed.");
+    }
+    semantic_frame.scene_id = 96U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics image_metrics{};
+    image_metrics.struct_size = sizeof(image_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        image_metrics.draw_call_count != 1U ||
+        image_metrics.submission_count != 1U ||
+        image_metrics.texture_upload_bytes != 16U) {
+        fail_engine("The browser cubic image render failed.");
+    }
+    image_metrics = {};
+    image_metrics.struct_size = sizeof(image_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        image_metrics.texture_upload_bytes != 0U ||
+        image_metrics.vertex_upload_bytes != 0U) {
+        fail_engine("The stable browser cubic image page was rebuilt.");
     }
 
     auto text_scene =

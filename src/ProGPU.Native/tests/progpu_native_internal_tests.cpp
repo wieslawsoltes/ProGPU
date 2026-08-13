@@ -10,6 +10,7 @@
 #include "progpu_native_semantic_brush_tests.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
@@ -682,6 +683,8 @@ int main() {
     semantic_brush_page_is_bounded_deduplicated_and_retained();
     require(progpu::native::tests::
         semantic_perlin_brush_table_is_exact_and_bounded());
+    require(progpu::native::tests::
+        semantic_image_sampling_payload_is_exact_and_bounded());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();

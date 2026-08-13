@@ -173,7 +173,7 @@ bool is_valid_semantic_image(
         image.image_height <= 16384U &&
         image.row_bytes >= minimum_row_bytes &&
         required_pixels <= pixel_bytes &&
-        image.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+        image.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC &&
         valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&
         image.source_rect.x >= 0.0F && image.source_rect.y >= 0.0F &&
         image.source_rect.x + image.source_rect.width <=
