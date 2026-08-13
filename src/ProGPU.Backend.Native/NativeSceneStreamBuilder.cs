@@ -33,6 +33,8 @@ public ref struct NativeSceneStreamBuilder
     private int _arenaSize;
     private int _stackDepth;
     private ulong _layerStackBits;
+    private int _materializedLayerDepth;
+    private ulong _materializedLayerStackBits;
     private ulong _lastCommandId;
     private ulong _lastResourceId;
     private bool _built;
@@ -131,6 +133,8 @@ public ref struct NativeSceneStreamBuilder
         _arenaSize = 0;
         _stackDepth = 0;
         _layerStackBits = 0U;
+        _materializedLayerDepth = 0;
+        _materializedLayerStackBits = 0U;
         _lastCommandId = 0U;
         _lastResourceId = 0U;
         _built = false;
@@ -286,7 +290,30 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.PushLayer,
             commandId,
             isLayer: true,
-            stateIndex: stateIndex);
+            stateIndex: stateIndex,
+            materializedLayer: false);
+
+    public bool TryPushLayer(
+        ulong commandId,
+        in NativeSceneLayer layer,
+        uint stateIndex = NativeMethods.SceneNoIndex)
+    {
+        if (!IsValidLayer(layer))
+        {
+            return false;
+        }
+
+        return TryPushControl(
+            NativeSceneCommandKind.PushLayer,
+            commandId,
+            isLayer: true,
+            stateIndex: stateIndex,
+            materializedLayer: RequiresMaterialization(layer),
+            payload: MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in layer),
+                    1)));
+    }
 
     public bool TryPopLayer(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.PopLayer, commandId, isLayer: true);
@@ -458,21 +485,42 @@ public ref struct NativeSceneStreamBuilder
         NativeSceneCommandKind kind,
         ulong commandId,
         bool isLayer,
-        uint stateIndex)
+        uint stateIndex,
+        bool materializedLayer = false,
+        ReadOnlySpan<byte> payload = default)
     {
+        int originalArenaSize = _arenaSize;
         if ((uint)_stackDepth == NativeMethods.SceneMaximumStackDepth ||
+            (materializedLayer &&
+                (uint)_materializedLayerDepth ==
+                    NativeMethods.SceneMaximumMaterializedLayers) ||
             (stateIndex != NativeMethods.SceneNoIndex &&
                 (stateIndex >= (uint)_resourceCount ||
                     !ResourceHasKind(
                         stateIndex,
-                        NativeSceneResourceKind.State))) ||
-            !TryWriteControl(kind, commandId, stateIndex))
+                        NativeSceneResourceKind.State))))
         {
+            return false;
+        }
+        if (!TryWriteArena(payload, out uint payloadOffset) ||
+            !TryWriteControl(
+                kind,
+                commandId,
+                stateIndex,
+                payloadOffset,
+                (uint)payload.Length))
+        {
+            _arenaSize = originalArenaSize;
             return false;
         }
         if (isLayer)
         {
             _layerStackBits |= 1UL << _stackDepth;
+            if (materializedLayer)
+            {
+                _materializedLayerStackBits |= 1UL << _stackDepth;
+                ++_materializedLayerDepth;
+            }
         }
         ++_stackDepth;
         return true;
@@ -497,15 +545,22 @@ public ref struct NativeSceneStreamBuilder
         {
             return false;
         }
+        bool topIsMaterializedLayer =
+            (_materializedLayerStackBits &
+                (1UL << (_stackDepth - 1))) != 0U;
         --_stackDepth;
+        _materializedLayerDepth -= topIsMaterializedLayer ? 1 : 0;
         _layerStackBits &= ~(1UL << _stackDepth);
+        _materializedLayerStackBits &= ~(1UL << _stackDepth);
         return true;
     }
 
     private bool TryWriteControl(
         NativeSceneCommandKind kind,
         ulong commandId,
-        uint stateIndex)
+        uint stateIndex,
+        uint payloadOffset = 0U,
+        uint payloadSize = 0U)
     {
         if (_built || _commandCount == _commandCapacity ||
             commandId == 0U || commandId <= _lastCommandId)
@@ -519,7 +574,9 @@ public ref struct NativeSceneStreamBuilder
             Flags = NativeSceneRecordFlags.Required,
             CommandId = commandId,
             StateIndex = stateIndex,
-            ResourceIndex = NativeMethods.SceneNoIndex
+            ResourceIndex = NativeMethods.SceneNoIndex,
+            PayloadOffset = payloadOffset,
+            PayloadSize = payloadSize
         };
         Write(_commandOffset + _commandCount++ * CommandSize, command);
         _lastCommandId = commandId;
@@ -590,6 +647,36 @@ public ref struct NativeSceneStreamBuilder
         float.IsFinite(bounds.X) && float.IsFinite(bounds.Y) &&
         float.IsFinite(bounds.Width) && float.IsFinite(bounds.Height) &&
         bounds.Width >= 0f && bounds.Height >= 0f;
+
+    private static bool IsValidLayer(in NativeSceneLayer layer)
+    {
+        const NativeSceneLayerFlags knownFlags =
+            NativeSceneLayerFlags.Bounds |
+            NativeSceneLayerFlags.Backdrop |
+            NativeSceneLayerFlags.ForceIsolation;
+        bool hasBounds =
+            (layer.Flags & NativeSceneLayerFlags.Bounds) != 0;
+        bool canonicalBounds = hasBounds ||
+            (layer.Bounds.X == 0f && layer.Bounds.Y == 0f &&
+                layer.Bounds.Width == 0f && layer.Bounds.Height == 0f);
+        return layer.StructSize == Unsafe.SizeOf<NativeSceneLayer>() &&
+            (layer.Flags & ~knownFlags) == 0 &&
+            IsFiniteBounds(layer.Bounds) && canonicalBounds &&
+            float.IsFinite(layer.Opacity) &&
+            layer.Opacity is >= 0f and <= 1f &&
+            (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
+            layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
+            layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
+            layer.HasCanonicalReservedFields;
+    }
+
+    private static bool RequiresMaterialization(in NativeSceneLayer layer) =>
+        (layer.Flags & (NativeSceneLayerFlags.Backdrop |
+            NativeSceneLayerFlags.ForceIsolation)) != 0 ||
+        layer.Opacity != 1f ||
+        layer.BlendMode != GpuBlendMode.SrcOver ||
+        layer.MaskResourceIndex != NativeMethods.SceneNoIndex ||
+        layer.EffectResourceIndex != NativeMethods.SceneNoIndex;
 
     private static long Align8(long value) => (value + 7L) & ~7L;
 }

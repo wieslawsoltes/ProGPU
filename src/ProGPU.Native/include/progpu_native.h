@@ -63,6 +63,8 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES = 256U * 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_COMMANDS = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_RESOURCES = 256U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS = 16U,
+    PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES = 256U * 1024U * 1024U,
     PROGPU_NATIVE_SCENE_NO_INDEX = 0xffffffffU,
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
@@ -105,6 +107,12 @@ enum {
 
 enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U
+};
+
+enum {
+    PROGPU_NATIVE_SCENE_LAYER_BOUNDS = 1U << 0U,
+    PROGPU_NATIVE_SCENE_LAYER_BACKDROP = 1U << 1U,
+    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -405,6 +413,29 @@ typedef struct progpu_native_scene_state {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_state;
+
+/*
+ * Pointer-free semantic isolated-layer descriptor stored directly in one
+ * PUSH_LAYER command payload. Bounds are logical target coordinates and are
+ * enabled by PROGPU_NATIVE_SCENE_LAYER_BOUNDS; an absent bound means the full
+ * target. Opacity and blend mode are applied once when the layer is restored.
+ * Mask/effect indices are reserved typed resource-table references for the
+ * next additive scene-resource increment and must currently be NO_INDEX.
+ * Revisions are caller-owned retained identities; zero disables reuse hints.
+ */
+typedef struct progpu_native_scene_layer {
+    uint32_t struct_size;
+    uint32_t flags;
+    progpu_native_image_rect bounds;
+    float opacity;
+    uint32_t blend_mode;
+    uint32_t mask_resource_index;
+    uint32_t effect_resource_index;
+    uint64_t content_revision;
+    uint64_t composite_revision;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_layer;
 
 /*
  * Version-one upload-backed image command payload. Its resource payload is a

@@ -19,6 +19,8 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumStreamBytes = 256U * 1024U * 1024U;
     internal const uint SceneMaximumCommands = 1024U * 1024U;
     internal const uint SceneMaximumResources = 256U * 1024U;
+    internal const uint SceneMaximumMaterializedLayers = 16U;
+    internal const uint SceneMaximumLayerBytes = 256U * 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;
     internal const uint SceneMetricsSnapshotReused = 1U;
 

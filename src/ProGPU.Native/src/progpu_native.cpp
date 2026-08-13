@@ -1079,6 +1079,33 @@ semantic_scissor resolve_semantic_scissor(
     return result;
 }
 
+progpu_native_scene_layer semantic_default_layer() noexcept {
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    return layer;
+}
+
+semantic_scissor resolve_semantic_layer_scissor(
+    const progpu_native_scene_layer& layer,
+    std::uint32_t target_width,
+    std::uint32_t target_height,
+    float dpi_scale) noexcept {
+    auto state = semantic_identity_state();
+    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U) {
+        state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        state.clip_rect = layer.bounds;
+    }
+    return resolve_semantic_scissor(
+        state,
+        target_width,
+        target_height,
+        dpi_scale);
+}
+
 constexpr std::uint32_t semantic_max_draw_passes = 16U * 1024U;
 constexpr std::uint64_t semantic_max_vertex_bytes = 256ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t semantic_max_index_bytes = 64ULL * 1024ULL * 1024ULL;
@@ -1135,6 +1162,45 @@ struct semantic_compilation_budget {
         texture_bytes = next_textures;
         coverage_bytes = next_coverage;
         return true;
+    }
+
+    std::uint64_t total_bytes() const noexcept {
+        return vertex_bytes + index_bytes + texture_bytes + coverage_bytes;
+    }
+};
+
+struct semantic_layer_budget {
+    std::array<std::uint64_t,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> live_bytes{};
+    std::array<bool,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> live_materialized{};
+    std::uint32_t scope_depth = 0U;
+    std::uint32_t materialized_depth = 0U;
+    std::uint64_t current_bytes = 0U;
+    std::uint64_t peak_bytes = 0U;
+
+    bool push(std::uint64_t bytes, bool materialized) noexcept {
+        if (scope_depth == PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH ||
+            (materialized && materialized_depth ==
+                PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS) ||
+            (materialized &&
+                (bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
+                    current_bytes >
+                        PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES - bytes))) {
+            return false;
+        }
+        live_bytes[scope_depth] = materialized ? bytes : 0U;
+        live_materialized[scope_depth++] = materialized;
+        materialized_depth += materialized ? 1U : 0U;
+        current_bytes += materialized ? bytes : 0U;
+        peak_bytes = std::max(peak_bytes, current_bytes);
+        return true;
+    }
+
+    void pop() noexcept {
+        --scope_depth;
+        current_bytes -= live_bytes[scope_depth];
+        materialized_depth -= live_materialized[scope_depth] ? 1U : 0U;
     }
 };
 
@@ -11432,6 +11498,49 @@ progpu_native_status progpu_native_engine_render_scene(
         return stride != 0U && size != 0U && size % stride == 0U;
     };
 
+    semantic_layer_budget layer_budget{};
+    bool semantic_has_layers = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command = read_command(index);
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            semantic_has_layers = true;
+            auto layer = semantic_default_layer();
+            if (command.payload_size != 0U) {
+                std::memcpy(
+                    &layer,
+                    bytes + command.payload_offset,
+                    sizeof(layer));
+            }
+            const auto extent = resolve_semantic_layer_scissor(
+                layer,
+                frame->width,
+                frame->height,
+                frame->dpi_scale);
+            const bool materialized =
+                progpu::native::scene::layer_requires_materialization(layer);
+            const std::uint64_t row_bytes = materialized
+                ? static_cast<std::uint64_t>(extent.width) * 4U
+                : 0U;
+            if (materialized && row_bytes != 0U &&
+                extent.height >
+                    PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES / row_bytes) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                    "A semantic isolated layer exceeds the bounded pixel budget.");
+            }
+            const std::uint64_t layer_bytes =
+                row_bytes * extent.height;
+            if (!layer_budget.push(layer_bytes, materialized)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                    "The semantic isolated-layer stack exceeds its bounded depth or aggregate pixel budget.");
+            }
+        } else if (command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            layer_budget.pop();
+        }
+    }
+
     /* Preflight every typed payload before the first target submission. */
     std::uint32_t semantic_draw_count = 0U;
     std::uint32_t semantic_analytic_draw_count = 0U;
@@ -11456,9 +11565,7 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                "Semantic isolated layers are delivered by M2.4d3b2.");
+            continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
@@ -11691,6 +11798,14 @@ progpu_native_status progpu_native_engine_render_scene(
         ++semantic_draw_count;
     }
 
+    if (layer_budget.peak_bytes >
+        semantic_max_total_compiled_bytes -
+            compilation_budget.total_bytes()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The semantic scene exceeds the combined layer and compiled-payload budget.");
+    }
+
     if (semantic_path_count > (1U << 20U) ||
         semantic_path_segment_count > (1U << 24U) ||
         semantic_path_count >
@@ -11707,6 +11822,12 @@ progpu_native_status progpu_native_engine_render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The aggregate semantic glyph page exceeds the native safety bound.");
+    }
+
+    if (semantic_has_layers) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_UNSUPPORTED,
+            "Semantic isolated-layer rendering is delivered by the next M2.4d3b2 checkpoint.");
     }
 
     const bool semantic_render_bundle_hit =

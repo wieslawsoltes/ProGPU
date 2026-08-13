@@ -521,7 +521,11 @@ coverage staging, and 512 MiB across those compiled domains. Accumulation uses
 checked 64-bit arithmetic and runs in O(C + V) time for C commands and V typed
 values with O(1) budget storage. A valid 16,385-draw stream fails with
 `OUT_OF_MEMORY` before encoder creation, preserves the submission timeline,
-and leaves the target unchanged. Isolated layers remain d3b2.
+and leaves the target unchanged. Layer descriptors reuse the fixed 64-entry
+structural scope stack while separately limiting simultaneously materialized
+layers to 16, cap peak layer pixels at 256 MiB, and include that peak in the
+same 512 MiB total; they do not allocate a texture until layer rendering is
+implemented.
 
 ## Semantic save/restore state checkpoint
 
@@ -570,6 +574,26 @@ This is functional retained-state evidence, not yet a new matched C++/managed
 state-bearing performance distribution; a matched state-bearing benchmark and
 profiler comparison remain required before the state/layer milestone can be
 checked.
+
+### Isolated-layer descriptor and budget checkpoint
+
+The next d3b2 increment defines an exact 64-byte pointer-free inline layer
+descriptor and an allocation-free typed .NET builder overload. It retains
+logical bounds, one-time restore opacity/blend, backdrop and force-isolation
+flags, future mask/effect resource indices, and independent content/composite
+revisions. Empty legacy push payloads remain valid default layers. Typed builds
+perform zero managed allocation across 10,000 iterations.
+
+Scene validation rejects non-exact payloads, unknown flags, non-canonical
+disabled bounds, negative or non-finite extents, invalid opacity/blend,
+premature mask/effect indices, nonzero reserved fields, and a seventeenth live
+layer. Frame preflight converts bounds to physical pixels, tracks the nested
+live-byte peak in fixed storage, caps it at 256 MiB, and combines it with the
+existing 512 MiB whole-scene budget. The real Dawn/Metal provider accepts one
+typed descriptor and reaches `UNSUPPORTED` without submission at 64×48; the
+same full-target descriptor at 65,536×65,536 returns `OUT_OF_MEMORY` before
+submission and preserves the previous GPU token. This is validation/budget
+evidence only: no layer pixel output or performance milestone is claimed yet.
 
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at

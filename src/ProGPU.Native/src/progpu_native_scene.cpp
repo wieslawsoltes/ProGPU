@@ -139,6 +139,30 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
         state.clip_rect.height >= 0.0F && clip_is_canonical;
 }
 
+bool valid_scene_layer(const progpu_native_scene_layer& layer) noexcept {
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    const bool bounds_are_canonical =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
+        (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
+            layer.bounds.width == 0.0F && layer.bounds.height == 0.0F);
+    return layer.struct_size == sizeof(progpu_native_scene_layer) &&
+        (layer.flags & ~known_flags) == 0U &&
+        std::isfinite(layer.bounds.x) &&
+        std::isfinite(layer.bounds.y) &&
+        std::isfinite(layer.bounds.width) &&
+        std::isfinite(layer.bounds.height) &&
+        layer.bounds.width >= 0.0F && layer.bounds.height >= 0.0F &&
+        bounds_are_canonical && std::isfinite(layer.opacity) &&
+        layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
+        layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
+        layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+        layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+        layer.reserved0 == 0U && layer.reserved1 == 0U;
+}
+
 bool command_ids_are_unique(
     const std::byte* bytes,
     const progpu_native_scene_header& header) {
@@ -317,6 +341,7 @@ validation_result validate(
 
     std::array<std::uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack{};
     std::uint32_t depth = 0U;
+    std::uint32_t materialized_layer_depth = 0U;
     std::uint32_t maximum_depth = 0U;
     std::uint32_t draw_count = 0U;
     try {
@@ -422,32 +447,60 @@ validation_result validate(
                     command.payload_offset != 0U))) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
+        bool layer_is_materialized = false;
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+            command.payload_size != 0U) {
+            if (command.payload_size != sizeof(progpu_native_scene_layer)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    offset);
+            }
+            const auto layer = read_record<progpu_native_scene_layer>(
+                bytes,
+                command.payload_offset);
+            if (!valid_scene_layer(layer)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    offset);
+            }
+            layer_is_materialized = layer_requires_materialization(layer);
+        }
         payload_bytes += command.payload_size;
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
-            if (depth == PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH) {
+            const bool is_layer = command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+            if (depth == PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH ||
+                (layer_is_materialized && materialized_layer_depth ==
+                    PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS)) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_STACK,
                     offset);
             }
-            stack[depth++] = command.kind ==
-                    PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER
-                ? 2U
-                : 1U;
+            stack[depth++] = !is_layer
+                ? 1U
+                : (layer_is_materialized ? 3U : 2U);
+            materialized_layer_depth += layer_is_materialized ? 1U : 0U;
             maximum_depth = std::max(maximum_depth, depth);
         } else {
-            const std::uint8_t expected = command.kind ==
-                    PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER
-                ? 2U
-                : 1U;
-            if (depth == 0U || stack[depth - 1U] != expected) {
+            const bool expects_layer = command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+            const std::uint8_t actual = depth == 0U
+                ? 0U
+                : stack[depth - 1U];
+            if (depth == 0U || (expects_layer
+                    ? (actual != 2U && actual != 3U)
+                    : actual != 1U)) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_STACK,
                     offset);
             }
             --depth;
+            materialized_layer_depth -= actual == 3U ? 1U : 0U;
         }
     }
     if (depth != 0U) {

@@ -217,7 +217,9 @@ other destination-aware modes retain a bounded source texture and execute one
 static WGSL fullscreen pass over the target backdrop. Stable advanced replay
 skips the source-family pass, reuses its pipeline and texture, and allocates
 zero managed bytes after warm-up. The current ABI applies the mode to the root
-group against the frame clear color; semantic nested/backdrop layers remain a
+group against the frame clear color. Semantic nested/backdrop layers now have
+an exact pointer-free descriptor and checked preflight budget, but pixel
+compilation remains an intentionally unsupported follow-up rather than a
 later tranche.
 
 Current native parity:

@@ -140,13 +140,18 @@ std::vector<std::byte> create_valid_mixed_scene(
     return stream;
 }
 
-std::vector<std::byte> create_nested_scene(std::uint32_t depth) {
+std::vector<std::byte> create_nested_scene(
+    std::uint32_t depth,
+    bool layers = false) {
     const std::uint32_t command_count = depth * 2U;
     const std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     const std::uint32_t resource_offset = command_offset +
         command_count * sizeof(progpu_native_scene_command);
-    const std::uint32_t total_size = resource_offset;
+    const std::uint32_t arena_size = layers
+        ? depth * sizeof(progpu_native_scene_layer)
+        : 0U;
+    const std::uint32_t total_size = resource_offset + arena_size;
     std::vector<std::byte> stream(total_size);
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -162,22 +167,95 @@ std::vector<std::byte> create_nested_scene(std::uint32_t depth) {
     header.resource_offset = resource_offset;
     header.resource_stride = sizeof(progpu_native_scene_resource);
     header.arena_offset = resource_offset;
+    header.arena_size = arena_size;
     write_scene_record(stream, 0U, header);
     for (std::uint32_t index = 0U; index < command_count; ++index) {
         progpu_native_scene_command command{};
         command.struct_size = sizeof(command);
         command.kind = index < depth
-            ? PROGPU_NATIVE_SCENE_COMMAND_SAVE
-            : PROGPU_NATIVE_SCENE_COMMAND_RESTORE;
+            ? (layers
+                ? PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER
+                : PROGPU_NATIVE_SCENE_COMMAND_SAVE)
+            : (layers
+                ? PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER
+                : PROGPU_NATIVE_SCENE_COMMAND_RESTORE);
         command.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
         command.command_id = index + 1U;
         command.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         command.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (layers && index < depth) {
+            command.payload_offset = resource_offset +
+                index * sizeof(progpu_native_scene_layer);
+            command.payload_size = sizeof(progpu_native_scene_layer);
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            layer.opacity = 1.0F;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            write_scene_record(stream, command.payload_offset, layer);
+        }
         write_scene_record(
             stream,
             command_offset + index * sizeof(progpu_native_scene_command),
             command);
     }
+    return stream;
+}
+
+std::vector<std::byte> create_layer_descriptor_scene(
+    const progpu_native_scene_layer& layer) {
+    constexpr std::uint32_t command_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset;
+    constexpr std::uint32_t total_size = arena_offset +
+        sizeof(progpu_native_scene_layer);
+    std::vector<std::byte> stream(total_size);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = total_size;
+    header.scene_id = 56U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = sizeof(progpu_native_scene_layer);
+    write_scene_record(stream, 0U, header);
+
+    progpu_native_scene_command push{};
+    push.struct_size = sizeof(push);
+    push.kind = PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+    push.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    push.command_id = 1U;
+    push.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    push.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    push.payload_offset = arena_offset;
+    push.payload_size = sizeof(layer);
+    write_scene_record(stream, command_offset, push);
+
+    progpu_native_scene_command pop{};
+    pop.struct_size = sizeof(pop);
+    pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+    pop.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    pop.command_id = 2U;
+    pop.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    pop.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    write_scene_record(
+        stream,
+        command_offset + sizeof(progpu_native_scene_command),
+        pop);
+    write_scene_record(stream, arena_offset, layer);
     return stream;
 }
 
@@ -306,6 +384,7 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_metrics) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_image_draw) == 88U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_state) == 64U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_layer) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
@@ -325,6 +404,18 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_state,
         clip_rect) == 40U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer,
+        bounds) == 8U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer,
+        opacity) == 24U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer,
+        mask_resource_index) == 32U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer,
+        content_revision) == 40U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_path_fill,
         color) == 32U);
@@ -550,6 +641,90 @@ void semantic_scene_resource_generations_are_monotonic() {
     PROGPU_REQUIRE(error_offset == resource_offset);
 }
 
+void semantic_scene_layer_descriptors_are_exact_and_canonical() {
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {2.0F, 3.0F, 40.0F, 50.0F};
+    layer.opacity = 0.5F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_OVERLAY;
+    layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 7U;
+    layer.composite_revision = 9U;
+
+    auto stream = create_layer_descriptor_scene(layer);
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.maximum_stack_depth == 1U);
+    PROGPU_REQUIRE(metrics.payload_bytes == sizeof(layer));
+
+    const auto rejects_value = [](progpu_native_scene_layer invalid) {
+        const auto invalid_stream = create_layer_descriptor_scene(invalid);
+        progpu_native_scene_metrics invalid_metrics{};
+        invalid_metrics.struct_size = sizeof(invalid_metrics);
+        PROGPU_REQUIRE(progpu_native_scene_validate(
+            invalid_stream.data(),
+            invalid_stream.size(),
+            &invalid_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        PROGPU_REQUIRE(invalid_metrics.validation_error ==
+            PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+    };
+
+    auto invalid = layer;
+    --invalid.struct_size;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.flags |= 1U << 31U;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.flags = 0U;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.bounds.width = -1.0F;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.opacity = std::numeric_limits<float>::quiet_NaN();
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.opacity = 1.01F;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.blend_mode = PROGPU_NATIVE_BLEND_MODULATE + 1U;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.mask_resource_index = 0U;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.effect_resource_index = 0U;
+    rejects_value(invalid);
+    invalid = layer;
+    invalid.reserved0 = 1U;
+    rejects_value(invalid);
+
+    stream = create_layer_descriptor_scene(layer);
+    progpu_native_scene_header header{};
+    std::memcpy(&header, stream.data(), sizeof(header));
+    progpu_native_scene_command push{};
+    std::memcpy(
+        &push,
+        stream.data() + header.command_offset,
+        sizeof(push));
+    --push.payload_size;
+    write_scene_record(stream, header.command_offset, push);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+}
+
 void semantic_scene_stack_depth_is_bounded_exactly() {
     const auto maximum = create_nested_scene(
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH);
@@ -566,6 +741,24 @@ void semantic_scene_stack_depth_is_bounded_exactly() {
     metrics.struct_size = sizeof(metrics);
     PROGPU_REQUIRE(progpu_native_scene_validate(
         excessive.data(), excessive.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_STACK);
+
+    const auto maximum_layers = create_nested_scene(
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS,
+        true);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        maximum_layers.data(), maximum_layers.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+
+    const auto excessive_layers = create_nested_scene(
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + 1U,
+        true);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        excessive_layers.data(), excessive_layers.size(), &metrics) ==
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     PROGPU_REQUIRE(metrics.validation_error ==
         PROGPU_NATIVE_SCENE_VALIDATION_STACK);
@@ -1283,6 +1476,7 @@ int main() {
     semantic_scene_stream_validates_mixed_order_and_stack();
     semantic_scene_stream_rejects_malformed_updates_transactionally();
     semantic_scene_resource_generations_are_monotonic();
+    semantic_scene_layer_descriptors_are_exact_and_canonical();
     semantic_scene_stack_depth_is_bounded_exactly();
     semantic_scene_validation_is_deterministic_under_mutation();
     fixed_stroke_topology_masks_match_reference_classification();

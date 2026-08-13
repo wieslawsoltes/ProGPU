@@ -1091,8 +1091,9 @@ state resource for save/restore scopes and per-draw overrides: its affine
 transform is composed after the draw-local transform and its opacity
 multiplies draw alpha once while changed pages are compiled. Its optional
 logical target rectangle is lowered to a retained physical scissor span;
-isolated layers still fail with typed `UNSUPPORTED` status and remain d3b2
-work.
+an inline pointer-free layer descriptor and its aggregate resource budget are
+validated before rendering. Layer pixels still fail with typed `UNSUPPORTED`
+status until the next d3b2 compilation checkpoint.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1113,6 +1114,17 @@ state for that draw only. Restore and pop commands cannot carry state indices.
 must be zero. When present it is intersected with the physical target after DPI
 conversion; an empty result advances its retained family-page cursor but emits
 no draw or invalid zero-size WebGPU scissor.
+
+The isolated-layer payload is another exact 64-byte record stored directly in
+the `PUSH_LAYER` command arena: declared size and flags, optional logical target
+bounds, restore opacity and `GpuBlendMode`, future typed mask/effect resource
+indices, independent content/composite revisions, and zeroed reserved fields.
+An absent bounds flag requires four canonical zero values and means the full
+target. The existing empty-payload push prefix remains a canonical full-target,
+unit-opacity, source-over layer so version-one streams stay append-compatible.
+`BACKDROP` requests parent pixels as layer input; `FORCE_ISOLATION` prevents a
+later compiler from folding an otherwise trivial scope. Mask/effect indices
+must remain `NO_INDEX` until their pointer-free resource kinds land.
 
 The command vocabulary is deliberately semantic:
 
@@ -1143,10 +1155,12 @@ lookup allocation. No partial snapshot becomes visible on failure.
 
 State-resource validation also checks the exact 64-byte payload, zero
 auxiliary bytes and reserved fields, known and canonical flags, finite
-affine/clip values, non-negative clip extent, and opacity in `[0,1]`. State resolution uses a
-fixed 64-entry native stack. It adds O(C) time and O(D) bounded stack storage,
-with no managed allocation and no native heap allocation proportional to state
-transition count.
+affine/clip values, non-negative clip extent, and opacity in `[0,1]`. Layer
+validation checks the same exact/canonical contract plus the blend range,
+reserved resource indices, and at most 16 simultaneously materialized layer
+scopes. State resolution uses a fixed 64-entry native stack. Validation adds
+O(C) time and O(D) bounded stack storage, with no managed allocation and no
+native heap allocation proportional to state transition count.
 
 The current mixed renderer preflights all four typed payloads before its first
 submission. It validates analytic geometry and transforms; path/glyph segment
@@ -1156,8 +1170,14 @@ strides, rectangles, transforms, sampling, and opacity. A late invalid draw
 therefore cannot submit or mutate an earlier target result. The same pass now
 uses checked 64-bit accumulation to bound draw passes, expanded vertices,
 indices, image bytes, aligned path/glyph coverage, and their aggregate before
-encoder creation. Layer pixels and effect-pass budgets join this preflight when
-nested state is enabled in d3b2.
+encoder creation. Layer preflight converts logical bounds to conservative
+physical extents with the target DPI, tracks the live nested-byte sum on a
+fixed 64-entry structural scope stack while separately limiting materialized
+depth to 16, caps peak layer pixels at 256 MiB, and includes that peak in the
+existing 512 MiB combined scene budget. Multiplication and accumulation are
+checked before an encoder is created. A valid budgeted layer currently
+reaches the typed `UNSUPPORTED` rendering boundary; an oversized layer returns
+`OUT_OF_MEMORY` first and cannot mutate the target or submission timeline.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1248,7 +1268,7 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-Materialized layers use a depth-indexed pool keyed by device-loss generation,
+The next checkpoint materializes layers through a depth-indexed pool keyed by device-loss generation,
 format, physical extent, usage, and sample count. The initial contract permits
 at most 16 simultaneously materialized layers and eight effect nodes per layer.
 Each layer is cleared to transparent premultiplied RGBA, receives ordered child

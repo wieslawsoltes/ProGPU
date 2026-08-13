@@ -198,6 +198,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
@@ -219,6 +220,20 @@ public class NativeRendererInteropTests
         Assert.Equal(
             40,
             OffsetOf<NativeSceneState>(nameof(NativeSceneState.ClipRect)));
+        Assert.Equal(
+            8,
+            OffsetOf<NativeSceneLayer>(nameof(NativeSceneLayer.Bounds)));
+        Assert.Equal(
+            24,
+            OffsetOf<NativeSceneLayer>(nameof(NativeSceneLayer.Opacity)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeSceneLayer>(
+                nameof(NativeSceneLayer.MaskResourceIndex)));
+        Assert.Equal(
+            40,
+            OffsetOf<NativeSceneLayer>(
+                nameof(NativeSceneLayer.ContentRevision)));
         Assert.Equal(
             32,
             OffsetOf<NativeScenePathFill>(
@@ -772,6 +787,148 @@ public class NativeRendererInteropTests
         Assert.Equal(stateIndex, save.StateIndex);
         Assert.Equal(NativeMethods.SceneNoIndex, inheritedDraw.StateIndex);
         Assert.Equal(stateIndex, overrideDraw.StateIndex);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesTypedLayersWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        var layer = new NativeSceneLayer(
+            opacity: 0.5f,
+            blendMode: GpuBlendMode.Overlay,
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.Backdrop |
+                NativeSceneLayerFlags.ForceIsolation,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+
+        static bool BuildLayer(
+            Span<byte> bytes,
+            in NativeSceneLayer descriptor,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                sceneId: 9U,
+                generation: 3U,
+                commandCapacity: 2,
+                resourceCapacity: 0);
+            return builder.TryPushLayer(1U, in descriptor) &&
+                builder.TryPopLayer(2U) &&
+                builder.TryBuild(out stream);
+        }
+
+        Assert.True(BuildLayer(destination, in layer, out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var push = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayer>(
+            stream[(int)push.PayloadOffset..]);
+        Assert.Equal(64U, push.PayloadSize);
+        Assert.Equal(layer.Flags, stored.Flags);
+        Assert.Equal(layer.Bounds.X, stored.Bounds.X);
+        Assert.Equal(layer.Bounds.Y, stored.Bounds.Y);
+        Assert.Equal(layer.Bounds.Width, stored.Bounds.Width);
+        Assert.Equal(layer.Bounds.Height, stored.Bounds.Height);
+        Assert.Equal(0.5f, stored.Opacity);
+        Assert.Equal(GpuBlendMode.Overlay, stored.BlendMode);
+        Assert.Equal(uint.MaxValue, stored.MaskResourceIndex);
+        Assert.Equal(uint.MaxValue, stored.EffectResourceIndex);
+        Assert.Equal(7UL, stored.ContentRevision);
+        Assert.Equal(9UL, stored.CompositeRevision);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= BuildLayer(destination, in layer, out _);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(success);
+        Assert.Equal(0L, allocated);
+
+        NativeSceneLayer invalid = default;
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            10U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 0);
+        Assert.False(invalidBuilder.TryPushLayer(1U, in invalid));
+
+        invalid = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.None,
+            bounds: new NativeImageRect(1f, 2f, 3f, 4f));
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            10U,
+            2U,
+            commandCapacity: 1,
+            resourceCapacity: 0);
+        Assert.False(invalidBuilder.TryPushLayer(1U, in invalid));
+
+        invalid = new NativeSceneLayer(maskResourceIndex: 0U);
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            10U,
+            3U,
+            commandCapacity: 1,
+            resourceCapacity: 0);
+        Assert.False(invalidBuilder.TryPushLayer(1U, in invalid));
+
+        Span<byte> encodedLayer = stackalloc byte[64];
+        MemoryMarshal.Write(encodedLayer, in layer);
+        encodedLayer[56] = 1;
+        invalid = MemoryMarshal.Read<NativeSceneLayer>(encodedLayer);
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            10U,
+            4U,
+            commandCapacity: 1,
+            resourceCapacity: 0);
+        Assert.False(invalidBuilder.TryPushLayer(1U, in invalid));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderBoundsMaterializedLayerDepth()
+    {
+        Span<byte> destination = stackalloc byte[8192];
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            11U,
+            1U,
+            commandCapacity: 34,
+            resourceCapacity: 0);
+        for (ulong commandId = 1U; commandId <= 17U; ++commandId)
+        {
+            Assert.True(builder.TryPushLayer(commandId));
+        }
+        for (ulong commandId = 18U; commandId <= 34U; ++commandId)
+        {
+            Assert.True(builder.TryPopLayer(commandId));
+        }
+        Assert.True(builder.TryBuild(out _));
+
+        var materialized = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation);
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            12U,
+            1U,
+            commandCapacity: 32,
+            resourceCapacity: 0);
+        for (ulong commandId = 1U; commandId <= 16U; ++commandId)
+        {
+            Assert.True(builder.TryPushLayer(commandId, in materialized));
+        }
+        Assert.False(builder.TryPushLayer(17U, in materialized));
+        for (ulong commandId = 18U; commandId <= 33U; ++commandId)
+        {
+            Assert.True(builder.TryPopLayer(commandId));
+        }
+        Assert.True(builder.TryBuild(out _));
     }
 
     [Fact]

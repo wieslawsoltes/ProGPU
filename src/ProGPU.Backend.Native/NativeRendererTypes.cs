@@ -205,6 +205,15 @@ public enum NativeSceneStateFlags : uint
     ClipRect = 1U << 0
 }
 
+[Flags]
+public enum NativeSceneLayerFlags : uint
+{
+    None = 0,
+    Bounds = 1U << 0,
+    Backdrop = 1U << 1,
+    ForceIsolation = 1U << 2
+}
+
 public enum NativeSceneValidationError : uint
 {
     None = 0,
@@ -303,6 +312,68 @@ public readonly struct NativeSceneState
     public readonly NativeImageRect ClipRect;
     private readonly uint Reserved0;
     private readonly uint Reserved1;
+}
+
+/// <summary>
+/// Pointer-free state for one semantic isolated-layer scope.
+/// </summary>
+/// <remarks>
+/// Bounds are logical target coordinates. Mask and effect indices are reserved
+/// for the next typed scene-resource increment and must currently be
+/// <see cref="uint.MaxValue"/>. Revisions are retained identity hints; zero
+/// disables the corresponding hint.
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayer
+{
+    public NativeSceneLayer()
+        : this(opacity: 1f)
+    {
+    }
+
+    public NativeSceneLayer(
+        float opacity = 1f,
+        GpuBlendMode blendMode = GpuBlendMode.SrcOver,
+        NativeSceneLayerFlags flags = NativeSceneLayerFlags.None,
+        NativeImageRect bounds = default,
+        uint maskResourceIndex = uint.MaxValue,
+        uint effectResourceIndex = uint.MaxValue,
+        ulong contentRevision = 0U,
+        ulong compositeRevision = 0U)
+    {
+        if ((uint)blendMode > (uint)GpuBlendMode.Modulate)
+        {
+            throw new ArgumentOutOfRangeException(nameof(blendMode));
+        }
+
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayer>();
+        Flags = flags;
+        Bounds = bounds;
+        Opacity = opacity;
+        BlendMode = blendMode;
+        MaskResourceIndex = maskResourceIndex;
+        EffectResourceIndex = effectResourceIndex;
+        ContentRevision = contentRevision;
+        CompositeRevision = compositeRevision;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public static NativeSceneLayer Default => new(opacity: 1f);
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerFlags Flags;
+    public readonly NativeImageRect Bounds;
+    public readonly float Opacity;
+    public readonly GpuBlendMode BlendMode;
+    public readonly uint MaskResourceIndex;
+    public readonly uint EffectResourceIndex;
+    public readonly ulong ContentRevision;
+    public readonly ulong CompositeRevision;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields => Reserved0 == 0U && Reserved1 == 0U;
 }
 
 /// <summary>
