@@ -71,19 +71,6 @@ inline constexpr std::uint64_t semantic_max_total_compiled_bytes =
 inline constexpr std::uint64_t semantic_max_coverage_bytes =
     semantic::max_coverage_bytes;
 
-inline void apply_scissor(
-    WGPURenderPassEncoder pass,
-    const resolved_draw_state& state) noexcept {
-    if (state.has_clip && state.has_drawable_clip) {
-        wgpuRenderPassEncoderSetScissorRect(
-            pass,
-            state.clip_x,
-            state.clip_y,
-            state.clip_width,
-            state.clip_height);
-    }
-}
-
 inline void multiply_vertex_alpha(
     std::vector<vector_vertex>& vertices,
     float opacity) noexcept {

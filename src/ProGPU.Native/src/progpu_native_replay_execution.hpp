@@ -12,6 +12,10 @@
 
 namespace progpu::native::execution {
 
+void apply_scissor(
+    WGPURenderPassEncoder pass,
+    const resolved_draw_state& state) noexcept;
+
 bool rebuild_vector_clip_chain(
     progpu_native_engine& engine,
     const progpu_native_group_mask& mask,
