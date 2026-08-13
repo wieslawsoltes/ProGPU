@@ -1,6 +1,7 @@
 // Algorithm: Convolve each row with a truncated normalized Gaussian kernel.
-// Time complexity: O(R) per output texel for blur radius R.
-// Space complexity: O(1) local storage with O(R) texture reads.
+// Time complexity: O(R) per output texel for blur radius R; Gaussian weights
+// use two transcendental evaluations plus an O(R) multiplicative recurrence.
+// Space complexity: O(1) local storage with exactly 2R+1 texture reads.
 struct Params {
     sigma: f32,
     radius: u32,
@@ -37,13 +38,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var color = sample_input(x, y, size);
     var weightSum = 1.0;
     let inverseVariance = 0.5 / (blurParams.sigma * blurParams.sigma);
+    // For w(i)=exp(-i*i*a), w(i+1)/w(i)=exp(-(2*i+1)*a).
+    // Advancing that ratio multiplies by the constant exp(-2*a), avoiding
+    // one transcendental evaluation per tap while preserving the same kernel.
+    var weight = exp(-inverseVariance);
+    let ratioStep = exp(-2.0 * inverseVariance);
+    var weightRatio = weight * ratioStep;
     let radius = i32(min(blurParams.radius, 128u));
     for (var offset = 1; offset <= radius; offset = offset + 1) {
-        let distance = f32(offset);
-        let weight = exp(-(distance * distance) * inverseVariance);
         color = color +
             (sample_input(x - offset, y, size) + sample_input(x + offset, y, size)) * weight;
         weightSum = weightSum + 2.0 * weight;
+        weight = weight * weightRatio;
+        weightRatio = weightRatio * ratioStep;
     }
 
     textureStore(outputTex, vec2<i32>(x, y), color / weightSum);

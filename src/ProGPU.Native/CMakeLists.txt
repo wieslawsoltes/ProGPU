@@ -31,6 +31,12 @@ set(PROGPU_NATIVE_TEXTURE_SHADER
 set(PROGPU_NATIVE_CLIP_COMPOSE_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/ClipCompose.wgsl"
     CACHE FILEPATH "Shared ProGPU retained clip-composition shader source")
+set(PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl"
+    CACHE FILEPATH "Shared ProGPU horizontal Gaussian-blur shader source")
+set(PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl"
+    CACHE FILEPATH "Shared ProGPU vertical Gaussian-blur shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 option(PROGPU_NATIVE_ENABLE_SANITIZERS
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -85,6 +91,12 @@ if(NOT EXISTS "${PROGPU_NATIVE_TEXTURE_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}")
     message(FATAL_ERROR "The shared ProGPU ClipCompose.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU horizontal Gaussian-blur shader source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU vertical Gaussian-blur shader source is missing")
 endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -172,6 +184,34 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU ClipCompose.wgsl shader"
     VERBATIM)
+set(generated_gaussian_blur_horizontal_shader
+    "${generated_directory}/GaussianBlurHorizontalWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_gaussian_blur_horizontal_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER}"
+        "-DOUTPUT=${generated_gaussian_blur_horizontal_shader}"
+        "-DSYMBOL=gaussian_blur_horizontal_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU horizontal Gaussian-blur shader"
+    VERBATIM)
+set(generated_gaussian_blur_vertical_shader
+    "${generated_directory}/GaussianBlurVerticalWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_gaussian_blur_vertical_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER}"
+        "-DOUTPUT=${generated_gaussian_blur_vertical_shader}"
+        "-DSYMBOL=gaussian_blur_vertical_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU vertical Gaussian-blur shader"
+    VERBATIM)
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
@@ -183,7 +223,9 @@ add_library(progpu_native SHARED
     "${generated_glyph_rasterizer_shader}"
     "${generated_text_shader}"
     "${generated_texture_shader}"
-    "${generated_clip_compose_shader}")
+    "${generated_clip_compose_shader}"
+    "${generated_gaussian_blur_horizontal_shader}"
+    "${generated_gaussian_blur_vertical_shader}")
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native
@@ -217,7 +259,9 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
         "${generated_texture_shader}"
-        "${generated_clip_compose_shader}")
+        "${generated_clip_compose_shader}"
+        "${generated_gaussian_blur_horizontal_shader}"
+        "${generated_gaussian_blur_vertical_shader}")
     target_compile_features(progpu_native_dawn
         PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_dawn PRIVATE

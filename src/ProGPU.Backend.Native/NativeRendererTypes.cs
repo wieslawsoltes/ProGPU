@@ -88,6 +88,12 @@ public enum NativeClipOperation : uint
     Difference = 1
 }
 
+public enum NativeGroupEffectKind : uint
+{
+    None = 0,
+    GaussianBlur = 1
+}
+
 internal enum NativeMaskTextureFormat : uint
 {
     R8Unorm = 1,
@@ -154,7 +160,8 @@ public enum NativeRendererCapabilities : ulong
     GroupOpacity = 1UL << 21,
     CommonGroupMask = 1UL << 22,
     AnalyticRoundedGroupMask = 1UL << 23,
-    RetainedVectorClipChain = 1UL << 24
+    RetainedVectorClipChain = 1UL << 24,
+    GroupGaussianBlur = 1UL << 25
 }
 
 [Flags]
@@ -275,6 +282,43 @@ public readonly struct NativeGroupMask
 }
 
 /// <summary>
+/// Describes a retained GPU effect applied once to a pooled native frame.
+/// </summary>
+public readonly struct NativeGroupEffect
+{
+    private NativeGroupEffect(
+        NativeGroupEffectKind kind,
+        float sigmaX,
+        float sigmaY,
+        uint revision)
+    {
+        Kind = kind;
+        SigmaX = sigmaX;
+        SigmaY = sigmaY;
+        Revision = revision;
+    }
+
+    public static NativeGroupEffect GaussianBlur(
+        float sigma,
+        uint revision) => GaussianBlur(sigma, sigma, revision);
+
+    public static NativeGroupEffect GaussianBlur(
+        float sigmaX,
+        float sigmaY,
+        uint revision) => new(
+            NativeGroupEffectKind.GaussianBlur,
+            sigmaX,
+            sigmaY,
+            revision);
+
+    public NativeGroupEffectKind Kind { get; }
+    public float SigmaX { get; }
+    public float SigmaY { get; }
+    public uint Revision { get; }
+    public bool IsEnabled => Kind != NativeGroupEffectKind.None;
+}
+
+/// <summary>
 /// Identifies one submitted native WebGPU command buffer on its owning queue.
 /// </summary>
 /// <remarks>
@@ -369,6 +413,7 @@ public readonly struct NativeDrawState
             flags,
             groupOpacity,
             groupRevision,
+            default,
             default)
     {
     }
@@ -380,6 +425,25 @@ public readonly struct NativeDrawState
         float groupOpacity,
         uint groupRevision,
         NativeGroupMask groupMask)
+        : this(
+            opacity,
+            clipRect,
+            flags,
+            groupOpacity,
+            groupRevision,
+            groupMask,
+            default)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision,
+        NativeGroupMask groupMask,
+        NativeGroupEffect groupEffect)
     {
         Opacity = opacity;
         ClipRect = clipRect;
@@ -387,6 +451,7 @@ public readonly struct NativeDrawState
         GroupOpacity = groupOpacity;
         GroupRevision = groupRevision;
         GroupMask = groupMask;
+        GroupEffect = groupEffect;
         _initialized = 1;
     }
 
@@ -398,6 +463,7 @@ public readonly struct NativeDrawState
     public readonly float GroupOpacity;
     public readonly uint GroupRevision;
     public readonly NativeGroupMask GroupMask;
+    public readonly NativeGroupEffect GroupEffect;
 
     private readonly byte _initialized;
 
@@ -1002,7 +1068,13 @@ public readonly record struct NativeLayerMetrics(
     bool ClipCacheHit,
     ulong ClipPathUploadBytes,
     ulong ClipCoverageStagingBytes,
-    ulong ClipTextureBytes);
+    ulong ClipTextureBytes,
+    NativeGroupEffectKind EffectKind,
+    uint EffectRevision,
+    uint EffectPassCount,
+    bool EffectCacheHit,
+    ulong EffectUniformUploadBytes,
+    ulong EffectTextureBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

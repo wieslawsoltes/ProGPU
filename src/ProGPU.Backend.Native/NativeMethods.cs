@@ -24,6 +24,20 @@ internal static unsafe partial class NativeMethods
         internal float GroupOpacity;
         internal uint GroupRevision;
         internal nuint GroupMask;
+        internal nuint GroupEffect;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GroupEffect
+    {
+        internal uint StructSize;
+        internal NativeGroupEffectKind Kind;
+        internal uint Flags;
+        internal uint Revision;
+        internal float SigmaX;
+        internal float SigmaY;
+        internal uint Reserved;
+        internal uint Reserved2;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -331,6 +345,12 @@ internal static unsafe partial class NativeMethods
         internal ulong ClipPathUploadBytes;
         internal ulong ClipCoverageStagingBytes;
         internal ulong ClipTextureBytes;
+        internal NativeGroupEffectKind EffectKind;
+        internal uint EffectRevision;
+        internal uint EffectPassCount;
+        internal uint EffectCacheHit;
+        internal ulong EffectUniformUploadBytes;
+        internal ulong EffectTextureBytes;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

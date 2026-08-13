@@ -2,6 +2,8 @@
 #include "progpu_native_geometry.hpp"
 #include "GlyphRasterizerWgsl.generated.hpp"
 #include "ClipComposeWgsl.generated.hpp"
+#include "GaussianBlurHorizontalWgsl.generated.hpp"
+#include "GaussianBlurVerticalWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "TextWgsl.generated.hpp"
 #include "TextureWgsl.generated.hpp"
@@ -75,6 +77,15 @@ struct gpu_mask_sampling_uniforms {
 };
 
 static_assert(sizeof(gpu_mask_sampling_uniforms) == 96U);
+
+struct gpu_gaussian_blur_params {
+    float sigma;
+    std::uint32_t radius;
+    std::uint32_t padding0;
+    std::uint32_t padding1;
+};
+
+static_assert(sizeof(gpu_gaussian_blur_params) == 16U);
 
 struct gpu_path_uniforms {
     float x_start;
@@ -335,6 +346,8 @@ struct resolved_draw_state {
     std::uint32_t clip_height = 0U;
     bool has_group_mask = false;
     progpu_native_group_mask group_mask{};
+    bool has_group_effect = false;
+    progpu_native_group_effect group_effect{};
 };
 
 bool is_finite_positive_rect(
@@ -448,6 +461,31 @@ bool resolve_group_mask(
     return true;
 }
 
+bool resolve_group_effect(
+    const progpu_native_group_effect* requested,
+    float dpi_scale,
+    progpu_native_group_effect& resolved) noexcept {
+    if (requested == nullptr) {
+        return true;
+    }
+    if (requested->struct_size < sizeof(progpu_native_group_effect) ||
+        requested->kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR ||
+        requested->flags != 0U || requested->revision == 0U ||
+        requested->reserved != 0U || requested->reserved2 != 0U ||
+        !std::isfinite(requested->sigma_x) ||
+        !std::isfinite(requested->sigma_y) ||
+        requested->sigma_x <= 0.01F || requested->sigma_y <= 0.01F) {
+        return false;
+    }
+    constexpr float maximum_physical_sigma = 128.0F / 3.0F;
+    if (requested->sigma_x * dpi_scale > maximum_physical_sigma ||
+        requested->sigma_y * dpi_scale > maximum_physical_sigma) {
+        return false;
+    }
+    resolved = *requested;
+    return true;
+}
+
 float snap_scissor_coordinate(float value) noexcept {
     const float rounded = std::round(value);
     return std::abs(value - rounded) < 0.0001F ? rounded : value;
@@ -494,6 +532,18 @@ bool resolve_draw_state(
             return false;
         }
         resolved.has_group_mask = true;
+    }
+    constexpr std::uint32_t effect_size =
+        offsetof(progpu_native_draw_state, group_effect) +
+        sizeof(state->group_effect);
+    if (state->struct_size >= effect_size && state->group_effect != nullptr) {
+        if (!resolve_group_effect(
+                state->group_effect,
+                dpi_scale,
+                resolved.group_effect)) {
+            return false;
+        }
+        resolved.has_group_effect = true;
     }
     if ((state->flags & PROGPU_NATIVE_DRAW_STATE_CLIP_RECT) == 0U) {
         return state->clip_rect.x == 0.0F && state->clip_rect.y == 0.0F &&
@@ -750,6 +800,30 @@ struct progpu_native_engine {
     float clip_cached_dpi_scale = 0.0F;
     std::uint32_t clip_final_index = 0U;
     bool clip_cache_valid = false;
+    WGPUShaderModule effect_blur_horizontal_shader = nullptr;
+    WGPUShaderModule effect_blur_vertical_shader = nullptr;
+    WGPUComputePipeline effect_blur_horizontal_pipeline = nullptr;
+    WGPUComputePipeline effect_blur_vertical_pipeline = nullptr;
+    WGPUBindGroupLayout effect_blur_layout = nullptr;
+    WGPUBuffer effect_blur_horizontal_uniform_buffer = nullptr;
+    WGPUBuffer effect_blur_vertical_uniform_buffer = nullptr;
+    std::array<WGPUTexture, 2U> effect_textures{};
+    std::array<WGPUTextureView, 2U> effect_texture_views{};
+    WGPUBindGroup effect_blur_horizontal_bind_group = nullptr;
+    WGPUBindGroup effect_blur_vertical_bind_group = nullptr;
+    WGPUBindGroup effect_output_bind_group = nullptr;
+    gpu_gaussian_blur_params cached_effect_blur_horizontal{};
+    gpu_gaussian_blur_params cached_effect_blur_vertical{};
+    std::uint32_t effect_width = 0U;
+    std::uint32_t effect_height = 0U;
+    std::uint32_t effect_texture_generation = 0U;
+    std::uint32_t effect_allocation_count = 0U;
+    std::uint32_t effect_cached_revision = 0U;
+    std::uint32_t effect_cached_content_revision = 0U;
+    float effect_cached_dpi_scale = 0.0F;
+    bool effect_blur_horizontal_uniform_cache_valid = false;
+    bool effect_blur_vertical_uniform_cache_valid = false;
+    bool effect_cache_valid = false;
     WGPUBuffer layer_uniform_buffer = nullptr;
     WGPUBindGroup layer_uniform_bind_group = nullptr;
     WGPUBuffer layer_vertex_buffer = nullptr;
@@ -888,9 +962,71 @@ struct progpu_native_engine {
         }
     }
 
+    void release_effect_resources() noexcept {
+        if (effect_output_bind_group != nullptr) {
+            wgpuBindGroupRelease(effect_output_bind_group);
+            effect_output_bind_group = nullptr;
+        }
+        if (effect_blur_vertical_bind_group != nullptr) {
+            wgpuBindGroupRelease(effect_blur_vertical_bind_group);
+            effect_blur_vertical_bind_group = nullptr;
+        }
+        if (effect_blur_horizontal_bind_group != nullptr) {
+            wgpuBindGroupRelease(effect_blur_horizontal_bind_group);
+            effect_blur_horizontal_bind_group = nullptr;
+        }
+        for (auto& view : effect_texture_views) {
+            if (view != nullptr) {
+                wgpuTextureViewRelease(view);
+                view = nullptr;
+            }
+        }
+        for (auto& texture : effect_textures) {
+            if (texture != nullptr) {
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+                texture = nullptr;
+            }
+        }
+        if (effect_blur_vertical_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(effect_blur_vertical_uniform_buffer);
+            wgpuBufferRelease(effect_blur_vertical_uniform_buffer);
+            effect_blur_vertical_uniform_buffer = nullptr;
+        }
+        if (effect_blur_horizontal_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(effect_blur_horizontal_uniform_buffer);
+            wgpuBufferRelease(effect_blur_horizontal_uniform_buffer);
+            effect_blur_horizontal_uniform_buffer = nullptr;
+        }
+        if (effect_blur_vertical_pipeline != nullptr) {
+            wgpuComputePipelineRelease(effect_blur_vertical_pipeline);
+            effect_blur_vertical_pipeline = nullptr;
+        }
+        if (effect_blur_horizontal_pipeline != nullptr) {
+            wgpuComputePipelineRelease(effect_blur_horizontal_pipeline);
+            effect_blur_horizontal_pipeline = nullptr;
+        }
+        if (effect_blur_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(effect_blur_layout);
+            effect_blur_layout = nullptr;
+        }
+        if (effect_blur_vertical_shader != nullptr) {
+            wgpuShaderModuleRelease(effect_blur_vertical_shader);
+            effect_blur_vertical_shader = nullptr;
+        }
+        if (effect_blur_horizontal_shader != nullptr) {
+            wgpuShaderModuleRelease(effect_blur_horizontal_shader);
+            effect_blur_horizontal_shader = nullptr;
+        }
+        effect_width = 0U;
+        effect_height = 0U;
+        effect_cache_valid = false;
+    }
+
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        release_effect_resources();
         release_clip_resources();
         if (layer_external_mask_linear_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_external_mask_linear_bind_group);
@@ -4016,6 +4152,392 @@ bool ensure_layer_texture(
     return true;
 }
 
+WGPUBindGroup create_effect_blur_bind_group(
+    progpu_native_engine& engine,
+    WGPUTextureView input,
+    WGPUTextureView output,
+    WGPUBuffer uniforms,
+    const char* label) {
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, nullptr, input},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, output},
+        {nullptr, 2U, uniforms, 0U,
+            sizeof(gpu_gaussian_blur_params), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(label);
+    descriptor.layout = engine.effect_blur_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+bool create_gaussian_effect_resources(progpu_native_engine& engine) {
+    if (engine.effect_blur_horizontal_pipeline != nullptr &&
+        engine.effect_blur_vertical_pipeline != nullptr &&
+        engine.effect_blur_layout != nullptr) {
+        return true;
+    }
+    if (engine.effect_blur_horizontal_shader != nullptr ||
+        engine.effect_blur_vertical_shader != nullptr ||
+        engine.effect_blur_horizontal_pipeline != nullptr ||
+        engine.effect_blur_vertical_pipeline != nullptr ||
+        engine.effect_blur_layout != nullptr ||
+        engine.effect_blur_horizontal_uniform_buffer != nullptr ||
+        engine.effect_blur_vertical_uniform_buffer != nullptr) {
+        engine.release_effect_resources();
+    }
+
+    progpu::native::webgpu::wgsl_source horizontal_wgsl(
+        progpu::native::generated::gaussian_blur_horizontal_wgsl,
+        progpu::native::generated::gaussian_blur_horizontal_wgsl_size);
+    WGPUShaderModuleDescriptor horizontal_descriptor{};
+    horizontal_descriptor.nextInChain = horizontal_wgsl.chain();
+    horizontal_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU shared GaussianBlurHorizontal.wgsl");
+    engine.effect_blur_horizontal_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &horizontal_descriptor);
+    progpu::native::webgpu::wgsl_source vertical_wgsl(
+        progpu::native::generated::gaussian_blur_vertical_wgsl,
+        progpu::native::generated::gaussian_blur_vertical_wgsl_size);
+    WGPUShaderModuleDescriptor vertical_descriptor{};
+    vertical_descriptor.nextInChain = vertical_wgsl.chain();
+    vertical_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU shared GaussianBlurVertical.wgsl");
+    engine.effect_blur_vertical_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &vertical_descriptor);
+    if (engine.effect_blur_horizontal_shader == nullptr ||
+        engine.effect_blur_vertical_shader == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 3U> entries{};
+    entries[0].binding = 0U;
+    entries[0].visibility = WGPUShaderStage_Compute;
+    entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+    entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[0].texture.multisampled = false;
+    entries[1].binding = 1U;
+    entries[1].visibility = WGPUShaderStage_Compute;
+    entries[1].storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
+    entries[1].storageTexture.format = WGPUTextureFormat_RGBA8Unorm;
+    entries[1].storageTexture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[2].binding = 2U;
+    entries[2].visibility = WGPUShaderStage_Compute;
+    entries[2].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[2].buffer.minBindingSize = sizeof(gpu_gaussian_blur_params);
+    WGPUBindGroupLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native Gaussian group-effect layout");
+    layout_descriptor.entryCount = entries.size();
+    layout_descriptor.entries = entries.data();
+    engine.effect_blur_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &layout_descriptor);
+    if (engine.effect_blur_layout == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native Gaussian group-effect pipeline layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts = &engine.effect_blur_layout;
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+    WGPUComputePipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.layout = pipeline_layout;
+    pipeline_descriptor.compute.entryPoint =
+        progpu::native::webgpu::string_view("main");
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native horizontal Gaussian group effect");
+    pipeline_descriptor.compute.module =
+        engine.effect_blur_horizontal_shader;
+    engine.effect_blur_horizontal_pipeline =
+        wgpuDeviceCreateComputePipeline(engine.device, &pipeline_descriptor);
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native vertical Gaussian group effect");
+    pipeline_descriptor.compute.module = engine.effect_blur_vertical_shader;
+    engine.effect_blur_vertical_pipeline =
+        wgpuDeviceCreateComputePipeline(engine.device, &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.effect_blur_horizontal_pipeline == nullptr ||
+        engine.effect_blur_vertical_pipeline == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    buffer_descriptor.size = sizeof(gpu_gaussian_blur_params);
+    buffer_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native horizontal Gaussian effect uniforms");
+    engine.effect_blur_horizontal_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &buffer_descriptor);
+    buffer_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native vertical Gaussian effect uniforms");
+    engine.effect_blur_vertical_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &buffer_descriptor);
+    if (engine.effect_blur_horizontal_uniform_buffer == nullptr ||
+        engine.effect_blur_vertical_uniform_buffer == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+    return true;
+}
+
+bool ensure_gaussian_effect_textures(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (engine.effect_textures[0] != nullptr &&
+        engine.effect_width == width && engine.effect_height == height &&
+        engine.effect_blur_horizontal_bind_group != nullptr &&
+        engine.effect_blur_vertical_bind_group != nullptr &&
+        engine.effect_output_bind_group != nullptr) {
+        return true;
+    }
+
+    WGPUTextureDescriptor descriptor{};
+    descriptor.usage = WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_StorageBinding;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    std::array<WGPUTexture, 2U> textures{};
+    std::array<WGPUTextureView, 2U> views{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native Gaussian group-effect horizontal texture");
+    textures[0] = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native Gaussian group-effect vertical texture");
+    textures[1] = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    if (textures[0] == nullptr || textures[1] == nullptr) {
+        for (auto texture : textures) {
+            if (texture != nullptr) {
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+            }
+        }
+        return false;
+    }
+    views[0] = wgpuTextureCreateView(textures[0], nullptr);
+    views[1] = wgpuTextureCreateView(textures[1], nullptr);
+    if (views[0] == nullptr || views[1] == nullptr) {
+        for (auto view : views) {
+            if (view != nullptr) wgpuTextureViewRelease(view);
+        }
+        for (auto texture : textures) {
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+        }
+        return false;
+    }
+    WGPUBindGroup horizontal = create_effect_blur_bind_group(
+        engine,
+        engine.layer_texture_view,
+        views[0],
+        engine.effect_blur_horizontal_uniform_buffer,
+        "ProGPU native horizontal Gaussian effect binding");
+    WGPUBindGroup vertical = create_effect_blur_bind_group(
+        engine,
+        views[0],
+        views[1],
+        engine.effect_blur_vertical_uniform_buffer,
+        "ProGPU native vertical Gaussian effect binding");
+    WGPUBindGroup output = create_image_texture_bind_group(
+        engine,
+        engine.image_linear_sampler,
+        views[1],
+        "ProGPU native Gaussian group-effect output binding");
+    if (horizontal == nullptr || vertical == nullptr || output == nullptr) {
+        if (output != nullptr) wgpuBindGroupRelease(output);
+        if (vertical != nullptr) wgpuBindGroupRelease(vertical);
+        if (horizontal != nullptr) wgpuBindGroupRelease(horizontal);
+        for (auto view : views) wgpuTextureViewRelease(view);
+        for (auto texture : textures) {
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+        }
+        return false;
+    }
+
+    if (engine.effect_output_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.effect_output_bind_group);
+    }
+    if (engine.effect_blur_vertical_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.effect_blur_vertical_bind_group);
+    }
+    if (engine.effect_blur_horizontal_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.effect_blur_horizontal_bind_group);
+    }
+    for (auto view : engine.effect_texture_views) {
+        if (view != nullptr) wgpuTextureViewRelease(view);
+    }
+    for (auto texture : engine.effect_textures) {
+        if (texture != nullptr) {
+            wgpuTextureDestroy(texture);
+            wgpuTextureRelease(texture);
+        }
+    }
+    engine.effect_textures = textures;
+    engine.effect_texture_views = views;
+    engine.effect_blur_horizontal_bind_group = horizontal;
+    engine.effect_blur_vertical_bind_group = vertical;
+    engine.effect_output_bind_group = output;
+    engine.effect_width = width;
+    engine.effect_height = height;
+    engine.effect_cache_valid = false;
+    ++engine.effect_texture_generation;
+    ++engine.effect_allocation_count;
+    return true;
+}
+
+bool prepare_gaussian_effect(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height) {
+    return create_gaussian_effect_resources(engine) &&
+        ensure_gaussian_effect_textures(engine, width, height);
+}
+
+bool encode_gaussian_group_effect(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    const resolved_draw_state& draw_state,
+    float dpi_scale) {
+    if (!draw_state.has_group_effect) {
+        return true;
+    }
+    const auto& effect = draw_state.group_effect;
+    engine.last_layer_metrics.effect_kind = effect.kind;
+    engine.last_layer_metrics.effect_revision = effect.revision;
+    engine.last_layer_metrics.effect_texture_bytes =
+        static_cast<std::uint64_t>(engine.effect_width) *
+        engine.effect_height * 8U;
+    const bool cache_hit = draw_state.group_revision != 0U &&
+        engine.effect_cache_valid &&
+        engine.effect_cached_revision == effect.revision &&
+        engine.effect_cached_content_revision == draw_state.group_revision &&
+        engine.effect_cached_dpi_scale == dpi_scale;
+    if (cache_hit) {
+        engine.last_layer_metrics.effect_cache_hit = 1U;
+        return true;
+    }
+
+    const auto create_parameters = [dpi_scale](float sigma) {
+        gpu_gaussian_blur_params parameters{};
+        parameters.sigma = sigma * dpi_scale;
+        parameters.radius = static_cast<std::uint32_t>(std::clamp(
+            static_cast<int>(std::ceil(parameters.sigma * 3.0F)),
+            0,
+            128));
+        return parameters;
+    };
+    const auto horizontal = create_parameters(effect.sigma_x);
+    const auto vertical = create_parameters(effect.sigma_y);
+    std::uint64_t uploaded_uniform_bytes = 0U;
+    if (!engine.effect_blur_horizontal_uniform_cache_valid ||
+        std::memcmp(
+            &engine.cached_effect_blur_horizontal,
+            &horizontal,
+            sizeof(horizontal)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.effect_blur_horizontal_uniform_buffer,
+            0U,
+            &horizontal,
+            sizeof(horizontal));
+        engine.cached_effect_blur_horizontal = horizontal;
+        engine.effect_blur_horizontal_uniform_cache_valid = true;
+        uploaded_uniform_bytes += sizeof(horizontal);
+    }
+    if (!engine.effect_blur_vertical_uniform_cache_valid ||
+        std::memcmp(
+            &engine.cached_effect_blur_vertical,
+            &vertical,
+            sizeof(vertical)) != 0) {
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.effect_blur_vertical_uniform_buffer,
+            0U,
+            &vertical,
+            sizeof(vertical));
+        engine.cached_effect_blur_vertical = vertical;
+        engine.effect_blur_vertical_uniform_cache_valid = true;
+        uploaded_uniform_bytes += sizeof(vertical);
+    }
+
+    const auto run_pass = [&](WGPUComputePipeline pipeline,
+                              WGPUBindGroup bind_group,
+                              const char* label) {
+        WGPUComputePassDescriptor pass_descriptor{};
+        pass_descriptor.label = progpu::native::webgpu::string_view(label);
+        WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(
+            encoder,
+            &pass_descriptor);
+        if (pass == nullptr) {
+            return false;
+        }
+        wgpuComputePassEncoderSetPipeline(pass, pipeline);
+        wgpuComputePassEncoderSetBindGroup(
+            pass,
+            0U,
+            bind_group,
+            0U,
+            nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(
+            pass,
+            (engine.effect_width + 15U) / 16U,
+            (engine.effect_height + 15U) / 16U,
+            1U);
+        wgpuComputePassEncoderEnd(pass);
+        wgpuComputePassEncoderRelease(pass);
+        return true;
+    };
+    if (!run_pass(
+            engine.effect_blur_horizontal_pipeline,
+            engine.effect_blur_horizontal_bind_group,
+            "ProGPU native horizontal Gaussian group-effect pass") ||
+        !run_pass(
+            engine.effect_blur_vertical_pipeline,
+            engine.effect_blur_vertical_bind_group,
+            "ProGPU native vertical Gaussian group-effect pass")) {
+        return false;
+    }
+    engine.last_layer_metrics.effect_pass_count = 2U;
+    engine.last_layer_metrics.effect_uniform_upload_bytes =
+        uploaded_uniform_bytes;
+    return true;
+}
+
+void retain_group_effect(
+    progpu_native_engine& engine,
+    float dpi_scale,
+    const resolved_draw_state& draw_state) noexcept {
+    if (!draw_state.has_group_effect || draw_state.group_revision == 0U) {
+        engine.effect_cache_valid = false;
+        return;
+    }
+    engine.effect_cached_revision = draw_state.group_effect.revision;
+    engine.effect_cached_content_revision = draw_state.group_revision;
+    engine.effect_cached_dpi_scale = dpi_scale;
+    engine.effect_cache_valid = true;
+}
+
 bool prepare_layer_composite(
     progpu_native_engine& engine,
     std::uint32_t width,
@@ -4182,7 +4704,9 @@ bool encode_layer_composite(
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             1U,
-            engine.layer_texture_bind_group,
+            draw_state.has_group_effect
+                ? engine.effect_output_bind_group
+                : engine.layer_texture_bind_group,
             0U,
             nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(
@@ -4218,7 +4742,8 @@ progpu_native_status prepare_group_layer(
     bool& submitted_cache_hit) {
     use_group_layer = draw_state.group_opacity < 1.0F ||
         draw_state.group_revision != 0U ||
-        draw_state.has_group_mask;
+        draw_state.has_group_mask ||
+        draw_state.has_group_effect;
     submitted_cache_hit = false;
     if (!use_group_layer) {
         return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -4232,6 +4757,12 @@ progpu_native_status prepare_group_layer(
         return engine.fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The pooled group layer could not be prepared.");
+    }
+    if (draw_state.has_group_effect &&
+        !prepare_gaussian_effect(engine, width, height)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The Gaussian group effect could not be prepared.");
     }
     bool uploaded_mask_uniforms = false;
     if (draw_state.has_group_mask &&
@@ -4256,6 +4787,7 @@ progpu_native_status prepare_group_layer(
         engine.layer_cached_dpi_scale == dpi_scale &&
         engine.layer_cached_primitive_opacity == draw_state.opacity;
     if (!cache_hit) {
+        engine.effect_cache_valid = false;
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
@@ -4270,7 +4802,12 @@ progpu_native_status prepare_group_layer(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained group replay encoder could not be created.");
     }
-    if (!encode_layer_composite(
+    if (!encode_gaussian_group_effect(
+            engine,
+            encoder,
+            draw_state,
+            dpi_scale) ||
+        !encode_layer_composite(
             engine,
             encoder,
             target_view,
@@ -4295,6 +4832,7 @@ progpu_native_status prepare_group_layer(
     }
     engine.submit(command);
     wgpuCommandBufferRelease(command);
+    retain_group_effect(engine, dpi_scale, draw_state);
     engine.last_layer_metrics.cache_hit = 1U;
     submitted_cache_hit = true;
     engine.last_error.clear();
@@ -4308,6 +4846,7 @@ void retain_group_layer_content(
     const resolved_draw_state& draw_state) noexcept {
     if (draw_state.group_revision == 0U) {
         engine.layer_content_cache_valid = false;
+        retain_group_effect(engine, dpi_scale, draw_state);
         return;
     }
     engine.layer_cached_family = static_cast<std::uint32_t>(family);
@@ -4315,6 +4854,7 @@ void retain_group_layer_content(
     engine.layer_cached_dpi_scale = dpi_scale;
     engine.layer_cached_primitive_opacity = draw_state.opacity;
     engine.layer_content_cache_valid = true;
+    retain_group_effect(engine, dpi_scale, draw_state);
 }
 
 WGPUBindGroup create_image_mask_bind_group(
@@ -4806,7 +5346,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY |
         PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK |
         PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK |
-        PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN;
+        PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN |
+        PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -5093,7 +5634,12 @@ progpu_native_status progpu_native_engine_render(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
@@ -5379,7 +5925,12 @@ progpu_native_status progpu_native_engine_render_analytic(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
@@ -6042,7 +6593,12 @@ progpu_native_status progpu_native_engine_render_geometry(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
@@ -6783,7 +7339,12 @@ progpu_native_status progpu_native_engine_render_paths(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
@@ -7499,7 +8060,12 @@ progpu_native_status progpu_native_engine_render_glyphs(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
@@ -7883,7 +8449,12 @@ progpu_native_status progpu_native_engine_render_image(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_layer_composite(
+        if (!encode_gaussian_group_effect(
+                *engine,
+                encoder,
+                draw_state,
+                frame->dpi_scale) ||
+            !encode_layer_composite(
                 *engine,
                 encoder,
                 reinterpret_cast<WGPUTextureView>(frame->target_view),

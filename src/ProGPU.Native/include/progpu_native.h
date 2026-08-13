@@ -46,7 +46,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY = 1ULL << 21U,
     PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK = 1ULL << 22U,
     PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U,
-    PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U
+    PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U,
+    PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U
 };
 
 enum {
@@ -69,6 +70,11 @@ typedef enum progpu_native_clip_operation {
     PROGPU_NATIVE_CLIP_INTERSECT = 0,
     PROGPU_NATIVE_CLIP_DIFFERENCE = 1
 } progpu_native_clip_operation;
+
+typedef enum progpu_native_group_effect_kind {
+    PROGPU_NATIVE_GROUP_EFFECT_NONE = 0,
+    PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1
+} progpu_native_group_effect_kind;
 
 typedef enum progpu_native_mask_texture_format {
     PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM = 1,
@@ -455,6 +461,23 @@ typedef struct progpu_native_group_mask {
 } progpu_native_group_mask;
 
 /*
+ * One retained effect applied to the pooled frame-family result before its
+ * final mask/opacity composite. The revision identifies immutable effect
+ * parameters independently from group content. Gaussian sigma is expressed
+ * in logical coordinates and converted to physical pixels with frame DPI.
+ */
+typedef struct progpu_native_group_effect {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t revision;
+    float sigma_x;
+    float sigma_y;
+    uint32_t reserved;
+    uint32_t reserved2;
+} progpu_native_group_effect;
+
+/*
  * Optional per-draw state shared by every frame family. opacity multiplies
  * primitive alpha. group_opacity composites the whole frame family through a
  * pooled transparent layer. A nonzero caller-owned group_revision permits the
@@ -464,7 +487,8 @@ typedef struct progpu_native_group_mask {
  *
  * struct_size keeps ABI-v3 append compatibility: the original 32-byte prefix
  * defaults group_opacity to one and group_revision to zero; the 40-byte
- * prefix has group state but no common mask.
+ * prefix has group state but no common mask; the 48/44-byte mask prefix has
+ * no group effect.
  */
 typedef struct progpu_native_draw_state {
     uint32_t struct_size;
@@ -475,6 +499,7 @@ typedef struct progpu_native_draw_state {
     float group_opacity;
     uint32_t group_revision;
     const progpu_native_group_mask* group_mask;
+    const progpu_native_group_effect* group_effect;
 } progpu_native_draw_state;
 
 typedef struct progpu_native_layer_metrics {
@@ -501,6 +526,12 @@ typedef struct progpu_native_layer_metrics {
     uint64_t clip_path_upload_bytes;
     uint64_t clip_coverage_staging_bytes;
     uint64_t clip_texture_bytes;
+    uint32_t effect_kind;
+    uint32_t effect_revision;
+    uint32_t effect_pass_count;
+    uint32_t effect_cache_hit;
+    uint64_t effect_uniform_upload_bytes;
+    uint64_t effect_texture_bytes;
 } progpu_native_layer_metrics;
 
 /*

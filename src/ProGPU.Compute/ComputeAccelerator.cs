@@ -717,9 +717,17 @@ public unsafe class ComputeAccelerator : IDisposable
         _blurHorizontalParams!.WriteSingle(new GaussianBlurParams(sigmaX));
         _blurVerticalParams!.WriteSingle(new GaussianBlurParams(sigmaY));
 
-        var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Blur Encoder") };
-        var encoder = _context.Api.DeviceCreateCommandEncoder(_context.Device, &encoderDesc);
-        SilkMarshal.Free((nint)encoderDesc.Label);
+        CommandEncoder* encoder;
+        fixed (byte* encoderLabel = "Compute Blur Encoder\0"u8)
+        {
+            var encoderDesc = new CommandEncoderDescriptor
+            {
+                Label = encoderLabel
+            };
+            encoder = _context.Api.DeviceCreateCommandEncoder(
+                _context.Device,
+                &encoderDesc);
+        }
 
         var horizontalBinding = GetOrCreatePassBinding(
             ref _blurHorizontalBinding,
@@ -747,9 +755,15 @@ public unsafe class ComputeAccelerator : IDisposable
             height);
 
         // Submit commands to queue
-        var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Compute Blur Buffer") };
-        var cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
-        SilkMarshal.Free((nint)cmdDesc.Label);
+        CommandBuffer* cmdBuffer;
+        fixed (byte* commandLabel = "Compute Blur Buffer\0"u8)
+        {
+            var cmdDesc = new CommandBufferDescriptor
+            {
+                Label = commandLabel
+            };
+            cmdBuffer = _context.Api.CommandEncoderFinish(encoder, &cmdDesc);
+        }
 
         _context.Submit(1, &cmdBuffer);
 
