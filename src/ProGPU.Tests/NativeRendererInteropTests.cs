@@ -1440,12 +1440,29 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_image_layer_resources.cpp"));
         string clipSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_clip_resources.cpp"));
+        string clipExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_clip_execution.cpp"));
+        string imageExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_image_execution.cpp"));
+        string layerEffectExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_layer_effect_execution.cpp"));
+        Assert.Contains(
+            "GaussianBlurHorizontalWgsl.generated.hpp",
+            layerEffectExecutionSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GroupDropShadowComposeWgsl.generated.hpp",
+            layerEffectExecutionSource,
+            StringComparison.Ordinal);
         foreach (string source in new[]
                  {
                      pipelineSource,
                      pathTextSource,
                      imageLayerSource,
                      clipSource,
+                     clipExecutionSource,
+                     imageExecutionSource,
+                     layerEffectExecutionSource,
                  })
         {
             Assert.DoesNotContain("@vertex", source, StringComparison.Ordinal);

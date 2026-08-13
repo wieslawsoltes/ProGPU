@@ -184,9 +184,9 @@ Therefore:
 The first Dawn checkpoint is implemented as a source-level contract, not a
 runtime-handle bridge. The same native renderer source set now compiles with
 warnings-as-errors against both the pinned May-2024 wgpu-native headers and
-WebScene's exact `01addc4...` WebGPU headers. Exported entry points and engine
-ownership remain in `progpu_native.cpp`; the bounded ping-pong effect planner
-is isolated in `progpu_native_effect_plan.cpp`, and semantic allocation limits
+WebScene's exact `01addc4...` WebGPU headers. Engine ownership is separated
+from the exported C ABI entry points; the bounded ping-pong effect planner is
+isolated in `progpu_native_effect_plan.cpp`, and semantic allocation limits
 and checked pool accounting live in `progpu_native_semantic_budget.hpp`.
 Allocation-free state/layer-target traversal and DPI-aware scissor localization
 live in `progpu_native_semantic_state.cpp`; analytic/path/glyph/image preflight
@@ -216,10 +216,16 @@ creation live in `progpu_native_pipeline.cpp`; path/text compute, atlas, and
 draw resources live in `progpu_native_path_text_resources.cpp`; image,
 layer-mask, and blend pipelines live in
 `progpu_native_image_layer_resources.cpp`; and retained clip GPU resources live
-in `progpu_native_clip_resources.cpp`. Exported C entry points and frame
-execution remain in `progpu_native.cpp`, so backend selection and ABI policy
-stay centralized while pipeline and lifetime ownership are independently
-reviewable.
+in `progpu_native_clip_resources.cpp`. Retained execution is independently
+partitioned: `progpu_native_clip_execution.cpp` compiles and replays vector
+clip chains, `progpu_native_layer_effect_execution.cpp` owns pooled layers,
+masks, effect chains, and group composition, and
+`progpu_native_image_execution.cpp` owns image texture upload and mask updates.
+Their only cross-translation-unit seam is the typed private
+`progpu_native_replay_execution.hpp` contract. Exported C entry points and the
+per-family recording/dispatch loops remain in `progpu_native.cpp`, so backend
+selection and ABI policy stay centralized while resource construction,
+execution, and lifetime ownership are independently reviewable.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally

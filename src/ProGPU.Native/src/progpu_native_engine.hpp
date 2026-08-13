@@ -4,6 +4,7 @@
 // header and ProGPU dispatch compatibility layer have declared WGPU handles.
 #include "progpu_native.h"
 #include "progpu_native_geometry_base.hpp"
+#include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_webgpu_compat.hpp"
