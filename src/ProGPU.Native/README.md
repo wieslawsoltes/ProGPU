@@ -173,6 +173,15 @@ existing RGBA/BGRA WebGPU texture view directly and performs no native texture
 upload. The native renderer retains the view until replacement or disposal;
 the caller must keep the underlying texture alive for that interval.
 
+Use `--group-gaussian-blur`, `--group-drop-shadow`, or
+`--group-effect-chain` to apply retained GPU effects after any of the six frame
+families. The chain benchmark evaluates Gaussian blur followed by source-alpha
+drop shadow, compares it with independently nested managed visuals, requires a
+five-pass changed graph and zero-dispatch stable replay, and retains three
+full-target RGBA8 intermediates. Add `--recompute-group-effect --sync` for the
+matched changed-graph GPU-complete distribution or `--write-images` for native,
+managed, and amplified-difference screenshots.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -215,6 +224,9 @@ Current native parity:
 - retained same-device straight-alpha RGBA/BGRA texture views with typed
   device/usage/format/sample validation, zero CPU transfer, and explicit
   borrowed-view lifetime ownership;
+- retained anisotropic Gaussian blur, source-alpha drop shadow, and immutable
+  one-to-eight-node linear effect chains with bounded texture pooling,
+  independent content/effect revisions, and zero-dispatch stable replay;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

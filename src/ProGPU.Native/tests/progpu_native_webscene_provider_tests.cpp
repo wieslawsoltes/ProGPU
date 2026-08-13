@@ -792,6 +792,87 @@ int main(int argc, char** argv) {
         layer_metrics.effect_cache_hit == 0U,
         "same-revision group-effect kind transition reused stale output");
     draw_state.group_effect = nullptr;
+
+    std::array<progpu_native_group_effect, 2U> effect_nodes{};
+    effect_nodes[0].struct_size = sizeof(progpu_native_group_effect);
+    effect_nodes[0].kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+    effect_nodes[0].revision = 4U;
+    effect_nodes[0].sigma_x = 1.5F;
+    effect_nodes[0].sigma_y = 1.5F;
+    effect_nodes[1].struct_size = sizeof(progpu_native_group_effect);
+    effect_nodes[1].kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
+    effect_nodes[1].revision = 5U;
+    effect_nodes[1].sigma_x = 2.0F;
+    effect_nodes[1].sigma_y = 2.0F;
+    effect_nodes[1].offset_x = 2.5F;
+    effect_nodes[1].offset_y = 1.25F;
+    effect_nodes[1].color_r = 0.2F;
+    effect_nodes[1].color_g = 0.1F;
+    effect_nodes[1].color_b = 0.4F;
+    effect_nodes[1].color_a = 0.6F;
+    progpu_native_group_effect_chain effect_chain{};
+    effect_chain.struct_size = sizeof(effect_chain);
+    effect_chain.revision = 9U;
+    effect_chain.effects = effect_nodes.data();
+    draw_state.group_effect_chain = &effect_chain;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "empty group-effect chain did not fail closed");
+    effect_chain.effect_count = effect_nodes.size();
+    effect_chain.reserved = 1U;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "reserved group-effect chain state did not fail closed");
+    effect_chain.reserved = 0U;
+    draw_state.group_effect = &group_effect;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "simultaneous single and chained effects did not fail closed");
+    draw_state.group_effect = nullptr;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
+        "bounded retained group-effect chain replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.effect_kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+        layer_metrics.effect_revision == 9U &&
+        layer_metrics.effect_count == 2U &&
+        layer_metrics.effect_chain_revision == 9U &&
+        layer_metrics.effect_pass_count == 5U &&
+        layer_metrics.effect_cache_hit == 0U &&
+        layer_metrics.effect_uniform_upload_bytes == 96U &&
+        layer_metrics.effect_texture_bytes == 64U * 48U * 12U &&
+        layer_metrics.effect_texture_generation != 0U &&
+        layer_metrics.effect_allocation_count != 0U,
+        "changed group-effect chain metrics are invalid");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "unchanged group-effect chain replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.effect_count == 2U &&
+        layer_metrics.effect_pass_count == 0U &&
+        layer_metrics.effect_cache_hit == 1U &&
+        layer_metrics.effect_uniform_upload_bytes == 0U,
+        "unchanged group-effect chain dispatched work");
+    effect_chain.revision = 10U;
+    effect_nodes[1].revision = 6U;
+    effect_nodes[1].offset_x = 4.0F;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "changed group-effect chain replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.effect_pass_count == 5U &&
+        layer_metrics.effect_cache_hit == 0U &&
+        layer_metrics.effect_uniform_upload_bytes == 32U,
+        "changed group-effect chain did not reuse content and uniforms");
+    draw_state.group_effect_chain = nullptr;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "post-effect retained group replay failed");

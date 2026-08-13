@@ -25,6 +25,7 @@ internal static unsafe partial class NativeMethods
         internal uint GroupRevision;
         internal nuint GroupMask;
         internal nuint GroupEffect;
+        internal nuint GroupEffectChain;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -44,6 +45,16 @@ internal static unsafe partial class NativeMethods
         internal float ColorG;
         internal float ColorB;
         internal float ColorA;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GroupEffectChain
+    {
+        internal uint StructSize;
+        internal uint EffectCount;
+        internal uint Revision;
+        internal uint Reserved;
+        internal GroupEffect* Effects;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -357,6 +368,10 @@ internal static unsafe partial class NativeMethods
         internal uint EffectCacheHit;
         internal ulong EffectUniformUploadBytes;
         internal ulong EffectTextureBytes;
+        internal uint EffectCount;
+        internal uint EffectChainRevision;
+        internal uint EffectTextureGeneration;
+        internal uint EffectAllocationCount;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

@@ -80,11 +80,12 @@ metadata.
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
 | [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
-| [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Keep direct masks independent. The frame-group lane now uses one reusable offscreen texture and one restore/composite draw; nested semantic layer stacks and effects remain separate work. |
+| [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Keep direct masks independent. The frame-group lane uses one reusable source layer and one restore/composite draw; nested semantic layer stacks remain separate from the bounded linear frame-effect chain. |
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
 | [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
 | [WinUI `DropShadow`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow), [Win2D `ShadowEffect`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_ShadowEffect.htm), and [Skia `SkImageFilters::DropShadow`](https://api.skia.org/classSkImageFilters.html) | A retained shadow carries offset, blur, and color; GPU effect graphs derive shadow alpha from retained source content and either return shadow-only output or composite the source above it. | Keep source content and shadow parameters independently revisioned. Blur source alpha on the GPU, apply physical-pixel offset/tint in a bounded compute composition pass, preserve premultiplied source-over, and cache the completed effect output rather than rebuilding the family. |
+| [Direct2D effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/effects-overview), [Win2D custom effect graphs](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/custom-effects), [Win2D effect precision](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/effect-precision-and-clamping), and [Skia `SkImageFilters::Compose`](https://api.skia.org/classSkImageFilters.html) | Effects consume image outputs, can be chained as retained graphs, may require intermediate GPU textures, and define composition as `outer(inner(source))`. Intermediate precision and clamping are observable quality decisions. | Add an original bounded linear chain evaluated in caller order, keep `RGBA8Unorm` intermediates explicit for parity with the existing effect lanes, reuse three textures without sampled/storage aliasing, and preserve one completed-output revision. General branching, shader linking, precision selection, and semantic layer graphs remain later work. |
 | [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve primitive/group distinction and overlap behavior. The current frame-group kernel is reusable infrastructure, but nested `CreateLayer` stack parity remains open. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
@@ -862,6 +863,52 @@ an original composition kernel informed by the public contracts above and the
 broader clean-room record in `WINUI_COMPOSITION_WEBGPU_RESEARCH.md`; no external
 engine implementation text or shader was copied.
 
+### Phase 2 bounded retained effect-chain checkpoint
+
+The eighth additive ABI-v3 extension appends a chain pointer after the legacy
+single-effect pointer. The chain descriptor owns no native memory: it carries
+a nonzero immutable revision, one to eight effect descriptors, and a borrowed
+array that is validated and copied into fixed native storage before the render
+call continues. Older 32/40/48/56-byte draw-state prefixes retain their exact
+meaning. The safe .NET `NativeGroupEffectChain` makes one immutable ownership
+copy at construction; each render lowers its nodes into stack storage and
+therefore performs no managed heap allocation. Supplying both the old
+single-effect pointer and the chain pointer fails closed.
+
+Nodes are evaluated in array order, matching `outer(inner(source))`. The
+current clean-room chain accepts the already implemented Gaussian and
+source-alpha drop-shadow nodes. A fixed planner assigns the source,
+horizontal-blur, vertical-blur, and optional shadow-composition outputs to
+three full-target `RGBA8Unorm` textures. It never binds one texture as sampled
+input and storage output in the same pass. Gaussian nodes may overwrite their
+prior source after the horizontal pass; drop-shadow nodes preserve the source
+until their third composition pass. Three textures are consequently sufficient
+for every valid order and every chain length from one through eight. The old
+one-node route retains its established two-texture fast path and residency.
+
+Each node owns fixed horizontal/vertical/drop uniform buffers so multiple
+dispatches encoded into one command buffer cannot observe a later node's queue
+write. Bind groups are rebuilt only when target storage or the bounded kind
+topology changes. Parameter changes reuse topology and retained source pixels.
+A chain revision, content revision, DPI, target extent, and kind topology key
+the completed output. Stable replay performs zero effect dispatches and zero
+effect-uniform uploads; changing only the chain performs `2G + 3D` compute
+passes for `G` Gaussian and `D` drop-shadow nodes without a family content
+pass. CPU validation/planning is `O(E)` for `E <= 8`; changed shader work is
+`O(P * sum(Rx_i + Ry_i) + P*D)`; retained intermediates are exactly
+`12*W*H` bytes for multi-node chains.
+
+The layer metric record grows append-only from 152 to 168 bytes and publishes
+effect count, authoritative chain revision, texture generation, and allocation
+count. Legacy kind/revision fields report the final node kind and the
+authoritative chain revision. C ABI tests cover layout and invalid ownership;
+the WebScene/Dawn/Metal gate covers a changed five-pass blur-to-shadow chain,
+zero-dispatch stable replay, and a 32-byte shadow-only parameter update. The
+matched benchmark independently nests managed visuals for the comparator and
+gates all six frame families. Arbitrary DAG branches, backdrop inputs,
+mixed-precision intermediates, shader linking, semantic nested layer stacks,
+and device-loss recreation remain open.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -882,9 +929,10 @@ engine implementation text or shader was copied.
   implemented for all six families; sampled texture and analytic rounded
   common masks are also implemented at the final pooled composite for all six
   families. Arbitrary retained vector clip chains, retained anisotropic
-  Gaussian blur, and source-alpha drop-shadow group effects are implemented
-  across the same six families; nested
-  clip/opacity/effect stacks, blend stack, static buffers, and full
+  Gaussian blur, source-alpha drop-shadow group effects, and bounded linear
+  chains of up to eight such effects are implemented across the same six
+  families; nested semantic clip/opacity/layer stacks, branching effect graphs,
+  blend stack, static buffers, and full
   compiled-scene reuse remain;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
 - deterministic pixel differential suite against the managed compositor.
@@ -916,10 +964,11 @@ engine implementation text or shader was copied.
 
 ### Tranche C — effects, extensions, media, and 3D
 
-- retained Gaussian blur and source-alpha drop shadow with independent
-  content/effect revisions, bounded pooled textures, stable zero-dispatch replay, and shared
-  managed/native WGSL is implemented across all six frame families; advanced
-  blend, nested effects, image/color filters, backdrop and shader effects remain;
+- retained Gaussian blur, source-alpha drop shadow, and bounded linear chains
+  with independent content/effect revisions, bounded pooled textures, stable
+  zero-dispatch replay, and shared managed/native WGSL are implemented across
+  all six frame families; advanced blend, branching graphs, semantic layer
+  nesting, image/color filters, backdrop, and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;

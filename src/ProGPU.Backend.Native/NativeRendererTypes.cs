@@ -163,7 +163,8 @@ public enum NativeRendererCapabilities : ulong
     AnalyticRoundedGroupMask = 1UL << 23,
     RetainedVectorClipChain = 1UL << 24,
     GroupGaussianBlur = 1UL << 25,
-    GroupDropShadow = 1UL << 26
+    GroupDropShadow = 1UL << 26,
+    BoundedGroupEffectChain = 1UL << 27
 }
 
 [Flags]
@@ -341,6 +342,42 @@ public readonly struct NativeGroupEffect
 }
 
 /// <summary>
+/// Owns an immutable bounded linear chain of retained native GPU effects.
+/// </summary>
+public sealed class NativeGroupEffectChain
+{
+    public const int MaximumEffectCount = 8;
+    private readonly NativeGroupEffect[] _effects;
+
+    public NativeGroupEffectChain(
+        ReadOnlySpan<NativeGroupEffect> effects,
+        uint revision)
+    {
+        if (effects.IsEmpty || effects.Length > MaximumEffectCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(effects),
+                $"A native effect chain requires between 1 and {MaximumEffectCount} effects.");
+        }
+        if (revision == 0U)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(revision),
+                "A native effect-chain revision must be nonzero.");
+        }
+
+        _effects = effects.ToArray();
+        Revision = revision;
+    }
+
+    public uint Revision { get; }
+
+    public int Count => _effects.Length;
+
+    public ReadOnlySpan<NativeGroupEffect> Effects => _effects;
+}
+
+/// <summary>
 /// Identifies one submitted native WebGPU command buffer on its owning queue.
 /// </summary>
 /// <remarks>
@@ -436,7 +473,7 @@ public readonly struct NativeDrawState
             groupOpacity,
             groupRevision,
             default,
-            default)
+            default(NativeGroupEffect))
     {
     }
 
@@ -454,7 +491,7 @@ public readonly struct NativeDrawState
             groupOpacity,
             groupRevision,
             groupMask,
-            default)
+            default(NativeGroupEffect))
     {
     }
 
@@ -466,6 +503,47 @@ public readonly struct NativeDrawState
         uint groupRevision,
         NativeGroupMask groupMask,
         NativeGroupEffect groupEffect)
+        : this(
+            opacity,
+            clipRect,
+            flags,
+            groupOpacity,
+            groupRevision,
+            groupMask,
+            groupEffect,
+            null)
+    {
+    }
+
+    public NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision,
+        NativeGroupMask groupMask,
+        NativeGroupEffectChain groupEffectChain)
+        : this(
+            opacity,
+            clipRect,
+            flags,
+            groupOpacity,
+            groupRevision,
+            groupMask,
+            default,
+            groupEffectChain)
+    {
+    }
+
+    private NativeDrawState(
+        float opacity,
+        NativeImageRect clipRect,
+        NativeDrawStateFlags flags,
+        float groupOpacity,
+        uint groupRevision,
+        NativeGroupMask groupMask,
+        NativeGroupEffect groupEffect,
+        NativeGroupEffectChain? groupEffectChain)
     {
         Opacity = opacity;
         ClipRect = clipRect;
@@ -474,6 +552,7 @@ public readonly struct NativeDrawState
         GroupRevision = groupRevision;
         GroupMask = groupMask;
         GroupEffect = groupEffect;
+        GroupEffectChain = groupEffectChain;
         _initialized = 1;
     }
 
@@ -486,6 +565,7 @@ public readonly struct NativeDrawState
     public readonly uint GroupRevision;
     public readonly NativeGroupMask GroupMask;
     public readonly NativeGroupEffect GroupEffect;
+    public readonly NativeGroupEffectChain? GroupEffectChain;
 
     private readonly byte _initialized;
 
@@ -1096,7 +1176,11 @@ public readonly record struct NativeLayerMetrics(
     uint EffectPassCount,
     bool EffectCacheHit,
     ulong EffectUniformUploadBytes,
-    ulong EffectTextureBytes);
+    ulong EffectTextureBytes,
+    uint EffectCount,
+    uint EffectChainRevision,
+    uint EffectTextureGeneration,
+    uint EffectAllocationCount);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

@@ -410,7 +410,10 @@ done
 # Retained effects share one layer/effect-cache contract across every native
 # frame family. Stable replay must skip family uploads and effect dispatches
 # while preserving managed-renderer image parity.
-for effect_mode in --group-gaussian-blur --group-drop-shadow; do
+for effect_mode in \
+  --group-gaussian-blur \
+  --group-drop-shadow \
+  --group-effect-chain; do
   run_common_mask_benchmark \
     "${effect_mode}" --rectangles 96 --warmup 2 --iterations 4
   run_common_mask_benchmark \

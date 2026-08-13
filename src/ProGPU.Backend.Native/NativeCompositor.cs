@@ -125,7 +125,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.EffectPassCount,
             metrics.EffectCacheHit != 0U,
             metrics.EffectUniformUploadBytes,
-            metrics.EffectTextureBytes);
+            metrics.EffectTextureBytes,
+            metrics.EffectCount,
+            metrics.EffectChainRevision,
+            metrics.EffectTextureGeneration,
+            metrics.EffectAllocationCount);
     }
 
     /// <summary>
@@ -185,12 +189,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (NativeSolidRectangle* rectanglePointer = rectangles)
         {
@@ -222,6 +231,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                 ThrowIfDisposed();
                 var status = NativeMethods.Render(_engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -249,12 +259,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (NativeAnalyticPrimitive* primitivePointer = primitives)
         {
@@ -289,6 +304,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     &frame,
                     &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -403,12 +419,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
         fixed (Vector2* pointPointer = points)
@@ -465,6 +486,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     &frame,
                     &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -499,12 +521,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (NativePathFill* pathPointer = paths)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -546,6 +573,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                 ThrowIfDisposed();
                 var status = NativeMethods.RenderPaths(_engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -587,12 +615,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (NativeGlyphOutline* outlinePointer = outlines)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -640,6 +673,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     &frame,
                     &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -685,12 +719,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
 
         fixed (byte* pixelPointer = rgbaPixels)
         {
@@ -739,6 +778,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     &frame,
                     &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
+                GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -791,12 +831,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -845,6 +890,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             ThrowIfDisposed();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
+            GC.KeepAlive(drawState.GroupEffectChain);
             if (status != NativeRendererStatus.Success)
             {
                 throw new NativeRendererException(status, ReadLastError());
@@ -899,12 +945,17 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
+        NativeMethods.GroupEffectChain nativeGroupEffectChain = default;
+        NativeMethods.GroupEffect* nativeGroupEffects = stackalloc
+            NativeMethods.GroupEffect[NativeGroupEffectChain.MaximumEffectCount];
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
             &nativeGroupMask,
             &nativeClipChain,
-            &nativeGroupEffect);
+            &nativeGroupEffect,
+            &nativeGroupEffectChain,
+            nativeGroupEffects);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -948,6 +999,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             ThrowIfDisposed();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
+            GC.KeepAlive(drawState.GroupEffectChain);
             if (status != NativeRendererStatus.Success)
             {
                 throw new NativeRendererException(status, ReadLastError());
@@ -1175,7 +1227,9 @@ public sealed unsafe class NativeCompositor : IDisposable
         GpuTexture target,
         NativeMethods.GroupMask* nativeGroupMask,
         NativeMethods.ClipChain* nativeClipChain,
-        NativeMethods.GroupEffect* nativeGroupEffect)
+        NativeMethods.GroupEffect* nativeGroupEffect,
+        NativeMethods.GroupEffectChain* nativeGroupEffectChain,
+        NativeMethods.GroupEffect* nativeGroupEffects)
     {
         nuint groupMaskPointer = 0U;
         if (state.GroupMask.IsEnabled)
@@ -1188,10 +1242,33 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
 
         nuint groupEffectPointer = 0U;
+        nuint groupEffectChainPointer = 0U;
+        if (state.GroupEffect.IsEnabled && state.GroupEffectChain is not null)
+        {
+            throw new ArgumentException(
+                "A native draw state cannot specify both one effect and an effect chain.",
+                nameof(state));
+        }
         if (state.GroupEffect.IsEnabled)
         {
             *nativeGroupEffect = CreateGroupEffect(state.GroupEffect);
             groupEffectPointer = (nuint)nativeGroupEffect;
+        }
+        else if (state.GroupEffectChain is { } chain)
+        {
+            ReadOnlySpan<NativeGroupEffect> effects = chain.Effects;
+            for (int index = 0; index < effects.Length; index++)
+            {
+                nativeGroupEffects[index] = CreateGroupEffect(effects[index]);
+            }
+            *nativeGroupEffectChain = new NativeMethods.GroupEffectChain
+            {
+                StructSize = (uint)Unsafe.SizeOf<NativeMethods.GroupEffectChain>(),
+                EffectCount = (uint)effects.Length,
+                Revision = chain.Revision,
+                Effects = nativeGroupEffects
+            };
+            groupEffectChainPointer = (nuint)nativeGroupEffectChain;
         }
 
         return new NativeMethods.DrawState
@@ -1204,7 +1281,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             GroupOpacity = state.EffectiveGroupOpacity,
             GroupRevision = state.GroupRevision,
             GroupMask = groupMaskPointer,
-            GroupEffect = groupEffectPointer
+            GroupEffect = groupEffectPointer,
+            GroupEffectChain = groupEffectChainPointer
         };
     }
 

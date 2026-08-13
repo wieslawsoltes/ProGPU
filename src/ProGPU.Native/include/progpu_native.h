@@ -48,7 +48,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U,
     PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U,
-    PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U
+    PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U,
+    PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U
 };
 
 enum {
@@ -77,6 +78,10 @@ typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
     PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2
 } progpu_native_group_effect_kind;
+
+enum {
+    PROGPU_NATIVE_MAX_GROUP_EFFECTS = 8U
+};
 
 typedef enum progpu_native_mask_texture_format {
     PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM = 1,
@@ -491,6 +496,20 @@ typedef struct progpu_native_group_effect {
 } progpu_native_group_effect;
 
 /*
+ * A bounded linear retained effect chain. Effects are evaluated in array
+ * order, so effects[1] consumes effects[0]'s output. The engine copies all
+ * descriptors before returning and never retains caller memory. revision
+ * identifies the complete immutable chain independently from group content.
+ */
+typedef struct progpu_native_group_effect_chain {
+    uint32_t struct_size;
+    uint32_t effect_count;
+    uint32_t revision;
+    uint32_t reserved;
+    const progpu_native_group_effect* effects;
+} progpu_native_group_effect_chain;
+
+/*
  * Optional per-draw state shared by every frame family. opacity multiplies
  * primitive alpha. group_opacity composites the whole frame family through a
  * pooled transparent layer. A nonzero caller-owned group_revision permits the
@@ -501,7 +520,7 @@ typedef struct progpu_native_group_effect {
  * struct_size keeps ABI-v3 append compatibility: the original 32-byte prefix
  * defaults group_opacity to one and group_revision to zero; the 40-byte
  * prefix has group state but no common mask; the 48/44-byte mask prefix has
- * no group effect.
+ * no group effect. The 56/48-byte effect prefix has no effect chain.
  */
 typedef struct progpu_native_draw_state {
     uint32_t struct_size;
@@ -513,6 +532,7 @@ typedef struct progpu_native_draw_state {
     uint32_t group_revision;
     const progpu_native_group_mask* group_mask;
     const progpu_native_group_effect* group_effect;
+    const progpu_native_group_effect_chain* group_effect_chain;
 } progpu_native_draw_state;
 
 typedef struct progpu_native_layer_metrics {
@@ -545,6 +565,10 @@ typedef struct progpu_native_layer_metrics {
     uint32_t effect_cache_hit;
     uint64_t effect_uniform_upload_bytes;
     uint64_t effect_texture_bytes;
+    uint32_t effect_count;
+    uint32_t effect_chain_revision;
+    uint32_t effect_texture_generation;
+    uint32_t effect_allocation_count;
 } progpu_native_layer_metrics;
 
 /*

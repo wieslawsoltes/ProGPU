@@ -193,7 +193,10 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             @SceneArgs
     }
     $EffectScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
-    foreach ($Effect in @("--group-gaussian-blur", "--group-drop-shadow")) {
+    foreach ($Effect in @(
+        "--group-gaussian-blur",
+        "--group-drop-shadow",
+        "--group-effect-chain")) {
         foreach ($Scene in $EffectScenes) {
             $SceneArgs = @()
             if ($Scene) {

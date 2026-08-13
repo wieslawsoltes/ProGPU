@@ -72,7 +72,7 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.GlyphFrame.DrawState)));
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.GlyphFrameMetrics>());
         Assert.Equal(16, Unsafe.SizeOf<NativeImageRect>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.DrawState>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.DrawState>());
         Assert.Equal(
             0,
             OffsetOf<NativeMethods.DrawState>(
@@ -98,6 +98,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             48,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupEffect)));
+        Assert.Equal(
+            56,
+            OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupEffectChain)));
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.GroupEffect>());
         Assert.Equal(
             16,
@@ -111,6 +114,10 @@ public class NativeRendererInteropTests
         Assert.Equal(
             52,
             OffsetOf<NativeMethods.GroupEffect>(nameof(NativeMethods.GroupEffect.ColorA)));
+        Assert.Equal(24, Unsafe.SizeOf<NativeMethods.GroupEffectChain>());
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.GroupEffectChain>(nameof(NativeMethods.GroupEffectChain.Effects)));
         Assert.Equal(152, Unsafe.SizeOf<NativeMethods.GroupMask>());
         Assert.Equal(
             16,
@@ -129,7 +136,7 @@ public class NativeRendererInteropTests
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ClipChain)));
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.ClipChain>());
         Assert.Equal(72, Unsafe.SizeOf<NativeClipPath>());
-        Assert.Equal(152, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(168, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(
             56,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskKind)));
@@ -262,6 +269,52 @@ public class NativeRendererInteropTests
         Assert.Equal(new Vector2(7f, -2f), effect.Offset);
         Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0.75f), effect.Color);
         Assert.Equal(29U, effect.Revision);
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesImmutableBoundedGroupEffectChain()
+    {
+        var source = new[]
+        {
+            NativeGroupEffect.GaussianBlur(1.5f, 31U),
+            NativeGroupEffect.DropShadow(
+                2f,
+                new Vector2(4f, 3f),
+                new Vector4(0.2f, 0.1f, 0.4f, 0.6f),
+                32U)
+        };
+        var chain = new NativeGroupEffectChain(source, 41U);
+        var state = new NativeDrawState(
+            1f,
+            default,
+            NativeDrawStateFlags.None,
+            0.75f,
+            19U,
+            default,
+            chain);
+        source[0] = NativeGroupEffect.GaussianBlur(9f, 99U);
+
+        Assert.Same(chain, state.GroupEffectChain);
+        Assert.Equal(2, chain.Count);
+        Assert.Equal(41U, chain.Revision);
+        Assert.Equal(1.5f, chain.Effects[0].SigmaX);
+        Assert.Equal(NativeGroupEffectKind.DropShadow, chain.Effects[1].Kind);
+    }
+
+    [Fact]
+    public void PublicGroupEffectChainRejectsInvalidBounds()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NativeGroupEffectChain([], 1U));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NativeGroupEffectChain(
+                new NativeGroupEffect[
+                    NativeGroupEffectChain.MaximumEffectCount + 1],
+                1U));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NativeGroupEffectChain(
+                [NativeGroupEffect.GaussianBlur(1f, 1U)],
+                0U));
     }
 
     [Fact]

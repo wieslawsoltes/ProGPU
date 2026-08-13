@@ -164,11 +164,20 @@ bool useDropShadowGroupEffect = Array.Exists(
         value,
         "--group-drop-shadow",
         StringComparison.OrdinalIgnoreCase));
-if (useGaussianGroupEffect && useDropShadowGroupEffect)
+bool useGroupEffectChain = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-effect-chain",
+        StringComparison.OrdinalIgnoreCase));
+if ((useGaussianGroupEffect ? 1 : 0) +
+    (useDropShadowGroupEffect ? 1 : 0) +
+    (useGroupEffectChain ? 1 : 0) > 1)
 {
     throw new ArgumentException("Select only one retained group effect.");
 }
-bool useGroupEffect = useGaussianGroupEffect || useDropShadowGroupEffect;
+bool useGroupEffect = useGaussianGroupEffect || useDropShadowGroupEffect ||
+    useGroupEffectChain;
 bool recomputeGroupEffect = Array.Exists(
     args,
     static value => string.Equals(
@@ -401,18 +410,65 @@ NativeGroupEffect nativeGroupEffect = useGaussianGroupEffect
         dropShadowColor,
         revision: 1U)
     : default;
+NativeGroupEffectChain? nativeGroupEffectChain = useGroupEffectChain
+    ? new NativeGroupEffectChain(
+        [
+            NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 1U),
+            NativeGroupEffect.DropShadow(
+                gaussianSigma,
+                dropShadowOffset,
+                dropShadowColor,
+                revision: 1U)
+        ],
+        revision: 1U)
+    : null;
+NativeGroupEffectChain? timedEffectChainA = useGroupEffectChain
+    ? new NativeGroupEffectChain(
+        [
+            NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 100U),
+            NativeGroupEffect.DropShadow(
+                gaussianSigma,
+                dropShadowOffset,
+                dropShadowColor,
+                revision: 100U)
+        ],
+        revision: 100U)
+    : null;
+NativeGroupEffectChain? timedEffectChainB = useGroupEffectChain
+    ? new NativeGroupEffectChain(
+        [
+            NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 101U),
+            NativeGroupEffect.DropShadow(
+                gaussianSigma,
+                dropShadowOffset + new Vector2(0.25f, 0f),
+                dropShadowColor,
+                revision: 101U)
+        ],
+        revision: 101U)
+    : null;
 nativeDrawState = useDrawState || useGroupOpacity || useGroupMask ||
     useGroupEffect
-    ? new NativeDrawState(
-        useDrawState ? 0.625f : 1f,
-        useDrawState ? drawClip : default,
-        useDrawState
-            ? NativeDrawStateFlags.ClipRect
-            : NativeDrawStateFlags.None,
-        useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
-        nativeGroupMask,
-        nativeGroupEffect)
+    ? nativeGroupEffectChain is not null
+        ? new NativeDrawState(
+            useDrawState ? 0.625f : 1f,
+            useDrawState ? drawClip : default,
+            useDrawState
+                ? NativeDrawStateFlags.ClipRect
+                : NativeDrawStateFlags.None,
+            useGroupOpacity ? benchmarkGroupOpacity : 1f,
+            1U,
+            nativeGroupMask,
+            nativeGroupEffectChain)
+        : new NativeDrawState(
+            useDrawState ? 0.625f : 1f,
+            useDrawState ? drawClip : default,
+            useDrawState
+                ? NativeDrawStateFlags.ClipRect
+                : NativeDrawStateFlags.None,
+            useGroupOpacity ? benchmarkGroupOpacity : 1f,
+            useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
+            nativeGroupMask,
+            nativeGroupEffect)
     : default;
 // Declare the native compositor after the borrowed source so reverse-order
 // disposal releases its retained view before destroying the source texture.
@@ -536,7 +592,7 @@ else if (useVectorClipChain)
 {
     managedVisual.GeometryClip = vectorClipChain.Managed;
 }
-if (useGaussianGroupEffect)
+if (useGaussianGroupEffect || useGroupEffectChain)
 {
     managedBlurEffect = new BlurEffect(gaussianSigma);
     managedVisual.Effect = managedBlurEffect;
@@ -560,6 +616,27 @@ else if (useDropShadowGroupEffect)
         logicalWidth,
         logicalHeight);
     managedVisual.EffectRasterPadding = 0f;
+}
+Visual managedRenderRoot = managedVisual;
+if (useGroupEffectChain)
+{
+    var outerEffectVisual = new ContainerVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    outerEffectVisual.AddChild(managedVisual);
+    managedDropShadowEffect = new DropShadowEffect(
+        gaussianSigma,
+        dropShadowOffset,
+        dropShadowColor);
+    outerEffectVisual.Effect = managedDropShadowEffect;
+    outerEffectVisual.EffectContentBounds = new Rect(
+        0f,
+        0f,
+        logicalWidth,
+        logicalHeight);
+    outerEffectVisual.EffectRasterPadding = 0f;
+    managedRenderRoot = outerEffectVisual;
 }
 
 // A growth gate first establishes the ordinary 1024-square resource, then
@@ -618,14 +695,23 @@ if (useDrawState &&
     (useGeometryScene || usePathScene || useGlyphScene || useImageScene))
 {
     NativeDrawState originalDrawState = nativeDrawState;
-    nativeDrawState = new NativeDrawState(
-        0.5f,
-        drawClip,
-        NativeDrawStateFlags.ClipRect,
-        useGroupOpacity ? benchmarkGroupOpacity : 1f,
-        useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
-        nativeGroupMask,
-        nativeGroupEffect);
+    nativeDrawState = nativeGroupEffectChain is not null
+        ? new NativeDrawState(
+            0.5f,
+            drawClip,
+            NativeDrawStateFlags.ClipRect,
+            useGroupOpacity ? benchmarkGroupOpacity : 1f,
+            1U,
+            nativeGroupMask,
+            nativeGroupEffectChain)
+        : new NativeDrawState(
+            0.5f,
+            drawClip,
+            NativeDrawStateFlags.ClipRect,
+            useGroupOpacity ? benchmarkGroupOpacity : 1f,
+            useGroupOpacity || useGroupMask || useGroupEffect ? 1U : 0U,
+            nativeGroupMask,
+            nativeGroupEffect);
     RenderNative();
     if (useGeometryScene &&
         (lastNativeGeometryMetrics.VertexUploadBytes != 0UL ||
@@ -695,14 +781,23 @@ if (useGroupMask)
         : NativeGroupMask.VectorClipChain(
             vectorClipChain.Native,
             revision: 2U);
-    nativeDrawState = new NativeDrawState(
-        originalDrawState.Opacity,
-        originalDrawState.ClipRect,
-        originalDrawState.Flags,
-        originalDrawState.GroupOpacity,
-        originalDrawState.GroupRevision,
-        mutatedMask,
-        originalDrawState.GroupEffect);
+    nativeDrawState = originalDrawState.GroupEffectChain is { } effectChain
+        ? new NativeDrawState(
+            originalDrawState.Opacity,
+            originalDrawState.ClipRect,
+            originalDrawState.Flags,
+            originalDrawState.GroupOpacity,
+            originalDrawState.GroupRevision,
+            mutatedMask,
+            effectChain)
+        : new NativeDrawState(
+            originalDrawState.Opacity,
+            originalDrawState.ClipRect,
+            originalDrawState.Flags,
+            originalDrawState.GroupOpacity,
+            originalDrawState.GroupRevision,
+            mutatedMask,
+            originalDrawState.GroupEffect);
     RenderNative();
     NativeLayerMetrics mutatedLayerMetrics = native.GetLayerMetrics();
     bool validMutation = !mutatedLayerMetrics.CacheHit ||
@@ -740,23 +835,48 @@ if (useGroupEffect)
         : NativeGroupEffect.GaussianBlur(
             gaussianSigma + 1f,
             revision: 2U);
-    nativeDrawState = new NativeDrawState(
-        originalDrawState.Opacity,
-        originalDrawState.ClipRect,
-        originalDrawState.Flags,
-        originalDrawState.GroupOpacity,
-        originalDrawState.GroupRevision,
-        originalDrawState.GroupMask,
-        mutatedEffect);
+    NativeGroupEffectChain? mutatedEffectChain = useGroupEffectChain
+        ? new NativeGroupEffectChain(
+            [
+                NativeGroupEffect.GaussianBlur(
+                    gaussianSigma,
+                    revision: 1U),
+                NativeGroupEffect.DropShadow(
+                    gaussianSigma,
+                    dropShadowOffset + new Vector2(1f, 0f),
+                    dropShadowColor,
+                    revision: 2U)
+            ],
+            revision: 2U)
+        : null;
+    nativeDrawState = mutatedEffectChain is not null
+        ? new NativeDrawState(
+            originalDrawState.Opacity,
+            originalDrawState.ClipRect,
+            originalDrawState.Flags,
+            originalDrawState.GroupOpacity,
+            originalDrawState.GroupRevision,
+            originalDrawState.GroupMask,
+            mutatedEffectChain)
+        : new NativeDrawState(
+            originalDrawState.Opacity,
+            originalDrawState.ClipRect,
+            originalDrawState.Flags,
+            originalDrawState.GroupOpacity,
+            originalDrawState.GroupRevision,
+            originalDrawState.GroupMask,
+            mutatedEffect);
     RenderNative();
     NativeLayerMetrics mutatedEffectMetrics = native.GetLayerMetrics();
     if (!mutatedEffectMetrics.CacheHit ||
         mutatedEffectMetrics.ContentPassCount != 0U ||
         mutatedEffectMetrics.CompositePassCount != 1U ||
-        mutatedEffectMetrics.EffectKind != mutatedEffect.Kind ||
+        mutatedEffectMetrics.EffectKind != (useGroupEffectChain
+            ? NativeGroupEffectKind.DropShadow
+            : mutatedEffect.Kind) ||
         mutatedEffectMetrics.EffectRevision != 2U ||
         mutatedEffectMetrics.EffectPassCount !=
-            (useDropShadowGroupEffect ? 3U : 2U) ||
+            (useGroupEffectChain ? 5U : useDropShadowGroupEffect ? 3U : 2U) ||
         mutatedEffectMetrics.EffectCacheHit ||
         mutatedEffectMetrics.EffectUniformUploadBytes != 32UL)
     {
@@ -794,12 +914,17 @@ if (useGroupEffect &&
     (!stableLayerMetrics.CacheHit ||
      stableLayerMetrics.ContentPassCount != 0U ||
      stableLayerMetrics.CompositePassCount != 1U ||
-     stableLayerMetrics.EffectKind != nativeGroupEffect.Kind ||
+     stableLayerMetrics.EffectKind != (useGroupEffectChain
+        ? NativeGroupEffectKind.DropShadow
+        : nativeGroupEffect.Kind) ||
      stableLayerMetrics.EffectRevision != 1U ||
+     stableLayerMetrics.EffectCount != (useGroupEffectChain ? 2U : 1U) ||
+     stableLayerMetrics.EffectChainRevision != 1U ||
      stableLayerMetrics.EffectPassCount != 0U ||
      !stableLayerMetrics.EffectCacheHit ||
      stableLayerMetrics.EffectUniformUploadBytes != 0UL ||
-     stableLayerMetrics.EffectTextureBytes != (ulong)width * height * 8UL))
+     stableLayerMetrics.EffectTextureBytes != (ulong)width * height *
+        (useGroupEffectChain ? 12UL : 8UL)))
 {
     throw new InvalidOperationException(
         "Stable group-effect replay dispatched compute work or " +
@@ -883,7 +1008,9 @@ if (writeImages)
         : useAnalyticScene
         ? "analytic"
         : "solid";
-    string imageStem = useDropShadowGroupEffect
+    string imageStem = useGroupEffectChain
+        ? $"group-effect-chain-{familyStem}"
+        : useDropShadowGroupEffect
         ? $"group-drop-shadow-{familyStem}"
         : useGaussianGroupEffect
         ? $"group-gaussian-blur-{familyStem}"
@@ -992,6 +1119,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
     : useVectorClipChain
     ? usesGeometryDifferential ? 204 : 64
+    : useGroupEffectChain
+    ? usesGeometryDifferential ? 204 : 64
     : useDropShadowGroupEffect
     ? usesGeometryDifferential ? 204 : 64
     : useGaussianGroupEffect
@@ -1021,6 +1150,11 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useGroupEffectChain
+    // Two independently quantized RGBA8 intermediate graphs can accumulate
+    // two one-byte edge decisions. Keep the maximum/pixel-count gates above
+    // while bounding aggregate error below one eighth of a channel value.
+    ? 0.125
     : useDropShadowGroupEffect
     // Analytic source coverage is independently rasterized before the shared
     // blur/composition graph. Software Vulkan implementations can resolve
@@ -1250,6 +1384,8 @@ var report = new BenchmarkReport(
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
+        : useGroupEffectChain
+        ? "Bounded two-node blur/drop-shadow chain differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 per channel"
         : useDropShadowGroupEffect
         ? "Bounded retained drop-shadow differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 for analytic source coverage and 0.1/255 otherwise"
         : useGaussianGroupEffect
@@ -1287,10 +1423,14 @@ var report = new BenchmarkReport(
                 ? "VectorClipChain"
             : "None",
     GroupEffect: recomputeGroupEffect
-        ? useDropShadowGroupEffect
+        ? useGroupEffectChain
+            ? "GaussianBlurThenDropShadowRecomputed"
+            : useDropShadowGroupEffect
             ? "DropShadowRecomputed"
             : "GaussianBlurRecomputed"
-        : useDropShadowGroupEffect
+        : useGroupEffectChain
+            ? "GaussianBlurThenDropShadow"
+            : useDropShadowGroupEffect
             ? "DropShadow"
             : useGaussianGroupEffect ? "GaussianBlur" : "None",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
@@ -1350,23 +1490,37 @@ ulong RenderNative(bool capturePayloadHash = false)
     if (effectTimingActive)
     {
         bool alternate = (nativeEffectTimingIndex++ & 1) != 0;
-        NativeGroupEffect timedEffect = useDropShadowGroupEffect
-            ? NativeGroupEffect.DropShadow(
-                gaussianSigma,
-                dropShadowOffset + new Vector2(alternate ? 0.25f : 0f, 0f),
-                dropShadowColor,
-                nativeEffectTimingRevision++)
-            : NativeGroupEffect.GaussianBlur(
-                gaussianSigma + (alternate ? 0.25f : 0f),
-                nativeEffectTimingRevision++);
-        nativeDrawState = new NativeDrawState(
-            nativeDrawState.Opacity,
-            nativeDrawState.ClipRect,
-            nativeDrawState.Flags,
-            nativeDrawState.GroupOpacity,
-            nativeDrawState.GroupRevision,
-            nativeDrawState.GroupMask,
-            timedEffect);
+        if (useGroupEffectChain)
+        {
+            nativeDrawState = new NativeDrawState(
+                nativeDrawState.Opacity,
+                nativeDrawState.ClipRect,
+                nativeDrawState.Flags,
+                nativeDrawState.GroupOpacity,
+                nativeDrawState.GroupRevision,
+                nativeDrawState.GroupMask,
+                alternate ? timedEffectChainB! : timedEffectChainA!);
+        }
+        else
+        {
+            NativeGroupEffect timedEffect = useDropShadowGroupEffect
+                ? NativeGroupEffect.DropShadow(
+                    gaussianSigma,
+                    dropShadowOffset + new Vector2(alternate ? 0.25f : 0f, 0f),
+                    dropShadowColor,
+                    nativeEffectTimingRevision++)
+                : NativeGroupEffect.GaussianBlur(
+                    gaussianSigma + (alternate ? 0.25f : 0f),
+                    nativeEffectTimingRevision++);
+            nativeDrawState = new NativeDrawState(
+                nativeDrawState.Opacity,
+                nativeDrawState.ClipRect,
+                nativeDrawState.Flags,
+                nativeDrawState.GroupOpacity,
+                nativeDrawState.GroupRevision,
+                nativeDrawState.GroupMask,
+                timedEffect);
+        }
     }
     if (useImageScene)
     {
@@ -1584,7 +1738,7 @@ void RenderManaged()
     if (effectTimingActive)
     {
         bool alternate = (managedEffectTimingIndex++ & 1) != 0;
-        if (useDropShadowGroupEffect)
+        if (useDropShadowGroupEffect || useGroupEffectChain)
         {
             managedDropShadowEffect!.Offset = dropShadowOffset +
                 new Vector2(alternate ? 0.25f : 0f, 0f);
@@ -1596,7 +1750,7 @@ void RenderManaged()
         }
     }
     managed.RenderOffscreen(
-        managedVisual,
+        managedRenderRoot,
         Math.Max(1U, (uint)MathF.Round(logicalWidth)),
         Math.Max(1U, (uint)MathF.Round(logicalHeight)),
         managedTarget,
