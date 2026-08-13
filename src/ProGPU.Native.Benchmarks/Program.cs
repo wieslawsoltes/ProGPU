@@ -103,7 +103,13 @@ bool useImageScene = Array.Exists(
         value,
         "--images",
         StringComparison.OrdinalIgnoreCase));
-bool useSemanticScene = Array.Exists(
+bool useSemanticLayerEffects = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--semantic-layer-effects",
+        StringComparison.OrdinalIgnoreCase));
+bool useSemanticScene = useSemanticLayerEffects || Array.Exists(
     args,
     static value => string.Equals(
         value,
@@ -560,9 +566,12 @@ byte[] semanticSceneBuffer = useSemanticScene
         semanticGlyphOutlines,
         semanticGlyphSegments,
         semanticGlyphs,
-        imagePixels)]
+        imagePixels,
+        useSemanticLayerEffects)]
     : [];
 int semanticSceneLength = 0;
+uint expectedSemanticCommandCount = useSemanticLayerEffects ? 10U : 8U;
+uint expectedSemanticResourceCount = useSemanticLayerEffects ? 10U : 8U;
 if (useSemanticScene)
 {
     var semanticImageDraw = new NativeSceneImageDraw(
@@ -595,13 +604,17 @@ if (useSemanticScene)
         imagePixels,
         in semanticImageDraw,
         logicalWidth,
-        logicalHeight);
+        logicalHeight,
+        useSemanticLayerEffects,
+        gaussianSigma,
+        dropShadowOffset,
+        dropShadowColor);
     nativeSceneUpdateMetrics = native.UpdateScene(
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
     NativeSceneUpdateMetrics retainedUpdate = native.UpdateScene(
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
-    if (nativeSceneUpdateMetrics.CommandCount != 8U ||
-        nativeSceneUpdateMetrics.ResourceCount != 8U ||
+    if (nativeSceneUpdateMetrics.CommandCount != expectedSemanticCommandCount ||
+        nativeSceneUpdateMetrics.ResourceCount != expectedSemanticResourceCount ||
         nativeSceneUpdateMetrics.DrawCount != 8U ||
         nativeSceneUpdateMetrics.SnapshotReused ||
         !retainedUpdate.SnapshotReused ||
@@ -772,6 +785,48 @@ else if (useDropShadowGroupEffect)
     managedVisual.EffectRasterPadding = 0f;
 }
 Visual managedRenderRoot = managedContentRoot;
+if (useSemanticLayerEffects)
+{
+    managedBlurEffect = new BlurEffect(gaussianSigma);
+    managedContentRoot.Effect = managedBlurEffect;
+    managedContentRoot.EffectContentBounds = new Rect(
+        0f,
+        0f,
+        logicalWidth,
+        logicalHeight);
+    managedContentRoot.EffectRasterPadding = 0f;
+
+    var semanticShadowVisual = new ContainerVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight)
+    };
+    semanticShadowVisual.AddChild(managedContentRoot);
+    managedDropShadowEffect = new DropShadowEffect(
+        gaussianSigma,
+        dropShadowOffset,
+        dropShadowColor);
+    semanticShadowVisual.Effect = managedDropShadowEffect;
+    semanticShadowVisual.EffectContentBounds = new Rect(
+        0f,
+        0f,
+        logicalWidth,
+        logicalHeight);
+    semanticShadowVisual.EffectRasterPadding = 0f;
+
+    var semanticMaskVisual = new ContainerVisual
+    {
+        Size = new Vector2(logicalWidth, logicalHeight),
+        GeometryClip = PrimitivePathGeometry.CreateRoundedRectangle(
+            60f,
+            40f,
+            logicalWidth - 120f,
+            logicalHeight - 80f,
+            36f,
+            36f)
+    };
+    semanticMaskVisual.AddChild(semanticShadowVisual);
+    managedRenderRoot = semanticMaskVisual;
+}
 if (useGroupEffectChain)
 {
     var outerEffectVisual = new ContainerVisual
@@ -1072,13 +1127,15 @@ if (useGroupEffect)
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
 NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
 if (useSemanticScene &&
-    (lastNativeSceneMetrics.CommandCount != 8U ||
-     lastNativeSceneMetrics.DrawCallCount != 8U ||
+    (lastNativeSceneMetrics.CommandCount != expectedSemanticCommandCount ||
+     lastNativeSceneMetrics.DrawCallCount !=
+        (useSemanticLayerEffects ? 9U : 8U) ||
      lastNativeSceneMetrics.FamilySwitchCount != 8U ||
      lastNativeSceneMetrics.SubmissionCount != 1UL ||
      lastNativeSceneMetrics.VertexUploadBytes != 0UL ||
      lastNativeSceneMetrics.IndexUploadBytes != 0UL ||
      lastNativeSceneMetrics.TextureUploadBytes != 0UL ||
+     lastNativeSceneMetrics.UniformUploadBytes != 0UL ||
      lastNativeSceneMetrics.CoverageStagingBytes != 0UL))
 {
     throw new InvalidOperationException(
@@ -1093,6 +1150,26 @@ if (useSemanticScene &&
         $"indexUpload={lastNativeSceneMetrics.IndexUploadBytes} " +
         $"textureUpload={lastNativeSceneMetrics.TextureUploadBytes} " +
         $"coverage={lastNativeSceneMetrics.CoverageStagingBytes}.");
+}
+if (useSemanticLayerEffects &&
+    (!stableLayerMetrics.CacheHit ||
+     stableLayerMetrics.ContentPassCount != 1U ||
+     stableLayerMetrics.CompositePassCount != 1U ||
+     stableLayerMetrics.MaskKind != NativeGroupMaskKind.RoundedRectangle ||
+     stableLayerMetrics.MaskBindGroupGeneration == 0U ||
+     stableLayerMetrics.MaskUniformUploadBytes != 0UL ||
+     stableLayerMetrics.EffectKind != NativeGroupEffectKind.DropShadow ||
+     stableLayerMetrics.EffectRevision != 91U ||
+     stableLayerMetrics.EffectChainRevision != 91U ||
+     stableLayerMetrics.EffectCount != 2U ||
+     stableLayerMetrics.EffectPassCount != 0U ||
+     !stableLayerMetrics.EffectCacheHit ||
+     stableLayerMetrics.EffectUniformUploadBytes != 0UL ||
+     stableLayerMetrics.EffectTextureBytes != (ulong)width * height * 12UL))
+{
+    throw new InvalidOperationException(
+        "Stable semantic mask/effect replay did not retain the completed " +
+        $"GPU effect output: {stableLayerMetrics}.");
 }
 if (useGroupMask &&
     (!stableLayerMetrics.CacheHit ||
@@ -1210,7 +1287,9 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string familyStem = useSemanticScene
+    string familyStem = useSemanticLayerEffects
+        ? "semantic-layer-effects"
+        : useSemanticScene
         ? "semantic-scene"
         : useImageScene
         ? "images"
@@ -1223,7 +1302,9 @@ if (writeImages)
         : useAnalyticScene
         ? "analytic"
         : "solid";
-    string imageStem = useSemanticScene
+    string imageStem = useSemanticLayerEffects
+        ? "semantic-layer-effects"
+        : useSemanticScene
         ? "semantic-scene"
         : useGroupEffectChain
         ? $"group-effect-chain-{familyStem}"
@@ -1337,6 +1418,8 @@ bool usesCommonMaskDifferential = useGroupMask &&
 bool usesDrawStateClipImage = useDrawState && useImageScene;
 int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
+    : useSemanticLayerEffects
+    ? 204
     : useSemanticScene
     ? 96
     : useVectorClipChain
@@ -1357,6 +1440,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
 int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
+        : useSemanticLayerEffects
+        ? Math.Max(1, comparison.PixelCount / 100)
         : useSemanticScene
         ? Math.Max(1, comparison.PixelCount / 1000)
         : useGroupEffect
@@ -1378,6 +1463,11 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useSemanticLayerEffects
+    // Both routes retain the same mixed scene and effect order, but their
+    // independently quantized path/glyph coverage and RGBA8 effect
+    // intermediates can disagree on bounded antialiased edge ties.
+    ? 0.15
     : useSemanticScene
     // The managed and native retained path/glyph atlases independently own
     // subpixel coverage ties. The image and analytic quadrants remain exact;
@@ -1598,7 +1688,9 @@ var report = new BenchmarkReport(
     OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
     Adapter: context.AdapterName,
     Backend: context.AdapterBackendType.ToString(),
-    Scene: useSemanticScene
+    Scene: useSemanticLayerEffects
+        ? "RetainedSemanticLayerMaskEffectChain"
+        : useSemanticScene
         ? "RetainedMixedSemanticScene"
         : useImageScene
         ? useExternalImageScene
@@ -1621,7 +1713,9 @@ var report = new BenchmarkReport(
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
-    DifferentialContract: useSemanticScene
+    DifferentialContract: useSemanticLayerEffects
+        ? "Matched retained mixed semantic scene through blur/drop-shadow GPU chain and post-effect rounded mask; bounded independent coverage and RGBA8 intermediate edge ownership"
+        : useSemanticScene
         ? "Matched retained analytic/path/glyph/image semantic scene; bounded independent path/glyph coverage edge ownership"
         : usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
@@ -1658,14 +1752,18 @@ var report = new BenchmarkReport(
     DrainEachPair: drainEachPair,
     DrawState: useDrawState,
     GroupOpacity: useGroupOpacity,
-    GroupMask: useRoundedGroupMask
+    GroupMask: useSemanticLayerEffects
+        ? "SemanticRoundedRectangle"
+        : useRoundedGroupMask
         ? "RoundedRectangle"
         : useTextureGroupMask
             ? "Texture"
             : useVectorClipChain
                 ? "VectorClipChain"
             : "None",
-    GroupEffect: recomputeGroupEffect
+    GroupEffect: useSemanticLayerEffects
+        ? "SemanticGaussianBlurThenDropShadow"
+        : recomputeGroupEffect
         ? useGroupEffectChain
             ? "GaussianBlurThenDropShadowRecomputed"
             : useDropShadowGroupEffect
@@ -2305,8 +2403,17 @@ static int GetSemanticSceneBufferSize(
     ReadOnlySpan<NativeSceneGlyphOutline> glyphOutlines,
     ReadOnlySpan<NativePathSegment> glyphSegments,
     ReadOnlySpan<NativePositionedGlyph> glyphs,
-    ReadOnlySpan<byte> imagePixels)
+    ReadOnlySpan<byte> imagePixels,
+    bool includeLayerEffects)
 {
+    int layerArenaCapacity = includeLayerEffects
+        ? checked(
+            Unsafe.SizeOf<NativeSceneLayerMask>() +
+            Unsafe.SizeOf<NativeSceneEffectChain>() +
+            2 * Unsafe.SizeOf<NativeSceneEffect>() +
+            Unsafe.SizeOf<NativeSceneLayer>() +
+            256)
+        : 0;
     int arenaCapacity = checked(
         analyticPrimitives.Length * Unsafe.SizeOf<NativeAnalyticPrimitive>() +
         paths.Length * Unsafe.SizeOf<NativeScenePathFill>() +
@@ -2320,10 +2427,11 @@ static int GetSemanticSceneBufferSize(
         imagePixels.Length +
         imagePixels.Length +
         Unsafe.SizeOf<NativeSceneImageDraw>() +
+        layerArenaCapacity +
         128);
     return NativeSceneStreamBuilder.GetRequiredBufferSize(
-        commandCapacity: 8,
-        resourceCapacity: 8,
+        commandCapacity: includeLayerEffects ? 10 : 8,
+        resourceCapacity: includeLayerEffects ? 10 : 8,
         arenaCapacity);
 }
 
@@ -2340,7 +2448,11 @@ static int BuildSemanticScene(
     ReadOnlySpan<byte> imagePixels,
     in NativeSceneImageDraw imageDraw,
     float logicalWidth,
-    float logicalHeight)
+    float logicalHeight,
+    bool includeLayerEffects,
+    float gaussianSigma,
+    Vector2 dropShadowOffset,
+    Vector4 dropShadowColor)
 {
     int analyticSplit = Math.Max(1, analyticPrimitives.Length / 2);
     ReadOnlySpan<NativeAnalyticPrimitive> firstAnalytic =
@@ -2404,12 +2516,39 @@ static int BuildSemanticScene(
             imageDraw.DestinationRect.Height),
         imageDraw.Transform,
         imageDraw.Opacity);
+    NativeSceneLayerMask layerMask = default;
+    Span<NativeSceneEffect> layerEffects =
+        stackalloc NativeSceneEffect[2];
+    if (includeLayerEffects)
+    {
+        layerMask = new NativeSceneLayerMask(
+            new NativeImageRect(
+                60f,
+                40f,
+                logicalWidth - 120f,
+                logicalHeight - 80f),
+            Matrix3x2.Identity,
+            new Vector4(36f),
+            new Vector4(36f));
+        layerEffects[0] = NativeSceneEffect.GaussianBlur(
+            gaussianSigma,
+            gaussianSigma,
+            revision: 1U);
+        layerEffects[1] = NativeSceneEffect.DropShadow(
+            gaussianSigma,
+            dropShadowOffset,
+            dropShadowColor,
+            revision: 2U);
+    }
     var builder = new NativeSceneStreamBuilder(
         destination,
         sceneId,
         generation,
-        commandCapacity: 8,
-        resourceCapacity: 8);
+        commandCapacity: includeLayerEffects ? 10 : 8,
+        resourceCapacity: includeLayerEffects ? 10 : 8);
+    uint layerMaskResource = uint.MaxValue;
+    uint layerEffectResource = uint.MaxValue;
+    ulong commandOffset = includeLayerEffects ? 1U : 0U;
     ReadOnlySpan<byte> stream = default;
     bool success = builder.TryAddAnalyticResource(
             resourceId: 1U,
@@ -2455,12 +2594,31 @@ static int BuildSemanticScene(
             generation,
             imagePixels,
             out uint secondImageResource) &&
-        builder.TryDrawAnalytic(
+        (!includeLayerEffects || builder.TryAddLayerMaskResource(
+            resourceId: 100U,
+            generation,
+            in layerMask,
+            out layerMaskResource)) &&
+        (!includeLayerEffects || builder.TryAddEffectChainResource(
+            resourceId: 101U,
+            generation,
+            layerEffects,
+            revision: 91U,
+            out layerEffectResource)) &&
+        (!includeLayerEffects || builder.TryPushLayer(
             commandId: 1U,
+            new NativeSceneLayer(
+                flags: NativeSceneLayerFlags.ForceIsolation,
+                maskResourceIndex: layerMaskResource,
+                effectResourceIndex: layerEffectResource,
+                contentRevision: 1U,
+                compositeRevision: 1U))) &&
+        builder.TryDrawAnalytic(
+            commandId: 1U + commandOffset,
             analyticResource,
             new NativeImageRect(0f, 0f, logicalWidth * 0.5f, logicalHeight * 0.5f)) &&
         builder.TryDrawPath(
-            commandId: 2U,
+            commandId: 2U + commandOffset,
             pathResource,
             new NativeImageRect(
                 logicalWidth * 0.5f,
@@ -2468,7 +2626,7 @@ static int BuildSemanticScene(
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f)) &&
         builder.TryDrawGlyphRun(
-            commandId: 3U,
+            commandId: 3U + commandOffset,
             glyphResource,
             new NativeImageRect(
                 0f,
@@ -2477,7 +2635,7 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f),
             firstGlyphs) &&
         builder.TryDrawImage(
-            commandId: 4U,
+            commandId: 4U + commandOffset,
             imageResource,
             new NativeImageRect(
                 logicalWidth * 0.5f,
@@ -2486,7 +2644,7 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f),
             in firstImageDraw) &&
         builder.TryDrawPath(
-            commandId: 5U,
+            commandId: 5U + commandOffset,
             secondPathResource,
             new NativeImageRect(
                 logicalWidth * 0.5f,
@@ -2494,7 +2652,7 @@ static int BuildSemanticScene(
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f)) &&
         builder.TryDrawGlyphRun(
-            commandId: 6U,
+            commandId: 6U + commandOffset,
             secondGlyphResource,
             new NativeImageRect(
                 0f,
@@ -2503,7 +2661,7 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f),
             secondGlyphs) &&
         builder.TryDrawImage(
-            commandId: 7U,
+            commandId: 7U + commandOffset,
             secondImageResource,
             new NativeImageRect(
                 logicalWidth * 0.5f,
@@ -2512,13 +2670,14 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f),
             in secondImageDraw) &&
         builder.TryDrawAnalytic(
-            commandId: 8U,
+            commandId: 8U + commandOffset,
             secondAnalyticResource,
             new NativeImageRect(
                 0f,
                 0f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f)) &&
+        (!includeLayerEffects || builder.TryPopLayer(commandId: 10U)) &&
         builder.TryBuild(out stream);
     if (!success)
     {

@@ -1,5 +1,6 @@
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_semantic_budget.hpp"
+#include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
@@ -105,6 +106,32 @@ void semantic_compilation_budget_is_checked() {
         0U,
         0U,
         0U));
+}
+
+void semantic_effect_output_cache_requires_exact_retained_identity() {
+    using namespace progpu::native::effects;
+    semantic_output_cache cache{};
+    const semantic_output_cache_key key{
+        17U, 29U, 3U, 960U, 540U};
+    require(!semantic_output_cache_hit(cache, key));
+    commit_semantic_output_cache(cache, key);
+    require(semantic_output_cache_hit(cache, key));
+    require(!semantic_output_cache_hit(
+        cache,
+        semantic_output_cache_key{18U, 29U, 3U, 960U, 540U}));
+    require(!semantic_output_cache_hit(
+        cache,
+        semantic_output_cache_key{17U, 30U, 3U, 960U, 540U}));
+    require(!semantic_output_cache_hit(
+        cache,
+        semantic_output_cache_key{17U, 29U, 4U, 960U, 540U}));
+    require(!semantic_output_cache_hit(
+        cache,
+        semantic_output_cache_key{17U, 29U, 3U, 961U, 540U}));
+    invalidate_semantic_output_cache(cache);
+    require(!semantic_output_cache_hit(cache, key));
+    commit_semantic_output_cache(cache, {});
+    require(!semantic_output_cache_hit(cache, {}));
 }
 
 void semantic_state_is_cpu_only_and_target_relative() {
@@ -242,6 +269,7 @@ int main() {
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
+    semantic_effect_output_cache_requires_exact_retained_identity();
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_payload_validation_is_bounded_and_cpu_only();

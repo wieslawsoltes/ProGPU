@@ -86,13 +86,13 @@ metadata.
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
 | [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
 | [WinUI `DropShadow`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow), [Win2D `ShadowEffect`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_ShadowEffect.htm), and [Skia `SkImageFilters::DropShadow`](https://api.skia.org/classSkImageFilters.html) | A retained shadow carries offset, blur, and color; GPU effect graphs derive shadow alpha from retained source content and either return shadow-only output or composite the source above it. | Keep source content and shadow parameters independently revisioned. Blur source alpha on the GPU, apply physical-pixel offset/tint in a bounded compute composition pass, preserve premultiplied source-over, and cache the completed effect output rather than rebuilding the family. |
-| [Direct2D effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/effects-overview), [Win2D custom effect graphs](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/custom-effects), [Win2D effect precision](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/effect-precision-and-clamping), and [Skia `SkImageFilters::Compose`](https://api.skia.org/classSkImageFilters.html) | Effects consume image outputs, can be chained as retained graphs, may require intermediate GPU textures, and define composition as `outer(inner(source))`. Intermediate precision and clamping are observable quality decisions. | Add an original bounded linear chain evaluated in caller order, keep `RGBA8Unorm` intermediates explicit for parity with the existing effect lanes, reuse three textures without sampled/storage aliasing, and preserve one completed-output revision. General branching, shader linking, precision selection, and semantic layer graphs remain later work. |
+| [Direct2D effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/effects-overview), [Win2D custom effect graphs](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/custom-effects), [Win2D effect precision](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/effect-precision-and-clamping), and [Skia `SkImageFilters::Compose`](https://api.skia.org/classSkImageFilters.html) | Effects consume image outputs, can be chained as retained graphs, may require intermediate GPU textures, and define composition as `outer(inner(source))`. Intermediate precision and clamping are observable quality decisions. | Add an original bounded linear chain evaluated in caller order, keep `RGBA8Unorm` intermediates explicit for parity with the existing effect lanes, reuse three textures without sampled/storage aliasing, and preserve one completed-output revision. Reuse that chain inside semantic layers; general branching, shader linking, and precision selection remain later work. |
 | [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve primitive/group distinction and overlap behavior. The current frame-group kernel is reusable infrastructure, but nested `CreateLayer` stack parity remains open. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
 | [WebRender clip chains](https://searchfox.org/mozilla-central/source/gfx/wr) | Common display-item properties carry spatial and clip-chain identity so retained items reuse hierarchical clip state. | Keep clip identity in the future semantic scene rather than baking clip-dependent geometry. The frame-level fast path only supplies one resolved rectangle. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
-| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use the pooled frame-group kernel now, while reserving explicit push/pop commands and retained clip identity for nested clips, blends, masks, and effects in the semantic scene. |
+| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use explicit semantic push/pop commands with depth-indexed pooled targets for nested opacity, fixed-function blends, masks, and bounded effect chains; retain advanced destination sampling and general effect graphs as typed future work. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
 | [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
@@ -191,6 +191,8 @@ and checked pool accounting live in `progpu_native_semantic_budget.hpp`.
 Allocation-free state/layer-target traversal and DPI-aware scissor localization
 live in `progpu_native_semantic_state.cpp`; analytic/path/glyph/image preflight
 and checked coverage sizing live in `progpu_native_semantic_validation.cpp`.
+Retained semantic effect-output keying and invalidation live in
+`progpu_native_semantic_effect_cache.cpp`.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally
@@ -828,9 +830,9 @@ content reuse, changed two-pass dispatch, unchanged zero-dispatch replay,
 bounded resources, legacy prefixes, invalid descriptors, exact Dawn/Metal
 provider execution, and managed/native pixel bounds. The implementation reuses
 the same production shader resources as the managed compositor; it does not
-copy or introduce a second foreign blur implementation. Nested effects,
-drop-shadow/color/filter graphs, backdrop inputs, non-source-over blends,
-device-loss recreation, and semantic-scene effect nodes remain open.
+copy or introduce a second foreign blur implementation. General branching
+effect/color-filter graphs, backdrop inputs, advanced destination-sampling
+blends, and device-loss recreation remain open.
 
 This effect is downstream from already positioned text and does not change
 Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
@@ -1258,13 +1260,38 @@ effect texture or uniform buffer per layer occurrence. Each pop runs its chain
 in declared order, then composites the final intermediate through mask and
 opacity into the restored parent. Changed compilation and uniform storage are
 O(E + P) for E effect nodes and P effect passes. Stable replay uploads no
-effect uniforms and allocates no effect resource, but executes P compute passes
-because the layer content is redrawn for the current target. Stable replay is
-O(B + L + P) for B retained bundle spans and L layer transitions, allocates no
-new pool texture, uploads no retained payload, and performs one queue
-submission. Base pool storage is `O(sum(Wd*Hd))`; effected depths add
+effect uniforms and allocates no effect resource. A depth-slot cache retains
+the completed output under the immutable scene hash, unique pop-command id,
+physical extent, and effect-texture generation. An exact hit skips the entire
+effect chain while preserving post-effect mask/composite ordering. Cache state
+is committed only after successful submission; layer/effect texture replacement
+invalidates it. The replay keeps a frame-local working key so two different
+sequential occurrences at one depth can never reuse an output that an earlier
+occurrence just overwrote. Because one completed output is retained per depth
+slot, scenes with multiple effected occurrences at the same depth remain
+correct but may deliberately recompute them rather than grow unbounded
+per-occurrence storage. Stable replay is O(B + L) CPU work plus retained bundle
+and composite GPU work on hits, allocates no new pool texture, uploads no
+retained payload, and performs one queue submission. A miss adds P compute
+passes. Base pool storage is `O(sum(Wd*Hd))`; effected depths add
 `O(3*sum(We*He))`, both over maximum physical extents retained per live depth
 rather than per layer occurrence.
+
+The Apple M3 Pro matched `960x540` blur/drop-shadow/rounded-mask benchmark used
+the same Release executable, alternating order, 120 warm-up frames, 300
+synchronized measured frames, and exact native/managed images. Before caching,
+three runs measured native p95 `3.1577`, `3.1831`, and `3.4205 ms` versus
+managed `1.6641`, `1.6814`, and `1.8721 ms`; native completion wait was
+`3.0251-3.0977 ms` because all five compute passes executed on every stable
+frame. After caching, native p95 measured `1.7662`, `1.7677`, and `1.7758 ms`
+versus managed `2.1326`, `1.8663`, and `1.9338 ms`; native completion wait was
+`1.5381-1.5455 ms`, with zero effect passes, zero managed allocations, and no
+stable upload. The maximum channel delta stayed `7/255`, only 64 of 518,400
+pixels exceeded 3, and mean absolute channel delta was `0.053851/255`.
+Matched post-change Time Profiler reported native/managed p95
+`1.6923/1.7790 ms`; Metal System Trace reported `1.8891/1.9691 ms`. The
+remaining `~1.5 ms` completion floor is shared GPU rendering/completion work,
+not native CPU submission overhead.
 
 The current d3b1 checkpoint crosses the public ABI once per frame and prepares
 changed path/glyph coverage in compute passes. Once every referenced GPU page

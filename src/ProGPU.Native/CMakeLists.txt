@@ -261,6 +261,8 @@ add_library(progpu_native SHARED
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
     src/progpu_native_semantic_budget.hpp
+    src/progpu_native_semantic_effect_cache.cpp
+    src/progpu_native_semantic_effect_cache.hpp
     src/progpu_native_semantic_state.cpp
     src/progpu_native_semantic_state.hpp
     src/progpu_native_semantic_validation.cpp
@@ -307,6 +309,8 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp
+        src/progpu_native_semantic_effect_cache.cpp
+        src/progpu_native_semantic_effect_cache.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp
@@ -429,6 +433,8 @@ if(BUILD_TESTING)
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp
+        src/progpu_native_semantic_effect_cache.cpp
+        src/progpu_native_semantic_effect_cache.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp

@@ -2411,8 +2411,8 @@ int main(int argc, char** argv) {
         engine,
         &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_layer_metrics.cache_hit == 1U &&
-        semantic_layer_metrics.effect_cache_hit == 0U &&
-        semantic_layer_metrics.effect_pass_count == 5U &&
+        semantic_layer_metrics.effect_cache_hit == 1U &&
+        semantic_layer_metrics.effect_pass_count == 0U &&
         semantic_layer_metrics.effect_allocation_count ==
             mask_effect_allocation_count &&
         semantic_layer_metrics.effect_texture_generation ==
@@ -2422,7 +2422,7 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.mask_uniform_upload_bytes == 0U &&
         semantic_layer_metrics.effect_uniform_upload_bytes == 0U &&
         semantic_layer_metrics.uniform_upload_bytes == 0U,
-        "stable semantic mask/effect metrics did not retain resources");
+        "stable semantic mask/effect output was not retained");
     std::uint64_t mask_effect_submission{};
     require(progpu_native_engine_get_last_submission(
         engine,

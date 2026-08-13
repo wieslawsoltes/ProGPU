@@ -18,9 +18,12 @@ main translation unit owns exported entry points and device lifetime;
 `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget
 accounting, `progpu_native_semantic_state.cpp` owns the allocation-free state
 and layer-target cursors, and `progpu_native_semantic_validation.cpp` owns
-bounded family-payload preflight. Both wgpu-native and Dawn targets compile the
-same private module set. The CPU-only modules are also compiled directly into
-focused internal tests so their behavior cannot depend on WebGPU startup.
+bounded family-payload preflight.
+`progpu_native_semantic_effect_cache.cpp` owns the backend-neutral retained
+effect-output identity and invalidation rules. Both wgpu-native and Dawn
+targets compile the same private module set. The CPU-only modules are also
+compiled directly into focused internal tests so their behavior cannot depend
+on WebGPU startup.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.
@@ -123,6 +126,18 @@ and frame metrics, requires zero stable vertex/index/texture/coverage upload,
 checks zero managed allocation after warm-up, and writes native, managed, and
 amplified-difference images. Use multiple alternating Release runs and the
 required platform profilers before making a performance claim from this mode.
+
+Add `--semantic-layer-effects` to wrap that mixed scene in a retained
+Gaussian-blur/drop-shadow chain and a post-effect rounded mask. Stable native
+replay keys the completed effect output by immutable scene hash, unique layer
+pop command, target extent, and effect-texture generation. It therefore emits
+zero effect compute passes until any of those inputs changes. On the Apple M3
+Pro reference machine, three alternating 300-frame synchronized Release runs
+measured native p95 `1.766-1.776 ms` versus managed `1.866-2.133 ms`; before
+retaining the output, native p95 was `3.158-3.421 ms`. The pixel differential
+remained a maximum `7/255`, with 64 of 518,400 pixels above a difference of 3.
+Matched Time Profiler and Metal System Trace captures live below
+`artifacts/performance/native-semantic-layer-effects/`.
 
 Semantic value preflight also enforces checked aggregate compilation budgets
 before creating an encoder: 16,384 draw passes, 256 MiB of expanded vertices,
