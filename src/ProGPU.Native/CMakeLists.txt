@@ -258,6 +258,12 @@ add_library(progpu_native SHARED
     src/progpu_native_effect_plan.cpp
     src/progpu_native_effect_plan.hpp
     src/progpu_native_geometry.hpp
+    src/progpu_native_geometry_analytic.hpp
+    src/progpu_native_geometry_base.hpp
+    src/progpu_native_geometry_dash.hpp
+    src/progpu_native_geometry_spline.hpp
+    src/progpu_native_geometry_stroke.hpp
+    src/progpu_native_gpu_records.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
     src/progpu_native_semantic_budget.hpp
@@ -306,6 +312,12 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
         src/progpu_native_geometry.hpp
+        src/progpu_native_geometry_analytic.hpp
+        src/progpu_native_geometry_base.hpp
+        src/progpu_native_geometry_dash.hpp
+        src/progpu_native_geometry_spline.hpp
+        src/progpu_native_geometry_stroke.hpp
+        src/progpu_native_gpu_records.hpp
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp
@@ -430,6 +442,12 @@ if(BUILD_TESTING)
         tests/progpu_native_internal_tests.cpp
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
+        src/progpu_native_geometry_analytic.hpp
+        src/progpu_native_geometry_base.hpp
+        src/progpu_native_geometry_dash.hpp
+        src/progpu_native_geometry_spline.hpp
+        src/progpu_native_geometry_stroke.hpp
+        src/progpu_native_gpu_records.hpp
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp

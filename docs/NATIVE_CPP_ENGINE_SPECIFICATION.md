@@ -193,6 +193,12 @@ live in `progpu_native_semantic_state.cpp`; analytic/path/glyph/image preflight
 and checked coverage sizing live in `progpu_native_semantic_validation.cpp`.
 Retained semantic effect-output keying and invalidation live in
 `progpu_native_semantic_effect_cache.cpp`.
+GPU-visible uniform/record layouts, bounded atlas keys, alignment, and
+subpixel-phase quantization live in `progpu_native_gpu_records.hpp`. The former
+monolithic geometry header is an include-only facade over independent base,
+stroke/cap/join, dash/polyline, rational-spline, and analytic modules. This
+split preserves the same inline algorithms and therefore changes neither
+geometry complexity nor the public C ABI.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally

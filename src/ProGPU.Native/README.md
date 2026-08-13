@@ -20,10 +20,15 @@ accounting, `progpu_native_semantic_state.cpp` owns the allocation-free state
 and layer-target cursors, and `progpu_native_semantic_validation.cpp` owns
 bounded family-payload preflight.
 `progpu_native_semantic_effect_cache.cpp` owns the backend-neutral retained
-effect-output identity and invalidation rules. Both wgpu-native and Dawn
-targets compile the same private module set. The CPU-only modules are also
-compiled directly into focused internal tests so their behavior cannot depend
-on WebGPU startup.
+effect-output identity and invalidation rules. GPU-visible record layouts,
+atlas keys, alignment, and subpixel phase math live in
+`progpu_native_gpu_records.hpp`. Geometry compilation is no longer one large
+header: `progpu_native_geometry_base.hpp` owns shared math and ABI assertions,
+while the stroke, dash/polyline, spline, and analytic headers own their
+respective algorithms. The four-line `progpu_native_geometry.hpp` remains the
+compatibility aggregator. Both wgpu-native and Dawn targets compile the same
+private module set. The CPU-only modules are also compiled directly into
+focused internal tests so their behavior cannot depend on WebGPU startup.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.

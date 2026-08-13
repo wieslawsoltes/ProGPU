@@ -1,4 +1,9 @@
 #include "progpu_native_effect_plan.hpp"
+#include "progpu_native_geometry_analytic.hpp"
+#include "progpu_native_geometry_dash.hpp"
+#include "progpu_native_geometry_spline.hpp"
+#include "progpu_native_geometry_stroke.hpp"
+#include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_state.hpp"
@@ -132,6 +137,28 @@ void semantic_effect_output_cache_requires_exact_retained_identity() {
     require(!semantic_output_cache_hit(cache, key));
     commit_semantic_output_cache(cache, {});
     require(!semantic_output_cache_hit(cache, {}));
+}
+
+void gpu_records_preserve_alignment_phase_and_cache_identity() {
+    using namespace progpu::native;
+    static_assert(sizeof(gpu_uniforms) == 224U);
+    static_assert(sizeof(gpu_path_record) == 32U);
+    static_assert(sizeof(gpu_glyph_instance) == 96U);
+    require(align_up(1U, 256U) == 256U);
+    require(align_up(256U, 256U) == 256U);
+    require(quantize_subpixel_phase(0.0F) == 0.0F);
+    require(quantize_subpixel_phase(1.0F) == 0.0F);
+    require(quantize_subpixel_phase(0.5F) == 0.5F);
+
+    const native_path_cache_key first{
+        1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U};
+    const native_path_cache_key same = first;
+    auto different = first;
+    different.subpixel_x = 12U;
+    native_path_cache_key_hash hash{};
+    require(first == same);
+    require(hash(first) == hash(same));
+    require(!(first == different));
 }
 
 void semantic_state_is_cpu_only_and_target_relative() {
@@ -270,6 +297,7 @@ int main() {
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
     semantic_effect_output_cache_requires_exact_retained_identity();
+    gpu_records_preserve_alignment_phase_and_cache_identity();
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
     semantic_payload_validation_is_bounded_and_cpu_only();
