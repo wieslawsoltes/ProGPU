@@ -15,4 +15,21 @@
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
   </ItemGroup>
+
+  <!-- Benchmark the exact locally built native renderer instead of a stale
+       package artifact left in the output directory by an earlier build. -->
+  <ItemGroup>
+    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.dylib"
+          Link="libprogpu_native.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.dylib')" />
+    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.so"
+          Link="libprogpu_native.so"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.so')" />
+    <None Include="..\..\artifacts\progpu-native\build\Release\progpu_native.dll"
+          Link="progpu_native.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\Release\progpu_native.dll')" />
+  </ItemGroup>
 </Project>

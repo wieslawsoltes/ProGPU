@@ -1000,6 +1000,39 @@ struct semantic_path_page {
     std::vector<semantic_path_draw> draws;
 };
 
+struct semantic_glyph_draw {
+    std::uint32_t first_instance = 0U;
+    std::uint32_t instance_count = 0U;
+};
+
+struct semantic_glyph_page {
+    std::uint64_t scene_hash = 0U;
+    float dpi_scale = 0.0F;
+    bool cache_valid = false;
+    std::vector<progpu_native_glyph_outline> outlines;
+    std::vector<progpu_native_path_segment> segments;
+    std::vector<progpu_native_positioned_glyph> glyphs;
+    std::vector<semantic_glyph_draw> draws;
+};
+
+struct semantic_image_draw {
+    WGPUTexture texture = nullptr;
+    WGPUTextureView view = nullptr;
+    WGPUBindGroup nearest_bind_group = nullptr;
+    WGPUBindGroup linear_bind_group = nullptr;
+    std::uint32_t first_vertex = 0U;
+    std::uint32_t sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+};
+
+struct semantic_image_page {
+    WGPUBuffer vertex_buffer = nullptr;
+    std::uint64_t vertex_bytes = 0U;
+    std::uint64_t scene_hash = 0U;
+    float dpi_scale = 0.0F;
+    bool cache_valid = false;
+    std::vector<semantic_image_draw> draws;
+};
+
 struct progpu_native_engine {
     std::thread::id owner_thread;
     progpu::native::webgpu::dispatch webgpu_dispatch{};
@@ -1300,12 +1333,19 @@ struct progpu_native_engine {
     progpu_native_scene_metrics semantic_scene_metrics{};
     semantic_analytic_page semantic_analytic_cache;
     semantic_path_page semantic_path_cache;
+    semantic_glyph_page semantic_glyph_cache;
+    semantic_image_page semantic_image_cache;
     WGPUCommandEncoder semantic_encoder = nullptr;
     bool semantic_load_target = false;
+    bool semantic_prepare_only = false;
     bool semantic_path_draw_active = false;
     std::uint32_t semantic_path_first_index = 0U;
     std::uint32_t semantic_path_index_count = 0U;
     std::uint64_t semantic_path_gpu_scene_hash = 0U;
+    bool semantic_glyph_draw_active = false;
+    std::uint32_t semantic_glyph_first_instance = 0U;
+    std::uint32_t semantic_glyph_instance_count = 0U;
+    std::uint64_t semantic_glyph_gpu_scene_hash = 0U;
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
@@ -1588,6 +1628,35 @@ struct progpu_native_engine {
         page.draws.clear();
     }
 
+    void release_semantic_image_page() noexcept {
+        auto& page = semantic_image_cache;
+        for (auto& draw : page.draws) {
+            if (draw.linear_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.linear_bind_group);
+            }
+            if (draw.nearest_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.nearest_bind_group);
+            }
+            if (draw.view != nullptr) {
+                wgpuTextureViewRelease(draw.view);
+            }
+            if (draw.texture != nullptr) {
+                wgpuTextureDestroy(draw.texture);
+                wgpuTextureRelease(draw.texture);
+            }
+        }
+        page.draws.clear();
+        if (page.vertex_buffer != nullptr) {
+            wgpuBufferDestroy(page.vertex_buffer);
+            wgpuBufferRelease(page.vertex_buffer);
+            page.vertex_buffer = nullptr;
+        }
+        page.vertex_bytes = 0U;
+        page.scene_hash = 0U;
+        page.dpi_scale = 0.0F;
+        page.cache_valid = false;
+    }
+
     bool ensure_semantic_analytic_page_buffers(
         std::uint64_t required_vertex_bytes,
         std::uint64_t required_index_bytes) noexcept {
@@ -1679,6 +1748,7 @@ struct progpu_native_engine {
             wgpuCommandEncoderRelease(semantic_encoder);
             semantic_encoder = nullptr;
         }
+        release_semantic_image_page();
         release_semantic_analytic_page();
         release_effect_resources();
         release_clip_resources();
@@ -7357,13 +7427,11 @@ void clear_metrics(progpu_native_image_frame_metrics* metrics) noexcept {
 
 progpu_native_status encode_semantic_analytic_draw(
     progpu_native_engine& engine,
-    const progpu_native_scene_frame& frame,
-    const semantic_analytic_draw& draw,
-    bool load_target,
-    bool& uploaded_uniforms) {
+    WGPURenderPassEncoder pass,
+    const semantic_analytic_draw& draw) {
     auto& page = engine.semantic_analytic_cache;
     if (!page.cache_valid || page.vertex_buffer == nullptr ||
-        page.index_buffer == nullptr || engine.semantic_encoder == nullptr ||
+        page.index_buffer == nullptr || pass == nullptr ||
         draw.vertex_count == 0U || draw.index_count == 0U ||
         draw.vertex_offset_bytes >= page.vertex_bytes ||
         draw.index_offset_bytes >= page.index_bytes ||
@@ -7382,43 +7450,6 @@ progpu_native_status encode_semantic_analytic_draw(
         return engine.fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic analytic WebGPU pipeline could not be created.");
-    }
-
-    const gpu_uniforms uniforms = create_uniforms(
-        frame.width,
-        frame.height,
-        frame.dpi_scale);
-    uploaded_uniforms = engine.upload_uniform_if_changed(
-        engine.analytic_uniform_buffer,
-        uniforms,
-        engine.cached_analytic_uniforms,
-        engine.analytic_uniform_cache_valid);
-
-    WGPURenderPassColorAttachment color_attachment{};
-    progpu::native::webgpu::initialize_color_attachment(color_attachment);
-    color_attachment.view = reinterpret_cast<WGPUTextureView>(
-        frame.target_view);
-    color_attachment.loadOp = load_target
-        ? WGPULoadOp_Load
-        : WGPULoadOp_Clear;
-    color_attachment.storeOp = WGPUStoreOp_Store;
-    color_attachment.clearValue = WGPUColor{
-        frame.clear_color.r,
-        frame.clear_color.g,
-        frame.clear_color.b,
-        frame.clear_color.a};
-    WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU semantic analytic packed-page pass");
-    pass_descriptor.colorAttachmentCount = 1U;
-    pass_descriptor.colorAttachments = &color_attachment;
-    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(
-        engine.semantic_encoder,
-        &pass_descriptor);
-    if (pass == nullptr) {
-        return engine.fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The semantic analytic render pass could not be created.");
     }
 
     wgpuRenderPassEncoderSetPipeline(pass, engine.analytic_pipeline);
@@ -7454,8 +7485,120 @@ progpu_native_status encode_semantic_analytic_draw(
             draw.index_offset_bytes / sizeof(std::uint32_t)),
         0,
         0U);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status encode_semantic_path_draw(
+    progpu_native_engine& engine,
+    WGPURenderPassEncoder pass,
+    const semantic_path_draw& draw) {
+    const std::uint64_t vertex_bytes = engine.path_vertices.size() *
+        sizeof(progpu::native::vector_vertex);
+    const std::uint64_t index_bytes = engine.path_indices.size() *
+        sizeof(std::uint32_t);
+    if (!engine.semantic_path_cache.cache_valid ||
+        !engine.path_cache_valid || !engine.path_gpu_cache_valid ||
+        engine.path_vertex_buffer == nullptr ||
+        engine.path_index_buffer == nullptr ||
+        engine.path_atlas_bind_group == nullptr ||
+        pass == nullptr || draw.index_count == 0U ||
+        draw.first_index > engine.path_indices.size() ||
+        draw.index_count >
+            engine.path_indices.size() - draw.first_index) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic path packed page is incomplete.");
+    }
+    wgpuRenderPassEncoderSetPipeline(pass, engine.analytic_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 0U, engine.analytic_uniform_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 1U, engine.path_atlas_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass, 0U, engine.path_vertex_buffer, 0U, vertex_bytes);
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        engine.path_index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        index_bytes);
+    wgpuRenderPassEncoderDrawIndexed(
+        pass, draw.index_count, 1U, draw.first_index, 0, 0U);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status encode_semantic_glyph_draw(
+    progpu_native_engine& engine,
+    WGPURenderPassEncoder pass,
+    const semantic_glyph_draw& draw) {
+    const std::uint64_t instance_bytes = engine.glyph_instances.size() *
+        sizeof(gpu_glyph_instance);
+    if (!engine.semantic_glyph_cache.cache_valid ||
+        !engine.glyph_cache_valid || !engine.glyph_gpu_cache_valid ||
+        engine.text_vertex_buffer == nullptr ||
+        engine.text_atlas_bind_group == nullptr ||
+        pass == nullptr || draw.instance_count == 0U ||
+        draw.first_instance > engine.glyph_instances.size() ||
+        draw.instance_count >
+            engine.glyph_instances.size() - draw.first_instance) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic glyph packed page is incomplete.");
+    }
+    wgpuRenderPassEncoderSetPipeline(pass, engine.text_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 0U, engine.text_uniform_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 1U, engine.text_atlas_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass, 0U, engine.text_vertex_buffer, 0U, instance_bytes);
+    wgpuRenderPassEncoderDraw(
+        pass, 6U, draw.instance_count, 0U, draw.first_instance);
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status encode_semantic_image_draw(
+    progpu_native_engine& engine,
+    WGPURenderPassEncoder pass,
+    const semantic_image_draw& draw) {
+    auto& page = engine.semantic_image_cache;
+    WGPUBindGroup texture_group =
+        draw.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+        ? draw.nearest_bind_group
+        : draw.linear_bind_group;
+    if (!page.cache_valid || page.vertex_buffer == nullptr ||
+        page.vertex_bytes == 0U || texture_group == nullptr ||
+        engine.image_index_buffer == nullptr ||
+        pass == nullptr ||
+        draw.first_vertex >
+            std::numeric_limits<std::uint32_t>::max() - 4U ||
+        static_cast<std::uint64_t>(draw.first_vertex + 4U) *
+                sizeof(progpu::native::vector_vertex) >
+            page.vertex_bytes) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic image packed page is incomplete.");
+    }
+    wgpuRenderPassEncoderSetPipeline(pass, engine.image_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 0U, engine.image_uniform_bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass, 1U, texture_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass, 0U, page.vertex_buffer, 0U, page.vertex_bytes);
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        engine.image_index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        6U * sizeof(std::uint32_t));
+    wgpuRenderPassEncoderDrawIndexed(
+        pass,
+        6U,
+        1U,
+        0U,
+        static_cast<std::int32_t>(draw.first_vertex),
+        0U);
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
@@ -9637,6 +9780,15 @@ progpu_native_status progpu_native_engine_render_paths(
         }
     }
 
+    const std::uint32_t selected_first_index =
+        engine->semantic_path_draw_active
+        ? engine->semantic_path_first_index
+        : 0U;
+    const std::uint32_t selected_index_count =
+        engine->semantic_path_draw_active
+        ? engine->semantic_path_index_count
+        : static_cast<std::uint32_t>(engine->path_indices.size());
+    if (!engine->semantic_prepare_only) {
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = use_group_layer
@@ -9669,14 +9821,6 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path render pass could not be created.");
     }
-    const std::uint32_t selected_first_index =
-        engine->semantic_path_draw_active
-        ? engine->semantic_path_first_index
-        : 0U;
-    const std::uint32_t selected_index_count =
-        engine->semantic_path_draw_active
-        ? engine->semantic_path_index_count
-        : static_cast<std::uint32_t>(engine->path_indices.size());
     if (selected_first_index > engine->path_indices.size() ||
         selected_index_count >
             engine->path_indices.size() - selected_first_index) {
@@ -9761,6 +9905,7 @@ progpu_native_status progpu_native_engine_render_paths(
             frame->dpi_scale,
             draw_state);
     }
+    }
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -9781,7 +9926,8 @@ progpu_native_status progpu_native_engine_render_paths(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_path_frame_metrics)) {
-        metrics->draw_call_count = selected_index_count == 0U ||
+        metrics->draw_call_count = engine->semantic_prepare_only ||
+            selected_index_count == 0U ||
             draw_state.opacity == 0.0F ||
             (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
@@ -9856,6 +10002,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
         return engine->fail(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
+    }
+    if (!engine->semantic_glyph_draw_active) {
+        engine->semantic_glyph_gpu_scene_hash = 0U;
     }
     reset_layer_metrics(*engine);
     if (frame->outline_count > (1U << 20U) ||
@@ -10396,6 +10545,15 @@ progpu_native_status progpu_native_engine_render_glyphs(
         }
     }
 
+    const std::uint32_t selected_first_instance =
+        engine->semantic_glyph_draw_active
+        ? engine->semantic_glyph_first_instance
+        : 0U;
+    const std::uint32_t selected_instance_count =
+        engine->semantic_glyph_draw_active
+        ? engine->semantic_glyph_instance_count
+        : static_cast<std::uint32_t>(engine->glyph_instances.size());
+    if (!engine->semantic_prepare_only) {
     WGPURenderPassColorAttachment color_attachment{};
     progpu::native::webgpu::initialize_color_attachment(color_attachment);
     color_attachment.view = use_group_layer
@@ -10428,7 +10586,19 @@ progpu_native_status progpu_native_engine_render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph render pass could not be created.");
     }
-    if (!engine->glyph_instances.empty() && draw_state.opacity != 0.0F &&
+    if (selected_first_instance > engine->glyph_instances.size() ||
+        selected_instance_count >
+            engine->glyph_instances.size() - selected_first_instance) {
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic glyph packed-page draw range is invalid.");
+    }
+    if (selected_instance_count != 0U && draw_state.opacity != 0.0F &&
         (use_group_layer || draw_state.has_drawable_clip)) {
         if (!use_group_layer) {
             apply_scissor(pass, draw_state);
@@ -10447,9 +10617,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
         wgpuRenderPassEncoderDraw(
             pass,
             6U,
-            static_cast<std::uint32_t>(engine->glyph_instances.size()),
+            selected_instance_count,
             0U,
-            0U);
+            selected_first_instance);
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
@@ -10496,6 +10666,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
             frame->dpi_scale,
             draw_state);
     }
+    }
 
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -10510,13 +10681,13 @@ progpu_native_status progpu_native_engine_render_glyphs(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_glyph_frame_metrics)) {
-        metrics->draw_call_count = engine->glyph_instances.empty() ||
+        metrics->draw_call_count = engine->semantic_prepare_only ||
+            selected_instance_count == 0U ||
             draw_state.opacity == 0.0F ||
             (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
             : 1U;
-        metrics->glyph_count = static_cast<std::uint32_t>(
-            engine->glyph_instances.size());
+        metrics->glyph_count = selected_instance_count;
         metrics->rasterized_glyph_count = rasterized_glyph_count;
         metrics->atlas_width = engine->glyph_atlas_size;
         metrics->atlas_height = engine->glyph_atlas_size;
@@ -11010,25 +11181,6 @@ progpu_native_status progpu_native_engine_render_scene(
             value ^ (value >> 32U));
         return result == 0U ? 1U : result;
     };
-    const auto command_revision = [&](const progpu_native_scene_command& command,
-                                      const progpu_native_scene_resource& resource) noexcept {
-        std::uint64_t hash = 14695981039346656037ULL;
-        hash = append_fnv1a64(
-            hash, &header.scene_id, sizeof(header.scene_id));
-        hash = append_fnv1a64(
-            hash, &header.generation, sizeof(header.generation));
-        hash = append_fnv1a64(
-            hash, &resource.resource_id, sizeof(resource.resource_id));
-        hash = append_fnv1a64(
-            hash, &resource.generation, sizeof(resource.generation));
-        hash = append_fnv1a64(
-            hash, &command.kind, sizeof(command.kind));
-        hash = append_fnv1a64(
-            hash,
-            bytes + command.payload_offset,
-            command.payload_size);
-        return revision32(hash);
-    };
     const auto span_is_multiple = [](std::uint32_t size,
                                      std::size_t stride) noexcept {
         return stride != 0U && size != 0U && size % stride == 0U;
@@ -11038,10 +11190,15 @@ progpu_native_status progpu_native_engine_render_scene(
     std::uint32_t semantic_draw_count = 0U;
     std::uint32_t semantic_analytic_draw_count = 0U;
     std::uint32_t semantic_path_draw_count = 0U;
+    std::uint32_t semantic_glyph_draw_count = 0U;
+    std::uint32_t semantic_image_draw_count = 0U;
     std::uint64_t semantic_analytic_vertex_bytes = 0U;
     std::uint64_t semantic_analytic_index_bytes = 0U;
     std::uint64_t semantic_path_count = 0U;
     std::uint64_t semantic_path_segment_count = 0U;
+    std::uint64_t semantic_glyph_outline_count = 0U;
+    std::uint64_t semantic_glyph_segment_count = 0U;
+    std::uint64_t semantic_glyph_count = 0U;
     semantic_compilation_budget compilation_budget{};
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
@@ -11277,6 +11434,17 @@ progpu_native_status progpu_native_engine_render_scene(
                 sizeof(progpu_native_scene_path_fill);
             semantic_path_segment_count += resource.auxiliary_size /
                 sizeof(progpu_native_path_segment);
+        } else if (command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            ++semantic_glyph_draw_count;
+            semantic_glyph_outline_count += resource.payload_size /
+                sizeof(progpu_native_scene_glyph_outline);
+            semantic_glyph_segment_count += resource.auxiliary_size /
+                sizeof(progpu_native_path_segment);
+            semantic_glyph_count += command.payload_size /
+                sizeof(progpu_native_positioned_glyph);
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            ++semantic_image_draw_count;
         }
         ++semantic_draw_count;
     }
@@ -11288,6 +11456,15 @@ progpu_native_status progpu_native_engine_render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The aggregate semantic path page exceeds the native safety bound.");
+    }
+    if (semantic_glyph_outline_count > (1U << 20U) ||
+        semantic_glyph_segment_count > (1U << 24U) ||
+        semantic_glyph_count > (1U << 24U) ||
+        semantic_glyph_count >
+            std::numeric_limits<std::uint32_t>::max()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The aggregate semantic glyph page exceeds the native safety bound.");
     }
 
     std::uint64_t semantic_analytic_vertex_upload_bytes = 0U;
@@ -11501,22 +11678,354 @@ progpu_native_status progpu_native_engine_render_scene(
         engine->path_gpu_cache_valid = false;
     }
 
+    auto& semantic_glyph_page = engine->semantic_glyph_cache;
+    const bool semantic_glyph_page_hit =
+        semantic_glyph_draw_count != 0U &&
+        semantic_glyph_page.cache_valid &&
+        semantic_glyph_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_glyph_page.dpi_scale == frame->dpi_scale &&
+        semantic_glyph_page.draws.size() == semantic_glyph_draw_count;
+    if (semantic_glyph_draw_count != 0U && !semantic_glyph_page_hit) {
+        std::vector<progpu_native_glyph_outline> compiled_outlines;
+        std::vector<progpu_native_path_segment> compiled_segments;
+        std::vector<progpu_native_positioned_glyph> compiled_glyphs;
+        std::vector<semantic_glyph_draw> compiled_draws;
+        try {
+            compiled_outlines.reserve(
+                static_cast<std::size_t>(semantic_glyph_outline_count));
+            compiled_segments.reserve(
+                static_cast<std::size_t>(semantic_glyph_segment_count));
+            compiled_glyphs.reserve(
+                static_cast<std::size_t>(semantic_glyph_count));
+            compiled_draws.reserve(semantic_glyph_draw_count);
+            for (std::uint32_t index = 0U;
+                 index < header.command_count;
+                 ++index) {
+                const auto command = read_command(index);
+                if (command.kind !=
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                    continue;
+                }
+                const auto resource = read_resource(command.resource_index);
+                const std::size_t outline_start = compiled_outlines.size();
+                const std::size_t segment_start = compiled_segments.size();
+                const std::size_t glyph_start = compiled_glyphs.size();
+                const std::size_t outline_count = resource.payload_size /
+                    sizeof(progpu_native_scene_glyph_outline);
+                const std::size_t segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                const std::size_t glyph_count = command.payload_size /
+                    sizeof(progpu_native_positioned_glyph);
+                const auto* source_segments = reinterpret_cast<
+                    const progpu_native_path_segment*>(
+                        bytes + resource.auxiliary_offset);
+                compiled_segments.insert(
+                    compiled_segments.end(),
+                    source_segments,
+                    source_segments + segment_count);
+                for (std::size_t outline_index = 0U;
+                     outline_index < outline_count;
+                     ++outline_index) {
+                    progpu_native_glyph_outline outline{};
+                    std::memcpy(
+                        &outline,
+                        bytes + resource.payload_offset +
+                            outline_index *
+                                sizeof(progpu_native_scene_glyph_outline),
+                        sizeof(outline));
+                    outline.segment_offset += segment_start;
+                    compiled_outlines.push_back(outline);
+                }
+                for (std::size_t glyph_index = 0U;
+                     glyph_index < glyph_count;
+                     ++glyph_index) {
+                    progpu_native_positioned_glyph glyph{};
+                    std::memcpy(
+                        &glyph,
+                        bytes + command.payload_offset +
+                            glyph_index * sizeof(glyph),
+                        sizeof(glyph));
+                    glyph.outline_index += static_cast<std::uint32_t>(
+                        outline_start);
+                    compiled_glyphs.push_back(glyph);
+                }
+                compiled_draws.push_back({
+                    static_cast<std::uint32_t>(glyph_start),
+                    static_cast<std::uint32_t>(glyph_count)});
+            }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic glyph packed page could not be compiled.");
+        }
+        if (compiled_outlines.size() != semantic_glyph_outline_count ||
+            compiled_segments.size() != semantic_glyph_segment_count ||
+            compiled_glyphs.size() != semantic_glyph_count ||
+            compiled_draws.size() != semantic_glyph_draw_count) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic glyph packed-page budget did not match compilation.");
+        }
+        semantic_glyph_page.outlines = std::move(compiled_outlines);
+        semantic_glyph_page.segments = std::move(compiled_segments);
+        semantic_glyph_page.glyphs = std::move(compiled_glyphs);
+        semantic_glyph_page.draws = std::move(compiled_draws);
+        semantic_glyph_page.scene_hash = engine->semantic_scene_hash;
+        semantic_glyph_page.dpi_scale = frame->dpi_scale;
+        semantic_glyph_page.cache_valid = true;
+        engine->semantic_glyph_gpu_scene_hash = 0U;
+    }
+
+    if (semantic_glyph_draw_count != 0U &&
+        engine->semantic_glyph_gpu_scene_hash !=
+            engine->semantic_scene_hash) {
+        engine->glyph_cache_valid = false;
+        engine->glyph_gpu_cache_valid = false;
+    }
+
+    std::uint64_t semantic_image_vertex_upload_bytes = 0U;
+    std::uint64_t semantic_image_index_upload_bytes = 0U;
+    std::uint64_t semantic_image_texture_upload_bytes = 0U;
+    auto& semantic_image_page = engine->semantic_image_cache;
+    const bool semantic_image_page_hit =
+        semantic_image_draw_count != 0U &&
+        semantic_image_page.cache_valid &&
+        semantic_image_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_image_page.dpi_scale == frame->dpi_scale &&
+        semantic_image_page.draws.size() == semantic_image_draw_count;
+    if (semantic_image_draw_count != 0U && !semantic_image_page_hit) {
+        const bool created_resources = engine->image_pipeline == nullptr;
+        if (!create_image_resources(*engine)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic image WebGPU resources could not be created.");
+        }
+        std::vector<progpu::native::vector_vertex> vertices;
+        std::vector<semantic_image_draw> compiled_draws;
+        WGPUBuffer compiled_vertex_buffer = nullptr;
+        const auto release_compiled = [&]() noexcept {
+            for (auto& draw : compiled_draws) {
+                if (draw.linear_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.linear_bind_group);
+                }
+                if (draw.nearest_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.nearest_bind_group);
+                }
+                if (draw.view != nullptr) {
+                    wgpuTextureViewRelease(draw.view);
+                }
+                if (draw.texture != nullptr) {
+                    wgpuTextureDestroy(draw.texture);
+                    wgpuTextureRelease(draw.texture);
+                }
+            }
+            compiled_draws.clear();
+            if (compiled_vertex_buffer != nullptr) {
+                wgpuBufferDestroy(compiled_vertex_buffer);
+                wgpuBufferRelease(compiled_vertex_buffer);
+                compiled_vertex_buffer = nullptr;
+            }
+        };
+        try {
+            vertices.reserve(
+                static_cast<std::size_t>(semantic_image_draw_count) * 4U);
+            compiled_draws.reserve(semantic_image_draw_count);
+            for (std::uint32_t index = 0U;
+                 index < header.command_count;
+                 ++index) {
+                const auto command = read_command(index);
+                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                    continue;
+                }
+                const auto resource = read_resource(command.resource_index);
+                progpu_native_scene_image_draw image{};
+                std::memcpy(
+                    &image,
+                    bytes + command.payload_offset,
+                    sizeof(image));
+                const std::uint32_t first_vertex =
+                    static_cast<std::uint32_t>(vertices.size());
+                const float x0 = image.destination_rect.x;
+                const float y0 = image.destination_rect.y;
+                const float x1 = x0 + image.destination_rect.width;
+                const float y1 = y0 + image.destination_rect.height;
+                const float u0 = image.source_rect.x /
+                    static_cast<float>(image.image_width);
+                const float v0 = image.source_rect.y /
+                    static_cast<float>(image.image_height);
+                const float u1 = (image.source_rect.x +
+                    image.source_rect.width) /
+                    static_cast<float>(image.image_width);
+                const float v1 = (image.source_rect.y +
+                    image.source_rect.height) /
+                    static_cast<float>(image.image_height);
+                constexpr std::array<
+                    std::array<std::uint32_t, 2U>, 4U> corners{{
+                    {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+                }};
+                for (const auto& corner : corners) {
+                    const float x = corner[0] == 0U ? x0 : x1;
+                    const float y = corner[1] == 0U ? y0 : y1;
+                    progpu::native::vector_vertex vertex{};
+                    progpu::native::transform_point(
+                        image.transform,
+                        x,
+                        y,
+                        vertex.position[0],
+                        vertex.position[1]);
+                    vertex.color[0] = 1.0F;
+                    vertex.color[1] = 0.0F;
+                    vertex.color[2] = 1.0F;
+                    vertex.color[3] = image.opacity;
+                    vertex.texture_coordinate[0] =
+                        corner[0] == 0U ? u0 : u1;
+                    vertex.texture_coordinate[1] =
+                        corner[1] == 0U ? v0 : v1;
+                    vertex.brush_index = 0.0F;
+                    vertex.shape_size[0] = 0.0F;
+                    vertex.shape_size[1] = 0.5F;
+                    vertex.corner_radius = 0.0F;
+                    vertex.stroke_thickness = 1.0F;
+                    vertex.shape_type = 0.0F;
+                    vertices.push_back(vertex);
+                }
+
+                WGPUTextureDescriptor texture_descriptor{};
+                texture_descriptor.label =
+                    progpu::native::webgpu::string_view(
+                        "ProGPU semantic retained RGBA image");
+                texture_descriptor.usage = WGPUTextureUsage_TextureBinding |
+                    WGPUTextureUsage_CopyDst;
+                texture_descriptor.dimension = WGPUTextureDimension_2D;
+                texture_descriptor.size = {
+                    image.image_width, image.image_height, 1U};
+                texture_descriptor.format = WGPUTextureFormat_RGBA8Unorm;
+                texture_descriptor.mipLevelCount = 1U;
+                texture_descriptor.sampleCount = 1U;
+                semantic_image_draw draw{};
+                draw.first_vertex = first_vertex;
+                draw.sampling = image.sampling;
+                draw.texture = wgpuDeviceCreateTexture(
+                    engine->device,
+                    &texture_descriptor);
+                if (draw.texture != nullptr) {
+                    draw.view = wgpuTextureCreateView(draw.texture, nullptr);
+                }
+                if (draw.view != nullptr) {
+                    draw.nearest_bind_group = create_image_texture_bind_group(
+                        *engine,
+                        engine->image_nearest_sampler,
+                        draw.view,
+                        "ProGPU semantic nearest image bind group");
+                    draw.linear_bind_group = create_image_texture_bind_group(
+                        *engine,
+                        engine->image_linear_sampler,
+                        draw.view,
+                        "ProGPU semantic linear image bind group");
+                }
+                compiled_draws.push_back(draw);
+                auto& retained_draw = compiled_draws.back();
+                if (retained_draw.texture == nullptr ||
+                    retained_draw.view == nullptr ||
+                    retained_draw.nearest_bind_group == nullptr ||
+                    retained_draw.linear_bind_group == nullptr) {
+                    release_compiled();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "A semantic image page texture could not be allocated.");
+                }
+                progpu::native::webgpu::image_copy_texture destination{};
+                destination.texture = retained_draw.texture;
+                destination.aspect = WGPUTextureAspect_All;
+                progpu::native::webgpu::texture_data_layout layout{};
+                layout.bytesPerRow = image.row_bytes;
+                layout.rowsPerImage = image.image_height;
+                const std::uint64_t upload_bytes =
+                    static_cast<std::uint64_t>(image.row_bytes) *
+                        (image.image_height - 1U) +
+                    static_cast<std::uint64_t>(image.image_width) * 4U;
+                const WGPUExtent3D extent{
+                    image.image_width, image.image_height, 1U};
+                wgpuQueueWriteTexture(
+                    engine->queue,
+                    &destination,
+                    bytes + resource.payload_offset,
+                    static_cast<std::size_t>(upload_bytes),
+                    &layout,
+                    &extent);
+                semantic_image_texture_upload_bytes += upload_bytes;
+            }
+        } catch (const std::bad_alloc&) {
+            release_compiled();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic image packed page could not be compiled.");
+        }
+        const std::uint64_t vertex_bytes = vertices.size() *
+            sizeof(progpu::native::vector_vertex);
+        if (compiled_draws.size() != semantic_image_draw_count ||
+            vertex_bytes != static_cast<std::uint64_t>(
+                semantic_image_draw_count) * 4U *
+                    sizeof(progpu::native::vector_vertex)) {
+            release_compiled();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic image packed-page budget did not match compilation.");
+        }
+        WGPUBufferDescriptor vertex_descriptor{};
+        vertex_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU semantic image packed vertex page");
+        vertex_descriptor.usage =
+            WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        vertex_descriptor.size = vertex_bytes;
+        compiled_vertex_buffer = wgpuDeviceCreateBuffer(
+            engine->device,
+            &vertex_descriptor);
+        if (compiled_vertex_buffer == nullptr) {
+            release_compiled();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic image packed vertex page could not be allocated.");
+        }
+        wgpuQueueWriteBuffer(
+            engine->queue,
+            compiled_vertex_buffer,
+            0U,
+            vertices.data(),
+            static_cast<std::size_t>(vertex_bytes));
+        engine->release_semantic_image_page();
+        semantic_image_page.vertex_buffer = compiled_vertex_buffer;
+        compiled_vertex_buffer = nullptr;
+        semantic_image_page.vertex_bytes = vertex_bytes;
+        semantic_image_page.draws = std::move(compiled_draws);
+        semantic_image_page.scene_hash = engine->semantic_scene_hash;
+        semantic_image_page.dpi_scale = frame->dpi_scale;
+        semantic_image_page.cache_valid = true;
+        semantic_image_vertex_upload_bytes = vertex_bytes;
+        semantic_image_index_upload_bytes = created_resources
+            ? 6U * sizeof(std::uint32_t)
+            : 0U;
+    }
+
     const std::uint64_t submission_start = engine->submission_count;
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
     std::uint32_t previous_family = 0U;
     std::uint64_t vertex_upload_bytes =
-        semantic_analytic_vertex_upload_bytes;
+        semantic_analytic_vertex_upload_bytes +
+        semantic_image_vertex_upload_bytes;
     std::uint64_t index_upload_bytes =
-        semantic_analytic_index_upload_bytes;
-    std::uint64_t texture_upload_bytes = 0U;
+        semantic_analytic_index_upload_bytes +
+        semantic_image_index_upload_bytes;
+    std::uint64_t texture_upload_bytes =
+        semantic_image_texture_upload_bytes;
     std::uint64_t uniform_upload_bytes = 0U;
     std::uint64_t coverage_staging_bytes = 0U;
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
-    bool target_has_content = false;
     std::uint32_t semantic_analytic_draw_index = 0U;
     std::uint32_t semantic_path_draw_index = 0U;
-    std::array<std::uint32_t, 4U> encoded_buffer_revisions{};
+    std::uint32_t semantic_glyph_draw_index = 0U;
+    std::uint32_t semantic_image_draw_index = 0U;
 
     const auto discard_encoder = [&]() noexcept {
         if (engine->semantic_encoder != nullptr) {
@@ -11556,22 +12065,214 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         engine->submit(command);
         wgpuCommandBufferRelease(command);
-        encoded_buffer_revisions.fill(0U);
         return PROGPU_NATIVE_STATUS_SUCCESS;
     };
 
-    const auto prepare_family = [&](std::uint32_t family) noexcept {
+    const auto note_family = [&](std::uint32_t family) noexcept {
         if (family != previous_family) {
             ++family_switches;
             previous_family = family;
         }
-        engine->semantic_load_target = target_has_content;
     };
-    const auto finish_family = [&](progpu_native_status status) noexcept {
+    const auto reset_semantic_prepare_state = [&]() noexcept {
+        engine->semantic_prepare_only = false;
         engine->semantic_load_target = false;
-        if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
-            target_has_content = true;
+        engine->semantic_path_draw_active = false;
+        engine->semantic_path_first_index = 0U;
+        engine->semantic_path_index_count = 0U;
+        engine->semantic_glyph_draw_active = false;
+        engine->semantic_glyph_first_instance = 0U;
+        engine->semantic_glyph_instance_count = 0U;
+    };
+
+    if (semantic_draw_count != 0U && !begin_encoder()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic scene command encoder could not be created.");
+    }
+
+    if (semantic_path_draw_count != 0U &&
+        (engine->semantic_path_gpu_scene_hash !=
+                engine->semantic_scene_hash ||
+            !engine->path_cache_valid ||
+            !engine->path_gpu_cache_valid)) {
+        progpu_native_path_frame family{};
+        family.struct_size = sizeof(family);
+        family.width = frame->width;
+        family.height = frame->height;
+        family.dpi_scale = frame->dpi_scale;
+        family.target_view = frame->target_view;
+        family.clear_color = frame->clear_color;
+        static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
+        static_assert(sizeof(progpu_native_scene_path_fill) ==
+            sizeof(progpu_native_path_fill));
+        static_assert(offsetof(
+            progpu_native_scene_path_fill,
+            segment_offset) == offsetof(
+            progpu_native_path_fill,
+            segment_offset));
+        static_assert(offsetof(
+            progpu_native_scene_path_fill,
+            fill_rule) == offsetof(
+            progpu_native_path_fill,
+            fill_rule));
+        family.paths = semantic_path_page.paths.data();
+        family.path_count = semantic_path_page.paths.size();
+        family.segments = semantic_path_page.segments.data();
+        family.segment_count = semantic_path_page.segments.size();
+        family.flags =
+            PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
+        family.content_revision = revision32(engine->semantic_scene_hash);
+        progpu_native_path_frame_metrics family_metrics{};
+        family_metrics.struct_size = sizeof(family_metrics);
+        engine->semantic_prepare_only = true;
+        engine->semantic_path_draw_active = true;
+        engine->semantic_path_first_index =
+            semantic_path_page.draws.front().first_index;
+        engine->semantic_path_index_count =
+            semantic_path_page.draws.front().index_count;
+        const auto status = progpu_native_engine_render_paths(
+            engine, &family, &family_metrics);
+        reset_semantic_prepare_state();
+        vertex_upload_bytes += family_metrics.vertex_upload_bytes;
+        index_upload_bytes += family_metrics.index_upload_bytes;
+        uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+        coverage_staging_bytes += family_metrics.coverage_staging_bytes;
+        if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            discard_encoder();
+            return status;
         }
+        engine->semantic_path_gpu_scene_hash = engine->semantic_scene_hash;
+    }
+
+    if (semantic_glyph_draw_count != 0U &&
+        (engine->semantic_glyph_gpu_scene_hash !=
+                engine->semantic_scene_hash ||
+            !engine->glyph_cache_valid ||
+            !engine->glyph_gpu_cache_valid)) {
+        progpu_native_glyph_frame family{};
+        family.struct_size = sizeof(family);
+        family.width = frame->width;
+        family.height = frame->height;
+        family.dpi_scale = frame->dpi_scale;
+        family.target_view = frame->target_view;
+        family.clear_color = frame->clear_color;
+        static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
+        static_assert(sizeof(progpu_native_scene_glyph_outline) ==
+            sizeof(progpu_native_glyph_outline));
+        static_assert(offsetof(
+            progpu_native_scene_glyph_outline,
+            segment_offset) == offsetof(
+            progpu_native_glyph_outline,
+            segment_offset));
+        static_assert(offsetof(
+            progpu_native_scene_glyph_outline,
+            raster_scale) == offsetof(
+            progpu_native_glyph_outline,
+            raster_scale));
+        family.outlines = semantic_glyph_page.outlines.data();
+        family.outline_count = semantic_glyph_page.outlines.size();
+        family.segments = semantic_glyph_page.segments.data();
+        family.segment_count = semantic_glyph_page.segments.size();
+        family.glyphs = semantic_glyph_page.glyphs.data();
+        family.glyph_count = semantic_glyph_page.glyphs.size();
+        family.flags =
+            PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
+        family.content_revision = revision32(engine->semantic_scene_hash);
+        progpu_native_glyph_frame_metrics family_metrics{};
+        family_metrics.struct_size = sizeof(family_metrics);
+        engine->semantic_prepare_only = true;
+        engine->semantic_glyph_draw_active = true;
+        engine->semantic_glyph_first_instance =
+            semantic_glyph_page.draws.front().first_instance;
+        engine->semantic_glyph_instance_count =
+            semantic_glyph_page.draws.front().instance_count;
+        const auto status = progpu_native_engine_render_glyphs(
+            engine, &family, &family_metrics);
+        reset_semantic_prepare_state();
+        vertex_upload_bytes += family_metrics.instance_upload_bytes;
+        uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+        coverage_staging_bytes += family_metrics.coverage_staging_bytes;
+        if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            discard_encoder();
+            return status;
+        }
+        engine->semantic_glyph_gpu_scene_hash =
+            engine->semantic_scene_hash;
+    }
+
+    const gpu_uniforms uniforms = create_uniforms(
+        frame->width,
+        frame->height,
+        frame->dpi_scale);
+    if (semantic_analytic_draw_count != 0U ||
+        semantic_path_draw_count != 0U ||
+        semantic_glyph_draw_count != 0U) {
+        if (engine->analytic_pipeline == nullptr &&
+            !create_analytic_pipeline(*engine)) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic vector pipeline could not be created.");
+        }
+        const bool uploaded = engine->upload_uniform_if_changed(
+            engine->analytic_uniform_buffer,
+            uniforms,
+            engine->cached_analytic_uniforms,
+            engine->analytic_uniform_cache_valid);
+        uniform_upload_bytes += uploaded ? sizeof(gpu_uniforms) : 0U;
+    }
+    if (semantic_image_draw_count != 0U) {
+        if (!create_image_resources(*engine)) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic image pipeline could not be created.");
+        }
+        const bool uploaded = engine->upload_uniform_if_changed(
+            engine->image_uniform_buffer,
+            uniforms,
+            engine->cached_image_uniforms,
+            engine->image_uniform_cache_valid);
+        uniform_upload_bytes += uploaded ? sizeof(gpu_uniforms) : 0U;
+    }
+
+    WGPURenderPassEncoder pass = nullptr;
+    if (semantic_draw_count != 0U) {
+        WGPURenderPassColorAttachment color_attachment{};
+        progpu::native::webgpu::initialize_color_attachment(
+            color_attachment);
+        color_attachment.view = reinterpret_cast<WGPUTextureView>(
+            frame->target_view);
+        color_attachment.loadOp = WGPULoadOp_Clear;
+        color_attachment.storeOp = WGPUStoreOp_Store;
+        color_attachment.clearValue = WGPUColor{
+            frame->clear_color.r,
+            frame->clear_color.g,
+            frame->clear_color.b,
+            frame->clear_color.a};
+        WGPURenderPassDescriptor pass_descriptor{};
+        pass_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU semantic ordered mixed-scene pass");
+        pass_descriptor.colorAttachmentCount = 1U;
+        pass_descriptor.colorAttachments = &color_attachment;
+        pass = wgpuCommandEncoderBeginRenderPass(
+            engine->semantic_encoder,
+            &pass_descriptor);
+        if (pass == nullptr) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic mixed-scene render pass could not be created.");
+        }
+    }
+    const auto fail_draw = [&](progpu_native_status status) noexcept {
+        if (pass != nullptr) {
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            pass = nullptr;
+        }
+        discard_encoder();
         return status;
     };
 
@@ -11581,223 +12282,78 @@ progpu_native_status progpu_native_engine_render_scene(
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             continue;
         }
-        const std::uint32_t buffer_domain_index =
-            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
-            ? 0U
-            : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH
-                ? 1U
-                : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
-                    ? 2U
-                    : 3U;
-        const auto resource = read_resource(command.resource_index);
-        const std::uint32_t buffer_revision =
-            command_revision(command, resource);
-        if (buffer_domain_index >= 2U &&
-            encoded_buffer_revisions[buffer_domain_index] != 0U &&
-            encoded_buffer_revisions[buffer_domain_index] != buffer_revision) {
-            const auto flush_status = flush_encoder();
-            if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
-                return flush_status;
-            }
-        }
-        if (!begin_encoder()) {
-            discard_encoder();
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The semantic scene command encoder could not be created.");
-        }
-        if (buffer_domain_index >= 2U) {
-            encoded_buffer_revisions[buffer_domain_index] = buffer_revision;
-        }
+        note_family(command.kind);
         progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                 if (semantic_analytic_draw_index >=
                     semantic_analytic_page.draws.size()) {
-                    discard_encoder();
-                    return engine->fail(
+                    return fail_draw(engine->fail(
                         PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                        "The semantic analytic packed-page index is invalid.");
+                        "The semantic analytic packed-page index is invalid."));
                 }
-                prepare_family(command.kind);
-                bool uploaded_uniforms = false;
-                status = finish_family(encode_semantic_analytic_draw(
+                status = encode_semantic_analytic_draw(
                     *engine,
-                    *frame,
+                    pass,
                     semantic_analytic_page.draws[
-                        semantic_analytic_draw_index],
-                    engine->semantic_load_target,
-                    uploaded_uniforms));
+                        semantic_analytic_draw_index]);
                 ++semantic_analytic_draw_index;
-                if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
-                    ++draw_calls;
-                    uniform_upload_bytes += uploaded_uniforms
-                        ? sizeof(gpu_uniforms)
-                        : 0U;
-                }
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
                 if (semantic_path_draw_index >=
                     semantic_path_page.draws.size()) {
-                    discard_encoder();
-                    return engine->fail(
+                    return fail_draw(engine->fail(
                         PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                        "The semantic path packed-page index is invalid.");
+                        "The semantic path packed-page index is invalid."));
                 }
-                progpu_native_path_frame family{};
-                family.struct_size = sizeof(family);
-                family.width = frame->width;
-                family.height = frame->height;
-                family.dpi_scale = frame->dpi_scale;
-                family.target_view = frame->target_view;
-                family.clear_color = frame->clear_color;
-                static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
-                static_assert(sizeof(progpu_native_scene_path_fill) ==
-                    sizeof(progpu_native_path_fill));
-                static_assert(offsetof(
-                    progpu_native_scene_path_fill,
-                    segment_offset) == offsetof(
-                    progpu_native_path_fill,
-                    segment_offset));
-                static_assert(offsetof(
-                    progpu_native_scene_path_fill,
-                    fill_rule) == offsetof(
-                    progpu_native_path_fill,
-                    fill_rule));
-                family.paths = semantic_path_page.paths.data();
-                family.path_count = semantic_path_page.paths.size();
-                family.segments = semantic_path_page.segments.data();
-                family.segment_count = semantic_path_page.segments.size();
-                family.flags =
-                    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-                family.content_revision = revision32(
-                    engine->semantic_scene_hash);
-                progpu_native_path_frame_metrics family_metrics{};
-                family_metrics.struct_size = sizeof(family_metrics);
-                const auto path_draw = semantic_path_page.draws[
-                    semantic_path_draw_index];
+                status = encode_semantic_path_draw(
+                    *engine,
+                    pass,
+                    semantic_path_page.draws[semantic_path_draw_index]);
                 ++semantic_path_draw_index;
-                engine->semantic_path_draw_active = true;
-                engine->semantic_path_first_index = path_draw.first_index;
-                engine->semantic_path_index_count = path_draw.index_count;
-                prepare_family(command.kind);
-                status = progpu_native_engine_render_paths(
-                    engine, &family, &family_metrics);
-                engine->semantic_path_draw_active = false;
-                engine->semantic_path_first_index = 0U;
-                engine->semantic_path_index_count = 0U;
-                if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
-                    engine->semantic_path_gpu_scene_hash =
-                        engine->semantic_scene_hash;
-                }
-                status = finish_family(status);
-                draw_calls += family_metrics.draw_call_count;
-                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
-                index_upload_bytes += family_metrics.index_upload_bytes;
-                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
-                coverage_staging_bytes +=
-                    family_metrics.coverage_staging_bytes;
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
-                progpu_native_glyph_frame family{};
-                family.struct_size = sizeof(family);
-                family.width = frame->width;
-                family.height = frame->height;
-                family.dpi_scale = frame->dpi_scale;
-                family.target_view = frame->target_view;
-                family.clear_color = frame->clear_color;
-                static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
-                static_assert(sizeof(progpu_native_scene_glyph_outline) ==
-                    sizeof(progpu_native_glyph_outline));
-                static_assert(offsetof(
-                    progpu_native_scene_glyph_outline,
-                    segment_offset) == offsetof(
-                    progpu_native_glyph_outline,
-                    segment_offset));
-                static_assert(offsetof(
-                    progpu_native_scene_glyph_outline,
-                    raster_scale) == offsetof(
-                    progpu_native_glyph_outline,
-                    raster_scale));
-                family.outlines = reinterpret_cast<
-                    const progpu_native_glyph_outline*>(
-                        bytes + resource.payload_offset);
-                family.outline_count = resource.payload_size /
-                    sizeof(progpu_native_scene_glyph_outline);
-                family.segments =
-                    reinterpret_cast<const progpu_native_path_segment*>(
-                        bytes + resource.auxiliary_offset);
-                family.segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
-                family.glyphs =
-                    reinterpret_cast<const progpu_native_positioned_glyph*>(
-                        bytes + command.payload_offset);
-                family.glyph_count = command.payload_size /
-                    sizeof(progpu_native_positioned_glyph);
-                family.flags =
-                    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-                family.content_revision = command_revision(command, resource);
-                progpu_native_glyph_frame_metrics family_metrics{};
-                family_metrics.struct_size = sizeof(family_metrics);
-                prepare_family(command.kind);
-                status = finish_family(progpu_native_engine_render_glyphs(
-                    engine, &family, &family_metrics));
-                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
-                vertex_upload_bytes += family_metrics.instance_upload_bytes;
-                coverage_staging_bytes +=
-                    family_metrics.coverage_staging_bytes;
-                draw_calls += family_metrics.draw_call_count;
+                if (semantic_glyph_draw_index >=
+                    semantic_glyph_page.draws.size()) {
+                    return fail_draw(engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "The semantic glyph packed-page index is invalid."));
+                }
+                status = encode_semantic_glyph_draw(
+                    *engine,
+                    pass,
+                    semantic_glyph_page.draws[semantic_glyph_draw_index]);
+                ++semantic_glyph_draw_index;
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE: {
-                progpu_native_scene_image_draw image{};
-                std::memcpy(
-                    &image,
-                    bytes + command.payload_offset,
-                    sizeof(image));
-                progpu_native_image_frame family{};
-                family.struct_size = sizeof(family);
-                family.width = frame->width;
-                family.height = frame->height;
-                family.dpi_scale = frame->dpi_scale;
-                family.target_view = frame->target_view;
-                family.clear_color = frame->clear_color;
-                family.rgba_pixels = reinterpret_cast<const std::uint8_t*>(
-                    bytes + resource.payload_offset);
-                family.pixel_bytes = resource.payload_size;
-                family.image_width = image.image_width;
-                family.image_height = image.image_height;
-                family.row_bytes = image.row_bytes;
-                family.sampling = image.sampling;
-                family.image_revision =
-                    command_revision(command, resource);
-                family.content_revision = family.image_revision;
-                family.source_rect = image.source_rect;
-                family.destination_rect = image.destination_rect;
-                family.transform = image.transform;
-                family.opacity = image.opacity;
-                progpu_native_image_frame_metrics family_metrics{};
-                family_metrics.struct_size = sizeof(family_metrics);
-                prepare_family(command.kind);
-                status = finish_family(progpu_native_engine_render_image(
-                    engine, &family, &family_metrics));
-                draw_calls += family_metrics.draw_call_count;
-                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
-                index_upload_bytes += family_metrics.index_upload_bytes;
-                texture_upload_bytes += family_metrics.texture_upload_bytes;
-                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                if (semantic_image_draw_index >=
+                    semantic_image_page.draws.size()) {
+                    return fail_draw(engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "The semantic image packed-page index is invalid."));
+                }
+                status = encode_semantic_image_draw(
+                    *engine,
+                    pass,
+                    semantic_image_page.draws[semantic_image_draw_index]);
+                ++semantic_image_draw_index;
                 break;
             }
             default:
                 break;
         }
         if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
-            engine->semantic_load_target = false;
-            discard_encoder();
-            return status;
+            return fail_draw(status);
         }
+        ++draw_calls;
+    }
+    if (pass != nullptr) {
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        pass = nullptr;
     }
 
     if (semantic_analytic_draw_index != semantic_analytic_draw_count) {
@@ -11811,6 +12367,18 @@ progpu_native_status progpu_native_engine_render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic path packed-page draw count is inconsistent.");
+    }
+    if (semantic_glyph_draw_index != semantic_glyph_draw_count) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic glyph packed-page draw count is inconsistent.");
+    }
+    if (semantic_image_draw_index != semantic_image_draw_count) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic image packed-page draw count is inconsistent.");
     }
 
     const auto flush_status = flush_encoder();

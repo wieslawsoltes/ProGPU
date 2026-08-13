@@ -600,9 +600,9 @@ if (useSemanticScene)
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
     NativeSceneUpdateMetrics retainedUpdate = native.UpdateScene(
         semanticSceneBuffer.AsSpan(0, semanticSceneLength));
-    if (nativeSceneUpdateMetrics.CommandCount != 6U ||
-        nativeSceneUpdateMetrics.ResourceCount != 6U ||
-        nativeSceneUpdateMetrics.DrawCount != 6U ||
+    if (nativeSceneUpdateMetrics.CommandCount != 8U ||
+        nativeSceneUpdateMetrics.ResourceCount != 8U ||
+        nativeSceneUpdateMetrics.DrawCount != 8U ||
         nativeSceneUpdateMetrics.SnapshotReused ||
         !retainedUpdate.SnapshotReused ||
         retainedUpdate.SnapshotBytes != nativeSceneUpdateMetrics.SnapshotBytes)
@@ -1072,9 +1072,9 @@ if (useGroupEffect)
 ulong nativePayloadHash = RenderNative(capturePayloadHash: true);
 NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
 if (useSemanticScene &&
-    (lastNativeSceneMetrics.CommandCount != 6U ||
-     lastNativeSceneMetrics.DrawCallCount != 6U ||
-     lastNativeSceneMetrics.FamilySwitchCount != 6U ||
+    (lastNativeSceneMetrics.CommandCount != 8U ||
+     lastNativeSceneMetrics.DrawCallCount != 8U ||
+     lastNativeSceneMetrics.FamilySwitchCount != 8U ||
      lastNativeSceneMetrics.SubmissionCount != 1UL ||
      lastNativeSceneMetrics.VertexUploadBytes != 0UL ||
      lastNativeSceneMetrics.IndexUploadBytes != 0UL ||
@@ -1084,7 +1084,7 @@ if (useSemanticScene &&
     throw new InvalidOperationException(
         "Stable mixed semantic-scene replay did not preserve one ordered " +
         "submission with retained analytic/path/glyph/image resources, " +
-        "including distinct repeated path payloads. " +
+        "including distinct repeated path, glyph, and image payloads. " +
         $"commands={lastNativeSceneMetrics.CommandCount} " +
         $"draws={lastNativeSceneMetrics.DrawCallCount} " +
         $"families={lastNativeSceneMetrics.FamilySwitchCount} " +
@@ -2313,14 +2313,17 @@ static int GetSemanticSceneBufferSize(
         pathSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
         glyphOutlines.Length * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
         glyphSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
+        glyphOutlines.Length * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
+        glyphSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
         glyphs.Length * Unsafe.SizeOf<NativePositionedGlyph>() +
         pathSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
+        imagePixels.Length +
         imagePixels.Length +
         Unsafe.SizeOf<NativeSceneImageDraw>() +
         128);
     return NativeSceneStreamBuilder.GetRequiredBufferSize(
-        commandCapacity: 6,
-        resourceCapacity: 6,
+        commandCapacity: 8,
+        resourceCapacity: 8,
         arenaCapacity);
 }
 
@@ -2357,12 +2360,56 @@ static int BuildSemanticScene(
         throw new InvalidOperationException(
             "The matched semantic scene requires two path payloads.");
     }
+    int glyphSplit = Math.Max(1, glyphs.Length / 2);
+    ReadOnlySpan<NativePositionedGlyph> firstGlyphs = glyphs[..glyphSplit];
+    ReadOnlySpan<NativePositionedGlyph> secondGlyphs = glyphs[glyphSplit..];
+    if (secondGlyphs.IsEmpty)
+    {
+        throw new InvalidOperationException(
+            "The matched semantic scene requires two glyph payloads.");
+    }
+    float sourceHalfWidth = imageDraw.SourceRect.Width * 0.5f;
+    float destinationHalfWidth = imageDraw.DestinationRect.Width * 0.5f;
+    var firstImageDraw = new NativeSceneImageDraw(
+        imageDraw.ImageWidth,
+        imageDraw.ImageHeight,
+        imageDraw.RowBytes,
+        imageDraw.Sampling,
+        new NativeImageRect(
+            imageDraw.SourceRect.X,
+            imageDraw.SourceRect.Y,
+            sourceHalfWidth,
+            imageDraw.SourceRect.Height),
+        new NativeImageRect(
+            imageDraw.DestinationRect.X,
+            imageDraw.DestinationRect.Y,
+            destinationHalfWidth,
+            imageDraw.DestinationRect.Height),
+        imageDraw.Transform,
+        imageDraw.Opacity);
+    var secondImageDraw = new NativeSceneImageDraw(
+        imageDraw.ImageWidth,
+        imageDraw.ImageHeight,
+        imageDraw.RowBytes,
+        imageDraw.Sampling,
+        new NativeImageRect(
+            imageDraw.SourceRect.X + sourceHalfWidth,
+            imageDraw.SourceRect.Y,
+            imageDraw.SourceRect.Width - sourceHalfWidth,
+            imageDraw.SourceRect.Height),
+        new NativeImageRect(
+            imageDraw.DestinationRect.X + destinationHalfWidth,
+            imageDraw.DestinationRect.Y,
+            imageDraw.DestinationRect.Width - destinationHalfWidth,
+            imageDraw.DestinationRect.Height),
+        imageDraw.Transform,
+        imageDraw.Opacity);
     var builder = new NativeSceneStreamBuilder(
         destination,
         sceneId,
         generation,
-        commandCapacity: 6,
-        resourceCapacity: 6);
+        commandCapacity: 8,
+        resourceCapacity: 8);
     ReadOnlySpan<byte> stream = default;
     bool success = builder.TryAddAnalyticResource(
             resourceId: 1U,
@@ -2397,6 +2444,17 @@ static int BuildSemanticScene(
             secondPaths,
             pathSegments,
             out uint secondPathResource) &&
+        builder.TryAddGlyphResource(
+            resourceId: 7U,
+            generation,
+            glyphOutlines,
+            glyphSegments,
+            out uint secondGlyphResource) &&
+        builder.TryAddImageResource(
+            resourceId: 8U,
+            generation,
+            imagePixels,
+            out uint secondImageResource) &&
         builder.TryDrawAnalytic(
             commandId: 1U,
             analyticResource,
@@ -2417,7 +2475,7 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f),
-            glyphs) &&
+            firstGlyphs) &&
         builder.TryDrawImage(
             commandId: 4U,
             imageResource,
@@ -2426,7 +2484,7 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f),
-            in imageDraw) &&
+            in firstImageDraw) &&
         builder.TryDrawPath(
             commandId: 5U,
             secondPathResource,
@@ -2435,8 +2493,26 @@ static int BuildSemanticScene(
                 0f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f)) &&
-        builder.TryDrawAnalytic(
+        builder.TryDrawGlyphRun(
             commandId: 6U,
+            secondGlyphResource,
+            new NativeImageRect(
+                0f,
+                logicalHeight * 0.5f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f),
+            secondGlyphs) &&
+        builder.TryDrawImage(
+            commandId: 7U,
+            secondImageResource,
+            new NativeImageRect(
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f,
+                logicalWidth * 0.5f,
+                logicalHeight * 0.5f),
+            in secondImageDraw) &&
+        builder.TryDrawAnalytic(
+            commandId: 8U,
             secondAnalyticResource,
             new NativeImageRect(
                 0f,
