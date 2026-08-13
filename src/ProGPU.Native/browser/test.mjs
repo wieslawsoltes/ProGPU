@@ -55,7 +55,7 @@ try {
     backendAbi: "3",
     explicitTimeline: "0",
     error: ""
-  });
+  }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
   const screenshotPath = path.join(
     evidenceDirectory,
     "progpu-native-browser-webgpu.png");

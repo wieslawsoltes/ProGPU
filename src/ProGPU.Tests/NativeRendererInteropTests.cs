@@ -1549,6 +1549,7 @@ public class NativeRendererInteropTests
             "--use-port=emdawnwebgpu:cpp_bindings=false",
             cmake,
             StringComparison.Ordinal);
+        Assert.Contains("-sEXIT_RUNTIME=0", cmake, StringComparison.Ordinal);
         Assert.Contains(
             "PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION",
             browserHeader,
@@ -1575,6 +1576,10 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains(
             "semantic_metrics.submission_count != 1U",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "emscripten_request_animation_frame(\n            render_browser_frame",
             browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains("navigator.gpu", File.ReadAllText(FindRepoFile(

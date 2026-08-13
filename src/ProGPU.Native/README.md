@@ -86,6 +86,10 @@ and saves the exact canvas plus a JSON contract under
 `artifacts/progpu-native/browser-evidence/`. The hardware Dawn lane separately
 keeps the stricter actual-parent advanced-multiply differential; complete
 advanced-blend browser differentials remain a later parity checkpoint. The
+surface texture is acquired and rendered inside `requestAnimationFrame`, as
+required by Emdawnwebgpu, and the following animation frame marks the output
+inspectable for deterministic browser capture. The Emscripten runtime remains
+alive across those callbacks and page navigation owns final teardown. The
 browser adapter deliberately
 does not advertise the native synchronous submission-index timeline; browser
 hosts use JavaScript `GPUQueue.onSubmittedWorkDone()` at their scheduling

@@ -54,6 +54,63 @@ bool finish_browser_frame(double, void*) {
     return false;
 }
 
+bool render_browser_frame(double, void*) {
+    WGPUSurfaceTexture surface_texture = WGPU_SURFACE_TEXTURE_INIT;
+    wgpuSurfaceGetCurrentTexture(resources.surface, &surface_texture);
+    if (surface_texture.texture == nullptr ||
+        (surface_texture.status !=
+            WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+         surface_texture.status !=
+            WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)) {
+        fail("The browser WebGPU surface texture is unavailable.");
+    }
+    WGPUTextureView view = wgpuTextureCreateView(
+        surface_texture.texture,
+        nullptr);
+    if (view == nullptr) {
+        fail("The browser WebGPU target view could not be created.");
+    }
+
+    progpu_native_scene_frame semantic_frame{};
+    semantic_frame.struct_size = sizeof(semantic_frame);
+    semantic_frame.width = width;
+    semantic_frame.height = height;
+    semantic_frame.dpi_scale = 1.0F;
+    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    semantic_frame.scene_id = 97U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics semantic_metrics{};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &semantic_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic_metrics.command_count != 4U ||
+        semantic_metrics.draw_call_count != 3U ||
+        semantic_metrics.submission_count != 1U) {
+        fail("The ProGPU C++ browser semantic blend render failed.");
+    }
+    progpu_native_layer_metrics layer_metrics{};
+    layer_metrics.struct_size = sizeof(layer_metrics);
+    if (progpu_native_engine_get_layer_metrics(
+            resources.engine,
+            &layer_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        layer_metrics.content_pass_count != 1U ||
+        layer_metrics.composite_pass_count != 1U ||
+        layer_metrics.texture_bytes == 0U) {
+        fail("The ProGPU C++ browser semantic layer metrics are invalid.");
+    }
+    resources.texture = surface_texture.texture;
+    resources.view = view;
+    if (emscripten_request_animation_frame(
+            finish_browser_frame,
+            nullptr) < 0) {
+        fail("The browser presentation completion frame could not be scheduled.");
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -103,22 +160,6 @@ int main() {
     configuration.alphaMode = WGPUCompositeAlphaMode_Opaque;
     wgpuSurfaceConfigure(surface, &configuration);
 
-    WGPUSurfaceTexture surface_texture = WGPU_SURFACE_TEXTURE_INIT;
-    wgpuSurfaceGetCurrentTexture(surface, &surface_texture);
-    if (surface_texture.texture == nullptr ||
-        (surface_texture.status !=
-            WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-         surface_texture.status !=
-            WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)) {
-        fail("The browser WebGPU surface texture is unavailable.");
-    }
-    WGPUTextureView view = wgpuTextureCreateView(
-        surface_texture.texture,
-        nullptr);
-    if (view == nullptr) {
-        fail("The browser WebGPU target view could not be created.");
-    }
-
     progpu_native_browser_engine_options options{};
     options.struct_size = sizeof(options);
     options.native_abi_version = PROGPU_NATIVE_ABI_VERSION;
@@ -152,46 +193,16 @@ int main() {
         scene_metrics.maximum_stack_depth != 1U) {
         fail("The ProGPU C++ browser semantic scene update failed.");
     }
-    progpu_native_scene_frame semantic_frame{};
-    semantic_frame.struct_size = sizeof(semantic_frame);
-    semantic_frame.width = width;
-    semantic_frame.height = height;
-    semantic_frame.dpi_scale = 1.0F;
-    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
-    semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
-    semantic_frame.scene_id = 97U;
-    semantic_frame.generation = 1U;
-    progpu_native_scene_frame_metrics semantic_metrics{};
-    semantic_metrics.struct_size = sizeof(semantic_metrics);
-    if (progpu_native_engine_render_scene(
-            engine,
-            &semantic_frame,
-            &semantic_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        semantic_metrics.command_count != 4U ||
-        semantic_metrics.draw_call_count != 3U ||
-        semantic_metrics.submission_count != 1U) {
-        fail("The ProGPU C++ browser semantic blend render failed.");
-    }
-    progpu_native_layer_metrics layer_metrics{};
-    layer_metrics.struct_size = sizeof(layer_metrics);
-    if (progpu_native_engine_get_layer_metrics(
-            engine,
-            &layer_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        layer_metrics.content_pass_count != 1U ||
-        layer_metrics.composite_pass_count != 1U ||
-        layer_metrics.texture_bytes == 0U) {
-        fail("The ProGPU C++ browser semantic layer metrics are invalid.");
-    }
     resources = {
         engine,
         instance,
         device,
         queue,
         surface,
-        surface_texture.texture,
-        view};
+        nullptr,
+        nullptr};
     if (emscripten_request_animation_frame(
-            finish_browser_frame,
+            render_browser_frame,
             nullptr) < 0) {
         fail("The browser presentation frame could not be scheduled.");
     }

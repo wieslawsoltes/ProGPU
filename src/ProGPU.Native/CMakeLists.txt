@@ -474,7 +474,7 @@ if(EMSCRIPTEN)
         --pre-js=${CMAKE_CURRENT_SOURCE_DIR}/browser/pre.js
         --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/browser/shell.html
         -sALLOW_MEMORY_GROWTH=1
-        -sEXIT_RUNTIME=1
+        -sEXIT_RUNTIME=0
         -sENVIRONMENT=web
         -sASSERTIONS=1)
     progpu_native_enable_warnings(progpu_native_browser_smoke)
