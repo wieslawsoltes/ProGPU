@@ -81,9 +81,14 @@ try {
   }, screenshot.toString("base64"));
   const near = (actual, expected, tolerance = 20) =>
     Math.abs(actual - expected) <= tolerance;
-  const diagnostics = errors.length === 0
+  contract.pixels = pixels;
+  await fs.writeFile(
+    path.join(evidenceDirectory, "progpu-native-browser-contract.json"),
+    `${JSON.stringify(contract, null, 2)}\n`);
+  const browserDiagnostics = errors.length === 0
     ? "no WebGPU console errors"
     : errors.join(" | ");
+  const diagnostics = `${browserDiagnostics}; pixels=${JSON.stringify(pixels)}`;
   assert.ok(
     near(pixels.clear[0], 3) && near(pixels.clear[1], 4) &&
       near(pixels.clear[2], 8) && pixels.clear[3] >= 240,
@@ -102,10 +107,6 @@ try {
       pixels.composited[3] >= 240,
     `Browser semantic isolated layer was not composited: ${pixels.composited}; ` +
       diagnostics);
-  contract.pixels = pixels;
-  await fs.writeFile(
-    path.join(evidenceDirectory, "progpu-native-browser-contract.json"),
-    `${JSON.stringify(contract, null, 2)}\n`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +

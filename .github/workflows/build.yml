@@ -35,13 +35,14 @@ jobs:
         run: ./eng/progpu-test-native-browser.sh
 
       - name: Upload native browser evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: progpu-native-browser-webgpu
           path: |
             artifacts/progpu-native/browser-evidence/progpu-native-browser-webgpu.png
             artifacts/progpu-native/browser-evidence/progpu-native-browser-contract.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
   native-cpp:
     name: Native C++ renderer (${{ matrix.rid }})
