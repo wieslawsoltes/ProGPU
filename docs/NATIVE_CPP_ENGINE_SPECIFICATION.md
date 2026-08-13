@@ -222,10 +222,20 @@ clip chains, `progpu_native_layer_effect_execution.cpp` owns pooled layers,
 masks, effect chains, and group composition, and
 `progpu_native_image_execution.cpp` owns image texture upload and mask updates.
 Their only cross-translation-unit seam is the typed private
-`progpu_native_replay_execution.hpp` contract. Exported C entry points and the
-per-family recording/dispatch loops remain in `progpu_native.cpp`, so backend
-selection and ABI policy stay centralized while resource construction,
-execution, and lifetime ownership are independently reviewable.
+`progpu_native_replay_execution.hpp` contract. Frame-family execution is also
+partitioned by payload ownership: `progpu_native_vector_execution.cpp` owns
+solid, analytic, and retained-geometry recording/dispatch;
+`progpu_native_raster_execution.cpp` owns path, positioned-glyph, and RGBA-image
+recording/dispatch; and `progpu_native_semantic_execution.cpp` owns immutable
+semantic-scene updates, command adaptation, render-bundle compilation, and
+scene replay. These modules share only the typed private
+`progpu_native_frame_execution.hpp` entry contract and the internal
+`progpu_native_frame_execution_common.hpp` WebGPU execution vocabulary.
+`progpu_native.cpp` is consequently a small C ABI and engine-lifecycle owner:
+it selects the backend, validates construction, and delegates rendering through
+thin typed calls without owning frame-family algorithms. This keeps backend and
+ABI policy centralized while resource construction, execution, and lifetime
+ownership remain independently reviewable.
 These private modules expose no public symbols and are compiled into both
 adapters. The semantic modules are independently linked into focused CPU-only
 tests so state, bounds, validation, and budget behavior cannot accidentally

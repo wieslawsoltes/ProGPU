@@ -1419,6 +1419,18 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains("EmbedShader.cmake", cmake, StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_vector_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_raster_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_semantic_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
 
         string pipelineSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_pipeline.cpp"));
@@ -1446,6 +1458,14 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_image_execution.cpp"));
         string layerEffectExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_layer_effect_execution.cpp"));
+        string vectorExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_vector_execution.cpp"));
+        string rasterExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_raster_execution.cpp"));
+        string semanticExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_semantic_execution.cpp"));
+        string frameExecutionCommonSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_frame_execution_common.hpp"));
         Assert.Contains(
             "GaussianBlurHorizontalWgsl.generated.hpp",
             layerEffectExecutionSource,
@@ -1463,6 +1483,10 @@ public class NativeRendererInteropTests
                      clipExecutionSource,
                      imageExecutionSource,
                      layerEffectExecutionSource,
+                     vectorExecutionSource,
+                     rasterExecutionSource,
+                     semanticExecutionSource,
+                     frameExecutionCommonSource,
                  })
         {
             Assert.DoesNotContain("@vertex", source, StringComparison.Ordinal);

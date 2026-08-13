@@ -260,6 +260,8 @@ add_library(progpu_native SHARED
     src/progpu_native_engine.hpp
     src/progpu_native_effect_plan.cpp
     src/progpu_native_effect_plan.hpp
+    src/progpu_native_frame_execution.hpp
+    src/progpu_native_frame_execution_common.hpp
     src/progpu_native_geometry.hpp
     src/progpu_native_geometry_analytic.hpp
     src/progpu_native_geometry_base.hpp
@@ -275,18 +277,21 @@ add_library(progpu_native SHARED
     src/progpu_native_path_text_resources.cpp
     src/progpu_native_pipeline.cpp
     src/progpu_native_pipeline.hpp
+    src/progpu_native_raster_execution.cpp
     src/progpu_native_replay_execution.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
     src/progpu_native_semantic_budget.hpp
     src/progpu_native_semantic_effect_cache.cpp
     src/progpu_native_semantic_effect_cache.hpp
+    src/progpu_native_semantic_execution.cpp
     src/progpu_native_semantic_replay.hpp
     src/progpu_native_semantic_state.cpp
     src/progpu_native_semantic_state.hpp
     src/progpu_native_semantic_validation.cpp
     src/progpu_native_semantic_validation.hpp
     src/progpu_native_webgpu_resources.hpp
+    src/progpu_native_vector_execution.cpp
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
@@ -328,6 +333,8 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_engine.hpp
         src/progpu_native_effect_plan.cpp
         src/progpu_native_effect_plan.hpp
+        src/progpu_native_frame_execution.hpp
+        src/progpu_native_frame_execution_common.hpp
         src/progpu_native_geometry.hpp
         src/progpu_native_geometry_analytic.hpp
         src/progpu_native_geometry_base.hpp
@@ -343,18 +350,21 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         src/progpu_native_path_text_resources.cpp
         src/progpu_native_pipeline.cpp
         src/progpu_native_pipeline.hpp
+        src/progpu_native_raster_execution.cpp
         src/progpu_native_replay_execution.hpp
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp
         src/progpu_native_semantic_effect_cache.cpp
         src/progpu_native_semantic_effect_cache.hpp
+        src/progpu_native_semantic_execution.cpp
         src/progpu_native_semantic_replay.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
         src/progpu_native_semantic_validation.cpp
         src/progpu_native_semantic_validation.hpp
         src/progpu_native_webgpu_resources.hpp
+        src/progpu_native_vector_execution.cpp
         src/progpu_webgpu_compat.hpp
         include/progpu_native.h
         include/progpu_native_dawn.h
