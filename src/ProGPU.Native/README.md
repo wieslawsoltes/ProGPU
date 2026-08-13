@@ -11,6 +11,16 @@ It intentionally supports only the May-2024 WebGPU C ABI used by
 Silk.NET.WebGPU 2.23.0 and rejects all other ABI identifiers. This prevents a
 Dawn handle from being interpreted through wgpu-native descriptor layouts.
 
+Production implementation is split behind the unchanged public C ABI. The
+main translation unit owns exported entry points and device lifetime;
+`progpu_native_scene.cpp` owns pointer-free stream validation,
+`progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
+and `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget
+accounting. Both wgpu-native and Dawn targets compile the same private module
+set. Additional renderer domains will move behind similarly typed internal
+modules as their ownership seams are stabilized; no module exports backend
+descriptor layouts.
+
 Build, test, and run the live offscreen sample from the repository root:
 
 ```sh
@@ -221,7 +231,10 @@ group against the frame clear color. Semantic nested/backdrop layers now have
 an exact pointer-free descriptor, typed analytic-mask/effect-chain resources,
 canonical validation, and a checked preflight budget. Analytic rounded masks
 execute through retained per-occurrence uniforms in nested bounded parents;
-effect pixel execution remains the active follow-up.
+one-to-eight-node Gaussian/drop-shadow chains execute through depth-indexed
+three-texture intermediates and one packed dynamic-offset uniform page before
+mask/opacity composition. Advanced destination-sampling and backdrop input
+remain the active follow-up.
 
 Current native parity:
 
@@ -281,8 +294,9 @@ Current native parity:
   effect-chain resources with exact native/.NET layout, typed references,
   canonical validation, and zero managed allocation across 10,000 complete
   caller-buffer builds; rounded masks execute in retained nested composites with
-  parent-local coordinates and zero stable upload, while effect-chain execution
-  remains the active continuation;
+  parent-local coordinates, and effect chains execute in declared order through
+  a bounded depth-indexed GPU pool before mask/opacity composition. Stable
+  replay retains every texture/binding and uploads zero effect or mask bytes;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

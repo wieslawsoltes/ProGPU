@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "webscene_gpu_provider.h"
 
 #include <webgpu.h>
@@ -21,6 +22,10 @@
 #include <vector>
 
 namespace {
+
+using progpu::native::tests::
+    create_semantic_masked_effect_layer_scene_stream;
+using progpu::native::tests::verify_semantic_masked_effect_layer_scene;
 
 [[noreturn]] void fail(const char* message) {
     std::fprintf(stderr, "ProGPU WebScene provider integration failed: %s\n",
@@ -2249,6 +2254,206 @@ int main(int argc, char** argv) {
             masked_layer_external.shared_handle),
         "progpu-native-semantic-masked-layer.ppm");
     api.release_external(provider, &masked_layer_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic mask/effect canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic mask/effect canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic mask/effect target view creation failed");
+
+    auto mask_effect_scene =
+        create_semantic_masked_effect_layer_scene_stream();
+    auto oversized_effect_scene = mask_effect_scene;
+    progpu_native_scene_header oversized_header{};
+    std::memcpy(
+        &oversized_header,
+        oversized_effect_scene.data(),
+        sizeof(oversized_header));
+    oversized_header.scene_id = 97U;
+    std::memcpy(
+        oversized_effect_scene.data(),
+        &oversized_header,
+        sizeof(oversized_header));
+    progpu_native_scene_resource oversized_effect_resource{};
+    std::memcpy(
+        &oversized_effect_resource,
+        oversized_effect_scene.data() + oversized_header.resource_offset +
+            3U * oversized_header.resource_stride,
+        sizeof(oversized_effect_resource));
+    progpu_native_group_effect oversized_effect{};
+    std::memcpy(
+        &oversized_effect,
+        oversized_effect_scene.data() +
+            oversized_effect_resource.auxiliary_offset,
+        sizeof(oversized_effect));
+    oversized_effect.sigma_x = 50.0F;
+    std::memcpy(
+        oversized_effect_scene.data() +
+            oversized_effect_resource.auxiliary_offset,
+        &oversized_effect,
+        sizeof(oversized_effect));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        oversized_effect_scene.data(),
+        oversized_effect_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic oversized physical effect update failed");
+    std::uint64_t submission_before_oversized_effect{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &submission_before_oversized_effect) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic oversized effect preflight token unavailable");
+    progpu_native_scene_frame oversized_effect_frame = semantic_frame;
+    oversized_effect_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    oversized_effect_frame.scene_id = 97U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &oversized_effect_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.submission_count == 0U,
+        "semantic oversized physical effect was not rejected before submission");
+    std::uint64_t submission_after_oversized_effect{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &submission_after_oversized_effect) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        submission_after_oversized_effect ==
+            submission_before_oversized_effect,
+        "semantic oversized physical effect changed the submission timeline");
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        mask_effect_scene.data(),
+        mask_effect_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 6U &&
+        scene_metrics.resource_count == 4U &&
+        scene_metrics.draw_count == 2U &&
+        scene_metrics.maximum_stack_depth == 2U,
+        "semantic mask/effect update failed");
+    progpu_native_scene_frame mask_effect_frame = semantic_frame;
+    mask_effect_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    mask_effect_frame.scene_id = 96U;
+    mask_effect_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &mask_effect_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 6U &&
+        semantic_metrics.draw_call_count == 4U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.uniform_upload_bytes >= 1280U,
+        "semantic mask/effect rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 48U &&
+        semantic_layer_metrics.texture_height == 40U &&
+        semantic_layer_metrics.content_pass_count == 2U &&
+        semantic_layer_metrics.composite_pass_count == 2U &&
+        semantic_layer_metrics.cache_hit == 0U &&
+        semantic_layer_metrics.texture_bytes == 10752U &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE &&
+        semantic_layer_metrics.effect_kind ==
+            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+        semantic_layer_metrics.effect_revision == 91U &&
+        semantic_layer_metrics.effect_chain_revision == 91U &&
+        semantic_layer_metrics.effect_count == 2U &&
+        semantic_layer_metrics.effect_pass_count == 5U &&
+        semantic_layer_metrics.effect_texture_bytes == 9216U &&
+        semantic_layer_metrics.effect_uniform_upload_bytes == 1280U,
+        "semantic mask/effect metrics are incorrect");
+    const std::uint32_t mask_effect_allocation_count =
+        semantic_layer_metrics.effect_allocation_count;
+    const std::uint32_t mask_effect_texture_generation =
+        semantic_layer_metrics.effect_texture_generation;
+    const std::uint32_t mask_effect_bind_group_generation =
+        semantic_layer_metrics.mask_bind_group_generation;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &mask_effect_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "stable semantic mask/effect replay rebuilt retained resources");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.effect_cache_hit == 0U &&
+        semantic_layer_metrics.effect_pass_count == 5U &&
+        semantic_layer_metrics.effect_allocation_count ==
+            mask_effect_allocation_count &&
+        semantic_layer_metrics.effect_texture_generation ==
+            mask_effect_texture_generation &&
+        semantic_layer_metrics.mask_bind_group_generation ==
+            mask_effect_bind_group_generation &&
+        semantic_layer_metrics.mask_uniform_upload_bytes == 0U &&
+        semantic_layer_metrics.effect_uniform_upload_bytes == 0U &&
+        semantic_layer_metrics.uniform_upload_bytes == 0U,
+        "stable semantic mask/effect metrics did not retain resources");
+    std::uint64_t mask_effect_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &mask_effect_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic mask/effect submission token unavailable");
+    std::uint8_t mask_effect_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        mask_effect_submission,
+        1U,
+        &mask_effect_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        mask_effect_complete != 0U,
+        "semantic mask/effect scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture mask_effect_external{};
+    mask_effect_external.struct_size = sizeof(mask_effect_external);
+    require(api.present(provider, canvas, &mask_effect_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        mask_effect_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (mask_effect_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic mask/effect presentation failed");
+    verify_semantic_masked_effect_layer_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            mask_effect_external.shared_handle),
+        "progpu-native-semantic-mask-effects.ppm");
+    api.release_external(provider, &mask_effect_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

@@ -655,8 +655,8 @@ inspected `progpu-native-semantic-layers-2x.png` capture has SHA-256
 `6a2bddb6e366128238a315a43cb6d13606bd78454d0ff1d864a24589f7103f16`.
 This is functional and retained-resource evidence, not yet the required
 matched managed/native nested-layer distribution or Instruments comparison.
-Effects, advanced destination-sampling blend modes, and backdrop input remain
-explicitly unsupported.
+Advanced destination-sampling blend modes and backdrop input remain explicitly
+unsupported.
 
 ### Retained semantic rounded-mask execution checkpoint
 
@@ -678,6 +678,32 @@ Corner, top-center, center, and clear pixels are asserted from the GPU-complete
 IOSurface. This is functional/retention evidence; the matched managed/native
 mask distribution and Instruments comparison remain part of the aggregate
 mask/effect evidence item.
+
+### Retained semantic effect-chain execution checkpoint
+
+The typed effect-chain resource now executes before mask/opacity composition in
+the retained nested-layer replay. The real Dawn/Metal fixture uses a 48x40
+bounded parent and 32x24 child, runs Gaussian blur followed by a source-alpha
+drop shadow, applies an 8-pixel rounded mask, resumes an independent green draw
+in the parent, and finally composites the parent into the root. A separate
+oversized physical sigma is rejected before encoder creation and leaves the
+submission timeline unchanged.
+
+The changed frame records two content passes, two composites, five compute
+passes, and one queue submission. Its base layer pool is 10,752 bytes; the
+effected depth adds three reusable RGBA8 intermediates totaling 9,216 bytes.
+Five 256-byte-aligned parameter records upload as one 1,280-byte retained
+uniform page. The stable frame retains texture/binding generations and reports
+zero vertex, index, texture, uniform, mask-uniform, effect-uniform, and coverage
+upload while correctly re-executing the five compute passes for newly rendered
+layer content. The GPU-complete IOSurface asserts the clear background, clipped
+rounded corner, blurred source interior, and post-child parent continuation.
+The inspected capture is
+`artifacts/progpu-native/build/progpu-native-semantic-mask-effects.ppm` with
+SHA-256 `b81fe250284b650763a36f97186dd7424b5c7c348bccb8d7b838c9aa60579e88`.
+This is functional, ordering, restoration, and retention evidence. Matched
+managed/native mask-effect distributions and correlated Instruments evidence
+remain open before the aggregate mask/effect evidence checkbox can close.
 
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at

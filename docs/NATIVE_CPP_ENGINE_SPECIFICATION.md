@@ -182,9 +182,14 @@ Therefore:
   into the same Dawn device and compose through GPU textures without readback.
 
 The first Dawn checkpoint is implemented as a source-level contract, not a
-runtime-handle bridge. The exact same `progpu_native.cpp` translation unit now
-compiles with warnings-as-errors against both the pinned May-2024 wgpu-native
-headers and WebScene's exact `01addc4...` WebGPU headers. A small typed
+runtime-handle bridge. The same native renderer source set now compiles with
+warnings-as-errors against both the pinned May-2024 wgpu-native headers and
+WebScene's exact `01addc4...` WebGPU headers. Exported entry points and engine
+ownership remain in `progpu_native.cpp`; the bounded ping-pong effect planner
+is isolated in `progpu_native_effect_plan.cpp`, and semantic allocation limits
+and checked pool accounting live in `progpu_native_semantic_budget.hpp`. These
+private modules expose no public symbols and are compiled into both adapters.
+A small typed
 compatibility layer accounts for string views, WGSL chained descriptors,
 renamed texel-copy records, reference operations, vertex-record initialization,
 and the different queue-completion mechanisms. CI fetches the immutable header
@@ -1093,9 +1098,9 @@ multiplies draw alpha once while changed pages are compiled. Its optional
 logical target rectangle is lowered to a retained physical scissor span;
 an inline pointer-free layer descriptor and its aggregate resource budget are
 validated before rendering. Physical bounded opacity and fixed-function blend
-layers plus analytic rounded masks now use the retained d3b2 executor;
-backdrop, effect, and advanced destination-sampling descriptors still fail at a
-typed `UNSUPPORTED` boundary.
+layers, analytic rounded masks, and one-to-eight-node Gaussian/drop-shadow
+effect chains now use the retained d3b2 executor; backdrop and advanced
+destination-sampling descriptors still fail at a typed `UNSUPPORTED` boundary.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1168,10 +1173,13 @@ scopes. Mask validation requires a positive finite bound, invertible affine,
 non-negative finite corner radii, and opacity in `[0,1]`. Effect-chain
 validation requires one to eight canonical Gaussian-blur or drop-shadow
 records, exact auxiliary length, nonzero revisions, finite sigma/offset/color,
-and normalized color channels. State resolution uses a fixed 64-entry native
-stack. Validation remains O(C + R + E) time for E total effect nodes and O(D)
-bounded stack storage, with no managed allocation and no native heap allocation
-proportional to state transition count.
+and normalized color channels. Frame preflight converts sigma and shadow offset
+to physical coordinates, rejects non-finite results and kernels beyond the
+fixed 128-pixel radius before encoder creation, and counts every required
+compute pass. State resolution uses a fixed 64-entry native stack. Validation
+remains O(C + R + E) time for E total effect nodes and O(D) bounded stack
+storage, with no managed allocation and no native heap allocation proportional
+to state transition count.
 
 The current mixed renderer preflights all four typed payloads before its first
 submission. It validates analytic geometry and transforms; path/glyph segment
@@ -1186,14 +1194,16 @@ physical extents with the target DPI, intersects every materialized child with
 its materialized parent, and tracks both the live nested-byte sum and the
 componentwise maximum physical dimensions needed by each reusable depth slot.
 The fixed 64-entry structural scope stack separately limits materialized depth
-to 16. Both live and pooled layer pixels are capped at 256 MiB and their
-maximum participates in the existing 512 MiB combined scene budget.
+to 16. Live layer pixels and the combined retained base/effect texture pool are
+capped at 256 MiB; their maximum, effect uniforms, and compiled payloads
+participate in the existing 512 MiB combined scene budget. Effect work is
+separately capped at 16,384 compute passes per immutable scene.
 Multiplication and accumulation are checked before an encoder is created. A
-valid bounded or full-target layer renders when it has no backdrop/effect
-dependency and its blend has an exact fixed-function coefficient equation; an
-optional typed analytic rounded mask is applied during its final composite.
-Backdrop, effect, and advanced destination-sampling blend descriptors still
-reach a typed `UNSUPPORTED` boundary. An oversized layer
+valid bounded or full-target layer renders when it has no backdrop dependency
+and its blend has an exact fixed-function coefficient equation; its optional
+effect chain executes before an optional typed analytic rounded mask is applied
+during the final composite. Backdrop and advanced destination-sampling blend
+descriptors still reach a typed `UNSUPPORTED` boundary. An oversized layer
 returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
 timeline.
 
@@ -1234,11 +1244,21 @@ layer's physical-local coordinate system, so nested bounded parents do not
 shift mask coverage. Opacity is multiplied once in the premultiplied composite.
 Changed mask compilation is O(M) time and storage for M masked occurrences;
 stable replay performs no mask uniform write or bind-group allocation.
-Stable replay is O(B + L) for B retained bundle spans and L
-layer transitions, allocates no new pool texture, uploads no retained payload,
-and performs one queue submission. Pool storage is `O(sum(Wd*Hd))` for the
-maximum physical width Wd and height Hd retained at each live depth d, rather
-than `O(L*frameWidth*frameHeight)`.
+An effected depth additionally owns exactly three reusable `rgba8unorm`
+texture/storage intermediates at that slot's maximum extent. All scene effect
+parameters are compiled once into one 256-byte-aligned uniform page; retained
+blur/drop-shadow bindings use dynamic offsets into that page. This avoids an
+effect texture or uniform buffer per layer occurrence. Each pop runs its chain
+in declared order, then composites the final intermediate through mask and
+opacity into the restored parent. Changed compilation and uniform storage are
+O(E + P) for E effect nodes and P effect passes. Stable replay uploads no
+effect uniforms and allocates no effect resource, but executes P compute passes
+because the layer content is redrawn for the current target. Stable replay is
+O(B + L + P) for B retained bundle spans and L layer transitions, allocates no
+new pool texture, uploads no retained payload, and performs one queue
+submission. Base pool storage is `O(sum(Wd*Hd))`; effected depths add
+`O(3*sum(We*He))`, both over maximum physical extents retained per live depth
+rather than per layer occurrence.
 
 The current d3b1 checkpoint crosses the public ABI once per frame and prepares
 changed path/glyph coverage in compute passes. Once every referenced GPU page
@@ -1318,13 +1338,14 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-The pointer-free typed mask/effect resource contract, canonical validation, and
-analytic rounded-mask execution are now implemented. The next execution
-checkpoint resolves effect chains in the bounded depth-indexed pool, then adds
-advanced destination-sampling `GpuBlendMode` values and backdrop input. The
-contract continues to permit at most 16 simultaneously materialized layers and
-eight effect nodes per layer. Each extended layer will run its retained effect
-chain, apply mask and opacity once, then composite into the parent. Advanced
+The pointer-free typed mask/effect resource contract, canonical validation,
+analytic rounded-mask execution, and retained effect-chain execution are now
+implemented. The next execution checkpoint publishes matched aggregate
+mask/effect evidence, then adds advanced destination-sampling `GpuBlendMode`
+values and backdrop input. The contract permits at most 16 simultaneously
+materialized layers, eight effect nodes per layer, and 16,384 effect passes per
+scene. Each extended layer runs its retained effect chain, applies mask and
+opacity once, then composites into the parent. Advanced
 blend or backdrop effects must sample the actual parent texture, never the
 frame clear-color approximation. Storage remains `O(sum(Wd*Hd))` across the
 bounded reusable depth slots; direct scopes add no texture. Pool entries

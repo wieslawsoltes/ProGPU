@@ -255,9 +255,12 @@ add_custom_command(
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
+    src/progpu_native_effect_plan.cpp
+    src/progpu_native_effect_plan.hpp
     src/progpu_native_geometry.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
+    src/progpu_native_semantic_budget.hpp
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
@@ -294,9 +297,12 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     endif()
     add_library(progpu_native_dawn SHARED
         src/progpu_native.cpp
+        src/progpu_native_effect_plan.cpp
+        src/progpu_native_effect_plan.hpp
         src/progpu_native_geometry.hpp
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
+        src/progpu_native_semantic_budget.hpp
         src/progpu_webgpu_compat.hpp
         include/progpu_native.h
         include/progpu_native_dawn.h
@@ -364,7 +370,9 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                     "PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY does not exist")
             endif()
             add_executable(progpu_native_webscene_provider_tests
-                tests/progpu_native_webscene_provider_tests.cpp)
+                tests/progpu_native_webscene_provider_tests.cpp
+                tests/progpu_native_webscene_semantic_effect_fixture.cpp
+                tests/progpu_native_webscene_semantic_effect_fixture.hpp)
             target_compile_features(progpu_native_webscene_provider_tests
                 PRIVATE cxx_std_20)
             target_include_directories(
@@ -406,6 +414,23 @@ elseif(UNIX)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(progpu_native_internal_tests
+        tests/progpu_native_internal_tests.cpp
+        src/progpu_native_effect_plan.cpp
+        src/progpu_native_effect_plan.hpp
+        src/progpu_native_semantic_budget.hpp)
+    target_compile_features(progpu_native_internal_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_internal_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    progpu_native_enable_warnings(progpu_native_internal_tests)
+    progpu_native_enable_sanitizers(progpu_native_internal_tests)
+    add_test(
+        NAME progpu_native_internal_tests
+        COMMAND progpu_native_internal_tests)
+    set_tests_properties(
+        progpu_native_internal_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/progpu_native_scene.cpp
