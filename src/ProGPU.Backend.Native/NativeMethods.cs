@@ -47,6 +47,18 @@ internal static unsafe partial class NativeMethods
         internal Vector4 CornerRadiiY;
         internal float Opacity;
         internal uint Reserved3;
+        internal ClipChain* ClipChain;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ClipChain
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal NativeClipPath* Paths;
+        internal nuint PathCount;
+        internal NativePathSegment* Segments;
+        internal nuint SegmentCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -312,6 +324,13 @@ internal static unsafe partial class NativeMethods
         internal uint MaskBindGroupGeneration;
         internal uint MaskBindGroupCacheHit;
         internal ulong MaskUniformUploadBytes;
+        internal uint ClipPathCount;
+        internal uint ClipRasterizedPathCount;
+        internal uint ClipPassCount;
+        internal uint ClipCacheHit;
+        internal ulong ClipPathUploadBytes;
+        internal ulong ClipCoverageStagingBytes;
+        internal ulong ClipTextureBytes;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

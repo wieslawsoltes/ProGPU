@@ -91,6 +91,15 @@ the same retained scene into two textures on one device, rejects pixel drift,
 alternates measurement order, and reports p50/p95/worst CPU submission plus
 managed allocation. It does not by itself establish whole-engine parity.
 
+Add `--group-vector-clip-chain --write-images` to apply the retained
+intersection/difference path-mask gate to the selected family. The chain uses
+independent affine transforms and cubic coverage, validates mutation rebuilds,
+and requires unchanged replay to report a clip-cache hit with zero clip passes,
+uploads, family-content rebuilds, or native managed allocation. The native
+build scripts run this mode for solid, analytic, geometry, path, glyph, and
+image families; `--group-texture-mask` and `--group-rounded-mask` select the
+other common-mask representations.
+
 Exercise the first indexed analytic batch with deterministic rectangles,
 ellipses, circular rounded rectangles, strokes, and affine transforms:
 

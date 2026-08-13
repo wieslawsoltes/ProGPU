@@ -1,6 +1,7 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
 #include "GlyphRasterizerWgsl.generated.hpp"
+#include "ClipComposeWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "TextWgsl.generated.hpp"
 #include "TextureWgsl.generated.hpp"
@@ -115,6 +116,21 @@ struct native_path_raster {
     float subpixel_x;
     float subpixel_y;
 };
+
+struct gpu_clip_vertex {
+    float position[2];
+    float atlas_uv[2];
+};
+
+struct gpu_clip_compose_uniforms {
+    std::uint32_t operation;
+    std::uint32_t first;
+    std::uint32_t width;
+    std::uint32_t height;
+};
+
+static_assert(sizeof(gpu_clip_vertex) == 16U);
+static_assert(sizeof(gpu_clip_compose_uniforms) == 16U);
 
 struct native_path_cache_key {
     std::size_t segment_offset;
@@ -363,12 +379,24 @@ bool resolve_group_mask(
     if (requested == nullptr) {
         return true;
     }
-    if (requested->struct_size < sizeof(progpu_native_group_mask) ||
+    constexpr std::uint32_t legacy_size =
+        offsetof(progpu_native_group_mask, clip_chain);
+    if (requested->struct_size < legacy_size ||
         requested->flags != 0U || requested->reserved != 0U ||
         requested->reserved2 != 0U || requested->reserved3 != 0U) {
         return false;
     }
-    resolved = *requested;
+    resolved = {};
+    std::memcpy(
+        &resolved,
+        requested,
+        std::min<std::size_t>(requested->struct_size, sizeof(resolved)));
+    constexpr std::uint32_t clip_chain_size =
+        offsetof(progpu_native_group_mask, clip_chain) +
+        sizeof(requested->clip_chain);
+    if (requested->struct_size < clip_chain_size) {
+        resolved.clip_chain = nullptr;
+    }
     if (resolved.kind == PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
         return resolved.external_view != 0U &&
             resolved.external_view != target_view &&
@@ -379,12 +407,27 @@ bool resolve_group_mask(
             resolved.texture_format <=
                 PROGPU_NATIVE_MASK_TEXTURE_BGRA8_UNORM &&
             resolved.revision != 0U &&
-            is_finite_positive_rect(resolved.destination_rect);
+            is_finite_positive_rect(resolved.destination_rect) &&
+            resolved.clip_chain == nullptr;
+    }
+    if (resolved.kind == PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
+        if (requested->struct_size < clip_chain_size ||
+            resolved.external_view != 0U || resolved.width != 0U ||
+            resolved.height != 0U || resolved.texture_format != 0U ||
+            resolved.revision == 0U || resolved.clip_chain == nullptr) {
+            return false;
+        }
+        const auto& chain = *resolved.clip_chain;
+        return chain.struct_size >= sizeof(progpu_native_clip_chain) &&
+            chain.flags == 0U && chain.paths != nullptr &&
+            chain.path_count > 0U && chain.path_count <= (1U << 16U) &&
+            chain.segments != nullptr && chain.segment_count > 0U &&
+            chain.segment_count <= (1U << 24U);
     }
     if (resolved.kind != PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
         resolved.external_view != 0U || resolved.width != 0U ||
         resolved.height != 0U || resolved.texture_format != 0U ||
-        resolved.revision != 0U ||
+        resolved.revision != 0U || resolved.clip_chain != nullptr ||
         !is_finite_positive_rect(resolved.bounds) ||
         !progpu::native::is_finite(resolved.transform) ||
         !is_finite_nonnegative_radii(resolved.corner_radii_x) ||
@@ -678,6 +721,35 @@ struct progpu_native_engine {
     std::uint32_t layer_mask_bind_group_generation = 0U;
     gpu_mask_sampling_uniforms cached_layer_mask_uniforms{};
     bool layer_mask_uniform_cache_valid = false;
+    WGPUShaderModule clip_compose_shader = nullptr;
+    WGPURenderPipeline clip_path_pipeline = nullptr;
+    WGPURenderPipeline clip_compose_pipeline = nullptr;
+    WGPUBindGroupLayout clip_compose_layout = nullptr;
+    WGPUSampler clip_sampler = nullptr;
+    WGPUTexture clip_atlas_texture = nullptr;
+    WGPUTextureView clip_atlas_view = nullptr;
+    WGPUBindGroup clip_path_bind_group = nullptr;
+    std::uint32_t clip_atlas_size = native_initial_atlas_size;
+    std::uint32_t clip_atlas_generation = 0U;
+    WGPUTexture clip_node_texture = nullptr;
+    WGPUTextureView clip_node_view = nullptr;
+    std::array<WGPUTexture, 2U> clip_accumulation_textures{};
+    std::array<WGPUTextureView, 2U> clip_accumulation_views{};
+    std::array<WGPUBindGroup, 2U> clip_compose_bind_groups{};
+    std::array<WGPUBindGroup, 2U> layer_clip_mask_bind_groups{};
+    WGPUBuffer clip_compose_uniform_buffer = nullptr;
+    std::uint64_t clip_compose_uniform_buffer_size = 0U;
+    WGPUBuffer clip_vertex_buffer = nullptr;
+    WGPUBuffer clip_index_buffer = nullptr;
+    std::uint64_t clip_vertex_buffer_size = 0U;
+    std::uint64_t clip_index_buffer_size = 0U;
+    std::uint32_t clip_width = 0U;
+    std::uint32_t clip_height = 0U;
+    std::uint32_t clip_texture_generation = 0U;
+    std::uint32_t clip_cached_revision = 0U;
+    float clip_cached_dpi_scale = 0.0F;
+    std::uint32_t clip_final_index = 0U;
+    bool clip_cache_valid = false;
     WGPUBuffer layer_uniform_buffer = nullptr;
     WGPUBindGroup layer_uniform_bind_group = nullptr;
     WGPUBuffer layer_vertex_buffer = nullptr;
@@ -731,9 +803,95 @@ struct progpu_native_engine {
         return true;
     }
 
+    void release_clip_resources() noexcept {
+        for (auto& bind_group : layer_clip_mask_bind_groups) {
+            if (bind_group != nullptr) {
+                wgpuBindGroupRelease(bind_group);
+                bind_group = nullptr;
+            }
+        }
+        for (auto& bind_group : clip_compose_bind_groups) {
+            if (bind_group != nullptr) {
+                wgpuBindGroupRelease(bind_group);
+                bind_group = nullptr;
+            }
+        }
+        if (clip_path_bind_group != nullptr) {
+            wgpuBindGroupRelease(clip_path_bind_group);
+            clip_path_bind_group = nullptr;
+        }
+        if (clip_index_buffer != nullptr) {
+            wgpuBufferDestroy(clip_index_buffer);
+            wgpuBufferRelease(clip_index_buffer);
+            clip_index_buffer = nullptr;
+        }
+        if (clip_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(clip_vertex_buffer);
+            wgpuBufferRelease(clip_vertex_buffer);
+            clip_vertex_buffer = nullptr;
+        }
+        if (clip_compose_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(clip_compose_uniform_buffer);
+            wgpuBufferRelease(clip_compose_uniform_buffer);
+            clip_compose_uniform_buffer = nullptr;
+        }
+        for (auto& view : clip_accumulation_views) {
+            if (view != nullptr) {
+                wgpuTextureViewRelease(view);
+                view = nullptr;
+            }
+        }
+        for (auto& texture : clip_accumulation_textures) {
+            if (texture != nullptr) {
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+                texture = nullptr;
+            }
+        }
+        if (clip_node_view != nullptr) {
+            wgpuTextureViewRelease(clip_node_view);
+            clip_node_view = nullptr;
+        }
+        if (clip_node_texture != nullptr) {
+            wgpuTextureDestroy(clip_node_texture);
+            wgpuTextureRelease(clip_node_texture);
+            clip_node_texture = nullptr;
+        }
+        if (clip_atlas_view != nullptr) {
+            wgpuTextureViewRelease(clip_atlas_view);
+            clip_atlas_view = nullptr;
+        }
+        if (clip_atlas_texture != nullptr) {
+            wgpuTextureDestroy(clip_atlas_texture);
+            wgpuTextureRelease(clip_atlas_texture);
+            clip_atlas_texture = nullptr;
+        }
+        if (clip_sampler != nullptr) {
+            wgpuSamplerRelease(clip_sampler);
+            clip_sampler = nullptr;
+        }
+        if (clip_compose_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(clip_compose_layout);
+            clip_compose_layout = nullptr;
+        }
+        if (clip_compose_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(clip_compose_pipeline);
+            clip_compose_pipeline = nullptr;
+        }
+        if (clip_path_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(clip_path_pipeline);
+            clip_path_pipeline = nullptr;
+        }
+        if (clip_compose_shader != nullptr) {
+            wgpuShaderModuleRelease(clip_compose_shader);
+            clip_compose_shader = nullptr;
+        }
+    }
+
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        release_clip_resources();
         if (layer_external_mask_linear_bind_group != nullptr) {
             wgpuBindGroupRelease(layer_external_mask_linear_bind_group);
         }
@@ -2575,6 +2733,1034 @@ bool create_layer_mask_resources(progpu_native_engine& engine) {
     return true;
 }
 
+bool create_clip_chain_resources(progpu_native_engine& engine) {
+    if (engine.clip_path_pipeline != nullptr &&
+        engine.clip_compose_pipeline != nullptr &&
+        engine.clip_compose_layout != nullptr &&
+        engine.clip_sampler != nullptr) {
+        return true;
+    }
+    if (!create_layer_mask_resources(engine) ||
+        !create_path_resources(engine) ||
+        engine.clip_compose_shader != nullptr ||
+        engine.clip_path_pipeline != nullptr ||
+        engine.clip_compose_pipeline != nullptr ||
+        engine.clip_compose_layout != nullptr ||
+        engine.clip_sampler != nullptr) {
+        return false;
+    }
+
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::clip_compose_wgsl,
+        progpu::native::generated::clip_compose_wgsl_size);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU shared ClipCompose.wgsl");
+    engine.clip_compose_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &shader_descriptor);
+    if (engine.clip_compose_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 4U> entries{};
+    entries[0].binding = 0U;
+    entries[0].visibility = WGPUShaderStage_Fragment;
+    entries[0].sampler.type = WGPUSamplerBindingType_Filtering;
+    for (std::uint32_t index = 1U; index <= 2U; ++index) {
+        entries[index].binding = index;
+        entries[index].visibility = WGPUShaderStage_Fragment;
+        entries[index].texture.sampleType = WGPUTextureSampleType_Float;
+        entries[index].texture.viewDimension = WGPUTextureViewDimension_2D;
+        entries[index].texture.multisampled = false;
+    }
+    entries[3].binding = 3U;
+    entries[3].visibility = WGPUShaderStage_Fragment;
+    entries[3].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[3].buffer.hasDynamicOffset = true;
+    entries[3].buffer.minBindingSize = sizeof(gpu_clip_compose_uniforms);
+    WGPUBindGroupLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip layout");
+    layout_descriptor.entryCount = entries.size();
+    layout_descriptor.entries = entries.data();
+    engine.clip_compose_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &layout_descriptor);
+    if (engine.clip_compose_layout == nullptr) {
+        return false;
+    }
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip pipeline layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts = &engine.clip_compose_layout;
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
+
+    const std::array<WGPUVertexAttribute, 2U> attributes{{
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 0U, 0U),
+        progpu::native::webgpu::vertex_attribute(
+            WGPUVertexFormat_Float32x2, 8U, 1U)
+    }};
+    WGPUVertexBufferLayout vertex_layout{};
+    vertex_layout.arrayStride = sizeof(gpu_clip_vertex);
+    vertex_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_layout.attributeCount = attributes.size();
+    vertex_layout.attributes = attributes.data();
+    WGPUColorTargetState target{};
+    target.format = WGPUTextureFormat_R8Unorm;
+    target.writeMask = WGPUColorWriteMask_All;
+    WGPUFragmentState path_fragment{};
+    path_fragment.module = engine.clip_compose_shader;
+    path_fragment.entryPoint = progpu::native::webgpu::string_view("fs_path");
+    path_fragment.targetCount = 1U;
+    path_fragment.targets = &target;
+    WGPURenderPipelineDescriptor path_descriptor{};
+    path_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip path pipeline");
+    path_descriptor.layout = pipeline_layout;
+    path_descriptor.vertex.module = engine.clip_compose_shader;
+    path_descriptor.vertex.entryPoint =
+        progpu::native::webgpu::string_view("vs_path");
+    path_descriptor.vertex.bufferCount = 1U;
+    path_descriptor.vertex.buffers = &vertex_layout;
+    path_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    path_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    path_descriptor.primitive.cullMode = WGPUCullMode_None;
+    path_descriptor.multisample.count = 1U;
+    path_descriptor.multisample.mask = 0xFFFFFFFFU;
+    path_descriptor.fragment = &path_fragment;
+    engine.clip_path_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &path_descriptor);
+
+    WGPUFragmentState compose_fragment{};
+    compose_fragment.module = engine.clip_compose_shader;
+    compose_fragment.entryPoint =
+        progpu::native::webgpu::string_view("fs_compose");
+    compose_fragment.targetCount = 1U;
+    compose_fragment.targets = &target;
+    WGPURenderPipelineDescriptor compose_descriptor{};
+    compose_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip composition pipeline");
+    compose_descriptor.layout = pipeline_layout;
+    compose_descriptor.vertex.module = engine.clip_compose_shader;
+    compose_descriptor.vertex.entryPoint =
+        progpu::native::webgpu::string_view("vs_compose");
+    compose_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    compose_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    compose_descriptor.primitive.cullMode = WGPUCullMode_None;
+    compose_descriptor.multisample.count = 1U;
+    compose_descriptor.multisample.mask = 0xFFFFFFFFU;
+    compose_descriptor.fragment = &compose_fragment;
+    engine.clip_compose_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &compose_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.clip_path_pipeline == nullptr ||
+        engine.clip_compose_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUSamplerDescriptor sampler_descriptor{};
+    sampler_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip atlas sampler");
+    sampler_descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+    sampler_descriptor.magFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.minFilter = WGPUFilterMode_Linear;
+    sampler_descriptor.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+    sampler_descriptor.lodMinClamp = 0.0F;
+    sampler_descriptor.lodMaxClamp = 0.0F;
+    sampler_descriptor.maxAnisotropy = 1U;
+    engine.clip_sampler = wgpuDeviceCreateSampler(
+        engine.device,
+        &sampler_descriptor);
+    return engine.clip_sampler != nullptr;
+}
+
+bool ensure_clip_buffer(
+    progpu_native_engine& engine,
+    WGPUBuffer& buffer,
+    std::uint64_t& capacity,
+    std::uint64_t required,
+    progpu::native::webgpu::buffer_usage_flags usage,
+    const char* label) {
+    if (buffer != nullptr && required <= capacity) {
+        return true;
+    }
+    std::uint64_t replacement_size = std::max<std::uint64_t>(256U, capacity);
+    while (replacement_size < required) {
+        if (replacement_size >
+            std::numeric_limits<std::uint64_t>::max() / 2U) {
+            return false;
+        }
+        replacement_size *= 2U;
+    }
+    WGPUBufferDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(label);
+    descriptor.usage = usage;
+    descriptor.size = replacement_size;
+    WGPUBuffer replacement = wgpuDeviceCreateBuffer(
+        engine.device,
+        &descriptor);
+    if (replacement == nullptr) {
+        return false;
+    }
+    if (buffer != nullptr) {
+        wgpuBufferDestroy(buffer);
+        wgpuBufferRelease(buffer);
+    }
+    buffer = replacement;
+    capacity = replacement_size;
+    return true;
+}
+
+void release_clip_bind_groups(progpu_native_engine& engine) noexcept {
+    for (auto& bind_group : engine.layer_clip_mask_bind_groups) {
+        if (bind_group != nullptr) {
+            wgpuBindGroupRelease(bind_group);
+            bind_group = nullptr;
+        }
+    }
+    for (auto& bind_group : engine.clip_compose_bind_groups) {
+        if (bind_group != nullptr) {
+            wgpuBindGroupRelease(bind_group);
+            bind_group = nullptr;
+        }
+    }
+    if (engine.clip_path_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.clip_path_bind_group);
+        engine.clip_path_bind_group = nullptr;
+    }
+}
+
+bool rebuild_clip_bind_groups(progpu_native_engine& engine) {
+    release_clip_bind_groups(engine);
+    const std::array<WGPUBindGroupEntry, 4U> path_entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, engine.clip_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, engine.clip_atlas_view},
+        {nullptr, 2U, nullptr, 0U, 0U, nullptr, engine.clip_atlas_view},
+        {nullptr, 3U, engine.clip_compose_uniform_buffer, 0U,
+            sizeof(gpu_clip_compose_uniforms), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor path_descriptor{};
+    path_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained clip path bind group");
+    path_descriptor.layout = engine.clip_compose_layout;
+    path_descriptor.entryCount = path_entries.size();
+    path_descriptor.entries = path_entries.data();
+    engine.clip_path_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &path_descriptor);
+    if (engine.clip_path_bind_group == nullptr) {
+        return false;
+    }
+
+    for (std::size_t index = 0U; index < 2U; ++index) {
+        const std::array<WGPUBindGroupEntry, 4U> entries{{
+            {nullptr, 0U, nullptr, 0U, 0U, engine.clip_sampler, nullptr},
+            {nullptr, 1U, nullptr, 0U, 0U, nullptr, engine.clip_node_view},
+            {nullptr, 2U, nullptr, 0U, 0U, nullptr,
+                engine.clip_accumulation_views[index]},
+            {nullptr, 3U, engine.clip_compose_uniform_buffer, 0U,
+                sizeof(gpu_clip_compose_uniforms), nullptr, nullptr}
+        }};
+        WGPUBindGroupDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip composition bind group");
+        descriptor.layout = engine.clip_compose_layout;
+        descriptor.entryCount = entries.size();
+        descriptor.entries = entries.data();
+        engine.clip_compose_bind_groups[index] =
+            wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+        engine.layer_clip_mask_bind_groups[index] =
+            create_layer_mask_bind_group(
+                engine,
+                engine.image_linear_sampler,
+                engine.clip_accumulation_views[index],
+                "ProGPU native retained clip final mask bind group");
+        if (engine.clip_compose_bind_groups[index] == nullptr ||
+            engine.layer_clip_mask_bind_groups[index] == nullptr) {
+            return false;
+        }
+    }
+    ++engine.layer_mask_bind_group_generation;
+    return true;
+}
+
+bool ensure_clip_textures(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t atlas_size) {
+    const bool atlas_changed = engine.clip_atlas_texture == nullptr ||
+        engine.clip_atlas_size != atlas_size;
+    const bool target_changed = engine.clip_node_texture == nullptr ||
+        engine.clip_width != width || engine.clip_height != height;
+    if (!atlas_changed && !target_changed) {
+        return true;
+    }
+    release_clip_bind_groups(engine);
+
+    if (atlas_changed) {
+        WGPUTextureDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip atlas");
+        descriptor.usage = WGPUTextureUsage_TextureBinding |
+            WGPUTextureUsage_CopyDst;
+        descriptor.dimension = WGPUTextureDimension_2D;
+        descriptor.size = {atlas_size, atlas_size, 1U};
+        descriptor.format = WGPUTextureFormat_R8Unorm;
+        descriptor.mipLevelCount = 1U;
+        descriptor.sampleCount = 1U;
+        WGPUTexture texture = wgpuDeviceCreateTexture(
+            engine.device,
+            &descriptor);
+        WGPUTextureView view = texture == nullptr
+            ? nullptr
+            : wgpuTextureCreateView(texture, nullptr);
+        if (texture == nullptr || view == nullptr) {
+            if (view != nullptr) wgpuTextureViewRelease(view);
+            if (texture != nullptr) {
+                wgpuTextureDestroy(texture);
+                wgpuTextureRelease(texture);
+            }
+            return false;
+        }
+        if (engine.clip_atlas_view != nullptr) {
+            wgpuTextureViewRelease(engine.clip_atlas_view);
+        }
+        if (engine.clip_atlas_texture != nullptr) {
+            wgpuTextureDestroy(engine.clip_atlas_texture);
+            wgpuTextureRelease(engine.clip_atlas_texture);
+        }
+        engine.clip_atlas_texture = texture;
+        engine.clip_atlas_view = view;
+        engine.clip_atlas_size = atlas_size;
+        ++engine.clip_atlas_generation;
+    }
+
+    if (target_changed) {
+        const auto create_texture = [&](const char* label) {
+            WGPUTextureDescriptor descriptor{};
+            descriptor.label = progpu::native::webgpu::string_view(label);
+            descriptor.usage = WGPUTextureUsage_RenderAttachment |
+                WGPUTextureUsage_TextureBinding;
+            descriptor.dimension = WGPUTextureDimension_2D;
+            descriptor.size = {width, height, 1U};
+            descriptor.format = WGPUTextureFormat_R8Unorm;
+            descriptor.mipLevelCount = 1U;
+            descriptor.sampleCount = 1U;
+            return wgpuDeviceCreateTexture(engine.device, &descriptor);
+        };
+        WGPUTexture node = create_texture(
+            "ProGPU native retained clip node mask");
+        WGPUTextureView node_view = node == nullptr
+            ? nullptr
+            : wgpuTextureCreateView(node, nullptr);
+        std::array<WGPUTexture, 2U> accumulation{{
+            create_texture("ProGPU native retained clip accumulation A"),
+            create_texture("ProGPU native retained clip accumulation B")
+        }};
+        std::array<WGPUTextureView, 2U> accumulation_views{{
+            accumulation[0] == nullptr
+                ? nullptr
+                : wgpuTextureCreateView(accumulation[0], nullptr),
+            accumulation[1] == nullptr
+                ? nullptr
+                : wgpuTextureCreateView(accumulation[1], nullptr)
+        }};
+        if (node == nullptr || node_view == nullptr ||
+            accumulation[0] == nullptr || accumulation[1] == nullptr ||
+            accumulation_views[0] == nullptr ||
+            accumulation_views[1] == nullptr) {
+            if (node_view != nullptr) wgpuTextureViewRelease(node_view);
+            if (node != nullptr) {
+                wgpuTextureDestroy(node);
+                wgpuTextureRelease(node);
+            }
+            for (std::size_t index = 0U; index < 2U; ++index) {
+                if (accumulation_views[index] != nullptr) {
+                    wgpuTextureViewRelease(accumulation_views[index]);
+                }
+                if (accumulation[index] != nullptr) {
+                    wgpuTextureDestroy(accumulation[index]);
+                    wgpuTextureRelease(accumulation[index]);
+                }
+            }
+            return false;
+        }
+        if (engine.clip_node_view != nullptr) {
+            wgpuTextureViewRelease(engine.clip_node_view);
+        }
+        if (engine.clip_node_texture != nullptr) {
+            wgpuTextureDestroy(engine.clip_node_texture);
+            wgpuTextureRelease(engine.clip_node_texture);
+        }
+        for (std::size_t index = 0U; index < 2U; ++index) {
+            if (engine.clip_accumulation_views[index] != nullptr) {
+                wgpuTextureViewRelease(
+                    engine.clip_accumulation_views[index]);
+            }
+            if (engine.clip_accumulation_textures[index] != nullptr) {
+                wgpuTextureDestroy(
+                    engine.clip_accumulation_textures[index]);
+                wgpuTextureRelease(
+                    engine.clip_accumulation_textures[index]);
+            }
+        }
+        engine.clip_node_texture = node;
+        engine.clip_node_view = node_view;
+        engine.clip_accumulation_textures = accumulation;
+        engine.clip_accumulation_views = accumulation_views;
+        engine.clip_width = width;
+        engine.clip_height = height;
+        ++engine.clip_texture_generation;
+    }
+    engine.clip_cache_valid = false;
+    return true;
+}
+
+bool validate_native_path_segment(
+    const progpu_native_path_segment& segment) noexcept {
+    const bool is_arc =
+        segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    return segment.kind <= PROGPU_NATIVE_PATH_SEGMENT_ARC &&
+        progpu::native::is_finite(segment.p0) &&
+        progpu::native::is_finite(segment.p1) &&
+        progpu::native::is_finite(segment.p2) &&
+        progpu::native::is_finite(segment.p3) &&
+        (!is_arc ||
+            (segment.p3.x > 0.0F && segment.p3.y > 0.0F &&
+             std::isfinite(std::bit_cast<float>(segment.pad0)) &&
+             std::isfinite(std::bit_cast<float>(segment.pad1)) &&
+             std::isfinite(std::bit_cast<float>(segment.pad2)))) &&
+        (is_arc ||
+            (segment.pad0 == 0U && segment.pad1 == 0U &&
+             segment.pad2 == 0U));
+}
+
+bool rebuild_vector_clip_chain(
+    progpu_native_engine& engine,
+    const progpu_native_group_mask& mask,
+    std::uint32_t width,
+    std::uint32_t height,
+    float dpi_scale) {
+    const auto& chain = *mask.clip_chain;
+    engine.last_layer_metrics.clip_path_count =
+        static_cast<std::uint32_t>(chain.path_count);
+    const bool cache_hit = engine.clip_cache_valid &&
+        engine.clip_cached_revision == mask.revision &&
+        engine.clip_cached_dpi_scale == dpi_scale &&
+        engine.clip_width == width && engine.clip_height == height;
+    engine.last_layer_metrics.clip_cache_hit = cache_hit ? 1U : 0U;
+    if (cache_hit) {
+        engine.last_layer_metrics.clip_texture_bytes =
+            static_cast<std::uint64_t>(engine.clip_atlas_size) *
+                engine.clip_atlas_size +
+            static_cast<std::uint64_t>(width) * height * 3U;
+        return true;
+    }
+    if (!create_clip_chain_resources(engine)) {
+        return false;
+    }
+
+    try {
+        for (std::size_t index = 0U; index < chain.segment_count; ++index) {
+            if (!validate_native_path_segment(chain.segments[index])) {
+                return false;
+            }
+        }
+
+        std::vector<gpu_path_uniforms> path_uniforms;
+        std::vector<gpu_path_record> path_records;
+        std::vector<native_path_raster> rasters;
+        std::vector<gpu_clip_vertex> vertices;
+        std::vector<std::uint32_t> indices;
+        std::vector<std::byte> compose_uniform_bytes;
+        path_uniforms.reserve(chain.path_count);
+        path_records.reserve(chain.path_count);
+        rasters.reserve(chain.path_count);
+        vertices.reserve(chain.path_count * 4U);
+        indices.reserve(chain.path_count * 6U);
+        compose_uniform_bytes.resize(chain.path_count * 256U);
+
+        std::uint32_t required_atlas_size = engine.clip_atlas_size;
+        std::uint32_t atlas_x = 2U;
+        std::uint32_t atlas_y = 2U;
+        std::uint32_t row_height = 0U;
+        std::uint32_t output_offset = 0U;
+        std::unordered_map<
+            native_path_cache_key,
+            std::size_t,
+            native_path_cache_key_hash> retained_tiles;
+        retained_tiles.reserve(chain.path_count);
+
+        for (std::size_t index = 0U; index < chain.path_count; ++index) {
+            const auto& path = chain.paths[index];
+            if (path.segment_count == 0U ||
+                path.segment_offset > chain.segment_count ||
+                path.segment_count >
+                    chain.segment_count - path.segment_offset ||
+                !std::isfinite(path.min_x) ||
+                !std::isfinite(path.min_y) ||
+                !std::isfinite(path.max_x) ||
+                !std::isfinite(path.max_y) ||
+                path.max_x <= path.min_x || path.max_y <= path.min_y ||
+                !progpu::native::is_finite(path.transform) ||
+                path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
+                (path.sample_grid != 4U && path.sample_grid != 8U) ||
+                path.operation > PROGPU_NATIVE_CLIP_DIFFERENCE ||
+                path.reserved != 0U) {
+                return false;
+            }
+            float maximum_scale = 0.0F;
+            float minimum_scale = 0.0F;
+            if (!progpu::native::try_get_stroke_scales(
+                    path.transform,
+                    maximum_scale,
+                    minimum_scale)) {
+                return false;
+            }
+            (void)minimum_scale;
+            const float raster_scale = maximum_scale * dpi_scale;
+            if (!std::isfinite(raster_scale) || raster_scale <= 0.0F) {
+                return false;
+            }
+            const float subpixel_x = quantize_subpixel_phase(
+                path.transform.m31 * dpi_scale);
+            const float subpixel_y = quantize_subpixel_phase(
+                path.transform.m32 * dpi_scale);
+            native_path_cache_key cache_key{};
+            cache_key.segment_offset = path.segment_offset;
+            cache_key.segment_count = path.segment_count;
+            cache_key.min_x = std::bit_cast<std::uint32_t>(path.min_x);
+            cache_key.min_y = std::bit_cast<std::uint32_t>(path.min_y);
+            cache_key.max_x = std::bit_cast<std::uint32_t>(path.max_x);
+            cache_key.max_y = std::bit_cast<std::uint32_t>(path.max_y);
+            cache_key.scale = std::bit_cast<std::uint32_t>(raster_scale);
+            cache_key.subpixel_x =
+                std::bit_cast<std::uint32_t>(subpixel_x);
+            cache_key.subpixel_y =
+                std::bit_cast<std::uint32_t>(subpixel_y);
+            cache_key.fill_rule = path.fill_rule;
+            cache_key.sample_grid = path.sample_grid;
+
+            const float raster_min_x =
+                std::floor(path.min_x * raster_scale) - path_padding;
+            const float raster_min_y =
+                std::floor(path.min_y * raster_scale) - path_padding;
+            const float raster_max_x =
+                std::ceil(path.max_x * raster_scale) + path_padding;
+            const float raster_max_y =
+                std::ceil(path.max_y * raster_scale) + path_padding;
+            const double raster_width = raster_max_x - raster_min_x;
+            const double raster_height = raster_max_y - raster_min_y;
+            if (!std::isfinite(raster_width) ||
+                !std::isfinite(raster_height) ||
+                raster_width <= 0.0 || raster_height <= 0.0 ||
+                raster_width > native_max_atlas_size - 4U ||
+                raster_height > native_max_atlas_size - 4U) {
+                return false;
+            }
+
+            std::size_t raster_index = 0U;
+            const auto retained = retained_tiles.find(cache_key);
+            if (retained != retained_tiles.end()) {
+                raster_index = retained->second;
+            } else {
+                const auto raster_width_u =
+                    static_cast<std::uint32_t>(raster_width);
+                const auto raster_height_u =
+                    static_cast<std::uint32_t>(raster_height);
+                while (raster_width_u + 4U > required_atlas_size &&
+                       required_atlas_size < native_max_atlas_size) {
+                    required_atlas_size *= 2U;
+                }
+                if (atlas_x + raster_width_u + 2U > required_atlas_size) {
+                    atlas_x = 2U;
+                    atlas_y += row_height + 2U;
+                    row_height = 0U;
+                }
+                while (atlas_y + raster_height_u + 2U >
+                           required_atlas_size &&
+                       required_atlas_size < native_max_atlas_size) {
+                    required_atlas_size *= 2U;
+                }
+                if (atlas_y + raster_height_u + 2U >
+                    required_atlas_size) {
+                    return false;
+                }
+                const std::uint32_t output_bytes_per_row = align_up(
+                    raster_width_u,
+                    webgpu_copy_row_alignment);
+                output_offset = align_up(
+                    output_offset,
+                    webgpu_copy_row_alignment);
+                const std::uint64_t next_output =
+                    static_cast<std::uint64_t>(output_offset) +
+                    static_cast<std::uint64_t>(output_bytes_per_row) *
+                        raster_height_u;
+                if (next_output >
+                    std::numeric_limits<std::uint32_t>::max()) {
+                    return false;
+                }
+                raster_index = rasters.size();
+                rasters.push_back({
+                    atlas_x,
+                    atlas_y,
+                    raster_width_u,
+                    raster_height_u,
+                    output_offset,
+                    output_bytes_per_row,
+                    raster_scale,
+                    raster_scale,
+                    raster_min_x,
+                    raster_min_y,
+                    subpixel_x,
+                    subpixel_y
+                });
+                path_uniforms.push_back({
+                    raster_min_x - subpixel_x,
+                    raster_min_y - subpixel_y,
+                    raster_scale,
+                    raster_scale,
+                    static_cast<std::uint32_t>(raster_index),
+                    output_offset / 4U,
+                    output_bytes_per_row / 4U,
+                    raster_width_u,
+                    raster_height_u,
+                    path.sample_grid,
+                    0U,
+                    0U
+                });
+                path_records.push_back({
+                    static_cast<std::uint32_t>(path.segment_offset),
+                    static_cast<std::uint32_t>(path.segment_count),
+                    path.min_x,
+                    path.min_y,
+                    path.max_x,
+                    path.max_y,
+                    path.fill_rule,
+                    0U
+                });
+                retained_tiles.emplace(cache_key, raster_index);
+                output_offset = static_cast<std::uint32_t>(next_output);
+                atlas_x += raster_width_u + 2U;
+                row_height = std::max(row_height, raster_height_u);
+            }
+            const auto& raster = rasters[raster_index];
+            const float local_min_x = raster.raster_min_x / raster.scale_x;
+            const float local_min_y = raster.raster_min_y / raster.scale_y;
+            const float local_max_x =
+                (raster.raster_min_x + raster.width) / raster.scale_x;
+            const float local_max_y =
+                (raster.raster_min_y + raster.height) / raster.scale_y;
+            const std::array<progpu_native_point, 4U> local_points{{
+                {local_min_x, local_min_y},
+                {local_max_x, local_min_y},
+                {local_max_x, local_max_y},
+                {local_min_x, local_max_y}
+            }};
+            const std::array<progpu_native_point, 4U> atlas_points{{
+                {raster.atlas_x + raster.subpixel_x,
+                    raster.atlas_y + raster.subpixel_y},
+                {raster.atlas_x + raster.width + raster.subpixel_x,
+                    raster.atlas_y + raster.subpixel_y},
+                {raster.atlas_x + raster.width + raster.subpixel_x,
+                    raster.atlas_y + raster.height + raster.subpixel_y},
+                {raster.atlas_x + raster.subpixel_x,
+                    raster.atlas_y + raster.height + raster.subpixel_y}
+            }};
+            const std::uint32_t vertex_start =
+                static_cast<std::uint32_t>(vertices.size());
+            for (std::size_t corner = 0U; corner < 4U; ++corner) {
+                float logical_x = 0.0F;
+                float logical_y = 0.0F;
+                progpu::native::transform_point(
+                    path.transform,
+                    local_points[corner].x,
+                    local_points[corner].y,
+                    logical_x,
+                    logical_y);
+                gpu_clip_vertex vertex{};
+                vertex.position[0] =
+                    2.0F * logical_x * dpi_scale /
+                        static_cast<float>(width) -
+                    1.0F;
+                vertex.position[1] =
+                    1.0F - 2.0F * logical_y * dpi_scale /
+                        static_cast<float>(height);
+                vertex.atlas_uv[0] =
+                    atlas_points[corner].x /
+                    static_cast<float>(required_atlas_size);
+                vertex.atlas_uv[1] =
+                    atlas_points[corner].y /
+                    static_cast<float>(required_atlas_size);
+                vertices.push_back(vertex);
+            }
+            indices.insert(
+                indices.end(),
+                {vertex_start,
+                 vertex_start + 1U,
+                 vertex_start + 2U,
+                 vertex_start,
+                 vertex_start + 2U,
+                 vertex_start + 3U});
+            const gpu_clip_compose_uniforms compose{
+                path.operation,
+                index == 0U ? 1U : 0U,
+                width,
+                height
+            };
+            std::memcpy(
+                compose_uniform_bytes.data() + index * 256U,
+                &compose,
+                sizeof(compose));
+        }
+
+        const std::uint64_t vertex_bytes =
+            vertices.size() * sizeof(gpu_clip_vertex);
+        const std::uint64_t index_bytes =
+            indices.size() * sizeof(std::uint32_t);
+        const std::uint64_t compose_bytes =
+            compose_uniform_bytes.size();
+        WGPUBuffer old_vertex = engine.clip_vertex_buffer;
+        WGPUBuffer old_index = engine.clip_index_buffer;
+        WGPUBuffer old_uniform = engine.clip_compose_uniform_buffer;
+        if (!ensure_clip_buffer(
+                engine,
+                engine.clip_vertex_buffer,
+                engine.clip_vertex_buffer_size,
+                vertex_bytes,
+                WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                "ProGPU native retained clip vertices") ||
+            !ensure_clip_buffer(
+                engine,
+                engine.clip_index_buffer,
+                engine.clip_index_buffer_size,
+                index_bytes,
+                WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst,
+                "ProGPU native retained clip indices") ||
+            !ensure_clip_buffer(
+                engine,
+                engine.clip_compose_uniform_buffer,
+                engine.clip_compose_uniform_buffer_size,
+                compose_bytes,
+                WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
+                "ProGPU native retained clip composition uniforms") ||
+            !ensure_clip_textures(
+                engine,
+                width,
+                height,
+                required_atlas_size)) {
+            return false;
+        }
+        const bool binding_resources_changed =
+            old_vertex != engine.clip_vertex_buffer ||
+            old_index != engine.clip_index_buffer ||
+            old_uniform != engine.clip_compose_uniform_buffer ||
+            engine.clip_path_bind_group == nullptr;
+        if (binding_resources_changed &&
+            !rebuild_clip_bind_groups(engine)) {
+            return false;
+        }
+        if (engine.clip_path_bind_group == nullptr &&
+            !rebuild_clip_bind_groups(engine)) {
+            return false;
+        }
+
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.clip_vertex_buffer,
+            0U,
+            vertices.data(),
+            vertex_bytes);
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.clip_index_buffer,
+            0U,
+            indices.data(),
+            index_bytes);
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            engine.clip_compose_uniform_buffer,
+            0U,
+            compose_uniform_bytes.data(),
+            compose_bytes);
+
+        path_raster_resources temporary;
+        const auto create_buffer = [&engine](
+            const char* label,
+            std::uint64_t size,
+            progpu::native::webgpu::buffer_usage_flags usage) {
+            WGPUBufferDescriptor descriptor{};
+            descriptor.label = progpu::native::webgpu::string_view(label);
+            descriptor.size = std::max<std::uint64_t>(size, 4U);
+            descriptor.usage = usage;
+            return wgpuDeviceCreateBuffer(engine.device, &descriptor);
+        };
+        const std::uint64_t path_uniform_bytes =
+            path_uniforms.size() * sizeof(gpu_path_uniforms);
+        const std::uint64_t path_record_bytes =
+            path_records.size() * sizeof(gpu_path_record);
+        const std::uint64_t path_segment_bytes =
+            chain.segment_count * sizeof(progpu_native_path_segment);
+        temporary.uniforms = create_buffer(
+            "ProGPU native clip path uniforms",
+            path_uniform_bytes,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.records = create_buffer(
+            "ProGPU native clip path records",
+            path_record_bytes,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.segments = create_buffer(
+            "ProGPU native clip path segments",
+            path_segment_bytes,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.coverage = create_buffer(
+            "ProGPU native clip coverage staging",
+            output_offset,
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        if (temporary.uniforms == nullptr || temporary.records == nullptr ||
+            temporary.segments == nullptr || temporary.coverage == nullptr) {
+            return false;
+        }
+        wgpuQueueWriteBuffer(engine.queue, temporary.uniforms, 0U,
+            path_uniforms.data(), path_uniform_bytes);
+        wgpuQueueWriteBuffer(engine.queue, temporary.records, 0U,
+            path_records.data(), path_record_bytes);
+        wgpuQueueWriteBuffer(engine.queue, temporary.segments, 0U,
+            chain.segments, path_segment_bytes);
+        const std::array<WGPUBindGroupEntry, 4U> raster_entries{{
+            {nullptr, 0U, temporary.uniforms, 0U,
+                path_uniform_bytes, nullptr, nullptr},
+            {nullptr, 1U, temporary.records, 0U,
+                path_record_bytes, nullptr, nullptr},
+            {nullptr, 2U, temporary.segments, 0U,
+                path_segment_bytes, nullptr, nullptr},
+            {nullptr, 3U, temporary.coverage, 0U,
+                output_offset, nullptr, nullptr}
+        }};
+        WGPUBindGroupDescriptor raster_descriptor{};
+        raster_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip raster bind group");
+        raster_descriptor.layout = engine.path_raster_layout;
+        raster_descriptor.entryCount = raster_entries.size();
+        raster_descriptor.entries = raster_entries.data();
+        temporary.bind_group = wgpuDeviceCreateBindGroup(
+            engine.device,
+            &raster_descriptor);
+        if (temporary.bind_group == nullptr) {
+            return false;
+        }
+
+        WGPUCommandEncoderDescriptor encoder_descriptor{};
+        encoder_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip encoder");
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+            engine.device,
+            &encoder_descriptor);
+        if (encoder == nullptr) {
+            return false;
+        }
+        std::uint32_t workgroups_x = 0U;
+        std::uint32_t workgroups_y = 0U;
+        for (const auto& raster : rasters) {
+            workgroups_x = std::max(
+                workgroups_x,
+                (raster.width + 63U) / 64U);
+            workgroups_y = std::max(
+                workgroups_y,
+                (raster.height + 15U) / 16U);
+        }
+        WGPUComputePassDescriptor compute_descriptor{};
+        compute_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip coverage pass");
+        WGPUComputePassEncoder compute =
+            wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
+        if (compute == nullptr) {
+            wgpuCommandEncoderRelease(encoder);
+            return false;
+        }
+        wgpuComputePassEncoderSetPipeline(
+            compute,
+            engine.path_raster_pipeline);
+        wgpuComputePassEncoderSetBindGroup(
+            compute,
+            0U,
+            temporary.bind_group,
+            0U,
+            nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(
+            compute,
+            workgroups_x,
+            workgroups_y,
+            static_cast<std::uint32_t>(rasters.size()));
+        wgpuComputePassEncoderEnd(compute);
+        wgpuComputePassEncoderRelease(compute);
+        for (const auto& raster : rasters) {
+            progpu::native::webgpu::image_copy_buffer source{};
+            source.buffer = temporary.coverage;
+            source.layout.offset = raster.output_offset;
+            source.layout.bytesPerRow = raster.output_bytes_per_row;
+            source.layout.rowsPerImage = raster.height;
+            progpu::native::webgpu::image_copy_texture destination{};
+            destination.texture = engine.clip_atlas_texture;
+            destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
+            destination.aspect = WGPUTextureAspect_All;
+            const WGPUExtent3D extent{raster.width, raster.height, 1U};
+            wgpuCommandEncoderCopyBufferToTexture(
+                encoder,
+                &source,
+                &destination,
+                &extent);
+        }
+
+        for (std::uint32_t index = 0U;
+             index < static_cast<std::uint32_t>(chain.path_count);
+             ++index) {
+            WGPURenderPassColorAttachment node_attachment{};
+            progpu::native::webgpu::initialize_color_attachment(
+                node_attachment);
+            node_attachment.view = engine.clip_node_view;
+            node_attachment.loadOp = WGPULoadOp_Clear;
+            node_attachment.storeOp = WGPUStoreOp_Store;
+            node_attachment.clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
+            WGPURenderPassDescriptor node_descriptor{};
+            node_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU native retained clip node pass");
+            node_descriptor.colorAttachmentCount = 1U;
+            node_descriptor.colorAttachments = &node_attachment;
+            WGPURenderPassEncoder node_pass =
+                wgpuCommandEncoderBeginRenderPass(
+                    encoder,
+                    &node_descriptor);
+            if (node_pass == nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+                return false;
+            }
+            const std::uint32_t zero_offset = 0U;
+            wgpuRenderPassEncoderSetPipeline(
+                node_pass,
+                engine.clip_path_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(
+                node_pass,
+                0U,
+                engine.clip_path_bind_group,
+                1U,
+                &zero_offset);
+            wgpuRenderPassEncoderSetVertexBuffer(
+                node_pass,
+                0U,
+                engine.clip_vertex_buffer,
+                0U,
+                vertex_bytes);
+            wgpuRenderPassEncoderSetIndexBuffer(
+                node_pass,
+                engine.clip_index_buffer,
+                WGPUIndexFormat_Uint32,
+                0U,
+                index_bytes);
+            wgpuRenderPassEncoderDrawIndexed(
+                node_pass,
+                6U,
+                1U,
+                index * 6U,
+                0,
+                0U);
+            wgpuRenderPassEncoderEnd(node_pass);
+            wgpuRenderPassEncoderRelease(node_pass);
+
+            const std::uint32_t destination_index = index % 2U;
+            const std::uint32_t previous_index = 1U - destination_index;
+            WGPURenderPassColorAttachment compose_attachment{};
+            progpu::native::webgpu::initialize_color_attachment(
+                compose_attachment);
+            compose_attachment.view =
+                engine.clip_accumulation_views[destination_index];
+            compose_attachment.loadOp = WGPULoadOp_Clear;
+            compose_attachment.storeOp = WGPUStoreOp_Store;
+            compose_attachment.clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
+            WGPURenderPassDescriptor compose_descriptor{};
+            compose_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU native retained clip composition pass");
+            compose_descriptor.colorAttachmentCount = 1U;
+            compose_descriptor.colorAttachments = &compose_attachment;
+            WGPURenderPassEncoder compose_pass =
+                wgpuCommandEncoderBeginRenderPass(
+                    encoder,
+                    &compose_descriptor);
+            if (compose_pass == nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+                return false;
+            }
+            const std::uint32_t dynamic_offset = index * 256U;
+            wgpuRenderPassEncoderSetPipeline(
+                compose_pass,
+                engine.clip_compose_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(
+                compose_pass,
+                0U,
+                engine.clip_compose_bind_groups[previous_index],
+                1U,
+                &dynamic_offset);
+            wgpuRenderPassEncoderDraw(
+                compose_pass,
+                3U,
+                1U,
+                0U,
+                0U);
+            wgpuRenderPassEncoderEnd(compose_pass);
+            wgpuRenderPassEncoderRelease(compose_pass);
+        }
+
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained clip commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return false;
+        }
+        engine.submit(command);
+        wgpuCommandBufferRelease(command);
+
+        engine.clip_cached_revision = mask.revision;
+        engine.clip_cached_dpi_scale = dpi_scale;
+        engine.clip_final_index = static_cast<std::uint32_t>(
+            (chain.path_count - 1U) % 2U);
+        engine.clip_cache_valid = true;
+        engine.last_layer_metrics.clip_rasterized_path_count =
+            static_cast<std::uint32_t>(rasters.size());
+        engine.last_layer_metrics.clip_pass_count =
+            1U + static_cast<std::uint32_t>(chain.path_count) * 2U;
+        engine.last_layer_metrics.clip_path_upload_bytes =
+            path_uniform_bytes + path_record_bytes + path_segment_bytes +
+            vertex_bytes + index_bytes + compose_bytes;
+        engine.last_layer_metrics.clip_coverage_staging_bytes = output_offset;
+        engine.last_layer_metrics.clip_texture_bytes =
+            static_cast<std::uint64_t>(required_atlas_size) *
+                required_atlas_size +
+            static_cast<std::uint64_t>(width) * height * 3U;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
 bool update_layer_external_mask(
     progpu_native_engine& engine,
     const progpu_native_group_mask& mask,
@@ -2713,6 +3899,26 @@ bool update_layer_group_mask(
             (mask.destination_rect.width * dpi_scale);
         uniforms.coordinate1[1] = 1.0F /
             (mask.destination_rect.height * dpi_scale);
+        uniforms.options[0] = 1.0F;
+    } else if (mask.kind == PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
+        const bool was_cache_valid = engine.clip_cache_valid &&
+            engine.clip_cached_revision == mask.revision &&
+            engine.clip_cached_dpi_scale == dpi_scale &&
+            engine.clip_width == engine.layer_width &&
+            engine.clip_height == engine.layer_height;
+        if (!rebuild_vector_clip_chain(
+                engine,
+                mask,
+                engine.layer_width,
+                engine.layer_height,
+                dpi_scale)) {
+            return false;
+        }
+        binding_replaced = !was_cache_valid;
+        uniforms.coordinate1[0] =
+            1.0F / static_cast<float>(engine.layer_width);
+        uniforms.coordinate1[1] =
+            1.0F / static_cast<float>(engine.layer_height);
         uniforms.options[0] = 1.0F;
     } else if (!create_rounded_group_mask_uniforms(
             mask,
@@ -2934,14 +4140,20 @@ bool encode_layer_composite(
         apply_scissor(pass, draw_state);
         WGPUBindGroup mask_bind_group = nullptr;
         if (draw_state.has_group_mask) {
-            mask_bind_group =
-                draw_state.group_mask.kind ==
-                    PROGPU_NATIVE_GROUP_MASK_TEXTURE
-                ? (draw_state.group_mask.sampling ==
+            if (draw_state.group_mask.kind ==
+                PROGPU_NATIVE_GROUP_MASK_TEXTURE) {
+                mask_bind_group =
+                    draw_state.group_mask.sampling ==
                         PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
                     ? engine.layer_external_mask_nearest_bind_group
-                    : engine.layer_external_mask_linear_bind_group)
-                : engine.layer_analytic_mask_bind_group;
+                    : engine.layer_external_mask_linear_bind_group;
+            } else if (draw_state.group_mask.kind ==
+                PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
+                mask_bind_group = engine.layer_clip_mask_bind_groups[
+                    engine.clip_final_index];
+            } else {
+                mask_bind_group = engine.layer_analytic_mask_bind_group;
+            }
             if (mask_bind_group == nullptr) {
                 wgpuRenderPassEncoderEnd(pass);
                 wgpuRenderPassEncoderRelease(pass);
@@ -3593,7 +4805,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE |
         PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY |
         PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK |
-        PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK;
+        PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK |
+        PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else

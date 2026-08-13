@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace ProGPU.Backend.Native;
@@ -77,7 +78,14 @@ public enum NativeGroupMaskKind : uint
 {
     None = 0,
     Texture = 1,
-    RoundedRectangle = 2
+    RoundedRectangle = 2,
+    VectorClipChain = 3
+}
+
+public enum NativeClipOperation : uint
+{
+    Intersect = 0,
+    Difference = 1
 }
 
 internal enum NativeMaskTextureFormat : uint
@@ -145,7 +153,8 @@ public enum NativeRendererCapabilities : ulong
     FrameDrawState = 1UL << 20,
     GroupOpacity = 1UL << 21,
     CommonGroupMask = 1UL << 22,
-    AnalyticRoundedGroupMask = 1UL << 23
+    AnalyticRoundedGroupMask = 1UL << 23,
+    RetainedVectorClipChain = 1UL << 24
 }
 
 [Flags]
@@ -162,7 +171,9 @@ public enum NativeDrawStateFlags : uint
 /// A texture mask remains zero-copy and samples its red channel. Keep its
 /// texture alive until another mask view replaces it or the compositor is
 /// disposed. Rounded-rectangle bounds and radii use local coordinates while
-/// Transform maps that local space to logical target coordinates.
+/// Transform maps that local space to logical target coordinates. Vector clip
+/// chains remain immutable and pinned so their typed segment payload crosses
+/// the C ABI without a per-frame copy or pin allocation.
 /// </remarks>
 public readonly struct NativeGroupMask
 {
@@ -176,7 +187,8 @@ public readonly struct NativeGroupMask
         Matrix3x2 transform,
         Vector4 cornerRadiiX,
         Vector4 cornerRadiiY,
-        float opacity)
+        float opacity,
+        NativeClipChain? clipChain)
     {
         Kind = kind;
         Texture = texture;
@@ -188,6 +200,7 @@ public readonly struct NativeGroupMask
         CornerRadiiX = cornerRadiiX;
         CornerRadiiY = cornerRadiiY;
         Opacity = opacity;
+        ClipChain = clipChain;
     }
 
     public static NativeGroupMask TextureMask(
@@ -204,7 +217,8 @@ public readonly struct NativeGroupMask
             Matrix3x2.Identity,
             default,
             default,
-            1f);
+            1f,
+            null);
 
     public static NativeGroupMask RoundedRectangle(
         NativeImageRect bounds,
@@ -221,7 +235,30 @@ public readonly struct NativeGroupMask
             transform,
             cornerRadiiX,
             cornerRadiiY,
-            opacity);
+            opacity,
+            null);
+
+    public static NativeGroupMask VectorClipChain(
+        NativeClipChain clipChain,
+        uint revision)
+    {
+        ArgumentNullException.ThrowIfNull(clipChain);
+        if (revision == 0U)
+            throw new ArgumentOutOfRangeException(nameof(revision));
+
+        return new(
+            NativeGroupMaskKind.VectorClipChain,
+            null,
+            default,
+            NativeImageSampling.Linear,
+            revision,
+            default,
+            Matrix3x2.Identity,
+            default,
+            default,
+            1f,
+            clipChain);
+    }
 
     public NativeGroupMaskKind Kind { get; }
     public GpuTexture? Texture { get; }
@@ -233,6 +270,7 @@ public readonly struct NativeGroupMask
     public Vector4 CornerRadiiX { get; }
     public Vector4 CornerRadiiY { get; }
     public float Opacity { get; }
+    public NativeClipChain? ClipChain { get; }
     public bool IsEnabled => Kind != NativeGroupMaskKind.None;
 }
 
@@ -673,6 +711,141 @@ public readonly struct NativePathFill
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeClipPath
+{
+    public NativeClipPath(
+        nuint segmentOffset,
+        nuint segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        Matrix3x2 transform,
+        NativeClipOperation operation = NativeClipOperation.Intersect,
+        NativeFillRule fillRule = NativeFillRule.NonZero,
+        uint sampleGrid = 4)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        Transform = transform;
+        FillRule = fillRule;
+        SampleGrid = sampleGrid;
+        Operation = operation;
+        Reserved = 0U;
+    }
+
+    public readonly nuint SegmentOffset;
+    public readonly nuint SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly Matrix3x2 Transform;
+    public readonly NativeFillRule FillRule;
+    public readonly uint SampleGrid;
+    public readonly NativeClipOperation Operation;
+    private readonly uint Reserved;
+}
+
+/// <summary>
+/// Owns one immutable, allocation-free-on-replay native vector clip payload.
+/// </summary>
+/// <remarks>
+/// Construction copies the two arenas once into pinned-object-heap arrays.
+/// Rendering then borrows stable typed pointers for the duration of one native
+/// call; the C++ engine retains only the resulting GPU coverage and revision.
+/// </remarks>
+public sealed unsafe class NativeClipChain
+{
+    private readonly NativeClipPath[] _paths;
+    private readonly NativePathSegment[] _segments;
+
+    public NativeClipChain(
+        ReadOnlySpan<NativeClipPath> paths,
+        ReadOnlySpan<NativePathSegment> segments)
+    {
+        if (paths.IsEmpty)
+            throw new ArgumentException("A native clip chain requires at least one path.", nameof(paths));
+        if (segments.IsEmpty)
+            throw new ArgumentException("A native clip chain requires path segments.", nameof(segments));
+
+        nuint segmentLength = (nuint)segments.Length;
+        for (int index = 0; index < paths.Length; index++)
+        {
+            NativeClipPath path = paths[index];
+            if (path.SegmentCount == 0U ||
+                path.SegmentOffset > segmentLength ||
+                path.SegmentCount > segmentLength - path.SegmentOffset ||
+                !IsFinite(path.Minimum) ||
+                !IsFinite(path.Maximum) ||
+                path.Maximum.X <= path.Minimum.X ||
+                path.Maximum.Y <= path.Minimum.Y ||
+                !IsFinite(path.Transform) ||
+                MathF.Abs(path.Transform.GetDeterminant()) <= 0.000001f ||
+                path.FillRule > NativeFillRule.EvenOdd ||
+                path.SampleGrid is not (4U or 8U) ||
+                path.Operation > NativeClipOperation.Difference)
+            {
+                throw new ArgumentException(
+                    $"Clip path {index} is invalid or references segments outside the retained arena.",
+                    nameof(paths));
+            }
+        }
+        for (int index = 0; index < segments.Length; index++)
+        {
+            NativePathSegment segment = segments[index];
+            if (segment.Kind > NativePathSegmentKind.Arc ||
+                !IsFinite(segment.P0) ||
+                !IsFinite(segment.P1) ||
+                !IsFinite(segment.P2) ||
+                !IsFinite(segment.P3) ||
+                (segment.Kind == NativePathSegmentKind.Arc &&
+                 (segment.P3.X <= 0f || segment.P3.Y <= 0f ||
+                  !float.IsFinite(BitConverter.Int32BitsToSingle(
+                      unchecked((int)segment.Pad0))) ||
+                  !float.IsFinite(BitConverter.Int32BitsToSingle(
+                      unchecked((int)segment.Pad1))) ||
+                  !float.IsFinite(BitConverter.Int32BitsToSingle(
+                      unchecked((int)segment.Pad2))))) ||
+                (segment.Kind != NativePathSegmentKind.Arc &&
+                 (segment.Pad0 != 0U || segment.Pad1 != 0U ||
+                  segment.Pad2 != 0U)))
+            {
+                throw new ArgumentException(
+                    $"Clip segment {index} is invalid.",
+                    nameof(segments));
+            }
+        }
+
+        _paths = GC.AllocateUninitializedArray<NativeClipPath>(
+            paths.Length,
+            pinned: true);
+        _segments = GC.AllocateUninitializedArray<NativePathSegment>(
+            segments.Length,
+            pinned: true);
+        paths.CopyTo(_paths);
+        segments.CopyTo(_segments);
+    }
+
+    public int PathCount => _paths.Length;
+    public int SegmentCount => _segments.Length;
+
+    internal NativeClipPath* Paths =>
+        (NativeClipPath*)Unsafe.AsPointer(
+            ref MemoryMarshal.GetArrayDataReference(_paths));
+
+    internal NativePathSegment* Segments =>
+        (NativePathSegment*)Unsafe.AsPointer(
+            ref MemoryMarshal.GetArrayDataReference(_segments));
+
+    private static bool IsFinite(Vector2 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private static bool IsFinite(Matrix3x2 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32);
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeGlyphOutline
 {
     public NativeGlyphOutline(
@@ -822,7 +995,14 @@ public readonly record struct NativeLayerMetrics(
     uint MaskRevision,
     uint MaskBindGroupGeneration,
     bool MaskBindGroupCacheHit,
-    ulong MaskUniformUploadBytes);
+    ulong MaskUniformUploadBytes,
+    uint ClipPathCount,
+    uint ClipRasterizedPathCount,
+    uint ClipPassCount,
+    bool ClipCacheHit,
+    ulong ClipPathUploadBytes,
+    ulong ClipCoverageStagingBytes,
+    ulong ClipTextureBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

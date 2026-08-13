@@ -662,9 +662,9 @@ generation, allocation count, pass counts, hit state, texture bytes, and
 composite uploads without enlarging legacy family metric records.
 
 This is one isolated group around a frame family, not a nested opacity/clip
-stack. Arbitrary/path clip chains, opacity masks, blend isolation, effects,
-nested layer commands, bounded multi-layer pooling, and device-loss recreation
-remain the next semantic-scene slice.
+stack. The retained vector clip-chain increment below can mask this group, but
+nested layer commands, blend isolation, effects, bounded multi-layer pooling,
+and device-loss recreation remain later semantic-scene work.
 
 ### Phase 2 common mask and clip checkpoint
 
@@ -681,10 +681,11 @@ representations already supported by the production `Texture.wgsl` contract:
 The versioned mask descriptor is referenced only by an appended draw-state
 field. A 32-byte legacy state has primitive opacity and rectangle clip only, a
 40-byte state additionally has group opacity/revision, and the 48-byte 64-bit
-or 44-byte 32-bit state may publish the mask pointer. The referenced descriptor
-is 144 bytes on 64-bit and 140 bytes on 32-bit. Each prefix is read only after
-its own explicit size threshold; extending the full draw-state size must never
-make a 40-byte caller lose group semantics. The native boundary validates descriptor
+or 44-byte 32-bit state may publish the mask pointer. The original descriptor
+prefix is 144 bytes on 64-bit and 140 bytes on 32-bit; the current descriptor
+appends a clip-chain pointer and is 152/144 bytes. Each prefix is read only
+after its own explicit size threshold; extending the full draw-state size must
+never make a 40-byte caller lose group semantics. The native boundary validates descriptor
 size/kind/flags/reserved fields, finite mapping values, dimensions, sampling,
 supported formats, and source/target aliasing before it retains a texture view
 or begins command encoding. The safe .NET surface additionally validates the
@@ -711,28 +712,62 @@ image. An unchanged retained replay is `O(1)` CPU work plus one composite draw
 and performs zero mask, family, vertex, index, brush, atlas, or source-texture
 upload. First use retains `O(1)` WebGPU objects in addition to the existing
 `O(W*H)` RGBA group texture; sampled masks retain but do not duplicate their
-producer texture. The append-only layer metric record is now 80 bytes while
-the getter still accepts the original 56-byte prefix. It reports mask kind,
+producer texture. The common-mask layer metric prefix is 80 bytes while the
+getter still accepts the original 56-byte prefix. It reports mask kind,
 revision, bind-group generation/hit state, and dedicated mask-uniform upload
 bytes without changing any family metric record.
 
-Both mask representations are implemented across solid, analytic, indexed
+Both initial mask representations are implemented across solid, analytic, indexed
 geometry, retained path, positioned glyph, and retained image families. The
 real WebScene/Dawn/Metal provider test covers both legacy draw-state prefixes,
 invalid kinds, target alias rejection, retained sampled/analytic replay, the
 legacy metric prefix, and zero-upload unchanged replay. The matched benchmark
-gate exercises all twelve family/mask combinations and fails on content-cache
+gate exercises those twelve family/mask combinations and fails on content-cache
 misses, bind-group churn, stable uniform uploads, or output divergence.
 
-This increment is not arbitrary clip-chain parity. A general clip is a retained
-ordered intersection/difference expression with its own transform and fill
-rule. Under arbitrary affine transforms, reducing analytic arcs to transformed
-axis-aligned bounds or applying one scalar scale is incorrect. The later
-semantic-scene checkpoint will retain clip-chain identity, reuse the existing
-path atlas/boolean program where exact, and compose bounded R8 coverage for
-complex chains. Until differential images, retained invalidation, nested layer
-semantics, and device-loss recreation pass, the parent non-rectangular
-clip/mask/effects milestone remains open.
+### Phase 2 retained vector clip-chain checkpoint
+
+The fifth additive ABI-v3 extension adds the arbitrary retained path portion of
+the common clip contract. A clip chain is an immutable caller-owned arena of
+line, quadratic, cubic, and analytic-arc segments plus ordered path nodes. Each
+node carries exact local extrema bounds, an independent affine transform, a
+nonzero/even-odd fill rule, a 4x4 or 8x8 coverage grid, and intersection or
+difference. The containing mask revision is the retained identity. The safe
+.NET owner copies both arenas once into pinned-object-heap arrays, validates
+all ranges and finite state, and then publishes stable typed pointers only for
+the duration of the native render call. C++ never retains caller memory.
+
+Changed chains reuse the production `PathRasterizer.wgsl` compute kernel. Each
+unique local path is rasterized once into a dedicated R8 atlas at the maximum
+singular-value physical scale, preserving exact affine placement and analytic
+arc coverage rather than flattening transformed arcs to bounds. One bounded
+quad samples that atlas into a target-sized R8 node texture. The embedded
+`ClipCompose.wgsl` module then evaluates ordered intersection or difference
+into two ping-pong R8 accumulators. The final accumulator is sampled once by
+the existing group-composite mask binding. This clean-room design adopts
+WebRender's retained clip identity and complex mask-cache split, Vello's
+explicit ordered layer/clip model, Skia's transformed clip-stack behavior, and
+Direct2D's group-layer mask boundary without copying any implementation.
+
+For `C` clip nodes, `U <= C` unique paths, total segment count `S`, target area
+`W*H`, atlas coverage area `A`, and per-path sample grid `Q`, a changed revision
+uses `O(C + S)` CPU validation/packing, `O(A*Q^2*S_u)` bounded compute
+rasterization over each unique path's segment count, and `O(C*W*H)` mask
+composition. Retained storage is one bounded R8 atlas plus three target-sized
+R8 textures, or `O(A + W*H)` bytes. Stable matching revision/DPI/target replay
+is `O(1)`: it performs zero clip passes, zero clip/coverage upload, zero family
+content pass, and one final composite draw. Mutation and stable-state counters
+append the layer metric record to 120 bytes; the getter remains compatible with
+both the original 56-byte and common-mask 80-byte prefixes.
+
+The matched Release gate exercises the vector chain across solid, analytic,
+indexed geometry, retained path, positioned glyph, and retained image families.
+It fails on retained-content rebuilds, stable clip rerasterization/uploads,
+managed allocation in the native submission interval, or a differential beyond
+the independently bounded AA-edge contract. Nested semantic layer stacks,
+non-source-over blends, filters/effects, text-as-clip specialization, and
+device-loss recreation remain open; therefore the broader clip/mask/effects
+milestone is not yet complete.
 
 This slice does not alter Unicode shaping, line layout, glyph selection, or
 HarfBuzz/DirectWrite/Skia shaping-plan reuse. It masks the already positioned

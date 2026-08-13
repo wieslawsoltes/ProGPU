@@ -112,7 +112,14 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.MaskRevision,
             metrics.MaskBindGroupGeneration,
             metrics.MaskBindGroupCacheHit != 0U,
-            metrics.MaskUniformUploadBytes);
+            metrics.MaskUniformUploadBytes,
+            metrics.ClipPathCount,
+            metrics.ClipRasterizedPathCount,
+            metrics.ClipPassCount,
+            metrics.ClipCacheHit != 0U,
+            metrics.ClipPathUploadBytes,
+            metrics.ClipCoverageStagingBytes,
+            metrics.ClipTextureBytes);
     }
 
     /// <summary>
@@ -170,10 +177,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (NativeSolidRectangle* rectanglePointer = rectangles)
         {
@@ -204,6 +213,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             {
                 ThrowIfDisposed();
                 var status = NativeMethods.Render(_engine, &frame, &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -211,7 +221,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativeFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.VertexCount,
@@ -230,10 +239,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (NativeAnalyticPrimitive* primitivePointer = primitives)
         {
@@ -267,6 +278,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     _engine,
                     &frame,
                     &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -274,7 +286,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativeAnalyticFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.VertexCount,
@@ -380,10 +391,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (NativeGeometryPrimitive* primitivePointer = primitives)
         fixed (Vector2* pointPointer = points)
@@ -439,6 +452,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     _engine,
                     &frame,
                     &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -446,7 +460,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativeGeometryFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.VertexCount,
@@ -472,10 +485,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (NativePathFill* pathPointer = paths)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -516,6 +531,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             {
                 ThrowIfDisposed();
                 var status = NativeMethods.RenderPaths(_engine, &frame, &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -523,7 +539,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativePathFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.VertexCount,
@@ -556,10 +571,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (NativeGlyphOutline* outlinePointer = outlines)
         fixed (NativePathSegment* segmentPointer = segments)
@@ -606,6 +623,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     _engine,
                     &frame,
                     &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -613,7 +631,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativeGlyphFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.GlyphCount,
@@ -650,10 +667,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
 
         fixed (byte* pixelPointer = rgbaPixels)
         {
@@ -701,6 +720,7 @@ public sealed unsafe class NativeCompositor : IDisposable
                     _engine,
                     &frame,
                     &metrics);
+                GC.KeepAlive(drawState.GroupMask.ClipChain);
                 if (status != NativeRendererStatus.Success)
                 {
                     throw new NativeRendererException(status, ReadLastError());
@@ -708,7 +728,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 target.NotifyExternalContentChanged();
                 _context.PollDevice(wait: false);
             }
-
             return new NativeImageFrameMetrics(
                 metrics.DrawCallCount,
                 metrics.VertexCount,
@@ -752,10 +771,12 @@ public sealed unsafe class NativeCompositor : IDisposable
         ValidateTarget(target);
         ValidateImageSource(source, target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -803,6 +824,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             ThrowIfDisposed();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            GC.KeepAlive(drawState.GroupMask.ClipChain);
             if (status != NativeRendererStatus.Success)
             {
                 throw new NativeRendererException(status, ReadLastError());
@@ -810,7 +832,6 @@ public sealed unsafe class NativeCompositor : IDisposable
             target.NotifyExternalContentChanged();
             _context.PollDevice(wait: false);
         }
-
         return new NativeImageFrameMetrics(
             metrics.DrawCallCount,
             metrics.VertexCount,
@@ -856,10 +877,12 @@ public sealed unsafe class NativeCompositor : IDisposable
         ValidateImageSource(source, target);
         ValidateImageMask(mask, target);
         NativeMethods.GroupMask nativeGroupMask = default;
+        NativeMethods.ClipChain nativeClipChain = default;
         var nativeDrawState = CreateDrawState(
             drawState,
             target,
-            &nativeGroupMask);
+            &nativeGroupMask,
+            &nativeClipChain);
         var frame = new NativeMethods.ImageFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.ImageFrame>(),
@@ -902,6 +925,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             ThrowIfDisposed();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            GC.KeepAlive(drawState.GroupMask.ClipChain);
             if (status != NativeRendererStatus.Success)
             {
                 throw new NativeRendererException(status, ReadLastError());
@@ -909,7 +933,6 @@ public sealed unsafe class NativeCompositor : IDisposable
             target.NotifyExternalContentChanged();
             _context.PollDevice(wait: false);
         }
-
         return new NativeImageFrameMetrics(
             metrics.DrawCallCount,
             metrics.VertexCount,
@@ -1128,12 +1151,16 @@ public sealed unsafe class NativeCompositor : IDisposable
     private NativeMethods.DrawState CreateDrawState(
         NativeDrawState state,
         GpuTexture target,
-        NativeMethods.GroupMask* nativeGroupMask)
+        NativeMethods.GroupMask* nativeGroupMask,
+        NativeMethods.ClipChain* nativeClipChain)
     {
         nuint groupMaskPointer = 0U;
         if (state.GroupMask.IsEnabled)
         {
-            *nativeGroupMask = CreateGroupMask(state.GroupMask, target);
+            *nativeGroupMask = CreateGroupMask(
+                state.GroupMask,
+                target,
+                nativeClipChain);
             groupMaskPointer = (nuint)nativeGroupMask;
         }
 
@@ -1152,7 +1179,8 @@ public sealed unsafe class NativeCompositor : IDisposable
 
     private NativeMethods.GroupMask CreateGroupMask(
         NativeGroupMask mask,
-        GpuTexture target)
+        GpuTexture target,
+        NativeMethods.ClipChain* nativeClipChain)
     {
         switch (mask.Kind)
         {
@@ -1213,6 +1241,38 @@ public sealed unsafe class NativeCompositor : IDisposable
                     CornerRadiiX = mask.CornerRadiiX,
                     CornerRadiiY = mask.CornerRadiiY,
                     Opacity = mask.Opacity
+                };
+            }
+            case NativeGroupMaskKind.VectorClipChain:
+            {
+                NativeClipChain chain = mask.ClipChain ??
+                    throw new ArgumentException(
+                        "A native vector group mask requires a retained clip chain.",
+                        nameof(mask));
+                if (mask.Revision == 0U)
+                {
+                    throw new ArgumentException(
+                        "A native vector group mask requires a nonzero revision.",
+                        nameof(mask));
+                }
+
+                *nativeClipChain = new NativeMethods.ClipChain
+                {
+                    StructSize = (uint)Unsafe.SizeOf<NativeMethods.ClipChain>(),
+                    Paths = chain.Paths,
+                    PathCount = (nuint)chain.PathCount,
+                    Segments = chain.Segments,
+                    SegmentCount = (nuint)chain.SegmentCount
+                };
+                return new NativeMethods.GroupMask
+                {
+                    StructSize = (uint)Unsafe.SizeOf<NativeMethods.GroupMask>(),
+                    Kind = NativeGroupMaskKind.VectorClipChain,
+                    Sampling = NativeImageSampling.Linear,
+                    Revision = mask.Revision,
+                    Transform = Matrix3x2.Identity,
+                    Opacity = 1f,
+                    ClipChain = nativeClipChain
                 };
             }
             default:

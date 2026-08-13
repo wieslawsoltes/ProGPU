@@ -163,12 +163,21 @@ bool useRoundedGroupMask = Array.Exists(
         value,
         "--group-rounded-mask",
         StringComparison.OrdinalIgnoreCase));
-if (useTextureGroupMask && useRoundedGroupMask)
+bool useVectorClipChain = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-vector-clip-chain",
+        StringComparison.OrdinalIgnoreCase));
+if ((useTextureGroupMask ? 1 : 0) +
+    (useRoundedGroupMask ? 1 : 0) +
+    (useVectorClipChain ? 1 : 0) > 1)
 {
     throw new ArgumentException(
         "Select only one common group-mask benchmark mode.");
 }
-bool useGroupMask = useTextureGroupMask || useRoundedGroupMask;
+bool useGroupMask = useTextureGroupMask || useRoundedGroupMask ||
+    useVectorClipChain;
 int analyticKind = ReadArgument("--analytic-kind", -1);
 int geometryKind = ReadArgument("--geometry-kind", -1);
 int geometryLineMode = ReadArgument("--geometry-line-mode", -1);
@@ -320,6 +329,10 @@ using GpuTexture? managedImageMaskTexture = useMaskedImageScene ||
         alphaMode: GpuTextureAlphaMode.Straight)
     : null;
 managedImageMaskTexture?.WritePixels<byte>(imageMaskPixels);
+(NativeClipChain Native, PathGeometry Managed) vectorClipChain =
+    useVectorClipChain
+        ? CreateVectorClipChain(logicalWidth, logicalHeight)
+        : default;
 NativeGroupMask nativeGroupMask = useTextureGroupMask
     ? NativeGroupMask.TextureMask(
         managedImageMaskTexture!,
@@ -340,6 +353,8 @@ NativeGroupMask nativeGroupMask = useTextureGroupMask
         Matrix3x2.Identity,
         new Vector4(36f),
         new Vector4(36f))
+    : useVectorClipChain
+    ? NativeGroupMask.VectorClipChain(vectorClipChain.Native, revision: 1U)
     : default;
 nativeDrawState = useDrawState || useGroupOpacity || useGroupMask
     ? new NativeDrawState(
@@ -468,6 +483,10 @@ else if (useRoundedGroupMask)
         36f,
         36f);
 }
+else if (useVectorClipChain)
+{
+    managedVisual.GeometryClip = vectorClipChain.Managed;
+}
 
 // A growth gate first establishes the ordinary 1024-square resource, then
 // changes revision to a larger retained set. This exercises transactional
@@ -588,7 +607,8 @@ if (useGroupMask)
                 logicalHeight - 80f),
             NativeImageSampling.Linear,
             revision: 1U)
-        : NativeGroupMask.RoundedRectangle(
+        : useRoundedGroupMask
+        ? NativeGroupMask.RoundedRectangle(
             new NativeImageRect(
                 60f,
                 40f,
@@ -596,7 +616,10 @@ if (useGroupMask)
                 logicalHeight - 80f),
             Matrix3x2.CreateTranslation(4f, 0f),
             new Vector4(36f),
-            new Vector4(36f));
+            new Vector4(36f))
+        : NativeGroupMask.VectorClipChain(
+            vectorClipChain.Native,
+            revision: 2U);
     nativeDrawState = new NativeDrawState(
         originalDrawState.Opacity,
         originalDrawState.ClipRect,
@@ -606,11 +629,17 @@ if (useGroupMask)
         mutatedMask);
     RenderNative();
     NativeLayerMetrics mutatedLayerMetrics = native.GetLayerMetrics();
-    if (!mutatedLayerMetrics.CacheHit ||
+    bool validMutation = !mutatedLayerMetrics.CacheHit ||
         mutatedLayerMetrics.ContentPassCount != 0U ||
         mutatedLayerMetrics.CompositePassCount != 1U ||
-        mutatedLayerMetrics.MaskKind != mutatedMask.Kind ||
-        mutatedLayerMetrics.MaskUniformUploadBytes != 96UL)
+        mutatedLayerMetrics.MaskKind != mutatedMask.Kind;
+    validMutation |= useVectorClipChain
+        ? mutatedLayerMetrics.ClipCacheHit ||
+          mutatedLayerMetrics.ClipRasterizedPathCount == 0U ||
+          mutatedLayerMetrics.ClipPassCount == 0U ||
+          mutatedLayerMetrics.ClipPathUploadBytes == 0UL
+        : mutatedLayerMetrics.MaskUniformUploadBytes != 96UL;
+    if (validMutation)
     {
         throw new InvalidOperationException(
             "Mask-only mutation rebuilt retained content or did not update " +
@@ -631,7 +660,13 @@ if (useGroupMask &&
      stableLayerMetrics.MaskKind != nativeGroupMask.Kind ||
      !stableLayerMetrics.MaskBindGroupCacheHit ||
      stableLayerMetrics.MaskUniformUploadBytes != 0UL ||
-     stableLayerMetrics.UniformUploadBytes != 0UL))
+     stableLayerMetrics.UniformUploadBytes != 0UL ||
+     (useVectorClipChain &&
+      (!stableLayerMetrics.ClipCacheHit ||
+       stableLayerMetrics.ClipRasterizedPathCount != 0U ||
+       stableLayerMetrics.ClipPassCount != 0U ||
+       stableLayerMetrics.ClipPathUploadBytes != 0UL ||
+       stableLayerMetrics.ClipCoverageStagingBytes != 0UL))))
 {
     throw new InvalidOperationException(
         "Stable common-mask replay rebuilt content or uploaded composite state.");
@@ -794,6 +829,8 @@ bool usesCommonMaskDifferential = useGroupMask &&
 bool usesDrawStateClipImage = useDrawState && useImageScene;
 int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
+    : useVectorClipChain
+    ? usesGeometryDifferential ? 204 : 64
     : useMaskedImageScene
     ? 1
     : usesCommonMaskDifferential ? 3
@@ -802,6 +839,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
 int maximumAllowedPixelsOverTolerance =
     usesDrawStateClipImage
         ? 2048
+        : useVectorClipChain
+        ? Math.Max(1, comparison.PixelCount / 100)
         : usesGeometryDifferential
         ? useSplineGeometryScene || useDashedGeometryScene
             ? Math.Max(1, rectangleCount / 32)
@@ -815,6 +854,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     // UVs; native uses the fixed-function scissor and leaves interpolation
     // untouched. Differences are restricted to the one-pixel clip perimeter.
     ? 0.05
+    : useVectorClipChain
+    ? 0.075
     : useMaskedImageScene
     ? 0.05
     : useTextureGroupMask
@@ -1003,6 +1044,8 @@ var report = new BenchmarkReport(
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     DifferentialContract: usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
+        : useVectorClipChain
+        ? "Bounded retained vector-clip AA differential: max 64/255, under 1% edge pixels beyond 3/255, mean under 0.075/255 per channel"
         : useMaskedImageScene
         ? "Near-exact; direct mask sampling versus quantized managed R8 intermediate"
         : useGroupMask && usesGeometryDifferential
@@ -1030,6 +1073,8 @@ var report = new BenchmarkReport(
         ? "RoundedRectangle"
         : useTextureGroupMask
             ? "Texture"
+            : useVectorClipChain
+                ? "VectorClipChain"
             : "None",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
@@ -2387,6 +2432,110 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
     }
     return (paths, segments);
 }
+
+static (NativeClipChain Native, PathGeometry Managed) CreateVectorClipChain(
+    float logicalWidth,
+    float logicalHeight)
+{
+    const float kappa = 0.55228475f;
+    var segments = new[]
+    {
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(0f, -1f),
+            new Vector2(kappa, -1f),
+            new Vector2(1f, -kappa),
+            new Vector2(1f, 0f)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(1f, 0f),
+            new Vector2(1f, kappa),
+            new Vector2(kappa, 1f),
+            new Vector2(0f, 1f)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(0f, 1f),
+            new Vector2(-kappa, 1f),
+            new Vector2(-1f, kappa),
+            new Vector2(-1f, 0f)),
+        new NativePathSegment(
+            NativePathSegmentKind.Cubic,
+            new Vector2(-1f, 0f),
+            new Vector2(-1f, -kappa),
+            new Vector2(-kappa, -1f),
+            new Vector2(0f, -1f))
+    };
+    Matrix3x2 outerTransform = Matrix3x2.CreateScale(
+            logicalWidth * 0.34f,
+            logicalHeight * 0.34f) *
+        Matrix3x2.CreateRotation(0.12f) *
+        Matrix3x2.CreateTranslation(
+            logicalWidth * 0.5f,
+            logicalHeight * 0.5f);
+    Matrix3x2 holeTransform = Matrix3x2.CreateScale(
+            logicalWidth * 0.12f,
+            logicalHeight * 0.15f) *
+        Matrix3x2.CreateSkew(0.18f, -0.08f) *
+        Matrix3x2.CreateRotation(-0.35f) *
+        Matrix3x2.CreateTranslation(
+            logicalWidth * 0.54f,
+            logicalHeight * 0.48f);
+    var paths = new[]
+    {
+        new NativeClipPath(
+            0U,
+            (nuint)segments.Length,
+            new Vector2(-1f),
+            new Vector2(1f),
+            outerTransform,
+            NativeClipOperation.Intersect,
+            sampleGrid: 8U),
+        new NativeClipPath(
+            0U,
+            (nuint)segments.Length,
+            new Vector2(-1f),
+            new Vector2(1f),
+            holeTransform,
+            NativeClipOperation.Difference,
+            sampleGrid: 8U)
+    };
+
+    PathGeometry unitCircle = new();
+    PathFigure figure = new(new Vector2(0f, -1f), isClosed: true);
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(kappa, -1f),
+        new Vector2(1f, -kappa),
+        new Vector2(1f, 0f)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(1f, kappa),
+        new Vector2(kappa, 1f),
+        new Vector2(0f, 1f)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(-kappa, 1f),
+        new Vector2(-1f, kappa),
+        new Vector2(-1f, 0f)));
+    figure.Segments.Add(new CubicBezierSegment(
+        new Vector2(-1f, -kappa),
+        new Vector2(-kappa, -1f),
+        new Vector2(0f, -1f)));
+    unitCircle.Figures.Add(figure);
+
+    var managed = new PathGeometry
+    {
+        IsCombined = true,
+        PathA = unitCircle.CreateTransformed(ToMatrix4x4(outerTransform)),
+        PathB = unitCircle.CreateTransformed(ToMatrix4x4(holeTransform)),
+        Op = 0,
+        FillRule = FillRule.Nonzero
+    };
+    return (new NativeClipChain(paths, segments), managed);
+}
+
+static Matrix4x4 ToMatrix4x4(Matrix3x2 value) => new(
+    value.M11, value.M12, 0f, 0f,
+    value.M21, value.M22, 0f, 0f,
+    0f, 0f, 1f, 0f,
+    value.M31, value.M32, 0f, 1f);
 
 static DrawingVisual CreateManagedPathVisual(
     int count,

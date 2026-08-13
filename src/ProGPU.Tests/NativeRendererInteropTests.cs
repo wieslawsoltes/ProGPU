@@ -95,7 +95,7 @@ public class NativeRendererInteropTests
         Assert.Equal(
             40,
             OffsetOf<NativeMethods.DrawState>(nameof(NativeMethods.DrawState.GroupMask)));
-        Assert.Equal(144, Unsafe.SizeOf<NativeMethods.GroupMask>());
+        Assert.Equal(152, Unsafe.SizeOf<NativeMethods.GroupMask>());
         Assert.Equal(
             16,
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ExternalView)));
@@ -108,13 +108,24 @@ public class NativeRendererInteropTests
         Assert.Equal(
             136,
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.Opacity)));
-        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
+        Assert.Equal(
+            144,
+            OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ClipChain)));
+        Assert.Equal(40, Unsafe.SizeOf<NativeMethods.ClipChain>());
+        Assert.Equal(72, Unsafe.SizeOf<NativeClipPath>());
+        Assert.Equal(120, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(
             56,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskKind)));
         Assert.Equal(
             72,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.MaskUniformUploadBytes)));
+        Assert.Equal(
+            80,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.ClipPathCount)));
+        Assert.Equal(
+            96,
+            OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.ClipPathUploadBytes)));
         Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
@@ -193,6 +204,86 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void PublicDrawStateCarriesImmutableTypedVectorClipChain()
+    {
+        var segments = new[]
+        {
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(0f, 0f),
+                new Vector2(10f, 0f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 0f),
+                new Vector2(10f, 10f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 10f),
+                new Vector2(0f, 0f))
+        };
+        var paths = new[]
+        {
+            new NativeClipPath(
+                0U,
+                3U,
+                Vector2.Zero,
+                new Vector2(10f),
+                Matrix3x2.CreateSkew(0.2f, -0.1f) *
+                    Matrix3x2.CreateTranslation(4f, 5f),
+                NativeClipOperation.Difference,
+                NativeFillRule.EvenOdd,
+                8U)
+        };
+        var chain = new NativeClipChain(paths, segments);
+        NativeGroupMask mask = NativeGroupMask.VectorClipChain(chain, 17U);
+        var state = new NativeDrawState(
+            1f,
+            default,
+            NativeDrawStateFlags.None,
+            1f,
+            1U,
+            mask);
+
+        paths[0] = default;
+        segments[0] = default;
+
+        Assert.Equal(NativeGroupMaskKind.VectorClipChain, state.GroupMask.Kind);
+        Assert.Equal(17U, state.GroupMask.Revision);
+        Assert.Same(chain, state.GroupMask.ClipChain);
+        Assert.Equal(1, chain.PathCount);
+        Assert.Equal(3, chain.SegmentCount);
+    }
+
+    [Fact]
+    public void VectorClipChainRejectsOutOfRangeSegmentArena()
+    {
+        var path = new NativeClipPath(
+            1U,
+            1U,
+            Vector2.Zero,
+            new Vector2(10f),
+            Matrix3x2.Identity);
+        var segment = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            Vector2.Zero,
+            Vector2.One);
+
+        Assert.Throws<ArgumentException>(() =>
+            new NativeClipChain([path], [segment]));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            NativeGroupMask.VectorClipChain(
+                new NativeClipChain(
+                    [new NativeClipPath(
+                        0U,
+                        1U,
+                        Vector2.Zero,
+                        new Vector2(10f),
+                        Matrix3x2.Identity)],
+                    [segment]),
+                0U));
+    }
+
+    [Fact]
     public void CapabilityValuesMatchPublishedNativeHeader()
     {
         Assert.Equal(1UL, (ulong)NativeRendererCapabilities.SolidRectBatch);
@@ -241,6 +332,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             8388608UL,
             (ulong)NativeRendererCapabilities.AnalyticRoundedGroupMask);
+        Assert.Equal(
+            16777216UL,
+            (ulong)NativeRendererCapabilities.RetainedVectorClipChain);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

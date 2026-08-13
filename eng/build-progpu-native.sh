@@ -368,9 +368,10 @@ else
 fi
 
 # Common masks are a shared final-composite contract, so exercise every frame
-# family with both the sampled zero-copy and analytic rounded-mask routes. The
-# benchmark executable fails the build on image divergence, retained-content
-# rebuilds, bind-group churn, or stable uniform uploads.
+# family with sampled zero-copy, analytic rounded-mask, and retained vector
+# clip-chain routes. The benchmark executable fails the build on image
+# divergence, retained-content rebuilds, clip rerasterization, bind-group churn,
+# or stable uniform uploads.
 run_common_mask_benchmark() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
@@ -385,7 +386,10 @@ run_common_mask_benchmark() {
   fi
 }
 
-for mask_mode in --group-texture-mask --group-rounded-mask; do
+for mask_mode in \
+  --group-texture-mask \
+  --group-rounded-mask \
+  --group-vector-clip-chain; do
   run_common_mask_benchmark \
     "${mask_mode}" --rectangles 96 --warmup 2 --iterations 4
   run_common_mask_benchmark \

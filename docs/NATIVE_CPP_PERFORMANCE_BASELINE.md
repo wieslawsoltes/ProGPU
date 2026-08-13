@@ -392,18 +392,20 @@ Retained ignored evidence:
 ## Common group-mask functional checkpoint
 
 The additive common-mask ABI is exercised after full warm-up across all six
-native frame families with both a borrowed sampled texture and an analytic
-rounded rectangle. These short two-warmup/four-frame Release runs are
-correctness and retained-state gates, not final performance distributions.
+native frame families with a borrowed sampled texture, an analytic rounded
+rectangle, and a retained two-node vector clip chain. The vector chain
+intersects a transformed cubic ellipse and subtracts an independently
+sheared/rotated cubic ellipse. These short two-warmup/four-frame Release runs
+are correctness and retained-state gates, not final performance distributions.
 
-| Family | Sampled mask max / mean | Rounded mask max / mean |
-|---|---:|---:|
-| solid rectangles | `1 / 0.064451` | `1 / 0.011426` |
-| indexed analytic | `33 / 0.019187` | `51 / 0.041802` |
-| indexed geometry | `91 / 0.010416` | `204 / 0.020250` |
-| retained paths | `1 / 0.026072` | `1 / 0.004321` |
-| positioned glyphs | `1 / 0.001176` | `1 / 0.001303` |
-| retained RGBA image | `1 / 0.041750` | byte-exact |
+| Family | Sampled mask max / mean | Rounded mask max / mean | Vector chain max / mean |
+|---|---:|---:|---:|
+| solid rectangles | `1 / 0.064451` | `1 / 0.011426` | `58 / 0.042608` |
+| indexed analytic | `33 / 0.019187` | `51 / 0.041802` | `48 / 0.021660` |
+| indexed geometry | `91 / 0.010416` | `204 / 0.020250` | `204 / 0.009975` |
+| retained paths | `1 / 0.026072` | `1 / 0.004321` | `47 / 0.017094` |
+| positioned glyphs | `1 / 0.001176` | `1 / 0.001303` | `36 / 0.001020` |
+| retained RGBA image | `1 / 0.041750` | byte-exact | `59 / 0.034652` |
 
 Values are maximum and mean absolute 8-bit channel differences against the
 managed compositor. The one high geometry value is the already bounded single
@@ -411,11 +413,20 @@ edge-ownership pixel; mask quantization introduces no pixel beyond the
 three-channel-value common-mask tolerance. Both paths allocate one retained
 960-by-540 RGBA layer (2,073,600 bytes), then report one composite pass, a
 content-cache hit, no content pass, a mask bind-group cache hit, zero stable
-mask/uniform upload, and zero managed allocation per frame.
+mask/uniform upload, and zero managed allocation per frame. The vector route
+additionally reports a clip-cache hit, two retained paths, zero stable clip
+passes, zero clip/path/coverage upload, and 2,603,776 retained mask bytes (one
+1,024-square R8 atlas plus three 960-by-540 R8 textures). Its independently
+rasterized AA edge is bounded to 64/255 per channel, fewer than one percent of
+pixels beyond 3/255, and mean absolute error below 0.075/255 per channel; the
+amplified difference remains restricted to the two clip boundaries.
 
-The harness separately mutates only mask mapping while retaining the family
-content revision. That frame uploads exactly one 96-byte mask uniform and no
-family content; restoring and replaying the unchanged mask uploads zero bytes.
+The harness separately mutates only mask state while retaining the family
+content revision. Texture/rounded mutation uploads exactly one 96-byte mask
+uniform and no family content. Vector revision mutation rerasterizes and
+recomposes the two-node mask while preserving the family layer; restoring and
+replaying the unchanged revision reports a clip-cache hit with zero clip passes
+or uploads.
 host.
 
 Three paired 300-frame synchronized runs after 60 warmups produced these

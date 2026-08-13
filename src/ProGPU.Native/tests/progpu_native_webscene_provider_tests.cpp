@@ -591,6 +591,88 @@ int main(int argc, char** argv) {
         layer_metrics.mask_uniform_upload_bytes == 0U &&
         layer_metrics.uniform_upload_bytes == 0U,
         "unchanged analytic group-mask replay uploaded state");
+
+    alignas(progpu_native_group_mask)
+        std::array<std::byte, 144U> legacy_group_mask_bytes{};
+    std::memcpy(
+        legacy_group_mask_bytes.data(),
+        &group_mask,
+        legacy_group_mask_bytes.size());
+    auto* legacy_group_mask =
+        reinterpret_cast<progpu_native_group_mask*>(
+            legacy_group_mask_bytes.data());
+    legacy_group_mask->struct_size = legacy_group_mask_bytes.size();
+    draw_state.group_mask = legacy_group_mask;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "legacy common-mask descriptor prefix failed");
+
+    const progpu_native_path_segment clip_segments[]{
+        {{0.0F, 0.0F}, {20.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{20.0F, 0.0F}, {20.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{20.0F, 20.0F}, {0.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{0.0F, 20.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
+    };
+    const progpu_native_clip_path clip_paths[]{
+        {0U, 4U, 0.0F, 0.0F, 20.0F, 20.0F,
+            {1.0F, 0.15F, -0.1F, 1.0F, 10.0F, 8.0F},
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U,
+            PROGPU_NATIVE_CLIP_INTERSECT, 0U},
+        {0U, 4U, 0.0F, 0.0F, 20.0F, 20.0F,
+            {0.4F, -0.1F, 0.15F, 0.35F, 16.0F, 12.0F},
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD, 8U,
+            PROGPU_NATIVE_CLIP_DIFFERENCE, 0U}
+    };
+    const progpu_native_clip_chain clip_chain{
+        sizeof(progpu_native_clip_chain),
+        0U,
+        clip_paths,
+        2U,
+        clip_segments,
+        4U
+    };
+    group_mask = {};
+    group_mask.struct_size = sizeof(group_mask);
+    group_mask.kind = PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN;
+    group_mask.revision = 1U;
+    group_mask.clip_chain = &clip_chain;
+    draw_state.group_mask = &group_mask;
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "retained vector clip-chain render failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN &&
+        layer_metrics.clip_path_count == 2U &&
+        layer_metrics.clip_rasterized_path_count > 0U &&
+        layer_metrics.clip_pass_count == 5U &&
+        layer_metrics.clip_cache_hit == 0U &&
+        layer_metrics.clip_path_upload_bytes > 0U &&
+        layer_metrics.clip_coverage_staging_bytes > 0U,
+        "changed vector clip-chain metrics are invalid");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "unchanged vector clip-chain replay failed");
+    require(progpu_native_engine_get_layer_metrics(
+        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        layer_metrics.content_pass_count == 0U &&
+        layer_metrics.composite_pass_count == 1U &&
+        layer_metrics.cache_hit == 1U &&
+        layer_metrics.clip_path_count == 2U &&
+        layer_metrics.clip_rasterized_path_count == 0U &&
+        layer_metrics.clip_pass_count == 0U &&
+        layer_metrics.clip_cache_hit == 1U &&
+        layer_metrics.clip_path_upload_bytes == 0U &&
+        layer_metrics.clip_coverage_staging_bytes == 0U,
+        "unchanged vector clip-chain replay rebuilt coverage");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,

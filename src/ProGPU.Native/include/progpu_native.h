@@ -45,7 +45,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_FRAME_DRAW_STATE = 1ULL << 20U,
     PROGPU_NATIVE_CAPABILITY_GROUP_OPACITY = 1ULL << 21U,
     PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK = 1ULL << 22U,
-    PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U
+    PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U,
+    PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U
 };
 
 enum {
@@ -60,8 +61,14 @@ typedef enum progpu_native_image_sampling {
 typedef enum progpu_native_group_mask_kind {
     PROGPU_NATIVE_GROUP_MASK_NONE = 0,
     PROGPU_NATIVE_GROUP_MASK_TEXTURE = 1,
-    PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE = 2
+    PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE = 2,
+    PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN = 3
 } progpu_native_group_mask_kind;
+
+typedef enum progpu_native_clip_operation {
+    PROGPU_NATIVE_CLIP_INTERSECT = 0,
+    PROGPU_NATIVE_CLIP_DIFFERENCE = 1
+} progpu_native_clip_operation;
 
 typedef enum progpu_native_mask_texture_format {
     PROGPU_NATIVE_MASK_TEXTURE_R8_UNORM = 1,
@@ -346,6 +353,40 @@ typedef struct progpu_native_path_fill {
 } progpu_native_path_fill;
 
 /*
+ * One ordered clip node borrows a contiguous segment range. Bounds are exact
+ * local curve-extrema bounds and transform maps local coordinates to logical
+ * target coordinates. The existing path compute rasterizer preserves lines,
+ * quadratics, cubics, analytic arcs, fill rules, and the 4x4/8x8 AA contract.
+ */
+typedef struct progpu_native_clip_path {
+    size_t segment_offset;
+    size_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    progpu_native_affine_2d transform;
+    uint32_t fill_rule;
+    uint32_t sample_grid;
+    uint32_t operation;
+    uint32_t reserved;
+} progpu_native_clip_path;
+
+/*
+ * Immutable caller-owned clip payload borrowed only for one render call.
+ * revision lives on the containing group-mask descriptor and is the retained
+ * identity. Nodes are evaluated in order from an initially full mask.
+ */
+typedef struct progpu_native_clip_chain {
+    uint32_t struct_size;
+    uint32_t flags;
+    const progpu_native_clip_path* paths;
+    size_t path_count;
+    const progpu_native_path_segment* segments;
+    size_t segment_count;
+} progpu_native_clip_chain;
+
+/*
  * One immutable glyph outline references line, quadratic, or cubic records in
  * the shared segment arena. Bounds are in font design units. raster_scale maps
  * design units to physical atlas pixels; subpixel_x is the quarter-pixel
@@ -388,7 +429,8 @@ typedef struct progpu_native_positioned_glyph {
  * local coordinates plus a local-to-logical affine transform. The native
  * engine retains a texture view when it becomes the active sampled mask; the
  * producer keeps the underlying texture alive until replacement or engine
- * destruction.
+ * destruction. Vector clip chains borrow an ordered, versioned retained path
+ * payload and are composed into a reusable target-sized R8 mask.
  */
 typedef struct progpu_native_group_mask {
     uint32_t struct_size;
@@ -409,6 +451,7 @@ typedef struct progpu_native_group_mask {
     float corner_radii_y[4];
     float opacity;
     uint32_t reserved3;
+    const progpu_native_clip_chain* clip_chain;
 } progpu_native_group_mask;
 
 /*
@@ -451,6 +494,13 @@ typedef struct progpu_native_layer_metrics {
     uint32_t mask_bind_group_generation;
     uint32_t mask_bind_group_cache_hit;
     uint64_t mask_uniform_upload_bytes;
+    uint32_t clip_path_count;
+    uint32_t clip_rasterized_path_count;
+    uint32_t clip_pass_count;
+    uint32_t clip_cache_hit;
+    uint64_t clip_path_upload_bytes;
+    uint64_t clip_coverage_staging_bytes;
+    uint64_t clip_texture_bytes;
 } progpu_native_layer_metrics;
 
 /*
