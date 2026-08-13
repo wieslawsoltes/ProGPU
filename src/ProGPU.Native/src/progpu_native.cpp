@@ -986,6 +986,20 @@ struct semantic_analytic_page {
     std::vector<semantic_analytic_draw> draws;
 };
 
+struct semantic_path_draw {
+    std::uint32_t first_index = 0U;
+    std::uint32_t index_count = 0U;
+};
+
+struct semantic_path_page {
+    std::uint64_t scene_hash = 0U;
+    float dpi_scale = 0.0F;
+    bool cache_valid = false;
+    std::vector<progpu_native_path_fill> paths;
+    std::vector<progpu_native_path_segment> segments;
+    std::vector<semantic_path_draw> draws;
+};
+
 struct progpu_native_engine {
     std::thread::id owner_thread;
     progpu::native::webgpu::dispatch webgpu_dispatch{};
@@ -1285,8 +1299,13 @@ struct progpu_native_engine {
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
     semantic_analytic_page semantic_analytic_cache;
+    semantic_path_page semantic_path_cache;
     WGPUCommandEncoder semantic_encoder = nullptr;
     bool semantic_load_target = false;
+    bool semantic_path_draw_active = false;
+    std::uint32_t semantic_path_first_index = 0U;
+    std::uint32_t semantic_path_index_count = 0U;
+    std::uint64_t semantic_path_gpu_scene_hash = 0U;
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
@@ -9035,11 +9054,14 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer must be used from its owner thread.");
     }
+    if (!engine->semantic_path_draw_active) {
+        engine->semantic_path_gpu_scene_hash = 0U;
+    }
     reset_layer_metrics(*engine);
     if (frame->path_count > (1U << 20U) ||
         frame->segment_count > (1U << 24U) ||
         frame->path_count >
-            std::numeric_limits<std::uint32_t>::max() / 4U) {
+            std::numeric_limits<std::uint32_t>::max() / 6U) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The path batch exceeds the native safety bound.");
@@ -9647,7 +9669,27 @@ progpu_native_status progpu_native_engine_render_paths(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path render pass could not be created.");
     }
-    if (!engine->path_indices.empty() && draw_state.opacity != 0.0F &&
+    const std::uint32_t selected_first_index =
+        engine->semantic_path_draw_active
+        ? engine->semantic_path_first_index
+        : 0U;
+    const std::uint32_t selected_index_count =
+        engine->semantic_path_draw_active
+        ? engine->semantic_path_index_count
+        : static_cast<std::uint32_t>(engine->path_indices.size());
+    if (selected_first_index > engine->path_indices.size() ||
+        selected_index_count >
+            engine->path_indices.size() - selected_first_index) {
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic path packed-page draw range is invalid.");
+    }
+    if (selected_index_count != 0U && draw_state.opacity != 0.0F &&
         (use_group_layer || draw_state.has_drawable_clip)) {
         if (!use_group_layer) {
             apply_scissor(pass, draw_state);
@@ -9667,9 +9709,9 @@ progpu_native_status progpu_native_engine_render_paths(
             index_bytes);
         wgpuRenderPassEncoderDrawIndexed(
             pass,
-            static_cast<std::uint32_t>(engine->path_indices.size()),
+            selected_index_count,
             1U,
-            0U,
+            selected_first_index,
             0,
             0U);
     }
@@ -9739,7 +9781,7 @@ progpu_native_status progpu_native_engine_render_paths(
     engine->last_error.clear();
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_path_frame_metrics)) {
-        metrics->draw_call_count = engine->path_indices.empty() ||
+        metrics->draw_call_count = selected_index_count == 0U ||
             draw_state.opacity == 0.0F ||
             (!use_group_layer && !draw_state.has_drawable_clip)
             ? 0U
@@ -10995,8 +11037,11 @@ progpu_native_status progpu_native_engine_render_scene(
     /* Preflight every typed payload before the first target submission. */
     std::uint32_t semantic_draw_count = 0U;
     std::uint32_t semantic_analytic_draw_count = 0U;
+    std::uint32_t semantic_path_draw_count = 0U;
     std::uint64_t semantic_analytic_vertex_bytes = 0U;
     std::uint64_t semantic_analytic_index_bytes = 0U;
+    std::uint64_t semantic_path_count = 0U;
+    std::uint64_t semantic_path_segment_count = 0U;
     semantic_compilation_budget compilation_budget{};
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
@@ -11074,7 +11119,7 @@ progpu_native_status progpu_native_engine_render_scene(
                 valid = valid && path_count <= (1U << 20U) &&
                     segment_count <= (1U << 24U) &&
                     path_count <=
-                        std::numeric_limits<std::uint32_t>::max() / 4U;
+                        std::numeric_limits<std::uint32_t>::max() / 6U;
                 compiled_vertex_bytes = path_count * 4U *
                     sizeof(progpu::native::vector_vertex);
                 compiled_index_bytes = path_count * 6U *
@@ -11226,8 +11271,23 @@ progpu_native_status progpu_native_engine_render_scene(
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            ++semantic_path_draw_count;
+            semantic_path_count += resource.payload_size /
+                sizeof(progpu_native_scene_path_fill);
+            semantic_path_segment_count += resource.auxiliary_size /
+                sizeof(progpu_native_path_segment);
         }
         ++semantic_draw_count;
+    }
+
+    if (semantic_path_count > (1U << 20U) ||
+        semantic_path_segment_count > (1U << 24U) ||
+        semantic_path_count >
+            std::numeric_limits<std::uint32_t>::max() / 6U) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The aggregate semantic path page exceeds the native safety bound.");
     }
 
     std::uint64_t semantic_analytic_vertex_upload_bytes = 0U;
@@ -11358,6 +11418,89 @@ progpu_native_status progpu_native_engine_render_scene(
         semantic_analytic_index_upload_bytes = compiled_index_bytes;
     }
 
+    auto& semantic_path_page = engine->semantic_path_cache;
+    const bool semantic_path_page_hit =
+        semantic_path_draw_count != 0U &&
+        semantic_path_page.cache_valid &&
+        semantic_path_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_path_page.dpi_scale == frame->dpi_scale &&
+        semantic_path_page.draws.size() == semantic_path_draw_count;
+    if (semantic_path_draw_count != 0U && !semantic_path_page_hit) {
+        std::vector<progpu_native_path_fill> compiled_paths;
+        std::vector<progpu_native_path_segment> compiled_segments;
+        std::vector<semantic_path_draw> compiled_draws;
+        try {
+            compiled_paths.reserve(
+                static_cast<std::size_t>(semantic_path_count));
+            compiled_segments.reserve(
+                static_cast<std::size_t>(semantic_path_segment_count));
+            compiled_draws.reserve(semantic_path_draw_count);
+            for (std::uint32_t index = 0U;
+                 index < header.command_count;
+                 ++index) {
+                const auto command = read_command(index);
+                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                    continue;
+                }
+                const auto resource = read_resource(command.resource_index);
+                const std::size_t path_start = compiled_paths.size();
+                const std::size_t segment_start = compiled_segments.size();
+                const std::size_t path_count = resource.payload_size /
+                    sizeof(progpu_native_scene_path_fill);
+                const std::size_t segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                const auto* source_segments = reinterpret_cast<
+                    const progpu_native_path_segment*>(
+                        bytes + resource.auxiliary_offset);
+                compiled_segments.insert(
+                    compiled_segments.end(),
+                    source_segments,
+                    source_segments + segment_count);
+                for (std::size_t path_index = 0U;
+                     path_index < path_count;
+                     ++path_index) {
+                    progpu_native_path_fill path{};
+                    std::memcpy(
+                        &path,
+                        bytes + resource.payload_offset +
+                            path_index *
+                                sizeof(progpu_native_scene_path_fill),
+                        sizeof(path));
+                    path.segment_offset += segment_start;
+                    compiled_paths.push_back(path);
+                }
+                compiled_draws.push_back({
+                    static_cast<std::uint32_t>(path_start * 6U),
+                    static_cast<std::uint32_t>(path_count * 6U)});
+            }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic path packed page could not be compiled.");
+        }
+        if (compiled_paths.size() != semantic_path_count ||
+            compiled_segments.size() != semantic_path_segment_count ||
+            compiled_draws.size() != semantic_path_draw_count) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic path packed-page budget did not match compilation.");
+        }
+        semantic_path_page.paths = std::move(compiled_paths);
+        semantic_path_page.segments = std::move(compiled_segments);
+        semantic_path_page.draws = std::move(compiled_draws);
+        semantic_path_page.scene_hash = engine->semantic_scene_hash;
+        semantic_path_page.dpi_scale = frame->dpi_scale;
+        semantic_path_page.cache_valid = true;
+        engine->semantic_path_gpu_scene_hash = 0U;
+    }
+
+    if (semantic_path_draw_count != 0U &&
+        engine->semantic_path_gpu_scene_hash !=
+            engine->semantic_scene_hash) {
+        engine->path_cache_valid = false;
+        engine->path_gpu_cache_valid = false;
+    }
+
     const std::uint64_t submission_start = engine->submission_count;
     std::uint32_t draw_calls = 0U;
     std::uint32_t family_switches = 0U;
@@ -11372,6 +11515,7 @@ progpu_native_status progpu_native_engine_render_scene(
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
     bool target_has_content = false;
     std::uint32_t semantic_analytic_draw_index = 0U;
+    std::uint32_t semantic_path_draw_index = 0U;
     std::array<std::uint32_t, 4U> encoded_buffer_revisions{};
 
     const auto discard_encoder = [&]() noexcept {
@@ -11448,7 +11592,7 @@ progpu_native_status progpu_native_engine_render_scene(
         const auto resource = read_resource(command.resource_index);
         const std::uint32_t buffer_revision =
             command_revision(command, resource);
-        if (buffer_domain_index != 0U &&
+        if (buffer_domain_index >= 2U &&
             encoded_buffer_revisions[buffer_domain_index] != 0U &&
             encoded_buffer_revisions[buffer_domain_index] != buffer_revision) {
             const auto flush_status = flush_encoder();
@@ -11462,7 +11606,7 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic scene command encoder could not be created.");
         }
-        if (buffer_domain_index != 0U) {
+        if (buffer_domain_index >= 2U) {
             encoded_buffer_revisions[buffer_domain_index] = buffer_revision;
         }
         progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
@@ -11494,6 +11638,13 @@ progpu_native_status progpu_native_engine_render_scene(
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                if (semantic_path_draw_index >=
+                    semantic_path_page.draws.size()) {
+                    discard_encoder();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "The semantic path packed-page index is invalid.");
+                }
                 progpu_native_path_frame family{};
                 family.struct_size = sizeof(family);
                 family.width = frame->width;
@@ -11514,24 +11665,33 @@ progpu_native_status progpu_native_engine_render_scene(
                     fill_rule) == offsetof(
                     progpu_native_path_fill,
                     fill_rule));
-                family.paths = reinterpret_cast<
-                    const progpu_native_path_fill*>(
-                        bytes + resource.payload_offset);
-                family.path_count = resource.payload_size /
-                    sizeof(progpu_native_scene_path_fill);
-                family.segments =
-                    reinterpret_cast<const progpu_native_path_segment*>(
-                        bytes + resource.auxiliary_offset);
-                family.segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
+                family.paths = semantic_path_page.paths.data();
+                family.path_count = semantic_path_page.paths.size();
+                family.segments = semantic_path_page.segments.data();
+                family.segment_count = semantic_path_page.segments.size();
                 family.flags =
                     PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-                family.content_revision = command_revision(command, resource);
+                family.content_revision = revision32(
+                    engine->semantic_scene_hash);
                 progpu_native_path_frame_metrics family_metrics{};
                 family_metrics.struct_size = sizeof(family_metrics);
+                const auto path_draw = semantic_path_page.draws[
+                    semantic_path_draw_index];
+                ++semantic_path_draw_index;
+                engine->semantic_path_draw_active = true;
+                engine->semantic_path_first_index = path_draw.first_index;
+                engine->semantic_path_index_count = path_draw.index_count;
                 prepare_family(command.kind);
-                status = finish_family(progpu_native_engine_render_paths(
-                    engine, &family, &family_metrics));
+                status = progpu_native_engine_render_paths(
+                    engine, &family, &family_metrics);
+                engine->semantic_path_draw_active = false;
+                engine->semantic_path_first_index = 0U;
+                engine->semantic_path_index_count = 0U;
+                if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                    engine->semantic_path_gpu_scene_hash =
+                        engine->semantic_scene_hash;
+                }
+                status = finish_family(status);
                 draw_calls += family_metrics.draw_call_count;
                 vertex_upload_bytes += family_metrics.vertex_upload_bytes;
                 index_upload_bytes += family_metrics.index_upload_bytes;
@@ -11645,6 +11805,12 @@ progpu_native_status progpu_native_engine_render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic analytic packed-page draw count is inconsistent.");
+    }
+    if (semantic_path_draw_index != semantic_path_draw_count) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic path packed-page draw count is inconsistent.");
     }
 
     const auto flush_status = flush_encoder();

@@ -1152,30 +1152,37 @@ later draws. It crosses the public ABI once per frame and shares one encoder
 across dedicated analytic, retained-path, glyph-instance, and image buffer
 domains. The four-family fixture therefore needs one command buffer and one
 submission instead of four. All analytic commands in an immutable scene compile
-into one retained vertex/index page with per-draw offsets. Distinct analytic
-payloads can therefore recur around other families without overwriting data or
-flushing the encoder; an analytic→path→glyph→image→different-analytic hardware
-fixture proves five ordered passes in one submission. Reusing a distinct path,
-glyph, or image domain remains conservative and flushes before its shared
-payload can be overwritten. Equivalent retained pages, visibility culling, and
-stable multi-command atlas/texture ownership remain required before the d3b1
-checkbox closes. Dispatch remains O(C) CPU work; submissions are already
-independent of analytic command count and will become bounded by the compiled
-render graph for every family as their pages land. A changed analytic page is
-O(C + A) time and O(Ca + A) temporary/retained storage for C commands, Ca
-analytic commands, and A expanded analytic vertices/indices. Stable replay is
-O(C) command dispatch with O(1) engine-owned auxiliary storage and zero
-analytic payload upload.
+into one retained vertex/index page with per-draw offsets. Path commands now
+likewise compile into one aggregate path/segment page, one retained atlas and
+one vertex/index payload with per-command index ranges. Distinct analytic and
+path payloads can therefore recur around other families without overwriting
+data or flushing the encoder; an
+analytic→path→glyph→image→different-path→different-analytic hardware fixture
+proves six ordered passes in one submission. A full scene-hash ownership marker
+invalidates the shared path GPU cache after standalone path use, independently
+of the public 32-bit content revision, so a revision collision cannot replay a
+foreign page. Reusing a distinct glyph or image domain remains conservative and
+flushes before its shared payload can be overwritten. Equivalent retained
+glyph/image pages, visibility culling, and stable multi-command texture
+ownership remain required before the d3b1 checkbox closes. Dispatch remains
+O(C) CPU work; submissions are already independent of analytic and path command
+counts and will become bounded by the compiled render graph for every family as
+their pages land. A changed analytic page is O(C + A) time and O(Ca + A)
+temporary/retained storage for C commands, Ca analytic commands, and A expanded
+analytic vertices/indices. A changed path page is O(C + P + S + K) time and
+O(P + S + K) retained CPU/GPU storage for P fills, S source segments, and K
+expanded draw/coverage bytes. Stable replay is O(C) command dispatch with zero
+analytic/path payload or coverage upload.
 
 The cross-engine substitution harness now exercises this exact boundary with
 one equivalent managed retained visual tree and one pointer-free native scene.
 It publishes CPU submission and GPU-completion distributions separately,
 allocation/upload/submission metrics, and native/managed/amplified-difference
 captures. The native path is required to report one ABI call, four ordered
-family domains, five ordered draws, and one submission. This closes the
+family domains, six ordered draws, and one submission. This closes the
 functional matched-scene evidence item, not the d3b1 performance item: long
 paired distributions, Instruments correlation, and checked aggregate budgets
-are published; distinct path/glyph/image pages plus native-allocation proof
+are published; distinct glyph/image pages plus native-allocation proof
 remain required.
 
 Materialized layers use a depth-indexed pool keyed by device-loss generation,

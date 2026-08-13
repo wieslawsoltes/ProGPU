@@ -100,8 +100,8 @@ std::uint32_t append_scene_payload(
 
 std::vector<std::byte> create_renderable_semantic_scene_stream(
     std::uint64_t generation) {
-    constexpr std::uint32_t command_count = 5U;
-    constexpr std::uint32_t resource_count = 5U;
+    constexpr std::uint32_t command_count = 6U;
+    constexpr std::uint32_t resource_count = 6U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -163,6 +163,14 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const std::uint32_t path_offset = append_scene_payload(
         stream, &path, 1U);
     const std::uint32_t path_segment_offset = append_scene_payload(
+        stream, path_segments, std::size(path_segments));
+    progpu_native_scene_path_fill second_path = path;
+    second_path.color = {1.0F, 0.0F, 1.0F, 1.0F};
+    second_path.transform.m31 = 20.0F;
+    second_path.transform.m32 = 24.0F;
+    const std::uint32_t second_path_offset = append_scene_payload(
+        stream, &second_path, 1U);
+    const std::uint32_t second_path_segment_offset = append_scene_payload(
         stream, path_segments, std::size(path_segments));
 
     const progpu_native_scene_glyph_outline outline{
@@ -252,7 +260,12 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 105U, 1U,
-            second_analytic_offset, sizeof(second_analytic), 0U, 0U}
+            second_analytic_offset, sizeof(second_analytic), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 106U, 1U,
+            second_path_offset, sizeof(second_path),
+            second_path_segment_offset, sizeof(path_segments)}
     };
     std::memcpy(
         stream.data() + resource_offset,
@@ -283,8 +296,13 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             image_draw_offset, sizeof(image),
             50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 205U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 5U, 0U, 0U,
+            20.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 206U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 4U, 0U, 0U,
             4.0F, 24.0F, 12.0F, 12.0F, 0U, 0U}
     };
@@ -609,15 +627,18 @@ void verify_semantic_scene(
     const auto* semantic_glyph = pixel(40U, 8U);
     const auto* semantic_image = pixel(54U, 8U);
     const auto* semantic_second_analytic = pixel(8U, 28U);
+    const auto* semantic_second_path = pixel(24U, 28U);
     std::fprintf(stderr,
         "semantic clear=%u,%u,%u,%u analytic=%u,%u,%u,%u "
         "path=%u,%u,%u,%u glyph=%u,%u,%u,%u image=%u,%u,%u,%u "
-        "second-analytic=%u,%u,%u,%u\n",
+        "second-path=%u,%u,%u,%u second-analytic=%u,%u,%u,%u\n",
         semantic_clear[0], semantic_clear[1], semantic_clear[2], semantic_clear[3],
         semantic_analytic[0], semantic_analytic[1], semantic_analytic[2], semantic_analytic[3],
         semantic_path[0], semantic_path[1], semantic_path[2], semantic_path[3],
         semantic_glyph[0], semantic_glyph[1], semantic_glyph[2], semantic_glyph[3],
         semantic_image[0], semantic_image[1], semantic_image[2], semantic_image[3],
+        semantic_second_path[0], semantic_second_path[1],
+        semantic_second_path[2], semantic_second_path[3],
         semantic_second_analytic[0], semantic_second_analytic[1],
         semantic_second_analytic[2], semantic_second_analytic[3]);
     require(is_bgra(pixel(2U, 2U), 10U, 8U, 5U),
@@ -630,6 +651,8 @@ void verify_semantic_scene(
         "semantic positioned-glyph draw is missing");
     require(is_bgra(pixel(54U, 8U), 0U, 255U, 255U),
         "semantic image draw is missing");
+    require(is_bgra(pixel(24U, 28U), 255U, 0U, 255U),
+        "second distinct semantic path draw is missing");
     require(is_bgra(pixel(8U, 28U), 255U, 255U, 0U),
         "second distinct semantic analytic draw is missing");
 
@@ -867,7 +890,7 @@ int main(int argc, char** argv) {
         renderable_scene.data(),
         renderable_scene.size(),
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        scene_metrics.draw_count == 5U,
+        scene_metrics.draw_count == 6U,
         "renderable semantic scene update failed");
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -894,9 +917,9 @@ int main(int argc, char** argv) {
         &semantic_frame,
         &semantic_metrics);
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        semantic_metrics.command_count != 5U ||
-        semantic_metrics.draw_call_count != 5U ||
-        semantic_metrics.family_switch_count != 5U ||
+        semantic_metrics.command_count != 6U ||
+        semantic_metrics.draw_call_count != 6U ||
+        semantic_metrics.family_switch_count != 6U ||
         semantic_metrics.submission_count != 1U ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
@@ -915,9 +938,9 @@ int main(int argc, char** argv) {
             semantic_error.data());
     }
     require(semantic_status == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 5U &&
-        semantic_metrics.draw_call_count == 5U &&
-        semantic_metrics.family_switch_count == 5U &&
+        semantic_metrics.command_count == 6U &&
+        semantic_metrics.draw_call_count == 6U &&
+        semantic_metrics.family_switch_count == 6U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.payload_hash != 0U,
         "mixed semantic scene rendering failed");
@@ -929,9 +952,9 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 5U &&
-        semantic_metrics.draw_call_count == 5U &&
-        semantic_metrics.family_switch_count == 5U &&
+        semantic_metrics.command_count == 6U &&
+        semantic_metrics.draw_call_count == 6U &&
+        semantic_metrics.family_switch_count == 6U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.index_upload_bytes == 0U &&
