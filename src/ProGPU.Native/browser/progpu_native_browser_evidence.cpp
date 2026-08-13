@@ -87,14 +87,55 @@ void on_readback_mapped(
 
 } // namespace
 
+bool create_evidence_target(
+    WGPUDevice device,
+    WGPUTextureFormat format,
+    std::uint32_t width,
+    std::uint32_t height,
+    WGPUTexture* texture,
+    WGPUTextureView* view) {
+    if (device == nullptr || format == WGPUTextureFormat_Undefined ||
+        width == 0U || height == 0U || texture == nullptr || view == nullptr) {
+        return false;
+    }
+    *texture = nullptr;
+    *view = nullptr;
+    WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    descriptor.usage =
+        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = format;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    descriptor.viewFormatCount = 0U;
+    WGPUTexture created_texture = wgpuDeviceCreateTexture(device, &descriptor);
+    if (created_texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView created_view = wgpuTextureCreateView(
+        created_texture,
+        nullptr);
+    if (created_view == nullptr) {
+        wgpuTextureDestroy(created_texture);
+        wgpuTextureRelease(created_texture);
+        return false;
+    }
+    *texture = created_texture;
+    *view = created_view;
+    return true;
+}
+
 bool begin_evidence_readback(
     WGPUDevice device,
     WGPUQueue queue,
-    WGPUTexture texture,
+    WGPUTexture source_texture,
+    WGPUTexture presentation_texture,
     std::uint32_t width,
     std::uint32_t height,
     evidence_completion completion) {
-    if (device == nullptr || queue == nullptr || texture == nullptr ||
+    if (device == nullptr || queue == nullptr || source_texture == nullptr ||
+        presentation_texture == nullptr ||
         width == 0U || height == 0U || completion == nullptr ||
         state.buffer != nullptr) {
         return false;
@@ -122,13 +163,22 @@ bool begin_evidence_readback(
         return false;
     }
     WGPUTexelCopyTextureInfo source = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-    source.texture = texture;
+    source.texture = source_texture;
     source.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyTextureInfo presentation =
+        WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+    presentation.texture = presentation_texture;
+    presentation.aspect = WGPUTextureAspect_All;
     WGPUTexelCopyBufferInfo destination = WGPU_TEXEL_COPY_BUFFER_INFO_INIT;
     destination.buffer = buffer;
     destination.layout.bytesPerRow = row_bytes;
     destination.layout.rowsPerImage = height;
     const WGPUExtent3D extent{width, height, 1U};
+    wgpuCommandEncoderCopyTextureToTexture(
+        encoder,
+        &source,
+        &presentation,
+        &extent);
     wgpuCommandEncoderCopyTextureToBuffer(
         encoder,
         &source,

@@ -1584,9 +1584,11 @@ public class NativeRendererInteropTests
             "emscripten_request_animation_frame(\n            render_browser_frame",
             browserSmoke,
             StringComparison.Ordinal);
-        Assert.Contains("WGPUTextureUsage_CopySrc", browserSmoke,
+        Assert.Contains("WGPUTextureUsage_CopySrc", browserEvidence,
             StringComparison.Ordinal);
         Assert.Contains("wgpuCommandEncoderCopyTextureToBuffer", browserEvidence,
+            StringComparison.Ordinal);
+        Assert.Contains("wgpuCommandEncoderCopyTextureToTexture", browserEvidence,
             StringComparison.Ordinal);
         Assert.Contains("WGPUCallbackMode_AllowSpontaneous", browserEvidence,
             StringComparison.Ordinal);

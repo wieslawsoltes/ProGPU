@@ -1044,8 +1044,9 @@ and device-loss recreation remain open.
   integration gate covering a retained bounded isolated layer, exact metrics,
   deterministic clear/parent/composite pixels, and Emdawnwebgpu-compliant
   acquire/render scheduling inside `requestAnimationFrame`; a browser-test-only
-  copy/map reconstructs screenshot evidence when headless compositing omits the
-  WebGPU canvas and remains outside production/renderer metrics; actual-parent advanced
+  WebGPU target is copied to both presentation and mapped evidence when headless
+  compositing omits the canvas and remains outside production/renderer metrics;
+  actual-parent advanced
   blending remains hardware-Dawn-gated while complete browser differentials
   remain;
 - runtime/NuGet packages, symbols, license manifests, and device-loss recovery.

@@ -20,8 +20,10 @@ struct browser_resources final {
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
     WGPUSurface surface = nullptr;
-    WGPUTexture texture = nullptr;
-    WGPUTextureView view = nullptr;
+    WGPUTexture surface_texture = nullptr;
+    WGPUTextureView surface_view = nullptr;
+    WGPUTexture render_texture = nullptr;
+    WGPUTextureView render_view = nullptr;
 };
 
 browser_resources resources{};
@@ -82,13 +84,24 @@ bool render_browser_frame(double, void*) {
     if (view == nullptr) {
         fail("The browser WebGPU target view could not be created.");
     }
+    WGPUTexture render_texture = nullptr;
+    WGPUTextureView render_view = nullptr;
+    if (!progpu::native::browser::create_evidence_target(
+            resources.device,
+            WGPUTextureFormat_BGRA8Unorm,
+            width,
+            height,
+            &render_texture,
+            &render_view)) {
+        fail("The browser WebGPU render target could not be created.");
+    }
 
     progpu_native_scene_frame semantic_frame{};
     semantic_frame.struct_size = sizeof(semantic_frame);
     semantic_frame.width = width;
     semantic_frame.height = height;
     semantic_frame.dpi_scale = 1.0F;
-    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
     semantic_frame.scene_id = 97U;
     semantic_frame.generation = 1U;
@@ -113,12 +126,15 @@ bool render_browser_frame(double, void*) {
         layer_metrics.texture_bytes == 0U) {
         fail("The ProGPU C++ browser semantic layer metrics are invalid.");
     }
-    resources.texture = surface_texture.texture;
-    resources.view = view;
+    resources.surface_texture = surface_texture.texture;
+    resources.surface_view = view;
+    resources.render_texture = render_texture;
+    resources.render_view = render_view;
     if (!progpu::native::browser::begin_evidence_readback(
             resources.device,
             resources.queue,
-            resources.texture,
+            resources.render_texture,
+            resources.surface_texture,
             width,
             height,
             finish_browser_evidence)) {
@@ -170,7 +186,7 @@ int main() {
     configuration.device = device;
     configuration.format = target_format;
     configuration.usage =
-        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+        WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopyDst;
     configuration.width = width;
     configuration.height = height;
     configuration.presentMode = WGPUPresentMode_Fifo;
@@ -216,6 +232,8 @@ int main() {
         device,
         queue,
         surface,
+        nullptr,
+        nullptr,
         nullptr,
         nullptr};
     if (emscripten_request_animation_frame(
