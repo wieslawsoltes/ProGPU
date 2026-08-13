@@ -414,6 +414,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             endif()
             add_executable(progpu_native_webscene_provider_tests
                 tests/progpu_native_webscene_provider_tests.cpp
+                tests/progpu_native_semantic_advanced_blend_scene.cpp
+                tests/progpu_native_semantic_advanced_blend_scene.hpp
                 tests/progpu_native_webscene_advanced_blend_fixture.cpp
                 tests/progpu_native_webscene_advanced_blend_fixture.hpp
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
@@ -451,6 +453,8 @@ if(EMSCRIPTEN)
         ${PROGPU_NATIVE_RENDERER_SOURCES}
         include/progpu_native_browser.h
         include/progpu_native_dawn.h
+        tests/progpu_native_semantic_advanced_blend_scene.cpp
+        tests/progpu_native_semantic_advanced_blend_scene.hpp
         browser/progpu_native_browser_smoke.cpp)
     target_compile_features(progpu_native_browser_smoke PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_browser_smoke PRIVATE
@@ -461,6 +465,7 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${generated_directory}")
     target_compile_options(progpu_native_browser_smoke PRIVATE
         --use-port=emdawnwebgpu:cpp_bindings=false)
@@ -474,7 +479,9 @@ if(EMSCRIPTEN)
         -sASSERTIONS=1)
     progpu_native_enable_warnings(progpu_native_browser_smoke)
     set_target_properties(progpu_native_browser_smoke PROPERTIES
-        SUFFIX ".html")
+        SUFFIX ".html"
+        LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/browser/pre.js;${CMAKE_CURRENT_SOURCE_DIR}/browser/shell.html")
 endif()
 
 if(NOT EMSCRIPTEN)

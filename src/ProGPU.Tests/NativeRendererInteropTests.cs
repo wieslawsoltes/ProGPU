@@ -1561,10 +1561,32 @@ public class NativeRendererInteropTests
             "PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE",
             browserSmoke,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "create_semantic_advanced_blend_scene_stream",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_BLEND_SRC_OVER",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "semantic_metrics.draw_call_count != 3U",
+            browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "semantic_metrics.submission_count != 1U",
+            browserSmoke,
+            StringComparison.Ordinal);
         Assert.Contains("navigator.gpu", File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "browser", "pre.js")), StringComparison.Ordinal);
+        Assert.Contains("uncapturederror", File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "browser", "pre.js")), StringComparison.Ordinal);
         Assert.Contains("channel: \"chromium\"", browserTest, StringComparison.Ordinal);
         Assert.Contains("--enable-unsafe-webgpu", browserTest, StringComparison.Ordinal);
+        Assert.Contains("Browser semantic isolated layer was not composited", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("locator(\"canvas\").screenshot", browserTest,
+            StringComparison.Ordinal);
         Assert.Contains("emcmake", verifier, StringComparison.Ordinal);
         Assert.Contains("native-cpp-browser", workflow, StringComparison.Ordinal);
         Assert.Contains("Upload native browser evidence", workflow, StringComparison.Ordinal);

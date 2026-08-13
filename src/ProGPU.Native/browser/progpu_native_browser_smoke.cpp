@@ -1,10 +1,10 @@
 #include "progpu_native_browser.h"
+#include "progpu_native_semantic_advanced_blend_scene.hpp"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <webgpu/webgpu.h>
 
-#include <array>
 #include <cstdint>
 #include <cstdio>
 
@@ -38,13 +38,14 @@ browser_resources resources{};
 bool finish_browser_frame(double, void*) {
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
-        document.body.dataset.progpuNativeDraws = "1";
-        document.body.dataset.progpuNativeVertices = "24";
-        document.body.dataset.progpuNativeSubmissions = "1";
+        document.body.dataset.progpuNativeSemanticCommands = "4";
+        document.body.dataset.progpuNativeSemanticResources = "2";
+        document.body.dataset.progpuNativeSemanticDraws = "3";
+        document.body.dataset.progpuNativeTotalSubmissions = "1";
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU backend active — 1 draw, 24 vertices, GPU submitted";
+            "C++ / WebGPU semantic backend active — isolated layer submitted";
     });
     // A browser host owns its canvas resource domain for the page lifetime.
     // Keeping these handles alive also lets the browser composite the frame
@@ -133,43 +134,53 @@ int main() {
         fail("The ProGPU C++ browser engine could not be created.");
     }
 
-    const std::array<progpu_native_rect, 4U> rectangles{{
-        {0.0F, 0.0F, 640.0F, 360.0F, {0.025F, 0.035F, 0.07F, 1.0F}},
-        {48.0F, 48.0F, 544.0F, 264.0F, {0.03F, 0.12F, 0.20F, 1.0F}},
-        {82.0F, 92.0F, 210.0F, 156.0F, {0.0F, 0.55F, 0.95F, 1.0F}},
-        {318.0F, 92.0F, 240.0F, 156.0F, {0.15F, 0.85F, 0.55F, 1.0F}}
-    }};
-    progpu_native_frame frame{};
-    frame.struct_size = sizeof(frame);
-    frame.width = width;
-    frame.height = height;
-    frame.dpi_scale = 1.0F;
-    frame.target_view = reinterpret_cast<std::uintptr_t>(view);
-    frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
-    frame.rects = rectangles.data();
-    frame.rect_count = rectangles.size();
-    progpu_native_frame_metrics metrics{};
-    metrics.struct_size = sizeof(metrics);
-    const auto status = progpu_native_engine_render(
-        engine,
-        &frame,
-        &metrics);
-    if (status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        metrics.draw_call_count != 1U || metrics.vertex_count != 24U ||
-        metrics.submission_count != 1U) {
-        std::array<char, 512U> error{};
-        progpu_native_engine_get_last_error(
+    auto semantic_scene =
+        progpu::native::tests::create_semantic_advanced_blend_scene_stream(
+            width,
+            height,
+            PROGPU_NATIVE_BLEND_SRC_OVER);
+    progpu_native_scene_metrics scene_metrics{};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    if (progpu_native_engine_update_scene(
             engine,
-            error.data(),
-            error.size());
-        std::fprintf(stderr,
-            "browser frame status=%u draws=%u vertices=%u submissions=%llu error=%s\n",
-            static_cast<unsigned>(status),
-            metrics.draw_call_count,
-            metrics.vertex_count,
-            static_cast<unsigned long long>(metrics.submission_count),
-            error.data());
-        fail("The ProGPU C++ browser frame contract failed.");
+            semantic_scene.data(),
+            semantic_scene.size(),
+            &scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        scene_metrics.command_count != 4U ||
+        scene_metrics.resource_count != 2U ||
+        scene_metrics.draw_count != 2U ||
+        scene_metrics.maximum_stack_depth != 1U) {
+        fail("The ProGPU C++ browser semantic scene update failed.");
+    }
+    progpu_native_scene_frame semantic_frame{};
+    semantic_frame.struct_size = sizeof(semantic_frame);
+    semantic_frame.width = width;
+    semantic_frame.height = height;
+    semantic_frame.dpi_scale = 1.0F;
+    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    semantic_frame.scene_id = 97U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics semantic_metrics{};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    if (progpu_native_engine_render_scene(
+            engine,
+            &semantic_frame,
+            &semantic_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic_metrics.command_count != 4U ||
+        semantic_metrics.draw_call_count != 3U ||
+        semantic_metrics.submission_count != 1U) {
+        fail("The ProGPU C++ browser semantic blend render failed.");
+    }
+    progpu_native_layer_metrics layer_metrics{};
+    layer_metrics.struct_size = sizeof(layer_metrics);
+    if (progpu_native_engine_get_layer_metrics(
+            engine,
+            &layer_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        layer_metrics.content_pass_count != 1U ||
+        layer_metrics.composite_pass_count != 1U ||
+        layer_metrics.texture_bytes == 0U) {
+        fail("The ProGPU C++ browser semantic layer metrics are invalid.");
     }
     resources = {
         engine,

@@ -37,9 +37,10 @@ try {
     { timeout: 30_000 });
   const contract = await page.evaluate(() => ({
     status: document.body.dataset.progpuNative,
-    draws: document.body.dataset.progpuNativeDraws,
-    vertices: document.body.dataset.progpuNativeVertices,
-    submissions: document.body.dataset.progpuNativeSubmissions,
+    semanticCommands: document.body.dataset.progpuNativeSemanticCommands,
+    semanticResources: document.body.dataset.progpuNativeSemanticResources,
+    semanticDraws: document.body.dataset.progpuNativeSemanticDraws,
+    totalSubmissions: document.body.dataset.progpuNativeTotalSubmissions,
     backendAbi: document.body.dataset.progpuNativeBackendAbi,
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
@@ -47,24 +48,69 @@ try {
   }));
   assert.deepEqual(contract, {
     status: "passed",
-    draws: "1",
-    vertices: "24",
-    submissions: "1",
+    semanticCommands: "4",
+    semanticResources: "2",
+    semanticDraws: "3",
+    totalSubmissions: "1",
     backendAbi: "3",
     explicitTimeline: "0",
     error: ""
   });
-  await page.locator("canvas").screenshot({
-    path: path.join(evidenceDirectory, "progpu-native-browser-webgpu.png")
+  const screenshotPath = path.join(
+    evidenceDirectory,
+    "progpu-native-browser-webgpu.png");
+  const screenshot = await page.locator("canvas").screenshot({
+    path: screenshotPath
   });
+  const pixels = await page.evaluate(async (png) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${png}`;
+    await image.decode();
+    const copy = document.createElement("canvas");
+    copy.width = image.naturalWidth;
+    copy.height = image.naturalHeight;
+    const context = copy.getContext("2d", { willReadFrequently: true });
+    context.drawImage(image, 0, 0);
+    const sample = (x, y) =>
+      Array.from(context.getImageData(x, y, 1, 1).data);
+    return {
+      clear: sample(10, 10),
+      destination: sample(80, 60),
+      composited: sample(200, 150)
+    };
+  }, screenshot.toString("base64"));
+  const near = (actual, expected, tolerance = 20) =>
+    Math.abs(actual - expected) <= tolerance;
+  const diagnostics = errors.length === 0
+    ? "no WebGPU console errors"
+    : errors.join(" | ");
+  assert.ok(
+    near(pixels.clear[0], 3) && near(pixels.clear[1], 4) &&
+      near(pixels.clear[2], 8) && pixels.clear[3] >= 240,
+    `Unexpected browser clear pixel: ${pixels.clear}; ${diagnostics}`);
+  assert.ok(
+    near(pixels.destination[0], 51) &&
+      near(pixels.destination[1], 204) &&
+      near(pixels.destination[2], 102) &&
+      pixels.destination[3] >= 240,
+    `Browser semantic destination pixel was lost: ${pixels.destination}; ` +
+      diagnostics);
+  assert.ok(
+    near(pixels.composited[0], 128) &&
+      near(pixels.composited[1], 128) &&
+      near(pixels.composited[2], 128) &&
+      pixels.composited[3] >= 240,
+    `Browser semantic isolated layer was not composited: ${pixels.composited}; ` +
+      diagnostics);
+  contract.pixels = pixels;
   await fs.writeFile(
     path.join(evidenceDirectory, "progpu-native-browser-contract.json"),
     `${JSON.stringify(contract, null, 2)}\n`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +
-    `${contract.draws} draw, ${contract.vertices} vertices, ` +
-    `${contract.submissions} submission.\n`);
+    `${contract.semanticCommands} semantic commands, ` +
+    `${contract.semanticDraws} GPU draws, isolated layer verified.\n`);
 } finally {
   await browser.close();
 }

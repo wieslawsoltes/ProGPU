@@ -17,6 +17,15 @@ Module.preRun.push(function () {
       return adapter.requestDevice();
     })
     .then((device) => {
+      device.addEventListener("uncapturederror", (event) => {
+        console.error(`WebGPU validation error: ${event.error.message}`);
+      });
+      device.lost.then((info) => {
+        if (info.reason !== "destroyed") {
+          console.error(
+            `WebGPU device lost (${info.reason}): ${info.message}`);
+        }
+      });
       Module.preinitializedWebGPUDevice = device;
       releaseDependency();
     })

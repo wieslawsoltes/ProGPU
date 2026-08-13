@@ -1041,7 +1041,10 @@ and device-loss recreation remain open.
 - native presentation for Metal, D3D12, Vulkan/X11/Wayland, Android, and iOS;
 - Emscripten/Emdawnwebgpu browser adapter compiling the same renderer modules,
   semantic stream, and WGSL, with a real Chromium WebGPU ABI/render/console
-  integration gate; complete semantic-family browser pixel differentials remain;
+  integration gate covering a retained bounded isolated layer, exact metrics,
+  and deterministic clear/parent/composite pixels; actual-parent advanced
+  blending remains hardware-Dawn-gated while complete browser differentials
+  remain;
 - runtime/NuGet packages, symbols, license manifests, and device-loss recovery.
 
 ### Tranche E — full parallel C++ framework core
