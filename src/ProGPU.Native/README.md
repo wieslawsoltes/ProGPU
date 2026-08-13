@@ -110,6 +110,12 @@ checks zero managed allocation after warm-up, and writes native, managed, and
 amplified-difference images. Use multiple alternating Release runs and the
 required platform profilers before making a performance claim from this mode.
 
+Semantic value preflight also enforces checked aggregate compilation budgets
+before creating an encoder: 16,384 draw passes, 256 MiB of expanded vertices,
+64 MiB of indices, 256 MiB each of textures and aligned coverage staging, and
+512 MiB total across those domains. This bounds adversarial expansion while
+the broader stream-format limits remain available for future non-draw records.
+
 Add `--group-vector-clip-chain --write-images` to apply the retained
 intersection/difference path-mask gate to the selected family. The chain uses
 independent affine transforms and cubic coverage, validates mutation rebuilds,

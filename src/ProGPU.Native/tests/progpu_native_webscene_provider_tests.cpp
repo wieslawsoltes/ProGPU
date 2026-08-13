@@ -273,6 +273,89 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     return stream;
 }
 
+std::vector<std::byte> create_over_budget_semantic_scene_stream() {
+    constexpr std::uint32_t command_count = 16U * 1024U + 1U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+    const progpu_native_analytic_primitive analytic{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        4.0F,
+        4.0F,
+        12.0F,
+        12.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 0.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}};
+    const std::uint32_t analytic_offset = append_scene_payload(
+        stream, &analytic, 1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 92U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = 1U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const progpu_native_scene_resource resource{
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        301U,
+        1U,
+        analytic_offset,
+        sizeof(analytic),
+        0U,
+        0U};
+    std::memcpy(
+        stream.data() + resource_offset,
+        &resource,
+        sizeof(resource));
+
+    for (std::uint32_t index = 0U; index < command_count; ++index) {
+        const progpu_native_scene_command command{
+            sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            401U + index,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            0U,
+            4.0F,
+            4.0F,
+            12.0F,
+            12.0F,
+            0U,
+            0U};
+        std::memcpy(
+            stream.data() + command_offset +
+                index * sizeof(progpu_native_scene_command),
+            &command,
+            sizeof(command));
+    }
+    return stream;
+}
+
 template<typename T>
 T load_symbol(void* module, const char* name) {
     static_assert(std::is_pointer_v<T>);
@@ -888,6 +971,33 @@ int main(int argc, char** argv) {
         &semantic_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_complete != 0U,
         "mixed semantic scene did not reach GPU completion");
+
+    auto over_budget_scene = create_over_budget_semantic_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        over_budget_scene.data(),
+        over_budget_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "structurally valid over-budget semantic scene was rejected early");
+    progpu_native_scene_frame over_budget_frame = semantic_frame;
+    over_budget_frame.scene_id = 92U;
+    over_budget_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &over_budget_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_OUT_OF_MEMORY &&
+        semantic_metrics.submission_count == 0U,
+        "semantic compilation budget did not fail before submission");
+    std::uint64_t submission_after_budget_failure{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &submission_after_budget_failure) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        submission_after_budget_failure == semantic_submission,
+        "semantic compilation budget failure mutated the submission timeline");
 
     resolve<WGPUProcTextureViewRelease>(
         api, provider, "wgpuTextureViewRelease")(view);

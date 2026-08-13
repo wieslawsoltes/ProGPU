@@ -413,9 +413,15 @@ Retained ignored evidence:
   `artifacts/progpu-native/differential/`.
 
 This checkpoint does not close d3b1. The native compiler must still complete
-checked whole-scene compilation budgets, repeated-domain coalescing/paged
-buffers, and stable native-allocation counters. State resources and isolated
-layers remain d3b2.
+repeated-domain coalescing/paged buffers and stable native-allocation counters.
+Whole-scene preflight now checks a maximum 16,384 draw passes, 256 MiB of
+expanded vertices, 64 MiB of indices, 256 MiB each of textures and aligned
+coverage staging, and 512 MiB across those compiled domains. Accumulation uses
+checked 64-bit arithmetic and runs in O(C + V) time for C commands and V typed
+values with O(1) budget storage. A valid 16,385-draw stream fails with
+`OUT_OF_MEMORY` before encoder creation, preserves the submission timeline,
+and leaves the target unchanged. State resources and isolated layers remain
+d3b2.
 
 ## Root-group blend/compositing supplement
 

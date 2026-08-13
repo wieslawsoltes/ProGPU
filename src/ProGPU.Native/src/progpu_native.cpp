@@ -775,7 +775,8 @@ bool is_valid_semantic_segment(
 
 bool is_valid_semantic_path(
     const progpu_native_scene_path_fill& path,
-    std::uint64_t segment_count) noexcept {
+    std::uint64_t segment_count,
+    std::uint64_t* coverage_bytes = nullptr) noexcept {
     if (path.segment_count == 0U ||
         path.segment_offset > segment_count ||
         path.segment_count > segment_count - path.segment_offset ||
@@ -803,15 +804,24 @@ bool is_valid_semantic_path(
     const double raster_height =
         std::ceil(path.max_y * maximum_scale) + path_padding -
         (std::floor(path.min_y * maximum_scale) - path_padding);
-    return std::isfinite(raster_width) && std::isfinite(raster_height) &&
+    const bool valid =
+        std::isfinite(raster_width) && std::isfinite(raster_height) &&
         raster_width > 0.0 && raster_height > 0.0 &&
         raster_width <= native_max_atlas_size - 4U &&
         raster_height <= native_max_atlas_size - 4U;
+    if (valid && coverage_bytes != nullptr) {
+        const auto width = static_cast<std::uint32_t>(raster_width);
+        const auto height = static_cast<std::uint32_t>(raster_height);
+        *coverage_bytes = static_cast<std::uint64_t>(
+            align_up(width, webgpu_copy_row_alignment)) * height;
+    }
+    return valid;
 }
 
 bool is_valid_semantic_glyph_outline(
     const progpu_native_scene_glyph_outline& outline,
-    std::uint64_t segment_count) noexcept {
+    std::uint64_t segment_count,
+    std::uint64_t* coverage_bytes = nullptr) noexcept {
     if (outline.segment_count == 0U ||
         outline.segment_offset > segment_count ||
         outline.segment_count > segment_count - outline.segment_offset ||
@@ -834,10 +844,18 @@ bool is_valid_semantic_glyph_outline(
         (std::floor(scaled_min_x) - path_padding);
     const double height = std::ceil(scaled_max_y) + path_padding -
         (std::floor(scaled_min_y) - path_padding);
-    return std::isfinite(width) && std::isfinite(height) &&
+    const bool valid = std::isfinite(width) && std::isfinite(height) &&
         width > 0.0 && height > 0.0 &&
         width <= native_max_atlas_size - 4U &&
         height <= native_max_atlas_size - 4U;
+    if (valid && coverage_bytes != nullptr) {
+        const auto pixel_width = static_cast<std::uint32_t>(width);
+        const auto pixel_height = static_cast<std::uint32_t>(height);
+        *coverage_bytes = static_cast<std::uint64_t>(
+            align_up(pixel_width, webgpu_copy_row_alignment)) *
+            pixel_height;
+    }
+    return valid;
 }
 
 bool is_valid_semantic_positioned_glyph(
@@ -886,6 +904,65 @@ bool is_valid_semantic_image(
         std::isfinite(image.opacity) && image.opacity >= 0.0F &&
         image.opacity <= 1.0F;
 }
+
+constexpr std::uint32_t semantic_max_draw_passes = 16U * 1024U;
+constexpr std::uint64_t semantic_max_vertex_bytes = 256ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t semantic_max_index_bytes = 64ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t semantic_max_texture_bytes = 256ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t semantic_max_coverage_bytes = 256ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t semantic_max_total_compiled_bytes =
+    512ULL * 1024ULL * 1024ULL;
+
+struct semantic_compilation_budget {
+    std::uint32_t draw_passes = 0U;
+    std::uint64_t vertex_bytes = 0U;
+    std::uint64_t index_bytes = 0U;
+    std::uint64_t texture_bytes = 0U;
+    std::uint64_t coverage_bytes = 0U;
+
+    bool add(
+        std::uint64_t vertices,
+        std::uint64_t indices,
+        std::uint64_t textures,
+        std::uint64_t coverage) noexcept {
+        const auto checked_add = [](std::uint64_t current,
+                                    std::uint64_t value,
+                                    std::uint64_t limit,
+                                    std::uint64_t& result) noexcept {
+            if (value > limit || current > limit - value) {
+                return false;
+            }
+            result = current + value;
+            return true;
+        };
+        std::uint64_t next_vertices = 0U;
+        std::uint64_t next_indices = 0U;
+        std::uint64_t next_textures = 0U;
+        std::uint64_t next_coverage = 0U;
+        if (draw_passes == semantic_max_draw_passes ||
+            !checked_add(vertex_bytes, vertices,
+                semantic_max_vertex_bytes, next_vertices) ||
+            !checked_add(index_bytes, indices,
+                semantic_max_index_bytes, next_indices) ||
+            !checked_add(texture_bytes, textures,
+                semantic_max_texture_bytes, next_textures) ||
+            !checked_add(coverage_bytes, coverage,
+                semantic_max_coverage_bytes, next_coverage)) {
+            return false;
+        }
+        const std::uint64_t total = next_vertices + next_indices +
+            next_textures + next_coverage;
+        if (total > semantic_max_total_compiled_bytes) {
+            return false;
+        }
+        ++draw_passes;
+        vertex_bytes = next_vertices;
+        index_bytes = next_indices;
+        texture_bytes = next_textures;
+        coverage_bytes = next_coverage;
+        return true;
+    }
+};
 
 } // namespace
 
@@ -10721,6 +10798,7 @@ progpu_native_status progpu_native_engine_render_scene(
 
     /* Preflight every typed payload before the first target submission. */
     std::uint32_t semantic_draw_count = 0U;
+    semantic_compilation_budget compilation_budget{};
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
@@ -10749,6 +10827,11 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
+        bool budget_valid = true;
+        std::uint64_t compiled_vertex_bytes = 0U;
+        std::uint64_t compiled_index_bytes = 0U;
+        std::uint64_t compiled_texture_bytes = 0U;
+        std::uint64_t compiled_coverage_bytes = 0U;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                 valid = span_is_multiple(
@@ -10760,6 +10843,10 @@ progpu_native_status progpu_native_engine_render_scene(
                     sizeof(progpu_native_analytic_primitive);
                 valid = valid && primitive_count <=
                     std::numeric_limits<std::uint32_t>::max() / 6U;
+                compiled_vertex_bytes = primitive_count * 4U *
+                    sizeof(progpu::native::vector_vertex);
+                compiled_index_bytes = primitive_count * 6U *
+                    sizeof(std::uint32_t);
                 for (std::uint64_t primitive_index = 0U;
                      valid && primitive_index < primitive_count;
                      ++primitive_index) {
@@ -10789,6 +10876,10 @@ progpu_native_status progpu_native_engine_render_scene(
                     segment_count <= (1U << 24U) &&
                     path_count <=
                         std::numeric_limits<std::uint32_t>::max() / 4U;
+                compiled_vertex_bytes = path_count * 4U *
+                    sizeof(progpu::native::vector_vertex);
+                compiled_index_bytes = path_count * 6U *
+                    sizeof(std::uint32_t);
                 for (std::uint64_t segment_index = 0U;
                      valid && segment_index < segment_count;
                      ++segment_index) {
@@ -10801,7 +10892,7 @@ progpu_native_status progpu_native_engine_render_scene(
                     valid = is_valid_semantic_segment(segment, true);
                 }
                 for (std::uint64_t path_index = 0U;
-                     valid && path_index < path_count;
+                     valid && budget_valid && path_index < path_count;
                      ++path_index) {
                     progpu_native_scene_path_fill path{};
                     std::memcpy(
@@ -10809,7 +10900,18 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + resource.payload_offset +
                             path_index * sizeof(path),
                         sizeof(path));
-                    valid = is_valid_semantic_path(path, segment_count);
+                    std::uint64_t path_coverage_bytes = 0U;
+                    valid = is_valid_semantic_path(
+                        path,
+                        segment_count,
+                        &path_coverage_bytes);
+                    budget_valid = valid &&
+                        path_coverage_bytes <=
+                            semantic_max_coverage_bytes -
+                                compiled_coverage_bytes;
+                    if (budget_valid) {
+                        compiled_coverage_bytes += path_coverage_bytes;
+                    }
                 }
                 break;
             }
@@ -10832,6 +10934,8 @@ progpu_native_status progpu_native_engine_render_scene(
                 valid = valid && outline_count <= (1U << 20U) &&
                     segment_count <= (1U << 24U) &&
                     glyph_count <= (1U << 24U);
+                compiled_vertex_bytes = glyph_count *
+                    sizeof(gpu_glyph_instance);
                 for (std::uint64_t segment_index = 0U;
                      valid && segment_index < segment_count;
                      ++segment_index) {
@@ -10844,7 +10948,7 @@ progpu_native_status progpu_native_engine_render_scene(
                     valid = is_valid_semantic_segment(segment, false);
                 }
                 for (std::uint64_t outline_index = 0U;
-                     valid && outline_index < outline_count;
+                     valid && budget_valid && outline_index < outline_count;
                      ++outline_index) {
                     progpu_native_scene_glyph_outline outline{};
                     std::memcpy(
@@ -10852,9 +10956,18 @@ progpu_native_status progpu_native_engine_render_scene(
                         bytes + resource.payload_offset +
                             outline_index * sizeof(outline),
                         sizeof(outline));
+                    std::uint64_t outline_coverage_bytes = 0U;
                     valid = is_valid_semantic_glyph_outline(
                         outline,
-                        segment_count);
+                        segment_count,
+                        &outline_coverage_bytes);
+                    budget_valid = valid &&
+                        outline_coverage_bytes <=
+                            semantic_max_coverage_bytes -
+                                compiled_coverage_bytes;
+                    if (budget_valid) {
+                        compiled_coverage_bytes += outline_coverage_bytes;
+                    }
                 }
                 for (std::uint64_t glyph_index = 0U;
                      valid && glyph_index < glyph_count;
@@ -10887,6 +11000,10 @@ progpu_native_status progpu_native_engine_render_scene(
                     is_valid_semantic_image(
                         image,
                         resource.payload_size);
+                compiled_vertex_bytes =
+                    4U * sizeof(progpu::native::vector_vertex);
+                compiled_index_bytes = 6U * sizeof(std::uint32_t);
+                compiled_texture_bytes = resource.payload_size;
                 break;
             }
             default:
@@ -10896,6 +11013,15 @@ progpu_native_status progpu_native_engine_render_scene(
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "A typed semantic scene resource payload is invalid.");
+        }
+        if (!budget_valid || !compilation_budget.add(
+                compiled_vertex_bytes,
+                compiled_index_bytes,
+                compiled_texture_bytes,
+                compiled_coverage_bytes)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
         ++semantic_draw_count;
     }
