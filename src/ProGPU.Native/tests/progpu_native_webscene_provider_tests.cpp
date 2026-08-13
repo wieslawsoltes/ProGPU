@@ -822,6 +822,8 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 4U &&
         semantic_metrics.family_switch_count == 4U &&
         semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.coverage_staging_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,

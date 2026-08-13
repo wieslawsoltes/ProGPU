@@ -1076,12 +1076,14 @@ if (useSemanticScene &&
      lastNativeSceneMetrics.DrawCallCount != 4U ||
      lastNativeSceneMetrics.FamilySwitchCount != 4U ||
      lastNativeSceneMetrics.SubmissionCount != 1UL ||
+     lastNativeSceneMetrics.VertexUploadBytes != 0UL ||
+     lastNativeSceneMetrics.IndexUploadBytes != 0UL ||
      lastNativeSceneMetrics.TextureUploadBytes != 0UL ||
      lastNativeSceneMetrics.CoverageStagingBytes != 0UL))
 {
     throw new InvalidOperationException(
         "Stable mixed semantic-scene replay did not preserve one ordered " +
-        "submission with retained image/path/glyph resources.");
+        "submission with retained analytic/path/glyph/image resources.");
 }
 if (useGroupMask &&
     (!stableLayerMetrics.CacheHit ||

@@ -105,10 +105,10 @@ The native side installs one versioned pointer-free snapshot and renders it
 through one C ABI call, one command buffer, and one queue submission. The
 managed side uses the production retained `Visual`/`Compositor` path. The
 report separates CPU submission from GPU-completion wait, publishes snapshot
-and frame metrics, checks zero managed allocation after warm-up, and writes
-native, managed, and amplified-difference images. Use multiple alternating
-Release runs and the required platform profilers before making a performance
-claim from this mode.
+and frame metrics, requires zero stable vertex/index/texture/coverage upload,
+checks zero managed allocation after warm-up, and writes native, managed, and
+amplified-difference images. Use multiple alternating Release runs and the
+required platform profilers before making a performance claim from this mode.
 
 Add `--group-vector-clip-chain --write-images` to apply the retained
 intersection/difference path-mask gate to the selected family. The chain uses

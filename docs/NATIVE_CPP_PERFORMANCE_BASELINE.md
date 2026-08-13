@@ -327,15 +327,14 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
-## Semantic mixed-scene functional checkpoint
+## Semantic mixed-scene performance checkpoint
 
 The first d3b1 rendering checkpoint installs one immutable pointer-free scene
 and renders analytic, retained-path, positioned-glyph, and upload-backed image
-commands through one public native entry point. The current compiler preserves
-order with one native command buffer/submission for the four-command fixture.
+commands through one public native entry point. The compiler preserves order
+with one native command buffer/submission for the four-command fixture.
 Analytic, path, glyph, and image use distinct retained buffer domains and share
-the encoder. It is not yet the final paged/coalesced topology
-and no C++/managed performance claim is made from this functional run.
+the encoder. It is not yet the final paged/coalesced topology.
 
 The real pinned WebScene `02823bf` / Dawn `710c33013` / Metal provider test
 renders to a 64 by 48 GPU canvas, waits for the native submission token, and
@@ -346,35 +345,77 @@ image regions in display-list order. The generated native checkpoint image is
 PNG inspection conversion beside it). The managed typed builder separately
 writes all four resource/command payloads into caller-owned memory with exactly
 zero managed bytes over 10,000 builds. A second render of the identical scene
-retains the snapshot hash, issues no image-texture upload and no path/glyph
-coverage staging, and submits the same four ordered passes in one command
-buffer.
+retains the snapshot hash and analytic vertex/index payload by immutable
+command revision, issues no vertex, index, image-texture, or path/glyph
+coverage upload, and submits the same four ordered passes in one command
+buffer. Analytic draws no longer evict the distinct retained path buffers.
+Solid and geometry draws explicitly invalidate the shared analytic CPU/GPU
+payload so a later semantic replay cannot observe overwritten shared vectors.
+
 The same hardware gate then installs a structurally valid scene whose fourth
 image draw contains a non-finite opacity. Whole-scene value preflight rejects
 it before submission, preserves the prior submission token, and the subsequent
 IOSurface pixel verification proves that no earlier draw or clear reached the
 target.
 
-The managed/native application harness now exposes `--semantic-scene` for the
-same substitution boundary at 960 by 540. It retains four quadrant-local
-families through the managed production visual tree and installs the equivalent
+The managed/native application harness exposes `--semantic-scene` for the same
+substitution boundary at 960 by 540. It retains four quadrant-local families
+through the managed production visual tree and installs the equivalent
 four-resource pointer-free native snapshot once. Every measured native frame
 must report four ordered draws, four family entries, one command buffer/queue
-submission, no stable image upload, and no stable path/glyph coverage staging.
-Both measured routes allocate exactly zero managed bytes after warm-up. The
-native, managed, and 64-times-amplified difference captures are written as
-`semantic-scene-{native,managed,difference-64x}.ppm`; the first Apple M3 Pro
-functional run changed 106 of 518,400 pixels beyond 3/255, with maximum 55/255
-and mean absolute difference 0.001334/255 per channel, confined to independent
-path/glyph coverage ties. macOS/Linux and runnable Windows native build lanes
-execute this mode as an integration smoke. This short functional run is not a
-timing claim; matched long distributions and Instruments evidence remain open.
+submission, and zero stable vertex, index, image, and coverage uploads. Both
+measured routes allocate exactly zero managed bytes after warm-up. The native,
+managed, and 64-times-amplified difference captures are written as
+`semantic-scene-{native,managed,difference-64x}.ppm`.
 
-This checkpoint does not close d3b1. Before performance evidence is recorded,
-the native compiler must complete checked whole-scene compilation budgets,
-repeated-domain coalescing/paged buffers, complete stable native-allocation
-counters, matched long distributions, and macOS native/.NET/GPU profiles.
-State resources and isolated layers remain d3b2.
+The representative 384-item Apple M3 Pro gate changes 284 of 518,400 pixels
+beyond 3/255, with maximum 68/255 and mean absolute difference 0.003582658/255
+per channel, confined to independent path/glyph edge-coverage ties. The mixed
+budget is maximum 96/255, no more than 0.1% of pixels beyond 3/255, and mean no
+more than 0.005/255; stricter single-family contracts are unchanged. macOS,
+Linux, and runnable Windows native build lanes execute this mode as an
+integration smoke.
+
+Three independent paired 600-frame synchronized runs after 120 warm-ups
+produced these optimized median p95 values:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+| --- | ---: | ---: | ---: |
+| CPU encode/upload/submit | 0.1577 ms | 0.2222 ms | 29.0% lower |
+| GPU-completion wait | 1.5331 ms | 1.5284 ms | within 0.4% |
+| Synchronized end to end | 1.6817 ms | 1.7417 ms | 3.4% lower |
+| Stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+The matched pre-optimization distributions reported 21,504 stable vertex and
+2,304 stable index upload bytes and a median native/managed end-to-end p95
+ratio of 1.068. The optimized distributions report zero for both uploads and a
+ratio of 0.966. Absolute timings varied with machine load, so the paired ratio
+and retained-upload counters are the regression signals.
+
+Correlated final-binary Time Profiler, Allocations plus VM Tracker, and Metal
+System Trace captures completed before and after. In the Metal capture, native
+submission p95 changed from 1.0546 ms versus managed 0.3757 ms to 0.2981 ms
+versus managed 0.3293 ms. Optimized completion waits are 1.5340 and 1.5341 ms,
+which confirms that GPU-complete work is on par after removing the native CPU
+upload deficit. Both Metal traces contain zero command-buffer errors and have
+the same 15,941,632-byte peak `currentAllocatedSize`; the whole-process
+Allocations/VM traces are retained for ownership inspection and are not
+misattributed to one renderer.
+
+Retained ignored evidence:
+
+- `semantic-scene-1b7578c5/paired-sync-{1,2,3}.json` and
+  `semantic-scene-1b7578c5/analytic-cache-after/run-{1,2,3}.json`;
+- before/after Time Profiler, Metal System Trace, and Allocations plus VM
+  Tracker captures and compact table exports under
+  `artifacts/progpu-native/performance/semantic-scene-1b7578c5/instruments/`;
+- inspected semantic native, managed, and 64-times difference PNGs under
+  `artifacts/progpu-native/differential/`.
+
+This checkpoint does not close d3b1. The native compiler must still complete
+checked whole-scene compilation budgets, repeated-domain coalescing/paged
+buffers, and stable native-allocation counters. State resources and isolated
+layers remain d3b2.
 
 ## Root-group blend/compositing supplement
 

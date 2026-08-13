@@ -963,6 +963,12 @@ struct progpu_native_engine {
     std::array<progpu_native_point, 101U> spline_sampled_points{};
     std::vector<progpu::native::spline_homogeneous_point> spline_work;
     std::vector<std::byte> brush_bytes;
+    std::uint32_t semantic_analytic_revision = 0U;
+    std::uint32_t analytic_content_revision = 0U;
+    float analytic_dpi_scale = 0.0F;
+    float analytic_opacity = 1.0F;
+    bool analytic_cache_valid = false;
+    bool analytic_gpu_cache_valid = false;
     std::uint32_t geometry_content_revision = 0U;
     float geometry_opacity = 1.0F;
     std::uint64_t geometry_payload_hash = 0U;
@@ -1807,6 +1813,8 @@ struct progpu_native_engine {
         }
         vertex_buffer = replacement;
         vertex_buffer_size = new_size;
+        analytic_gpu_cache_valid = false;
+        geometry_gpu_cache_valid = false;
         return true;
     }
 
@@ -1840,6 +1848,8 @@ struct progpu_native_engine {
         }
         index_buffer = replacement;
         index_buffer_size = new_size;
+        analytic_gpu_cache_valid = false;
+        geometry_gpu_cache_valid = false;
         return true;
     }
 
@@ -7475,7 +7485,9 @@ progpu_native_status progpu_native_engine_render(
             "The native renderer must be used from its owner thread.");
     }
     reset_layer_metrics(*engine);
-    engine->path_gpu_cache_valid = false;
+    engine->analytic_cache_valid = false;
+    engine->analytic_gpu_cache_valid = false;
+    engine->geometry_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->rect_count >
             std::numeric_limits<std::size_t>::max() / 6U ||
@@ -7729,7 +7741,7 @@ progpu_native_status progpu_native_engine_render_analytic(
             "The native renderer must be used from its owner thread.");
     }
     reset_layer_metrics(*engine);
-    engine->path_gpu_cache_valid = false;
+    engine->geometry_cache_valid = false;
     engine->geometry_gpu_cache_valid = false;
     if (frame->primitive_count >
             std::numeric_limits<std::uint32_t>::max() / 6U ||
@@ -7763,43 +7775,66 @@ progpu_native_status progpu_native_engine_render_analytic(
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
 
-    try {
-        engine->vertices.clear();
-        engine->indices.clear();
-        engine->vertices.reserve(frame->primitive_count * 4U);
-        engine->indices.reserve(frame->primitive_count * 6U);
-        for (std::size_t index = 0; index < frame->primitive_count; ++index) {
-            float minimum_scale = 0.0F;
-            if (!progpu::native::try_get_minimum_scale(
-                    frame->primitives[index].transform,
-                    minimum_scale)) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                    "An analytic primitive has a non-invertible affine transform.");
+    const bool retain_compiled_payload =
+        engine->semantic_analytic_revision != 0U;
+    const bool compiled_payload_hit = retain_compiled_payload &&
+        engine->analytic_cache_valid &&
+        engine->analytic_content_revision ==
+            engine->semantic_analytic_revision &&
+        engine->analytic_dpi_scale == frame->dpi_scale &&
+        engine->analytic_opacity == draw_state.opacity;
+    if (!compiled_payload_hit) {
+        engine->analytic_cache_valid = false;
+        engine->analytic_gpu_cache_valid = false;
+        try {
+            engine->vertices.clear();
+            engine->indices.clear();
+            engine->vertices.reserve(frame->primitive_count * 4U);
+            engine->indices.reserve(frame->primitive_count * 6U);
+            for (std::size_t index = 0;
+                 index < frame->primitive_count;
+                 ++index) {
+                float minimum_scale = 0.0F;
+                if (!progpu::native::try_get_minimum_scale(
+                        frame->primitives[index].transform,
+                        minimum_scale)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "An analytic primitive has a non-invertible affine transform.");
+                }
+                const float local_padding =
+                    antialias_padding_pixels / minimum_scale;
+                if (!progpu::native::append_analytic_primitive(
+                        frame->primitives[index],
+                        local_padding,
+                        engine->vertices,
+                        engine->indices)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "An analytic primitive contains invalid geometry, color, or flags.");
+                }
             }
-            const float local_padding =
-                antialias_padding_pixels / minimum_scale;
-            if (!progpu::native::append_analytic_primitive(
-                    frame->primitives[index],
-                    local_padding,
-                    engine->vertices,
-                    engine->indices)) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                    "An analytic primitive contains invalid geometry, color, or flags.");
+            multiply_vertex_alpha(engine->vertices, draw_state.opacity);
+            if (retain_compiled_payload) {
+                engine->analytic_content_revision =
+                    engine->semantic_analytic_revision;
+                engine->analytic_dpi_scale = frame->dpi_scale;
+                engine->analytic_opacity = draw_state.opacity;
+                engine->analytic_cache_valid = true;
             }
+        } catch (const std::bad_alloc&) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native analytic batch could not be allocated.");
         }
-        multiply_vertex_alpha(engine->vertices, draw_state.opacity);
-    } catch (const std::bad_alloc&) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-            "The native analytic batch could not be allocated.");
     }
 
     const std::uint64_t vertex_bytes =
         engine->vertices.size() * sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes =
         engine->indices.size() * sizeof(std::uint32_t);
+    const bool upload_compiled_payload =
+        !compiled_payload_hit || !engine->analytic_gpu_cache_valid;
     bool uploaded_uniforms = false;
     if (vertex_bytes != 0U) {
         if (engine->analytic_pipeline == nullptr &&
@@ -7824,18 +7859,21 @@ progpu_native_status progpu_native_engine_render_analytic(
             uniforms,
             engine->cached_analytic_uniforms,
             engine->analytic_uniform_cache_valid);
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            engine->vertex_buffer,
-            0U,
-            engine->vertices.data(),
-            static_cast<std::size_t>(vertex_bytes));
-        wgpuQueueWriteBuffer(
-            engine->queue,
-            engine->index_buffer,
-            0U,
-            engine->indices.data(),
-            static_cast<std::size_t>(index_bytes));
+        if (upload_compiled_payload) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->vertex_buffer,
+                0U,
+                engine->vertices.data(),
+                static_cast<std::size_t>(vertex_bytes));
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->index_buffer,
+                0U,
+                engine->indices.data(),
+                static_cast<std::size_t>(index_bytes));
+            engine->analytic_gpu_cache_valid = retain_compiled_payload;
+        }
     }
 
     const bool owns_encoder = engine->semantic_encoder == nullptr;
@@ -7984,8 +8022,12 @@ progpu_native_status progpu_native_engine_render_analytic(
             static_cast<std::uint32_t>(engine->vertices.size());
         metrics->index_count =
             static_cast<std::uint32_t>(engine->indices.size());
-        metrics->vertex_upload_bytes = vertex_bytes;
-        metrics->index_upload_bytes = index_bytes;
+        metrics->vertex_upload_bytes = upload_compiled_payload
+            ? vertex_bytes
+            : 0U;
+        metrics->index_upload_bytes = upload_compiled_payload
+            ? index_bytes
+            : 0U;
         metrics->uniform_upload_bytes = uploaded_uniforms
             ? sizeof(gpu_uniforms)
             : 0U;
@@ -8048,6 +8090,8 @@ progpu_native_status progpu_native_engine_render_geometry(
             "The native renderer must be used from its owner thread.");
     }
     reset_layer_metrics(*engine);
+    engine->analytic_cache_valid = false;
+    engine->analytic_gpu_cache_valid = false;
     engine->path_gpu_cache_valid = false;
     if (frame->primitive_count > (1U << 24U) ||
         frame->polyline_count > (1U << 24U) ||
@@ -10972,8 +11016,11 @@ progpu_native_status progpu_native_engine_render_scene(
                 progpu_native_analytic_frame_metrics family_metrics{};
                 family_metrics.struct_size = sizeof(family_metrics);
                 prepare_family(command.kind);
+                engine->semantic_analytic_revision =
+                    command_revision(command, resource);
                 status = finish_family(progpu_native_engine_render_analytic(
                     engine, &family, &family_metrics));
+                engine->semantic_analytic_revision = 0U;
                 draw_calls += family_metrics.draw_call_count;
                 vertex_upload_bytes += family_metrics.vertex_upload_bytes;
                 index_upload_bytes += family_metrics.index_upload_bytes;
