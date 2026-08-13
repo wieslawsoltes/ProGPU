@@ -427,7 +427,6 @@ uniform and no family content. Vector revision mutation rerasterizes and
 recomposes the two-node mask while preserving the family layer; restoring and
 replaying the unchanged revision reports a clip-cache hit with zero clip passes
 or uploads.
-host.
 
 Three paired 300-frame synchronized runs after 60 warmups produced these
 median p95 values:
@@ -473,6 +472,60 @@ Retained ignored evidence:
 - Time Profiler, Allocations/VM Tracker, Metal System Trace, exported TOCs,
   sampled stacks, labels, submissions, completions, errors, and Metal residency
   under `artifacts/progpu-native/traces/group-masks-20260813/`.
+
+### Retained vector clip-chain distribution and profile
+
+Three independent paired 300-frame synchronized runs, each after 60 warmups,
+used the 384-solid scene and the same two-node transformed intersect/difference
+clip chain as the functional matrix. Median p95 values across the three runs
+were:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| CPU encode/upload/submit | 0.0613 ms | 0.4201 ms | -85.4% |
+| GPU-completion wait portion | 3.0259 ms | 4.5256 ms | -33.1% |
+| end-to-end synchronized | 3.0576 ms | 4.7042 ms | -35.0% |
+
+Native measured zero managed bytes per synchronized frame. The managed
+completion-observer interval measured a median 2,380.4 bytes per frame; this is
+the existing `PollDevice(wait: true)` observation cost and is not attributed to
+the asynchronous renderer-only path. The native stable replay retained the
+composed clip texture and reported one final composite pass, zero content
+passes, zero clip raster/composition passes, zero clip/path/coverage uploads,
+and a clip-cache hit. The GPU-completion portions converge in the fastest run
+(3.0259 ms native and 3.0747 ms managed) because both paths share the same
+queue and device. The managed distribution also contains a slower completion
+mode; the measured native advantage is therefore reported as a three-run
+median rather than inferred from a single trace.
+
+The 518,400-pixel long-run comparison has maximum channel difference 57,
+2,294 pixels (0.443%) beyond 3/255, and mean absolute channel difference
+`0.037058/255`. Native, managed, and 64-times-amplified difference images were
+inspected; differences remain confined to independently rasterized clip edges
+and the existing one-byte primitive edge.
+
+Matched final-binary Instruments captures used the same Release binary. The
+5,000-frame Time Profiler run, 2,000-frame Allocations/VM Tracker run, and
+synchronized 200-frame Metal System Trace all exited zero. The Metal trace
+records one retained native clip atlas, two accumulation textures, one node
+mask, one composition pass, and one coverage pass allocation rather than
+per-frame resource creation; it contains 2,434 submission rows, 3,368
+completion rows, zero command-buffer-error rows, and a 19.78 MiB peak
+combined-process Metal `currentAllocatedSize`. The shared-process peak is not
+attributed to either renderer. The synchronized trace itself measured p95
+submission/completion/end-to-end values of 0.1288/3.0333/3.1195 ms native and
+0.4427/4.5307/4.7786 ms managed.
+
+Retained ignored evidence:
+
+- `vector-clips/sync-{1,2,3}.json` under
+  `artifacts/progpu-native/benchmarks/`;
+- native, managed, and amplified-difference PNGs under
+  `artifacts/progpu-native/differential/`;
+- Time Profiler, Allocations/VM Tracker, Metal System Trace, exported TOCs,
+  sampled/aggregated stacks, labels, submissions, completions, errors, and
+  Metal residency under
+  `artifacts/progpu-native/traces/vector-clips-20260813/`.
 
 ## Common draw-state supplement
 
