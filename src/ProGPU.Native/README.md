@@ -15,11 +15,15 @@ Production implementation is split behind the unchanged public C ABI. The
 main translation unit owns exported entry points and device lifetime;
 `progpu_native_scene.cpp` owns pointer-free stream validation,
 `progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
-and `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget
-accounting. Both wgpu-native and Dawn targets compile the same private module
-set. Additional renderer domains will move behind similarly typed internal
-modules as their ownership seams are stabilized; no module exports backend
-descriptor layouts.
+`progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget
+accounting, `progpu_native_semantic_state.cpp` owns the allocation-free state
+and layer-target cursors, and `progpu_native_semantic_validation.cpp` owns
+bounded family-payload preflight. Both wgpu-native and Dawn targets compile the
+same private module set. The CPU-only modules are also compiled directly into
+focused internal tests so their behavior cannot depend on WebGPU startup.
+Additional renderer domains will move behind similarly typed internal modules
+as their ownership seams are stabilized; no module exports backend descriptor
+layouts.
 
 Build, test, and run the live offscreen sample from the repository root:
 

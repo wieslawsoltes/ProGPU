@@ -187,8 +187,14 @@ warnings-as-errors against both the pinned May-2024 wgpu-native headers and
 WebScene's exact `01addc4...` WebGPU headers. Exported entry points and engine
 ownership remain in `progpu_native.cpp`; the bounded ping-pong effect planner
 is isolated in `progpu_native_effect_plan.cpp`, and semantic allocation limits
-and checked pool accounting live in `progpu_native_semantic_budget.hpp`. These
-private modules expose no public symbols and are compiled into both adapters.
+and checked pool accounting live in `progpu_native_semantic_budget.hpp`.
+Allocation-free state/layer-target traversal and DPI-aware scissor localization
+live in `progpu_native_semantic_state.cpp`; analytic/path/glyph/image preflight
+and checked coverage sizing live in `progpu_native_semantic_validation.cpp`.
+These private modules expose no public symbols and are compiled into both
+adapters. The semantic modules are independently linked into focused CPU-only
+tests so state, bounds, validation, and budget behavior cannot accidentally
+initialize WebGPU.
 A small typed
 compatibility layer accounts for string views, WGSL chained descriptors,
 renamed texel-copy records, reference operations, vertex-record initialization,
