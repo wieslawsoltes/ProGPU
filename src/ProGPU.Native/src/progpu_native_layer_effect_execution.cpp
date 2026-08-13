@@ -255,7 +255,9 @@ bool ensure_layer_texture(
     descriptor.label = ::progpu::native::webgpu::string_view(
         "ProGPU native pooled group layer");
     descriptor.usage = WGPUTextureUsage_RenderAttachment |
-        WGPUTextureUsage_TextureBinding;
+        WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopySrc |
+        WGPUTextureUsage_CopyDst;
     descriptor.dimension = WGPUTextureDimension_2D;
     descriptor.size = {width, height, 1U};
     descriptor.format = engine.target_format;
@@ -412,7 +414,9 @@ bool ensure_semantic_texture_slot(
     WGPUTextureDescriptor descriptor{};
     descriptor.label = ::progpu::native::webgpu::string_view(label);
     descriptor.usage = WGPUTextureUsage_RenderAttachment |
-        WGPUTextureUsage_TextureBinding;
+        WGPUTextureUsage_TextureBinding |
+        WGPUTextureUsage_CopySrc |
+        WGPUTextureUsage_CopyDst;
     descriptor.dimension = WGPUTextureDimension_2D;
     descriptor.size = {width, height, 1U};
     descriptor.format = engine.target_format;

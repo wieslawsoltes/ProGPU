@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "webscene_gpu_provider.h"
@@ -26,6 +27,7 @@ namespace {
 
 using progpu::native::tests::
     create_semantic_advanced_blend_scene_stream;
+using progpu::native::tests::create_semantic_backdrop_scene_stream;
 using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
 using progpu::native::tests::verify_semantic_advanced_blend_scene;
@@ -1442,6 +1444,94 @@ void verify_semantic_layer_scene(
         kIOReturnSuccess, "could not unlock semantic layer IOSurface");
 }
 
+void verify_semantic_backdrop_scene(
+    IOSurfaceRef surface,
+    const char* output_path) {
+    require(surface != nullptr, "semantic backdrop scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not lock semantic backdrop IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected semantic backdrop IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto* outside_left = pixel(4U, 4U);
+    const auto* outside_right = pixel(60U, 4U);
+    const auto* bounded_left = pixel(14U, 24U);
+    const auto* filtered_left = pixel(20U, 24U);
+    const auto* transition = pixel(31U, 24U);
+    const auto* marker = pixel(26U, 24U);
+    const auto* filtered_right = pixel(36U, 24U);
+    const auto* bounded_right = pixel(50U, 24U);
+    const auto* initialized_previous = pixel(12U, 40U);
+    const auto opaque = [](const std::uint8_t* value) {
+        return value[3] >= 240U;
+    };
+    std::fprintf(stderr,
+        "semantic-backdrop outside-left=%u,%u,%u,%u "
+        "filtered-left=%u,%u,%u,%u transition=%u,%u,%u,%u "
+        "marker=%u,%u,%u,%u filtered-right=%u,%u,%u,%u\n",
+        outside_left[0], outside_left[1], outside_left[2], outside_left[3],
+        filtered_left[0], filtered_left[1], filtered_left[2],
+        filtered_left[3], transition[0], transition[1], transition[2],
+        transition[3], marker[0], marker[1], marker[2], marker[3],
+        filtered_right[0], filtered_right[1], filtered_right[2],
+        filtered_right[3]);
+    require(outside_left[2] >= 240U && outside_left[0] <= 16U &&
+        opaque(outside_left),
+        "left parent content outside the backdrop was lost");
+    require(outside_right[0] >= 240U && outside_right[2] <= 16U &&
+        opaque(outside_right),
+        "right parent content outside the backdrop was lost");
+    require(bounded_left[2] >= 240U && bounded_left[0] <= 16U &&
+        opaque(bounded_left),
+        "backdrop capture escaped its left bound");
+    require(bounded_right[0] >= 240U && bounded_right[2] <= 16U &&
+        opaque(bounded_right),
+        "backdrop capture escaped its right bound");
+    require(filtered_left[2] >= 160U && filtered_left[0] <= 96U &&
+        opaque(filtered_left),
+        "filtered backdrop lost its left source");
+    require(transition[0] >= 40U && transition[2] >= 40U &&
+        transition[0] <= 220U && transition[2] <= 220U &&
+        opaque(transition),
+        "backdrop Gaussian effect did not filter the parent transition");
+    require(marker[1] >= 240U && marker[0] <= 16U && marker[2] <= 16U &&
+        opaque(marker),
+        "child content was not drawn over the filtered backdrop");
+    require(filtered_right[0] >= 160U && filtered_right[2] <= 96U &&
+        opaque(filtered_right),
+        "filtered backdrop lost its right source");
+    require(initialized_previous[2] >= 240U &&
+        initialized_previous[0] <= 16U && opaque(initialized_previous),
+        "unfiltered backdrop did not initialize from previous parent pixels");
+
+    if (output_path != nullptr && output_path[0] != '\0') {
+        std::FILE* output = std::fopen(output_path, "wb");
+        require(output != nullptr,
+            "could not create semantic backdrop capture");
+        std::fprintf(output, "P6\n%zu %zu\n255\n", width, height);
+        for (std::size_t y = 0U; y < height; ++y) {
+            for (std::size_t x = 0U; x < width; ++x) {
+                const std::uint8_t* source = pixel(x, y);
+                const std::uint8_t rgb[]{source[2], source[1], source[0]};
+                require(std::fwrite(rgb, sizeof(rgb), 1U, output) == 1U,
+                    "semantic backdrop capture write failed");
+            }
+        }
+        require(std::fclose(output) == 0,
+            "semantic backdrop capture close failed");
+    }
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not unlock semantic backdrop IOSurface");
+}
+
 void verify_semantic_masked_layer_scene(
     IOSurfaceRef surface,
     const char* output_path) {
@@ -1896,14 +1986,6 @@ int main(int argc, char** argv) {
     progpu_native_scene_frame layer_frame = semantic_frame;
     layer_frame.scene_id = 93U;
     layer_frame.generation = 1U;
-    semantic_metrics = {};
-    semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
-        engine,
-        &layer_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_UNSUPPORTED &&
-        semantic_metrics.submission_count == 0U,
-        "budgeted semantic layer did not reach the typed rendering boundary");
     layer_frame.width = 65536U;
     layer_frame.height = 65536U;
     semantic_metrics = {};
@@ -2222,6 +2304,119 @@ int main(int argc, char** argv) {
             advanced_blend_external.shared_handle),
         "progpu-native-semantic-advanced-blend.ppm");
     api.release_external(provider, &advanced_blend_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic backdrop canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic backdrop canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic backdrop target view creation failed");
+
+    auto backdrop_scene = create_semantic_backdrop_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        backdrop_scene.data(),
+        backdrop_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 6U &&
+        scene_metrics.resource_count == 3U &&
+        scene_metrics.draw_count == 2U &&
+        scene_metrics.maximum_stack_depth == 1U,
+        "semantic backdrop scene update failed");
+    progpu_native_scene_frame backdrop_frame = semantic_frame;
+    backdrop_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    backdrop_frame.scene_id = 98U;
+    backdrop_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &backdrop_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 6U &&
+        semantic_metrics.draw_call_count == 6U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes != 0U &&
+        semantic_metrics.uniform_upload_bytes != 0U,
+        "semantic backdrop rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.texture_width == 32U &&
+        semantic_layer_metrics.texture_height == 32U &&
+        semantic_layer_metrics.content_pass_count == 2U &&
+        semantic_layer_metrics.composite_pass_count == 2U &&
+        semantic_layer_metrics.effect_count == 1U &&
+        semantic_layer_metrics.effect_pass_count == 2U &&
+        semantic_layer_metrics.effect_cache_hit == 0U &&
+        semantic_layer_metrics.texture_bytes == 16384U &&
+        semantic_layer_metrics.effect_texture_bytes == 12288U,
+        "semantic backdrop layer metrics are incorrect");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &backdrop_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 6U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "stable semantic backdrop replay rebuilt retained resources");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.effect_pass_count == 2U &&
+        semantic_layer_metrics.effect_cache_hit == 0U,
+        "stable semantic backdrop replay cached parent-dependent pixels");
+    std::uint64_t backdrop_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &backdrop_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic backdrop submission token unavailable");
+    std::uint8_t backdrop_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        backdrop_submission,
+        1U,
+        &backdrop_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        backdrop_complete != 0U,
+        "semantic backdrop scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture backdrop_external{};
+    backdrop_external.struct_size = sizeof(backdrop_external);
+    require(api.present(provider, canvas, &backdrop_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        backdrop_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (backdrop_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic backdrop presentation failed");
+    verify_semantic_backdrop_scene(
+        reinterpret_cast<IOSurfaceRef>(backdrop_external.shared_handle),
+        "progpu-native-semantic-backdrop.ppm");
+    api.release_external(provider, &backdrop_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

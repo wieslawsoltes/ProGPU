@@ -294,6 +294,7 @@ add_custom_target(progpu_native_generated_shaders
 
 set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_advanced_blend_execution.cpp
+    src/progpu_native_backdrop_execution.cpp
     src/progpu_native.cpp
     src/progpu_native_draw_state.cpp
     src/progpu_native_draw_state.hpp
@@ -424,6 +425,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 tests/progpu_native_webscene_provider_tests.cpp
                 tests/progpu_native_semantic_advanced_blend_scene.cpp
                 tests/progpu_native_semantic_advanced_blend_scene.hpp
+                tests/progpu_native_semantic_backdrop_scene.cpp
+                tests/progpu_native_semantic_backdrop_scene.hpp
                 tests/progpu_native_webscene_advanced_blend_fixture.cpp
                 tests/progpu_native_webscene_advanced_blend_fixture.hpp
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
@@ -465,6 +468,8 @@ if(EMSCRIPTEN)
         browser/progpu_native_browser_evidence.hpp
         tests/progpu_native_semantic_advanced_blend_scene.cpp
         tests/progpu_native_semantic_advanced_blend_scene.hpp
+        tests/progpu_native_semantic_backdrop_scene.cpp
+        tests/progpu_native_semantic_backdrop_scene.hpp
         browser/progpu_native_browser_smoke.cpp)
     add_dependencies(
         progpu_native_browser_smoke

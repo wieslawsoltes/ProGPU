@@ -215,9 +215,27 @@ public enum NativeSceneStateFlags : uint
 [Flags]
 public enum NativeSceneLayerFlags : uint
 {
+    /// <summary>
+    /// Applies no optional layer behavior.
+    /// </summary>
     None = 0,
+
+    /// <summary>
+    /// Uses the finite logical bounds carried by the layer descriptor.
+    /// </summary>
     Bounds = 1U << 0,
+
+    /// <summary>
+    /// Initializes the isolated child from the already-rendered parent region.
+    /// When the layer also has an effect, the effect filters that captured
+    /// backdrop before child commands are rendered.
+    /// </summary>
     Backdrop = 1U << 1,
+
+    /// <summary>
+    /// Materializes an isolated child even when the remaining layer state could
+    /// otherwise be lowered directly into its parent.
+    /// </summary>
     ForceIsolation = 1U << 2
 }
 

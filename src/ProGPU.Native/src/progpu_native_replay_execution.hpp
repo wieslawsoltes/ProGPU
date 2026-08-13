@@ -49,6 +49,14 @@ bool prepare_semantic_advanced_blend_resources(
     float dpi_scale,
     std::uint64_t& uploaded_uniform_bytes);
 
+bool prepare_semantic_backdrop_resources(
+    progpu_native_engine& engine,
+    std::uint32_t frame_width,
+    std::uint32_t frame_height,
+    std::uint32_t operation_count,
+    float dpi_scale,
+    std::uint64_t& uploaded_uniform_bytes);
+
 bool create_semantic_advanced_blend_binding(
     progpu_native_engine& engine,
     WGPUTextureView destination_view,
@@ -67,6 +75,12 @@ bool encode_semantic_root_copy(
     WGPUCommandEncoder encoder,
     WGPUTextureView target_view,
     std::uint32_t first_vertex);
+
+bool encode_semantic_backdrop_capture(
+    progpu_native_engine& engine,
+    WGPUCommandEncoder encoder,
+    const semantic_render_bundle_span& operation,
+    std::uint32_t& effect_pass_count);
 
 void append_semantic_layer_quad(
     std::vector<vector_vertex>& vertices,

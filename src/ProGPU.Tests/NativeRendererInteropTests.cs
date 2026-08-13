@@ -1565,15 +1565,15 @@ public class NativeRendererInteropTests
             browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains(
-            "create_semantic_advanced_blend_scene_stream",
+            "create_semantic_backdrop_scene_stream",
             browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains(
-            "PROGPU_NATIVE_BLEND_SRC_OVER",
+            "semantic_metrics.command_count != 6U",
             browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains(
-            "semantic_metrics.draw_call_count != 3U",
+            "semantic_metrics.draw_call_count != 6U",
             browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1602,7 +1602,9 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("offscreen-texture-readback", browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("Browser semantic isolated layer was not composited", browserTest,
+        Assert.Contains("Browser backdrop effect did not filter the parent transition", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("Browser backdrop did not initialize from previous pixels", browserTest,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
             StringComparison.Ordinal);

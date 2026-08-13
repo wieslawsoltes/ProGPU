@@ -69,6 +69,7 @@ metadata.
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
 | [WebGPU render bundles](https://gpuweb.github.io/gpuweb/#render-bundles) | A render bundle records reusable draw commands independently of a target render pass; execution validates attachment formats/sample state and replays the retained command sequence. Executing a bundle clears pipeline, bind-group, vertex-buffer, and index-buffer state, but the specification does not clear the pass scissor. | Compile an immutable mixed scene into retained contiguous clip-span bundles after its GPU pages are ready. A stable frame sets each span's physical scissor on the one current clear/store pass and executes its bundle. Scene, DPI, target size, device-domain, or shared-resource ownership changes release every span before referenced pages or bindings are replaced. |
 | [WebGPU blend state and render-pass load/store operations](https://gpuweb.github.io/gpuweb/#blend-state) | A render attachment can be cleared/stored explicitly, then sampled by a later pass; premultiplied source-over uses source color factor one and destination factor one-minus-source-alpha. | Clear a pooled layer to transparent, store the family result, and sample it once through a dedicated premultiplied composite pipeline in the same command buffer. Never use the straight-alpha image blend for layer pixels. |
+| [WebGPU `copyTextureToTexture`](https://www.w3.org/TR/webgpu/#dom-gpucommandencoder-copytexturetotexture) | A command encoder can copy one bounded, copy-compatible texture region into another when source and destination declare the corresponding usages. Commands outside render/compute passes retain encoder order. | Route any backdrop scene through a sampleable internal root, finish the parent pass, then copy the exact intersected parent region into its reusable depth slot. Do not read back, sample an external target, or count the copy as a draw call. |
 | [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
 | [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
@@ -82,7 +83,8 @@ metadata.
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
 | [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
-| [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result, making layer allocation and composition explicit. | Keep direct masks independent. The frame-group lane uses one reusable source layer and one restore/composite draw; nested semantic layer stacks remain separate from the bounded linear frame-effect chain. |
+| [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) and [`SaveLayerRec`](https://api.skia.org/structSkCanvas_1_1SaveLayerRec.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result. An optional backdrop filter initializes the new layer from filtered prior canvas content before later child drawing. | Keep direct masks independent. For a semantic backdrop push, snapshot/filter the already rendered parent first, draw child commands over that result, then apply restore opacity/mask/blend exactly once at pop. |
+| [WinUI `CompositionBackdropBrush`](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionbackdropbrush) | A composition brush samples content behind a visual so an effect graph can consume the visual's backdrop. | Preserve parent-pixel provenance inside the native scene and expose backdrop as typed layer state. Adapt the compositor contract to bounded retained WebGPU textures rather than introducing a platform brush or per-frame managed callback. |
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
 | [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
@@ -93,7 +95,7 @@ metadata.
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
 | [WebRender clip chains](https://searchfox.org/mozilla-central/source/gfx/wr) | Common display-item properties carry spatial and clip-chain identity so retained items reuse hierarchical clip state. | Keep clip identity in the future semantic scene rather than baking clip-dependent geometry. The frame-level fast path only supplies one resolved rectangle. |
 | [Vello](https://github.com/linebender/vello) | Compact scene encoding is separated from GPU compute path processing/rasterization through a WebGPU-capable backend. | Reuse ProGPU's compute path/glyph WGSL and move parallel path work to the native WebGPU lane. Keep deterministic synchronous geometry queries on CPU. |
-| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented. | Use explicit semantic push/pop commands with depth-indexed pooled targets for nested opacity, blend, masks, and bounded effect chains. Destination-aware modes sample the actual parent through bounded scratch; general effect graphs and explicit backdrop input remain typed future work. |
+| [Vello scene layers](https://docs.rs/vello/latest/vello/struct.Scene.html) | Scene encoding exposes paired layer push/pop operations carrying blend and alpha, clip paths, and mask composition while rendering remains GPU-oriented; it does not define ProGPU's backdrop ownership contract. | Use explicit semantic push/pop commands with depth-indexed pooled targets. Extend that model independently with typed bounded parent capture; do not infer backdrop behavior from ordinary isolated-layer alpha/blend state. General branching effect graphs remain future work. |
 | [Skia `SkDashPathEffect`](https://api.skia.org/classSkDashPathEffect.html) | A dash is an even alternating on/off interval sequence with a phase normalized modulo the total pattern length; the effect applies to stroked paths. | Keep dashing as a centerline transformation before stroke expansion. Normalize once per borrowed style, carry state across connected segments, and avoid a per-dash scene object or FFI record. |
 | [Direct2D stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle), [dash styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_dash_style), and [stroke transform types](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_stroke_transform_type) | Custom dash values and offsets are pen-width-relative. Fixed and hairline modes transform the geometry but keep width-derived pen properties, including caps and dashes, out of the world transform. | Normal strokes measure/dash the source centerline and transform the completed outline. Fixed/hairline strokes first transform the centerline, then measure dashes, joins, and caps in device space. |
 | [SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing) | Odd lists repeat to even length, negative entries are invalid, phase is reduced modulo the pattern sum, and each subpath restarts the pattern. | Match the existing ProGPU/WinUI observable odd-list, invalid-input, and offset contract. A native polyline is one subpath, so its state starts once and is continuous through every segment. |
@@ -874,10 +876,10 @@ content reuse, changed two-pass dispatch, unchanged zero-dispatch replay,
 bounded resources, legacy prefixes, invalid descriptors, exact Dawn/Metal
 provider execution, and managed/native pixel bounds. The implementation reuses
 the same production shader resources as the managed compositor; it does not
-copy or introduce a second foreign blur implementation. General branching
-effect/color-filter graphs, backdrop inputs, and device-loss recreation remain
-open; destination-aware blend restore is implemented by the later semantic
-scene tranche.
+copy or introduce a second foreign blur implementation. These standalone
+family entry points still do not accept parent pixels; bounded backdrop input
+is implemented by the ordered semantic-scene tranche. General branching
+effect/color-filter graphs and device-loss recreation remain open.
 
 This effect is downstream from already positioned text and does not change
 Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
@@ -964,9 +966,9 @@ authoritative chain revision. C ABI tests cover layout and invalid ownership;
 the WebScene/Dawn/Metal gate covers a changed five-pass blur-to-shadow chain,
 zero-dispatch stable replay, and a 32-byte shadow-only parameter update. The
 matched benchmark independently nests managed visuals for the comparator and
-gates all six frame families. Arbitrary DAG branches, backdrop inputs,
-mixed-precision intermediates, shader linking, semantic nested layer stacks,
-and device-loss recreation remain open.
+gates all six frame families. Arbitrary DAG branches, mixed-precision
+intermediates, shader linking, and device-loss recreation remain open;
+ordered semantic layers now own bounded backdrop input.
 
 ## 10. Migration tranches
 
@@ -1027,8 +1029,9 @@ and device-loss recreation remain open.
   with independent content/effect revisions, bounded pooled textures, stable
   zero-dispatch replay, and shared managed/native WGSL are implemented across
   all six frame families; all 29 blend modes are implemented for the retained
-  root group and destination-aware nested semantic layers. Branching graphs,
-  image/color filters, arbitrary backdrop inputs, and shader effects remain;
+  root group and destination-aware nested semantic layers. Bounded semantic
+  backdrop input is implemented; branching graphs, image/color filters,
+  unbounded/platform-host backdrop sources, and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
@@ -1075,10 +1078,10 @@ a partially present append fail before rendering. The capability bit
 The initial boundary is deliberately a **root-group** operation. The retained
 family renders to its existing layer texture, after group opacity, mask, clip,
 and effect processing, and that resolved source is composited against the
-frame's uniform clear-color backdrop. This does not claim semantic nested
-layer or arbitrary backdrop capture. Those require an ordered native scene
-stream and remain part of M3.5 rather than being simulated with extra readback
-or managed callbacks.
+frame's uniform clear-color backdrop. This root-group API does not itself
+claim semantic nested layer or backdrop capture. The later ordered native
+scene stream implements bounded parent capture without readback or managed
+callbacks.
 
 The implementation divides the 29 modes into two measured paths:
 
@@ -1164,7 +1167,10 @@ an inline pointer-free layer descriptor and its aggregate resource budget are
 validated before rendering. Physical bounded opacity, fixed-function and
 destination-aware blend layers, analytic rounded masks, and one-to-eight-node
 Gaussian/drop-shadow effect chains now use the retained d3b2 executor.
-Backdrop descriptors still fail at a typed `UNSUPPORTED` boundary.
+Backdrop descriptors now initialize their isolated child from the exact
+already-rendered parent region. An attached effect chain filters that captured
+input before child commands execute; restore opacity, mask, and blend remain a
+single pop operation.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1270,9 +1276,11 @@ effect chain executes before an optional typed analytic rounded mask is applied
 during the final composite. Destination-aware blend descriptors resolve the
 masked/effected source into a bounded scratch texture, sample the actual
 rendered parent through shared `AdvancedBlend.wgsl`, and replace that parent in
-the same command buffer. Backdrop descriptors still reach a typed
-`UNSUPPORTED` boundary. An oversized layer returns `OUT_OF_MEMORY` first and
-cannot mutate the target or submission timeline.
+the same command buffer. Backdrop descriptors finish the ordered parent pass,
+clear their reusable depth slot, copy the exact intersected parent rectangle
+with `copyTextureToTexture`, optionally run the retained effect chain, and
+resume child drawing with `Load`. An oversized layer returns `OUT_OF_MEMORY`
+first and cannot mutate the target or submission timeline.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1335,6 +1343,25 @@ retained payload, and performs one queue submission. A miss adds P compute
 passes. Base pool storage is `O(sum(Wd*Hd))`; effected depths add
 `O(3*sum(We*He))`, both over maximum physical extents retained per live depth
 rather than per layer occurrence.
+
+Every scene containing a backdrop redirects its root to one internal
+copy-source/sampleable render texture, even when no advanced blend is present.
+This routing is established after cold resource and pipeline preparation so
+retained-binding invalidation cannot silently restore the caller target. A
+push copies from the actual parent slot using the child extent relative to
+that parent's global origin; nested bounded parents therefore retain exact
+provenance. A backdrop without an effect performs no sampled copy draw. An
+effected backdrop runs the same bounded linear effect program, resolves its
+final intermediate back into the child slot, and only then executes child
+bundles. Parent-dependent backdrop pixels and effects are deliberately never
+entered into the stable effect-output cache: unchanged replay has zero vertex,
+uniform, texture, or coverage upload, but it repeats the capture and required
+effect passes each frame. For backdrop areas `Pb`, capture bandwidth is
+`O(sum(Pb))`; an attached effect adds the documented
+`O(Pb * sum(Rx_i + Ry_i))` work. Retained backdrop storage is the existing
+depth pool plus one `4*W*H` root texture, while effected depths retain their
+existing three intermediates. Raw copies are not reported as draw calls;
+effect resolve, pop composite, and final root resolve are explicit draws.
 
 The Apple M3 Pro matched `960x540` blur/drop-shadow/rounded-mask benchmark used
 the same Release executable, alternating order, 120 warm-up frames, 300
@@ -1431,10 +1458,12 @@ allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
 The pointer-free typed mask/effect resource contract, canonical validation,
-analytic rounded-mask execution, retained effect-chain execution, and
-destination-aware `GpuBlendMode` restore are now implemented. The next
-execution checkpoint adds explicit backdrop input and complete browser
-semantic-family pixel differentials. The contract permits at most 16 simultaneously
+analytic rounded-mask execution, retained effect-chain execution,
+destination-aware `GpuBlendMode` restore, and bounded parent-provenance
+backdrop input are now implemented. Native Metal and browser WebGPU pixel
+evidence cover the bounded backdrop path. The next execution checkpoint is
+d3b3 text/color/vector resource parity plus complete browser semantic-family
+pixel differentials. The contract permits at most 16 simultaneously
 materialized layers, eight effect nodes per layer, and 16,384 effect passes per
 scene. Each extended layer runs its retained effect chain, applies mask and
 opacity once, then composites into the parent. Advanced
@@ -1473,14 +1502,23 @@ establish ordered state and optional isolated bounds/paint/backdrop;
 [Direct2D layers](https://learn.microsoft.com/windows/win32/direct2d/direct2d-layers-overview)
 and [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm)
 separate cheap axis-aligned clips or primitive opacity from group layers;
+[WinUI `CompositionBackdropBrush`](https://learn.microsoft.com/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.compositionbackdropbrush)
+defines the observable contract of sampling already-rendered content behind a
+visual; [WebGPU texture copies](https://www.w3.org/TR/webgpu/#dom-gpucommandencoder-copytexturetotexture)
+provide the explicit, ordered GPU operation used to preserve that parent
+provenance without readback;
 [WebRender's picture-tree overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
 turns stacking contexts into retained pictures with compositing properties;
 and [Vello `Scene`](https://docs.rs/vello/latest/vello/struct.Scene.html)
 records ordered drawing commands and explicit push/pop layers. ProGPU adopts
 semantic ordering, explicit isolation, retained ids/generations, and bounded
-layer pooling. It rejects per-command native calls, implicit pointer ownership,
-unbounded save-layer allocation, and flattening group opacity into primitive
-alpha.
+layer pooling. It adapts backdrop capture to an exact bounded parent-relative
+texture copy before any child command, keeps the capture parent-dependent and
+therefore outside stable effect-output caching, and uses Vello only as an
+ordering comparison rather than a backdrop implementation source. It rejects
+CPU readback, sampling an external presentation target, caching captured
+parent pixels, per-command native calls, implicit pointer ownership, unbounded
+save-layer allocation, and flattening group opacity into primitive alpha.
 
 Unicode/OpenType shaping and paragraph layout remain reusable CPU results for
 this tranche, consistent with SkParagraph, DirectWrite, HarfBuzz shaping plans,

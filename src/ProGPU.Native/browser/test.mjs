@@ -49,9 +49,9 @@ try {
   }));
   assert.deepEqual(contract, {
     status: "passed",
-    semanticCommands: "4",
-    semanticResources: "2",
-    semanticDraws: "3",
+    semanticCommands: "6",
+    semanticResources: "3",
+    semanticDraws: "6",
     rendererSubmissions: "1",
     evidenceTarget: "offscreen-texture-readback",
     backendAbi: "3",
@@ -80,9 +80,14 @@ try {
     const sample = (x, y) =>
       Array.from(context.getImageData(x, y, 1, 1).data);
     return {
-      clear: sample(20, 20),
-      destination: sample(80, 60),
-      composited: sample(200, 150)
+      outsideLeft: sample(40, 20),
+      outsideRight: sample(600, 20),
+      boundedLeft: sample(140, 180),
+      filteredLeft: sample(200, 180),
+      transition: sample(319, 180),
+      marker: sample(260, 180),
+      filteredRight: sample(360, 180),
+      initializedPrevious: sample(120, 300)
     };
   }, screenshot.toString("base64"));
   const near = (actual, expected, tolerance = 20) =>
@@ -95,29 +100,37 @@ try {
     ? "no WebGPU console errors"
     : errors.join(" | ");
   const diagnostics = `${browserDiagnostics}; pixels=${JSON.stringify(pixels)}`;
+  const opaque = (pixel) => pixel[3] >= 240;
+  const red = (pixel) => near(pixel[0], 255) && near(pixel[1], 0) &&
+    near(pixel[2], 0) && opaque(pixel);
+  const blue = (pixel) => near(pixel[0], 0) && near(pixel[1], 0) &&
+    near(pixel[2], 255) && opaque(pixel);
+  assert.ok(red(pixels.outsideLeft) && red(pixels.boundedLeft),
+    `Browser backdrop escaped or lost its left bound: ${diagnostics}`);
+  assert.ok(blue(pixels.outsideRight) && blue(pixels.filteredRight),
+    `Browser backdrop escaped or lost its right bound: ${diagnostics}`);
   assert.ok(
-    near(pixels.clear[0], 3) && near(pixels.clear[1], 4) &&
-      near(pixels.clear[2], 8) && pixels.clear[3] >= 240,
-    `Unexpected browser clear pixel: ${pixels.clear}; ${diagnostics}`);
+    pixels.filteredLeft[0] >= 160 && pixels.filteredLeft[2] <= 96 &&
+      opaque(pixels.filteredLeft),
+    `Browser backdrop lost its captured left source: ${diagnostics}`);
   assert.ok(
-    near(pixels.destination[0], 51) &&
-      near(pixels.destination[1], 204) &&
-      near(pixels.destination[2], 102) &&
-      pixels.destination[3] >= 240,
-    `Browser semantic destination pixel was lost: ${pixels.destination}; ` +
+    pixels.transition[0] >= 40 && pixels.transition[2] >= 40 &&
+      pixels.transition[0] <= 220 && pixels.transition[2] <= 220 &&
+      opaque(pixels.transition),
+    `Browser backdrop effect did not filter the parent transition: ` +
       diagnostics);
   assert.ok(
-    near(pixels.composited[0], 128) &&
-      near(pixels.composited[1], 128) &&
-      near(pixels.composited[2], 128) &&
-      pixels.composited[3] >= 240,
-    `Browser semantic isolated layer was not composited: ${pixels.composited}; ` +
+    near(pixels.marker[0], 0) && near(pixels.marker[1], 255) &&
+      near(pixels.marker[2], 0) && opaque(pixels.marker),
+    `Browser child content was not drawn over the filtered backdrop: ` +
       diagnostics);
+  assert.ok(red(pixels.initializedPrevious),
+    `Browser backdrop did not initialize from previous pixels: ${diagnostics}`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
-    `${contract.semanticDraws} GPU draws, isolated layer verified.\n`);
+    `${contract.semanticDraws} GPU draws, backdrop effect verified.\n`);
 } finally {
   await browser.close();
 }

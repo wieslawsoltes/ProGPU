@@ -29,6 +29,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(CommandEncoderBeginComputePass) \
     X(CommandEncoderBeginRenderPass) \
     X(CommandEncoderCopyBufferToTexture) \
+    X(CommandEncoderCopyTextureToTexture) \
     X(CommandEncoderFinish) \
     X(CommandEncoderRelease) \
     X(ComputePassEncoderDispatchWorkgroups) \
@@ -374,6 +375,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderBeginRenderPass)
 #define wgpuCommandEncoderCopyBufferToTexture \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToTexture)
+#define wgpuCommandEncoderCopyTextureToTexture \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyTextureToTexture)
 #define wgpuCommandEncoderFinish \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderFinish)
 #define wgpuCommandEncoderRelease \
