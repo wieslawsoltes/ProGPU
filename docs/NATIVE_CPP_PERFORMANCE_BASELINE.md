@@ -1838,9 +1838,7 @@ behavior and architectural comparison:
 
 ProGPU adopts the shared separation of positioned glyph identity, cached
 coverage, and late presentation. It rejects a new shaping/layout layer, a
-per-command GPU buffer, and source-language object graphs. Color-font paint
-graphs and bitmap/SVG glyphs remain the next explicit native slice rather than
-being hidden in the solid-style ABI.
+per-command GPU buffer, and source-language object graphs.
 
 The browser fixture exposed and fixed a wasm32-only ABI defect during this
 gate: retained semantic outlines had incorrectly used platform-sized `size_t`
@@ -1867,3 +1865,51 @@ difference images are
 `artifacts/progpu-native/differential/semantic-text-styles-*.png`; raw JSON is
 under
 `artifacts/progpu-native/performance/semantic-text-styles-20260814/`.
+
+## Retained intrinsic-color glyph supplement
+
+The next text checkpoint adds decoded straight-alpha RGBA8 color glyphs
+without moving font parsing, shaping, SVG interpretation, or compressed-image
+decoding into C++. One exact 48-byte pointer-free bitmap record carries a
+checked auxiliary-pixel offset, dimensions, row stride, bearing, and optional
+logical render extent. Native scene compilation concatenates referenced pixel
+arenas once, packs all referenced records into one bounded RGBA atlas, and
+sets the existing production `Text.wgsl` color-glyph flag on its instanced
+quad. The fragment path preserves intrinsic RGB and multiplies sampled alpha
+by retained text-style/state alpha.
+
+The clean-room design is grounded in the OpenType public contracts and the
+same Skia, DirectWrite/Direct2D, WebRender, Vello, and HarfBuzz architecture
+research recorded above:
+
+- [OpenType 1.9.1 table inventory](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
+  distinguishes COLR/CPAL, CBDT/CBLC, `sbix`, and SVG representations;
+- [COLR 1.9.1](https://learn.microsoft.com/en-us/typography/opentype/spec/colr)
+  defines post-layout vector paint compositions and foreground-color layers;
+- [CPAL](https://learn.microsoft.com/en-us/typography/opentype/otspec183/cpal)
+  specifies straight, non-premultiplied sRGB BGRA palette entries;
+- [`sbix`](https://learn.microsoft.com/en-us/typography/opentype/spec/sbix)
+  specifies size-selected standard-format bitmap glyph strikes;
+- [OpenType SVG](https://learn.microsoft.com/en-us/typography/opentype/otspec184/svg)
+  defines current-color and CPAL-backed SVG presentation;
+- [DirectWrite color glyph runs](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_2/ns-dwrite_2-dwrite_color_glyph_run)
+  expose presentation runs only after layout.
+
+ProGPU adopts post-layout lowering: CBDT/CBLC/`sbix` and rasterized SVG results
+cross the native boundary only as decoded pixels plus metrics, while COLR/CPAL
+and vector SVG layers reuse retained path, brush, transform, layer, blend, and
+effect records. It rejects C++ font parsers, external codecs, one texture per
+glyph, compressed data in the render ABI, and per-frame object graphs.
+
+Warnings-as-errors, ASan/UBSan, real Dawn/Metal, and Chromium WebGPU gates
+require an exact 16-byte first atlas upload and zero stable color-atlas,
+instance, and coverage upload. The shared fixture also lowers two ordered
+COLR/SVG-style vector layers through retained path/brush resources and lowers
+strikethrough plus underline through retained analytic resources. The Dawn
+provider maps the presented IOSurface only after GPU completion, verifies all
+four intrinsic-color quadrants including translucent alpha, both ordered
+vector-layer colors, and both decorations, then writes
+`artifacts/progpu-native/build-sanitized-provider/progpu-native-semantic-color-glyph.ppm`.
+This fixture proves correctness and retention; matched managed/native
+performance distributions remain part of the next expanded semantic benchmark
+before any color-glyph speed claim.

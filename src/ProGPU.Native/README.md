@@ -52,6 +52,12 @@ small internal seam used by the remaining C ABI/frame-family entrypoints in
 `progpu_native.cpp`. Both wgpu-native and Dawn targets compile the same private
 module set. The CPU-only modules are also compiled directly into focused
 internal tests so their behavior cannot depend on WebGPU startup.
+Decoded color-glyph ownership is split again:
+`progpu_native_semantic_color_glyph.cpp` performs CPU-only pointer-free
+metadata/range validation, while `progpu_native_color_glyph_resources.cpp`
+owns transactional RGBA atlas creation, shelf packing, upload, and text bind
+group replacement. Neither module parses a font, SVG, PNG, JPEG, or other
+compressed input.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.
@@ -87,7 +93,11 @@ red/blue solid remapping and the green-to-yellow path gradient come from the
 native retained material page. The first frame uploads that page once and the
 stable frame uploads zero brush/stop/text-style bytes. The text gate also
 exercises the canonical uint64 glyph-outline scene ABI through wasm32's checked
-`size_t` translation. The test rejects console and WebGPU
+`size_t` translation. Before that evidence scene, an independent retained
+color-glyph fixture validates the decoded-RGBA resource on wasm32, executes the
+production color-atlas branch of `Text.wgsl`, requires the exact 16-byte first
+upload, and requires zero color-atlas/vertex/coverage upload on stable replay.
+The test rejects console and WebGPU
 validation errors, verifies clear, parent, gradient, and composited-layer
 pixels, and saves the exact canvas plus a JSON contract under
 `artifacts/progpu-native/browser-evidence/`. The hardware Dawn lane separately
@@ -398,6 +408,15 @@ Current native parity:
   style upload; glyph shaping, positions, outlines, and atlas ownership remain
   independent reusable resources, while wasm32 narrows canonical uint64 scene
   outline ranges once at the execution boundary;
+- pointer-free decoded straight-alpha RGBA8 color-glyph resources with exact
+  row-stride/range validation, one native-owned bounded atlas texture, the
+  production `Text.wgsl` intrinsic-color path, state/style alpha, and zero
+  stable texture/instance upload. Managed font code retains OpenType shaping,
+  strike selection, SVG interpretation, and compressed-image decoding; COLR,
+  CPAL, and SVG vector layers lower to the existing retained path/brush/layer
+  resources instead of creating a second native vector engine; the shared
+  provider/browser fixture also lowers and validates ordered vector layers,
+  strikethrough, and underline without a text-specific geometry path;
 - destination-aware semantic nested blend restore using the actual rendered
   parent texture, shared `AdvancedBlend.wgsl`, and a checked three-texture
   scratch budget; empty bounded layers avoid invalid zero-size scissors and

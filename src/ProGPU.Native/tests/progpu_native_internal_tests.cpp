@@ -7,6 +7,7 @@
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_brush.hpp"
+#include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_text_style.hpp"
@@ -395,6 +396,38 @@ void semantic_text_style_page_is_validated_deduplicated_and_retained() {
         storage.data(), style_resource, error_offset));
 }
 
+void semantic_color_glyph_resource_is_strictly_validated() {
+    std::array<std::byte, 256U> storage{};
+    progpu_native_scene_resource resource{};
+    resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
+    resource.flags = PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS;
+    resource.payload_offset = 64U;
+    resource.payload_size =
+        sizeof(progpu_native_scene_color_glyph_bitmap);
+    resource.auxiliary_offset = 128U;
+    resource.auxiliary_size = 16U;
+    const progpu_native_scene_color_glyph_bitmap bitmap{
+        0U, 2U, 2U, 8U, 0U,
+        1.0F, -2.0F, 12.0F, 14.0F, 0U, 0U};
+    std::memcpy(
+        storage.data() + resource.payload_offset,
+        &bitmap,
+        sizeof(bitmap));
+    std::uint32_t error_offset = 0U;
+    require(progpu::native::semantic::validate_color_glyph_resource(
+        storage.data(), resource, error_offset));
+
+    auto invalid = bitmap;
+    invalid.row_bytes = 7U;
+    std::memcpy(
+        storage.data() + resource.payload_offset,
+        &invalid,
+        sizeof(invalid));
+    require(!progpu::native::semantic::validate_color_glyph_resource(
+        storage.data(), resource, error_offset));
+    require(error_offset == resource.payload_offset);
+}
+
 void semantic_effect_output_cache_requires_exact_retained_identity() {
     using namespace progpu::native::effects;
     semantic_output_cache cache{};
@@ -647,6 +680,7 @@ int main() {
     semantic_compilation_budget_is_checked();
     semantic_brush_page_is_bounded_deduplicated_and_retained();
     semantic_text_style_page_is_validated_deduplicated_and_retained();
+    semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();
     semantic_state_is_cpu_only_and_target_relative();

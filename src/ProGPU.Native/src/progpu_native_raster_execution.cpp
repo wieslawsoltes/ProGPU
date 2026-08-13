@@ -1090,7 +1090,22 @@ progpu_native_status render_glyphs(
                  index < frame->glyph_count;
                  ++index) {
                 const auto& glyph = frame->glyphs[index];
-                if (glyph.outline_index >= frame->outline_count ||
+                const bool has_color_bitmap =
+                    engine->semantic_glyph_draw_active &&
+                    engine->semantic_glyph_cache.color_bitmap_indices.size() ==
+                        frame->glyph_count &&
+                    engine->semantic_glyph_cache.color_bitmap_indices[index] !=
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                const std::uint32_t color_bitmap_index = has_color_bitmap
+                    ? engine->semantic_glyph_cache.color_bitmap_indices[index]
+                    : PROGPU_NATIVE_SCENE_NO_INDEX;
+                if ((!has_color_bitmap &&
+                        glyph.outline_index >= frame->outline_count) ||
+                    (has_color_bitmap &&
+                        (color_bitmap_index >= engine->semantic_glyph_cache
+                                .color_bitmaps.size() ||
+                            color_bitmap_index >= engine->semantic_glyph_cache
+                                .color_rasters.size())) ||
                     glyph.reserved != 0U || glyph.reserved2 != 0.0F ||
                     !progpu::native::is_finite(glyph.position) ||
                     !progpu::native::is_finite(glyph.basis_x) ||
@@ -1104,8 +1119,6 @@ progpu_native_status render_glyphs(
                         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                         "A positioned glyph reference or presentation value is invalid.");
                 }
-                const auto& raster =
-                    engine->glyph_rasters[glyph.outline_index];
                 gpu_glyph_instance instance{};
                 std::memcpy(
                     instance.snapped_logical_position,
@@ -1119,18 +1132,43 @@ progpu_native_status render_glyphs(
                     instance.basis_y,
                     &glyph.basis_y,
                     sizeof(glyph.basis_y));
-                instance.bear_size[0] = raster.x_start;
-                instance.bear_size[1] = raster.y_start;
-                instance.bear_size[2] = static_cast<float>(raster.width);
-                instance.bear_size[3] = static_cast<float>(raster.height);
-                instance.texture_coordinates[0] =
-                    static_cast<float>(raster.atlas_x);
-                instance.texture_coordinates[1] =
-                    static_cast<float>(raster.atlas_y);
-                instance.texture_coordinates[2] =
-                    static_cast<float>(raster.atlas_x + raster.width);
-                instance.texture_coordinates[3] =
-                    static_cast<float>(raster.atlas_y + raster.height);
+                if (has_color_bitmap) {
+                    const auto& bitmap = engine->semantic_glyph_cache
+                        .color_bitmaps[color_bitmap_index];
+                    const auto& raster = engine->semantic_glyph_cache
+                        .color_rasters[color_bitmap_index];
+                    instance.bear_size[0] = bitmap.bear_x;
+                    instance.bear_size[1] = bitmap.bear_y;
+                    instance.bear_size[2] = bitmap.render_width > 0.0F
+                        ? bitmap.render_width
+                        : static_cast<float>(bitmap.width);
+                    instance.bear_size[3] = bitmap.render_height > 0.0F
+                        ? bitmap.render_height
+                        : static_cast<float>(bitmap.height);
+                    instance.texture_coordinates[0] =
+                        static_cast<float>(raster.atlas_x);
+                    instance.texture_coordinates[1] =
+                        static_cast<float>(raster.atlas_y);
+                    instance.texture_coordinates[2] =
+                        static_cast<float>(raster.atlas_x + bitmap.width);
+                    instance.texture_coordinates[3] =
+                        static_cast<float>(raster.atlas_y + bitmap.height);
+                } else {
+                    const auto& raster =
+                        engine->glyph_rasters[glyph.outline_index];
+                    instance.bear_size[0] = raster.x_start;
+                    instance.bear_size[1] = raster.y_start;
+                    instance.bear_size[2] = static_cast<float>(raster.width);
+                    instance.bear_size[3] = static_cast<float>(raster.height);
+                    instance.texture_coordinates[0] =
+                        static_cast<float>(raster.atlas_x);
+                    instance.texture_coordinates[1] =
+                        static_cast<float>(raster.atlas_y);
+                    instance.texture_coordinates[2] =
+                        static_cast<float>(raster.atlas_x + raster.width);
+                    instance.texture_coordinates[3] =
+                        static_cast<float>(raster.atlas_y + raster.height);
+                }
                 std::memcpy(
                     instance.color,
                     &glyph.color,
@@ -1140,7 +1178,8 @@ progpu_native_status render_glyphs(
                     glyph.atlas_to_logical_scale;
                 instance.scale_bold_italic_flags[1] = glyph.bold_offset;
                 instance.scale_bold_italic_flags[2] = glyph.italic_skew;
-                instance.scale_bold_italic_flags[3] = 0.0F;
+                instance.scale_bold_italic_flags[3] =
+                    has_color_bitmap ? 8.0F : 0.0F;
                 const bool has_semantic_style =
                     engine->semantic_glyph_draw_active &&
                     engine->semantic_glyph_cache.style_indices.size() ==

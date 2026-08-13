@@ -208,8 +208,9 @@ public class NativeRendererInteropTests
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeSceneColorGlyphBitmap>());
         Assert.Equal(24, Unsafe.SizeOf<NativeSceneGlyphDraw>());
-        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
+        Assert.Equal(104, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
         Assert.Equal(
             72,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
@@ -222,6 +223,10 @@ public class NativeRendererInteropTests
             88,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
                 nameof(NativeMethods.SceneFrameMetrics.TextStyleUploadBytes)));
+        Assert.Equal(
+            96,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.ColorGlyphUploadBytes)));
         Assert.Equal(
             24,
             OffsetOf<NativeSceneImageDraw>(
@@ -1459,6 +1464,55 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticColorGlyphBuilderIsValidatedAndAllocationFree()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        Span<NativeSceneColorGlyphBitmap> bitmaps =
+            stackalloc NativeSceneColorGlyphBitmap[1];
+        Span<byte> pixels = stackalloc byte[16];
+        bitmaps[0] = new NativeSceneColorGlyphBitmap(
+            0U, 2U, 2U, 8U, 1f, -2f, 12f, 14f);
+        pixels.Fill(0xff);
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<NativeSceneColorGlyphBitmap> bitmapPayload,
+            ReadOnlySpan<byte> pixelPayload)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                97U,
+                1U,
+                commandCapacity: 0,
+                resourceCapacity: 1);
+            return builder.TryAddColorGlyphResource(
+                    1U,
+                    1U,
+                    bitmapPayload,
+                    pixelPayload,
+                    out _) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(destination, bitmaps, pixels));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, bitmaps, pixels);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+
+        bitmaps[0] = new NativeSceneColorGlyphBitmap(
+            0U, 2U, 2U, 7U, 0f, 0f);
+        Assert.False(Build(destination, bitmaps, pixels));
+        bitmaps[0] = new NativeSceneColorGlyphBitmap(
+            0U, 16_385U, 1U, 65_540U, 0f, 0f);
+        Assert.False(Build(destination, bitmaps, pixels));
+    }
+
+    [Fact]
     public void PathRecordsMatchPublishedNativeStorageLayout()
     {
         Assert.Equal(0, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P0)));
@@ -1491,6 +1545,14 @@ public class NativeRendererInteropTests
         Assert.Equal(48, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.AtlasToLogicalScale)));
         Assert.Equal(52, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.BoldOffset)));
         Assert.Equal(56, OffsetOf<NativePositionedGlyph>(nameof(NativePositionedGlyph.ItalicSkew)));
+        Assert.Equal(0, OffsetOf<NativeSceneColorGlyphBitmap>(
+            nameof(NativeSceneColorGlyphBitmap.PixelOffset)));
+        Assert.Equal(8, OffsetOf<NativeSceneColorGlyphBitmap>(
+            nameof(NativeSceneColorGlyphBitmap.Width)));
+        Assert.Equal(24, OffsetOf<NativeSceneColorGlyphBitmap>(
+            nameof(NativeSceneColorGlyphBitmap.BearX)));
+        Assert.Equal(32, OffsetOf<NativeSceneColorGlyphBitmap>(
+            nameof(NativeSceneColorGlyphBitmap.RenderWidth)));
     }
 
     [Fact]

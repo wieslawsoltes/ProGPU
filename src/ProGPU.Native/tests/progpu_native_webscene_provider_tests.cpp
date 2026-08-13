@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_semantic_backdrop_scene.hpp"
+#include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "webscene_gpu_provider.h"
@@ -28,6 +29,7 @@ namespace {
 using progpu::native::tests::
     create_semantic_advanced_blend_scene_stream;
 using progpu::native::tests::create_semantic_backdrop_scene_stream;
+using progpu::native::tests::create_semantic_color_glyph_scene_stream;
 using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
 using progpu::native::tests::verify_semantic_advanced_blend_scene;
@@ -1376,6 +1378,70 @@ void verify_semantic_scene(
         kIOReturnSuccess, "could not unlock semantic scene IOSurface");
 }
 
+void verify_semantic_color_glyph_scene(
+    IOSurfaceRef surface,
+    const char* output_path) {
+    require(surface != nullptr, "color-glyph scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not lock color-glyph IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected color-glyph IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto near_bgra = [](const std::uint8_t* value,
+                              int b,
+                              int g,
+                              int r) {
+        constexpr int tolerance = 64;
+        return std::abs(static_cast<int>(value[0]) - b) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - g) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - r) <= tolerance &&
+            value[3] >= 240U;
+    };
+    require(near_bgra(pixel(22U, 18U), 16, 34, 194),
+        "color-glyph red quadrant is missing");
+    require(near_bgra(pixel(34U, 18U), 46, 166, 15),
+        "color-glyph green quadrant is missing");
+    require(near_bgra(pixel(22U, 30U), 194, 64, 15),
+        "color-glyph blue quadrant is missing");
+    require(near_bgra(pixel(34U, 30U), 11, 85, 97),
+        "color-glyph translucent quadrant is missing");
+    require(near_bgra(pixel(46U, 14U), 255, 0, 255),
+        "vector color-glyph outer layer is missing");
+    require(near_bgra(pixel(50U, 18U), 255, 255, 0),
+        "vector color-glyph inner layer is missing");
+    require(near_bgra(pixel(10U, 26U), 218, 218, 218),
+        "color-glyph strikethrough lowering is missing");
+    require(near_bgra(pixel(10U, 40U), 218, 218, 218),
+        "color-glyph underline lowering is missing");
+
+    if (output_path != nullptr && output_path[0] != '\0') {
+        std::FILE* output = std::fopen(output_path, "wb");
+        require(output != nullptr, "could not create color-glyph capture");
+        std::fprintf(output, "P6\n%zu %zu\n255\n", width, height);
+        for (std::size_t y = 0U; y < height; ++y) {
+            for (std::size_t x = 0U; x < width; ++x) {
+                const auto* source = pixel(x, y);
+                const std::uint8_t rgb[]{
+                    source[2], source[1], source[0]};
+                require(std::fwrite(rgb, sizeof(rgb), 1U, output) == 1U,
+                    "color-glyph capture write failed");
+            }
+        }
+        require(std::fclose(output) == 0,
+            "color-glyph capture close failed");
+    }
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not unlock color-glyph IOSurface");
+}
+
 void verify_semantic_layer_scene(
     IOSurfaceRef surface,
     const char* output_path,
@@ -1910,6 +1976,95 @@ int main(int argc, char** argv) {
         &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_submission != 0U,
         "semantic scene submission token unavailable");
+
+    auto color_glyph_scene = create_semantic_color_glyph_scene_stream(
+        semantic_frame.width,
+        semantic_frame.height);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        color_glyph_scene.data(),
+        color_glyph_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "retained color-glyph scene update failed");
+    semantic_frame.scene_id = 97U;
+    semantic_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U &&
+        semantic_metrics.color_glyph_upload_bytes == 16U,
+        "retained color-glyph WebGPU render failed");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.color_glyph_upload_bytes == 0U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "stable retained color-glyph replay rebuilt GPU resources");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture color_external{};
+    color_external.struct_size = sizeof(color_external);
+    require(api.present(provider, canvas, &color_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        color_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (color_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "color-glyph scene presentation failed");
+    verify_semantic_color_glyph_scene(
+        reinterpret_cast<IOSurfaceRef>(color_external.shared_handle),
+        "progpu-native-semantic-color-glyph.ppm");
+    api.release_external(provider, &color_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic restore canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic restore texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr, "semantic restore target view creation failed");
+    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        renderable_scene.data(),
+        renderable_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "mixed semantic scene restore after color-glyph test failed");
+    semantic_frame.scene_id = 91U;
+    semantic_frame.generation = 3U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "mixed semantic scene rerender after color-glyph test failed");
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_submission != 0U,
+        "semantic restore submission token unavailable");
+
     auto invalid_style_scene = create_renderable_semantic_scene_stream(4U);
     progpu_native_scene_header invalid_style_header{};
     std::memcpy(

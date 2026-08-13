@@ -200,6 +200,7 @@ internal static unsafe partial class NativeMethods
         internal ulong BrushUploadBytes;
         internal ulong GradientStopUploadBytes;
         internal ulong TextStyleUploadBytes;
+        internal ulong ColorGlyphUploadBytes;
     }
 
     [StructLayout(LayoutKind.Sequential)]

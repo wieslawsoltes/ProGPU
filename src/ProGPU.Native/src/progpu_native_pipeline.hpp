@@ -52,6 +52,8 @@ bool resize_glyph_atlas(
     progpu_native_engine& engine,
     std::uint32_t requested_size);
 
+bool refresh_text_atlas_bind_group(progpu_native_engine& engine);
+
 WGPUBindGroup create_image_texture_bind_group(
     progpu_native_engine& engine,
     WGPUSampler sampler,

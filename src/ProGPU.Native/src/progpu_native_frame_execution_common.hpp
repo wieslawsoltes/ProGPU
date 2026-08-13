@@ -22,6 +22,7 @@
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_budget.hpp"
+#include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
@@ -62,6 +63,8 @@ using semantic::semantic_default_layer;
 using semantic::semantic_layer_target_cursor;
 using semantic::semantic_state_cursor;
 using semantic::compile_text_style_page;
+using semantic::is_color_glyph_resource;
+using semantic::prepare_color_glyph_atlas;
 using semantic::try_get_command_text_style_index;
 using semantic::try_get_glyph_payload;
 inline constexpr std::uint32_t semantic_max_draw_passes =

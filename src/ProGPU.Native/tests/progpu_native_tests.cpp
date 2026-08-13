@@ -511,6 +511,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
@@ -528,8 +530,9 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_gradient_stop) == 32U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_draw_brushes) == 16U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_text_style) == 32U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_color_glyph_bitmap) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_draw) == 24U);
-    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame_metrics) == 96U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame_metrics) == 104U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_frame_metrics,
         brush_upload_bytes) == 72U);
@@ -539,6 +542,9 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_frame_metrics,
         text_style_upload_bytes) == 88U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_frame_metrics,
+        color_glyph_upload_bytes) == 96U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_image_draw,
         source_rect) == 24U);

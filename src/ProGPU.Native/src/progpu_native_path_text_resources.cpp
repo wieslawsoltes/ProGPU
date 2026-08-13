@@ -50,6 +50,36 @@ WGPUBindGroup create_text_uniform_bind_group(
     return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
 }
 
+WGPUBindGroup create_text_atlas_bind_group(
+    progpu_native_engine& engine,
+    const char* label) {
+    if (engine.glyph_atlas_sampler == nullptr ||
+        engine.glyph_atlas_texture_view == nullptr ||
+        engine.text_atlas_layout == nullptr) {
+        return nullptr;
+    }
+    WGPUTextureView color_view = engine.color_glyph_atlas_texture_view !=
+            nullptr
+        ? engine.color_glyph_atlas_texture_view
+        : engine.analytic_sentinel_texture_view;
+    if (color_view == nullptr) {
+        return nullptr;
+    }
+    const std::array<WGPUBindGroupEntry, 3U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U,
+            engine.glyph_atlas_sampler, nullptr},
+        {nullptr, 1U, nullptr, 0U, 0U,
+            nullptr, engine.glyph_atlas_texture_view},
+        {nullptr, 2U, nullptr, 0U, 0U, nullptr, color_view}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(label);
+    descriptor.layout = engine.text_atlas_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
 } // namespace
 
 bool create_path_resources(progpu_native_engine& engine) {
@@ -437,22 +467,9 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         engine.glyph_atlas_sampler == nullptr) {
         return false;
     }
-    const std::array<WGPUBindGroupEntry, 3U> atlas_entries{{
-        {nullptr, 0U, nullptr, 0U, 0U,
-            engine.glyph_atlas_sampler, nullptr},
-        {nullptr, 1U, nullptr, 0U, 0U,
-            nullptr, engine.glyph_atlas_texture_view},
-        {nullptr, 2U, nullptr, 0U, 0U,
-            nullptr, engine.analytic_sentinel_texture_view}
-    }};
-    WGPUBindGroupDescriptor atlas_group_descriptor{};
-    atlas_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text atlas bind group");
-    atlas_group_descriptor.layout = engine.text_atlas_layout;
-    atlas_group_descriptor.entryCount = atlas_entries.size();
-    atlas_group_descriptor.entries = atlas_entries.data();
-    engine.text_atlas_bind_group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &atlas_group_descriptor);
+    engine.text_atlas_bind_group = create_text_atlas_bind_group(
+        engine,
+        "ProGPU native text atlas bind group");
     if (engine.text_atlas_bind_group == nullptr) {
         return false;
     }
@@ -598,37 +615,42 @@ bool resize_glyph_atlas(
         wgpuTextureRelease(texture);
         return false;
     }
-    const std::array<WGPUBindGroupEntry, 3U> entries{{
-        {nullptr, 0U, nullptr, 0U, 0U,
-            engine.glyph_atlas_sampler, nullptr},
-        {nullptr, 1U, nullptr, 0U, 0U, nullptr, view},
-        {nullptr, 2U, nullptr, 0U, 0U,
-            nullptr, engine.analytic_sentinel_texture_view}
-    }};
-    WGPUBindGroupDescriptor group_descriptor{};
-    group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text atlas bind group");
-    group_descriptor.layout = engine.text_atlas_layout;
-    group_descriptor.entryCount = entries.size();
-    group_descriptor.entries = entries.data();
-    WGPUBindGroup group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &group_descriptor);
+    WGPUTexture old_texture = engine.glyph_atlas_texture;
+    WGPUTextureView old_view = engine.glyph_atlas_texture_view;
+    engine.glyph_atlas_texture_view = view;
+    engine.glyph_atlas_texture = texture;
+    WGPUBindGroup group = create_text_atlas_bind_group(
+        engine,
+        "ProGPU native resized text atlas bind group");
     if (group == nullptr) {
+        engine.glyph_atlas_texture = old_texture;
+        engine.glyph_atlas_texture_view = old_view;
         wgpuTextureViewRelease(view);
         wgpuTextureDestroy(texture);
         wgpuTextureRelease(texture);
         return false;
     }
-
     wgpuBindGroupRelease(engine.text_atlas_bind_group);
-    wgpuTextureViewRelease(engine.glyph_atlas_texture_view);
-    wgpuTextureDestroy(engine.glyph_atlas_texture);
-    wgpuTextureRelease(engine.glyph_atlas_texture);
     engine.text_atlas_bind_group = group;
-    engine.glyph_atlas_texture_view = view;
-    engine.glyph_atlas_texture = texture;
+    wgpuTextureViewRelease(old_view);
+    wgpuTextureDestroy(old_texture);
+    wgpuTextureRelease(old_texture);
     engine.glyph_atlas_size = requested_size;
     ++engine.glyph_atlas_generation;
     ++engine.glyph_atlas_growth_count;
+    return true;
+}
+
+bool refresh_text_atlas_bind_group(progpu_native_engine& engine) {
+    WGPUBindGroup replacement = create_text_atlas_bind_group(
+        engine,
+        "ProGPU native refreshed text atlas bind group");
+    if (replacement == nullptr) {
+        return false;
+    }
+    if (engine.text_atlas_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.text_atlas_bind_group);
+    }
+    engine.text_atlas_bind_group = replacement;
     return true;
 }

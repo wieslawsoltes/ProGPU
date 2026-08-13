@@ -1,5 +1,6 @@
 #include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_brush.hpp"
+#include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 
 #include <algorithm>
@@ -15,7 +16,8 @@ namespace progpu::native::scene {
 namespace {
 
 constexpr std::uint32_t known_resource_flags =
-    PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+    PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS;
 constexpr std::uint32_t known_command_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_GLYPH_STYLED;
@@ -381,6 +383,10 @@ validation_result validate(
                 header)) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
+        if ((resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U &&
+            resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN) {
+            return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+        }
         if (resource.resource_id <= previous_resource_id) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_ID, offset);
         }
@@ -417,6 +423,18 @@ validation_result validate(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                     resource.payload_offset);
+            }
+        }
+        if (semantic::is_color_glyph_resource(resource)) {
+            std::uint32_t bitmap_error_offset = resource.payload_offset;
+            if (!semantic::validate_color_glyph_resource(
+                    bytes,
+                    resource,
+                    bitmap_error_offset)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    bitmap_error_offset);
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {

@@ -163,7 +163,10 @@ public ref struct NativeSceneStreamBuilder
             !IsKnownResource(kind) || resourceId == 0U ||
             resourceId <= _lastResourceId || generation == 0U ||
             payload.IsEmpty ||
-            (flags & ~NativeSceneRecordFlags.Required) != 0)
+            (flags & ~(NativeSceneRecordFlags.Required |
+                (kind == NativeSceneResourceKind.GlyphRun
+                    ? NativeSceneRecordFlags.ColorGlyphBitmaps
+                    : NativeSceneRecordFlags.None))) != 0)
         {
             return false;
         }
@@ -240,6 +243,57 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             MemoryMarshal.AsBytes(segments),
             flags);
+
+    /// <summary>
+    /// Adds decoded color-glyph bitmaps. The metadata payload is pointer-free
+    /// and the auxiliary payload owns straight-alpha RGBA8 rows. Font parsing,
+    /// shaping, SVG handling, and compressed bitmap decoding remain managed.
+    /// </summary>
+    public bool TryAddColorGlyphResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneColorGlyphBitmap> bitmaps,
+        scoped ReadOnlySpan<byte> rgbaPixels,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (bitmaps.IsEmpty || rgbaPixels.IsEmpty ||
+            (flags & ~NativeSceneRecordFlags.Required) != 0)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeSceneColorGlyphBitmap bitmap in bitmaps)
+        {
+            ulong minimumRowBytes = (ulong)bitmap.Width * 4UL;
+            ulong requiredBytes = bitmap.Height == 0U
+                ? 0UL
+                : (ulong)bitmap.RowBytes * (bitmap.Height - 1UL) +
+                    minimumRowBytes;
+            if (!bitmap.HasCanonicalReservedFields || bitmap.Width == 0U ||
+                bitmap.Height == 0U || bitmap.Width > 16_384U ||
+                bitmap.Height > 16_384U ||
+                bitmap.RowBytes < minimumRowBytes ||
+                bitmap.PixelOffset > (ulong)rgbaPixels.Length ||
+                requiredBytes > (ulong)rgbaPixels.Length - bitmap.PixelOffset ||
+                !float.IsFinite(bitmap.BearX) ||
+                !float.IsFinite(bitmap.BearY) ||
+                !float.IsFinite(bitmap.RenderWidth) ||
+                !float.IsFinite(bitmap.RenderHeight) ||
+                bitmap.RenderWidth < 0f || bitmap.RenderHeight < 0f)
+            {
+                return false;
+            }
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.GlyphRun,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(bitmaps),
+            out resourceIndex,
+            rgbaPixels,
+            flags | NativeSceneRecordFlags.ColorGlyphBitmaps);
+    }
 
     public bool TryAddImageResource(
         ulong resourceId,

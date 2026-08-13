@@ -169,7 +169,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticSceneSnapshots = 1UL << 29,
     SemanticSceneRendering = 1UL << 30,
     SemanticRetainedBrushes = 1UL << 31,
-    SemanticRetainedTextStyles = 1UL << 32
+    SemanticRetainedTextStyles = 1UL << 32,
+    SemanticColorGlyphAtlas = 1UL << 33
 }
 
 public enum NativeSceneResourceKind : uint
@@ -241,7 +242,8 @@ public enum NativeSceneRecordFlags : uint
 {
     None = 0,
     Required = 1U << 0,
-    StyledGlyphs = 1U << 1
+    StyledGlyphs = 1U << 1,
+    ColorGlyphBitmaps = 1U << 2
 }
 
 [Flags]
@@ -589,6 +591,53 @@ public readonly struct NativeSceneTextStyle
     [FieldOffset(20)] private readonly uint Reserved0;
     [FieldOffset(24)] private readonly uint Reserved1;
     [FieldOffset(28)] private readonly uint Reserved2;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
+}
+
+/// <summary>
+/// Exact pointer-free metadata for one already-decoded straight-alpha RGBA8
+/// color glyph. Pixel offsets are relative to the owning resource's pixel
+/// span; native code never parses fonts or compressed image formats.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 48)]
+public readonly struct NativeSceneColorGlyphBitmap
+{
+    public NativeSceneColorGlyphBitmap(
+        ulong pixelOffset,
+        uint width,
+        uint height,
+        uint rowBytes,
+        float bearX,
+        float bearY,
+        float renderWidth = 0f,
+        float renderHeight = 0f)
+    {
+        PixelOffset = pixelOffset;
+        Width = width;
+        Height = height;
+        RowBytes = rowBytes;
+        Reserved0 = 0U;
+        BearX = bearX;
+        BearY = bearY;
+        RenderWidth = renderWidth;
+        RenderHeight = renderHeight;
+        Reserved1 = 0U;
+        Reserved2 = 0U;
+    }
+
+    [FieldOffset(0)] public readonly ulong PixelOffset;
+    [FieldOffset(8)] public readonly uint Width;
+    [FieldOffset(12)] public readonly uint Height;
+    [FieldOffset(16)] public readonly uint RowBytes;
+    [FieldOffset(20)] private readonly uint Reserved0;
+    [FieldOffset(24)] public readonly float BearX;
+    [FieldOffset(28)] public readonly float BearY;
+    [FieldOffset(32)] public readonly float RenderWidth;
+    [FieldOffset(36)] public readonly float RenderHeight;
+    [FieldOffset(40)] private readonly uint Reserved1;
+    [FieldOffset(44)] private readonly uint Reserved2;
 
     internal bool HasCanonicalReservedFields =>
         Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
@@ -2067,7 +2116,8 @@ public readonly record struct NativeSceneFrameMetrics(
     ulong PayloadHash,
     ulong BrushUploadBytes,
     ulong GradientStopUploadBytes,
-    ulong TextStyleUploadBytes);
+    ulong TextStyleUploadBytes,
+    ulong ColorGlyphUploadBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

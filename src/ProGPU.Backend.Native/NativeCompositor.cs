@@ -276,7 +276,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             metrics.PayloadHash,
             metrics.BrushUploadBytes,
             metrics.GradientStopUploadBytes,
-            metrics.TextStyleUploadBytes);
+            metrics.TextStyleUploadBytes,
+            metrics.ColorGlyphUploadBytes);
     }
 
     /// <summary>

@@ -91,8 +91,12 @@ struct progpu_native_engine {
     WGPUSampler glyph_atlas_sampler = nullptr;
     WGPUTexture glyph_atlas_texture = nullptr;
     WGPUTextureView glyph_atlas_texture_view = nullptr;
+    WGPUTexture color_glyph_atlas_texture = nullptr;
+    WGPUTextureView color_glyph_atlas_texture_view = nullptr;
     WGPUBindGroup text_atlas_bind_group = nullptr;
     std::uint32_t glyph_atlas_size = native_initial_atlas_size;
+    std::uint32_t color_glyph_atlas_size = 0U;
+    std::uint64_t color_glyph_atlas_owner_hash = 0U;
     std::uint32_t glyph_atlas_generation = 0U;
     std::uint32_t glyph_atlas_growth_count = 0U;
     WGPUBuffer text_vertex_buffer = nullptr;
@@ -1160,6 +1164,13 @@ struct progpu_native_engine {
         if (glyph_atlas_texture != nullptr) {
             wgpuTextureDestroy(glyph_atlas_texture);
             wgpuTextureRelease(glyph_atlas_texture);
+        }
+        if (color_glyph_atlas_texture_view != nullptr) {
+            wgpuTextureViewRelease(color_glyph_atlas_texture_view);
+        }
+        if (color_glyph_atlas_texture != nullptr) {
+            wgpuTextureDestroy(color_glyph_atlas_texture);
+            wgpuTextureRelease(color_glyph_atlas_texture);
         }
         if (glyph_atlas_sampler != nullptr) {
             wgpuSamplerRelease(glyph_atlas_sampler);

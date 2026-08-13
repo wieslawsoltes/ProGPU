@@ -678,6 +678,8 @@ progpu_native_status render_scene(
     std::uint64_t semantic_glyph_outline_count = 0U;
     std::uint64_t semantic_glyph_segment_count = 0U;
     std::uint64_t semantic_glyph_count = 0U;
+    std::uint64_t semantic_color_glyph_bitmap_count = 0U;
+    std::uint64_t semantic_color_glyph_pixel_bytes = 0U;
     bool semantic_has_styled_glyphs = false;
     semantic_compilation_budget compilation_budget{};
     semantic_state_cursor preflight_state_cursor(bytes, header);
@@ -830,27 +832,40 @@ progpu_native_status render_scene(
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
                 std::uint32_t glyph_payload_offset = 0U;
                 std::uint32_t glyph_count32 = 0U;
-                valid = span_is_multiple(
-                        resource.payload_size,
-                        sizeof(progpu_native_scene_glyph_outline)) &&
-                    span_is_multiple(
-                        resource.auxiliary_size,
-                        sizeof(progpu_native_path_segment)) &&
-                    try_get_glyph_payload(
+                const bool color_glyphs = is_color_glyph_resource(resource);
+                valid = try_get_glyph_payload(
                         bytes,
                         command,
                         glyph_payload_offset,
                         glyph_count32);
-                const std::uint64_t outline_count = resource.payload_size /
-                    sizeof(progpu_native_scene_glyph_outline);
-                const std::uint64_t segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
+                const std::uint64_t outline_count = color_glyphs
+                    ? resource.payload_size /
+                        sizeof(progpu_native_scene_color_glyph_bitmap)
+                    : resource.payload_size /
+                        sizeof(progpu_native_scene_glyph_outline);
+                const std::uint64_t segment_count = color_glyphs
+                    ? 0U
+                    : resource.auxiliary_size /
+                        sizeof(progpu_native_path_segment);
+                valid = valid && (color_glyphs
+                    ? span_is_multiple(
+                        resource.payload_size,
+                        sizeof(progpu_native_scene_color_glyph_bitmap))
+                    : span_is_multiple(
+                            resource.payload_size,
+                            sizeof(progpu_native_scene_glyph_outline)) &&
+                        span_is_multiple(
+                            resource.auxiliary_size,
+                            sizeof(progpu_native_path_segment)));
                 const std::uint64_t glyph_count = glyph_count32;
                 valid = valid && outline_count <= (1U << 20U) &&
                     segment_count <= (1U << 24U) &&
                     glyph_count <= (1U << 24U);
                 compiled_vertex_bytes = glyph_count *
                     sizeof(gpu_glyph_instance);
+                compiled_texture_bytes = color_glyphs
+                    ? resource.auxiliary_size
+                    : 0U;
                 for (std::uint64_t segment_index = 0U;
                      valid && segment_index < segment_count;
                      ++segment_index) {
@@ -865,6 +880,9 @@ progpu_native_status render_scene(
                 for (std::uint64_t outline_index = 0U;
                      valid && budget_valid && outline_index < outline_count;
                      ++outline_index) {
+                    if (color_glyphs) {
+                        continue;
+                    }
                     progpu_native_scene_glyph_outline outline{};
                     std::memcpy(
                         &outline,
@@ -980,10 +998,16 @@ progpu_native_status render_scene(
                     "A semantic glyph payload prefix is invalid.");
             }
             ++semantic_glyph_draw_count;
-            semantic_glyph_outline_count += resource.payload_size /
-                sizeof(progpu_native_scene_glyph_outline);
-            semantic_glyph_segment_count += resource.auxiliary_size /
-                sizeof(progpu_native_path_segment);
+            if (is_color_glyph_resource(resource)) {
+                semantic_color_glyph_bitmap_count += resource.payload_size /
+                    sizeof(progpu_native_scene_color_glyph_bitmap);
+                semantic_color_glyph_pixel_bytes += resource.auxiliary_size;
+            } else {
+                semantic_glyph_outline_count += resource.payload_size /
+                    sizeof(progpu_native_scene_glyph_outline);
+                semantic_glyph_segment_count += resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+            }
             semantic_glyph_count += glyph_count;
             semantic_has_styled_glyphs =
                 semantic_has_styled_glyphs ||
@@ -1104,10 +1128,18 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The aggregate semantic glyph page exceeds the native safety bound.");
     }
+    if (semantic_color_glyph_bitmap_count > (1U << 20U) ||
+        semantic_color_glyph_pixel_bytes >
+            PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The aggregate semantic color-glyph page exceeds the native safety bound.");
+    }
 
     std::uint64_t semantic_brush_upload_bytes = 0U;
     std::uint64_t semantic_gradient_stop_upload_bytes = 0U;
     std::uint64_t semantic_text_style_upload_bytes = 0U;
+    std::uint64_t semantic_color_glyph_upload_bytes = 0U;
     if (semantic_analytic_draw_count != 0U ||
         semantic_path_draw_count != 0U) {
         if (engine->analytic_pipeline == nullptr &&
@@ -1483,12 +1515,20 @@ progpu_native_status render_scene(
         semantic_glyph_page.target_width == frame->width &&
         semantic_glyph_page.target_height == frame->height &&
         semantic_glyph_page.style_indices.size() == semantic_glyph_count &&
+        semantic_glyph_page.color_bitmap_indices.size() ==
+            semantic_glyph_count &&
+        semantic_glyph_page.color_bitmaps.size() ==
+            semantic_color_glyph_bitmap_count &&
         semantic_glyph_page.draws.size() == semantic_glyph_draw_count;
     if (semantic_glyph_draw_count != 0U && !semantic_glyph_page_hit) {
         std::vector<progpu_native_scene_glyph_outline> compiled_outlines;
         std::vector<progpu_native_path_segment> compiled_segments;
         std::vector<progpu_native_positioned_glyph> compiled_glyphs;
         std::vector<std::uint32_t> compiled_style_indices;
+        std::vector<progpu_native_scene_color_glyph_bitmap>
+            compiled_color_bitmaps;
+        std::vector<std::byte> compiled_color_pixels;
+        std::vector<std::uint32_t> compiled_color_bitmap_indices;
         std::vector<semantic_glyph_draw> compiled_draws;
         try {
             compiled_outlines.reserve(
@@ -1498,6 +1538,12 @@ progpu_native_status render_scene(
             compiled_glyphs.reserve(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_style_indices.reserve(
+                static_cast<std::size_t>(semantic_glyph_count));
+            compiled_color_bitmaps.reserve(static_cast<std::size_t>(
+                semantic_color_glyph_bitmap_count));
+            compiled_color_pixels.reserve(static_cast<std::size_t>(
+                semantic_color_glyph_pixel_bytes));
+            compiled_color_bitmap_indices.reserve(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
             semantic_state_cursor state_cursor(bytes, header);
@@ -1520,13 +1566,23 @@ progpu_native_status render_scene(
                     continue;
                 }
                 const auto resource = read_resource(command.resource_index);
+                const bool color_glyphs = is_color_glyph_resource(resource);
                 const std::size_t outline_start = compiled_outlines.size();
                 const std::size_t segment_start = compiled_segments.size();
+                const std::size_t color_bitmap_start =
+                    compiled_color_bitmaps.size();
+                const std::size_t color_pixel_start =
+                    compiled_color_pixels.size();
                 const std::size_t glyph_start = compiled_glyphs.size();
-                const std::size_t outline_count = resource.payload_size /
-                    sizeof(progpu_native_scene_glyph_outline);
-                const std::size_t segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
+                const std::size_t outline_count = color_glyphs
+                    ? resource.payload_size /
+                        sizeof(progpu_native_scene_color_glyph_bitmap)
+                    : resource.payload_size /
+                        sizeof(progpu_native_scene_glyph_outline);
+                const std::size_t segment_count = color_glyphs
+                    ? 0U
+                    : resource.auxiliary_size /
+                        sizeof(progpu_native_path_segment);
                 std::uint32_t glyph_payload_offset = 0U;
                 std::uint32_t glyph_count32 = 0U;
                 if (!try_get_glyph_payload(
@@ -1553,25 +1609,44 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                         "The semantic glyph text style changed after validation.");
                 }
-                const auto* source_segments = reinterpret_cast<
-                    const progpu_native_path_segment*>(
-                        bytes + resource.auxiliary_offset);
-                compiled_segments.insert(
-                    compiled_segments.end(),
-                    source_segments,
-                    source_segments + segment_count);
-                for (std::size_t outline_index = 0U;
-                     outline_index < outline_count;
-                     ++outline_index) {
-                    progpu_native_scene_glyph_outline outline{};
-                    std::memcpy(
-                        &outline,
-                        bytes + resource.payload_offset +
-                            outline_index *
-                                sizeof(progpu_native_scene_glyph_outline),
-                        sizeof(outline));
-                    outline.segment_offset += segment_start;
-                    compiled_outlines.push_back(outline);
+                if (color_glyphs) {
+                    compiled_color_pixels.insert(
+                        compiled_color_pixels.end(),
+                        bytes + resource.auxiliary_offset,
+                        bytes + resource.auxiliary_offset +
+                            resource.auxiliary_size);
+                    for (std::size_t bitmap_index = 0U;
+                         bitmap_index < outline_count;
+                         ++bitmap_index) {
+                        progpu_native_scene_color_glyph_bitmap bitmap{};
+                        std::memcpy(
+                            &bitmap,
+                            bytes + resource.payload_offset +
+                                bitmap_index * sizeof(bitmap),
+                            sizeof(bitmap));
+                        bitmap.pixel_offset += color_pixel_start;
+                        compiled_color_bitmaps.push_back(bitmap);
+                    }
+                } else {
+                    const auto* source_segments = reinterpret_cast<
+                        const progpu_native_path_segment*>(
+                            bytes + resource.auxiliary_offset);
+                    compiled_segments.insert(
+                        compiled_segments.end(),
+                        source_segments,
+                        source_segments + segment_count);
+                    for (std::size_t outline_index = 0U;
+                         outline_index < outline_count;
+                         ++outline_index) {
+                        progpu_native_scene_glyph_outline outline{};
+                        std::memcpy(
+                            &outline,
+                            bytes + resource.payload_offset +
+                                outline_index * sizeof(outline),
+                            sizeof(outline));
+                        outline.segment_offset += segment_start;
+                        compiled_outlines.push_back(outline);
+                    }
                 }
                 for (std::size_t glyph_index = 0U;
                      glyph_index < glyph_count;
@@ -1588,8 +1663,18 @@ progpu_native_status render_scene(
                     } else {
                         apply_semantic_transform(glyph, state);
                     }
-                    glyph.outline_index += static_cast<std::uint32_t>(
-                        outline_start);
+                    const std::uint32_t source_index = glyph.outline_index;
+                    if (color_glyphs) {
+                        compiled_color_bitmap_indices.push_back(
+                            static_cast<std::uint32_t>(
+                                color_bitmap_start + source_index));
+                        glyph.outline_index = 0U;
+                    } else {
+                        compiled_color_bitmap_indices.push_back(
+                            PROGPU_NATIVE_SCENE_NO_INDEX);
+                        glyph.outline_index += static_cast<std::uint32_t>(
+                            outline_start);
+                    }
                     compiled_glyphs.push_back(glyph);
                     compiled_style_indices.push_back(text_style_index);
                 }
@@ -1606,6 +1691,11 @@ progpu_native_status render_scene(
             compiled_segments.size() != semantic_glyph_segment_count ||
             compiled_glyphs.size() != semantic_glyph_count ||
             compiled_style_indices.size() != semantic_glyph_count ||
+            compiled_color_bitmaps.size() !=
+                semantic_color_glyph_bitmap_count ||
+            compiled_color_pixels.size() !=
+                semantic_color_glyph_pixel_bytes ||
+            compiled_color_bitmap_indices.size() != semantic_glyph_count ||
             compiled_draws.size() != semantic_glyph_draw_count) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -1616,6 +1706,13 @@ progpu_native_status render_scene(
         semantic_glyph_page.glyphs = std::move(compiled_glyphs);
         semantic_glyph_page.style_indices =
             std::move(compiled_style_indices);
+        semantic_glyph_page.color_bitmaps =
+            std::move(compiled_color_bitmaps);
+        semantic_glyph_page.color_pixels =
+            std::move(compiled_color_pixels);
+        semantic_glyph_page.color_bitmap_indices =
+            std::move(compiled_color_bitmap_indices);
+        semantic_glyph_page.color_rasters.clear();
         semantic_glyph_page.draws = std::move(compiled_draws);
         semantic_glyph_page.scene_hash = engine->semantic_scene_hash;
         semantic_glyph_page.dpi_scale = frame->dpi_scale;
@@ -1630,6 +1727,16 @@ progpu_native_status render_scene(
             engine->semantic_scene_hash) {
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;
+    }
+    if (semantic_glyph_draw_count != 0U &&
+        !prepare_color_glyph_atlas(
+            *engine,
+            semantic_glyph_page,
+            engine->semantic_scene_hash,
+            semantic_color_glyph_upload_bytes)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The semantic retained color-glyph atlas could not be prepared.");
     }
 
     std::uint64_t semantic_image_vertex_upload_bytes = 0U;
@@ -1883,7 +1990,8 @@ progpu_native_status render_scene(
         semantic_analytic_index_upload_bytes +
         semantic_image_index_upload_bytes;
     std::uint64_t texture_upload_bytes =
-        semantic_image_texture_upload_bytes;
+        semantic_image_texture_upload_bytes +
+        semantic_color_glyph_upload_bytes;
     std::uint64_t uniform_upload_bytes = 0U;
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t semantic_layer_vertex_upload_bytes = 0U;
@@ -3330,6 +3438,12 @@ progpu_native_status render_scene(
                 text_style_upload_bytes) + sizeof(std::uint64_t)) {
             metrics->text_style_upload_bytes =
                 semantic_text_style_upload_bytes;
+        }
+        if (metrics->struct_size >= offsetof(
+                progpu_native_scene_frame_metrics,
+                color_glyph_upload_bytes) + sizeof(std::uint64_t)) {
+            metrics->color_glyph_upload_bytes =
+                semantic_color_glyph_upload_bytes;
         }
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;

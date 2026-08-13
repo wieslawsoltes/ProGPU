@@ -55,6 +55,11 @@ struct semantic_glyph_draw {
     std::uint32_t instance_count = 0U;
 };
 
+struct semantic_color_glyph_raster {
+    std::uint32_t atlas_x = 0U;
+    std::uint32_t atlas_y = 0U;
+};
+
 struct semantic_glyph_page {
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
@@ -68,6 +73,10 @@ struct semantic_glyph_page {
     std::vector<progpu_native_path_segment> segments;
     std::vector<progpu_native_positioned_glyph> glyphs;
     std::vector<std::uint32_t> style_indices;
+    std::vector<progpu_native_scene_color_glyph_bitmap> color_bitmaps;
+    std::vector<std::byte> color_pixels;
+    std::vector<std::uint32_t> color_bitmap_indices;
+    std::vector<semantic_color_glyph_raster> color_rasters;
     std::vector<semantic_glyph_draw> draws;
 };
 

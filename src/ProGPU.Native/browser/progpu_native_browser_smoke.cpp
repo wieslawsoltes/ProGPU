@@ -1,6 +1,7 @@
 #include "progpu_native_browser.h"
 #include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
+#include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
 #include <emscripten.h>
@@ -58,6 +59,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeSemanticDraws = "6";
         document.body.dataset.progpuNativeRendererSubmissions = "1";
         document.body.dataset.progpuNativeRetainedTextStyles = "passed";
+        document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
@@ -102,6 +104,51 @@ bool render_browser_frame(double, void*) {
     semantic_frame.dpi_scale = 1.0F;
     semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    auto color_glyph_scene =
+        progpu::native::tests::create_semantic_color_glyph_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics color_scene_metrics{};
+    color_scene_metrics.struct_size = sizeof(color_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            color_glyph_scene.data(),
+            color_glyph_scene.size(),
+            &color_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        color_scene_metrics.command_count != 3U ||
+        color_scene_metrics.resource_count != 5U ||
+        color_scene_metrics.draw_count != 3U) {
+        fail_engine(
+            "The ProGPU C++ browser color-glyph scene update failed.");
+    }
+    semantic_frame.scene_id = 97U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics color_metrics{};
+    color_metrics.struct_size = sizeof(color_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &color_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        color_metrics.command_count != 3U ||
+        color_metrics.draw_call_count != 3U ||
+        color_metrics.submission_count != 1U ||
+        color_metrics.color_glyph_upload_bytes != 16U) {
+        fail_engine(
+            "The ProGPU C++ browser color-glyph render failed.");
+    }
+    color_metrics = {};
+    color_metrics.struct_size = sizeof(color_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &color_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        color_metrics.color_glyph_upload_bytes != 0U ||
+        color_metrics.vertex_upload_bytes != 0U ||
+        color_metrics.coverage_staging_bytes != 0U) {
+        fail_engine(
+            "The stable browser color-glyph page was rebuilt.");
+    }
+
     auto text_scene =
         progpu::native::tests::create_semantic_text_scene_stream(
             width,
