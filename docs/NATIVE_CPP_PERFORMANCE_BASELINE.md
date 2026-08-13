@@ -327,6 +327,33 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Semantic mixed-scene functional checkpoint
+
+The first d3b1 rendering checkpoint installs one immutable pointer-free scene
+and renders analytic, retained-path, positioned-glyph, and upload-backed image
+commands through one public native entry point. The current compiler preserves
+order with four native command buffers/submissions for the four-command
+fixture; it is not yet the final mixed-family single-encoder/batching topology
+and no C++/managed performance claim is made from this functional run.
+
+The real pinned WebScene `02823bf` / Dawn `710c33013` / Metal provider test
+renders to a 64 by 48 GPU canvas, waits for the native submission token, and
+presents an IOSurface marked GPU-complete. Exact interior pixel checks observe
+the dark clear color plus red analytic, green path, blue glyph, and yellow
+image regions in display-list order. The generated native checkpoint image is
+`artifacts/progpu-native/build/progpu-native-semantic-scene.ppm` (with a local
+PNG inspection conversion beside it). The managed typed builder separately
+writes all four resource/command payloads into caller-owned memory with exactly
+zero managed bytes over 10,000 builds. A second render of the identical scene
+retains the snapshot hash, issues no image-texture upload and no path/glyph
+coverage staging, and still submits the four ordered family command buffers.
+
+This checkpoint does not close d3b1. Before performance evidence is recorded,
+the native compiler must complete whole-scene value/budget preflight, adjacent
+family batching and encoder reuse, complete stable upload/allocation counters,
+a matched managed scene, differential screenshots, distributions, and macOS
+native/.NET/GPU profiles. State resources and isolated layers remain d3b2.
+
 ## Root-group blend/compositing supplement
 
 This slice appends all 29 `GpuBlendMode` values to the retained native draw

@@ -51,7 +51,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U,
     PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U,
     PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U,
-    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS = 1ULL << 29U
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS = 1ULL << 29U,
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING = 1ULL << 30U
 };
 
 enum {
@@ -381,6 +382,80 @@ typedef struct progpu_native_image_rect {
     float width;
     float height;
 } progpu_native_image_rect;
+
+/*
+ * Version-one upload-backed image command payload. Its resource payload is a
+ * tightly owned RGBA8 byte span. External views remain on the existing typed
+ * image API until a device-domain scene resource registry is introduced.
+ */
+typedef struct progpu_native_scene_image_draw {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t image_width;
+    uint32_t image_height;
+    uint32_t row_bytes;
+    uint32_t sampling;
+    progpu_native_image_rect source_rect;
+    progpu_native_image_rect destination_rect;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved;
+} progpu_native_scene_image_draw;
+
+/*
+ * Semantic path/glyph resource records use fixed 64-bit arena indices rather
+ * than host-sized size_t. Current 64-bit native packages consume these
+ * records zero-copy; a future wasm32 build translates the fixed prefix while
+ * preserving the same version-one byte stream.
+ */
+typedef struct progpu_native_scene_path_fill {
+    uint64_t segment_offset;
+    uint64_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    progpu_native_color color;
+    progpu_native_affine_2d transform;
+    uint32_t fill_rule;
+    uint32_t sample_grid;
+} progpu_native_scene_path_fill;
+
+typedef struct progpu_native_scene_glyph_outline {
+    uint64_t segment_offset;
+    uint64_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    float raster_scale;
+    float subpixel_x;
+} progpu_native_scene_glyph_outline;
+
+typedef struct progpu_native_scene_frame {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    float dpi_scale;
+    uintptr_t target_view;
+    progpu_native_color clear_color;
+    uint64_t scene_id;
+    uint64_t generation;
+} progpu_native_scene_frame;
+
+typedef struct progpu_native_scene_frame_metrics {
+    uint32_t struct_size;
+    uint32_t command_count;
+    uint32_t draw_call_count;
+    uint32_t family_switch_count;
+    uint64_t submission_count;
+    uint64_t vertex_upload_bytes;
+    uint64_t index_upload_bytes;
+    uint64_t texture_upload_bytes;
+    uint64_t uniform_upload_bytes;
+    uint64_t coverage_staging_bytes;
+    uint64_t payload_hash;
+} progpu_native_scene_frame_metrics;
 
 /*
  * One analytic draw record. A zero stroke_thickness selects a fill; a positive
@@ -967,6 +1042,10 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
     const void* stream,
     size_t stream_size,
     progpu_native_scene_metrics* metrics);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_scene(
+    progpu_native_engine* engine,
+    const progpu_native_scene_frame* frame,
+    progpu_native_scene_frame_metrics* metrics);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

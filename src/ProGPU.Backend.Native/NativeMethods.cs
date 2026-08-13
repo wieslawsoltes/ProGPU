@@ -165,6 +165,35 @@ internal static unsafe partial class NativeMethods
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneFrame
+    {
+        internal uint StructSize;
+        internal uint Width;
+        internal uint Height;
+        internal float DpiScale;
+        internal nuint TargetView;
+        internal NativeColor ClearColor;
+        internal ulong SceneId;
+        internal ulong Generation;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneFrameMetrics
+    {
+        internal uint StructSize;
+        internal uint CommandCount;
+        internal uint DrawCallCount;
+        internal uint FamilySwitchCount;
+        internal ulong SubmissionCount;
+        internal ulong VertexUploadBytes;
+        internal ulong IndexUploadBytes;
+        internal ulong TextureUploadBytes;
+        internal ulong UniformUploadBytes;
+        internal ulong CoverageStagingBytes;
+        internal ulong PayloadHash;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ClipChain
     {
         internal uint StructSize;
@@ -507,6 +536,13 @@ internal static unsafe partial class NativeMethods
         void* stream,
         nuint streamSize,
         SceneMetrics* metrics);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_scene")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus RenderScene(
+        nint engine,
+        SceneFrame* frame,
+        SceneFrameMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

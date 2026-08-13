@@ -284,10 +284,35 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_metrics) == 64U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_image_draw) == 88U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame_metrics) == 72U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_image_draw,
+        source_rect) == 24U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_image_draw,
+        transform) == 56U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_path_fill,
+        color) == 32U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_glyph_outline,
+        raster_scale) == 32U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_frame,
+        target_view) == 16U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_frame,
+        scene_id) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 72U);

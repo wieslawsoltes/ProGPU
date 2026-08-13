@@ -1029,8 +1029,10 @@ struct progpu_native_engine {
     std::vector<std::byte> semantic_scene_snapshot;
     std::uint64_t semantic_scene_id = 0U;
     std::uint64_t semantic_scene_generation = 0U;
+    std::uint64_t semantic_scene_hash = 0U;
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
+    bool semantic_load_target = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
@@ -6980,7 +6982,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW |
         PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN |
         PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES |
-        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS;
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS |
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -7165,9 +7168,14 @@ progpu_native_status progpu_native_engine_update_scene(
     try {
         std::vector<std::byte> next(stream_size);
         std::memcpy(next.data(), stream, stream_size);
+        const std::uint64_t next_hash = append_fnv1a64(
+            14695981039346656037ULL,
+            stream,
+            stream_size);
         engine->semantic_scene_snapshot.swap(next);
         engine->semantic_scene_id = validation.header.scene_id;
         engine->semantic_scene_generation = validation.header.generation;
+        engine->semantic_scene_hash = next_hash;
         engine->semantic_scene_header = validation.header;
         engine->semantic_scene_metrics = {};
         engine->semantic_scene_metrics.struct_size =
@@ -7331,7 +7339,10 @@ progpu_native_status progpu_native_engine_render(
     color_attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.loadOp = !use_group_layer &&
+            engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
     color_attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -7609,7 +7620,10 @@ progpu_native_status progpu_native_engine_render_analytic(
     color_attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.loadOp = !use_group_layer &&
+            engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
     color_attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -8277,7 +8291,10 @@ progpu_native_status progpu_native_engine_render_geometry(
     color_attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.loadOp = !use_group_layer &&
+            engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
     color_attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -9040,7 +9057,10 @@ progpu_native_status progpu_native_engine_render_paths(
     color_attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.loadOp = !use_group_layer &&
+            engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
     color_attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -9760,7 +9780,10 @@ progpu_native_status progpu_native_engine_render_glyphs(
     color_attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    color_attachment.loadOp = WGPULoadOp_Clear;
+    color_attachment.loadOp = !use_group_layer &&
+            engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     color_attachment.storeOp = WGPUStoreOp_Store;
     color_attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -10130,7 +10153,9 @@ progpu_native_status progpu_native_engine_render_image(
     attachment.view = use_group_layer
         ? engine->layer_texture_view
         : reinterpret_cast<WGPUTextureView>(frame->target_view);
-    attachment.loadOp = WGPULoadOp_Clear;
+    attachment.loadOp = !use_group_layer && engine->semantic_load_target
+        ? WGPULoadOp_Load
+        : WGPULoadOp_Clear;
     attachment.storeOp = WGPUStoreOp_Store;
     attachment.clearValue = use_group_layer
         ? WGPUColor{0.0, 0.0, 0.0, 0.0}
@@ -10276,6 +10301,432 @@ progpu_native_status progpu_native_engine_render_image(
                 ? sizeof(gpu_mask_sampling_uniforms)
                 : 0U);
         metrics->submission_count = engine->submission_count;
+        metrics->payload_hash = payload_hash;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_render_scene(
+    progpu_native_engine* engine,
+    const progpu_native_scene_frame* frame,
+    progpu_native_scene_frame_metrics* metrics) {
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_scene_frame_metrics)) {
+        const std::uint32_t struct_size = metrics->struct_size;
+        *metrics = {};
+        metrics->struct_size = struct_size;
+    }
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Semantic scene rendering is owner-thread affine.");
+    }
+    if (frame == nullptr ||
+        frame->struct_size < sizeof(progpu_native_scene_frame) ||
+        frame->width == 0U ||
+        frame->height == 0U || !std::isfinite(frame->dpi_scale) ||
+        frame->dpi_scale <= 0.0F || frame->target_view == 0U ||
+        !std::isfinite(frame->clear_color.r) ||
+        !std::isfinite(frame->clear_color.g) ||
+        !std::isfinite(frame->clear_color.b) ||
+        !std::isfinite(frame->clear_color.a) ||
+        frame->scene_id == 0U || frame->generation == 0U) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The semantic scene frame descriptor is invalid.");
+    }
+    if (frame->scene_id != engine->semantic_scene_id ||
+        frame->generation != engine->semantic_scene_generation ||
+        engine->semantic_scene_snapshot.empty()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The requested immutable semantic scene generation is not installed.");
+    }
+
+    const auto* bytes = engine->semantic_scene_snapshot.data();
+    const auto& header = engine->semantic_scene_header;
+    const auto read_command = [&](std::uint32_t index) noexcept {
+        progpu_native_scene_command command{};
+        std::memcpy(
+            &command,
+            bytes + header.command_offset +
+                static_cast<std::size_t>(index) * header.command_stride,
+            sizeof(command));
+        return command;
+    };
+    const auto read_resource = [&](std::uint32_t index) noexcept {
+        progpu_native_scene_resource resource{};
+        std::memcpy(
+            &resource,
+            bytes + header.resource_offset +
+                static_cast<std::size_t>(index) * header.resource_stride,
+            sizeof(resource));
+        return resource;
+    };
+    const auto revision32 = [](std::uint64_t value) noexcept {
+        std::uint32_t result = static_cast<std::uint32_t>(
+            value ^ (value >> 32U));
+        return result == 0U ? 1U : result;
+    };
+    const auto command_revision = [&](const progpu_native_scene_command& command,
+                                      const progpu_native_scene_resource& resource) noexcept {
+        std::uint64_t hash = 14695981039346656037ULL;
+        hash = append_fnv1a64(
+            hash, &header.scene_id, sizeof(header.scene_id));
+        hash = append_fnv1a64(
+            hash, &header.generation, sizeof(header.generation));
+        hash = append_fnv1a64(
+            hash, &resource.resource_id, sizeof(resource.resource_id));
+        hash = append_fnv1a64(
+            hash, &resource.generation, sizeof(resource.generation));
+        hash = append_fnv1a64(
+            hash, &command.command_id, sizeof(command.command_id));
+        return revision32(hash);
+    };
+    const auto span_is_multiple = [](std::uint32_t size,
+                                     std::size_t stride) noexcept {
+        return stride != 0U && size != 0U && size % stride == 0U;
+    };
+
+    /* Preflight every typed payload before the first target submission. */
+    std::uint32_t semantic_draw_count = 0U;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command = read_command(index);
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+            if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Semantic save/restore state resources are not implemented yet.");
+            }
+            continue;
+        }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                "Semantic isolated layers are delivered by M2.4d3b2.");
+        }
+        if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                "Semantic draw-state resources are delivered by M2.4d3b2.");
+        }
+        const auto resource = read_resource(command.resource_index);
+        bool valid = false;
+        switch (command.kind) {
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC:
+                valid = span_is_multiple(
+                    resource.payload_size,
+                    sizeof(progpu_native_analytic_primitive)) &&
+                    resource.auxiliary_size == 0U &&
+                    command.payload_size == 0U;
+                break;
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH:
+                valid = span_is_multiple(
+                        resource.payload_size,
+                        sizeof(progpu_native_scene_path_fill)) &&
+                    span_is_multiple(
+                        resource.auxiliary_size,
+                        sizeof(progpu_native_path_segment)) &&
+                    command.payload_size == 0U;
+                break;
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN:
+                valid = span_is_multiple(
+                        resource.payload_size,
+                        sizeof(progpu_native_scene_glyph_outline)) &&
+                    span_is_multiple(
+                        resource.auxiliary_size,
+                        sizeof(progpu_native_path_segment)) &&
+                    span_is_multiple(
+                        command.payload_size,
+                        sizeof(progpu_native_positioned_glyph));
+                break;
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE: {
+                if (command.payload_size <
+                    sizeof(progpu_native_scene_image_draw)) {
+                    break;
+                }
+                progpu_native_scene_image_draw image{};
+                std::memcpy(
+                    &image,
+                    bytes + command.payload_offset,
+                    sizeof(image));
+                const std::uint64_t required_pixels =
+                    static_cast<std::uint64_t>(image.row_bytes) *
+                    image.image_height;
+                const std::uint64_t minimum_row_bytes =
+                    static_cast<std::uint64_t>(image.image_width) * 4U;
+                valid = image.struct_size >= sizeof(image) &&
+                    image.struct_size <= command.payload_size &&
+                    image.flags == 0U && image.reserved == 0U &&
+                    image.image_width != 0U && image.image_height != 0U &&
+                    image.row_bytes >= minimum_row_bytes &&
+                    required_pixels <= resource.payload_size &&
+                    resource.auxiliary_size == 0U &&
+                    (image.sampling ==
+                            PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ||
+                        image.sampling ==
+                            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) &&
+                    std::isfinite(image.opacity) && image.opacity >= 0.0F &&
+                    image.opacity <= 1.0F;
+                break;
+            }
+            default:
+                break;
+        }
+        if (!valid) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "A typed semantic scene resource payload is invalid.");
+        }
+        ++semantic_draw_count;
+    }
+
+    const std::uint64_t submission_start = engine->submission_count;
+    std::uint32_t draw_calls = 0U;
+    std::uint32_t family_switches = 0U;
+    std::uint32_t previous_family = 0U;
+    std::uint64_t vertex_upload_bytes = 0U;
+    std::uint64_t index_upload_bytes = 0U;
+    std::uint64_t texture_upload_bytes = 0U;
+    std::uint64_t uniform_upload_bytes = 0U;
+    std::uint64_t coverage_staging_bytes = 0U;
+    const std::uint64_t payload_hash = engine->semantic_scene_hash;
+    bool target_has_content = false;
+
+    const auto prepare_family = [&](std::uint32_t family) noexcept {
+        if (family != previous_family) {
+            ++family_switches;
+            previous_family = family;
+        }
+        engine->semantic_load_target = target_has_content;
+    };
+    const auto finish_family = [&](progpu_native_status status) noexcept {
+        engine->semantic_load_target = false;
+        if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+            target_has_content = true;
+        }
+        return status;
+    };
+
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command = read_command(index);
+        if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        const auto resource = read_resource(command.resource_index);
+        progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        switch (command.kind) {
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
+                progpu_native_analytic_frame family{};
+                family.struct_size = sizeof(family);
+                family.width = frame->width;
+                family.height = frame->height;
+                family.dpi_scale = frame->dpi_scale;
+                family.target_view = frame->target_view;
+                family.clear_color = frame->clear_color;
+                family.primitives =
+                    reinterpret_cast<const progpu_native_analytic_primitive*>(
+                        bytes + resource.payload_offset);
+                family.primitive_count = resource.payload_size /
+                    sizeof(progpu_native_analytic_primitive);
+                progpu_native_analytic_frame_metrics family_metrics{};
+                family_metrics.struct_size = sizeof(family_metrics);
+                prepare_family(command.kind);
+                status = finish_family(progpu_native_engine_render_analytic(
+                    engine, &family, &family_metrics));
+                draw_calls += family_metrics.draw_call_count;
+                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
+                index_upload_bytes += family_metrics.index_upload_bytes;
+                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                progpu_native_path_frame family{};
+                family.struct_size = sizeof(family);
+                family.width = frame->width;
+                family.height = frame->height;
+                family.dpi_scale = frame->dpi_scale;
+                family.target_view = frame->target_view;
+                family.clear_color = frame->clear_color;
+                static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
+                static_assert(sizeof(progpu_native_scene_path_fill) ==
+                    sizeof(progpu_native_path_fill));
+                static_assert(offsetof(
+                    progpu_native_scene_path_fill,
+                    segment_offset) == offsetof(
+                    progpu_native_path_fill,
+                    segment_offset));
+                static_assert(offsetof(
+                    progpu_native_scene_path_fill,
+                    fill_rule) == offsetof(
+                    progpu_native_path_fill,
+                    fill_rule));
+                family.paths = reinterpret_cast<
+                    const progpu_native_path_fill*>(
+                        bytes + resource.payload_offset);
+                family.path_count = resource.payload_size /
+                    sizeof(progpu_native_scene_path_fill);
+                family.segments =
+                    reinterpret_cast<const progpu_native_path_segment*>(
+                        bytes + resource.auxiliary_offset);
+                family.segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                family.flags =
+                    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
+                family.content_revision = command_revision(command, resource);
+                progpu_native_path_frame_metrics family_metrics{};
+                family_metrics.struct_size = sizeof(family_metrics);
+                prepare_family(command.kind);
+                status = finish_family(progpu_native_engine_render_paths(
+                    engine, &family, &family_metrics));
+                draw_calls += family_metrics.draw_call_count;
+                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
+                index_upload_bytes += family_metrics.index_upload_bytes;
+                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                coverage_staging_bytes +=
+                    family_metrics.coverage_staging_bytes;
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
+                progpu_native_glyph_frame family{};
+                family.struct_size = sizeof(family);
+                family.width = frame->width;
+                family.height = frame->height;
+                family.dpi_scale = frame->dpi_scale;
+                family.target_view = frame->target_view;
+                family.clear_color = frame->clear_color;
+                static_assert(sizeof(std::size_t) == sizeof(std::uint64_t));
+                static_assert(sizeof(progpu_native_scene_glyph_outline) ==
+                    sizeof(progpu_native_glyph_outline));
+                static_assert(offsetof(
+                    progpu_native_scene_glyph_outline,
+                    segment_offset) == offsetof(
+                    progpu_native_glyph_outline,
+                    segment_offset));
+                static_assert(offsetof(
+                    progpu_native_scene_glyph_outline,
+                    raster_scale) == offsetof(
+                    progpu_native_glyph_outline,
+                    raster_scale));
+                family.outlines = reinterpret_cast<
+                    const progpu_native_glyph_outline*>(
+                        bytes + resource.payload_offset);
+                family.outline_count = resource.payload_size /
+                    sizeof(progpu_native_scene_glyph_outline);
+                family.segments =
+                    reinterpret_cast<const progpu_native_path_segment*>(
+                        bytes + resource.auxiliary_offset);
+                family.segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                family.glyphs =
+                    reinterpret_cast<const progpu_native_positioned_glyph*>(
+                        bytes + command.payload_offset);
+                family.glyph_count = command.payload_size /
+                    sizeof(progpu_native_positioned_glyph);
+                family.flags =
+                    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
+                family.content_revision = command_revision(command, resource);
+                progpu_native_glyph_frame_metrics family_metrics{};
+                family_metrics.struct_size = sizeof(family_metrics);
+                prepare_family(command.kind);
+                status = finish_family(progpu_native_engine_render_glyphs(
+                    engine, &family, &family_metrics));
+                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                vertex_upload_bytes += family_metrics.instance_upload_bytes;
+                coverage_staging_bytes +=
+                    family_metrics.coverage_staging_bytes;
+                draw_calls += family_metrics.draw_call_count;
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE: {
+                progpu_native_scene_image_draw image{};
+                std::memcpy(
+                    &image,
+                    bytes + command.payload_offset,
+                    sizeof(image));
+                progpu_native_image_frame family{};
+                family.struct_size = sizeof(family);
+                family.width = frame->width;
+                family.height = frame->height;
+                family.dpi_scale = frame->dpi_scale;
+                family.target_view = frame->target_view;
+                family.clear_color = frame->clear_color;
+                family.rgba_pixels = reinterpret_cast<const std::uint8_t*>(
+                    bytes + resource.payload_offset);
+                family.pixel_bytes = resource.payload_size;
+                family.image_width = image.image_width;
+                family.image_height = image.image_height;
+                family.row_bytes = image.row_bytes;
+                family.sampling = image.sampling;
+                family.image_revision =
+                    command_revision(command, resource);
+                family.content_revision = family.image_revision;
+                family.source_rect = image.source_rect;
+                family.destination_rect = image.destination_rect;
+                family.transform = image.transform;
+                family.opacity = image.opacity;
+                progpu_native_image_frame_metrics family_metrics{};
+                family_metrics.struct_size = sizeof(family_metrics);
+                prepare_family(command.kind);
+                status = finish_family(progpu_native_engine_render_image(
+                    engine, &family, &family_metrics));
+                draw_calls += family_metrics.draw_call_count;
+                vertex_upload_bytes += family_metrics.vertex_upload_bytes;
+                index_upload_bytes += family_metrics.index_upload_bytes;
+                texture_upload_bytes += family_metrics.texture_upload_bytes;
+                uniform_upload_bytes += family_metrics.uniform_upload_bytes;
+                break;
+            }
+            default:
+                break;
+        }
+        if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            engine->semantic_load_target = false;
+            return status;
+        }
+    }
+
+    if (semantic_draw_count == 0U) {
+        progpu_native_analytic_frame clear{};
+        clear.struct_size = sizeof(clear);
+        clear.width = frame->width;
+        clear.height = frame->height;
+        clear.dpi_scale = frame->dpi_scale;
+        clear.target_view = frame->target_view;
+        clear.clear_color = frame->clear_color;
+        progpu_native_analytic_frame_metrics clear_metrics{};
+        clear_metrics.struct_size = sizeof(clear_metrics);
+        const auto status = progpu_native_engine_render_analytic(
+            engine, &clear, &clear_metrics);
+        if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            return status;
+        }
+        uniform_upload_bytes += clear_metrics.uniform_upload_bytes;
+    }
+
+    engine->last_error.clear();
+    if (metrics != nullptr && metrics->struct_size >=
+            sizeof(progpu_native_scene_frame_metrics)) {
+        metrics->command_count = header.command_count;
+        metrics->draw_call_count = draw_calls;
+        metrics->family_switch_count = family_switches;
+        metrics->submission_count =
+            engine->submission_count - submission_start;
+        metrics->vertex_upload_bytes = vertex_upload_bytes;
+        metrics->index_upload_bytes = index_upload_bytes;
+        metrics->texture_upload_bytes = texture_upload_bytes;
+        metrics->uniform_upload_bytes = uniform_upload_bytes;
+        metrics->coverage_staging_bytes = coverage_staging_bytes;
         metrics->payload_hash = payload_hash;
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;

@@ -190,6 +190,66 @@ public ref struct NativeSceneStreamBuilder
         return true;
     }
 
+    public bool TryAddAnalyticResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<NativeAnalyticPrimitive> primitives,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.AnalyticBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(primitives),
+            out resourceIndex,
+            flags: flags);
+
+    public bool TryAddPathResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<NativeScenePathFill> paths,
+        ReadOnlySpan<NativePathSegment> segments,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.PathBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(paths),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(segments),
+            flags);
+
+    public bool TryAddGlyphResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<NativeSceneGlyphOutline> outlines,
+        ReadOnlySpan<NativePathSegment> segments,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.GlyphRun,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(outlines),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(segments),
+            flags);
+
+    public bool TryAddImageResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<byte> rgbaPixels,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.Image,
+            resourceId,
+            generation,
+            rgbaPixels,
+            out resourceIndex,
+            flags: flags);
+
     public bool TrySave(ulong commandId) =>
         TryPushControl(NativeSceneCommandKind.Save, commandId, isLayer: false);
 
@@ -244,6 +304,19 @@ public ref struct NativeSceneStreamBuilder
             payload,
             stateIndex);
 
+    public bool TryDrawGlyphRun(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        ReadOnlySpan<NativePositionedGlyph> glyphs,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawGlyphRun(
+            commandId,
+            resourceIndex,
+            bounds,
+            MemoryMarshal.AsBytes(glyphs),
+            stateIndex);
+
     public bool TryDrawImage(
         ulong commandId,
         uint resourceIndex,
@@ -256,6 +329,22 @@ public ref struct NativeSceneStreamBuilder
             resourceIndex,
             bounds,
             payload,
+            stateIndex);
+
+    public bool TryDrawImage(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in image),
+                    1)),
             stateIndex);
 
     public bool TryBuild(out ReadOnlySpan<byte> stream)

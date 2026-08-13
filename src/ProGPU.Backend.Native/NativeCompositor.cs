@@ -10,9 +10,12 @@ namespace ProGPU.Backend.Native;
 /// Owns one ProGPU C++ renderer over an existing Silk/wgpu-native device.
 /// </summary>
 /// <remarks>
-/// Rendering crosses the C ABI once per frame and submits one native WebGPU
-/// command buffer. The compositor is owner-thread affine and must be disposed
-/// before its <see cref="WgpuContext"/> unless context disposal does so first.
+/// Each typed family render crosses the C ABI once and submits one native
+/// WebGPU command buffer. Semantic scene rendering also crosses once, then
+/// currently preserves display-list order with one native submission per draw
+/// until the mixed-family encoder/batching phase lands. The compositor is
+/// owner-thread affine and must be disposed before its
+/// <see cref="WgpuContext"/> unless context disposal does so first.
 /// </remarks>
 public sealed unsafe class NativeCompositor : IDisposable
 {
@@ -214,6 +217,63 @@ public sealed unsafe class NativeCompositor : IDisposable
             }
         }
         return ToSceneMetrics(metrics);
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation in display
+    /// list order to one target.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScene(
+        GpuTexture target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor)
+    {
+        ValidateTarget(target);
+        var frame = new NativeMethods.SceneFrame
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneFrame>(),
+            Width = target.Width,
+            Height = target.Height,
+            DpiScale = dpiScale,
+            TargetView = (nuint)target.ViewPtr,
+            ClearColor = new NativeMethods.NativeColor
+            {
+                R = clearColor.X,
+                G = clearColor.Y,
+                B = clearColor.Z,
+                A = clearColor.W
+            },
+            SceneId = sceneId,
+            Generation = generation
+        };
+        var metrics = new NativeMethods.SceneFrameMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>()
+        };
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            var status = NativeMethods.RenderScene(_engine, &frame, &metrics);
+            if (status != NativeRendererStatus.Success)
+            {
+                throw new NativeRendererException(status, ReadLastError());
+            }
+            target.NotifyExternalContentChanged();
+            _context.PollDevice(wait: false);
+        }
+        return new NativeSceneFrameMetrics(
+            metrics.CommandCount,
+            metrics.DrawCallCount,
+            metrics.FamilySwitchCount,
+            metrics.SubmissionCount,
+            metrics.VertexUploadBytes,
+            metrics.IndexUploadBytes,
+            metrics.TextureUploadBytes,
+            metrics.UniformUploadBytes,
+            metrics.CoverageStagingBytes,
+            metrics.PayloadHash);
     }
 
     /// <summary>

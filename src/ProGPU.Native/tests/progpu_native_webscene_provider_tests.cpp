@@ -17,6 +17,7 @@
 #include <iterator>
 #include <mutex>
 #include <type_traits>
+#include <vector>
 
 namespace {
 
@@ -79,6 +80,195 @@ semantic_scene_stream create_semantic_scene_stream(
     std::memcpy(stream.data() + header.resource_offset,
         &resource, sizeof(resource));
     stream[header.arena_offset] = std::byte{0x5a};
+    return stream;
+}
+
+template<typename T>
+std::uint32_t append_scene_payload(
+    std::vector<std::byte>& stream,
+    const T* values,
+    std::size_t count) {
+    const std::size_t aligned_size = (stream.size() + 7U) & ~7U;
+    stream.resize(aligned_size);
+    const std::uint32_t offset = static_cast<std::uint32_t>(stream.size());
+    const std::size_t byte_count = sizeof(T) * count;
+    const auto* source = reinterpret_cast<const std::byte*>(values);
+    stream.insert(stream.end(), source, source + byte_count);
+    return offset;
+}
+
+std::vector<std::byte> create_renderable_semantic_scene_stream(
+    std::uint64_t generation) {
+    constexpr std::uint32_t command_count = 4U;
+    constexpr std::uint32_t resource_count = 4U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+
+    const progpu_native_analytic_primitive analytic{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        4.0F,
+        4.0F,
+        12.0F,
+        12.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 0.0F, 0.0F, 1.0F},
+        identity};
+    const std::uint32_t analytic_offset = append_scene_payload(
+        stream, &analytic, 1U);
+
+    const progpu_native_path_segment path_segments[]{
+        {{0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{12.0F, 0.0F}, {12.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{12.0F, 12.0F}, {0.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{0.0F, 12.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
+    };
+    const progpu_native_scene_path_fill path{
+        0U,
+        std::size(path_segments),
+        0.0F,
+        0.0F,
+        12.0F,
+        12.0F,
+        {0.0F, 1.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 20.0F, 4.0F},
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U};
+    const std::uint32_t path_offset = append_scene_payload(
+        stream, &path, 1U);
+    const std::uint32_t path_segment_offset = append_scene_payload(
+        stream, path_segments, std::size(path_segments));
+
+    const progpu_native_scene_glyph_outline outline{
+        0U,
+        std::size(path_segments),
+        0.0F,
+        0.0F,
+        12.0F,
+        12.0F,
+        1.0F,
+        0.0F};
+    const std::uint32_t outline_offset = append_scene_payload(
+        stream, &outline, 1U);
+    const std::uint32_t outline_segment_offset = append_scene_payload(
+        stream, path_segments, std::size(path_segments));
+    const progpu_native_positioned_glyph glyph{
+        0U,
+        0U,
+        {36.0F, 18.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {0.0F, 0.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    const std::uint32_t glyph_offset = append_scene_payload(
+        stream, &glyph, 1U);
+
+    const std::array<std::uint8_t, 16U> image_pixels{
+        255U, 255U, 0U, 255U, 255U, 255U, 0U, 255U,
+        255U, 255U, 0U, 255U, 255U, 255U, 0U, 255U};
+    const std::uint32_t image_offset = append_scene_payload(
+        stream, image_pixels.data(), image_pixels.size());
+    const progpu_native_scene_image_draw image{
+        sizeof(progpu_native_scene_image_draw),
+        0U,
+        2U,
+        2U,
+        8U,
+        PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST,
+        {0.0F, 0.0F, 2.0F, 2.0F},
+        {50.0F, 4.0F, 10.0F, 12.0F},
+        identity,
+        1.0F,
+        0U};
+    const std::uint32_t image_draw_offset = append_scene_payload(
+        stream, &image, 1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 91U;
+    header.generation = generation;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const progpu_native_scene_resource resources[]{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 101U, 1U,
+            analytic_offset, sizeof(analytic), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 102U, 1U,
+            path_offset, sizeof(path), path_segment_offset,
+            sizeof(path_segments)},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 103U, 1U,
+            outline_offset, sizeof(outline), outline_segment_offset,
+            sizeof(path_segments)},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_IMAGE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 104U, 1U,
+            image_offset, image_pixels.size(), 0U, 0U}
+    };
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources,
+        sizeof(resources));
+
+    const progpu_native_scene_command commands[]{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 201U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, 0U,
+            4.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 202U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 1U, 0U, 0U,
+            20.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 203U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 2U,
+            glyph_offset, sizeof(glyph),
+            36.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 204U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 3U,
+            image_draw_offset, sizeof(image),
+            50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U}
+    };
+    std::memcpy(
+        stream.data() + command_offset,
+        commands,
+        sizeof(commands));
     return stream;
 }
 
@@ -279,6 +469,76 @@ struct resolver_context final {
 void* resolve_for_progpu(void* context, const char* name) {
     auto* state = static_cast<resolver_context*>(context);
     return state->api->get_proc(state->provider, name);
+}
+
+void verify_semantic_scene(
+    IOSurfaceRef surface,
+    const char* output_path) {
+    require(surface != nullptr, "semantic scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not lock semantic scene IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U, "unexpected semantic IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto is_bgra = [](const std::uint8_t* value,
+                            std::uint8_t b,
+                            std::uint8_t g,
+                            std::uint8_t r) {
+        constexpr int tolerance = 48;
+        return std::abs(static_cast<int>(value[0]) - b) <= tolerance &&
+            std::abs(static_cast<int>(value[1]) - g) <= tolerance &&
+            std::abs(static_cast<int>(value[2]) - r) <= tolerance &&
+            value[3] >= 240U;
+    };
+    const auto* semantic_clear = pixel(2U, 2U);
+    const auto* semantic_analytic = pixel(8U, 8U);
+    const auto* semantic_path = pixel(24U, 8U);
+    const auto* semantic_glyph = pixel(40U, 8U);
+    const auto* semantic_image = pixel(54U, 8U);
+    std::fprintf(stderr,
+        "semantic clear=%u,%u,%u,%u analytic=%u,%u,%u,%u "
+        "path=%u,%u,%u,%u glyph=%u,%u,%u,%u image=%u,%u,%u,%u\n",
+        semantic_clear[0], semantic_clear[1], semantic_clear[2], semantic_clear[3],
+        semantic_analytic[0], semantic_analytic[1], semantic_analytic[2], semantic_analytic[3],
+        semantic_path[0], semantic_path[1], semantic_path[2], semantic_path[3],
+        semantic_glyph[0], semantic_glyph[1], semantic_glyph[2], semantic_glyph[3],
+        semantic_image[0], semantic_image[1], semantic_image[2], semantic_image[3]);
+    require(is_bgra(pixel(2U, 2U), 10U, 8U, 5U),
+        "semantic clear color is missing");
+    require(is_bgra(pixel(8U, 8U), 0U, 0U, 255U),
+        "semantic analytic draw is missing");
+    require(is_bgra(pixel(24U, 8U), 0U, 255U, 0U),
+        "semantic path draw is missing");
+    require(is_bgra(pixel(40U, 8U), 255U, 0U, 0U),
+        "semantic positioned-glyph draw is missing");
+    require(is_bgra(pixel(54U, 8U), 0U, 255U, 255U),
+        "semantic image draw is missing");
+
+    if (output_path != nullptr && output_path[0] != '\0') {
+        std::FILE* output = std::fopen(output_path, "wb");
+        require(output != nullptr, "could not create semantic capture");
+        std::fprintf(output, "P6\n%zu %zu\n255\n", width, height);
+        for (std::size_t y = 0; y < height; ++y) {
+            for (std::size_t x = 0; x < width; ++x) {
+                const std::uint8_t* source = pixel(x, y);
+                const std::uint8_t rgb[]{
+                    source[2], source[1], source[0]};
+                require(std::fwrite(rgb, sizeof(rgb), 1U, output) == 1U,
+                    "semantic capture write failed");
+            }
+        }
+        require(std::fclose(output) == 0,
+            "semantic capture close failed");
+    }
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+        kIOReturnSuccess, "could not unlock semantic scene IOSurface");
 }
 
 void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
@@ -487,6 +747,129 @@ int main(int argc, char** argv) {
         api, provider, "wgpuTextureCreateView")(
         texture, &view_descriptor);
     require(view != nullptr, "target view creation failed");
+
+    auto renderable_scene = create_renderable_semantic_scene_stream(3U);
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        renderable_scene.data(),
+        renderable_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.draw_count == 4U,
+        "renderable semantic scene update failed");
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        renderable_scene.data(),
+        renderable_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        (scene_metrics.flags &
+            PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED) != 0U,
+        "renderable semantic snapshot was not retained");
+    progpu_native_scene_frame semantic_frame{};
+    semantic_frame.struct_size = sizeof(semantic_frame);
+    semantic_frame.width = 64U;
+    semantic_frame.height = 48U;
+    semantic_frame.dpi_scale = 1.0F;
+    semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    semantic_frame.clear_color = {0.02F, 0.03F, 0.04F, 1.0F};
+    semantic_frame.scene_id = 91U;
+    semantic_frame.generation = 3U;
+    progpu_native_scene_frame_metrics semantic_metrics{};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    const auto semantic_status = progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics);
+    if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic_metrics.command_count != 4U ||
+        semantic_metrics.draw_call_count != 4U ||
+        semantic_metrics.family_switch_count != 4U ||
+        semantic_metrics.submission_count != 4U ||
+        semantic_metrics.payload_hash == 0U) {
+        std::array<char, 512U> semantic_error{};
+        progpu_native_engine_get_last_error(
+            engine, semantic_error.data(), semantic_error.size());
+        std::fprintf(stderr,
+            "semantic status=%u commands=%u draws=%u families=%u "
+            "submissions=%llu hash=%llu error=%s\n",
+            static_cast<unsigned>(semantic_status),
+            semantic_metrics.command_count,
+            semantic_metrics.draw_call_count,
+            semantic_metrics.family_switch_count,
+            static_cast<unsigned long long>(
+                semantic_metrics.submission_count),
+            static_cast<unsigned long long>(semantic_metrics.payload_hash),
+            semantic_error.data());
+    }
+    require(semantic_status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 4U &&
+        semantic_metrics.draw_call_count == 4U &&
+        semantic_metrics.family_switch_count == 4U &&
+        semantic_metrics.submission_count == 4U &&
+        semantic_metrics.payload_hash != 0U,
+        "mixed semantic scene rendering failed");
+    const std::uint64_t semantic_payload_hash =
+        semantic_metrics.payload_hash;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 4U &&
+        semantic_metrics.draw_call_count == 4U &&
+        semantic_metrics.family_switch_count == 4U &&
+        semantic_metrics.submission_count == 4U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U &&
+        semantic_metrics.payload_hash == semantic_payload_hash,
+        "stable mixed semantic scene replay rebuilt retained resources");
+    std::uint64_t semantic_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_submission != 0U,
+        "semantic scene submission token unavailable");
+    std::uint8_t semantic_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        semantic_submission,
+        1U,
+        &semantic_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_complete != 0U,
+        "mixed semantic scene did not reach GPU completion");
+
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture semantic_external{};
+    semantic_external.struct_size = sizeof(semantic_external);
+    require(api.present(provider, canvas, &semantic_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        semantic_external.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (semantic_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic scene presentation failed");
+    verify_semantic_scene(
+        reinterpret_cast<IOSurfaceRef>(semantic_external.shared_handle),
+        "progpu-native-semantic-scene.ppm");
+    api.release_external(provider, &semantic_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr, "baseline canvas recreation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "baseline canvas texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr, "baseline target view creation failed");
 
     WGPUTextureDescriptor mask_texture_descriptor =
         WGPU_TEXTURE_DESCRIPTOR_INIT;

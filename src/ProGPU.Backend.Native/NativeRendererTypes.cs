@@ -166,7 +166,8 @@ public enum NativeRendererCapabilities : ulong
     GroupDropShadow = 1UL << 26,
     BoundedGroupEffectChain = 1UL << 27,
     GroupBlendModes = 1UL << 28,
-    SemanticSceneSnapshots = 1UL << 29
+    SemanticSceneSnapshots = 1UL << 29,
+    SemanticSceneRendering = 1UL << 30
 }
 
 public enum NativeSceneResourceKind : uint
@@ -208,6 +209,120 @@ public enum NativeSceneValidationError : uint
     Value = 6,
     Generation = 7,
     Unsupported = 8
+}
+
+/// <summary>
+/// Describes one upload-backed image draw stored inside a semantic scene.
+/// </summary>
+/// <remarks>
+/// The matching image resource owns the RGBA8 byte payload. Source and
+/// destination rectangles use logical image and target coordinates,
+/// respectively. The record is pointer-free and can be written directly to
+/// the semantic scene arena.
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImageDraw
+{
+    public NativeSceneImageDraw(
+        uint imageWidth,
+        uint imageHeight,
+        uint rowBytes,
+        NativeImageSampling sampling,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        float opacity)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImageDraw>();
+        Flags = 0U;
+        ImageWidth = imageWidth;
+        ImageHeight = imageHeight;
+        RowBytes = rowBytes;
+        Sampling = sampling;
+        SourceRect = sourceRect;
+        DestinationRect = destinationRect;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved = 0U;
+    }
+
+    public readonly uint StructSize;
+    private readonly uint Flags;
+    public readonly uint ImageWidth;
+    public readonly uint ImageHeight;
+    public readonly uint RowBytes;
+    public readonly NativeImageSampling Sampling;
+    public readonly NativeImageRect SourceRect;
+    public readonly NativeImageRect DestinationRect;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved;
+}
+
+/// <summary>
+/// Fixed-width path record stored in a semantic scene resource arena.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeScenePathFill
+{
+    public NativeScenePathFill(
+        ulong segmentOffset,
+        ulong segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        Vector4 color,
+        Matrix3x2 transform,
+        NativeFillRule fillRule = NativeFillRule.NonZero,
+        uint sampleGrid = 4)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        Color = color;
+        Transform = transform;
+        FillRule = fillRule;
+        SampleGrid = sampleGrid;
+    }
+
+    public readonly ulong SegmentOffset;
+    public readonly ulong SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly Vector4 Color;
+    public readonly Matrix3x2 Transform;
+    public readonly NativeFillRule FillRule;
+    public readonly uint SampleGrid;
+}
+
+/// <summary>
+/// Fixed-width glyph-outline record stored in a semantic scene resource arena.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneGlyphOutline
+{
+    public NativeSceneGlyphOutline(
+        ulong segmentOffset,
+        ulong segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        float rasterScale,
+        float subpixelX = 0f)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        RasterScale = rasterScale;
+        SubpixelX = subpixelX;
+    }
+
+    public readonly ulong SegmentOffset;
+    public readonly ulong SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly float RasterScale;
+    public readonly float SubpixelX;
 }
 
 [Flags]
@@ -1291,6 +1406,18 @@ public readonly record struct NativeSceneUpdateMetrics(
     ulong SnapshotBytes,
     ulong PayloadBytes,
     bool SnapshotReused);
+
+public readonly record struct NativeSceneFrameMetrics(
+    uint CommandCount,
+    uint DrawCallCount,
+    uint FamilySwitchCount,
+    ulong SubmissionCount,
+    ulong VertexUploadBytes,
+    ulong IndexUploadBytes,
+    ulong TextureUploadBytes,
+    ulong UniformUploadBytes,
+    ulong CoverageStagingBytes,
+    ulong PayloadHash);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

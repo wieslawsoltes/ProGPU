@@ -1080,10 +1080,22 @@ stream limit, at most 1,048,576 commands, at most 262,144 resources, and a
 of a device. `progpu_native_engine_update_scene` first validates, then copies a
 changed immutable generation transactionally; an identical generation is a
 zero-copy cache hit, while changed bytes at the same generation or regressing
-scene/resource generations fail closed. The currently advertised
-`SEMANTIC_SCENE_SNAPSHOTS` capability deliberately claims only this snapshot
-foundation. Mixed rendering is not advertised until the native compiler and
-render entry point consume the snapshot.
+scene/resource generations fail closed. `SEMANTIC_SCENE_SNAPSHOTS` advertises
+this ownership foundation. The additive `SEMANTIC_SCENE_RENDERING` capability
+now advertises the first mixed-render checkpoint:
+`progpu_native_engine_render_scene` consumes the installed scene id/generation
+and renders ordered analytic, path, positioned-glyph, and upload-backed image
+commands. State resources and isolated layers fail with typed `UNSUPPORTED`
+status and remain d3b2 work.
+
+The implemented typed payload prefixes are fixed-width: 72-byte analytic
+primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
+path segments, 40-byte semantic glyph outlines with 64-bit segment indices,
+64-byte positioned glyphs, and 88-byte image draws. Current x64/arm64 packages
+consume the two 64-bit-index records zero-copy because their native family
+layouts are statically proven identical. A future wasm32 compiler must
+translate those two fixed records; it must not redefine the version-one stream
+around 32-bit `size_t`.
 
 The command vocabulary is deliberately semantic:
 
@@ -1103,19 +1115,25 @@ frame is being compiled or submitted.
 
 ### Validation and bounded compilation
 
-Validation is transactional and precedes scene/GPU allocation or WebGPU
-submission. Its bounded command-id scratch is validation-only. Pass
-one checks header/version/features, arena arithmetic, ids, values, resource
-lifetimes, and a maximum stack depth of 64. Pass two walks the command stream,
-proves balanced save/layer scopes, computes exact or checked upper bounds for
-batch vertices, indices, glyph instances, atlas demand, layer pixels, and
-effect passes, and rejects any live set above configured budgets. Both passes
-are O(C + R + A) time for C commands, R resources, and A arena values, with
-O(C + D) bounded scratch for command-id radix validation and stack depth D;
-the canonical resource table needs no lookup allocation. No partial scene
-becomes visible on failure.
+Scene-update validation is transactional and precedes snapshot replacement or
+WebGPU submission. Its bounded command-id scratch is validation-only. The
+implemented pass checks header/version/features, non-overlapping arena/table
+arithmetic, canonical resource ids, command-id uniqueness, finite command
+bounds, typed references, generation monotonicity, and a maximum balanced stack
+depth of 64. It is O(C + R) time with O(C + D) bounded scratch for command-id
+radix validation and stack depth D; the canonical resource table needs no
+lookup allocation. No partial snapshot becomes visible on failure.
 
-Compilation preserves display-list order. Compatible analytic/vector commands
+The current mixed renderer structurally preflights all four typed payloads
+before its first submission, then delegates value validation and GPU work to
+the existing family compilers. Therefore d3b1 remains incomplete: final
+preflight must validate every typed arena value and checked compilation bound
+before target mutation, or compile through an isolated transactional target.
+The later pass will also compute exact or checked upper bounds for batch
+vertices, indices, glyph instances, atlas demand, layer pixels, and effect
+passes and reject a live set above configured budgets.
+
+The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
 commands switch only the required pipeline/bind groups and reuse their retained
 native resources. Rectangular clips lower to physical scissors when no
@@ -1125,6 +1143,17 @@ destination-aware blend, explicit isolation, or backdrop input makes direct
 rendering observably incorrect. Otherwise its state is folded into the parent
 batch. This preserves group-opacity overlap behavior without allocating a
 texture for every save/restore pair.
+
+The current d3b1 checkpoint already preserves display-list order and target
+contents across family switches by clearing on the first draw and loading on
+later draws. It crosses the public ABI once per frame but submits one native
+command buffer per semantic draw. This is intentionally a correctness
+checkpoint, not the final performance topology: mixed-family encoder reuse,
+adjacent-family batching, visibility culling, and stable multi-command compiled
+pages remain required before the d3b1 checkbox closes. For C semantic commands,
+dispatch is currently O(C) CPU work and O(C) submissions in the worst case;
+the target is O(C) compilation with submissions bounded by the compiled render
+graph rather than command count.
 
 Materialized layers use a depth-indexed pool keyed by device-loss generation,
 format, physical extent, usage, and sample count. The initial contract permits

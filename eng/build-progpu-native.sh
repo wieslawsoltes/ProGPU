@@ -94,9 +94,10 @@ fi
 
 if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
   sanitizer_build_dir="${build_dir}-sanitized"
-  sanitizer_dawn_options=()
+  sanitizer_dawn_options=(
+    "-DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=")
   if [[ "${PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT:-0}" == "1" ]]; then
-    sanitizer_dawn_options+=(
+    sanitizer_dawn_options=(
       "-DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR=${dawn_header_source}")
   fi
   sanitizer_detect_leaks=1
