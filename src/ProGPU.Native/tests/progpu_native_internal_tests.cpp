@@ -9,6 +9,7 @@
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_state.hpp"
+#include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
 #include <array>
@@ -274,6 +275,126 @@ void semantic_brush_page_is_bounded_deduplicated_and_retained() {
         storage.data(), brush_resource, error_offset));
 }
 
+void semantic_text_style_page_is_validated_deduplicated_and_retained() {
+    std::array<std::byte, 1536U> storage{};
+    progpu_native_scene_header header{};
+    header.resource_offset = 80U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.resource_count = 2U;
+    header.command_offset = 176U;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.command_count = 3U;
+
+    progpu_native_scene_resource style_resource{};
+    style_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE;
+    style_resource.payload_offset = 384U;
+    style_resource.payload_size = sizeof(progpu_native_scene_text_style);
+    std::memcpy(
+        storage.data() + header.resource_offset,
+        &style_resource,
+        sizeof(style_resource));
+
+    progpu_native_scene_resource state_resource{};
+    state_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+    state_resource.payload_offset = 416U;
+    state_resource.payload_size = sizeof(progpu_native_scene_state);
+    std::memcpy(
+        storage.data() + header.resource_offset +
+            sizeof(progpu_native_scene_resource),
+        &state_resource,
+        sizeof(state_resource));
+
+    const progpu_native_scene_text_style style{
+        {0.25F, 0.5F, 0.75F, 0.8F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    std::memcpy(
+        storage.data() + style_resource.payload_offset,
+        &style,
+        sizeof(style));
+    auto state = progpu::native::semantic::semantic_identity_state();
+    state.opacity = 0.5F;
+    std::memcpy(
+        storage.data() + state_resource.payload_offset,
+        &state,
+        sizeof(state));
+
+    const auto write_draw = [&storage, &header](
+        std::uint32_t command_index,
+        std::uint32_t payload_offset,
+        std::uint32_t state_index) {
+        progpu_native_scene_command command{};
+        command.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN;
+        command.flags = PROGPU_NATIVE_SCENE_GLYPH_STYLED;
+        command.state_index = state_index;
+        command.payload_offset = payload_offset;
+        command.payload_size = sizeof(progpu_native_scene_glyph_draw) +
+            sizeof(progpu_native_positioned_glyph);
+        std::memcpy(
+            storage.data() + header.command_offset +
+                command_index * sizeof(command),
+            &command,
+            sizeof(command));
+        const progpu_native_scene_glyph_draw draw{
+            sizeof(progpu_native_scene_glyph_draw), 0U, 0U, 1U, 0U, 0U};
+        std::memcpy(storage.data() + payload_offset, &draw, sizeof(draw));
+        progpu_native_positioned_glyph glyph{};
+        glyph.basis_x = {1.0F, 0.0F};
+        glyph.basis_y = {0.0F, 1.0F};
+        glyph.color = {1.0F, 0.0F, 1.0F, 0.25F};
+        glyph.atlas_to_logical_scale = 1.0F;
+        std::memcpy(
+            storage.data() + payload_offset + sizeof(draw),
+            &glyph,
+            sizeof(glyph));
+    };
+    write_draw(0U, 512U, 1U);
+    write_draw(1U, 608U, 1U);
+    write_draw(2U, 704U, PROGPU_NATIVE_SCENE_NO_INDEX);
+
+    std::uint32_t error_offset = 0U;
+    require(progpu::native::semantic::validate_text_style_table(
+        storage.data(), style_resource, error_offset));
+    progpu_native_scene_command command{};
+    std::memcpy(
+        &command,
+        storage.data() + header.command_offset,
+        sizeof(command));
+    require(progpu::native::semantic::validate_styled_glyph_draw(
+        storage.data(), header, command, error_offset));
+
+    progpu::native::semantic::semantic_text_style_page page{};
+    require(progpu::native::semantic::compile_text_style_page(
+        storage.data(), header, 987U, page));
+    require(page.cache_valid && page.scene_hash == 987U);
+    require(page.styles.size() == 3U);
+    require(page.command_style_indices.size() == 3U);
+    require(page.command_style_indices[0] == 1U);
+    require(page.command_style_indices[1] == 1U);
+    require(page.command_style_indices[2] == 2U);
+    require(page.styles[1].color.r == 0.25F);
+    require(page.styles[1].color.b == 0.75F);
+    require(page.styles[1].color.a == 0.4F);
+    require(page.styles[2].color.a == 0.8F);
+    std::uint32_t packed_index = 0U;
+    require(progpu::native::semantic::try_get_command_text_style_index(
+        page, 1U, packed_index));
+    require(packed_index == 1U);
+    require(!progpu::native::semantic::try_get_command_text_style_index(
+        page, 3U, packed_index));
+
+    auto invalid_style = style;
+    invalid_style.text_rendering_mode = 3U;
+    std::memcpy(
+        storage.data() + style_resource.payload_offset,
+        &invalid_style,
+        sizeof(invalid_style));
+    require(!progpu::native::semantic::validate_text_style_table(
+        storage.data(), style_resource, error_offset));
+}
+
 void semantic_effect_output_cache_requires_exact_retained_identity() {
     using namespace progpu::native::effects;
     semantic_output_cache cache{};
@@ -525,6 +646,7 @@ int main() {
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
     semantic_brush_page_is_bounded_deduplicated_and_retained();
+    semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();
     semantic_state_is_cpu_only_and_target_relative();

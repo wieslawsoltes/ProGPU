@@ -54,7 +54,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U,
     PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS = 1ULL << 29U,
     PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING = 1ULL << 30U,
-    PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES = 1ULL << 31U
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES = 1ULL << 31U,
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES = 1ULL << 32U
 };
 
 #if defined(__cplusplus)
@@ -74,8 +75,10 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES = 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_TEXT_STYLES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_NO_INDEX = 0xffffffffU,
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
+    PROGPU_NATIVE_SCENE_GLYPH_STYLED = 1U << 1U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
 };
 
@@ -87,8 +90,15 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_STATE = 5,
     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK = 6,
     PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN = 7,
-    PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE = 8
+    PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE = 8,
+    PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE = 9
 } progpu_native_scene_resource_kind;
+
+typedef enum progpu_native_scene_text_rendering_mode {
+    PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE = 0,
+    PROGPU_NATIVE_SCENE_TEXT_ALIASED = 1,
+    PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE = 2
+} progpu_native_scene_text_rendering_mode;
 
 /* Values intentionally match ProGPU.Scene.GpuBrush and Vector.wgsl. */
 typedef enum progpu_native_scene_brush_kind {
@@ -572,6 +582,29 @@ typedef struct progpu_native_scene_draw_brushes {
     uint32_t reserved;
 } progpu_native_scene_draw_brushes;
 
+/* Exact retained storage layout consumed by production Text.wgsl. */
+typedef struct progpu_native_scene_text_style {
+    progpu_native_color color;
+    uint32_t text_rendering_mode;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+} progpu_native_scene_text_style;
+
+/*
+ * Optional styled DRAW_GLYPH_RUN payload. Exactly glyph_count positioned-glyph
+ * records follow this prefix. Legacy glyph commands remain a raw glyph array;
+ * this form is selected by PROGPU_NATIVE_SCENE_GLYPH_STYLED.
+ */
+typedef struct progpu_native_scene_glyph_draw {
+    uint32_t struct_size;
+    uint32_t style_resource_index;
+    uint32_t style_index;
+    uint32_t glyph_count;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_glyph_draw;
+
 /*
  * Semantic path/glyph resource records use fixed 64-bit arena indices rather
  * than host-sized size_t. Current 64-bit native packages consume these
@@ -627,6 +660,7 @@ typedef struct progpu_native_scene_frame_metrics {
     uint64_t payload_hash;
     uint64_t brush_upload_bytes;
     uint64_t gradient_stop_upload_bytes;
+    uint64_t text_style_upload_bytes;
 } progpu_native_scene_frame_metrics;
 
 /*

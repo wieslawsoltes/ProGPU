@@ -59,6 +59,10 @@ void apply_semantic_state(
     progpu_native_positioned_glyph& glyph,
     const progpu_native_scene_state& state) noexcept;
 
+void apply_semantic_transform(
+    progpu_native_positioned_glyph& glyph,
+    const progpu_native_scene_state& state) noexcept;
+
 void apply_semantic_state(
     progpu_native_scene_image_draw& image,
     const progpu_native_scene_state& state) noexcept;

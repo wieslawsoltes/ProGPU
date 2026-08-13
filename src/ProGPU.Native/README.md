@@ -80,11 +80,14 @@ The Emscripten/Emdawnwebgpu lane compiles the shared renderer modules and WGSL,
 serves the generated page over HTTP, and runs a Playwright integration test.
 The gate validates the browser-specific ABI/capability identity and replays a
 six-command retained semantic backdrop scene with analytic and path resources,
-one retained brush table, one bounded isolated layer/effect, six GPU draws, and
+one retained brush table, one retained positioned-text style table, one
+bounded isolated layer/effect, six GPU draws, and
 one renderer submission. Deliberately wrong magenta source colors prove that
 red/blue solid remapping and the green-to-yellow path gradient come from the
 native retained material page. The first frame uploads that page once and the
-stable frame uploads zero brush/stop bytes. The test rejects console and WebGPU
+stable frame uploads zero brush/stop/text-style bytes. The text gate also
+exercises the canonical uint64 glyph-outline scene ABI through wasm32's checked
+`size_t` translation. The test rejects console and WebGPU
 validation errors, verifies clear, parent, gradient, and composited-layer
 pixels, and saves the exact canvas plus a JSON contract under
 `artifacts/progpu-native/browser-evidence/`. The hardware Dawn lane separately
@@ -389,6 +392,12 @@ Current native parity:
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only
   gradient evaluation, transactional material-buffer growth, and zero stable
   brush/stop upload on Metal and browser WebGPU;
+- pointer-free retained semantic solid text styles with exact production
+  `GpuTextStyle` storage, grayscale/aliased/ClearType mode selection,
+  scene-state opacity variants, one shared storage buffer, and zero stable
+  style upload; glyph shaping, positions, outlines, and atlas ownership remain
+  independent reusable resources, while wasm32 narrows canonical uint64 scene
+  outline ranges once at the execution boundary;
 - destination-aware semantic nested blend restore using the actual rendered
   parent texture, shared `AdvancedBlend.wgsl`, and a checked three-texture
   scratch budget; empty bounded layers avoid invalid zero-size scissors and

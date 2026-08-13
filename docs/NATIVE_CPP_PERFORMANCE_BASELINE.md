@@ -1807,3 +1807,63 @@ Raw evidence is retained under
 the six JSON distributions, all three `.trace` bundles, exported Time Profiler
 and Metal tables, benchmark stdout, and trace TOCs. The browser screenshot is
 `artifacts/progpu-native/browser-evidence/progpu-native-browser-webgpu.png`.
+
+## Retained semantic text-style supplement
+
+The mixed semantic snapshot now stores positioned-text presentation separately
+from shaping and glyph geometry. A command references one exact 32-byte
+`GpuTextStyle`-compatible record containing straight color plus
+grayscale/aliased/ClearType mode. Scene compilation deduplicates
+`(resource, style, state opacity)` variants into one storage-buffer page, keeps
+the shaped positions and atlas records unchanged, and uploads the page only
+when the immutable scene hash changes. Stable replay reports zero text-style,
+outline, instance, coverage, vertex, index, texture, and uniform upload.
+
+The clean-room design used the following primary references only for public
+behavior and architectural comparison:
+
+- [Skia `SkPaint` overview](https://skia.org/docs/user/api/skpaint_overview/)
+  separates reusable draw color/style from text blobs and canvas save state;
+- [Direct2D and DirectWrite text rendering](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
+  preserves cached glyph positions while applying a brush and rendering mode
+  at the glyph-run boundary;
+- [HarfBuzz glyphs and rendering](https://harfbuzz.github.io/glyphs-and-rendering.html)
+  makes positioned glyphs the shaping output and leaves presentation to the
+  renderer;
+- [WebRender's text-run renderer](https://searchfox.org/mozilla-central/source/gfx/wr/webrender/src/renderer/mod.rs)
+  distinguishes alpha, subpixel, and color-bitmap shader modes;
+- [Vello's glyph-rendering plan](https://github.com/linebender/vello/issues/204)
+  treats transform-aware glyph caching and rendering quality as a separate
+  concern from layout.
+
+ProGPU adopts the shared separation of positioned glyph identity, cached
+coverage, and late presentation. It rejects a new shaping/layout layer, a
+per-command GPU buffer, and source-language object graphs. Color-font paint
+graphs and bitmap/SVG glyphs remain the next explicit native slice rather than
+being hidden in the solid-style ABI.
+
+The browser fixture exposed and fixed a wasm32-only ABI defect during this
+gate: retained semantic outlines had incorrectly used platform-sized `size_t`
+storage. The cache now retains the canonical uint64 pointer-free scene record;
+64-bit hosts reinterpret it after layout assertions, while wasm32 performs one
+checked narrowing translation immediately before GPU execution. Chromium and
+real Dawn/Metal both pass styled first-frame upload, zero-upload stable replay,
+and malformed/non-finite style rejection.
+
+Three alternating 600-frame synchronized runs after 120 warm-up frames on the
+same Apple M3 Pro/Metal host produced these median p95 values:
+
+| Stable p95, median of three runs | Native C++ | Managed | Native delta |
+|---|---:|---:|---:|
+| CPU submission | 0.1604 ms | 0.3219 ms | 50.2% lower |
+| GPU completion wait | 3.0507 ms | 3.0443 ms | within 0.3% |
+| Synchronized end to end | 3.1461 ms | 3.2331 ms | 2.7% lower |
+| Managed allocation after warm-up | 0 B/frame | 0 B/frame | equal |
+
+All three runs report zero stable text-style upload. Pixel evidence remains at
+maximum channel difference 68/255, 284 of 518,400 pixels above 3/255, and mean
+absolute difference 0.003582658/255. The native, managed, and amplified
+difference images are
+`artifacts/progpu-native/differential/semantic-text-styles-*.png`; raw JSON is
+under
+`artifacts/progpu-native/performance/semantic-text-styles-20260814/`.

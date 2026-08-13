@@ -7,6 +7,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_text_style.hpp"
 #include "progpu_webgpu_compat.hpp"
 #include "progpu_native_semantic_replay.hpp"
 
@@ -84,6 +85,8 @@ struct progpu_native_engine {
     WGPUBindGroupLayout text_uniform_layout = nullptr;
     WGPUBindGroupLayout text_atlas_layout = nullptr;
     WGPUBuffer text_style_buffer = nullptr;
+    std::uint64_t text_style_buffer_size = 0U;
+    std::uint64_t text_style_owner_hash = 0U;
     WGPUBindGroup text_uniform_bind_group = nullptr;
     WGPUSampler glyph_atlas_sampler = nullptr;
     WGPUTexture glyph_atlas_texture = nullptr;
@@ -337,6 +340,8 @@ struct progpu_native_engine {
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
     progpu::native::semantic::semantic_brush_page semantic_brush_cache;
+    progpu::native::semantic::semantic_text_style_page
+        semantic_text_style_cache;
     semantic_analytic_page semantic_analytic_cache;
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
@@ -859,6 +864,23 @@ struct progpu_native_engine {
             slot.bound_analytic_brush_buffer = nullptr;
             slot.bound_analytic_gradient_buffer = nullptr;
         };
+        release_slot(semantic_root_slot);
+        release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_advanced_output_slot);
+    }
+
+    void release_semantic_layer_text_bindings() noexcept {
+        release_semantic_render_bundle();
+        const auto release_slot = [](semantic_layer_slot& slot) noexcept {
+            if (slot.text_uniform_bind_group != nullptr) {
+                wgpuBindGroupRelease(slot.text_uniform_bind_group);
+                slot.text_uniform_bind_group = nullptr;
+            }
+            slot.bound_text_style_buffer = nullptr;
+        };
+        for (auto& slot : semantic_layer_slots) {
+            release_slot(slot);
+        }
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
         release_slot(semantic_advanced_output_slot);

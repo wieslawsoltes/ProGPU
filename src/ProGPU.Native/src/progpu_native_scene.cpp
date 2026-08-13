@@ -1,5 +1,6 @@
 #include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_brush.hpp"
+#include "progpu_native_semantic_text_style.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,8 +14,11 @@
 namespace progpu::native::scene {
 namespace {
 
-constexpr std::uint32_t known_record_flags =
+constexpr std::uint32_t known_resource_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+constexpr std::uint32_t known_command_flags =
+    PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+    PROGPU_NATIVE_SCENE_GLYPH_STYLED;
 
 template<typename T>
 T read_record(const std::byte* bytes, std::size_t offset) noexcept {
@@ -74,7 +78,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -358,6 +362,7 @@ validation_result validate(
     std::uint64_t payload_bytes = 0U;
     std::uint64_t aggregate_brush_count = 0U;
     std::uint64_t aggregate_gradient_stop_count = 0U;
+    std::uint64_t aggregate_text_style_count = 0U;
     std::uint64_t previous_resource_id = 0U;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const std::uint32_t offset = header.resource_offset +
@@ -366,7 +371,7 @@ validation_result validate(
             read_record<progpu_native_scene_resource>(bytes, offset);
         if (resource.struct_size < sizeof(progpu_native_scene_resource) ||
             resource.struct_size > header.resource_stride ||
-            (resource.flags & ~known_record_flags) != 0U ||
+            (resource.flags & ~known_resource_flags) != 0U ||
             resource.reserved != 0U || resource.resource_id == 0U ||
             !span_lives_in_arena(
                 resource.payload_offset, resource.payload_size, header) ||
@@ -501,6 +506,29 @@ validation_result validate(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
             }
         }
+        if (resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE) {
+            std::uint32_t style_error_offset = resource.payload_offset;
+            if (!semantic::validate_text_style_table(
+                    bytes,
+                    resource,
+                    style_error_offset)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    style_error_offset);
+            }
+            aggregate_text_style_count += resource.payload_size /
+                sizeof(progpu_native_scene_text_style);
+            if (aggregate_text_style_count >
+                PROGPU_NATIVE_SCENE_MAX_TEXT_STYLES) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                    offset,
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+            }
+        }
         previous_resource_id = resource.resource_id;
         payload_bytes += resource.payload_size;
         payload_bytes += resource.auxiliary_size;
@@ -539,7 +567,7 @@ validation_result validate(
             read_record<progpu_native_scene_command>(bytes, offset);
         if (command.struct_size < sizeof(progpu_native_scene_command) ||
             command.struct_size > header.command_stride ||
-            (command.flags & ~known_record_flags) != 0U ||
+            (command.flags & ~known_command_flags) != 0U ||
             command.reserved != 0U || command.command_id == 0U ||
             command.reserved0 != 0U || command.reserved1 != 0U ||
             !span_lives_in_arena(
@@ -556,6 +584,13 @@ validation_result validate(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED);
             }
             continue;
+        }
+        if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
+            command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            return fail(
+                header,
+                PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                offset);
         }
         if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
@@ -635,6 +670,21 @@ validation_result validate(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         brush_error_offset);
+                }
+            }
+            if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
+                (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
+                std::uint32_t style_error_offset = command.payload_offset;
+                if (!semantic::validate_styled_glyph_draw(
+                        bytes,
+                        header,
+                        command,
+                        style_error_offset)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        style_error_offset);
                 }
             }
             ++draw_count;

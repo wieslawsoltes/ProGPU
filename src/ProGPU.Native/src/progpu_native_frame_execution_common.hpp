@@ -61,6 +61,9 @@ using semantic::resolve_semantic_target_scissor;
 using semantic::semantic_default_layer;
 using semantic::semantic_layer_target_cursor;
 using semantic::semantic_state_cursor;
+using semantic::compile_text_style_page;
+using semantic::try_get_command_text_style_index;
+using semantic::try_get_glyph_payload;
 inline constexpr std::uint32_t semantic_max_draw_passes =
     semantic::max_draw_passes;
 inline constexpr std::uint32_t semantic_max_effect_passes =

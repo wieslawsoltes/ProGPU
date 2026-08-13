@@ -315,7 +315,7 @@ WGPUBindGroup create_semantic_text_uniform_bind_group(
         {nullptr, 0U, uniform_buffer, 0U,
             sizeof(gpu_uniforms), nullptr, nullptr},
         {nullptr, 1U, engine.text_style_buffer, 0U,
-            32U, nullptr, nullptr}
+            engine.text_style_buffer_size, nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};
     descriptor.label = ::progpu::native::webgpu::string_view(

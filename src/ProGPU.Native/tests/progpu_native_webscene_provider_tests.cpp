@@ -112,7 +112,7 @@ std::uint32_t append_scene_payload(
 std::vector<std::byte> create_renderable_semantic_scene_stream(
     std::uint64_t generation) {
     constexpr std::uint32_t command_count = 11U;
-    constexpr std::uint32_t resource_count = 10U;
+    constexpr std::uint32_t resource_count = 11U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -208,8 +208,11 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         0.0F,
         0.0F,
         0.0F};
+    const progpu_native_scene_glyph_draw glyph_draw{
+        sizeof(progpu_native_scene_glyph_draw), 10U, 0U, 1U, 0U, 0U};
     const std::uint32_t glyph_offset = append_scene_payload(
-        stream, &glyph, 1U);
+        stream, &glyph_draw, 1U);
+    append_scene_payload(stream, &glyph, 1U);
     const std::uint32_t second_outline_offset = append_scene_payload(
         stream, &outline, 1U);
     const std::uint32_t second_outline_segment_offset = append_scene_payload(
@@ -218,7 +221,16 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     second_glyph.position.y = 18.0F;
     second_glyph.color = {1.0F, 0.5F, 0.0F, 1.0F};
     const std::uint32_t second_glyph_offset = append_scene_payload(
-        stream, &second_glyph, 1U);
+        stream, &glyph_draw, 1U);
+    append_scene_payload(stream, &second_glyph, 1U);
+    const progpu_native_scene_text_style text_style{
+        {1.0F, 0.15F, 0.05F, 0.9F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    const std::uint32_t text_style_offset = append_scene_payload(
+        stream, &text_style, 1U);
 
     const std::array<std::uint8_t, 16U> image_pixels{
         255U, 255U, 0U, 255U, 255U, 255U, 0U, 255U,
@@ -333,7 +345,11 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_STATE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 110U, 1U,
-            empty_clip_state_offset, sizeof(empty_clip_state), 0U, 0U}
+            empty_clip_state_offset, sizeof(empty_clip_state), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 111U, 1U,
+            text_style_offset, sizeof(text_style), 0U, 0U}
     };
     std::memcpy(
         stream.data() + resource_offset,
@@ -353,9 +369,10 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             20.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 203U,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+                PROGPU_NATIVE_SCENE_GLYPH_STYLED, 0U, 203U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 2U,
-            glyph_offset, sizeof(glyph),
+            glyph_offset, sizeof(glyph_draw) + sizeof(glyph),
             36.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
@@ -375,9 +392,10 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             20.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
-            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 207U,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+                PROGPU_NATIVE_SCENE_GLYPH_STYLED, 0U, 207U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 6U,
-            second_glyph_offset, sizeof(second_glyph),
+            second_glyph_offset, sizeof(glyph_draw) + sizeof(second_glyph),
             36.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
@@ -1321,14 +1339,14 @@ void verify_semantic_scene(
         "semantic analytic draw is missing");
     require(is_bgra(pixel(24U, 8U), 0U, 255U, 0U),
         "semantic path draw is missing");
-    require(is_bgra(pixel(40U, 8U), 255U, 0U, 0U),
-        "semantic positioned-glyph draw is missing");
+    require(is_bgra(pixel(40U, 8U), 12U, 35U, 230U),
+        "semantic styled positioned-glyph draw is missing");
     require(is_bgra(pixel(54U, 8U), 0U, 255U, 255U),
         "semantic image draw is missing");
     require(is_bgra(pixel(24U, 28U), 132U, 4U, 130U),
         "second distinct semantic path draw is missing");
-    require(is_bgra(pixel(40U, 28U), 5U, 68U, 130U),
-        "second distinct semantic glyph draw is missing");
+    require(is_bgra(pixel(40U, 28U), 11U, 22U, 118U),
+        "second state-opacity semantic styled glyph draw is missing");
     require(is_bgra(pixel(54U, 28U), 132U, 132U, 3U),
         "second distinct semantic image draw is missing");
     require(is_bgra(pixel(8U, 28U), 132U, 132U, 3U),
@@ -1810,7 +1828,8 @@ int main(int argc, char** argv) {
         renderable_scene.data(),
         renderable_scene.size(),
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        scene_metrics.draw_count == 9U,
+        scene_metrics.draw_count == 9U &&
+        scene_metrics.resource_count == 11U,
         "renderable semantic scene update failed");
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -1862,6 +1881,8 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
+        semantic_metrics.text_style_upload_bytes ==
+            3U * sizeof(progpu_native_scene_text_style) &&
         semantic_metrics.payload_hash != 0U,
         "mixed semantic scene rendering failed");
     const std::uint64_t semantic_payload_hash =
@@ -1880,6 +1901,7 @@ int main(int argc, char** argv) {
         semantic_metrics.index_upload_bytes == 0U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.coverage_staging_bytes == 0U &&
+        semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
     std::uint64_t semantic_submission{};
@@ -1888,6 +1910,38 @@ int main(int argc, char** argv) {
         &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_submission != 0U,
         "semantic scene submission token unavailable");
+    auto invalid_style_scene = create_renderable_semantic_scene_stream(4U);
+    progpu_native_scene_header invalid_style_header{};
+    std::memcpy(
+        &invalid_style_header,
+        invalid_style_scene.data(),
+        sizeof(invalid_style_header));
+    progpu_native_scene_resource invalid_style_resource{};
+    std::memcpy(
+        &invalid_style_resource,
+        invalid_style_scene.data() + invalid_style_header.resource_offset +
+            10U * invalid_style_header.resource_stride,
+        sizeof(invalid_style_resource));
+    progpu_native_scene_text_style invalid_style{};
+    std::memcpy(
+        &invalid_style,
+        invalid_style_scene.data() + invalid_style_resource.payload_offset,
+        sizeof(invalid_style));
+    invalid_style.color.a = std::numeric_limits<float>::quiet_NaN();
+    std::memcpy(
+        invalid_style_scene.data() + invalid_style_resource.payload_offset,
+        &invalid_style,
+        sizeof(invalid_style));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        invalid_style_scene.data(),
+        invalid_style_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        scene_metrics.validation_error ==
+            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+        "non-finite retained text style was accepted");
     auto invalid_value_scene = create_renderable_semantic_scene_stream(4U);
     progpu_native_scene_header invalid_header{};
     std::memcpy(
@@ -2421,6 +2475,30 @@ int main(int argc, char** argv) {
         legacy_metrics.metrics.payload_hash != 0U &&
         legacy_metrics.canary == 0XABCD'0123'4567'89EFULL,
         "legacy semantic frame metrics ABI was overwritten");
+    struct legacy_scene_frame_metrics_v4 {
+        legacy_scene_frame_metrics_v3 base{};
+        std::uint64_t brush_upload_bytes{};
+        std::uint64_t gradient_stop_upload_bytes{};
+    };
+    static_assert(sizeof(legacy_scene_frame_metrics_v4) == 88U);
+    struct legacy_scene_frame_metrics_v4_guard {
+        legacy_scene_frame_metrics_v4 metrics{};
+        std::uint64_t canary{0X1020'3040'5060'7080ULL};
+    } legacy_v4_metrics{};
+    legacy_v4_metrics.metrics.base.struct_size =
+        sizeof(legacy_scene_frame_metrics_v4);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &backdrop_frame,
+        reinterpret_cast<progpu_native_scene_frame_metrics*>(
+            &legacy_v4_metrics.metrics)) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        legacy_v4_metrics.metrics.base.command_count == 6U &&
+        legacy_v4_metrics.metrics.base.draw_call_count == 6U &&
+        legacy_v4_metrics.metrics.base.submission_count == 1U &&
+        legacy_v4_metrics.metrics.brush_upload_bytes == 0U &&
+        legacy_v4_metrics.metrics.gradient_stop_upload_bytes == 0U &&
+        legacy_v4_metrics.canary == 0X1020'3040'5060'7080ULL,
+        "pre-text-style semantic frame metrics ABI was overwritten");
     semantic_layer_metrics = {};
     semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
     require(progpu_native_engine_get_layer_metrics(

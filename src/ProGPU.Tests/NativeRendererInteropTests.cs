@@ -207,7 +207,9 @@ public class NativeRendererInteropTests
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
-        Assert.Equal(88, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeSceneGlyphDraw>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
         Assert.Equal(
             72,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
@@ -216,6 +218,10 @@ public class NativeRendererInteropTests
             80,
             OffsetOf<NativeMethods.SceneFrameMetrics>(
                 nameof(NativeMethods.SceneFrameMetrics.GradientStopUploadBytes)));
+        Assert.Equal(
+            88,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.TextStyleUploadBytes)));
         Assert.Equal(
             24,
             OffsetOf<NativeSceneImageDraw>(
@@ -594,6 +600,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             2147483648UL,
             (ulong)NativeRendererCapabilities.SemanticRetainedBrushes);
+        Assert.Equal(
+            4294967296UL,
+            (ulong)NativeRendererCapabilities.SemanticRetainedTextStyles);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -1301,6 +1310,8 @@ public class NativeRendererInteropTests
         Span<NativeSceneGlyphOutline> outlines = stackalloc NativeSceneGlyphOutline[1];
         Span<NativePathSegment> segments = stackalloc NativePathSegment[1];
         Span<NativePositionedGlyph> glyphs = stackalloc NativePositionedGlyph[1];
+        Span<NativeSceneTextStyle> textStyles =
+            stackalloc NativeSceneTextStyle[1];
         Span<byte> pixels = stackalloc byte[4];
         analytic[0] = new NativeAnalyticPrimitive(
             NativeAnalyticPrimitiveKind.Rectangle,
@@ -1336,6 +1347,9 @@ public class NativeRendererInteropTests
             Vector2.UnitX,
             Vector2.UnitY,
             new Vector4(1f));
+        textStyles[0] = new NativeSceneTextStyle(
+            new Vector4(0.25f, 0.5f, 0.75f, 0.8f),
+            NativeSceneTextRenderingMode.Grayscale);
         pixels.Fill(0xff);
         var image = new NativeSceneImageDraw(
             1,
@@ -1354,6 +1368,7 @@ public class NativeRendererInteropTests
             ReadOnlySpan<NativeSceneGlyphOutline> outlinePayload,
             ReadOnlySpan<NativePathSegment> segmentPayload,
             ReadOnlySpan<NativePositionedGlyph> glyphPayload,
+            ReadOnlySpan<NativeSceneTextStyle> textStylePayload,
             ReadOnlySpan<byte> imagePayload,
             in NativeSceneImageDraw imageDraw)
         {
@@ -1361,8 +1376,8 @@ public class NativeRendererInteropTests
                 bytes,
                 88U,
                 3U,
-                commandCapacity: 4,
-                resourceCapacity: 4);
+                commandCapacity: 5,
+                resourceCapacity: 5);
             return builder.TryAddAnalyticResource(
                     1U, 1U, analyticPayload, out uint analyticResource) &&
                 builder.TryAddPathResource(
@@ -1377,8 +1392,13 @@ public class NativeRendererInteropTests
                     outlinePayload,
                     segmentPayload,
                     out uint glyphResource) &&
+                builder.TryAddTextStyleResource(
+                    4U,
+                    1U,
+                    textStylePayload,
+                    out uint textStyleResource) &&
                 builder.TryAddImageResource(
-                    4U, 1U, imagePayload, out uint imageResource) &&
+                    5U, 1U, imagePayload, out uint imageResource) &&
                 builder.TryDrawAnalytic(
                     1U,
                     analyticResource,
@@ -1392,8 +1412,15 @@ public class NativeRendererInteropTests
                     glyphResource,
                     new NativeImageRect(0f, 0f, 1f, 1f),
                     glyphPayload) &&
-                builder.TryDrawImage(
+                builder.TryDrawGlyphRun(
                     4U,
+                    glyphResource,
+                    new NativeImageRect(0f, 0f, 1f, 1f),
+                    glyphPayload,
+                    textStyleResource,
+                    styleIndex: 0U) &&
+                builder.TryDrawImage(
+                    5U,
                     imageResource,
                     new NativeImageRect(8f, 8f, 1f, 1f),
                     in imageDraw) &&
@@ -1407,6 +1434,7 @@ public class NativeRendererInteropTests
             outlines,
             segments,
             glyphs,
+            textStyles,
             pixels,
             in image));
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -1420,6 +1448,7 @@ public class NativeRendererInteropTests
                 outlines,
                 segments,
                 glyphs,
+                textStyles,
                 pixels,
                 in image);
         }

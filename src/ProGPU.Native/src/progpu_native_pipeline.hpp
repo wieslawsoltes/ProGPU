@@ -40,6 +40,9 @@ bool ensure_analytic_brush_buffer(
 bool create_analytic_pipeline(progpu_native_engine& engine);
 bool create_path_resources(progpu_native_engine& engine);
 bool create_glyph_resources(progpu_native_engine& engine);
+bool ensure_text_style_buffer(
+    progpu_native_engine& engine,
+    std::uint64_t required_size);
 
 bool resize_path_atlas(
     progpu_native_engine& engine,

@@ -168,7 +168,8 @@ public enum NativeRendererCapabilities : ulong
     GroupBlendModes = 1UL << 28,
     SemanticSceneSnapshots = 1UL << 29,
     SemanticSceneRendering = 1UL << 30,
-    SemanticRetainedBrushes = 1UL << 31
+    SemanticRetainedBrushes = 1UL << 31,
+    SemanticRetainedTextStyles = 1UL << 32
 }
 
 public enum NativeSceneResourceKind : uint
@@ -180,7 +181,15 @@ public enum NativeSceneResourceKind : uint
     State = 5,
     LayerMask = 6,
     EffectChain = 7,
-    BrushTable = 8
+    BrushTable = 8,
+    TextStyleTable = 9
+}
+
+public enum NativeSceneTextRenderingMode : uint
+{
+    Grayscale = 0,
+    Aliased = 1,
+    ClearType = 2
 }
 
 /// <summary>
@@ -231,7 +240,8 @@ public enum NativeSceneCommandKind : uint
 public enum NativeSceneRecordFlags : uint
 {
     None = 0,
-    Required = 1U << 0
+    Required = 1U << 0,
+    StyledGlyphs = 1U << 1
 }
 
 [Flags]
@@ -553,6 +563,59 @@ internal readonly struct NativeSceneDrawBrushes
     internal readonly uint BrushResourceIndex;
     internal readonly uint BrushCount;
     private readonly uint Reserved;
+}
+
+/// <summary>
+/// Exact 32-byte solid text presentation record consumed by
+/// <c>Text.wgsl</c>. Shaping and positioned glyph ownership remain separate.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 32)]
+public readonly struct NativeSceneTextStyle
+{
+    public NativeSceneTextStyle(
+        Vector4 color,
+        NativeSceneTextRenderingMode textRenderingMode =
+            NativeSceneTextRenderingMode.Grayscale)
+    {
+        Color = color;
+        TextRenderingMode = textRenderingMode;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+        Reserved2 = 0U;
+    }
+
+    [FieldOffset(0)] public readonly Vector4 Color;
+    [FieldOffset(16)] public readonly NativeSceneTextRenderingMode TextRenderingMode;
+    [FieldOffset(20)] private readonly uint Reserved0;
+    [FieldOffset(24)] private readonly uint Reserved1;
+    [FieldOffset(28)] private readonly uint Reserved2;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct NativeSceneGlyphDraw
+{
+    internal NativeSceneGlyphDraw(
+        uint styleResourceIndex,
+        uint styleIndex,
+        uint glyphCount)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneGlyphDraw>();
+        StyleResourceIndex = styleResourceIndex;
+        StyleIndex = styleIndex;
+        GlyphCount = glyphCount;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    internal readonly uint StructSize;
+    internal readonly uint StyleResourceIndex;
+    internal readonly uint StyleIndex;
+    internal readonly uint GlyphCount;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
 }
 
 /// <summary>
@@ -2003,7 +2066,8 @@ public readonly record struct NativeSceneFrameMetrics(
     ulong CoverageStagingBytes,
     ulong PayloadHash,
     ulong BrushUploadBytes,
-    ulong GradientStopUploadBytes);
+    ulong GradientStopUploadBytes,
+    ulong TextStyleUploadBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

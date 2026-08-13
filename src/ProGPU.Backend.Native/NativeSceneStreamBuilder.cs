@@ -365,6 +365,42 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    /// <summary>
+    /// Adds retained solid text presentation styles consumed by positioned
+    /// glyph commands. Shaping and glyph outlines remain caller-owned.
+    /// </summary>
+    public bool TryAddTextStyleResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneTextStyle> styles,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (styles.IsEmpty ||
+            (uint)styles.Length > NativeMethods.SceneMaximumTextStyles)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeSceneTextStyle style in styles)
+        {
+            if (!style.HasCanonicalReservedFields ||
+                !IsFinite(style.Color) ||
+                style.TextRenderingMode >
+                    NativeSceneTextRenderingMode.ClearType)
+            {
+                return false;
+            }
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.TextStyleTable,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(styles),
+            out resourceIndex,
+            flags: flags);
+    }
+
     public bool TrySave(
         ulong commandId,
         uint stateIndex = NativeMethods.SceneNoIndex) =>
@@ -497,6 +533,72 @@ public ref struct NativeSceneStreamBuilder
             bounds,
             payload,
             stateIndex);
+
+    /// <summary>
+    /// Draws one positioned glyph run through a retained solid text style.
+    /// The builder writes one compact style reference followed by the shaped
+    /// glyph records without allocating or copying through an intermediate
+    /// object graph.
+    /// </summary>
+    public bool TryDrawGlyphRun(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        scoped ReadOnlySpan<NativePositionedGlyph> glyphs,
+        uint styleResourceIndex,
+        uint styleIndex,
+        uint stateIndex = uint.MaxValue)
+    {
+        if (_built || _commandCount == _commandCapacity || glyphs.IsEmpty ||
+            styleResourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(
+                styleResourceIndex,
+                NativeSceneResourceKind.TextStyleTable) ||
+            styleIndex >= GetResourceRecordCount<NativeSceneTextStyle>(
+                styleResourceIndex))
+        {
+            return false;
+        }
+
+        int originalArenaSize = _arenaSize;
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int glyphBytes = checked(
+            glyphs.Length * Unsafe.SizeOf<NativePositionedGlyph>());
+        int payloadSize = checked(
+            Unsafe.SizeOf<NativeSceneGlyphDraw>() + glyphBytes);
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + end > _destination.Length)
+        {
+            return false;
+        }
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        var header = new NativeSceneGlyphDraw(
+            styleResourceIndex,
+            styleIndex,
+            checked((uint)glyphs.Length));
+        Write((int)payloadOffset, header);
+        MemoryMarshal.AsBytes(glyphs).CopyTo(
+            _destination.Slice(
+                (int)payloadOffset + Unsafe.SizeOf<NativeSceneGlyphDraw>(),
+                glyphBytes));
+        _arenaSize = end;
+
+        if (!TryWriteDrawCommand(
+                NativeSceneCommandKind.DrawGlyphRun,
+                commandId,
+                resourceIndex,
+                bounds,
+                payloadOffset,
+                checked((uint)payloadSize),
+                stateIndex,
+                NativeSceneRecordFlags.Required |
+                    NativeSceneRecordFlags.StyledGlyphs))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
 
     public bool TryDrawGlyphRun(
         ulong commandId,
@@ -696,7 +798,8 @@ public ref struct NativeSceneStreamBuilder
         NativeImageRect bounds,
         uint payloadOffset,
         uint payloadSize,
-        uint stateIndex)
+        uint stateIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
     {
         if (_built || _commandCount == _commandCapacity ||
             commandId == 0U || commandId <= _lastCommandId ||
@@ -715,7 +818,7 @@ public ref struct NativeSceneStreamBuilder
         {
             StructSize = CommandSize,
             Kind = kind,
-            Flags = NativeSceneRecordFlags.Required,
+            Flags = flags,
             CommandId = commandId,
             StateIndex = stateIndex,
             ResourceIndex = resourceIndex,
@@ -918,7 +1021,7 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.BrushTable;
+            <= NativeSceneResourceKind.TextStyleTable;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

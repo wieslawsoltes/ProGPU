@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 
 using progpu::native::gpu_glyph_record;
 using progpu::native::gpu_glyph_uniforms;
@@ -27,6 +28,29 @@ using progpu::native::gpu_path_record;
 using progpu::native::gpu_path_uniforms;
 using progpu::native::gpu_uniforms;
 using progpu::native::native_initial_atlas_size;
+
+namespace {
+
+WGPUBindGroup create_text_uniform_bind_group(
+    progpu_native_engine& engine,
+    WGPUBuffer style_buffer,
+    std::uint64_t style_buffer_size,
+    const char* label) {
+    const std::array<WGPUBindGroupEntry, 2U> entries{{
+        {nullptr, 0U, engine.analytic_uniform_buffer, 0U,
+            sizeof(gpu_uniforms), nullptr, nullptr},
+        {nullptr, 1U, style_buffer, 0U,
+            style_buffer_size, nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(label);
+    descriptor.layout = engine.text_uniform_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
+}
+
+} // namespace
 
 bool create_path_resources(progpu_native_engine& engine) {
     if (engine.path_raster_pipeline != nullptr &&
@@ -356,6 +380,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
     if (engine.text_style_buffer == nullptr) {
         return false;
     }
+    engine.text_style_buffer_size = style_descriptor.size;
     std::array<std::byte, 32U> style_bytes{};
     wgpuQueueWriteBuffer(
         engine.queue,
@@ -363,19 +388,11 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         0U,
         style_bytes.data(),
         style_bytes.size());
-    const std::array<WGPUBindGroupEntry, 2U> uniform_entries{{
-        {nullptr, 0U, engine.analytic_uniform_buffer, 0U,
-            sizeof(gpu_uniforms), nullptr, nullptr},
-        {nullptr, 1U, engine.text_style_buffer, 0U, 32U, nullptr, nullptr}
-    }};
-    WGPUBindGroupDescriptor uniform_group_descriptor{};
-    uniform_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native text uniform bind group");
-    uniform_group_descriptor.layout = engine.text_uniform_layout;
-    uniform_group_descriptor.entryCount = uniform_entries.size();
-    uniform_group_descriptor.entries = uniform_entries.data();
-    engine.text_uniform_bind_group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &uniform_group_descriptor);
+    engine.text_uniform_bind_group = create_text_uniform_bind_group(
+        engine,
+        engine.text_style_buffer,
+        engine.text_style_buffer_size,
+        "ProGPU native text uniform bind group");
     if (engine.text_uniform_bind_group == nullptr) {
         return false;
     }
@@ -440,6 +457,62 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         return false;
     }
     ++engine.glyph_atlas_generation;
+    return true;
+}
+
+bool ensure_text_style_buffer(
+    progpu_native_engine& engine,
+    std::uint64_t required_size) {
+    if (required_size == 0U || engine.text_uniform_layout == nullptr ||
+        engine.analytic_uniform_buffer == nullptr) {
+        return false;
+    }
+    if (engine.text_style_buffer != nullptr &&
+        required_size <= engine.text_style_buffer_size) {
+        return true;
+    }
+    std::uint64_t capacity = std::max<std::uint64_t>(
+        32U,
+        engine.text_style_buffer_size);
+    while (capacity < required_size) {
+        if (capacity > std::numeric_limits<std::uint64_t>::max() / 2U) {
+            return false;
+        }
+        capacity *= 2U;
+    }
+    WGPUBufferDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native retained text style page");
+    descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+    descriptor.size = capacity;
+    WGPUBuffer replacement = wgpuDeviceCreateBuffer(
+        engine.device,
+        &descriptor);
+    if (replacement == nullptr) {
+        return false;
+    }
+    WGPUBindGroup replacement_group = create_text_uniform_bind_group(
+        engine,
+        replacement,
+        capacity,
+        "ProGPU native retained text uniform bind group");
+    if (replacement_group == nullptr) {
+        wgpuBufferDestroy(replacement);
+        wgpuBufferRelease(replacement);
+        return false;
+    }
+    engine.release_semantic_layer_text_bindings();
+    if (engine.text_uniform_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.text_uniform_bind_group);
+    }
+    if (engine.text_style_buffer != nullptr) {
+        wgpuBufferDestroy(engine.text_style_buffer);
+        wgpuBufferRelease(engine.text_style_buffer);
+    }
+    engine.text_style_buffer = replacement;
+    engine.text_style_buffer_size = capacity;
+    engine.text_uniform_bind_group = replacement_group;
+    engine.text_style_owner_hash = 0U;
     return true;
 }
 

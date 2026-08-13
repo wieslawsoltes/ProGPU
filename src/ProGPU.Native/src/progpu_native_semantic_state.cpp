@@ -108,6 +108,13 @@ void apply_semantic_transform(
 void apply_semantic_state(
     progpu_native_positioned_glyph& glyph,
     const progpu_native_scene_state& state) noexcept {
+    apply_semantic_transform(glyph, state);
+    glyph.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_positioned_glyph& glyph,
+    const progpu_native_scene_state& state) noexcept {
     transform_point(
         state.transform,
         glyph.position.x,
@@ -126,7 +133,6 @@ void apply_semantic_state(
         glyph.basis_y.y,
         glyph.basis_y.x,
         glyph.basis_y.y);
-    glyph.color.a *= state.opacity;
 }
 
 void apply_semantic_state(

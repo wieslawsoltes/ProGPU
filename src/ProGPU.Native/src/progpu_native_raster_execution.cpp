@@ -1141,7 +1141,25 @@ progpu_native_status render_glyphs(
                 instance.scale_bold_italic_flags[1] = glyph.bold_offset;
                 instance.scale_bold_italic_flags[2] = glyph.italic_skew;
                 instance.scale_bold_italic_flags[3] = 0.0F;
-                instance.brush_index = -1.0F;
+                const bool has_semantic_style =
+                    engine->semantic_glyph_draw_active &&
+                    engine->semantic_glyph_cache.style_indices.size() ==
+                        frame->glyph_count &&
+                    engine->semantic_glyph_cache.style_indices[index] !=
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (has_semantic_style) {
+                    const auto style_index =
+                        engine->semantic_glyph_cache.style_indices[index];
+                    if (style_index >=
+                        engine->semantic_text_style_cache.styles.size()) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "A retained semantic text style index is invalid.");
+                    }
+                    instance.brush_index = static_cast<float>(style_index);
+                } else {
+                    instance.brush_index = -1.0F;
+                }
                 engine->glyph_instances.push_back(instance);
                 engine->glyph_source_alphas.push_back(glyph.color.a);
             }

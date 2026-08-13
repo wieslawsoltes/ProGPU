@@ -382,6 +382,11 @@ NativeAnalyticPrimitive[] semanticAnalyticPrimitives = useSemanticScene
         semanticHeight,
         yOffset: semanticHeight)
     : ([], [], [], [], []);
+NativeSceneTextStyle[] semanticTextStyles = useSemanticScene
+    ? [new NativeSceneTextStyle(
+        new Vector4(0.92f, 0.96f, 1f, 1f),
+        NativeSceneTextRenderingMode.Grayscale)]
+    : [];
 Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
 NativeImageRect drawClip = new(
     logicalWidth * 0.2f,
@@ -575,11 +580,12 @@ byte[] semanticSceneBuffer = useSemanticScene
         semanticBrushes,
         semanticAnalyticBrushIndices,
         semanticPathBrushIndices,
+        semanticTextStyles,
         useSemanticLayerEffects)]
     : [];
 int semanticSceneLength = 0;
 uint expectedSemanticCommandCount = useSemanticLayerEffects ? 10U : 8U;
-uint expectedSemanticResourceCount = useSemanticLayerEffects ? 11U : 9U;
+uint expectedSemanticResourceCount = useSemanticLayerEffects ? 12U : 10U;
 if (useSemanticScene)
 {
     var semanticImageDraw = new NativeSceneImageDraw(
@@ -613,6 +619,7 @@ if (useSemanticScene)
         semanticBrushes,
         semanticAnalyticBrushIndices,
         semanticPathBrushIndices,
+        semanticTextStyles,
         in semanticImageDraw,
         logicalWidth,
         logicalHeight,
@@ -1149,7 +1156,8 @@ if (useSemanticScene &&
      lastNativeSceneMetrics.UniformUploadBytes != 0UL ||
      lastNativeSceneMetrics.CoverageStagingBytes != 0UL ||
      lastNativeSceneMetrics.BrushUploadBytes != 0UL ||
-     lastNativeSceneMetrics.GradientStopUploadBytes != 0UL))
+     lastNativeSceneMetrics.GradientStopUploadBytes != 0UL ||
+     lastNativeSceneMetrics.TextStyleUploadBytes != 0UL))
 {
     throw new InvalidOperationException(
         "Stable mixed semantic-scene replay did not preserve one ordered " +
@@ -1164,6 +1172,7 @@ if (useSemanticScene &&
         $"textureUpload={lastNativeSceneMetrics.TextureUploadBytes} " +
         $"brushUpload={lastNativeSceneMetrics.BrushUploadBytes} " +
         $"gradientStopUpload={lastNativeSceneMetrics.GradientStopUploadBytes} " +
+        $"textStyleUpload={lastNativeSceneMetrics.TextStyleUploadBytes} " +
         $"coverage={lastNativeSceneMetrics.CoverageStagingBytes}.");
 }
 if (useSemanticLayerEffects &&
@@ -2422,6 +2431,7 @@ static int GetSemanticSceneBufferSize(
     ReadOnlySpan<NativeSceneBrush> brushes,
     ReadOnlySpan<uint> analyticBrushIndices,
     ReadOnlySpan<uint> pathBrushIndices,
+    ReadOnlySpan<NativeSceneTextStyle> textStyles,
     bool includeLayerEffects)
 {
     int layerArenaCapacity = includeLayerEffects
@@ -2445,6 +2455,8 @@ static int GetSemanticSceneBufferSize(
         imagePixels.Length +
         imagePixels.Length +
         brushes.Length * Unsafe.SizeOf<NativeSceneBrush>() +
+        textStyles.Length * Unsafe.SizeOf<NativeSceneTextStyle>() +
+        2 * 24 + // Two exact progpu_native_scene_glyph_draw prefixes.
         (analyticBrushIndices.Length + pathBrushIndices.Length) * sizeof(uint) +
         4 * 16 +
         Unsafe.SizeOf<NativeSceneImageDraw>() +
@@ -2452,7 +2464,7 @@ static int GetSemanticSceneBufferSize(
         256);
     return NativeSceneStreamBuilder.GetRequiredBufferSize(
         commandCapacity: includeLayerEffects ? 10 : 8,
-        resourceCapacity: includeLayerEffects ? 11 : 9,
+        resourceCapacity: includeLayerEffects ? 12 : 10,
         arenaCapacity);
 }
 
@@ -2470,6 +2482,7 @@ static int BuildSemanticScene(
     ReadOnlySpan<NativeSceneBrush> brushes,
     ReadOnlySpan<uint> analyticBrushIndices,
     ReadOnlySpan<uint> pathBrushIndices,
+    ReadOnlySpan<NativeSceneTextStyle> textStyles,
     in NativeSceneImageDraw imageDraw,
     float logicalWidth,
     float logicalHeight,
@@ -2577,7 +2590,7 @@ static int BuildSemanticScene(
         sceneId,
         generation,
         commandCapacity: includeLayerEffects ? 10 : 8,
-        resourceCapacity: includeLayerEffects ? 11 : 9);
+        resourceCapacity: includeLayerEffects ? 12 : 10);
     uint brushResource = uint.MaxValue;
     uint layerMaskResource = uint.MaxValue;
     uint layerEffectResource = uint.MaxValue;
@@ -2633,6 +2646,11 @@ static int BuildSemanticScene(
             brushes,
             gradientStops: [],
             out brushResource) &&
+        builder.TryAddTextStyleResource(
+            resourceId: 10U,
+            generation,
+            textStyles,
+            out uint textStyleResource) &&
         (!includeLayerEffects || builder.TryAddLayerMaskResource(
             resourceId: 100U,
             generation,
@@ -2676,7 +2694,9 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f),
-            firstGlyphs) &&
+            firstGlyphs,
+            textStyleResource,
+            styleIndex: 0U) &&
         builder.TryDrawImage(
             commandId: 4U + commandOffset,
             imageResource,
@@ -2704,7 +2724,9 @@ static int BuildSemanticScene(
                 logicalHeight * 0.5f,
                 logicalWidth * 0.5f,
                 logicalHeight * 0.5f),
-            secondGlyphs) &&
+            secondGlyphs,
+            textStyleResource,
+            styleIndex: 0U) &&
         builder.TryDrawImage(
             commandId: 7U + commandOffset,
             secondImageResource,

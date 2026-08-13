@@ -61,9 +61,13 @@ struct semantic_glyph_page {
     std::uint32_t target_width = 0U;
     std::uint32_t target_height = 0U;
     bool cache_valid = false;
-    std::vector<progpu_native_glyph_outline> outlines;
+    // Keep the pointer-free uint64 scene ABI in retained storage. Native
+    // 64-bit execution reinterprets it after layout assertions; wasm32
+    // performs one checked narrowing translation at execution time.
+    std::vector<progpu_native_scene_glyph_outline> outlines;
     std::vector<progpu_native_path_segment> segments;
     std::vector<progpu_native_positioned_glyph> glyphs;
+    std::vector<std::uint32_t> style_indices;
     std::vector<semantic_glyph_draw> draws;
 };
 

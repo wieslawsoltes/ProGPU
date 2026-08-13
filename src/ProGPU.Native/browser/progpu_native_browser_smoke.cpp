@@ -1,6 +1,7 @@
 #include "progpu_native_browser.h"
 #include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
+#include "progpu_native_semantic_text_scene.hpp"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -56,6 +57,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeSemanticResources = "4";
         document.body.dataset.progpuNativeSemanticDraws = "6";
         document.body.dataset.progpuNativeRendererSubmissions = "1";
+        document.body.dataset.progpuNativeRetainedTextStyles = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
@@ -100,6 +102,66 @@ bool render_browser_frame(double, void*) {
     semantic_frame.dpi_scale = 1.0F;
     semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    auto text_scene =
+        progpu::native::tests::create_semantic_text_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics text_scene_metrics{};
+    text_scene_metrics.struct_size = sizeof(text_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            text_scene.data(),
+            text_scene.size(),
+            &text_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        text_scene_metrics.command_count != 1U ||
+        text_scene_metrics.resource_count != 2U ||
+        text_scene_metrics.draw_count != 1U) {
+        fail_engine(
+            "The ProGPU C++ browser retained text scene update failed.");
+    }
+    semantic_frame.scene_id = 99U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics text_metrics{};
+    text_metrics.struct_size = sizeof(text_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &text_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        text_metrics.command_count != 1U ||
+        text_metrics.draw_call_count != 1U ||
+        text_metrics.submission_count != 1U ||
+        text_metrics.text_style_upload_bytes !=
+            2U * sizeof(progpu_native_scene_text_style)) {
+        fail_engine(
+            "The ProGPU C++ browser retained text render failed.");
+    }
+    text_metrics = {};
+    text_metrics.struct_size = sizeof(text_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &text_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        text_metrics.text_style_upload_bytes != 0U ||
+        text_metrics.vertex_upload_bytes != 0U ||
+        text_metrics.coverage_staging_bytes != 0U) {
+        fail_engine(
+            "The stable browser retained text page was rebuilt.");
+    }
+
+    auto backdrop_scene =
+        progpu::native::tests::create_semantic_backdrop_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics backdrop_scene_metrics{};
+    backdrop_scene_metrics.struct_size = sizeof(backdrop_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            backdrop_scene.data(),
+            backdrop_scene.size(),
+            &backdrop_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        fail_engine(
+            "The ProGPU C++ browser backdrop scene restore failed.");
+    }
     semantic_frame.scene_id = 98U;
     semantic_frame.generation = 1U;
     progpu_native_scene_frame_metrics semantic_metrics{};
@@ -165,6 +227,8 @@ int main() {
         info.abi_version != PROGPU_NATIVE_ABI_VERSION ||
         info.backend_abi !=
             PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE) != 0U) {
         fail("The ProGPU browser ABI/capability contract is invalid.");
