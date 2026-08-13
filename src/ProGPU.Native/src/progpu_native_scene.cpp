@@ -1,6 +1,7 @@
 #include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 
 #include <algorithm>
@@ -166,56 +167,6 @@ bool valid_scene_layer(const progpu_native_scene_layer& layer) noexcept {
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
         layer.reserved0 == 0U && layer.reserved1 == 0U;
-}
-
-bool valid_scene_layer_mask(
-    const progpu_native_scene_layer_mask& mask) noexcept {
-    const double determinant =
-        static_cast<double>(mask.transform.m11) * mask.transform.m22 -
-        static_cast<double>(mask.transform.m12) * mask.transform.m21;
-    const double inverse = determinant != 0.0 ? 1.0 / determinant : 0.0;
-    const std::array<double, 6U> inverse_values{
-        mask.transform.m22 * inverse,
-        -mask.transform.m12 * inverse,
-        -mask.transform.m21 * inverse,
-        mask.transform.m11 * inverse,
-        (static_cast<double>(mask.transform.m21) * mask.transform.m32 -
-            static_cast<double>(mask.transform.m22) * mask.transform.m31) *
-            inverse,
-        (static_cast<double>(mask.transform.m12) * mask.transform.m31 -
-            static_cast<double>(mask.transform.m11) * mask.transform.m32) *
-            inverse};
-    const bool inverse_is_representable = std::ranges::all_of(
-        inverse_values,
-        [](double value) noexcept {
-            return std::isfinite(value) &&
-                value >= -std::numeric_limits<float>::max() &&
-                value <= std::numeric_limits<float>::max();
-        });
-    const auto valid_radius = [](float value) noexcept {
-        return std::isfinite(value) && value >= 0.0F;
-    };
-    return mask.struct_size == sizeof(progpu_native_scene_layer_mask) &&
-        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
-        mask.flags == 0U && mask.reserved == 0U &&
-        mask.reserved0 == 0U && mask.reserved1 == 0U &&
-        mask.reserved2 == 0U &&
-        std::isfinite(mask.bounds.x) && std::isfinite(mask.bounds.y) &&
-        std::isfinite(mask.bounds.width) &&
-        std::isfinite(mask.bounds.height) && mask.bounds.width > 0.0F &&
-        mask.bounds.height > 0.0F &&
-        std::isfinite(mask.transform.m11) &&
-        std::isfinite(mask.transform.m12) &&
-        std::isfinite(mask.transform.m21) &&
-        std::isfinite(mask.transform.m22) &&
-        std::isfinite(mask.transform.m31) &&
-        std::isfinite(mask.transform.m32) &&
-        std::isfinite(determinant) && std::abs(determinant) > 0.000001 &&
-        inverse_is_representable &&
-        std::ranges::all_of(mask.corner_radii_x, valid_radius) &&
-        std::ranges::all_of(mask.corner_radii_y, valid_radius) &&
-        std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
-        mask.opacity <= 1.0F;
 }
 
 bool valid_scene_effect(
@@ -438,22 +389,13 @@ validation_result validate(
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
-            if (resource.payload_size !=
-                    sizeof(progpu_native_scene_layer_mask) ||
-                resource.auxiliary_size != 0U) {
-                return fail(
-                    header,
-                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
-                    offset);
-            }
-            const auto mask = read_record<progpu_native_scene_layer_mask>(
-                bytes,
-                resource.payload_offset);
-            if (!valid_scene_layer_mask(mask)) {
+            std::uint32_t mask_error_offset = resource.payload_offset;
+            if (!semantic::validate_layer_mask_resource(
+                    bytes, resource, mask_error_offset)) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
-                    resource.payload_offset);
+                    mask_error_offset);
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {

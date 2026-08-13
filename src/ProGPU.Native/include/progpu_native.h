@@ -134,7 +134,8 @@ typedef enum progpu_native_scene_gradient_interpolation {
 } progpu_native_scene_gradient_interpolation;
 
 typedef enum progpu_native_scene_layer_mask_kind {
-    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1
+    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2
 } progpu_native_scene_layer_mask_kind;
 
 typedef enum progpu_native_scene_command_kind {
@@ -524,6 +525,29 @@ typedef struct progpu_native_scene_layer_mask {
     uint32_t reserved1;
     uint32_t reserved2;
 } progpu_native_scene_layer_mask;
+
+/*
+ * Pointer-free retained R8 coverage mask metadata. The auxiliary resource
+ * span owns the row-strided coverage bytes. Bounds are mask-local logical
+ * coordinates and transform maps those coordinates into logical target
+ * coordinates. The executor inverts that affine once when compiling the
+ * immutable replay span; rotation, anisotropic scale, and shear therefore do
+ * not require a CPU resample. Sampling accepts nearest or linear only.
+ */
+typedef struct progpu_native_scene_layer_coverage_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t width;
+    uint32_t height;
+    uint32_t row_bytes;
+    uint32_t sampling;
+    uint32_t reserved0;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved1;
+} progpu_native_scene_layer_coverage_mask;
 
 /*
  * Version-one upload-backed image command payload. Its resource payload is a

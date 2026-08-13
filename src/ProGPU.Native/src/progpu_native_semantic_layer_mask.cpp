@@ -1,0 +1,130 @@
+#include "progpu_native_semantic_layer_mask.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstring>
+#include <limits>
+
+namespace progpu::native::semantic {
+namespace {
+
+bool valid_transform(const progpu_native_affine_2d& transform) noexcept {
+    const double determinant =
+        static_cast<double>(transform.m11) * transform.m22 -
+        static_cast<double>(transform.m12) * transform.m21;
+    if (!std::isfinite(transform.m11) ||
+        !std::isfinite(transform.m12) ||
+        !std::isfinite(transform.m21) ||
+        !std::isfinite(transform.m22) ||
+        !std::isfinite(transform.m31) ||
+        !std::isfinite(transform.m32) ||
+        !std::isfinite(determinant) || std::abs(determinant) <= 0.000001) {
+        return false;
+    }
+    const double inverse = 1.0 / determinant;
+    const std::array<double, 6U> values{
+        transform.m22 * inverse,
+        -transform.m12 * inverse,
+        -transform.m21 * inverse,
+        transform.m11 * inverse,
+        (static_cast<double>(transform.m21) * transform.m32 -
+            static_cast<double>(transform.m22) * transform.m31) * inverse,
+        (static_cast<double>(transform.m12) * transform.m31 -
+            static_cast<double>(transform.m11) * transform.m32) * inverse};
+    return std::ranges::all_of(values, [](double value) noexcept {
+        return std::isfinite(value) &&
+            value >= -std::numeric_limits<float>::max() &&
+            value <= std::numeric_limits<float>::max();
+    });
+}
+
+bool valid_bounds(const progpu_native_image_rect& bounds) noexcept {
+    return std::isfinite(bounds.x) && std::isfinite(bounds.y) &&
+        std::isfinite(bounds.width) && std::isfinite(bounds.height) &&
+        bounds.width > 0.0F && bounds.height > 0.0F;
+}
+
+bool valid_analytic(const progpu_native_scene_layer_mask& mask) noexcept {
+    const auto radius = [](float value) noexcept {
+        return std::isfinite(value) && value >= 0.0F;
+    };
+    return mask.struct_size == sizeof(mask) &&
+        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+        mask.flags == 0U && mask.reserved == 0U &&
+        mask.reserved0 == 0U && mask.reserved1 == 0U &&
+        mask.reserved2 == 0U && valid_bounds(mask.bounds) &&
+        valid_transform(mask.transform) &&
+        std::ranges::all_of(mask.corner_radii_x, radius) &&
+        std::ranges::all_of(mask.corner_radii_y, radius) &&
+        std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
+        mask.opacity <= 1.0F;
+}
+
+bool valid_coverage(
+    const progpu_native_scene_layer_coverage_mask& mask,
+    std::uint32_t auxiliary_size) noexcept {
+    const std::uint64_t required = mask.height == 0U
+        ? 0U
+        : static_cast<std::uint64_t>(mask.row_bytes) *
+                (mask.height - 1U) +
+            mask.width;
+    return mask.struct_size == sizeof(mask) &&
+        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP &&
+        mask.flags == 0U && mask.reserved0 == 0U &&
+        mask.reserved1 == 0U && mask.width > 0U &&
+        mask.width <= 16384U && mask.height > 0U &&
+        mask.height <= 16384U && mask.row_bytes >= mask.width &&
+        (mask.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ||
+            mask.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) &&
+        required == auxiliary_size && valid_bounds(mask.bounds) &&
+        valid_transform(mask.transform) && std::isfinite(mask.opacity) &&
+        mask.opacity >= 0.0F && mask.opacity <= 1.0F;
+}
+
+} // namespace
+
+bool validate_layer_mask_resource(
+    const std::byte* bytes,
+    const progpu_native_scene_resource& resource,
+    std::uint32_t& error_offset,
+    semantic_layer_mask* parsed) noexcept {
+    error_offset = resource.payload_offset;
+    if (bytes == nullptr || resource.payload_size < sizeof(std::uint32_t) * 2U) {
+        return false;
+    }
+    std::uint32_t kind = 0U;
+    std::memcpy(&kind, bytes + resource.payload_offset + sizeof(std::uint32_t),
+        sizeof(kind));
+    semantic_layer_mask result{};
+    result.kind = kind;
+    if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE) {
+        if (resource.payload_size != sizeof(result.analytic) ||
+            resource.auxiliary_size != 0U) {
+            return false;
+        }
+        std::memcpy(&result.analytic, bytes + resource.payload_offset,
+            sizeof(result.analytic));
+        if (!valid_analytic(result.analytic)) {
+            return false;
+        }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP) {
+        if (resource.payload_size != sizeof(result.coverage) ||
+            resource.auxiliary_size == 0U) {
+            return false;
+        }
+        std::memcpy(&result.coverage, bytes + resource.payload_offset,
+            sizeof(result.coverage));
+        if (!valid_coverage(result.coverage, resource.auxiliary_size)) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    if (parsed != nullptr) {
+        *parsed = result;
+    }
+    return true;
+}
+
+} // namespace progpu::native::semantic

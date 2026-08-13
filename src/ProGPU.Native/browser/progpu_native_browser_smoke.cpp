@@ -2,6 +2,7 @@
 #include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
+#include "progpu_native_semantic_coverage_mask_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
@@ -55,19 +56,20 @@ browser_resources resources{};
 bool finish_evidence_frame(double, void*) {
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
-        document.body.dataset.progpuNativeSemanticCommands = "6";
-        document.body.dataset.progpuNativeSemanticResources = "4";
-        document.body.dataset.progpuNativeSemanticDraws = "6";
+        document.body.dataset.progpuNativeSemanticCommands = "3";
+        document.body.dataset.progpuNativeSemanticResources = "2";
+        document.body.dataset.progpuNativeSemanticDraws = "2";
         document.body.dataset.progpuNativeRendererSubmissions = "1";
         document.body.dataset.progpuNativeRetainedTextStyles = "passed";
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
+        document.body.dataset.progpuNativeCoverageMasks = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU semantic backend active — backdrop effect verified";
+            "C++ / WebGPU semantic backend active — retained coverage mask verified";
     });
     // The test page owns the offscreen texture until navigation releases the
     // WebAssembly instance and its Emdawnwebgpu handle table. The visible
@@ -295,6 +297,50 @@ bool render_browser_frame(double, void*) {
         stable_metrics.gradient_stop_upload_bytes != 0U) {
         fail_engine(
             "The stable browser semantic brush page was uploaded again.");
+    }
+
+    auto coverage_scene =
+        progpu::native::tests::create_semantic_coverage_mask_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics coverage_scene_metrics{};
+    coverage_scene_metrics.struct_size = sizeof(coverage_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            coverage_scene.data(),
+            coverage_scene.size(),
+            &coverage_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        coverage_scene_metrics.command_count != 3U ||
+        coverage_scene_metrics.resource_count != 2U ||
+        coverage_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser coverage-mask scene update failed.");
+    }
+    semantic_frame.scene_id = 100U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics coverage_metrics{};
+    coverage_metrics.struct_size = sizeof(coverage_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &coverage_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        coverage_metrics.command_count != 3U ||
+        coverage_metrics.draw_call_count != 2U ||
+        coverage_metrics.submission_count != 1U ||
+        coverage_metrics.texture_upload_bytes != 64U ||
+        coverage_metrics.uniform_upload_bytes <
+            24U * sizeof(float)) {
+        fail_engine("The browser coverage-mask render failed.");
+    }
+    coverage_metrics = {};
+    coverage_metrics.struct_size = sizeof(coverage_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &coverage_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        coverage_metrics.texture_upload_bytes != 0U ||
+        coverage_metrics.vertex_upload_bytes != 0U ||
+        coverage_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser coverage mask was rebuilt.");
     }
     resources.render_texture = render_texture;
     resources.render_view = render_view;

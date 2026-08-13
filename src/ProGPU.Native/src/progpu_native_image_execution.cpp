@@ -237,6 +237,7 @@ bool update_image_mask(
     uniforms.coordinate1[1] = 1.0F /
         (frame.mask_destination_rect.height * frame.dpi_scale);
     uniforms.options[0] = 1.0F;
+    uniforms.options[1] = 1.0F;
     if (!engine.image_mask_uniform_cache_valid ||
         std::memcmp(
             &engine.cached_image_mask_uniforms,

@@ -702,6 +702,15 @@ struct progpu_native_engine {
                 wgpuBufferRelease(span.mask_uniform_buffer);
                 span.mask_uniform_buffer = nullptr;
             }
+            if (span.mask_texture_view != nullptr) {
+                wgpuTextureViewRelease(span.mask_texture_view);
+                span.mask_texture_view = nullptr;
+            }
+            if (span.mask_texture != nullptr) {
+                wgpuTextureDestroy(span.mask_texture);
+                wgpuTextureRelease(span.mask_texture);
+                span.mask_texture = nullptr;
+            }
             if (span.bundle != nullptr) {
                 wgpuRenderBundleRelease(span.bundle);
                 span.bundle = nullptr;

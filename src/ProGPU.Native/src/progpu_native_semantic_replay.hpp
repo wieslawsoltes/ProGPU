@@ -142,6 +142,8 @@ struct semantic_render_bundle_span {
     std::uint32_t final_effect_texture = 0U;
     std::uint64_t operation_id = 0U;
     WGPUBuffer mask_uniform_buffer = nullptr;
+    WGPUTexture mask_texture = nullptr;
+    WGPUTextureView mask_texture_view = nullptr;
     WGPUBindGroup mask_bind_group = nullptr;
     WGPUBindGroup advanced_blend_bind_group = nullptr;
     std::uint32_t advanced_uniform_offset = 0U;

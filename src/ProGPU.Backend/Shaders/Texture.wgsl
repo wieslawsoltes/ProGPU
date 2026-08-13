@@ -1,6 +1,6 @@
 // Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode.
 // Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products, and atlas color blending uses bounded scalar work.
-// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample, color matrices add 80 bytes of read-only uniform coefficients, and analytic rounded or uniform-opacity masks add fixed derivative arithmetic without another texture.
+// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add 80 bytes of read-only uniform coefficients, and analytic rounded or uniform-opacity masks add fixed derivative arithmetic without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -108,10 +108,17 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
         return analytic_rounded_mask_alpha(targetPosition) *
             maskSampling.options.y;
     }
-    let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    var uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    if (maskSampling.options.z > 0.5) {
+        uv = vec2<f32>(
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate0.xyz),
+            dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate1.xyz));
+    }
     let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    return select(0.0, sampled, inside);
+    let textureOpacity = select(1.0, maskSampling.options.y,
+        maskSampling.options.w > 0.5);
+    return select(0.0, sampled * textureOpacity, inside);
 }
 
 fn cubic_weight(x: f32, b: f32, c: f32) -> f32 {

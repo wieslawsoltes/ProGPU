@@ -351,6 +351,33 @@ public ref struct NativeSceneStreamBuilder
             flags: flags);
     }
 
+    public bool TryAddLayerCoverageMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerCoverageMask mask,
+        scoped ReadOnlySpan<byte> coverage,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (!IsValidLayerCoverageMask(mask, coverage.Length))
+        {
+            return false;
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            coverage,
+            flags);
+    }
+
     public bool TryAddEffectChainResource(
         ulong resourceId,
         ulong generation,
@@ -1323,6 +1350,34 @@ public ref struct NativeSceneStreamBuilder
             IsFinite(mask.Transform) && float.IsFinite(determinant) &&
             MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&
             finiteRadii &&
+            float.IsFinite(mask.Opacity) &&
+            mask.Opacity is >= 0f and <= 1f;
+    }
+
+    private static bool IsValidLayerCoverageMask(
+        in NativeSceneLayerCoverageMask mask,
+        int coverageLength)
+    {
+        float determinant = mask.Transform.GetDeterminant();
+        bool inverseIsRepresentable = Matrix3x2.Invert(
+            mask.Transform,
+            out Matrix3x2 inverse) && IsFinite(inverse);
+        ulong requiredBytes = mask.Height == 0U
+            ? 0U
+            : (ulong)mask.RowBytes * (mask.Height - 1U) + mask.Width;
+        return mask.StructSize ==
+                Unsafe.SizeOf<NativeSceneLayerCoverageMask>() &&
+            mask.Kind == NativeSceneLayerMaskKind.CoverageBitmap &&
+            mask.Flags == 0U && mask.HasCanonicalReservedFields &&
+            mask.Width is > 0U and <= 16384U &&
+            mask.Height is > 0U and <= 16384U &&
+            mask.RowBytes >= mask.Width &&
+            mask.Sampling is NativeImageSampling.Nearest or
+                NativeImageSampling.Linear &&
+            requiredBytes == (ulong)coverageLength &&
+            IsFinitePositive(mask.Bounds) && IsFinite(mask.Transform) &&
+            float.IsFinite(determinant) &&
+            MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&
             float.IsFinite(mask.Opacity) &&
             mask.Opacity is >= 0f and <= 1f;
     }

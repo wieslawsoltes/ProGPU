@@ -73,6 +73,7 @@ metadata.
 | [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
 | [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
+| [WebGPU texture formats](https://www.w3.org/TR/webgpu/#texture-formats) and [DirectWrite `IDWriteGlyphRunAnalysis::CreateAlphaTexture`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriteglyphrunanalysis-createalphatexture) | WebGPU defines `r8unorm` as a filterable one-channel normalized format. DirectWrite exposes bounded glyph coverage as caller-owned alpha bytes for a physical rectangle, separating text analysis from later compositing. | Add one exact pointer-free R8 coverage-mask resource for precomputed text, image-alpha, or reusable visual coverage. Upload the immutable bytes once, retain the texture/view/binding with the compiled replay span, and apply its independently invertible affine in the production mask shader. ProGPU does not adopt DirectWrite's rasterizer or buffer organization. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
 | [Dawn Emdawnwebgpu build and package guidance](https://dawn.googlesource.com/dawn/+/HEAD/src/emdawnwebgpu/README.md) and the [stable WebGPU C headers](https://github.com/webgpu-native/webgpu-headers) | Emdawnwebgpu maps the stable `webgpu.h` contract to JavaScript WebGPU for WebAssembly; Dawn documents `emcmake` builds and browser-served HTML tests. | Compile the same private renderer modules and shared WGSL with the pinned Emscripten Emdawnwebgpu port, expose a distinct browser ABI, keep browser queue completion in the host scheduler, and gate the result through a real `navigator.gpu` Chromium run rather than a mock proc table. |
@@ -1205,8 +1206,10 @@ unit-opacity, source-over layer so version-one streams stay append-compatible.
 `BACKDROP` requests parent pixels as layer input; `FORCE_ISOLATION` prevents a
 later compiler from folding an otherwise trivial scope. `NO_INDEX` disables a
 mask or effect. Otherwise the index must reference a preceding exact typed
-resource: a 104-byte analytic rounded-rectangle mask, or a 16-byte effect-chain
-header whose auxiliary span contains one to eight exact 56-byte effect records.
+resource: a 104-byte analytic rounded-rectangle mask, an 80-byte R8 coverage
+mask whose exact row-strided pixels occupy its auxiliary span, or a 16-byte
+effect-chain header whose auxiliary span contains one to eight exact 56-byte
+effect records.
 The resource generation and chain/effect revisions are caller-owned immutable
 identities; no record retains a pointer to caller storage.
 
@@ -1242,8 +1245,12 @@ auxiliary bytes and reserved fields, known and canonical flags, finite
 affine/clip values, non-negative clip extent, and opacity in `[0,1]`. Layer
 validation checks the same exact/canonical contract plus the blend range,
 typed mask/effect references, and at most 16 simultaneously materialized layer
-scopes. Mask validation requires a positive finite bound, invertible affine,
-non-negative finite corner radii, and opacity in `[0,1]`. Effect-chain
+scopes. Analytic-mask validation requires a positive finite bound, invertible
+affine, non-negative finite corner radii, and opacity in `[0,1]`. Coverage-mask
+validation additionally requires exact 80-byte metadata, dimensions no larger
+than `16384x16384`, a row stride at least its width, exact checked auxiliary
+length, nearest or linear sampling, and canonical flags/reserved fields.
+Effect-chain
 validation requires one to eight canonical Gaussian-blur or drop-shadow
 records, exact auxiliary length, nonzero revisions, finite sigma/offset/color,
 and normalized color channels. Frame preflight converts sigma and shadow offset
@@ -1314,13 +1321,23 @@ depth texture to transparent premultiplied RGBA, nested pop composites into the
 parent texture, and the outer pop composites into the caller target. Parent
 passes resume with `Load`; the layer-free route retains its existing
 single-pass replay. A masked pop uses the existing production masked-texture
-pipeline. Its inverse affine and normalized corner radii are compiled once into
+pipeline. An analytic mask's inverse affine and normalized corner radii are compiled once into
 a retained 96-byte uniform buffer and bind group for that occurrence. The mask
 transform is translated from global logical coordinates into the actual parent
 layer's physical-local coordinate system, so nested bounded parents do not
 shift mask coverage. Opacity is multiplied once in the premultiplied composite.
 Changed mask compilation is O(M) time and storage for M masked occurrences;
 stable replay performs no mask uniform write or bind-group allocation.
+The additive coverage representation retains one `r8unorm` texture/view beside
+that occurrence. Its inverse affine is folded with DPI, parent-local origin,
+and logical coverage bounds into two normalized UV rows in the same 96-byte
+uniform. Rotation, anisotropic scale, and shear therefore remain one bounded
+fragment transform rather than a CPU resample. Upload is `O(B)` time and one
+retained texture of `W*H` bytes for B row-strided source bytes; compositing is
+one texture sample per covered output fragment. The Metal/Dawn provider and
+Chromium WebGPU gates render the same 8x8 H-shaped resource, verify retained
+inside/outside coverage, GPU-complete presentation, a 64-byte first upload,
+and zero texture/vertex/uniform upload on stable replay.
 An effected depth additionally owns exactly three reusable `rgba8unorm`
 texture/storage intermediates at that slot's maximum extent. All scene effect
 parameters are compiled once into one 256-byte-aligned uniform page; retained

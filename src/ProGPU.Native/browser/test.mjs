@@ -45,17 +45,19 @@ try {
     backendAbi: document.body.dataset.progpuNativeBackendAbi,
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
+    coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
     error: document.body.dataset.progpuNativeError ?? ""
   }));
   assert.deepEqual(contract, {
     status: "passed",
-    semanticCommands: "6",
-    semanticResources: "4",
-    semanticDraws: "6",
+    semanticCommands: "3",
+    semanticResources: "2",
+    semanticDraws: "2",
     rendererSubmissions: "1",
     evidenceTarget: "offscreen-texture-readback",
     backendAbi: "3",
     explicitTimeline: "0",
+    coverageMasks: "passed",
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
   const screenshotPath = path.join(
@@ -80,14 +82,10 @@ try {
     const sample = (x, y) =>
       Array.from(context.getImageData(x, y, 1, 1).data);
     return {
-      outsideLeft: sample(40, 20),
-      outsideRight: sample(600, 20),
-      boundedLeft: sample(140, 180),
-      filteredLeft: sample(200, 180),
-      transition: sample(319, 180),
-      marker: sample(260, 180),
-      filteredRight: sample(360, 180),
-      initializedPrevious: sample(120, 300)
+      leftStem: sample(230, 113),
+      counter: sample(330, 120),
+      bridge: sample(340, 180),
+      outside: sample(100, 180)
     };
   }, screenshot.toString("base64"));
   const near = (actual, expected, tolerance = 20) =>
@@ -101,37 +99,23 @@ try {
     : errors.join(" | ");
   const diagnostics = `${browserDiagnostics}; pixels=${JSON.stringify(pixels)}`;
   const opaque = (pixel) => pixel[3] >= 240;
-  const red = (pixel) => near(pixel[0], 255) && near(pixel[1], 0) &&
-    near(pixel[2], 0) && opaque(pixel);
-  const blue = (pixel) => near(pixel[0], 0) && near(pixel[1], 0) &&
-    near(pixel[2], 255) && opaque(pixel);
-  assert.ok(red(pixels.outsideLeft) && red(pixels.boundedLeft),
-    `Browser backdrop escaped or lost its left bound: ${diagnostics}`);
-  assert.ok(blue(pixels.outsideRight) && blue(pixels.filteredRight),
-    `Browser backdrop escaped or lost its right bound: ${diagnostics}`);
-  assert.ok(
-    pixels.filteredLeft[0] >= 160 && pixels.filteredLeft[2] <= 96 &&
-      opaque(pixels.filteredLeft),
-    `Browser backdrop lost its captured left source: ${diagnostics}`);
-  assert.ok(
-    pixels.transition[0] >= 40 && pixels.transition[2] >= 40 &&
-      pixels.transition[0] <= 220 && pixels.transition[2] <= 220 &&
-      opaque(pixels.transition),
-    `Browser backdrop effect did not filter the parent transition: ` +
-      diagnostics);
-  assert.ok(
-    near(pixels.marker[0], 128, 32) &&
-      near(pixels.marker[1], 255) &&
-      near(pixels.marker[2], 0) && opaque(pixels.marker),
-    `Browser retained linear gradient was not drawn over the backdrop: ` +
-      diagnostics);
-  assert.ok(red(pixels.initializedPrevious),
-    `Browser backdrop did not initialize from previous pixels: ${diagnostics}`);
+  const cyan = (pixel) => near(pixel[0], 0) &&
+    near(pixel[1], 217, 24) && near(pixel[2], 255) && opaque(pixel);
+  const clear = (pixel) => pixel[0] <= 16 && pixel[1] <= 16 &&
+    pixel[2] <= 16 && opaque(pixel);
+  assert.ok(cyan(pixels.leftStem),
+    `Browser coverage mask lost the left H stem: ${diagnostics}`);
+  assert.ok(clear(pixels.counter),
+    `Browser coverage mask did not remove the H counter: ${diagnostics}`);
+  assert.ok(cyan(pixels.bridge),
+    `Browser coverage mask lost the H bridge: ${diagnostics}`);
+  assert.ok(clear(pixels.outside),
+    `Browser coverage mask escaped its transformed bounds: ${diagnostics}`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
-    `${contract.semanticDraws} GPU draws, backdrop effect verified.\n`);
+    `${contract.semanticDraws} GPU draws, retained coverage mask verified.\n`);
 } finally {
   await browser.close();
 }

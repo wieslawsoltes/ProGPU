@@ -231,7 +231,8 @@ public enum NativeSceneGradientInterpolation : uint
 
 public enum NativeSceneLayerMaskKind : uint
 {
-    RoundedRectangle = 1
+    RoundedRectangle = 1,
+    CoverageBitmap = 2
 }
 
 public enum NativeSceneCommandKind : uint
@@ -999,6 +1000,52 @@ public readonly struct NativeSceneLayerMask
     internal bool HasCanonicalReservedFields =>
         Reserved == 0U && Reserved0 == 0U && Reserved1 == 0U &&
         Reserved2 == 0U;
+}
+
+/// <summary>
+/// Pointer-free metadata for a retained row-strided R8 layer coverage mask.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerCoverageMask
+{
+    public NativeSceneLayerCoverageMask(
+        uint width,
+        uint height,
+        uint rowBytes,
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        NativeImageSampling sampling = NativeImageSampling.Linear,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerCoverageMask>();
+        Kind = NativeSceneLayerMaskKind.CoverageBitmap;
+        Flags = 0U;
+        Width = width;
+        Height = height;
+        RowBytes = rowBytes;
+        Sampling = sampling;
+        Reserved0 = 0U;
+        Bounds = bounds;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint Width;
+    public readonly uint Height;
+    public readonly uint RowBytes;
+    public readonly NativeImageSampling Sampling;
+    private readonly uint Reserved0;
+    public readonly NativeImageRect Bounds;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
 }
 
 /// <summary>

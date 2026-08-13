@@ -1,6 +1,7 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
+#include "progpu_native_semantic_coverage_mask_scene.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "webscene_gpu_provider.h"
@@ -30,6 +31,7 @@ using progpu::native::tests::
     create_semantic_advanced_blend_scene_stream;
 using progpu::native::tests::create_semantic_backdrop_scene_stream;
 using progpu::native::tests::create_semantic_color_glyph_scene_stream;
+using progpu::native::tests::create_semantic_coverage_mask_scene_stream;
 using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
 using progpu::native::tests::verify_semantic_advanced_blend_scene;
@@ -1721,6 +1723,44 @@ void verify_semantic_masked_layer_scene(
         "could not unlock semantic masked layer IOSurface");
 }
 
+void verify_semantic_coverage_mask_scene(IOSurfaceRef surface) {
+    require(surface != nullptr,
+        "semantic coverage-mask scene has no IOSurface");
+    require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+            kIOReturnSuccess,
+        "could not lock semantic coverage-mask IOSurface");
+    const auto* bytes = static_cast<const std::uint8_t*>(
+        IOSurfaceGetBaseAddress(surface));
+    const std::size_t width = IOSurfaceGetWidth(surface);
+    const std::size_t height = IOSurfaceGetHeight(surface);
+    const std::size_t row_bytes = IOSurfaceGetBytesPerRow(surface);
+    require(bytes != nullptr && width == 64U && height == 48U &&
+        row_bytes >= width * 4U,
+        "unexpected semantic coverage-mask IOSurface storage");
+    const auto pixel = [bytes, row_bytes](std::size_t x, std::size_t y) {
+        return bytes + y * row_bytes + x * 4U;
+    };
+    const auto cyan = [](const std::uint8_t* value) {
+        return value[0] >= 230U && value[1] >= 190U &&
+            value[2] <= 24U && value[3] >= 240U;
+    };
+    const auto clear = [](const std::uint8_t* value) {
+        return value[0] <= 16U && value[1] <= 16U &&
+            value[2] <= 16U && value[3] >= 240U;
+    };
+    require(cyan(pixel(23U, 15U)),
+        "retained coverage mask lost the left H stem");
+    require(clear(pixel(33U, 16U)),
+        "retained coverage mask did not remove the H counter");
+    require(cyan(pixel(34U, 24U)),
+        "retained coverage mask lost the H bridge");
+    require(clear(pixel(14U, 22U)),
+        "retained coverage mask escaped its transformed bounds");
+    require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+            kIOReturnSuccess,
+        "could not unlock semantic coverage-mask IOSurface");
+}
+
 void verify_and_capture(IOSurfaceRef surface, const char* output_path) {
     require(surface != nullptr, "provider did not expose an IOSurface");
     require(IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
@@ -2856,6 +2896,102 @@ int main(int argc, char** argv) {
             masked_layer_external.shared_handle),
         "progpu-native-semantic-masked-layer.ppm");
     api.release_external(provider, &masked_layer_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic coverage-mask canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic coverage-mask texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic coverage-mask target view creation failed");
+    auto coverage_mask_scene =
+        create_semantic_coverage_mask_scene_stream(64U, 48U);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        coverage_mask_scene.data(),
+        coverage_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 3U &&
+        scene_metrics.resource_count == 2U &&
+        scene_metrics.draw_count == 1U,
+        "semantic coverage-mask scene update failed");
+    progpu_native_scene_frame coverage_mask_frame = semantic_frame;
+    coverage_mask_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    coverage_mask_frame.scene_id = 100U;
+    coverage_mask_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &coverage_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 3U &&
+        semantic_metrics.draw_call_count == 2U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.texture_upload_bytes == 64U &&
+        semantic_metrics.uniform_upload_bytes >= 24U * sizeof(float),
+        "semantic coverage-mask rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.mask_uniform_upload_bytes ==
+            24U * sizeof(float),
+        "semantic coverage-mask metrics are incorrect");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &coverage_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U,
+        "stable semantic coverage-mask replay rebuilt resources");
+    std::uint64_t coverage_mask_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &coverage_mask_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic coverage-mask submission token unavailable");
+    std::uint8_t coverage_mask_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        coverage_mask_submission,
+        1U,
+        &coverage_mask_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        coverage_mask_complete != 0U,
+        "semantic coverage-mask scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture coverage_mask_external{};
+    coverage_mask_external.struct_size = sizeof(coverage_mask_external);
+    require(api.present(provider, canvas, &coverage_mask_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        coverage_mask_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (coverage_mask_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic coverage-mask presentation failed");
+    verify_semantic_coverage_mask_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            coverage_mask_external.shared_handle));
+    api.release_external(provider, &coverage_mask_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

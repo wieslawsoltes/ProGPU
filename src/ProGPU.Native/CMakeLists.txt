@@ -332,6 +332,10 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_semantic_image.hpp
     src/progpu_native_semantic_image_resources.cpp
     src/progpu_native_semantic_image_resources.hpp
+    src/progpu_native_semantic_layer_mask.cpp
+    src/progpu_native_semantic_layer_mask.hpp
+    src/progpu_native_semantic_layer_mask_resources.cpp
+    src/progpu_native_semantic_layer_mask_resources.hpp
     src/progpu_native_semantic_text_style.cpp
     src/progpu_native_semantic_text_style.hpp
     src/progpu_native_semantic_effect_cache.cpp
@@ -440,6 +444,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 tests/progpu_native_semantic_backdrop_scene.hpp
                 tests/progpu_native_semantic_color_glyph_scene.cpp
                 tests/progpu_native_semantic_color_glyph_scene.hpp
+                tests/progpu_native_semantic_coverage_mask_scene.cpp
+                tests/progpu_native_semantic_coverage_mask_scene.hpp
                 tests/progpu_native_webscene_advanced_blend_fixture.cpp
                 tests/progpu_native_webscene_advanced_blend_fixture.hpp
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
@@ -485,6 +491,8 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_backdrop_scene.hpp
         tests/progpu_native_semantic_color_glyph_scene.cpp
         tests/progpu_native_semantic_color_glyph_scene.hpp
+        tests/progpu_native_semantic_coverage_mask_scene.cpp
+        tests/progpu_native_semantic_coverage_mask_scene.hpp
         tests/progpu_native_semantic_image_scene.cpp
         tests/progpu_native_semantic_image_scene.hpp
         tests/progpu_native_semantic_text_scene.cpp
@@ -542,6 +550,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_semantic_brush_tests.hpp
         tests/progpu_native_semantic_image_tests.cpp
         tests/progpu_native_semantic_image_tests.hpp
+        tests/progpu_native_semantic_layer_mask_tests.cpp
+        tests/progpu_native_semantic_layer_mask_tests.hpp
         src/progpu_native_draw_state.cpp
         src/progpu_native_draw_state.hpp
         src/progpu_native_effect_plan.cpp
@@ -561,6 +571,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_color_glyph.hpp
         src/progpu_native_semantic_image.cpp
         src/progpu_native_semantic_image.hpp
+        src/progpu_native_semantic_layer_mask.cpp
+        src/progpu_native_semantic_layer_mask.hpp
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp
         src/progpu_native_semantic_effect_cache.cpp
@@ -590,6 +602,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_brush.hpp
         src/progpu_native_semantic_color_glyph.cpp
         src/progpu_native_semantic_color_glyph.hpp
+        src/progpu_native_semantic_layer_mask.cpp
+        src/progpu_native_semantic_layer_mask.hpp
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp
         src/progpu_native_semantic_state.cpp

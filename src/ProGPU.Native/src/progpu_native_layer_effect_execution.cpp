@@ -14,6 +14,8 @@
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_replay_execution.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_webgpu_resources.hpp"
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
 #include "GaussianBlurVerticalWgsl.generated.hpp"
@@ -190,6 +192,7 @@ bool update_layer_group_mask(
         uniforms.coordinate1[1] = 1.0F /
             (mask.destination_rect.height * dpi_scale);
         uniforms.options[0] = 1.0F;
+        uniforms.options[1] = 1.0F;
     } else if (mask.kind == PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN) {
         const bool was_cache_valid = engine.clip_cache_valid &&
             engine.clip_cached_revision == mask.revision &&
@@ -210,6 +213,7 @@ bool update_layer_group_mask(
         uniforms.coordinate1[1] =
             1.0F / static_cast<float>(engine.layer_height);
         uniforms.options[0] = 1.0F;
+        uniforms.options[1] = 1.0F;
     } else if (!create_rounded_group_mask_uniforms(
             mask,
             dpi_scale,
@@ -669,10 +673,30 @@ void append_semantic_layer_quad(
 
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
-    const progpu_native_scene_layer_mask& source,
+    const std::byte* bytes,
+    const progpu_native_scene_resource& resource,
     const semantic_scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation) {
+    semantic_render_bundle_span& operation,
+    std::uint64_t& texture_upload_bytes) {
+    texture_upload_bytes = 0U;
+    semantic::semantic_layer_mask parsed{};
+    std::uint32_t error_offset = resource.payload_offset;
+    if (!semantic::validate_layer_mask_resource(
+            bytes, resource, error_offset, &parsed)) {
+        return false;
+    }
+    if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP) {
+        return create_semantic_coverage_mask_binding(
+            engine,
+            parsed.coverage,
+            bytes + resource.auxiliary_offset,
+            target_extent,
+            dpi_scale,
+            operation,
+            texture_upload_bytes);
+    }
+    const auto& source = parsed.analytic;
     if (!create_layer_mask_resources(engine)) {
         return false;
     }

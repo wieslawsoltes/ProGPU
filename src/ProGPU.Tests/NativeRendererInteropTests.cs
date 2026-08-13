@@ -202,6 +202,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
+        Assert.Equal(80, Unsafe.SizeOf<NativeSceneLayerCoverageMask>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneEffectChain>());
         Assert.Equal(56, Unsafe.SizeOf<NativeSceneEffect>());
         Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
@@ -1351,6 +1352,93 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderWritesCoverageMaskWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<byte> coverage = stackalloc byte[16]
+        {
+            0, 255, 255, 0,
+            0, 255, 255, 0,
+            255, 255, 255, 255,
+            255, 0, 0, 255
+        };
+        var mask = new NativeSceneLayerCoverageMask(
+            4U,
+            4U,
+            4U,
+            new NativeImageRect(0f, 0f, 4f, 4f),
+            new Matrix3x2(1f, 0.25f, -0.125f, 1f, 3f, 5f),
+            opacity: 0.75f);
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> coverageBytes,
+            in NativeSceneLayerCoverageMask descriptor,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                18U,
+                2U,
+                commandCapacity: 2,
+                resourceCapacity: 1);
+            if (!builder.TryAddLayerCoverageMaskResource(
+                    1U,
+                    1U,
+                    in descriptor,
+                    coverageBytes,
+                    out uint maskIndex))
+            {
+                return false;
+            }
+            var layer = new NativeSceneLayer(
+                flags: NativeSceneLayerFlags.ForceIsolation,
+                maskResourceIndex: maskIndex);
+            return builder.TryPushLayer(1U, in layer) &&
+                builder.TryPopLayer(2U) && builder.TryBuild(out stream);
+        }
+
+        Assert.True(Build(destination, coverage, in mask, out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayerCoverageMask>(
+            stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(80U, resource.PayloadSize);
+        Assert.Equal(16U, resource.AuxiliarySize);
+        Assert.Equal(NativeSceneLayerMaskKind.CoverageBitmap, stored.Kind);
+        Assert.Equal(0.75f, stored.Opacity);
+        Assert.True(stream.Slice(
+            (int)resource.AuxiliaryOffset,
+            (int)resource.AuxiliarySize).SequenceEqual(coverage));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, coverage, in mask, out _);
+        }
+        Assert.True(success);
+        Assert.Equal(
+            0L,
+            GC.GetAllocatedBytesForCurrentThread() - before);
+
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            19U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddLayerCoverageMaskResource(
+            1U,
+            1U,
+            in mask,
+            coverage[..^1],
+            out _));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderBoundsMaterializedLayerDepth()
     {
         Span<byte> destination = stackalloc byte[8192];
@@ -2101,9 +2189,9 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("offscreen-texture-readback", browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("Browser backdrop effect did not filter the parent transition", browserTest,
+        Assert.Contains("Browser coverage mask lost the H bridge", browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("Browser backdrop did not initialize from previous pixels", browserTest,
+        Assert.Contains("Browser coverage mask escaped its transformed bounds", browserTest,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
             StringComparison.Ordinal);

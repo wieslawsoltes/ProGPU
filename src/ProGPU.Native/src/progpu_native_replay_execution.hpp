@@ -93,10 +93,12 @@ void append_semantic_layer_quad(
 
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
-    const progpu_native_scene_layer_mask& source,
+    const std::byte* bytes,
+    const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
-    semantic_render_bundle_span& operation);
+    semantic_render_bundle_span& operation,
+    std::uint64_t& texture_upload_bytes);
 
 bool create_gaussian_effect_resources(progpu_native_engine& engine);
 bool create_drop_shadow_effect_resources(progpu_native_engine& engine);
