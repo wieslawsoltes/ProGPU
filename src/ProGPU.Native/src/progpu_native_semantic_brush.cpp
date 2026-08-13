@@ -61,7 +61,8 @@ std::uint32_t stored_stop_count(
                 brush.color_interpolation_mode ==
                     PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB
             ? 0U
-            : PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS;
+            : static_cast<std::uint32_t>(
+                PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS);
     }
     return gradient_brush_kind(brush.type) ? brush.stop_count : 0U;
 }

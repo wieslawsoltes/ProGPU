@@ -1,6 +1,6 @@
 // Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, and atlas color blending uses bounded scalar work.
-// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample while analytic rounded and uniform-opacity masks add fixed derivative arithmetic without another texture.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products, and atlas color blending uses bounded scalar work.
+// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample, color matrices add 80 bytes of read-only uniform coefficients, and analytic rounded or uniform-opacity masks add fixed derivative arithmetic without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -414,6 +414,37 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 @fragment
 fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     return texture_fs_main_with_mask(input, 1.0);
+}
+
+// Semantic retained images lower all fused affine color operations to this
+// straight-RGBA 4x5 matrix. The mask uniform record is deliberately reused as
+// five vec4 rows so the native renderer needs no second texture shader ABI.
+@fragment
+fn fs_main_color_matrix_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    let textureCoordDx = dpdx(input.texCoord);
+    let textureCoordDy = dpdy(input.texCoord);
+    var source = textureSampleGrad(
+        texTexture,
+        texSampler,
+        input.texCoord,
+        textureCoordDx,
+        textureCoordDy);
+    if (input.color.a < 0.0) {
+        source = sample_bicubic(input.texCoord, input.cubicResampler);
+    }
+    if (input.color.g > 0.5) {
+        source = atlas_unpremultiply(source);
+    }
+    let transformed = clamp(vec4<f32>(
+        dot(source, maskSampling.coordinate0) + maskSampling.cornerRadiiY.x,
+        dot(source, maskSampling.coordinate1) + maskSampling.cornerRadiiY.y,
+        dot(source, maskSampling.bounds) + maskSampling.cornerRadiiY.z,
+        dot(source, maskSampling.cornerRadiiX) + maskSampling.cornerRadiiY.w),
+        vec4<f32>(0.0),
+        vec4<f32>(1.0));
+    return vec4<f32>(
+        transformed.rgb * input.color.r,
+        transformed.a * abs(input.color.a));
 }
 
 @fragment

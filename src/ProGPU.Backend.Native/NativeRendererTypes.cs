@@ -75,6 +75,13 @@ public enum NativeImageSampling : uint
     Cubic = 2
 }
 
+[Flags]
+public enum NativeSceneImageFlags : uint
+{
+    None = 0,
+    ColorMatrix = 1U << 0
+}
+
 public enum NativeGroupMaskKind : uint
 {
     None = 0,
@@ -732,10 +739,11 @@ public readonly struct NativeSceneImageDraw
         NativeImageRect sourceRect,
         NativeImageRect destinationRect,
         Matrix3x2 transform,
-        float opacity)
+        float opacity,
+        NativeSceneImageFlags flags = NativeSceneImageFlags.None)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneImageDraw>();
-        Flags = 0U;
+        Flags = flags;
         ImageWidth = imageWidth;
         ImageHeight = imageHeight;
         RowBytes = rowBytes;
@@ -748,7 +756,7 @@ public readonly struct NativeSceneImageDraw
     }
 
     public readonly uint StructSize;
-    private readonly uint Flags;
+    public readonly NativeSceneImageFlags Flags;
     public readonly uint ImageWidth;
     public readonly uint ImageHeight;
     public readonly uint RowBytes;
@@ -788,6 +796,63 @@ public readonly struct NativeSceneImageSamplingOptions
         StructSize == Unsafe.SizeOf<NativeSceneImageSamplingOptions>() &&
         Flags == 0U && float.IsFinite(CubicB) && float.IsFinite(CubicC) &&
         MathF.Abs(CubicB) <= 16f && MathF.Abs(CubicC) <= 16f;
+}
+
+/// <summary>
+/// Optional pointer-free straight-RGBA affine transform for a semantic image.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImageColorMatrix
+{
+    public NativeSceneImageColorMatrix(
+        Vector4 red,
+        Vector4 green,
+        Vector4 blue,
+        Vector4 alpha,
+        Vector4 offset)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImageColorMatrix>();
+        Flags = 0U;
+        Red = red;
+        Green = green;
+        Blue = blue;
+        Alpha = alpha;
+        Offset = offset;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public static NativeSceneImageColorMatrix Identity => new(
+        Vector4.UnitX,
+        Vector4.UnitY,
+        Vector4.UnitZ,
+        Vector4.UnitW,
+        Vector4.Zero);
+
+    public readonly uint StructSize;
+    private readonly uint Flags;
+    public readonly Vector4 Red;
+    public readonly Vector4 Green;
+    public readonly Vector4 Blue;
+    public readonly Vector4 Alpha;
+    public readonly Vector4 Offset;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalFields =>
+        StructSize == Unsafe.SizeOf<NativeSceneImageColorMatrix>() &&
+        Flags == 0U && Reserved0 == 0U && Reserved1 == 0U &&
+        IsFiniteAndBounded(Red) && IsFiniteAndBounded(Green) &&
+        IsFiniteAndBounded(Blue) && IsFiniteAndBounded(Alpha) &&
+        IsFiniteAndBounded(Offset);
+
+    private static bool IsFiniteAndBounded(Vector4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W) &&
+        Vector4.Abs(value).X <= 1024f &&
+        Vector4.Abs(value).Y <= 1024f &&
+        Vector4.Abs(value).Z <= 1024f &&
+        Vector4.Abs(value).W <= 1024f;
 }
 
 /// <summary>

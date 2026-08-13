@@ -41,7 +41,7 @@ std::vector<std::byte> create_semantic_cubic_image_scene_stream(
         stream, pixels.data(), pixels.size());
     const progpu_native_scene_image_draw image{
         sizeof(progpu_native_scene_image_draw),
-        0U,
+        PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX,
         2U,
         2U,
         8U,
@@ -59,6 +59,16 @@ std::vector<std::byte> create_semantic_cubic_image_scene_stream(
         1.0F / 3.0F,
         1.0F / 3.0F};
     append_payload(stream, &sampling, 1U);
+    const progpu_native_scene_image_color_matrix color_matrix{
+        sizeof(progpu_native_scene_image_color_matrix),
+        0U,
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {0U, 0U}};
+    append_payload(stream, &color_matrix, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -102,7 +112,7 @@ std::vector<std::byte> create_semantic_cubic_image_scene_stream(
         PROGPU_NATIVE_SCENE_NO_INDEX,
         0U,
         draw_offset,
-        sizeof(image) + sizeof(sampling),
+        sizeof(image) + sizeof(sampling) + sizeof(color_matrix),
         0.0F,
         0.0F,
         static_cast<float>(width),

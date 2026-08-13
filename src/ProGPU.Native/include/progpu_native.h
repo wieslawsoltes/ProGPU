@@ -169,6 +169,10 @@ enum {
 };
 
 enum {
+    PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX = 1U << 0U
+};
+
+enum {
     PROGPU_NATIVE_SCENE_LAYER_BOUNDS = 1U << 0U,
     PROGPU_NATIVE_SCENE_LAYER_BACKDROP = 1U << 1U,
     PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U
@@ -551,6 +555,22 @@ typedef struct progpu_native_scene_image_sampling_options {
     float cubic_b;
     float cubic_c;
 } progpu_native_scene_image_sampling_options;
+
+/*
+ * Optional exact suffix selected by PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX.
+ * Rows and offset form a 4x5 affine transform over straight RGBA. The two
+ * reserved words preserve 16-byte GPU-uniform alignment.
+ */
+typedef struct progpu_native_scene_image_color_matrix {
+    uint32_t struct_size;
+    uint32_t flags;
+    float red[4];
+    float green[4];
+    float blue[4];
+    float alpha[4];
+    float offset[4];
+    uint32_t reserved[2];
+} progpu_native_scene_image_color_matrix;
 
 /*
  * Exact pointer-free storage layout consumed by production Vector.wgsl.

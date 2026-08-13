@@ -330,6 +330,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_semantic_color_glyph.hpp
     src/progpu_native_semantic_image.cpp
     src/progpu_native_semantic_image.hpp
+    src/progpu_native_semantic_image_resources.cpp
+    src/progpu_native_semantic_image_resources.hpp
     src/progpu_native_semantic_text_style.cpp
     src/progpu_native_semantic_text_style.hpp
     src/progpu_native_semantic_effect_cache.cpp

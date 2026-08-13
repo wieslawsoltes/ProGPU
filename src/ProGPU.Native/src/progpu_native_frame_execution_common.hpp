@@ -25,6 +25,7 @@
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_image.hpp"
+#include "progpu_native_semantic_image_resources.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_webgpu_resources.hpp"
@@ -53,8 +54,9 @@ using semantic::intersect_semantic_scissors;
 using semantic::is_valid_semantic_analytic;
 using semantic::is_valid_semantic_glyph_outline;
 using semantic::is_valid_semantic_image;
-using semantic::semantic_image_sampling_options;
+using semantic::semantic_image_options;
 using semantic::validate_image_draw_payload;
+using semantic::create_semantic_image_color_matrix_resources;
 using semantic::is_valid_semantic_path;
 using semantic::is_valid_semantic_positioned_glyph;
 using semantic::is_valid_semantic_segment;

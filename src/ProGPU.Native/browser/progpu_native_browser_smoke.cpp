@@ -177,7 +177,9 @@ bool render_browser_frame(double, void*) {
             &image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         image_metrics.draw_call_count != 1U ||
         image_metrics.submission_count != 1U ||
-        image_metrics.texture_upload_bytes != 16U) {
+        image_metrics.texture_upload_bytes != 16U ||
+        image_metrics.uniform_upload_bytes <
+            sizeof(progpu_native_scene_image_color_matrix)) {
         fail_engine("The browser cubic image render failed.");
     }
     image_metrics = {};
@@ -187,7 +189,8 @@ bool render_browser_frame(double, void*) {
             &semantic_frame,
             &image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         image_metrics.texture_upload_bytes != 0U ||
-        image_metrics.vertex_upload_bytes != 0U) {
+        image_metrics.vertex_upload_bytes != 0U ||
+        image_metrics.uniform_upload_bytes != 0U) {
         fail_engine("The stable browser cubic image page was rebuilt.");
     }
 

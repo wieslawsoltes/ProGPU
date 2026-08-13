@@ -198,6 +198,7 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneImageSamplingOptions>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeSceneImageColorMatrix>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
@@ -240,6 +241,14 @@ public class NativeRendererInteropTests
             8,
             OffsetOf<NativeSceneImageSamplingOptions>(
                 nameof(NativeSceneImageSamplingOptions.CubicB)));
+        Assert.Equal(
+            8,
+            OffsetOf<NativeSceneImageColorMatrix>(
+                nameof(NativeSceneImageColorMatrix.Red)));
+        Assert.Equal(
+            72,
+            OffsetOf<NativeSceneImageColorMatrix>(
+                nameof(NativeSceneImageColorMatrix.Offset)));
         Assert.Equal(
             8,
             OffsetOf<NativeSceneState>(nameof(NativeSceneState.Transform)));
@@ -1602,6 +1611,93 @@ public class NativeRendererInteropTests
             invalidResource,
             new NativeImageRect(0f, 0f, 8f, 8f),
             in image,
+            in invalid));
+    }
+
+    [Fact]
+    public void SemanticImageColorMatrixCombinesWithCubicWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<byte> pixels = stackalloc byte[16];
+        var image = new NativeSceneImageDraw(
+            2,
+            2,
+            8,
+            NativeImageSampling.Cubic,
+            new NativeImageRect(0f, 0f, 2f, 2f),
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            Matrix3x2.Identity,
+            1f,
+            NativeSceneImageFlags.ColorMatrix);
+        var sampling = NativeSceneImageSamplingOptions.Mitchell;
+        var matrix = new NativeSceneImageColorMatrix(
+            new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
+            new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
+            new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
+            Vector4.UnitW,
+            Vector4.Zero);
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> imagePayload,
+            in NativeSceneImageDraw draw,
+            in NativeSceneImageSamplingOptions options,
+            in NativeSceneImageColorMatrix colorMatrix)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                93U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddImageResource(
+                    1U, 1U, imagePayload, out uint resource) &&
+                builder.TryDrawImage(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 8f, 8f),
+                    in draw,
+                    in options,
+                    in colorMatrix) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(
+            destination,
+            pixels,
+            in image,
+            in sampling,
+            in matrix));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(
+                destination,
+                pixels,
+                in image,
+                in sampling,
+                in matrix);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+
+        var invalid = new NativeSceneImageColorMatrix(
+            new Vector4(float.PositiveInfinity),
+            Vector4.UnitY,
+            Vector4.UnitZ,
+            Vector4.UnitW,
+            Vector4.Zero);
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination, 94U, 1U, commandCapacity: 1, resourceCapacity: 1);
+        Assert.True(invalidBuilder.TryAddImageResource(
+            1U, 1U, pixels, out uint invalidResource));
+        Assert.False(invalidBuilder.TryDrawImage(
+            1U,
+            invalidResource,
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            in image,
+            in sampling,
             in invalid));
     }
 

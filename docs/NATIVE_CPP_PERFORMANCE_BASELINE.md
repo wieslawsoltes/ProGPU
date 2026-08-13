@@ -1994,3 +1994,46 @@ contains the transformed four-color cubic image and validates mixed interior
 samples. The browser gate requires exactly 16 image-upload bytes on first
 render and zero vertex/texture upload on stable replay before its final GPU
 readback.
+
+## Retained fused image-color supplement
+
+Semantic images may now append one exact 96-byte straight-RGBA 4x5 color
+matrix after their optional cubic record. This is sufficient to represent the
+managed renderer's fused brightness, contrast, saturation, grayscale, sepia,
+invert, luminance-to-alpha, and explicit matrix operations because each is an
+affine transform and the production path clamps only after the fused chain.
+The managed/native boundary composes those operations once; C++ validates the
+twenty finite bounded coefficients and reserved fields before GPU allocation.
+
+The existing production `Texture.wgsl` owns a dedicated semantic entry point.
+It performs nearest, linear, or the same fixed 4 by 4 cubic sampling, converts
+premultiplied input to straight color when requested, evaluates five fixed dot
+products, clamps once, and applies retained state opacity at composition. The
+matrix is uploaded into one retained 96-byte uniform per affected immutable
+image and the bind group is cached with that image page. Unchanged replay has
+zero matrix, texture, vertex, and frame-uniform upload. No intermediate texture,
+compute pass, CPU pixel conversion, runtime shader generation, or per-frame
+object graph is introduced.
+
+The clean-room behavior uses these primary public contracts:
+
+- [W3C Filter Effects `feColorMatrix`](https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement)
+  defines the 4x5 RGBA transform and its saturation, hue, and
+  luminance-to-alpha specializations;
+- [Direct2D color-matrix effect](https://learn.microsoft.com/en-us/windows/win32/direct2d/color-matrix)
+  defines straight versus premultiplied alpha handling, a 5x4 public matrix,
+  output clamping, and channel-combination use cases;
+- [Skia `SkColorFilters::Matrix`](https://api.skia.org/classSkColorFilters.html)
+  exposes the equivalent row-major twenty-float public filter boundary;
+- [Peniko `ImageBrush`](https://docs.rs/peniko/latest/peniko/struct.ImageBrush.html)
+  keeps retained image identity/sampling separate from later renderer-specific
+  color processing.
+
+The shared Dawn/Metal fixture combines Mitchell-Netravali sampling and an
+RGB-luminance matrix in one draw, maps the completed IOSurface, and requires
+equal nontrivial output channels. The browser fixture executes the same scene,
+requires the 16-byte source upload plus at least the 96-byte matrix on first
+family use, then requires exactly zero texture, vertex, and uniform upload on
+stable replay. Managed interop validation now passes 33 tests, including zero
+allocation across 10,000 combined cubic/matrix stream builds; all four local
+C++ warnings/sanitizer/provider tests and Chromium WebGPU pass.

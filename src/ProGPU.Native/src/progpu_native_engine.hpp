@@ -146,6 +146,7 @@ struct progpu_native_engine {
     WGPUShaderModule image_shader = nullptr;
     WGPURenderPipeline image_pipeline = nullptr;
     WGPURenderPipeline image_mask_pipeline = nullptr;
+    WGPURenderPipeline image_color_matrix_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
     WGPUBindGroupLayout image_mask_layout = nullptr;
@@ -822,6 +823,13 @@ struct progpu_native_engine {
     void release_semantic_image_page() noexcept {
         auto& page = semantic_image_cache;
         for (auto& draw : page.draws) {
+            if (draw.color_matrix_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.color_matrix_bind_group);
+            }
+            if (draw.color_matrix_buffer != nullptr) {
+                wgpuBufferDestroy(draw.color_matrix_buffer);
+                wgpuBufferRelease(draw.color_matrix_buffer);
+            }
             if (draw.linear_bind_group != nullptr) {
                 wgpuBindGroupRelease(draw.linear_bind_group);
             }
@@ -1101,6 +1109,9 @@ struct progpu_native_engine {
         }
         if (image_mask_layout != nullptr) {
             wgpuBindGroupLayoutRelease(image_mask_layout);
+        }
+        if (image_color_matrix_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_color_matrix_pipeline);
         }
         if (image_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_mask_pipeline);

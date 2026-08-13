@@ -257,10 +257,23 @@ progpu_native_status encode_semantic_image_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic image packed page is incomplete.");
     }
-    Commands::set_pipeline(encoder, engine.image_pipeline);
+    WGPURenderPipeline pipeline = draw.has_color_matrix
+        ? engine.image_color_matrix_pipeline
+        : engine.image_pipeline;
+    if (pipeline == nullptr ||
+        (draw.has_color_matrix && draw.color_matrix_bind_group == nullptr)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic image color pipeline is incomplete.");
+    }
+    Commands::set_pipeline(encoder, pipeline);
     Commands::set_bind_group(
         encoder, 0U, uniform_group);
     Commands::set_bind_group(encoder, 1U, texture_group);
+    if (draw.has_color_matrix) {
+        Commands::set_bind_group(
+            encoder, 2U, draw.color_matrix_bind_group);
+    }
     Commands::set_vertex_buffer(
         encoder, page.vertex_buffer, page.vertex_bytes);
     Commands::set_index_buffer(
@@ -681,6 +694,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_color_glyph_bitmap_count = 0U;
     std::uint64_t semantic_color_glyph_pixel_bytes = 0U;
     bool semantic_has_styled_glyphs = false;
+    bool semantic_has_image_color_matrices = false;
     semantic_compilation_budget compilation_budget{};
     semantic_state_cursor preflight_state_cursor(bytes, header);
     semantic_layer_target_cursor preflight_target_cursor(
@@ -934,14 +948,16 @@ progpu_native_status render_scene(
                     bytes + command.payload_offset,
                     sizeof(image));
                 apply_semantic_state(image, state);
-                semantic_image_sampling_options sampling_options{};
+                semantic_image_options image_options{};
                 valid = resource.auxiliary_size == 0U &&
                     validate_image_draw_payload(
                         bytes,
                         command,
                         image,
                         resource.payload_size,
-                        sampling_options);
+                        image_options);
+                semantic_has_image_color_matrices |=
+                    valid && image_options.has_color_matrix;
                 compiled_vertex_bytes =
                     4U * sizeof(progpu::native::vector_vertex);
                 compiled_index_bytes = 6U * sizeof(std::uint32_t);
@@ -1744,6 +1760,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_image_vertex_upload_bytes = 0U;
     std::uint64_t semantic_image_index_upload_bytes = 0U;
     std::uint64_t semantic_image_texture_upload_bytes = 0U;
+    std::uint64_t semantic_image_color_uniform_upload_bytes = 0U;
     auto& semantic_image_page = engine->semantic_image_cache;
     const bool semantic_image_page_hit =
         semantic_image_draw_count != 0U &&
@@ -1760,11 +1777,24 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic image WebGPU resources could not be created.");
         }
+        if (semantic_has_image_color_matrices &&
+            !create_image_mask_resources(*engine)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic image color-matrix WebGPU resources could not be created.");
+        }
         std::vector<progpu::native::vector_vertex> vertices;
         std::vector<semantic_image_draw> compiled_draws;
         WGPUBuffer compiled_vertex_buffer = nullptr;
         const auto release_compiled = [&]() noexcept {
             for (auto& draw : compiled_draws) {
+                if (draw.color_matrix_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.color_matrix_bind_group);
+                }
+                if (draw.color_matrix_buffer != nullptr) {
+                    wgpuBufferDestroy(draw.color_matrix_buffer);
+                    wgpuBufferRelease(draw.color_matrix_buffer);
+                }
                 if (draw.linear_bind_group != nullptr) {
                     wgpuBindGroupRelease(draw.linear_bind_group);
                 }
@@ -1815,13 +1845,13 @@ progpu_native_status render_scene(
                     bytes + command.payload_offset,
                     sizeof(image));
                 apply_semantic_state(image, state);
-                semantic_image_sampling_options sampling_options{};
+                semantic_image_options image_options{};
                 if (!validate_image_draw_payload(
                         bytes,
                         command,
                         image,
                         resource.payload_size,
-                        sampling_options)) {
+                        image_options)) {
                     release_compiled();
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -1871,10 +1901,10 @@ progpu_native_status render_scene(
                         corner[1] == 0U ? v0 : v1;
                     vertex.brush_index = 0.0F;
                     vertex.shape_size[0] = cubic_sampling
-                        ? sampling_options.cubic_b
+                        ? image_options.cubic_b
                         : 0.0F;
                     vertex.shape_size[1] = cubic_sampling
-                        ? sampling_options.cubic_c
+                        ? image_options.cubic_c
                         : 0.5F;
                     vertex.corner_radius = 0.0F;
                     vertex.stroke_thickness = 1.0F;
@@ -1897,6 +1927,7 @@ progpu_native_status render_scene(
                 semantic_image_draw draw{};
                 draw.first_vertex = first_vertex;
                 draw.sampling = image.sampling;
+                draw.has_color_matrix = image_options.has_color_matrix;
                 draw.texture = wgpuDeviceCreateTexture(
                     engine->device,
                     &texture_descriptor);
@@ -1914,13 +1945,24 @@ progpu_native_status render_scene(
                         engine->image_linear_sampler,
                         draw.view,
                         "ProGPU semantic linear image bind group");
+                    if (draw.has_color_matrix &&
+                        !create_semantic_image_color_matrix_resources(
+                            *engine,
+                            draw.view,
+                            image_options.color_matrix,
+                            draw.color_matrix_buffer,
+                            draw.color_matrix_bind_group)) {
+                        draw.has_color_matrix = false;
+                    }
                 }
                 compiled_draws.push_back(draw);
                 auto& retained_draw = compiled_draws.back();
                 if (retained_draw.texture == nullptr ||
                     retained_draw.view == nullptr ||
                     retained_draw.nearest_bind_group == nullptr ||
-                    retained_draw.linear_bind_group == nullptr) {
+                    retained_draw.linear_bind_group == nullptr ||
+                    (image_options.has_color_matrix &&
+                        retained_draw.color_matrix_bind_group == nullptr)) {
                     release_compiled();
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -1946,6 +1988,10 @@ progpu_native_status render_scene(
                     &layout,
                     &extent);
                 semantic_image_texture_upload_bytes += upload_bytes;
+                semantic_image_color_uniform_upload_bytes +=
+                    image_options.has_color_matrix
+                    ? sizeof(progpu::native::gpu_mask_sampling_uniforms)
+                    : 0U;
             }
         } catch (const std::bad_alloc&) {
             release_compiled();
@@ -2014,7 +2060,8 @@ progpu_native_status render_scene(
     std::uint64_t texture_upload_bytes =
         semantic_image_texture_upload_bytes +
         semantic_color_glyph_upload_bytes;
-    std::uint64_t uniform_upload_bytes = 0U;
+    std::uint64_t uniform_upload_bytes =
+        semantic_image_color_uniform_upload_bytes;
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t semantic_layer_vertex_upload_bytes = 0U;
     std::uint64_t semantic_layer_uniform_upload_bytes = 0U;

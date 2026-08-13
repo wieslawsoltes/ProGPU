@@ -167,7 +167,8 @@ bool is_valid_semantic_image(
         ? 0U
         : static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) + minimum_row_bytes;
-    return image.struct_size >= sizeof(image) && image.flags == 0U &&
+    return image.struct_size >= sizeof(image) &&
+        (image.flags & ~PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) == 0U &&
         image.reserved == 0U && image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&

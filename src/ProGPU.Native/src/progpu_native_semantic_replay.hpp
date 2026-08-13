@@ -85,8 +85,11 @@ struct semantic_image_draw {
     WGPUTextureView view = nullptr;
     WGPUBindGroup nearest_bind_group = nullptr;
     WGPUBindGroup linear_bind_group = nullptr;
+    WGPUBuffer color_matrix_buffer = nullptr;
+    WGPUBindGroup color_matrix_bind_group = nullptr;
     std::uint32_t first_vertex = 0U;
     std::uint32_t sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    bool has_color_matrix = false;
 };
 
 struct semantic_image_page {

@@ -688,7 +688,8 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageDraw image,
         uint stateIndex = uint.MaxValue)
     {
-        if (image.Sampling == NativeImageSampling.Cubic)
+        if (image.Sampling == NativeImageSampling.Cubic ||
+            image.Flags != NativeSceneImageFlags.None)
         {
             return false;
         }
@@ -712,6 +713,7 @@ public ref struct NativeSceneStreamBuilder
         uint stateIndex = uint.MaxValue)
     {
         if (image.Sampling != NativeImageSampling.Cubic ||
+            image.Flags != NativeSceneImageFlags.None ||
             !samplingOptions.HasCanonicalFields)
         {
             return false;
@@ -723,6 +725,69 @@ public ref struct NativeSceneStreamBuilder
         MemoryMarshal.Write(
             payload[Unsafe.SizeOf<NativeSceneImageDraw>()..],
             in samplingOptions);
+        return TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            payload,
+            stateIndex);
+    }
+
+    public bool TryDrawImage(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        in NativeSceneImageColorMatrix colorMatrix,
+        uint stateIndex = uint.MaxValue)
+    {
+        if (image.Sampling == NativeImageSampling.Cubic ||
+            image.Flags != NativeSceneImageFlags.ColorMatrix ||
+            !colorMatrix.HasCanonicalFields)
+        {
+            return false;
+        }
+        Span<byte> payload = stackalloc byte[
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            Unsafe.SizeOf<NativeSceneImageColorMatrix>()];
+        MemoryMarshal.Write(payload, in image);
+        MemoryMarshal.Write(
+            payload[Unsafe.SizeOf<NativeSceneImageDraw>()..],
+            in colorMatrix);
+        return TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            payload,
+            stateIndex);
+    }
+
+    public bool TryDrawImage(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        in NativeSceneImageSamplingOptions samplingOptions,
+        in NativeSceneImageColorMatrix colorMatrix,
+        uint stateIndex = uint.MaxValue)
+    {
+        if (image.Sampling != NativeImageSampling.Cubic ||
+            image.Flags != NativeSceneImageFlags.ColorMatrix ||
+            !samplingOptions.HasCanonicalFields ||
+            !colorMatrix.HasCanonicalFields)
+        {
+            return false;
+        }
+        Span<byte> payload = stackalloc byte[
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            Unsafe.SizeOf<NativeSceneImageSamplingOptions>() +
+            Unsafe.SizeOf<NativeSceneImageColorMatrix>()];
+        int offset = 0;
+        MemoryMarshal.Write(payload, in image);
+        offset += Unsafe.SizeOf<NativeSceneImageDraw>();
+        MemoryMarshal.Write(payload[offset..], in samplingOptions);
+        offset += Unsafe.SizeOf<NativeSceneImageSamplingOptions>();
+        MemoryMarshal.Write(payload[offset..], in colorMatrix);
         return TryDrawImage(
             commandId,
             resourceIndex,

@@ -54,14 +54,16 @@ WGPUBindGroup create_image_mask_bind_group(
 }
 
 bool create_image_mask_resources(progpu_native_engine& engine) {
-    if (engine.image_mask_pipeline != nullptr) {
+    if (engine.image_mask_pipeline != nullptr &&
+        engine.image_color_matrix_pipeline != nullptr) {
         return true;
     }
     if (engine.image_pipeline == nullptr || engine.image_shader == nullptr ||
         engine.image_uniform_layout == nullptr ||
         engine.image_texture_layout == nullptr ||
         engine.image_mask_layout != nullptr ||
-        engine.image_mask_uniform_buffer != nullptr) {
+        engine.image_mask_uniform_buffer != nullptr ||
+        engine.image_color_matrix_pipeline != nullptr) {
         return false;
     }
 
@@ -160,8 +162,16 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     engine.image_mask_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
+    fragment.entryPoint = ::progpu::native::webgpu::string_view(
+        "fs_main_color_matrix_unmasked");
+    pipeline_descriptor.label = ::progpu::native::webgpu::string_view(
+        "ProGPU native retained image color-matrix pipeline");
+    engine.image_color_matrix_pipeline = wgpuDeviceCreateRenderPipeline(
+        engine.device,
+        &pipeline_descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
-    if (engine.image_mask_pipeline == nullptr) {
+    if (engine.image_mask_pipeline == nullptr ||
+        engine.image_color_matrix_pipeline == nullptr) {
         return false;
     }
 

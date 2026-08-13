@@ -259,6 +259,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const std::uint32_t second_image_offset = append_scene_payload(
         stream, second_image_pixels.data(), second_image_pixels.size());
     progpu_native_scene_image_draw second_image = image;
+    second_image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     second_image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     second_image.destination_rect.y = 4.0F;
     const std::uint32_t second_image_draw_offset = append_scene_payload(
@@ -269,6 +270,16 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         1.0F / 3.0F,
         1.0F / 3.0F};
     append_scene_payload(stream, &second_sampling, 1U);
+    const progpu_native_scene_image_color_matrix second_color_matrix{
+        sizeof(progpu_native_scene_image_color_matrix),
+        0U,
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.2126F, 0.7152F, 0.0722F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {0U, 0U}};
+    append_scene_payload(stream, &second_color_matrix, 1U);
     const progpu_native_scene_state second_row_state{
         sizeof(progpu_native_scene_state),
         PROGPU_NATIVE_SCENE_STATE_CLIP_RECT,
@@ -411,7 +422,8 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 208U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 7U,
             second_image_draw_offset,
-            sizeof(second_image) + sizeof(second_sampling),
+            sizeof(second_image) + sizeof(second_sampling) +
+                sizeof(second_color_matrix),
             50.0F, 24.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
@@ -1363,8 +1375,12 @@ void verify_semantic_scene(
             semantic_second_image[1] < 180U &&
             semantic_second_image[2] > 20U &&
             semantic_second_image[2] < 180U &&
+            std::abs(static_cast<int>(semantic_second_image[0]) -
+                static_cast<int>(semantic_second_image[1])) <= 8 &&
+            std::abs(static_cast<int>(semantic_second_image[1]) -
+                static_cast<int>(semantic_second_image[2])) <= 8 &&
             semantic_second_image[3] >= 240U,
-        "Mitchell-Netravali semantic image sampling is missing");
+        "fused cubic/color-matrix semantic image processing is missing");
     require(is_bgra(pixel(8U, 28U), 132U, 132U, 3U),
         "second distinct semantic analytic draw is missing");
     require(is_bgra(pixel(6U, 28U), 10U, 8U, 5U),
