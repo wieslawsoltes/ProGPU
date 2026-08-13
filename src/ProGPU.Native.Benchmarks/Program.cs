@@ -42,6 +42,7 @@ bool managedGroupFirst = Array.Exists(
         value,
         "--managed-first",
         StringComparison.OrdinalIgnoreCase));
+string? outputJsonPath = ReadStringArgument("--output-json");
 if (drainEachPair && (synchronizeEachFrame || groupMeasurements))
 {
     throw new ArgumentException(
@@ -738,7 +739,19 @@ byte[] managedPixels = managedTarget.ReadPixels();
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
-    string imageStem = useRoundedGroupMask
+    string imageStem = useVectorClipChain
+        ? useImageScene
+            ? "group-vector-clip-images"
+            : useGlyphScene
+            ? "group-vector-clip-glyphs"
+            : usePathScene
+            ? "group-vector-clip-paths"
+            : useGeometryScene
+            ? "group-vector-clip-geometry"
+            : useAnalyticScene
+            ? "group-vector-clip-analytic"
+            : "group-vector-clip-solid"
+        : useRoundedGroupMask
         ? useImageScene
             ? "group-rounded-mask-images"
             : useGlyphScene
@@ -1109,9 +1122,16 @@ var report = new BenchmarkReport(
     NativeLayerMetrics: nativeLayerMetrics,
     PixelParity: comparison);
 
-Console.WriteLine(JsonSerializer.Serialize(
+string reportJson = JsonSerializer.Serialize(
     report,
-    new JsonSerializerOptions { WriteIndented = true }));
+    new JsonSerializerOptions { WriteIndented = true });
+Console.WriteLine(reportJson);
+if (!string.IsNullOrWhiteSpace(outputJsonPath))
+{
+    string fullOutputPath = Path.GetFullPath(outputJsonPath);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
+    File.WriteAllText(fullOutputPath, reportJson);
+}
 
 ulong RenderNative(bool capturePayloadHash = false)
 {
@@ -1445,6 +1465,18 @@ int ReadArgument(string name, int fallback)
         }
     }
     return fallback;
+}
+
+string? ReadStringArgument(string name)
+{
+    for (int index = 0; index + 1 < args.Length; index++)
+    {
+        if (string.Equals(args[index], name, StringComparison.OrdinalIgnoreCase))
+        {
+            return args[index + 1];
+        }
+    }
+    return null;
 }
 
 static GpuTexture CreateTarget(WgpuContext context, string label) =>
