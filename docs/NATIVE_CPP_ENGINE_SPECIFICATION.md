@@ -67,7 +67,7 @@ metadata.
 | System | Observable architecture | ProGPU decision |
 | --- | --- | --- |
 | [WebGPU specification](https://www.w3.org/TR/webgpu/) | Explicit devices, queues, resources, command encoders, passes, validation, and asynchronous failure/loss behavior. | Preserve explicit ownership and submission. The stable ProGPU ABI never exposes version-sensitive WebGPU descriptor layouts. |
-| [WebGPU render bundles](https://www.w3.org/TR/webgpu/#render-bundles) | A render bundle records reusable draw commands independently of a target render pass; execution validates attachment formats/sample state and replays the retained command sequence. | Compile an immutable mixed scene into one device-owned bundle after its GPU pages are ready. Stable frames create only the current clear/store pass and execute that bundle once. Scene, DPI, device-domain, or shared-resource ownership changes release the bundle before any referenced page or binding is replaced. |
+| [WebGPU render bundles](https://gpuweb.github.io/gpuweb/#render-bundles) | A render bundle records reusable draw commands independently of a target render pass; execution validates attachment formats/sample state and replays the retained command sequence. Executing a bundle clears pipeline, bind-group, vertex-buffer, and index-buffer state, but the specification does not clear the pass scissor. | Compile an immutable mixed scene into retained contiguous clip-span bundles after its GPU pages are ready. A stable frame sets each span's physical scissor on the one current clear/store pass and executes its bundle. Scene, DPI, target size, device-domain, or shared-resource ownership changes release every span before referenced pages or bindings are replaced. |
 | [WebGPU blend state and render-pass load/store operations](https://gpuweb.github.io/gpuweb/#blend-state) | A render attachment can be cleared/stored explicitly, then sampled by a later pass; premultiplied source-over uses source color factor one and destination factor one-minus-source-alpha. | Clear a pooled layer to transparent, store the family result, and sample it once through a dedicated premultiplied composite pipeline in the same command buffer. Never use the straight-alpha image blend for layer pixels. |
 | [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
@@ -1089,9 +1089,10 @@ and renders ordered analytic, path, positioned-glyph, and upload-backed image
 commands. The first d3b2 checkpoint also consumes a pointer-free absolute
 state resource for save/restore scopes and per-draw overrides: its affine
 transform is composed after the draw-local transform and its opacity
-multiplies draw alpha once while changed pages are compiled. Rectangular clip
-state and isolated layers still fail with typed `UNSUPPORTED` status and
-remain d3b2 work.
+multiplies draw alpha once while changed pages are compiled. Its optional
+logical target rectangle is lowered to a retained physical scissor span;
+isolated layers still fail with typed `UNSUPPORTED` status and remain d3b2
+work.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
 primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
@@ -1108,8 +1109,10 @@ target clip rectangle, and zeroed reserved fields. A save with a state index
 pushes the preceding current state and installs the referenced absolute state;
 restore reinstates the pushed state. A draw state index overrides the current
 state for that draw only. Restore and pop commands cannot carry state indices.
-`CLIP_RECT` is structurally validated but rendering it is deliberately
-rejected until retained clip lowering is complete.
+`CLIP_RECT` is canonical: when the flag is absent all four rectangle values
+must be zero. When present it is intersected with the physical target after DPI
+conversion; an empty result advances its retained family-page cursor but emits
+no draw or invalid zero-size WebGPU scissor.
 
 The command vocabulary is deliberately semantic:
 
@@ -1139,8 +1142,8 @@ radix validation and stack depth D; the canonical resource table needs no
 lookup allocation. No partial snapshot becomes visible on failure.
 
 State-resource validation also checks the exact 64-byte payload, zero
-auxiliary bytes and reserved fields, known flags, finite affine/clip values,
-non-negative clip extent, and opacity in `[0,1]`. State resolution uses a
+auxiliary bytes and reserved fields, known and canonical flags, finite
+affine/clip values, non-negative clip extent, and opacity in `[0,1]`. State resolution uses a
 fixed 64-entry native stack. It adds O(C) time and O(D) bounded stack storage,
 with no managed allocation and no native heap allocation proportional to state
 transition count.
@@ -1170,10 +1173,12 @@ texture for every save/restore pair.
 The current d3b1 checkpoint crosses the public ABI once per frame and prepares
 changed path/glyph coverage in compute passes. Once every referenced GPU page
 is ready, it records all ordered analytic, retained-path, positioned-glyph,
-and image commands into one immutable `WGPURenderBundle`. Stable frames create
-only the current target clear/store pass and execute that retained bundle once
-inside one command buffer and submission; they do not rebuild wgpu-native's
-per-draw command vectors. All analytic commands in an immutable scene compile
+and image commands into immutable contiguous clip-span `WGPURenderBundle`
+values. A scene without clips has exactly one span. Stable frames create only
+the current target clear/store pass, set one fixed-function physical scissor
+per span, and execute its retained bundle inside one command buffer and
+submission; they do not rebuild wgpu-native's per-draw command vectors. All
+analytic commands in an immutable scene compile
 into one retained vertex/index page with per-draw offsets. Path commands
 compile into one aggregate path/segment page, one retained atlas, and one
 vertex/index payload with per-command index ranges. Glyph commands likewise
@@ -1183,24 +1188,28 @@ groups, while all image quads share one scene-wide vertex page and common index
 buffer. An
 analytic→path→glyph→image→different-path→different-glyph→different-image→
 different-analytic hardware fixture proves eight ordered draws in the single
-render pass without payload overwrite or an intermediate submission.
+render pass without payload overwrite or an intermediate submission. The
+d3b2 fixture adds clipped and empty-clip states without changing that emitted
+draw count.
 
 Full scene-hash ownership markers invalidate the shared path and glyph GPU
 caches after standalone family use, independently of the public 32-bit content
 revision, so a revision collision cannot replay a foreign page. Image-page
 replacement is transactional: every new texture, view, bind group, and vertex
 buffer is constructed and uploaded before the preceding immutable page is
-released. The render bundle is keyed by full scene hash and DPI and is released
-before page replacement or standalone family mutation; destruction also
-releases it before the resources it references. Visibility culling and
+released. The render-bundle span table is keyed by full scene hash, DPI, and
+physical target dimensions and is released before page replacement or
+standalone family mutation; destruction also releases it before the resources
+it references. Visibility culling and
 per-resource incremental page replacement remain later optimization work, but
 stable multi-command ownership is complete for all four d3b1 draw families.
 
 Whole-scene value/budget validation remains O(C) CPU work for C commands.
-Changed-scene bundle recording is also O(C), but stable target encoding is
-O(1) in scene-command count: begin one clear/store pass, execute one bundle,
-end, and submit. It uses one render pass/submission independent of draw-family
-switches. A changed analytic page is O(C + A) time and
+Changed-scene bundle recording is also O(C). Stable target encoding is O(K)
+for K contiguous effective clip spans: begin one clear/store pass, set and
+execute each retained span, end, and submit. K is bounded by drawable commands
+and is one for the common unclipped scene. It uses one render pass/submission
+independent of draw-family switches. A changed analytic page is O(C + A) time and
 O(Ca + A) temporary/retained storage for C commands, Ca analytic commands, and
 A expanded analytic vertices/indices. A changed path page is O(C + P + S + K)
 time and O(P + S + K) retained CPU/GPU storage for P fills, S source segments,
@@ -1208,17 +1217,21 @@ and K expanded draw/coverage bytes. A changed glyph page is
 O(C + O + S + G + K) time and storage for O outlines, S segments, G positioned
 instances, and K atlas/coverage bytes. A changed image page is O(C + I + B)
 time and O(I + B) retained storage for I image draws and B texture/quad bytes.
-Stable replay has O(C) bounded semantic validation, O(1) native WebGPU command
+Stable replay has O(C) bounded semantic validation, O(K) native WebGPU pass
 recording, and zero vertex, index, texture, coverage, or uniform upload.
 
-The first d3b2 state checkpoint preserves those stable-replay bounds. State
+The d3b2 state/rectangle-clip checkpoint preserves those stable-replay bounds. State
 affines and opacity are baked only when immutable analytic/path/glyph/image
 pages are compiled; they add no per-frame uniform upload, bind-group change,
-P/Invoke, or WebGPU draw-recording call. A real Dawn/Metal fixture places its
+P/Invoke, or per-draw WebGPU recording call. Logical rectangle clips create no
+geometry, texture, mask, or upload; changed-scene compilation only partitions
+adjacent draws by effective physical scissor. A real Dawn/Metal fixture places its
 second mixed-family row at the same source coordinates as the first, then
 produces the lower row solely through `Save(state)` with a +20 logical Y
-translation and 0.5 opacity followed by `Restore`. Unchanged replay remains
-one render bundle, pass, command buffer, and submission.
+translation, 0.5 opacity, and a clip trimming its left and right draws,
+followed by `Restore`. A final empty-clip override proves the draw is skipped
+without losing packed-page alignment. Unchanged replay remains one pass,
+command buffer, and submission with two retained clip-span bundles.
 
 The cross-engine substitution harness now exercises this exact boundary with
 one equivalent managed retained visual tree and one pointer-free native scene.

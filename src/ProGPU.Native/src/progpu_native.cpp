@@ -1024,6 +1024,61 @@ void apply_semantic_state(
     image.opacity *= state.opacity;
 }
 
+struct semantic_scissor final {
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    bool drawable = true;
+
+    bool operator==(const semantic_scissor&) const noexcept = default;
+};
+
+semantic_scissor resolve_semantic_scissor(
+    const progpu_native_scene_state& state,
+    std::uint32_t target_width,
+    std::uint32_t target_height,
+    float dpi_scale) noexcept {
+    semantic_scissor result{0U, 0U, target_width, target_height, true};
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U) {
+        return result;
+    }
+    const auto& clip = state.clip_rect;
+    const float left = std::clamp(
+        clip.x * dpi_scale,
+        0.0F,
+        static_cast<float>(target_width));
+    const float top = std::clamp(
+        clip.y * dpi_scale,
+        0.0F,
+        static_cast<float>(target_height));
+    const float right = std::clamp(
+        (clip.x + clip.width) * dpi_scale,
+        0.0F,
+        static_cast<float>(target_width));
+    const float bottom = std::clamp(
+        (clip.y + clip.height) * dpi_scale,
+        0.0F,
+        static_cast<float>(target_height));
+    const float snapped_left = snap_scissor_coordinate(left);
+    const float snapped_top = snap_scissor_coordinate(top);
+    const float snapped_right = snap_scissor_coordinate(right);
+    const float snapped_bottom = snap_scissor_coordinate(bottom);
+    if (snapped_right <= snapped_left || snapped_bottom <= snapped_top) {
+        result.width = 0U;
+        result.height = 0U;
+        result.drawable = false;
+        return result;
+    }
+    result.x = static_cast<std::uint32_t>(std::floor(snapped_left));
+    result.y = static_cast<std::uint32_t>(std::floor(snapped_top));
+    result.width = static_cast<std::uint32_t>(
+        std::ceil(snapped_right)) - result.x;
+    result.height = static_cast<std::uint32_t>(
+        std::ceil(snapped_bottom)) - result.y;
+    return result;
+}
+
 constexpr std::uint32_t semantic_max_draw_passes = 16U * 1024U;
 constexpr std::uint64_t semantic_max_vertex_bytes = 256ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t semantic_max_index_bytes = 64ULL * 1024ULL * 1024ULL;
@@ -1150,6 +1205,14 @@ struct semantic_image_page {
     float dpi_scale = 0.0F;
     bool cache_valid = false;
     std::vector<semantic_image_draw> draws;
+};
+
+struct semantic_render_bundle_span {
+    WGPURenderBundle bundle = nullptr;
+    std::uint32_t clip_x = 0U;
+    std::uint32_t clip_y = 0U;
+    std::uint32_t clip_width = 0U;
+    std::uint32_t clip_height = 0U;
 };
 
 struct progpu_native_engine {
@@ -1454,9 +1517,12 @@ struct progpu_native_engine {
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
     semantic_image_page semantic_image_cache;
-    WGPURenderBundle semantic_render_bundle = nullptr;
+    std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
+    bool semantic_render_bundle_valid = false;
     std::uint64_t semantic_render_bundle_scene_hash = 0U;
     float semantic_render_bundle_dpi_scale = 0.0F;
+    std::uint32_t semantic_render_bundle_width = 0U;
+    std::uint32_t semantic_render_bundle_height = 0U;
     std::uint32_t semantic_render_bundle_draw_call_count = 0U;
     std::uint32_t semantic_render_bundle_family_switch_count = 0U;
     WGPUCommandEncoder semantic_encoder = nullptr;
@@ -1753,12 +1819,18 @@ struct progpu_native_engine {
     }
 
     void release_semantic_render_bundle() noexcept {
-        if (semantic_render_bundle != nullptr) {
-            wgpuRenderBundleRelease(semantic_render_bundle);
-            semantic_render_bundle = nullptr;
+        for (auto& span : semantic_render_bundle_spans) {
+            if (span.bundle != nullptr) {
+                wgpuRenderBundleRelease(span.bundle);
+                span.bundle = nullptr;
+            }
         }
+        semantic_render_bundle_spans.clear();
+        semantic_render_bundle_valid = false;
         semantic_render_bundle_scene_hash = 0U;
         semantic_render_bundle_dpi_scale = 0.0F;
+        semantic_render_bundle_width = 0U;
+        semantic_render_bundle_height = 0U;
         semantic_render_bundle_draw_call_count = 0U;
         semantic_render_bundle_family_switch_count = 0U;
     }
@@ -11392,11 +11464,6 @@ progpu_native_status progpu_native_engine_render_scene(
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             continue;
         }
-        if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                "Semantic retained rectangular clips are delivered by the next M2.4d3b2 slice.");
-        }
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
         bool budget_valid = true;
@@ -11643,10 +11710,12 @@ progpu_native_status progpu_native_engine_render_scene(
     }
 
     const bool semantic_render_bundle_hit =
-        engine->semantic_render_bundle != nullptr &&
+        engine->semantic_render_bundle_valid &&
         engine->semantic_render_bundle_scene_hash ==
             engine->semantic_scene_hash &&
         engine->semantic_render_bundle_dpi_scale == frame->dpi_scale &&
+        engine->semantic_render_bundle_width == frame->width &&
+        engine->semantic_render_bundle_height == frame->height &&
         (semantic_path_draw_count == 0U ||
             engine->semantic_path_gpu_scene_hash ==
                 engine->semantic_scene_hash) &&
@@ -12440,41 +12509,114 @@ progpu_native_status progpu_native_engine_render_scene(
     }
 
     if (semantic_draw_count != 0U &&
-        engine->semantic_render_bundle == nullptr) {
+        !engine->semantic_render_bundle_valid) {
         WGPURenderBundleEncoderDescriptor bundle_descriptor{};
         bundle_descriptor.label = progpu::native::webgpu::string_view(
             "ProGPU retained semantic mixed-scene bundle encoder");
         bundle_descriptor.colorFormatCount = 1U;
         bundle_descriptor.colorFormats = &engine->target_format;
         bundle_descriptor.sampleCount = 1U;
-        WGPURenderBundleEncoder bundle_encoder =
-            wgpuDeviceCreateRenderBundleEncoder(
-                engine->device,
-                &bundle_descriptor);
-        if (bundle_encoder == nullptr) {
+        std::vector<semantic_render_bundle_span> compiled_spans;
+        try {
+            compiled_spans.reserve(semantic_draw_count);
+        } catch (const std::bad_alloc&) {
             discard_encoder();
             return engine->fail(
-                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The retained semantic render-bundle encoder could not be created.");
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The retained semantic clip-span table could not be allocated.");
         }
+        WGPURenderBundleEncoder bundle_encoder = nullptr;
+        semantic_scissor active_scissor{};
+        bool has_active_scissor = false;
+        const auto release_compiled_spans = [&]() noexcept {
+            for (auto& span : compiled_spans) {
+                if (span.bundle != nullptr) {
+                    wgpuRenderBundleRelease(span.bundle);
+                    span.bundle = nullptr;
+                }
+            }
+            compiled_spans.clear();
+        };
         const auto fail_bundle = [&](progpu_native_status status) noexcept {
-            wgpuRenderBundleEncoderRelease(bundle_encoder);
+            if (bundle_encoder != nullptr) {
+                wgpuRenderBundleEncoderRelease(bundle_encoder);
+                bundle_encoder = nullptr;
+            }
+            release_compiled_spans();
             discard_encoder();
             return status;
         };
+        const auto finish_active_bundle = [&]() {
+            if (bundle_encoder == nullptr) {
+                return PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+            WGPURenderBundleDescriptor finish_descriptor{};
+            finish_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU retained semantic clip-span bundle");
+            WGPURenderBundle bundle = wgpuRenderBundleEncoderFinish(
+                bundle_encoder,
+                &finish_descriptor);
+            wgpuRenderBundleEncoderRelease(bundle_encoder);
+            bundle_encoder = nullptr;
+            if (bundle == nullptr) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A retained semantic clip-span bundle could not be finished.");
+            }
+            compiled_spans.push_back({
+                bundle,
+                active_scissor.x,
+                active_scissor.y,
+                active_scissor.width,
+                active_scissor.height});
+            return PROGPU_NATIVE_STATUS_SUCCESS;
+        };
+        const auto begin_active_bundle = [&](semantic_scissor scissor) {
+            bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
+                engine->device,
+                &bundle_descriptor);
+            if (bundle_encoder == nullptr) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A retained semantic clip-span encoder could not be created.");
+            }
+            active_scissor = scissor;
+            has_active_scissor = true;
+            return PROGPU_NATIVE_STATUS_SUCCESS;
+        };
 
+        semantic_state_cursor state_cursor(bytes, header);
         for (std::uint32_t index = 0U;
              index < header.command_count;
              ++index) {
             const auto command = read_command(index);
+            const auto state = state_cursor.advance(command);
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                 continue;
             }
-            note_family(command.kind);
+            const auto scissor = resolve_semantic_scissor(
+                state,
+                frame->width,
+                frame->height,
+                frame->dpi_scale);
+            if (scissor.drawable &&
+                (!has_active_scissor || scissor != active_scissor)) {
+                const auto finish_status = finish_active_bundle();
+                if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    return fail_bundle(finish_status);
+                }
+                const auto begin_status = begin_active_bundle(scissor);
+                if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    return fail_bundle(begin_status);
+                }
+            }
+            if (scissor.drawable) {
+                note_family(command.kind);
+            }
             progpu_native_status status =
-                PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+                PROGPU_NATIVE_STATUS_SUCCESS;
             switch (command.kind) {
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                     if (semantic_analytic_draw_index >=
@@ -12483,13 +12625,15 @@ progpu_native_status progpu_native_engine_render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic analytic packed-page index is invalid."));
                     }
-                    status = encode_semantic_analytic_draw<
-                        semantic_render_bundle_commands>(
-                            *engine,
-                            bundle_encoder,
-                            semantic_analytic_page.draws[
-                                semantic_analytic_draw_index]);
+                    const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_analytic_draw<
+                            semantic_render_bundle_commands>(
+                                *engine,
+                                bundle_encoder,
+                                semantic_analytic_page.draws[draw_index]);
+                    }
                     break;
                 }
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
@@ -12499,13 +12643,15 @@ progpu_native_status progpu_native_engine_render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic path packed-page index is invalid."));
                     }
-                    status = encode_semantic_path_draw<
-                        semantic_render_bundle_commands>(
-                            *engine,
-                            bundle_encoder,
-                            semantic_path_page.draws[
-                                semantic_path_draw_index]);
+                    const auto draw_index = semantic_path_draw_index;
                     ++semantic_path_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_path_draw<
+                            semantic_render_bundle_commands>(
+                                *engine,
+                                bundle_encoder,
+                                semantic_path_page.draws[draw_index]);
+                    }
                     break;
                 }
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
@@ -12515,13 +12661,15 @@ progpu_native_status progpu_native_engine_render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic glyph packed-page index is invalid."));
                     }
-                    status = encode_semantic_glyph_draw<
-                        semantic_render_bundle_commands>(
-                            *engine,
-                            bundle_encoder,
-                            semantic_glyph_page.draws[
-                                semantic_glyph_draw_index]);
+                    const auto draw_index = semantic_glyph_draw_index;
                     ++semantic_glyph_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_glyph_draw<
+                            semantic_render_bundle_commands>(
+                                *engine,
+                                bundle_encoder,
+                                semantic_glyph_page.draws[draw_index]);
+                    }
                     break;
                 }
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE: {
@@ -12531,13 +12679,15 @@ progpu_native_status progpu_native_engine_render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic image packed-page index is invalid."));
                     }
-                    status = encode_semantic_image_draw<
-                        semantic_render_bundle_commands>(
-                            *engine,
-                            bundle_encoder,
-                            semantic_image_page.draws[
-                                semantic_image_draw_index]);
+                    const auto draw_index = semantic_image_draw_index;
                     ++semantic_image_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_image_draw<
+                            semantic_render_bundle_commands>(
+                                *engine,
+                                bundle_encoder,
+                                semantic_image_page.draws[draw_index]);
+                    }
                     break;
                 }
                 default:
@@ -12546,7 +12696,7 @@ progpu_native_status progpu_native_engine_render_scene(
             if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
                 return fail_bundle(status);
             }
-            ++draw_calls;
+            draw_calls += scissor.drawable ? 1U : 0U;
         }
 
         if (semantic_analytic_draw_index !=
@@ -12559,23 +12709,17 @@ progpu_native_status progpu_native_engine_render_scene(
                 "A semantic packed-page draw count is inconsistent."));
         }
 
-        WGPURenderBundleDescriptor finish_descriptor{};
-        finish_descriptor.label = progpu::native::webgpu::string_view(
-            "ProGPU retained semantic mixed-scene bundle");
-        WGPURenderBundle bundle = wgpuRenderBundleEncoderFinish(
-            bundle_encoder,
-            &finish_descriptor);
-        wgpuRenderBundleEncoderRelease(bundle_encoder);
-        if (bundle == nullptr) {
-            discard_encoder();
-            return engine->fail(
-                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The retained semantic render bundle could not be finished.");
+        const auto finish_status = finish_active_bundle();
+        if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            return fail_bundle(finish_status);
         }
-        engine->semantic_render_bundle = bundle;
+        engine->semantic_render_bundle_spans = std::move(compiled_spans);
+        engine->semantic_render_bundle_valid = true;
         engine->semantic_render_bundle_scene_hash =
             engine->semantic_scene_hash;
         engine->semantic_render_bundle_dpi_scale = frame->dpi_scale;
+        engine->semantic_render_bundle_width = frame->width;
+        engine->semantic_render_bundle_height = frame->height;
         engine->semantic_render_bundle_draw_call_count = draw_calls;
         engine->semantic_render_bundle_family_switch_count =
             family_switches;
@@ -12613,8 +12757,16 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic bundle replay pass could not be created.");
         }
-        wgpuRenderPassEncoderExecuteBundles(
-            pass, 1U, &engine->semantic_render_bundle);
+        for (const auto& span : engine->semantic_render_bundle_spans) {
+            wgpuRenderPassEncoderSetScissorRect(
+                pass,
+                span.clip_x,
+                span.clip_y,
+                span.clip_width,
+                span.clip_height);
+            wgpuRenderPassEncoderExecuteBundles(
+                pass, 1U, &span.bundle);
+        }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }

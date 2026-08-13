@@ -114,6 +114,11 @@ bool finite_bounds(const progpu_native_scene_command& command) noexcept {
 }
 
 bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
+    const bool clip_is_canonical =
+        (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U ||
+        (state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
+            state.clip_rect.width == 0.0F &&
+            state.clip_rect.height == 0.0F);
     return state.struct_size == sizeof(progpu_native_scene_state) &&
         (state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U &&
         state.reserved == 0U && state.reserved0 == 0U &&
@@ -131,7 +136,7 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
         std::isfinite(state.clip_rect.width) &&
         std::isfinite(state.clip_rect.height) &&
         state.clip_rect.width >= 0.0F &&
-        state.clip_rect.height >= 0.0F;
+        state.clip_rect.height >= 0.0F && clip_is_canonical;
 }
 
 bool command_ids_are_unique(

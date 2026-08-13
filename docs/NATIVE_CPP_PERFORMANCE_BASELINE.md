@@ -521,8 +521,7 @@ coverage staging, and 512 MiB across those compiled domains. Accumulation uses
 checked 64-bit arithmetic and runs in O(C + V) time for C commands and V typed
 values with O(1) budget storage. A valid 16,385-draw stream fails with
 `OUT_OF_MEMORY` before encoder creation, preserves the submission timeline,
-and leaves the target unchanged. Rectangular semantic clip state and isolated
-layers remain d3b2.
+and leaves the target unchanged. Isolated layers remain d3b2.
 
 ## Semantic save/restore state checkpoint
 
@@ -531,17 +530,30 @@ typed allocation-free .NET builder entry point. Absolute affine transforms and
 opacity now flow through save/restore scopes and per-draw overrides across
 analytic, retained-path, positioned-glyph, and retained-image commands. The
 compiler composes and bakes those values only when immutable family pages
-change; stable replay retains the same render bundle and reports zero vertex,
-index, texture, uniform, and coverage uploads. Rectangular clip state and
-isolated layers remain intentionally unsupported by rendering and keep d3b2
-unchecked.
+change; stable replay retains the same bundle spans and reports zero vertex,
+index, texture, uniform, and coverage uploads. Isolated layers remain
+intentionally unsupported by rendering and keep d3b2 unchecked.
 
-The warnings-as-errors native build, local native scene tests, and 23 focused
-managed interop tests pass. The real pinned WebScene/Dawn/Metal provider test
-also passes with ten commands, eight ordered draws, eight family switches, one
+The retained rectangle-clip increment partitions adjacent draws by effective
+physical scissor and records one immutable render bundle per span. Stable
+replay sets those scissors in the single current target pass and executes the
+retained spans without geometry growth, mask textures, or native command
+re-recording. This follows the WebGPU render-bundle state contract: bundle
+execution clears pipeline/binding/buffer state, while scissor remains pass
+state. Changed-scene compilation is O(C) for C commands; stable pass encoding
+is O(K) for K clip spans, bounded by drawable commands and equal to one for an
+unclipped scene.
+
+The warnings-as-errors native build, ASan/UBSan local/provider suites, and 23
+focused managed interop tests in both Debug and Release pass. The real pinned
+WebScene/Dawn/Metal provider test also passes with eleven commands, nine
+semantic draw records, eight emitted ordered draws, eight family switches, one
 submission, and zero stable retained uploads. Its lower row is generated from
 top-row source coordinates by `Save(state)` with translation `(0,20)` and
-opacity `0.5`, followed by `Restore`. Exact observed BGRA interior pixels are:
+opacity `0.5`; its logical target clip `(8,20,48,16)` trims the analytic left
+edge and image right edge. A final analytic draw with an empty per-draw clip is
+skipped while the packed analytic-page cursor remains aligned. Exact observed
+BGRA interior pixels remain:
 
 | Sample | BGRA |
 |---|---:|
@@ -551,9 +563,9 @@ opacity `0.5`, followed by `Restore`. Exact observed BGRA interior pixels are:
 | transformed half-opacity image | `132,131,3,255` |
 | transformed half-opacity analytic | `132,131,3,255` |
 
-The inspected provider capture is retained at
-`artifacts/progpu-native/build/progpu-native-semantic-scene-state.png` with
-SHA-256 `20d0ea8acc7f3b785f937547c69f7041e2e1870d0ab5ee14f55efdb97107bbe6`.
+The inspected clip provider capture is retained at
+`artifacts/progpu-native/build/progpu-native-semantic-scene-clip.png` with
+SHA-256 `8518b5cc8dec81c892ef44143cf5070ff9db8929484c38fd229b7b6d384ebd03`.
 This is functional retained-state evidence, not yet a new matched C++/managed
 state-bearing performance distribution; a matched state-bearing benchmark and
 profiler comparison remain required before the state/layer milestone can be

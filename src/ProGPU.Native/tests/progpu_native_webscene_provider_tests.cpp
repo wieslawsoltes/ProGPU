@@ -100,8 +100,8 @@ std::uint32_t append_scene_payload(
 
 std::vector<std::byte> create_renderable_semantic_scene_stream(
     std::uint64_t generation) {
-    constexpr std::uint32_t command_count = 10U;
-    constexpr std::uint32_t resource_count = 9U;
+    constexpr std::uint32_t command_count = 11U;
+    constexpr std::uint32_t resource_count = 10U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -239,15 +239,26 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         stream, &second_image, 1U);
     const progpu_native_scene_state second_row_state{
         sizeof(progpu_native_scene_state),
-        0U,
+        PROGPU_NATIVE_SCENE_STATE_CLIP_RECT,
         {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 20.0F},
         0.5F,
         0U,
-        {},
+        {8.0F, 20.0F, 48.0F, 16.0F},
         0U,
         0U};
     const std::uint32_t second_row_state_offset = append_scene_payload(
         stream, &second_row_state, 1U);
+    const progpu_native_scene_state empty_clip_state{
+        sizeof(progpu_native_scene_state),
+        PROGPU_NATIVE_SCENE_STATE_CLIP_RECT,
+        identity,
+        1.0F,
+        0U,
+        {},
+        0U,
+        0U};
+    const std::uint32_t empty_clip_state_offset = append_scene_payload(
+        stream, &empty_clip_state, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -307,7 +318,11 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_STATE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 109U, 1U,
-            second_row_state_offset, sizeof(second_row_state), 0U, 0U}
+            second_row_state_offset, sizeof(second_row_state), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 110U, 1U,
+            empty_clip_state_offset, sizeof(empty_clip_state), 0U, 0U}
     };
     std::memcpy(
         stream.data() + resource_offset,
@@ -365,8 +380,13 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_NO_INDEX, 4U, 0U, 0U,
             4.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_RESTORE,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 210U,
+            9U, 0U, 0U, 0U,
+            4.0F, 4.0F, 12.0F, 12.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_RESTORE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 211U,
             PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
             0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U}
     };
@@ -730,6 +750,10 @@ void verify_semantic_scene(
         "second distinct semantic image draw is missing");
     require(is_bgra(pixel(8U, 28U), 132U, 132U, 3U),
         "second distinct semantic analytic draw is missing");
+    require(is_bgra(pixel(6U, 28U), 10U, 8U, 5U),
+        "semantic state clip did not trim the analytic left edge");
+    require(is_bgra(pixel(58U, 28U), 10U, 8U, 5U),
+        "semantic state clip did not trim the image right edge");
 
     if (output_path != nullptr && output_path[0] != '\0') {
         std::FILE* output = std::fopen(output_path, "wb");
@@ -965,7 +989,7 @@ int main(int argc, char** argv) {
         renderable_scene.data(),
         renderable_scene.size(),
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        scene_metrics.draw_count == 8U,
+        scene_metrics.draw_count == 9U,
         "renderable semantic scene update failed");
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -992,7 +1016,7 @@ int main(int argc, char** argv) {
         &semantic_frame,
         &semantic_metrics);
     if (semantic_status != PROGPU_NATIVE_STATUS_SUCCESS ||
-        semantic_metrics.command_count != 10U ||
+        semantic_metrics.command_count != 11U ||
         semantic_metrics.draw_call_count != 8U ||
         semantic_metrics.family_switch_count != 8U ||
         semantic_metrics.submission_count != 1U ||
@@ -1013,7 +1037,7 @@ int main(int argc, char** argv) {
             semantic_error.data());
     }
     require(semantic_status == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 10U &&
+        semantic_metrics.command_count == 11U &&
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
@@ -1027,7 +1051,7 @@ int main(int argc, char** argv) {
         engine,
         &semantic_frame,
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        semantic_metrics.command_count == 10U &&
+        semantic_metrics.command_count == 11U &&
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&

@@ -715,7 +715,9 @@ public class NativeRendererInteropTests
         var state = new NativeSceneState(
             Matrix3x2.CreateScale(2f) *
                 Matrix3x2.CreateTranslation(5f, 7f),
-            opacity: 0.5f);
+            opacity: 0.5f,
+            flags: NativeSceneStateFlags.ClipRect,
+            clipRect: new NativeImageRect(1f, 2f, 30f, 40f));
         var builder = new NativeSceneStreamBuilder(
             destination,
             sceneId: 8U,
@@ -755,6 +757,11 @@ public class NativeRendererInteropTests
         Assert.Equal(64U, stateResource.PayloadSize);
         Assert.Equal(0.5f, storedState.Opacity);
         Assert.Equal(state.Transform, storedState.Transform);
+        Assert.Equal(NativeSceneStateFlags.ClipRect, storedState.Flags);
+        Assert.Equal(1f, storedState.ClipRect.X);
+        Assert.Equal(2f, storedState.ClipRect.Y);
+        Assert.Equal(30f, storedState.ClipRect.Width);
+        Assert.Equal(40f, storedState.ClipRect.Height);
 
         var save = MemoryMarshal.Read<NativeMethods.SceneCommand>(
             stream[(int)header.CommandOffset..]);
