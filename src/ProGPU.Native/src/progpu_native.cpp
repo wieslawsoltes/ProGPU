@@ -923,14 +923,16 @@ public:
 
     progpu_native_scene_state advance(
         const progpu_native_scene_command& command) noexcept {
-        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
             stack_[depth_++] = current_;
             if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                 current_ = read_state(command.state_index);
             }
             return current_;
         }
-        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
             current_ = stack_[--depth_];
             return current_;
         }
@@ -1176,6 +1178,7 @@ struct semantic_layer_budget {
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> live_materialized{};
     std::uint32_t scope_depth = 0U;
     std::uint32_t materialized_depth = 0U;
+    std::uint32_t peak_materialized_depth = 0U;
     std::uint64_t current_bytes = 0U;
     std::uint64_t peak_bytes = 0U;
 
@@ -1192,6 +1195,9 @@ struct semantic_layer_budget {
         live_bytes[scope_depth] = materialized ? bytes : 0U;
         live_materialized[scope_depth++] = materialized;
         materialized_depth += materialized ? 1U : 0U;
+        peak_materialized_depth = std::max(
+            peak_materialized_depth,
+            materialized_depth);
         current_bytes += materialized ? bytes : 0U;
         peak_bytes = std::max(peak_bytes, current_bytes);
         return true;
@@ -1273,12 +1279,31 @@ struct semantic_image_page {
     std::vector<semantic_image_draw> draws;
 };
 
+enum class semantic_replay_kind : std::uint8_t {
+    bundle,
+    push_layer,
+    pop_layer
+};
+
 struct semantic_render_bundle_span {
+    semantic_replay_kind kind = semantic_replay_kind::bundle;
     WGPURenderBundle bundle = nullptr;
     std::uint32_t clip_x = 0U;
     std::uint32_t clip_y = 0U;
     std::uint32_t clip_width = 0U;
     std::uint32_t clip_height = 0U;
+    std::uint32_t target_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t source_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t first_composite_vertex = 0U;
+};
+
+struct semantic_layer_slot {
+    WGPUTexture texture = nullptr;
+    WGPUTextureView view = nullptr;
+    WGPUBindGroup bind_group = nullptr;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::uint32_t generation = 0U;
 };
 
 struct progpu_native_engine {
@@ -1584,6 +1609,11 @@ struct progpu_native_engine {
     semantic_glyph_page semantic_glyph_cache;
     semantic_image_page semantic_image_cache;
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
+    std::array<semantic_layer_slot,
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> semantic_layer_slots{};
+    WGPUBuffer semantic_layer_vertex_buffer = nullptr;
+    std::uint64_t semantic_layer_vertex_buffer_size = 0U;
+    std::uint32_t semantic_layer_allocation_count = 0U;
     bool semantic_render_bundle_valid = false;
     std::uint64_t semantic_render_bundle_scene_hash = 0U;
     float semantic_render_bundle_dpi_scale = 0.0F;
@@ -1901,6 +1931,32 @@ struct progpu_native_engine {
         semantic_render_bundle_family_switch_count = 0U;
     }
 
+    void release_semantic_layer_resources() noexcept {
+        if (semantic_layer_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(semantic_layer_vertex_buffer);
+            wgpuBufferRelease(semantic_layer_vertex_buffer);
+            semantic_layer_vertex_buffer = nullptr;
+        }
+        for (auto& slot : semantic_layer_slots) {
+            if (slot.bind_group != nullptr) {
+                wgpuBindGroupRelease(slot.bind_group);
+                slot.bind_group = nullptr;
+            }
+            if (slot.view != nullptr) {
+                wgpuTextureViewRelease(slot.view);
+                slot.view = nullptr;
+            }
+            if (slot.texture != nullptr) {
+                wgpuTextureDestroy(slot.texture);
+                wgpuTextureRelease(slot.texture);
+                slot.texture = nullptr;
+            }
+            slot.width = 0U;
+            slot.height = 0U;
+        }
+        semantic_layer_vertex_buffer_size = 0U;
+    }
+
     void release_semantic_image_page() noexcept {
         auto& page = semantic_image_cache;
         for (auto& draw : page.draws) {
@@ -2022,6 +2078,7 @@ struct progpu_native_engine {
             semantic_encoder = nullptr;
         }
         release_semantic_render_bundle();
+        release_semantic_layer_resources();
         release_semantic_image_page();
         release_semantic_analytic_page();
         release_effect_resources();
@@ -5650,6 +5707,168 @@ bool ensure_layer_texture(
     return true;
 }
 
+bool ensure_semantic_layer_slot(
+    progpu_native_engine& engine,
+    std::uint32_t index,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (index >= engine.semantic_layer_slots.size()) {
+        return false;
+    }
+    auto& slot = engine.semantic_layer_slots[index];
+    if (slot.texture != nullptr && slot.width == width &&
+        slot.height == height) {
+        return true;
+    }
+
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU semantic depth-indexed isolated layer");
+    descriptor.usage = WGPUTextureUsage_RenderAttachment |
+        WGPUTextureUsage_TextureBinding;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = engine.target_format;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(
+        engine.device,
+        &descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    WGPUBindGroup bind_group = create_image_texture_bind_group(
+        engine,
+        engine.image_linear_sampler,
+        view,
+        "ProGPU semantic isolated-layer texture binding");
+    if (bind_group == nullptr) {
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+
+    if (slot.bind_group != nullptr) {
+        wgpuBindGroupRelease(slot.bind_group);
+    }
+    if (slot.view != nullptr) {
+        wgpuTextureViewRelease(slot.view);
+    }
+    if (slot.texture != nullptr) {
+        wgpuTextureDestroy(slot.texture);
+        wgpuTextureRelease(slot.texture);
+    }
+    slot.texture = texture;
+    slot.view = view;
+    slot.bind_group = bind_group;
+    slot.width = width;
+    slot.height = height;
+    ++slot.generation;
+    ++engine.semantic_layer_allocation_count;
+    return true;
+}
+
+bool ensure_semantic_layer_vertex_buffer(
+    progpu_native_engine& engine,
+    std::uint64_t required_bytes) {
+    if (required_bytes == 0U ||
+        (engine.semantic_layer_vertex_buffer != nullptr &&
+            required_bytes <= engine.semantic_layer_vertex_buffer_size)) {
+        return true;
+    }
+    std::uint64_t capacity = std::max<std::uint64_t>(256U,
+        engine.semantic_layer_vertex_buffer_size);
+    while (capacity < required_bytes) {
+        if (capacity > std::numeric_limits<std::uint64_t>::max() / 2U) {
+            return false;
+        }
+        capacity *= 2U;
+    }
+    WGPUBufferDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU semantic isolated-layer composite vertices");
+    descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+    descriptor.size = capacity;
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(engine.device, &descriptor);
+    if (buffer == nullptr) {
+        return false;
+    }
+    if (engine.semantic_layer_vertex_buffer != nullptr) {
+        wgpuBufferDestroy(engine.semantic_layer_vertex_buffer);
+        wgpuBufferRelease(engine.semantic_layer_vertex_buffer);
+    }
+    engine.semantic_layer_vertex_buffer = buffer;
+    engine.semantic_layer_vertex_buffer_size = capacity;
+    return true;
+}
+
+bool prepare_semantic_layer_resources(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height,
+    float dpi_scale,
+    std::uint32_t peak_depth,
+    std::uint32_t composite_count,
+    bool& uploaded_uniforms) {
+    uploaded_uniforms = false;
+    if (!create_layer_resources(engine)) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < peak_depth; ++index) {
+        if (!ensure_semantic_layer_slot(engine, index, width, height)) {
+            return false;
+        }
+    }
+    const std::uint64_t required_vertex_bytes =
+        static_cast<std::uint64_t>(composite_count) * 4U *
+        sizeof(progpu::native::vector_vertex);
+    if (!ensure_semantic_layer_vertex_buffer(
+            engine,
+            required_vertex_bytes)) {
+        return false;
+    }
+    const gpu_uniforms uniforms = create_uniforms(width, height, dpi_scale);
+    uploaded_uniforms = engine.upload_uniform_if_changed(
+        engine.layer_uniform_buffer,
+        uniforms,
+        engine.cached_layer_uniforms,
+        engine.layer_uniform_cache_valid);
+    return true;
+}
+
+void append_semantic_layer_quad(
+    std::vector<progpu::native::vector_vertex>& vertices,
+    std::uint32_t width,
+    std::uint32_t height,
+    float dpi_scale,
+    float opacity) {
+    const float logical_width = static_cast<float>(width) / dpi_scale;
+    const float logical_height = static_cast<float>(height) / dpi_scale;
+    constexpr std::array<std::array<std::uint32_t, 2U>, 4U> corners{{
+        {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+    }};
+    for (const auto& corner : corners) {
+        progpu::native::vector_vertex vertex{};
+        vertex.position[0] = corner[0] == 0U ? 0.0F : logical_width;
+        vertex.position[1] = corner[1] == 0U ? 0.0F : logical_height;
+        vertex.color[0] = opacity;
+        vertex.color[1] = 1.0F;
+        vertex.color[2] = 0.0F;
+        vertex.color[3] = opacity;
+        vertex.texture_coordinate[0] = static_cast<float>(corner[0]);
+        vertex.texture_coordinate[1] = static_cast<float>(corner[1]);
+        vertex.stroke_thickness = 1.0F;
+        vertices.push_back(vertex);
+    }
+}
+
 WGPUBindGroup create_effect_blur_bind_group(
     progpu_native_engine& engine,
     WGPUTextureView input,
@@ -6942,6 +7161,61 @@ bool encode_layer_quad(
         engine.layer_vertex_buffer,
         0U,
         sizeof(engine.layer_vertices));
+    wgpuRenderPassEncoderSetIndexBuffer(
+        pass,
+        engine.layer_index_buffer,
+        WGPUIndexFormat_Uint32,
+        0U,
+        6U * sizeof(std::uint32_t));
+    wgpuRenderPassEncoderDrawIndexed(pass, 6U, 1U, 0U, 0, 0U);
+    return true;
+}
+
+bool encode_semantic_layer_composite(
+    progpu_native_engine& engine,
+    WGPURenderPassEncoder pass,
+    const semantic_render_bundle_span& operation) {
+    if (operation.kind != semantic_replay_kind::pop_layer ||
+        operation.source_layer >= engine.semantic_layer_slots.size() ||
+        engine.layer_composite_pipeline == nullptr ||
+        engine.layer_uniform_bind_group == nullptr ||
+        engine.layer_index_buffer == nullptr ||
+        engine.semantic_layer_vertex_buffer == nullptr) {
+        return false;
+    }
+    const auto& slot = engine.semantic_layer_slots[
+        operation.source_layer];
+    if (slot.bind_group == nullptr) {
+        return false;
+    }
+    const std::uint64_t vertex_offset =
+        static_cast<std::uint64_t>(operation.first_composite_vertex) *
+        sizeof(progpu::native::vector_vertex);
+    if (vertex_offset + 4U * sizeof(progpu::native::vector_vertex) >
+        engine.semantic_layer_vertex_buffer_size) {
+        return false;
+    }
+    wgpuRenderPassEncoderSetPipeline(
+        pass,
+        engine.layer_composite_pipeline);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        0U,
+        engine.layer_uniform_bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetBindGroup(
+        pass,
+        1U,
+        slot.bind_group,
+        0U,
+        nullptr);
+    wgpuRenderPassEncoderSetVertexBuffer(
+        pass,
+        0U,
+        engine.semantic_layer_vertex_buffer,
+        vertex_offset,
+        4U * sizeof(progpu::native::vector_vertex));
     wgpuRenderPassEncoderSetIndexBuffer(
         pass,
         engine.layer_index_buffer,
@@ -11499,11 +11773,12 @@ progpu_native_status progpu_native_engine_render_scene(
     };
 
     semantic_layer_budget layer_budget{};
-    bool semantic_has_layers = false;
+    bool semantic_has_materialized_layers = false;
+    bool semantic_has_unsupported_layers = false;
+    std::uint32_t semantic_materialized_layer_count = 0U;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
-            semantic_has_layers = true;
             auto layer = semantic_default_layer();
             if (command.payload_size != 0U) {
                 std::memcpy(
@@ -11518,6 +11793,16 @@ progpu_native_status progpu_native_engine_render_scene(
                 frame->dpi_scale);
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            semantic_has_materialized_layers |= materialized;
+            semantic_materialized_layer_count += materialized ? 1U : 0U;
+            semantic_has_unsupported_layers |= materialized &&
+                (((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                    PROGPU_NATIVE_SCENE_LAYER_BACKDROP)) != 0U) ||
+                    layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+                    layer.mask_resource_index !=
+                        PROGPU_NATIVE_SCENE_NO_INDEX ||
+                    layer.effect_resource_index !=
+                        PROGPU_NATIVE_SCENE_NO_INDEX);
             const std::uint64_t row_bytes = materialized
                 ? static_cast<std::uint64_t>(extent.width) * 4U
                 : 0U;
@@ -11824,10 +12109,10 @@ progpu_native_status progpu_native_engine_render_scene(
             "The aggregate semantic glyph page exceeds the native safety bound.");
     }
 
-    if (semantic_has_layers) {
+    if (semantic_has_unsupported_layers) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_UNSUPPORTED,
-            "Semantic isolated-layer rendering is delivered by the next M2.4d3b2 checkpoint.");
+            "Bounded, backdrop, masked, effected, and non-SrcOver semantic layers are delivered by later M2.4d3b2 checkpoints.");
     }
 
     const bool semantic_render_bundle_hit =
@@ -12413,6 +12698,8 @@ progpu_native_status progpu_native_engine_render_scene(
         semantic_image_texture_upload_bytes;
     std::uint64_t uniform_upload_bytes = 0U;
     std::uint64_t coverage_staging_bytes = 0U;
+    std::uint64_t semantic_layer_vertex_upload_bytes = 0U;
+    std::uint64_t semantic_layer_uniform_upload_bytes = 0U;
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
     std::uint32_t semantic_analytic_draw_index = 0U;
     std::uint32_t semantic_path_draw_index = 0U;
@@ -12477,7 +12764,9 @@ progpu_native_status progpu_native_engine_render_scene(
         engine->semantic_glyph_instance_count = 0U;
     };
 
-    if (semantic_draw_count != 0U && !begin_encoder()) {
+    if ((semantic_draw_count != 0U ||
+            semantic_has_materialized_layers) &&
+        !begin_encoder()) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic scene command encoder could not be created.");
@@ -12628,8 +12917,29 @@ progpu_native_status progpu_native_engine_render_scene(
             engine->image_uniform_cache_valid);
         uniform_upload_bytes += uploaded ? sizeof(gpu_uniforms) : 0U;
     }
+    if (semantic_has_materialized_layers) {
+        bool uploaded_layer_uniforms = false;
+        if (!prepare_semantic_layer_resources(
+                *engine,
+                frame->width,
+                frame->height,
+                frame->dpi_scale,
+                layer_budget.peak_materialized_depth,
+                semantic_materialized_layer_count,
+                uploaded_layer_uniforms)) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The bounded semantic isolated-layer GPU pool could not be prepared.");
+        }
+        semantic_layer_uniform_upload_bytes = uploaded_layer_uniforms
+            ? sizeof(gpu_uniforms)
+            : 0U;
+        uniform_upload_bytes += semantic_layer_uniform_upload_bytes;
+    }
 
-    if (semantic_draw_count != 0U &&
+    if ((semantic_draw_count != 0U ||
+            semantic_has_materialized_layers) &&
         !engine->semantic_render_bundle_valid) {
         WGPURenderBundleEncoderDescriptor bundle_descriptor{};
         bundle_descriptor.label = progpu::native::webgpu::string_view(
@@ -12638,8 +12948,13 @@ progpu_native_status progpu_native_engine_render_scene(
         bundle_descriptor.colorFormats = &engine->target_format;
         bundle_descriptor.sampleCount = 1U;
         std::vector<semantic_render_bundle_span> compiled_spans;
+        std::vector<progpu::native::vector_vertex>
+            semantic_layer_vertices;
         try {
-            compiled_spans.reserve(semantic_draw_count);
+            compiled_spans.reserve(header.command_count);
+            semantic_layer_vertices.reserve(
+                static_cast<std::size_t>(
+                    semantic_materialized_layer_count) * 4U);
         } catch (const std::bad_alloc&) {
             discard_encoder();
             return engine->fail(
@@ -12649,6 +12964,8 @@ progpu_native_status progpu_native_engine_render_scene(
         WGPURenderBundleEncoder bundle_encoder = nullptr;
         semantic_scissor active_scissor{};
         bool has_active_scissor = false;
+        std::uint32_t active_target_layer =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
         const auto release_compiled_spans = [&]() noexcept {
             for (auto& span : compiled_spans) {
                 if (span.bundle != nullptr) {
@@ -12684,15 +13001,20 @@ progpu_native_status progpu_native_engine_render_scene(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                     "A retained semantic clip-span bundle could not be finished.");
             }
-            compiled_spans.push_back({
-                bundle,
-                active_scissor.x,
-                active_scissor.y,
-                active_scissor.width,
-                active_scissor.height});
+            semantic_render_bundle_span operation{};
+            operation.kind = semantic_replay_kind::bundle;
+            operation.bundle = bundle;
+            operation.clip_x = active_scissor.x;
+            operation.clip_y = active_scissor.y;
+            operation.clip_width = active_scissor.width;
+            operation.clip_height = active_scissor.height;
+            operation.target_layer = active_target_layer;
+            compiled_spans.push_back(operation);
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
-        const auto begin_active_bundle = [&](semantic_scissor scissor) {
+        const auto begin_active_bundle = [&](
+            semantic_scissor scissor,
+            std::uint32_t target_layer) {
             bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
                 engine->device,
                 &bundle_descriptor);
@@ -12702,16 +13024,91 @@ progpu_native_status progpu_native_engine_render_scene(
                     "A retained semantic clip-span encoder could not be created.");
             }
             active_scissor = scissor;
+            active_target_layer = target_layer;
             has_active_scissor = true;
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
 
         semantic_state_cursor state_cursor(bytes, header);
+        std::array<bool,
+            PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
+            layer_scope_materialized{};
+        std::array<progpu_native_scene_layer,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            materialized_layers{};
+        std::uint32_t layer_scope_depth = 0U;
+        std::uint32_t materialized_depth = 0U;
+        std::uint32_t current_target_layer =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
         for (std::uint32_t index = 0U;
              index < header.command_count;
              ++index) {
             const auto command = read_command(index);
             const auto state = state_cursor.advance(command);
+            if (command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+                auto layer = semantic_default_layer();
+                if (command.payload_size != 0U) {
+                    std::memcpy(
+                        &layer,
+                        bytes + command.payload_offset,
+                        sizeof(layer));
+                }
+                const bool materialized =
+                    progpu::native::scene::layer_requires_materialization(
+                        layer);
+                layer_scope_materialized[layer_scope_depth++] =
+                    materialized;
+                if (materialized) {
+                    const auto finish_status = finish_active_bundle();
+                    if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                        return fail_bundle(finish_status);
+                    }
+                    const std::uint32_t slot = materialized_depth;
+                    materialized_layers[materialized_depth++] = layer;
+                    semantic_render_bundle_span operation{};
+                    operation.kind = semantic_replay_kind::push_layer;
+                    operation.target_layer = slot;
+                    compiled_spans.push_back(operation);
+                    current_target_layer = slot;
+                    has_active_scissor = false;
+                }
+                continue;
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+                const bool materialized =
+                    layer_scope_materialized[--layer_scope_depth];
+                if (materialized) {
+                    const auto finish_status = finish_active_bundle();
+                    if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                        return fail_bundle(finish_status);
+                    }
+                    const std::uint32_t source_layer =
+                        --materialized_depth;
+                    const auto& layer = materialized_layers[source_layer];
+                    const std::uint32_t first_vertex =
+                        static_cast<std::uint32_t>(
+                            semantic_layer_vertices.size());
+                    append_semantic_layer_quad(
+                        semantic_layer_vertices,
+                        frame->width,
+                        frame->height,
+                        frame->dpi_scale,
+                        layer.opacity);
+                    semantic_render_bundle_span operation{};
+                    operation.kind = semantic_replay_kind::pop_layer;
+                    operation.target_layer = materialized_depth == 0U
+                        ? PROGPU_NATIVE_SCENE_NO_INDEX
+                        : materialized_depth - 1U;
+                    operation.source_layer = source_layer;
+                    operation.first_composite_vertex = first_vertex;
+                    compiled_spans.push_back(operation);
+                    current_target_layer = operation.target_layer;
+                    has_active_scissor = false;
+                    ++draw_calls;
+                }
+                continue;
+            }
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
@@ -12723,12 +13120,15 @@ progpu_native_status progpu_native_engine_render_scene(
                 frame->height,
                 frame->dpi_scale);
             if (scissor.drawable &&
-                (!has_active_scissor || scissor != active_scissor)) {
+                (!has_active_scissor || scissor != active_scissor ||
+                    current_target_layer != active_target_layer)) {
                 const auto finish_status = finish_active_bundle();
                 if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(finish_status);
                 }
-                const auto begin_status = begin_active_bundle(scissor);
+                const auto begin_status = begin_active_bundle(
+                    scissor,
+                    current_target_layer);
                 if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(begin_status);
                 }
@@ -12829,10 +13229,31 @@ progpu_native_status progpu_native_engine_render_scene(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "A semantic packed-page draw count is inconsistent."));
         }
+        if (layer_scope_depth != 0U || materialized_depth != 0U ||
+            semantic_layer_vertices.size() !=
+                static_cast<std::size_t>(
+                    semantic_materialized_layer_count) * 4U) {
+            return fail_bundle(engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic isolated-layer replay program is inconsistent."));
+        }
 
         const auto finish_status = finish_active_bundle();
         if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
             return fail_bundle(finish_status);
+        }
+        if (!semantic_layer_vertices.empty()) {
+            const std::uint64_t layer_vertex_bytes =
+                semantic_layer_vertices.size() *
+                sizeof(progpu::native::vector_vertex);
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->semantic_layer_vertex_buffer,
+                0U,
+                semantic_layer_vertices.data(),
+                layer_vertex_bytes);
+            vertex_upload_bytes += layer_vertex_bytes;
+            semantic_layer_vertex_upload_bytes = layer_vertex_bytes;
         }
         engine->semantic_render_bundle_spans = std::move(compiled_spans);
         engine->semantic_render_bundle_valid = true;
@@ -12844,14 +13265,16 @@ progpu_native_status progpu_native_engine_render_scene(
         engine->semantic_render_bundle_draw_call_count = draw_calls;
         engine->semantic_render_bundle_family_switch_count =
             family_switches;
-    } else if (semantic_draw_count != 0U) {
+    } else if (semantic_draw_count != 0U ||
+        semantic_has_materialized_layers) {
         draw_calls = engine->semantic_render_bundle_draw_call_count;
         family_switches =
             engine->semantic_render_bundle_family_switch_count;
     }
 
     WGPURenderPassEncoder pass = nullptr;
-    if (semantic_draw_count != 0U) {
+    if (semantic_draw_count != 0U &&
+        !semantic_has_materialized_layers) {
         WGPURenderPassColorAttachment color_attachment{};
         progpu::native::webgpu::initialize_color_attachment(
             color_attachment);
@@ -12890,6 +13313,118 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
+    } else if (semantic_has_materialized_layers) {
+        std::uint32_t active_target_layer =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        const auto finish_pass = [&]() noexcept {
+            if (pass != nullptr) {
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+                pass = nullptr;
+            }
+        };
+        const auto target_view = [&](std::uint32_t target_layer) {
+            if (target_layer == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                return reinterpret_cast<WGPUTextureView>(
+                    frame->target_view);
+            }
+            return target_layer < engine->semantic_layer_slots.size()
+                ? engine->semantic_layer_slots[target_layer].view
+                : nullptr;
+        };
+        const auto begin_pass = [&](
+            std::uint32_t target_layer,
+            WGPULoadOp load_op) {
+            WGPUTextureView view = target_view(target_layer);
+            if (view == nullptr) {
+                return false;
+            }
+            WGPURenderPassColorAttachment color_attachment{};
+            progpu::native::webgpu::initialize_color_attachment(
+                color_attachment);
+            color_attachment.view = view;
+            color_attachment.loadOp = load_op;
+            color_attachment.storeOp = WGPUStoreOp_Store;
+            color_attachment.clearValue = target_layer ==
+                    PROGPU_NATIVE_SCENE_NO_INDEX
+                ? WGPUColor{
+                    frame->clear_color.r,
+                    frame->clear_color.g,
+                    frame->clear_color.b,
+                    frame->clear_color.a}
+                : WGPUColor{0.0, 0.0, 0.0, 0.0};
+            WGPURenderPassDescriptor pass_descriptor{};
+            pass_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU retained semantic isolated-layer replay pass");
+            pass_descriptor.colorAttachmentCount = 1U;
+            pass_descriptor.colorAttachments = &color_attachment;
+            pass = wgpuCommandEncoderBeginRenderPass(
+                engine->semantic_encoder,
+                &pass_descriptor);
+            active_target_layer = target_layer;
+            return pass != nullptr;
+        };
+        const auto fail_replay = [&](const char* message) {
+            finish_pass();
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                message);
+        };
+
+        if (!begin_pass(
+                PROGPU_NATIVE_SCENE_NO_INDEX,
+                WGPULoadOp_Clear)) {
+            return fail_replay(
+                "The semantic isolated-layer root pass could not be created.");
+        }
+        for (const auto& operation :
+             engine->semantic_render_bundle_spans) {
+            if (operation.kind == semantic_replay_kind::push_layer) {
+                finish_pass();
+                if (!begin_pass(
+                        operation.target_layer,
+                        WGPULoadOp_Clear)) {
+                    return fail_replay(
+                        "A semantic isolated-layer content pass could not be created.");
+                }
+                continue;
+            }
+            if (operation.kind == semantic_replay_kind::pop_layer) {
+                finish_pass();
+                if (!begin_pass(
+                        operation.target_layer,
+                        WGPULoadOp_Load) ||
+                    !encode_semantic_layer_composite(
+                        *engine,
+                        pass,
+                        operation)) {
+                    return fail_replay(
+                        "A semantic isolated-layer composite pass could not be encoded.");
+                }
+                continue;
+            }
+            if (operation.target_layer != active_target_layer) {
+                finish_pass();
+                if (!begin_pass(
+                        operation.target_layer,
+                        WGPULoadOp_Load)) {
+                    return fail_replay(
+                        "A semantic isolated-layer continuation pass could not be created.");
+                }
+            }
+            wgpuRenderPassEncoderSetScissorRect(
+                pass,
+                operation.clip_x,
+                operation.clip_y,
+                operation.clip_width,
+                operation.clip_height);
+            wgpuRenderPassEncoderExecuteBundles(
+                pass,
+                1U,
+                &operation.bundle);
+        }
+        finish_pass();
     }
 
     const auto flush_status = flush_encoder();
@@ -12898,7 +13433,8 @@ progpu_native_status progpu_native_engine_render_scene(
         return flush_status;
     }
 
-    if (semantic_draw_count == 0U) {
+    if (semantic_draw_count == 0U &&
+        !semantic_has_materialized_layers) {
         progpu_native_analytic_frame clear{};
         clear.struct_size = sizeof(clear);
         clear.width = frame->width;
@@ -12914,6 +13450,41 @@ progpu_native_status progpu_native_engine_render_scene(
             return status;
         }
         uniform_upload_bytes += clear_metrics.uniform_upload_bytes;
+    }
+
+    if (semantic_has_materialized_layers) {
+        engine->last_layer_metrics = {};
+        engine->last_layer_metrics.struct_size =
+            sizeof(progpu_native_layer_metrics);
+        std::uint32_t texture_generation = 0U;
+        for (std::uint32_t index = 0U;
+             index < layer_budget.peak_materialized_depth;
+             ++index) {
+            texture_generation = std::max(
+                texture_generation,
+                engine->semantic_layer_slots[index].generation);
+        }
+        engine->last_layer_metrics.texture_width = frame->width;
+        engine->last_layer_metrics.texture_height = frame->height;
+        engine->last_layer_metrics.texture_generation = texture_generation;
+        engine->last_layer_metrics.allocation_count =
+            engine->semantic_layer_allocation_count;
+        engine->last_layer_metrics.content_pass_count =
+            semantic_materialized_layer_count;
+        engine->last_layer_metrics.composite_pass_count =
+            semantic_materialized_layer_count;
+        engine->last_layer_metrics.cache_hit =
+            semantic_render_bundle_hit ? 1U : 0U;
+        engine->last_layer_metrics.texture_bytes =
+            static_cast<std::uint64_t>(
+                layer_budget.peak_materialized_depth) *
+            frame->width * frame->height * 4U;
+        engine->last_layer_metrics.vertex_upload_bytes =
+            semantic_layer_vertex_upload_bytes;
+        engine->last_layer_metrics.uniform_upload_bytes =
+            semantic_layer_uniform_upload_bytes;
+        engine->last_layer_metrics.blend_mode =
+            PROGPU_NATIVE_BLEND_SRC_OVER;
     }
 
     engine->last_error.clear();

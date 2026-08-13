@@ -595,6 +595,45 @@ same full-target descriptor at 65,536×65,536 returns `OUT_OF_MEMORY` before
 submission and preserves the previous GPU token. This is validation/budget
 evidence only: no layer pixel output or performance milestone is claimed yet.
 
+### Retained full-target opacity-layer execution checkpoint
+
+The next increment materializes the first exact layer subset: unbounded
+`SrcOver` opacity and `FORCE_ISOLATION`. Changed scenes compile ordered retained
+bundle, transparent-clear, and composite operations. Two reusable textures are
+enough for the current nested depth-two fixture even though it contains three
+materialized occurrences; sequential scopes reuse depth zero safely because
+their four-vertex composite quads occupy distinct ranges in one retained GPU
+page. Layer-free semantic scenes keep the earlier single-pass path.
+
+The real Dawn/Metal fixture renders an opaque red rectangle before the layer,
+an outer translated 50% green group, a nested 50% blue group, a sequential 25%
+magenta group at the reused outer depth, and an opaque yellow rectangle after
+pop inside a direct-folded unit-opacity `SrcOver` scope. It proves state
+scoping/restoration, nested premultiplied composition, same-depth reuse, and
+that a non-isolating layer adds no materialized pass. Representative BGRA
+pixels are:
+
+| Sample | BGRA |
+|---|---:|
+| clear | `10,8,5,255` |
+| before layer | `0,0,255,255` |
+| outer 50% | `5,131,3,255` |
+| nested 50% × 50% | `71,6,4,255` |
+| sequential 25% at reused depth | `71,6,68,255` |
+| after pop | `0,255,255,255` |
+
+Both changed and stable frames use one queue submission. The stable frame
+reports zero vertex, index, texture, uniform, and coverage-staging uploads;
+layer metrics report three content passes, three composites, a retained cache
+hit, unchanged allocation count, depth-two residency of exactly 24,576 bytes,
+and zero layer vertex/uniform upload. The inspected capture is
+`artifacts/progpu-native/build/progpu-native-semantic-layers.png` with SHA-256
+`1b02088340ce662b7f7cebf0e2501a436d2f15ca806b5bca92a04226c6b3c1f6`.
+This is functional and retained-resource evidence, not yet the required
+matched managed/native nested-layer distribution or Instruments comparison.
+Bounded layers, masks, effects, non-`SrcOver` modes, and backdrop input remain
+explicitly unsupported.
+
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at
 SHA-256 `8428aaec5aed39480f7e4be8f780f71e80733504cf384e3ebd89c09a33c9fba9`.

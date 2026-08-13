@@ -1175,9 +1175,12 @@ physical extents with the target DPI, tracks the live nested-byte sum on a
 fixed 64-entry structural scope stack while separately limiting materialized
 depth to 16, caps peak layer pixels at 256 MiB, and includes that peak in the
 existing 512 MiB combined scene budget. Multiplication and accumulation are
-checked before an encoder is created. A valid budgeted layer currently
-reaches the typed `UNSUPPORTED` rendering boundary; an oversized layer returns
-`OUT_OF_MEMORY` first and cannot mutate the target or submission timeline.
+checked before an encoder is created. A valid budgeted layer renders when it
+is full-target, `SrcOver`, and needs isolation only for group opacity or
+`FORCE_ISOLATION`. Bounded, backdrop, mask/effect, and non-`SrcOver`
+descriptors still reach a typed `UNSUPPORTED` boundary. An oversized layer
+returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
+timeline.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1189,6 +1192,19 @@ destination-aware blend, explicit isolation, or backdrop input makes direct
 rendering observably incorrect. Otherwise its state is folded into the parent
 batch. This preserves group-opacity overlap behavior without allocating a
 texture for every save/restore pair.
+
+The initial implemented executor covers full-target `SrcOver` group opacity
+and forced isolation. It compiles one retained replay program containing
+ordered bundle, clear-layer, and composite operations. A pool indexed by live
+materialized depth owns at most 16 reusable RGBA target textures. Composite
+quads are packed per layer occurrence in one retained vertex page, so
+sequential scopes at the same depth can keep distinct opacity without mutable
+buffer aliasing. Push clears the selected depth texture to transparent
+premultiplied RGBA, nested pop composites into the parent texture, and the
+outer pop composites into the caller target. Parent passes resume with `Load`;
+the layer-free route retains its existing single-pass replay. Stable replay is
+O(B + L) for B retained bundle spans and L layer transitions, allocates no new
+pool texture, uploads no retained payload, and performs one queue submission.
 
 The current d3b1 checkpoint crosses the public ABI once per frame and prepares
 changed path/glyph coverage in compute passes. Once every referenced GPU page
@@ -1268,16 +1284,16 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-The next checkpoint materializes layers through a depth-indexed pool keyed by device-loss generation,
-format, physical extent, usage, and sample count. The initial contract permits
-at most 16 simultaneously materialized layers and eight effect nodes per layer.
-Each layer is cleared to transparent premultiplied RGBA, receives ordered child
-draws, runs its retained effect chain, applies mask and opacity once, then
-composites into the parent using the selected `GpuBlendMode`. Advanced blend or
-backdrop effects sample the actual parent texture, never the frame clear-color
-approximation. Storage is O(L*W*H) only for the bounded peak materialized depth
-L; direct scopes add no full-target texture. Pool entries are reused after the
-submission token completes and are released on device loss.
+The next checkpoint extends the depth-indexed pool to physical content bounds,
+typed mask/effect resources, every `GpuBlendMode`, and backdrop input. The
+contract continues to permit at most 16 simultaneously materialized layers and
+eight effect nodes per layer. Each extended layer will run its retained effect
+chain, apply mask and opacity once, then composite into the parent. Advanced
+blend or backdrop effects must sample the actual parent texture, never the
+frame clear-color approximation. Storage remains O(L*W*H) for bounded peak
+materialized depth L; direct scopes add no full-target texture. Pool entries
+are reusable only after their submission token completes and are released on
+device loss.
 
 ### Incremental reuse and failure behavior
 
