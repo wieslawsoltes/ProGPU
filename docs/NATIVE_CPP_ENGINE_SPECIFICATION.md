@@ -84,6 +84,7 @@ metadata.
 | [Skia `SkCanvas` clipping](https://api.skia.org/classSkCanvas.html) | A rectangle clip is transformed by the current matrix and intersects the current clip; save/restore preserves clip and matrix state. | The first native state lane accepts the already resolved target-space logical rectangle. Nested transform/clip stack evaluation remains the semantic-scene compiler's responsibility. |
 | [Direct2D layers overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-layers-overview) and [axis-aligned clip guidance](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1111-using-layer-when-clip-is-sufficient) | Axis-aligned clips avoid a layer; layer opacity composites a group result, while primitive opacity multiplies each draw independently. | Keep the physical scissor direct for primitive-only frames. When group opacity is requested, render un-clipped family content to the transparent pool and apply the resolved scissor only to its final composite. |
 | [Direct2D Gaussian blur](https://learn.microsoft.com/en-us/windows/win32/direct2d/gaussian-blur), [Direct2D built-in effects](https://learn.microsoft.com/en-us/windows/win32/direct2d/built-in-effects), and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm) | Blur is a device effect over an image/command-list input; Win2D records vector content and supplies that retained result to an effect instead of filtering every primitive independently. | Apply blur once to the pooled family result, keep source-content and effect revisions independent, express sigma in logical coordinates, and dispatch the existing shared WebGPU horizontal/vertical kernels only when either retained input changes. |
+| [WinUI `DropShadow`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.dropshadow), [Win2D `ShadowEffect`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Effects_ShadowEffect.htm), and [Skia `SkImageFilters::DropShadow`](https://api.skia.org/classSkImageFilters.html) | A retained shadow carries offset, blur, and color; GPU effect graphs derive shadow alpha from retained source content and either return shadow-only output or composite the source above it. | Keep source content and shadow parameters independently revisioned. Blur source alpha on the GPU, apply physical-pixel offset/tint in a bounded compute composition pass, preserve premultiplied source-over, and cache the completed effect output rather than rebuilding the family. |
 | [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm) | A layer scopes opacity, clip, and mask state until disposal and can change overlap results compared with drawing primitives at reduced alpha. | Preserve primitive/group distinction and overlap behavior. The current frame-group kernel is reusable infrastructure, but nested `CreateLayer` stack parity remains open. |
 | [Win2D core-app overview](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/in-a-core-app) and [DPI/DIP guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/dpi-and-dips) | GPU resources integrate with XAML while layout uses DIPs and targets use physical pixels. | Native frame descriptors carry physical target dimensions and explicit DPI; semantic geometry remains logical. |
 | [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | A compact display list becomes a retained scene; the renderer builds frames, culls, batches, and owns GPU caches/resources. Simple 2D clip chains can remain analytic while complex clips are rasterized into sampled mask coverage. | Use a compact, pointer-free semantic command stream with stable resource IDs and incremental updates. Native compilation owns GPU cache residency. Keep rectangle/rounded-rectangle clips analytic and route arbitrary retained clip chains through path-mask coverage rather than flattening them to bounds. |
@@ -821,6 +822,46 @@ device-loss recreation, and semantic-scene effect nodes remain open.
 This effect is downstream from already positioned text and does not change
 Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
 
+### Phase 2 retained drop-shadow group-effect checkpoint
+
+The seventh additive ABI-v3 extension adds source-alpha drop shadow without
+changing the 32-byte Gaussian prefix. The full 56-byte descriptor appends
+logical X/Y offset and straight-alpha RGBA color; raw callers selecting drop
+shadow must publish that full size. Validation rejects unknown kinds, partial
+drop-shadow descriptors, non-finite offsets/colors, colors outside `[0,1]`,
+zero revisions, and physical three-sigma radii above the fixed shader bound.
+The safe .NET owner exposes an immutable `NativeGroupEffect.DropShadow` value
+and keeps raw pointers scoped to the locked render call.
+
+A changed shadow reuses the existing two full-target `RGBA8Unorm` effect
+textures. Horizontal and vertical Gaussian passes produce blurred source
+alpha; `GroupDropShadowCompose.wgsl` then samples that alpha at the inverse
+device-pixel offset, applies the straight color as premultiplied shadow, and
+composites the original premultiplied source above it. Fractional offsets use
+four explicit alpha loads and bilinear interpolation with transparent
+out-of-bounds coverage so Metal, D3D12, Vulkan, and browser WebGPU do not depend
+on backend sampler-edge behavior. The final existing group pass applies common
+mask and opacity exactly once. An explicit shadow-only opacity-mask visual is
+not yet in this frame-level descriptor and remains semantic-scene work.
+
+For target area `P = W*H` and physical radius `R`, changed work is
+`O(P*R)` across two blur passes plus `O(P)` for offset/tint/source-over. It
+retains the same `8*W*H` effect-texture bytes as Gaussian blur and adds one
+32-byte uniform buffer, one pipeline/layout, and two bind groups. Stable replay
+keys effect kind, effect revision, content revision, DPI, and target size; it
+dispatches zero compute passes and performs one final composite. Effect-only
+mutation dispatches exactly three compute passes without a family content pass.
+
+The managed comparator now keeps its Shadow encoder/buffer labels in static
+UTF-8 spans and uses the same bounded Gaussian weight recurrence, eliminating
+224 managed bytes per recomputed frame while retaining production GPU labels.
+The six-family gate, C ABI layout tests, fail-closed color test, same-revision
+kind-transition regression, sanitizer build, exact Dawn-header compile, and
+WebScene/Dawn/Metal provider test all exercise this path. The implementation is
+an original composition kernel informed by the public contracts above and the
+broader clean-room record in `WINUI_COMPOSITION_WEBGPU_RESEARCH.md`; no external
+engine implementation text or shader was copied.
+
 ## 10. Migration tranches
 
 ### Tranche A — core 2D batches
@@ -840,8 +881,9 @@ Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
   compatibility; true frame-group opacity and retained pooled-layer replay are
   implemented for all six families; sampled texture and analytic rounded
   common masks are also implemented at the final pooled composite for all six
-  families. Arbitrary retained vector clip chains and one retained anisotropic
-  Gaussian group effect are implemented across the same six families; nested
+  families. Arbitrary retained vector clip chains, retained anisotropic
+  Gaussian blur, and source-alpha drop-shadow group effects are implemented
+  across the same six families; nested
   clip/opacity/effect stacks, blend stack, static buffers, and full
   compiled-scene reuse remain;
 - shared `GpuBrush`, gradient-stop, uniform, and draw-call ABIs;
@@ -874,8 +916,8 @@ Unicode shaping, line layout, glyph selection, fallback, or atlas keys.
 
 ### Tranche C — effects, extensions, media, and 3D
 
-- one retained anisotropic Gaussian group blur with independent content/effect
-  revisions, bounded pooled textures, stable zero-dispatch replay, and shared
+- retained Gaussian blur and source-alpha drop shadow with independent
+  content/effect revisions, bounded pooled textures, stable zero-dispatch replay, and shared
   managed/native WGSL is implemented across all six frame families; advanced
   blend, nested effects, image/color filters, backdrop and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;

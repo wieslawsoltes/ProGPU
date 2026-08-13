@@ -597,6 +597,71 @@ Retained ignored evidence:
   samples, labels, submissions, completions, errors, and Metal residency under
   `artifacts/progpu-native/profiles/group-gaussian-final-20260813/`.
 
+### Retained drop-shadow group-effect distribution and profile
+
+The next checkpoint composes a source-alpha drop shadow over the pooled result
+of every native frame family. A changed effect records horizontal/vertical
+blur plus one offset/tint/source-over compute pass. A stable content/effect
+revision records no compute pass and performs one final group composite. The
+native path retains two full-target effect textures (`8*W*H` bytes); the new
+composition pass reuses the first texture as its output rather than allocating
+a third full-target surface.
+
+Three independent paired 600-frame synchronized runs followed 120 warmups on
+the same Apple M3 Pro/Metal device. The representative scene used 384 solid
+rectangles, sigma 2, offset `(7.5, 5.25)`, and RGBA color
+`(0.08, 0.16, 0.32, 0.72)`. Median p95 values were:
+
+| Workload and metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| Stable CPU submit | 0.1654 ms | 0.2102 ms | -21.3% |
+| Stable GPU-completion wait | 3.0497 ms | 3.0534 ms | -0.1% |
+| Stable end to end | 3.1209 ms | 3.1441 ms | -0.7% |
+| Recomputed CPU submit | 0.3240 ms | 0.6851 ms | -52.7% |
+| Recomputed GPU-completion wait | 6.0644 ms | 6.0684 ms | -0.1% |
+| Recomputed end to end | 6.1592 ms | 6.3440 ms | -2.9% |
+
+The GPU-complete paths are deliberately on par because both implementations
+run equivalent separable blur and source-over work on the same queue/device.
+The native advantage remains CPU encoding: retained content and bindings are
+reused and the three effect passes plus final composite are encoded without
+managed effect-object traversal. Native submission measured zero managed bytes
+per frame. Replacing the managed shadow encoder/buffer label allocations with
+static UTF-8 spans reduced recomputed managed submission from 2,552 to 2,328
+bytes/frame (-8.8%) while preserving Metal labels. The shadow kernels now use
+two `exp` evaluations and the same multiplicative Gaussian recurrence as the
+group-blur kernels; no latency improvement is claimed independently of the
+matched final effect comparison.
+
+All six 518,400-pixel differentials pass. Solid rectangles, paths, glyphs, and
+images differ by at most 2/255 with no pixel beyond 3/255. Analytic primitives
+have maximum difference 52/255, 573 pixels (0.111%) beyond 3/255, and mean
+absolute difference `0.076091/255`. Indexed geometry has one independent
+raster-edge tie at 204/255 and mean `0.037806/255`. The representative solid
+comparison has maximum difference 1/255 and mean `0.041095/255`; native,
+managed, and 64-times-amplified difference images were inspected.
+
+Final-binary Time Profiler, Allocations plus VM Tracker, and Metal System Trace
+workloads all exited zero. The Metal trace contains native horizontal,
+vertical, drop-shadow composition, and final-composite labels; 6,028 submission
+rows, 7,208 completion rows, zero command-buffer-error rows, and a 23.812 MiB
+peak combined-process Metal `currentAllocatedSize`. The Allocations trace again
+contains heap/VM instrumentation but exposes no allocation table through this
+command-line TOC, so the benchmark's interval counters remain the managed
+allocation evidence. The trace-observed memory is shared between both renderers
+and is not attributed to either implementation.
+
+Retained ignored evidence:
+
+- six-family JSON plus stable/recomputed paired distributions under
+  `artifacts/progpu-native/benchmarks/group-drop-shadow-20260813/` and
+  `artifacts/progpu-native/benchmarks/group-drop-shadow-final-20260813/`;
+- native, managed, and 64-times-amplified difference PNGs under
+  `artifacts/progpu-native/differential/`;
+- Time Profiler, Allocations/VM Tracker, Metal System Trace, exported TOCs,
+  labels, submissions, completions, errors, and Metal residency under
+  `artifacts/progpu-native/profiles/group-drop-shadow-final-20260813/`.
+
 ## Common draw-state supplement
 
 The ABI-v3 append-only draw-state increment applies primitive opacity and one
