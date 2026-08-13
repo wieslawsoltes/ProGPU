@@ -12,6 +12,15 @@ internal static unsafe partial class NativeMethods
     internal const uint DawnWebScene2026JulyBackendAbi = 2;
     internal const uint GeometryFrameCapturePayloadHash = 1U;
     internal const uint GeometryFrameRetainCompiledPayload = 1U << 1;
+    internal const uint SceneStreamMagic = 0x31534750U;
+    internal const uint SceneStreamVersion = 1U;
+    internal const uint SceneStreamEndianMarker = 0x01020304U;
+    internal const uint SceneMaximumStackDepth = 64U;
+    internal const uint SceneMaximumStreamBytes = 256U * 1024U * 1024U;
+    internal const uint SceneMaximumCommands = 1024U * 1024U;
+    internal const uint SceneMaximumResources = 256U * 1024U;
+    internal const uint SceneNoIndex = uint.MaxValue;
+    internal const uint SceneMetricsSnapshotReused = 1U;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct DrawState
@@ -81,6 +90,78 @@ internal static unsafe partial class NativeMethods
         internal float Opacity;
         internal uint Reserved3;
         internal ClipChain* ClipChain;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneHeader
+    {
+        internal uint StructSize;
+        internal uint Magic;
+        internal uint StreamVersion;
+        internal uint EndianMarker;
+        internal uint Flags;
+        internal uint TotalSize;
+        internal ulong SceneId;
+        internal ulong Generation;
+        internal uint CommandOffset;
+        internal uint CommandCount;
+        internal uint CommandStride;
+        internal uint ResourceOffset;
+        internal uint ResourceCount;
+        internal uint ResourceStride;
+        internal uint ArenaOffset;
+        internal uint ArenaSize;
+        internal uint Reserved0;
+        internal uint Reserved1;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneResource
+    {
+        internal uint StructSize;
+        internal NativeSceneResourceKind Kind;
+        internal NativeSceneRecordFlags Flags;
+        internal uint Reserved;
+        internal ulong ResourceId;
+        internal ulong Generation;
+        internal uint PayloadOffset;
+        internal uint PayloadSize;
+        internal uint AuxiliaryOffset;
+        internal uint AuxiliarySize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneCommand
+    {
+        internal uint StructSize;
+        internal NativeSceneCommandKind Kind;
+        internal NativeSceneRecordFlags Flags;
+        internal uint Reserved;
+        internal ulong CommandId;
+        internal uint StateIndex;
+        internal uint ResourceIndex;
+        internal uint PayloadOffset;
+        internal uint PayloadSize;
+        internal NativeImageRect Bounds;
+        internal uint Reserved0;
+        internal uint Reserved1;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneMetrics
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal uint CommandCount;
+        internal uint ResourceCount;
+        internal uint DrawCount;
+        internal uint MaximumStackDepth;
+        internal NativeSceneValidationError ValidationError;
+        internal uint ErrorOffset;
+        internal ulong SceneId;
+        internal ulong Generation;
+        internal ulong SnapshotBytes;
+        internal ulong PayloadBytes;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -402,6 +483,13 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial byte GetInfo(EngineInfo* info);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_scene_validate")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ValidateScene(
+        void* stream,
+        nuint streamSize,
+        SceneMetrics* metrics);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Create(
@@ -411,6 +499,14 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_destroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial void Destroy(nint engine);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_update_scene")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus UpdateScene(
+        nint engine,
+        void* stream,
+        nuint streamSize,
+        SceneMetrics* metrics);
 
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

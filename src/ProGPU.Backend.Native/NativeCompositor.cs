@@ -184,6 +184,71 @@ public sealed unsafe class NativeCompositor : IDisposable
             name);
     }
 
+    /// <summary>
+    /// Validates and transactionally installs one immutable semantic scene
+    /// snapshot. The native engine copies a changed generation and retains an
+    /// identical generation without copying it again.
+    /// </summary>
+    public NativeSceneUpdateMetrics UpdateScene(ReadOnlySpan<byte> stream)
+    {
+        if (stream.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A semantic scene stream cannot be empty.",
+                nameof(stream));
+        }
+        var metrics = new NativeMethods.SceneMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneMetrics>()
+        };
+        fixed (byte* streamPointer = stream)
+        {
+            lock (_context.RenderLock)
+            {
+                ThrowIfDisposed();
+                ThrowForStatus(NativeMethods.UpdateScene(
+                    _engine,
+                    streamPointer,
+                    (nuint)stream.Length,
+                    &metrics));
+            }
+        }
+        return ToSceneMetrics(metrics);
+    }
+
+    /// <summary>
+    /// Runs the native pointer-free stream validator without creating or
+    /// mutating a renderer instance.
+    /// </summary>
+    public static NativeSceneUpdateMetrics ValidateScene(
+        ReadOnlySpan<byte> stream)
+    {
+        if (stream.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A semantic scene stream cannot be empty.",
+                nameof(stream));
+        }
+        var metrics = new NativeMethods.SceneMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneMetrics>()
+        };
+        fixed (byte* streamPointer = stream)
+        {
+            var status = NativeMethods.ValidateScene(
+                streamPointer,
+                (nuint)stream.Length,
+                &metrics);
+            if (status != NativeRendererStatus.Success)
+            {
+                throw new NativeRendererException(
+                    status,
+                    $"The semantic scene stream failed validation at byte {metrics.ErrorOffset} ({metrics.ValidationError}).");
+            }
+        }
+        return ToSceneMetrics(metrics);
+    }
+
     public NativeFrameMetrics Render(
         GpuTexture target,
         float dpiScale,
@@ -1503,6 +1568,20 @@ public sealed unsafe class NativeCompositor : IDisposable
         float.IsFinite(value.Y) && value.Y >= 0f &&
         float.IsFinite(value.Z) && value.Z >= 0f &&
         float.IsFinite(value.W) && value.W >= 0f;
+
+    private static NativeSceneUpdateMetrics ToSceneMetrics(
+        NativeMethods.SceneMetrics metrics) => new(
+            metrics.CommandCount,
+            metrics.ResourceCount,
+            metrics.DrawCount,
+            metrics.MaximumStackDepth,
+            metrics.ValidationError,
+            metrics.ErrorOffset,
+            metrics.SceneId,
+            metrics.Generation,
+            metrics.SnapshotBytes,
+            metrics.PayloadBytes,
+            (metrics.Flags & NativeMethods.SceneMetricsSnapshotReused) != 0U);
 }
 
 public sealed class NativeRendererException : Exception

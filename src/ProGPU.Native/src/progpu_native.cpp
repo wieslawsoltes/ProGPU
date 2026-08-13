@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
+#include "progpu_native_scene.hpp"
 #include "GlyphRasterizerWgsl.generated.hpp"
 #include "ClipComposeWgsl.generated.hpp"
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
@@ -1025,6 +1026,11 @@ struct progpu_native_engine {
     float layer_cached_primitive_opacity = 1.0F;
     bool layer_content_cache_valid = false;
     progpu_native_layer_metrics last_layer_metrics{};
+    std::vector<std::byte> semantic_scene_snapshot;
+    std::uint64_t semantic_scene_id = 0U;
+    std::uint64_t semantic_scene_generation = 0U;
+    progpu_native_scene_header semantic_scene_header{};
+    progpu_native_scene_metrics semantic_scene_metrics{};
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
@@ -6973,7 +6979,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR |
         PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW |
         PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN |
-        PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES;
+        PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES |
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -6981,6 +6988,15 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
 #endif
     std::memcpy(info->name, name, sizeof(name));
     return 1U;
+}
+
+progpu_native_status progpu_native_scene_validate(
+    const void* stream,
+    size_t stream_size,
+    progpu_native_scene_metrics* metrics) {
+    const auto result = progpu::native::scene::validate(stream, stream_size);
+    progpu::native::scene::write_metrics(result, metrics);
+    return result.status;
 }
 
 progpu_native_status progpu_native_engine_create(
@@ -7063,6 +7079,113 @@ progpu_native_status progpu_native_dawn_engine_create(
 
 void progpu_native_engine_destroy(progpu_native_engine* engine) {
     delete engine;
+}
+
+progpu_native_status progpu_native_engine_update_scene(
+    progpu_native_engine* engine,
+    const void* stream,
+    size_t stream_size,
+    progpu_native_scene_metrics* metrics) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (std::this_thread::get_id() != engine->owner_thread) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native scene updates are owner-thread affine.");
+    }
+    if (stream != nullptr && !engine->semantic_scene_snapshot.empty() &&
+        engine->semantic_scene_snapshot.size() == stream_size &&
+        std::memcmp(
+            engine->semantic_scene_snapshot.data(),
+            stream,
+            stream_size) == 0) {
+        if (metrics != nullptr &&
+            metrics->struct_size >= sizeof(progpu_native_scene_metrics)) {
+            const std::uint32_t struct_size = metrics->struct_size;
+            *metrics = engine->semantic_scene_metrics;
+            metrics->struct_size = struct_size;
+            metrics->flags |= PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED;
+        }
+        engine->last_error.clear();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+    const auto validation =
+        progpu::native::scene::validate(stream, stream_size);
+    progpu::native::scene::write_metrics(validation, metrics);
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return engine->fail(
+            validation.status,
+            "The semantic scene stream failed transactional validation.");
+    }
+
+    if (validation.header.scene_id == engine->semantic_scene_id) {
+        if (validation.header.generation <
+            engine->semantic_scene_generation) {
+            if (metrics != nullptr &&
+                metrics->struct_size >= sizeof(progpu_native_scene_metrics)) {
+                metrics->validation_error =
+                    PROGPU_NATIVE_SCENE_VALIDATION_GENERATION;
+            }
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "The semantic scene generation regressed.");
+        }
+        if (validation.header.generation ==
+            engine->semantic_scene_generation) {
+            if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_scene_metrics)) {
+                metrics->validation_error =
+                    PROGPU_NATIVE_SCENE_VALIDATION_GENERATION;
+            }
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "One semantic scene generation must be immutable.");
+        }
+
+        std::uint32_t error_offset = 0U;
+        if (!progpu::native::scene::generations_do_not_regress(
+                engine->semantic_scene_snapshot.data(),
+                engine->semantic_scene_header,
+                stream,
+                validation.header,
+                error_offset)) {
+            if (metrics != nullptr && metrics->struct_size >=
+                sizeof(progpu_native_scene_metrics)) {
+                metrics->validation_error =
+                    PROGPU_NATIVE_SCENE_VALIDATION_GENERATION;
+                metrics->error_offset = error_offset;
+            }
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "A retained semantic resource generation regressed.");
+        }
+    }
+
+    try {
+        std::vector<std::byte> next(stream_size);
+        std::memcpy(next.data(), stream, stream_size);
+        engine->semantic_scene_snapshot.swap(next);
+        engine->semantic_scene_id = validation.header.scene_id;
+        engine->semantic_scene_generation = validation.header.generation;
+        engine->semantic_scene_header = validation.header;
+        engine->semantic_scene_metrics = {};
+        engine->semantic_scene_metrics.struct_size =
+            sizeof(progpu_native_scene_metrics);
+        progpu::native::scene::write_metrics(
+            validation,
+            &engine->semantic_scene_metrics);
+        engine->last_error.clear();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The immutable semantic scene snapshot could not be allocated.");
+    } catch (...) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The immutable semantic scene snapshot could not be committed.");
+    }
 }
 
 progpu_native_status progpu_native_engine_render(

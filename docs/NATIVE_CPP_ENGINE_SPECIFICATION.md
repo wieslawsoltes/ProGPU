@@ -1061,13 +1061,29 @@ per-command P/Invoke calls.
 
 The first semantic stream version uses a pointer-free header plus fixed-size
 tables and typed arenas. A command record contains a kind, declared byte size,
-stable command id, state id, resource id, bounds, and offsets/counts into the
-owning arena. Brush, pen, path, positioned-glyph, image, mask, and effect
-resources carry stable ids and independent generations. Unknown optional
-records are skipped by size; an unknown required feature, invalid endian
-marker, unbalanced stack, non-finite value, duplicate stable id, out-of-range
-span, or generation regression rejects the complete update before native scene
-or GPU state changes.
+stable command id, state/resource table indices, bounds, and offsets/counts
+into the owning arena. Resource records carry stable ids and independent
+generations; the canonical resource table is ordered by stable id, while
+commands retain display-list order and refer to resources in O(1) by index.
+Brush, pen, path, positioned-glyph, image, mask, effect, and state payloads use
+typed resource kinds. Unknown optional records are skipped by declared record
+size; an unknown required feature, invalid endian marker, unbalanced stack,
+non-finite value, duplicate stable id, out-of-range span, or generation
+regression rejects the complete update before native scene or GPU state
+changes.
+
+The implemented version-one prefix is an 80-byte header, 64-byte command
+record, 48-byte resource record, and 64-byte validation/update metrics record.
+It uses the `PGS1` little-endian marker, append-only table strides, a 256 MiB
+stream limit, at most 1,048,576 commands, at most 262,144 resources, and a
+64-entry typed save/layer stack. `progpu_native_scene_validate` is independent
+of a device. `progpu_native_engine_update_scene` first validates, then copies a
+changed immutable generation transactionally; an identical generation is a
+zero-copy cache hit, while changed bytes at the same generation or regressing
+scene/resource generations fail closed. The currently advertised
+`SEMANTIC_SCENE_SNAPSHOTS` capability deliberately claims only this snapshot
+foundation. Mixed rendering is not advertised until the native compiler and
+render entry point consume the snapshot.
 
 The command vocabulary is deliberately semantic:
 
@@ -1087,15 +1103,17 @@ frame is being compiled or submitted.
 
 ### Validation and bounded compilation
 
-Validation is transactional and precedes allocation or WebGPU submission. Pass
+Validation is transactional and precedes scene/GPU allocation or WebGPU
+submission. Its bounded command-id scratch is validation-only. Pass
 one checks header/version/features, arena arithmetic, ids, values, resource
 lifetimes, and a maximum stack depth of 64. Pass two walks the command stream,
 proves balanced save/layer scopes, computes exact or checked upper bounds for
 batch vertices, indices, glyph instances, atlas demand, layer pixels, and
 effect passes, and rejects any live set above configured budgets. Both passes
 are O(C + R + A) time for C commands, R resources, and A arena values, with
-O(D + R) bounded scratch for stack depth D and resource validation. No partial
-scene becomes visible on failure.
+O(C + D) bounded scratch for command-id radix validation and stack depth D;
+the canonical resource table needs no lookup allocation. No partial scene
+becomes visible on failure.
 
 Compilation preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image

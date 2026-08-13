@@ -50,8 +50,53 @@ enum {
     PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U,
     PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U,
     PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U,
-    PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U
+    PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U,
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS = 1ULL << 29U
 };
+
+enum {
+    PROGPU_NATIVE_SCENE_STREAM_MAGIC = 0x31534750U,
+    PROGPU_NATIVE_SCENE_STREAM_VERSION = 1U,
+    PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER = 0x01020304U,
+    PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH = 64U,
+    PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES = 256U * 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_COMMANDS = 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_RESOURCES = 256U * 1024U,
+    PROGPU_NATIVE_SCENE_NO_INDEX = 0xffffffffU,
+    PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
+    PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
+};
+
+typedef enum progpu_native_scene_resource_kind {
+    PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH = 1,
+    PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH = 2,
+    PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN = 3,
+    PROGPU_NATIVE_SCENE_RESOURCE_IMAGE = 4,
+    PROGPU_NATIVE_SCENE_RESOURCE_STATE = 5
+} progpu_native_scene_resource_kind;
+
+typedef enum progpu_native_scene_command_kind {
+    PROGPU_NATIVE_SCENE_COMMAND_SAVE = 1,
+    PROGPU_NATIVE_SCENE_COMMAND_RESTORE = 2,
+    PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER = 3,
+    PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER = 4,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC = 16,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH = 17,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE = 19
+} progpu_native_scene_command_kind;
+
+typedef enum progpu_native_scene_validation_error {
+    PROGPU_NATIVE_SCENE_VALIDATION_NONE = 0,
+    PROGPU_NATIVE_SCENE_VALIDATION_HEADER = 1,
+    PROGPU_NATIVE_SCENE_VALIDATION_RANGE = 2,
+    PROGPU_NATIVE_SCENE_VALIDATION_RECORD = 3,
+    PROGPU_NATIVE_SCENE_VALIDATION_ID = 4,
+    PROGPU_NATIVE_SCENE_VALIDATION_STACK = 5,
+    PROGPU_NATIVE_SCENE_VALIDATION_VALUE = 6,
+    PROGPU_NATIVE_SCENE_VALIDATION_GENERATION = 7,
+    PROGPU_NATIVE_SCENE_VALIDATION_UNSUPPORTED = 8
+} progpu_native_scene_validation_error;
 
 enum {
     PROGPU_NATIVE_DRAW_STATE_CLIP_RECT = 1U << 0U
@@ -158,6 +203,79 @@ typedef struct progpu_native_engine_info {
     uint64_t capabilities;
     char name[64];
 } progpu_native_engine_info;
+
+/*
+ * Version-one semantic scene streams are little-endian, pointer-free blobs.
+ * Every offset is absolute from the first header byte. Table strides permit
+ * append-only record growth while the declared struct_size keeps readers from
+ * interpreting a newer record layout as the version-one prefix.
+ */
+typedef struct progpu_native_scene_header {
+    uint32_t struct_size;
+    uint32_t magic;
+    uint32_t stream_version;
+    uint32_t endian_marker;
+    uint32_t flags;
+    uint32_t total_size;
+    uint64_t scene_id;
+    uint64_t generation;
+    uint32_t command_offset;
+    uint32_t command_count;
+    uint32_t command_stride;
+    uint32_t resource_offset;
+    uint32_t resource_count;
+    uint32_t resource_stride;
+    uint32_t arena_offset;
+    uint32_t arena_size;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_header;
+
+typedef struct progpu_native_scene_resource {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved;
+    uint64_t resource_id;
+    uint64_t generation;
+    uint32_t payload_offset;
+    uint32_t payload_size;
+    uint32_t auxiliary_offset;
+    uint32_t auxiliary_size;
+} progpu_native_scene_resource;
+
+typedef struct progpu_native_scene_command {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved;
+    uint64_t command_id;
+    uint32_t state_index;
+    uint32_t resource_index;
+    uint32_t payload_offset;
+    uint32_t payload_size;
+    float bounds_x;
+    float bounds_y;
+    float bounds_width;
+    float bounds_height;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_command;
+
+typedef struct progpu_native_scene_metrics {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t command_count;
+    uint32_t resource_count;
+    uint32_t draw_count;
+    uint32_t maximum_stack_depth;
+    uint32_t validation_error;
+    uint32_t error_offset;
+    uint64_t scene_id;
+    uint64_t generation;
+    uint64_t snapshot_bytes;
+    uint64_t payload_bytes;
+} progpu_native_scene_metrics;
 
 /*
  * The device and queue are opaque handles from the exact WebGPU C ABI named by
@@ -835,11 +953,20 @@ typedef struct progpu_native_image_frame_metrics {
 PROGPU_NATIVE_API uint32_t progpu_native_get_abi_version(void);
 PROGPU_NATIVE_API uint8_t progpu_native_get_info(
     progpu_native_engine_info* info);
+PROGPU_NATIVE_API progpu_native_status progpu_native_scene_validate(
+    const void* stream,
+    size_t stream_size,
+    progpu_native_scene_metrics* metrics);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_create(
     const progpu_native_engine_options* options,
     progpu_native_engine** engine);
 PROGPU_NATIVE_API void progpu_native_engine_destroy(
     progpu_native_engine* engine);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
+    progpu_native_engine* engine,
+    const void* stream,
+    size_t stream_size,
+    progpu_native_scene_metrics* metrics);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

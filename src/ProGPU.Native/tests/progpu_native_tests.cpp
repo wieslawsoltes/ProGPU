@@ -1,6 +1,8 @@
 #include "progpu_native.h"
 #include "progpu_native_geometry.hpp"
+#include "progpu_native_scene.hpp"
 
+#include <cstddef>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -27,6 +29,142 @@ void require(
 
 bool nearly_equal(float left, float right) {
     return std::abs(left - right) <= 0.00001F;
+}
+
+template<typename T>
+void write_scene_record(
+    std::vector<std::byte>& stream,
+    std::size_t offset,
+    const T& value) {
+    PROGPU_REQUIRE(offset + sizeof(T) <= stream.size());
+    std::memcpy(stream.data() + offset, &value, sizeof(T));
+}
+
+std::vector<std::byte> create_valid_mixed_scene(
+    std::uint64_t scene_id = 41U,
+    std::uint64_t generation = 7U) {
+    constexpr std::uint32_t command_count = 8U;
+    constexpr std::uint32_t resource_count = 4U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    constexpr std::uint32_t arena_size = 32U;
+    constexpr std::uint32_t total_size = arena_offset + arena_size;
+    std::vector<std::byte> stream(total_size);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = total_size;
+    header.scene_id = scene_id;
+    header.generation = generation;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = arena_size;
+    write_scene_record(stream, 0U, header);
+
+    for (std::uint32_t index = 0U; index < resource_count; ++index) {
+        progpu_native_scene_resource resource{};
+        resource.struct_size = sizeof(resource);
+        resource.kind =
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH + index;
+        resource.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.resource_id = 100U + index;
+        resource.generation = 20U + index;
+        resource.payload_offset = arena_offset + index * 8U;
+        resource.payload_size = 8U;
+        write_scene_record(
+            stream,
+            resource_offset +
+                index * sizeof(progpu_native_scene_resource),
+            resource);
+        stream[resource.payload_offset] =
+            static_cast<std::byte>(resource.kind);
+    }
+
+    const std::array<std::uint32_t, command_count> kinds{
+        PROGPU_NATIVE_SCENE_COMMAND_SAVE,
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+        PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
+        PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+        PROGPU_NATIVE_SCENE_COMMAND_RESTORE
+    };
+    for (std::uint32_t index = 0U; index < command_count; ++index) {
+        progpu_native_scene_command command{};
+        command.struct_size = sizeof(command);
+        command.kind = kinds[index];
+        command.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.command_id = 1000U + index;
+        command.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.bounds_x = 1.0F;
+        command.bounds_y = 2.0F;
+        command.bounds_width = 300.0F;
+        command.bounds_height = 200.0F;
+        if (command.kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+            command.resource_index = command.kind -
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC;
+        }
+        write_scene_record(
+            stream,
+            command_offset + index * sizeof(progpu_native_scene_command),
+            command);
+    }
+    return stream;
+}
+
+std::vector<std::byte> create_nested_scene(std::uint32_t depth) {
+    const std::uint32_t command_count = depth * 2U;
+    const std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    const std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    const std::uint32_t total_size = resource_offset;
+    std::vector<std::byte> stream(total_size);
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = total_size;
+    header.scene_id = 55U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = resource_offset;
+    write_scene_record(stream, 0U, header);
+    for (std::uint32_t index = 0U; index < command_count; ++index) {
+        progpu_native_scene_command command{};
+        command.struct_size = sizeof(command);
+        command.kind = index < depth
+            ? PROGPU_NATIVE_SCENE_COMMAND_SAVE
+            : PROGPU_NATIVE_SCENE_COMMAND_RESTORE;
+        command.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.command_id = index + 1U;
+        command.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        write_scene_record(
+            stream,
+            command_offset + index * sizeof(progpu_native_scene_command),
+            command);
+    }
+    return stream;
 }
 
 void fixed_stroke_topology_masks_match_reference_classification() {
@@ -144,6 +282,12 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS) != 0U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_metrics) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 72U);
@@ -209,6 +353,147 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_image_frame) == 208U);
     PROGPU_REQUIRE(sizeof(progpu_native_image_frame_metrics) == 72U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
+}
+
+void semantic_scene_stream_validates_mixed_order_and_stack() {
+    const auto stream = create_valid_mixed_scene();
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_NONE);
+    PROGPU_REQUIRE(metrics.scene_id == 41U);
+    PROGPU_REQUIRE(metrics.generation == 7U);
+    PROGPU_REQUIRE(metrics.command_count == 8U);
+    PROGPU_REQUIRE(metrics.resource_count == 4U);
+    PROGPU_REQUIRE(metrics.draw_count == 4U);
+    PROGPU_REQUIRE(metrics.maximum_stack_depth == 2U);
+    PROGPU_REQUIRE(metrics.snapshot_bytes == stream.size());
+    PROGPU_REQUIRE(metrics.payload_bytes == 32U);
+}
+
+void semantic_scene_stream_rejects_malformed_updates_transactionally() {
+    auto stream = create_valid_mixed_scene();
+    auto header = progpu::native::scene::validate(
+        stream.data(), stream.size()).header;
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+
+    auto command = progpu_native_scene_command{};
+    std::memcpy(
+        &command,
+        stream.data() + header.command_offset,
+        sizeof(command));
+    command.kind = 0x7fffffffU;
+    write_scene_record(stream, header.command_offset, command);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_UNSUPPORTED);
+
+    stream = create_valid_mixed_scene();
+    const std::size_t final_offset = header.command_offset +
+        7U * header.command_stride;
+    std::memcpy(&command, stream.data() + final_offset, sizeof(command));
+    command.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+    write_scene_record(stream, final_offset, command);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_STACK);
+
+    stream = create_valid_mixed_scene();
+    const std::size_t second_offset = header.command_offset +
+        header.command_stride;
+    std::memcpy(&command, stream.data() + second_offset, sizeof(command));
+    command.command_id = 1000U;
+    write_scene_record(stream, second_offset, command);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_ID);
+
+    stream = create_valid_mixed_scene();
+    std::memcpy(&command, stream.data() + second_offset, sizeof(command));
+    command.resource_index = 1U;
+    write_scene_record(stream, second_offset, command);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_RECORD);
+}
+
+void semantic_scene_resource_generations_are_monotonic() {
+    const auto previous = create_valid_mixed_scene(41U, 7U);
+    auto next = create_valid_mixed_scene(41U, 8U);
+    const auto header = progpu::native::scene::validate(
+        next.data(), next.size()).header;
+    progpu_native_scene_resource resource{};
+    const std::size_t resource_offset = header.resource_offset +
+        2U * header.resource_stride;
+    std::memcpy(&resource, next.data() + resource_offset, sizeof(resource));
+    resource.generation = 1U;
+    write_scene_record(next, resource_offset, resource);
+    std::uint32_t error_offset = 0U;
+    PROGPU_REQUIRE(!progpu::native::scene::generations_do_not_regress(
+        previous.data(),
+        progpu::native::scene::validate(
+            previous.data(), previous.size()).header,
+        next.data(),
+        header,
+        error_offset));
+    PROGPU_REQUIRE(error_offset == resource_offset);
+}
+
+void semantic_scene_stack_depth_is_bounded_exactly() {
+    const auto maximum = create_nested_scene(
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH);
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        maximum.data(), maximum.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.maximum_stack_depth ==
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH);
+
+    const auto excessive = create_nested_scene(
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH + 1U);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        excessive.data(), excessive.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_STACK);
+}
+
+void semantic_scene_validation_is_deterministic_under_mutation() {
+    auto stream = create_valid_mixed_scene();
+    std::uint32_t random = 0x9e3779b9U;
+    for (std::uint32_t iteration = 0U; iteration < 5000U; ++iteration) {
+        random = random * 1664525U + 1013904223U;
+        const std::size_t offset = random % stream.size();
+        const std::byte original = stream[offset];
+        const std::byte mutation = static_cast<std::byte>(
+            1U << ((random >> 24U) & 7U));
+        stream[offset] ^= mutation;
+        const auto first = progpu::native::scene::validate(
+            stream.data(), stream.size());
+        const auto second = progpu::native::scene::validate(
+            stream.data(), stream.size());
+        PROGPU_REQUIRE(first.status == second.status);
+        PROGPU_REQUIRE(first.error == second.error);
+        PROGPU_REQUIRE(first.error_offset == second.error_offset);
+        stream[offset] = original;
+    }
 }
 
 void geometry_batch_encodes_direct_and_affine_lines() {
@@ -868,6 +1153,11 @@ void invalid_rectangles_fail_without_partial_append() {
 
 int main() {
     api_contract_is_versioned();
+    semantic_scene_stream_validates_mixed_order_and_stack();
+    semantic_scene_stream_rejects_malformed_updates_transactionally();
+    semantic_scene_resource_generations_are_monotonic();
+    semantic_scene_stack_depth_is_bounded_exactly();
+    semantic_scene_validation_is_deterministic_under_mutation();
     fixed_stroke_topology_masks_match_reference_classification();
     rectangle_batch_matches_vector_vertex_abi();
     indexed_analytic_batch_preserves_affine_local_coordinates();

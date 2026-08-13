@@ -165,7 +165,49 @@ public enum NativeRendererCapabilities : ulong
     GroupGaussianBlur = 1UL << 25,
     GroupDropShadow = 1UL << 26,
     BoundedGroupEffectChain = 1UL << 27,
-    GroupBlendModes = 1UL << 28
+    GroupBlendModes = 1UL << 28,
+    SemanticSceneSnapshots = 1UL << 29
+}
+
+public enum NativeSceneResourceKind : uint
+{
+    AnalyticBatch = 1,
+    PathBatch = 2,
+    GlyphRun = 3,
+    Image = 4,
+    State = 5
+}
+
+public enum NativeSceneCommandKind : uint
+{
+    Save = 1,
+    Restore = 2,
+    PushLayer = 3,
+    PopLayer = 4,
+    DrawAnalytic = 16,
+    DrawPath = 17,
+    DrawGlyphRun = 18,
+    DrawImage = 19
+}
+
+[Flags]
+public enum NativeSceneRecordFlags : uint
+{
+    None = 0,
+    Required = 1U << 0
+}
+
+public enum NativeSceneValidationError : uint
+{
+    None = 0,
+    Header = 1,
+    Range = 2,
+    Record = 3,
+    Id = 4,
+    Stack = 5,
+    Value = 6,
+    Generation = 7,
+    Unsupported = 8
 }
 
 [Flags]
@@ -1236,6 +1278,19 @@ public readonly record struct NativeLayerMetrics(
     uint BlendSourceTextureGeneration,
     uint BlendSourceAllocationCount,
     ulong BlendSourceTextureBytes);
+
+public readonly record struct NativeSceneUpdateMetrics(
+    uint CommandCount,
+    uint ResourceCount,
+    uint DrawCount,
+    uint MaximumStackDepth,
+    NativeSceneValidationError ValidationError,
+    uint ErrorOffset,
+    ulong SceneId,
+    ulong Generation,
+    ulong SnapshotBytes,
+    ulong PayloadBytes,
+    bool SnapshotReused);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

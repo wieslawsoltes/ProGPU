@@ -32,6 +32,56 @@ void require(bool condition, const char* message) {
     }
 }
 
+using semantic_scene_stream = std::array<std::byte, 200U>;
+
+semantic_scene_stream create_semantic_scene_stream(
+    std::uint64_t scene_generation,
+    std::uint64_t resource_generation) {
+    semantic_scene_stream stream{};
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 91U;
+    header.generation = scene_generation;
+    header.command_offset = 80U;
+    header.command_count = 1U;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = 144U;
+    header.resource_count = 1U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = 192U;
+    header.arena_size = 8U;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    progpu_native_scene_command command{};
+    command.struct_size = sizeof(command);
+    command.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC;
+    command.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    command.command_id = 11U;
+    command.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    command.resource_index = 0U;
+    command.bounds_width = 64.0F;
+    command.bounds_height = 48.0F;
+    std::memcpy(stream.data() + header.command_offset,
+        &command, sizeof(command));
+
+    progpu_native_scene_resource resource{};
+    resource.struct_size = sizeof(resource);
+    resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH;
+    resource.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    resource.resource_id = 21U;
+    resource.generation = resource_generation;
+    resource.payload_offset = header.arena_offset;
+    resource.payload_size = header.arena_size;
+    std::memcpy(stream.data() + header.resource_offset,
+        &resource, sizeof(resource));
+    stream[header.arena_offset] = std::byte{0x5a};
+    return stream;
+}
+
 template<typename T>
 T load_symbol(void* module, const char* name) {
     static_assert(std::is_pointer_v<T>);
@@ -334,6 +384,83 @@ int main(int argc, char** argv) {
     require(progpu_native_dawn_engine_create(&engine_options, &engine) ==
         PROGPU_NATIVE_STATUS_SUCCESS && engine != nullptr,
         "ProGPU Dawn engine creation failed");
+
+    auto semantic_scene = create_semantic_scene_stream(1U, 2U);
+    progpu_native_scene_metrics scene_metrics{};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        semantic_scene.data(),
+        semantic_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.draw_count == 1U && scene_metrics.flags == 0U,
+        "semantic scene snapshot update failed");
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        semantic_scene.data(),
+        semantic_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        (scene_metrics.flags &
+            PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED) != 0U,
+        "unchanged semantic scene snapshot was not retained");
+
+    auto mutated_same_generation = semantic_scene;
+    mutated_same_generation.back() = std::byte{0x33};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        mutated_same_generation.data(),
+        mutated_same_generation.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        scene_metrics.validation_error ==
+            PROGPU_NATIVE_SCENE_VALIDATION_GENERATION,
+        "mutable same-generation semantic scene did not fail closed");
+
+    auto regressing_resource = create_semantic_scene_stream(2U, 1U);
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        regressing_resource.data(),
+        regressing_resource.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        scene_metrics.validation_error ==
+            PROGPU_NATIVE_SCENE_VALIDATION_GENERATION,
+        "regressing semantic resource generation did not fail closed");
+
+    auto next_semantic_scene = create_semantic_scene_stream(2U, 3U);
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        next_semantic_scene.data(),
+        next_semantic_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "next semantic scene generation failed");
+    auto malformed_scene = next_semantic_scene;
+    progpu_native_scene_command malformed_command{};
+    std::memcpy(&malformed_command, malformed_scene.data() + 80U,
+        sizeof(malformed_command));
+    malformed_command.kind = PROGPU_NATIVE_SCENE_COMMAND_RESTORE;
+    malformed_command.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::memcpy(malformed_scene.data() + 80U, &malformed_command,
+        sizeof(malformed_command));
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        malformed_scene.data(),
+        malformed_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        scene_metrics.validation_error == PROGPU_NATIVE_SCENE_VALIDATION_STACK,
+        "malformed semantic scene stack did not fail transactionally");
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        next_semantic_scene.data(),
+        next_semantic_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        (scene_metrics.flags &
+            PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED) != 0U,
+        "failed semantic update mutated the retained snapshot");
 
     webscene_gpu_canvas_configuration canvas_configuration{};
     canvas_configuration.struct_size = sizeof(canvas_configuration);

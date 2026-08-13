@@ -192,6 +192,31 @@ public class NativeRendererInteropTests
                 nameof(NativeMethods.ImageFrame.MaskDestinationRect)));
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
+        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.SceneHeader>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeMethods.SceneResource>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneCommand>());
+        Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
+        Assert.Equal(
+            24,
+            OffsetOf<NativeMethods.SceneHeader>(nameof(NativeMethods.SceneHeader.SceneId)));
+        Assert.Equal(
+            40,
+            OffsetOf<NativeMethods.SceneHeader>(nameof(NativeMethods.SceneHeader.CommandOffset)));
+        Assert.Equal(
+            64,
+            OffsetOf<NativeMethods.SceneHeader>(nameof(NativeMethods.SceneHeader.ArenaOffset)));
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.SceneResource>(nameof(NativeMethods.SceneResource.ResourceId)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeMethods.SceneResource>(nameof(NativeMethods.SceneResource.PayloadOffset)));
+        Assert.Equal(
+            16,
+            OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.CommandId)));
+        Assert.Equal(
+            40,
+            OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.Bounds)));
         Assert.Equal(3U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
         Assert.Equal(2U, NativeMethods.DawnWebScene2026JulyBackendAbi);
@@ -484,11 +509,151 @@ public class NativeRendererInteropTests
         Assert.Equal(
             268435456UL,
             (ulong)NativeRendererCapabilities.GroupBlendModes);
+        Assert.Equal(
+            536870912UL,
+            (ulong)NativeRendererCapabilities.SemanticSceneSnapshots);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderProducesCanonicalPointerFreeMixedStream()
+    {
+        Assert.Equal(
+            1024,
+            NativeSceneStreamBuilder.GetRequiredBufferSize(8, 4, 240));
+        Span<byte> destination = stackalloc byte[2048];
+        Span<byte> payload = stackalloc byte[8];
+        payload.Fill(0x5a);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 41U,
+            generation: 7U,
+            commandCapacity: 8,
+            resourceCapacity: 4);
+        Assert.True(builder.TryAddResource(
+            NativeSceneResourceKind.AnalyticBatch,
+            100U,
+            10U,
+            payload,
+            out uint analytic));
+        Assert.True(builder.TryAddResource(
+            NativeSceneResourceKind.PathBatch,
+            101U,
+            11U,
+            payload,
+            out uint path));
+        Assert.True(builder.TryAddResource(
+            NativeSceneResourceKind.GlyphRun,
+            102U,
+            12U,
+            payload,
+            out uint glyph));
+        Assert.True(builder.TryAddResource(
+            NativeSceneResourceKind.Image,
+            103U,
+            13U,
+            payload,
+            out uint image));
+        Assert.False(builder.TryDrawPath(
+            999U,
+            analytic,
+            new NativeImageRect(0f, 0f, 1f, 1f)));
+        Assert.True(builder.TrySave(1000U));
+        Assert.True(builder.TryDrawAnalytic(
+            1001U,
+            analytic,
+            new NativeImageRect(0f, 0f, 100f, 80f)));
+        Assert.True(builder.TryPushLayer(1002U));
+        Assert.True(builder.TryDrawPath(
+            1003U,
+            path,
+            new NativeImageRect(5f, 6f, 70f, 60f)));
+        Assert.True(builder.TryDrawGlyphRun(
+            1004U,
+            glyph,
+            new NativeImageRect(7f, 8f, 50f, 20f)));
+        Assert.True(builder.TryDrawImage(
+            1005U,
+            image,
+            new NativeImageRect(9f, 10f, 40f, 30f)));
+        Assert.True(builder.TryPopLayer(1006U));
+        Assert.True(builder.TryRestore(1007U));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        Assert.Equal(NativeMethods.SceneStreamMagic, header.Magic);
+        Assert.Equal(NativeMethods.SceneStreamVersion, header.StreamVersion);
+        Assert.Equal(NativeMethods.SceneStreamEndianMarker, header.EndianMarker);
+        Assert.Equal(41UL, header.SceneId);
+        Assert.Equal(7UL, header.Generation);
+        Assert.Equal(8U, header.CommandCount);
+        Assert.Equal(4U, header.ResourceCount);
+        Assert.Equal((uint)stream.Length, header.TotalSize);
+        Assert.Equal(0U, header.CommandOffset & 7U);
+        Assert.Equal(0U, header.ResourceOffset & 7U);
+        Assert.Equal(0U, header.ArenaOffset & 7U);
+
+        var firstResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        Assert.Equal(100UL, firstResource.ResourceId);
+        Assert.Equal(NativeSceneResourceKind.AnalyticBatch, firstResource.Kind);
+        Assert.Equal(8U, firstResource.PayloadSize);
+        Assert.DoesNotContain(
+            (byte)0,
+            stream.Slice((int)firstResource.PayloadOffset, 8).ToArray());
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderIsAllocationFreeAndRejectsUnbalancedScopes()
+    {
+        Span<byte> destination = stackalloc byte[512];
+        Span<byte> payload = stackalloc byte[8];
+        payload.Fill(1);
+
+        static bool BuildOnce(Span<byte> bytes, ReadOnlySpan<byte> data)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                1U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddResource(
+                    NativeSceneResourceKind.AnalyticBatch,
+                    1U,
+                    1U,
+                    data,
+                    out uint resource) &&
+                builder.TryDrawAnalytic(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 1f, 1f)) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(BuildOnce(destination, payload));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= BuildOnce(destination, payload);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var unbalanced = new NativeSceneStreamBuilder(
+            destination,
+            2U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 0);
+        Assert.True(unbalanced.TryPushLayer(1U));
+        Assert.False(unbalanced.TryBuild(out _));
+        Assert.True(success);
+        Assert.Equal(0L, allocated);
     }
 
     [Fact]

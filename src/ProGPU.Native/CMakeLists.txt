@@ -256,6 +256,8 @@ add_custom_command(
 add_library(progpu_native SHARED
     src/progpu_native.cpp
     src/progpu_native_geometry.hpp
+    src/progpu_native_scene.cpp
+    src/progpu_native_scene.hpp
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h
     "${generated_vector_shader}"
@@ -293,6 +295,8 @@ if(PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     add_library(progpu_native_dawn SHARED
         src/progpu_native.cpp
         src/progpu_native_geometry.hpp
+        src/progpu_native_scene.cpp
+        src/progpu_native_scene.hpp
         src/progpu_webgpu_compat.hpp
         include/progpu_native.h
         include/progpu_native_dawn.h
@@ -403,7 +407,9 @@ endif()
 
 if(BUILD_TESTING)
     add_executable(progpu_native_tests
-        tests/progpu_native_tests.cpp)
+        tests/progpu_native_tests.cpp
+        src/progpu_native_scene.cpp
+        src/progpu_native_scene.hpp)
     target_compile_features(progpu_native_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
