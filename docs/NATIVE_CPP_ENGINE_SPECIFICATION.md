@@ -1118,14 +1118,18 @@ no draw or invalid zero-size WebGPU scissor.
 
 The isolated-layer payload is another exact 64-byte record stored directly in
 the `PUSH_LAYER` command arena: declared size and flags, optional logical target
-bounds, restore opacity and `GpuBlendMode`, future typed mask/effect resource
+bounds, restore opacity and `GpuBlendMode`, typed mask/effect resource
 indices, independent content/composite revisions, and zeroed reserved fields.
 An absent bounds flag requires four canonical zero values and means the full
 target. The existing empty-payload push prefix remains a canonical full-target,
 unit-opacity, source-over layer so version-one streams stay append-compatible.
 `BACKDROP` requests parent pixels as layer input; `FORCE_ISOLATION` prevents a
-later compiler from folding an otherwise trivial scope. Mask/effect indices
-must remain `NO_INDEX` until their pointer-free resource kinds land.
+later compiler from folding an otherwise trivial scope. `NO_INDEX` disables a
+mask or effect. Otherwise the index must reference a preceding exact typed
+resource: a 104-byte analytic rounded-rectangle mask, or a 16-byte effect-chain
+header whose auxiliary span contains one to eight exact 56-byte effect records.
+The resource generation and chain/effect revisions are caller-owned immutable
+identities; no record retains a pointer to caller storage.
 
 The command vocabulary is deliberately semantic:
 
@@ -1158,10 +1162,15 @@ State-resource validation also checks the exact 64-byte payload, zero
 auxiliary bytes and reserved fields, known and canonical flags, finite
 affine/clip values, non-negative clip extent, and opacity in `[0,1]`. Layer
 validation checks the same exact/canonical contract plus the blend range,
-reserved resource indices, and at most 16 simultaneously materialized layer
-scopes. State resolution uses a fixed 64-entry native stack. Validation adds
-O(C) time and O(D) bounded stack storage, with no managed allocation and no
-native heap allocation proportional to state transition count.
+typed mask/effect references, and at most 16 simultaneously materialized layer
+scopes. Mask validation requires a positive finite bound, invertible affine,
+non-negative finite corner radii, and opacity in `[0,1]`. Effect-chain
+validation requires one to eight canonical Gaussian-blur or drop-shadow
+records, exact auxiliary length, nonzero revisions, finite sigma/offset/color,
+and normalized color channels. State resolution uses a fixed 64-entry native
+stack. Validation remains O(C + R + E) time for E total effect nodes and O(D)
+bounded stack storage, with no managed allocation and no native heap allocation
+proportional to state transition count.
 
 The current mixed renderer preflights all four typed payloads before its first
 submission. It validates analytic geometry and transforms; path/glyph segment
@@ -1299,9 +1308,10 @@ retains its ordinary per-draw recording path. A separately attributable native
 allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
-The next checkpoint extends the bounded depth-indexed pool to typed mask/effect
-resources, advanced destination-sampling `GpuBlendMode` values, and backdrop
-input. The
+The pointer-free typed mask/effect resource contract and canonical validation
+are now implemented. The next execution checkpoint resolves those resources in
+the bounded depth-indexed pool, then adds advanced destination-sampling
+`GpuBlendMode` values and backdrop input. The
 contract continues to permit at most 16 simultaneously materialized layers and
 eight effect nodes per layer. Each extended layer will run its retained effect
 chain, apply mask and opacity once, then composite into the parent. Advanced

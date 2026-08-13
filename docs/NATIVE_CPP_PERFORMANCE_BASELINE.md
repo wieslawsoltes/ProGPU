@@ -577,16 +577,16 @@ checked.
 
 ### Isolated-layer descriptor and budget checkpoint
 
-The next d3b2 increment defines an exact 64-byte pointer-free inline layer
+This d3b2 increment defines an exact 64-byte pointer-free inline layer
 descriptor and an allocation-free typed .NET builder overload. It retains
 logical bounds, one-time restore opacity/blend, backdrop and force-isolation
-flags, future mask/effect resource indices, and independent content/composite
+flags, typed mask/effect resource indices, and independent content/composite
 revisions. Empty legacy push payloads remain valid default layers. Typed builds
 perform zero managed allocation across 10,000 iterations.
 
 Scene validation rejects non-exact payloads, unknown flags, non-canonical
 disabled bounds, negative or non-finite extents, invalid opacity/blend,
-premature mask/effect indices, nonzero reserved fields, and a seventeenth live
+missing or mistyped mask/effect indices, nonzero reserved fields, and a seventeenth live
 layer. Frame preflight converts bounds to physical pixels, tracks the nested
 live-byte peak in fixed storage, caps it at 256 MiB, and combines it with the
 existing 512 MiB whole-scene budget. The real Dawn/Metal provider accepts one
@@ -594,6 +594,17 @@ typed descriptor and reaches `UNSUPPORTED` without submission at 64×48; the
 same full-target descriptor at 65,536×65,536 returns `OUT_OF_MEMORY` before
 submission and preserves the previous GPU token. This is validation/budget
 evidence only: no layer pixel output or performance milestone is claimed yet.
+
+The typed resource follow-up adds an exact 104-byte pointer-free analytic
+rounded-rectangle mask and a 16-byte effect-chain header backed by one to eight
+exact 56-byte Gaussian-blur/drop-shadow records in the resource auxiliary arena.
+Native validation rejects unknown kinds, non-exact spans, flags/reserved values,
+singular or non-finite mask transforms, invalid radii/opacity, malformed chain
+counts/revisions, invalid effect parameters, and layer references to the wrong
+resource kind. The .NET builder writes the same stream from caller-owned spans
+with exactly 0 managed bytes allocated across 10,000 complete mask/effect/layer
+builds after warm-up. This checkpoint types and validates ownership only; GPU
+mask/effect replay, screenshots, and comparative performance remain open.
 
 ### Retained bounded fixed-function layer execution checkpoint
 

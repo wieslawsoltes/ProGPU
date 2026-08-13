@@ -79,8 +79,14 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH = 2,
     PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN = 3,
     PROGPU_NATIVE_SCENE_RESOURCE_IMAGE = 4,
-    PROGPU_NATIVE_SCENE_RESOURCE_STATE = 5
+    PROGPU_NATIVE_SCENE_RESOURCE_STATE = 5,
+    PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK = 6,
+    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN = 7
 } progpu_native_scene_resource_kind;
+
+typedef enum progpu_native_scene_layer_mask_kind {
+    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1
+} progpu_native_scene_layer_mask_kind;
 
 typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_SAVE = 1,
@@ -423,8 +429,9 @@ typedef struct progpu_native_scene_state {
  * PUSH_LAYER command payload. Bounds are logical target coordinates and are
  * enabled by PROGPU_NATIVE_SCENE_LAYER_BOUNDS; an absent bound means the full
  * target. Opacity and blend mode are applied once when the layer is restored.
- * Mask/effect indices are reserved typed resource-table references for the
- * next additive scene-resource increment and must currently be NO_INDEX.
+ * Mask/effect indices are optional typed resource-table references. A mask
+ * references PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK and an effect references
+ * PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN; NO_INDEX disables each feature.
  * Revisions are caller-owned retained identities; zero disables reuse hints.
  */
 typedef struct progpu_native_scene_layer {
@@ -440,6 +447,29 @@ typedef struct progpu_native_scene_layer {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_layer;
+
+/*
+ * Pointer-free semantic layer mask. The first additive kind is an analytic
+ * rounded rectangle in logical target coordinates. The transform maps mask
+ * local coordinates to logical target coordinates; radii are normalized by
+ * the executor using the same bounded CSS side-fit rule as common masks.
+ * Resource generation is the immutable retained identity. All reserved fields
+ * and flags remain zero.
+ */
+typedef struct progpu_native_scene_layer_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float corner_radii_x[4];
+    float corner_radii_y[4];
+    float opacity;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+} progpu_native_scene_layer_mask;
 
 /*
  * Version-one upload-backed image command payload. Its resource payload is a
@@ -779,6 +809,20 @@ typedef struct progpu_native_group_effect {
     float color_b;
     float color_a;
 } progpu_native_group_effect;
+
+/*
+ * Pointer-free semantic effect-chain header. The resource payload contains
+ * exactly this header and its auxiliary arena contains effect_count exact
+ * progpu_native_group_effect records in caller order. The resource generation
+ * and revision together identify the immutable chain without retaining a
+ * caller pointer.
+ */
+typedef struct progpu_native_scene_effect_chain {
+    uint32_t struct_size;
+    uint32_t effect_count;
+    uint32_t revision;
+    uint32_t reserved;
+} progpu_native_scene_effect_chain;
 
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array

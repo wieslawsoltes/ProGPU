@@ -259,6 +259,135 @@ std::vector<std::byte> create_layer_descriptor_scene(
     return stream;
 }
 
+std::vector<std::byte> create_typed_layer_resource_scene() {
+    constexpr std::uint32_t command_count = 2U;
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    constexpr std::uint32_t mask_offset = arena_offset;
+    constexpr std::uint32_t chain_offset = mask_offset +
+        sizeof(progpu_native_scene_layer_mask);
+    constexpr std::uint32_t effects_offset = chain_offset +
+        sizeof(progpu_native_scene_effect_chain);
+    constexpr std::uint32_t layer_offset = effects_offset +
+        sizeof(progpu_native_group_effect);
+    constexpr std::uint32_t total_size = layer_offset +
+        sizeof(progpu_native_scene_layer);
+    std::vector<std::byte> stream(total_size);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = total_size;
+    header.scene_id = 57U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = total_size - arena_offset;
+    write_scene_record(stream, 0U, header);
+
+    progpu_native_scene_resource mask_resource{};
+    mask_resource.struct_size = sizeof(mask_resource);
+    mask_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+    mask_resource.resource_id = 1U;
+    mask_resource.generation = 1U;
+    mask_resource.payload_offset = mask_offset;
+    mask_resource.payload_size = sizeof(progpu_native_scene_layer_mask);
+    write_scene_record(stream, resource_offset, mask_resource);
+
+    progpu_native_scene_resource effect_resource{};
+    effect_resource.struct_size = sizeof(effect_resource);
+    effect_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN;
+    effect_resource.resource_id = 2U;
+    effect_resource.generation = 1U;
+    effect_resource.payload_offset = chain_offset;
+    effect_resource.payload_size = sizeof(progpu_native_scene_effect_chain);
+    effect_resource.auxiliary_offset = effects_offset;
+    effect_resource.auxiliary_size = sizeof(progpu_native_group_effect);
+    write_scene_record(
+        stream,
+        resource_offset + sizeof(progpu_native_scene_resource),
+        effect_resource);
+
+    progpu_native_scene_layer_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+    mask.bounds = {4.0F, 4.0F, 24.0F, 16.0F};
+    mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 2.0F, 3.0F};
+    mask.corner_radii_x[0] = 3.0F;
+    mask.corner_radii_x[1] = 4.0F;
+    mask.corner_radii_x[2] = 5.0F;
+    mask.corner_radii_x[3] = 6.0F;
+    mask.corner_radii_y[0] = 6.0F;
+    mask.corner_radii_y[1] = 5.0F;
+    mask.corner_radii_y[2] = 4.0F;
+    mask.corner_radii_y[3] = 3.0F;
+    mask.opacity = 0.75F;
+    write_scene_record(stream, mask_offset, mask);
+
+    progpu_native_scene_effect_chain chain{};
+    chain.struct_size = sizeof(chain);
+    chain.effect_count = 1U;
+    chain.revision = 9U;
+    write_scene_record(stream, chain_offset, chain);
+
+    progpu_native_group_effect effect{};
+    effect.struct_size = sizeof(effect);
+    effect.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+    effect.revision = 3U;
+    effect.sigma_x = 2.0F;
+    effect.sigma_y = 1.5F;
+    write_scene_record(stream, effects_offset, effect);
+
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {0.0F, 0.0F, 32.0F, 24.0F};
+    layer.opacity = 0.5F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = 0U;
+    layer.effect_resource_index = 1U;
+    layer.content_revision = 11U;
+    layer.composite_revision = 12U;
+    write_scene_record(stream, layer_offset, layer);
+
+    progpu_native_scene_command push{};
+    push.struct_size = sizeof(push);
+    push.kind = PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+    push.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    push.command_id = 1U;
+    push.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    push.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    push.payload_offset = layer_offset;
+    push.payload_size = sizeof(layer);
+    write_scene_record(stream, command_offset, push);
+
+    progpu_native_scene_command pop{};
+    pop.struct_size = sizeof(pop);
+    pop.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+    pop.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    pop.command_id = 2U;
+    pop.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    pop.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    write_scene_record(
+        stream,
+        command_offset + sizeof(progpu_native_scene_command),
+        pop);
+    return stream;
+}
+
 void fixed_stroke_topology_masks_match_reference_classification() {
     using progpu::native::stroke_triangle;
     std::array<stroke_triangle, 8U> triangles{};
@@ -385,6 +514,9 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_image_draw) == 88U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_state) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_layer) == 64U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_layer_mask) == 104U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_effect_chain) == 16U);
+    PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 56U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
@@ -416,6 +548,15 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_layer,
         content_revision) == 40U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer_mask,
+        bounds) == 16U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer_mask,
+        transform) == 32U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_layer_mask,
+        opacity) == 88U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_path_fill,
         color) == 32U);
@@ -699,10 +840,26 @@ void semantic_scene_layer_descriptors_are_exact_and_canonical() {
     rejects_value(invalid);
     invalid = layer;
     invalid.mask_resource_index = 0U;
-    rejects_value(invalid);
+    auto invalid_stream = create_layer_descriptor_scene(invalid);
+    progpu_native_scene_metrics invalid_metrics{};
+    invalid_metrics.struct_size = sizeof(invalid_metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        invalid_stream.data(),
+        invalid_stream.size(),
+        &invalid_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(invalid_metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_RECORD);
     invalid = layer;
     invalid.effect_resource_index = 0U;
-    rejects_value(invalid);
+    invalid_stream = create_layer_descriptor_scene(invalid);
+    invalid_metrics = {};
+    invalid_metrics.struct_size = sizeof(invalid_metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        invalid_stream.data(),
+        invalid_stream.size(),
+        &invalid_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(invalid_metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_RECORD);
     invalid = layer;
     invalid.reserved0 = 1U;
     rejects_value(invalid);
@@ -723,6 +880,112 @@ void semantic_scene_layer_descriptors_are_exact_and_canonical() {
         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     PROGPU_REQUIRE(metrics.validation_error ==
         PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+}
+
+void semantic_scene_layer_resources_are_typed_and_canonical() {
+    auto stream = create_typed_layer_resource_scene();
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.resource_count == 2U);
+    PROGPU_REQUIRE(metrics.maximum_stack_depth == 1U);
+    PROGPU_REQUIRE(metrics.payload_bytes ==
+        sizeof(progpu_native_scene_layer_mask) +
+        sizeof(progpu_native_scene_effect_chain) +
+        sizeof(progpu_native_group_effect) +
+        sizeof(progpu_native_scene_layer));
+
+    progpu_native_scene_header header{};
+    std::memcpy(&header, stream.data(), sizeof(header));
+    progpu_native_scene_resource mask_resource{};
+    std::memcpy(
+        &mask_resource,
+        stream.data() + header.resource_offset,
+        sizeof(mask_resource));
+    progpu_native_scene_resource effect_resource{};
+    std::memcpy(
+        &effect_resource,
+        stream.data() + header.resource_offset + header.resource_stride,
+        sizeof(effect_resource));
+    progpu_native_scene_command push{};
+    std::memcpy(
+        &push,
+        stream.data() + header.command_offset,
+        sizeof(push));
+
+    const auto rejects = [](
+        const std::vector<std::byte>& invalid_stream,
+        std::uint32_t expected_error) {
+        progpu_native_scene_metrics invalid_metrics{};
+        invalid_metrics.struct_size = sizeof(invalid_metrics);
+        PROGPU_REQUIRE(progpu_native_scene_validate(
+            invalid_stream.data(),
+            invalid_stream.size(),
+            &invalid_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        PROGPU_REQUIRE(invalid_metrics.validation_error == expected_error);
+    };
+
+    auto invalid_stream = stream;
+    progpu_native_scene_layer_mask mask{};
+    std::memcpy(
+        &mask,
+        invalid_stream.data() + mask_resource.payload_offset,
+        sizeof(mask));
+    mask.flags = 1U;
+    write_scene_record(invalid_stream, mask_resource.payload_offset, mask);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    std::memcpy(
+        &mask,
+        invalid_stream.data() + mask_resource.payload_offset,
+        sizeof(mask));
+    mask.transform.m22 = 0.0F;
+    write_scene_record(invalid_stream, mask_resource.payload_offset, mask);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    std::memcpy(
+        &mask,
+        invalid_stream.data() + mask_resource.payload_offset,
+        sizeof(mask));
+    mask.opacity = 1.01F;
+    write_scene_record(invalid_stream, mask_resource.payload_offset, mask);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    --effect_resource.auxiliary_size;
+    write_scene_record(
+        invalid_stream,
+        header.resource_offset + header.resource_stride,
+        effect_resource);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    progpu_native_group_effect effect{};
+    std::memcpy(
+        &effect,
+        invalid_stream.data() + effect_resource.auxiliary_offset,
+        sizeof(effect));
+    effect.offset_x = 1.0F;
+    write_scene_record(
+        invalid_stream,
+        effect_resource.auxiliary_offset,
+        effect);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    invalid_stream = stream;
+    progpu_native_scene_layer layer{};
+    std::memcpy(
+        &layer,
+        invalid_stream.data() + push.payload_offset,
+        sizeof(layer));
+    layer.mask_resource_index = 1U;
+    layer.effect_resource_index = 0U;
+    write_scene_record(invalid_stream, push.payload_offset, layer);
+    rejects(invalid_stream, PROGPU_NATIVE_SCENE_VALIDATION_RECORD);
 }
 
 void semantic_scene_stack_depth_is_bounded_exactly() {
@@ -1477,6 +1740,7 @@ int main() {
     semantic_scene_stream_rejects_malformed_updates_transactionally();
     semantic_scene_resource_generations_are_monotonic();
     semantic_scene_layer_descriptors_are_exact_and_canonical();
+    semantic_scene_layer_resources_are_typed_and_canonical();
     semantic_scene_stack_depth_is_bounded_exactly();
     semantic_scene_validation_is_deterministic_under_mutation();
     fixed_stroke_topology_masks_match_reference_classification();

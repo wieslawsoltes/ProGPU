@@ -176,7 +176,14 @@ public enum NativeSceneResourceKind : uint
     PathBatch = 2,
     GlyphRun = 3,
     Image = 4,
-    State = 5
+    State = 5,
+    LayerMask = 6,
+    EffectChain = 7
+}
+
+public enum NativeSceneLayerMaskKind : uint
+{
+    RoundedRectangle = 1
 }
 
 public enum NativeSceneCommandKind : uint
@@ -318,10 +325,10 @@ public readonly struct NativeSceneState
 /// Pointer-free state for one semantic isolated-layer scope.
 /// </summary>
 /// <remarks>
-/// Bounds are logical target coordinates. Mask and effect indices are reserved
-/// for the next typed scene-resource increment and must currently be
-/// <see cref="uint.MaxValue"/>. Revisions are retained identity hints; zero
-/// disables the corresponding hint.
+/// Bounds are logical target coordinates. Mask and effect indices reference
+/// preceding typed resources or use <see cref="uint.MaxValue"/> to disable the
+/// feature. Revisions are retained identity hints; zero disables the
+/// corresponding hint.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer
@@ -374,6 +381,145 @@ public readonly struct NativeSceneLayer
     private readonly uint Reserved1;
 
     internal bool HasCanonicalReservedFields => Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>
+/// Pointer-free analytic mask for one semantic layer resource.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerMask
+{
+    public NativeSceneLayerMask(
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        Vector4 cornerRadiiX,
+        Vector4 cornerRadiiY,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerMask>();
+        Kind = NativeSceneLayerMaskKind.RoundedRectangle;
+        Flags = 0U;
+        Reserved = 0U;
+        Bounds = bounds;
+        Transform = transform;
+        CornerRadiiX = cornerRadiiX;
+        CornerRadiiY = cornerRadiiY;
+        Opacity = opacity;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+        Reserved2 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    private readonly uint Reserved;
+    public readonly NativeImageRect Bounds;
+    public readonly Matrix3x2 Transform;
+    public readonly Vector4 CornerRadiiX;
+    public readonly Vector4 CornerRadiiY;
+    public readonly float Opacity;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+    private readonly uint Reserved2;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved == 0U && Reserved0 == 0U && Reserved1 == 0U &&
+        Reserved2 == 0U;
+}
+
+/// <summary>
+/// Pointer-free descriptor for one semantic layer effect.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneEffect
+{
+    private NativeSceneEffect(
+        NativeGroupEffectKind kind,
+        float sigmaX,
+        float sigmaY,
+        Vector2 offset,
+        Vector4 color,
+        uint revision)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneEffect>();
+        Kind = kind;
+        Flags = 0U;
+        Revision = revision;
+        SigmaX = sigmaX;
+        SigmaY = sigmaY;
+        Reserved = 0U;
+        Reserved2 = 0U;
+        OffsetX = offset.X;
+        OffsetY = offset.Y;
+        ColorR = color.X;
+        ColorG = color.Y;
+        ColorB = color.Z;
+        ColorA = color.W;
+    }
+
+    public static NativeSceneEffect GaussianBlur(
+        float sigmaX,
+        float sigmaY,
+        uint revision) => new(
+            NativeGroupEffectKind.GaussianBlur,
+            sigmaX,
+            sigmaY,
+            default,
+            default,
+            revision);
+
+    public static NativeSceneEffect DropShadow(
+        float sigma,
+        Vector2 offset,
+        Vector4 color,
+        uint revision) => new(
+            NativeGroupEffectKind.DropShadow,
+            sigma,
+            sigma,
+            offset,
+            color,
+            revision);
+
+    public readonly uint StructSize;
+    public readonly NativeGroupEffectKind Kind;
+    public readonly uint Flags;
+    public readonly uint Revision;
+    public readonly float SigmaX;
+    public readonly float SigmaY;
+    private readonly uint Reserved;
+    private readonly uint Reserved2;
+    public readonly float OffsetX;
+    public readonly float OffsetY;
+    public readonly float ColorR;
+    public readonly float ColorG;
+    public readonly float ColorB;
+    public readonly float ColorA;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved == 0U && Reserved2 == 0U;
+}
+
+/// <summary>
+/// Pointer-free header for a bounded semantic layer effect chain.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneEffectChain
+{
+    public NativeSceneEffectChain(uint effectCount, uint revision)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneEffectChain>();
+        EffectCount = effectCount;
+        Revision = revision;
+        Reserved = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly uint EffectCount;
+    public readonly uint Revision;
+    private readonly uint Reserved;
+
+    internal bool HasCanonicalReservedFields => Reserved == 0U;
 }
 
 /// <summary>

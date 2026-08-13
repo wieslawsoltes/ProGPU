@@ -73,7 +73,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -158,9 +158,66 @@ bool valid_scene_layer(const progpu_native_scene_layer& layer) noexcept {
         bounds_are_canonical && std::isfinite(layer.opacity) &&
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
-        layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
-        layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
         layer.reserved0 == 0U && layer.reserved1 == 0U;
+}
+
+bool valid_scene_layer_mask(
+    const progpu_native_scene_layer_mask& mask) noexcept {
+    const double determinant =
+        static_cast<double>(mask.transform.m11) * mask.transform.m22 -
+        static_cast<double>(mask.transform.m12) * mask.transform.m21;
+    const auto valid_radius = [](float value) noexcept {
+        return std::isfinite(value) && value >= 0.0F;
+    };
+    return mask.struct_size == sizeof(progpu_native_scene_layer_mask) &&
+        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+        mask.flags == 0U && mask.reserved == 0U &&
+        mask.reserved0 == 0U && mask.reserved1 == 0U &&
+        mask.reserved2 == 0U &&
+        std::isfinite(mask.bounds.x) && std::isfinite(mask.bounds.y) &&
+        std::isfinite(mask.bounds.width) &&
+        std::isfinite(mask.bounds.height) && mask.bounds.width > 0.0F &&
+        mask.bounds.height > 0.0F &&
+        std::isfinite(mask.transform.m11) &&
+        std::isfinite(mask.transform.m12) &&
+        std::isfinite(mask.transform.m21) &&
+        std::isfinite(mask.transform.m22) &&
+        std::isfinite(mask.transform.m31) &&
+        std::isfinite(mask.transform.m32) &&
+        std::isfinite(determinant) && std::abs(determinant) > 0.000001 &&
+        std::ranges::all_of(mask.corner_radii_x, valid_radius) &&
+        std::ranges::all_of(mask.corner_radii_y, valid_radius) &&
+        std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
+        mask.opacity <= 1.0F;
+}
+
+bool valid_scene_effect(
+    const progpu_native_group_effect& effect) noexcept {
+    if (effect.struct_size != sizeof(progpu_native_group_effect) ||
+        (effect.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
+        effect.flags != 0U || effect.revision == 0U ||
+        effect.reserved != 0U || effect.reserved2 != 0U ||
+        !std::isfinite(effect.sigma_x) ||
+        !std::isfinite(effect.sigma_y) || effect.sigma_x < 0.0F ||
+        effect.sigma_y < 0.0F || !std::isfinite(effect.offset_x) ||
+        !std::isfinite(effect.offset_y) ||
+        !std::isfinite(effect.color_r) ||
+        !std::isfinite(effect.color_g) ||
+        !std::isfinite(effect.color_b) ||
+        !std::isfinite(effect.color_a)) {
+        return false;
+    }
+    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR) {
+        return effect.sigma_x > 0.01F && effect.sigma_y > 0.01F &&
+            effect.offset_x == 0.0F && effect.offset_y == 0.0F &&
+            effect.color_r == 0.0F && effect.color_g == 0.0F &&
+            effect.color_b == 0.0F && effect.color_a == 0.0F;
+    }
+    return effect.color_r >= 0.0F && effect.color_r <= 1.0F &&
+        effect.color_g >= 0.0F && effect.color_g <= 1.0F &&
+        effect.color_b >= 0.0F && effect.color_b <= 1.0F &&
+        effect.color_a >= 0.0F && effect.color_a <= 1.0F;
 }
 
 bool command_ids_are_unique(
@@ -334,6 +391,67 @@ validation_result validate(
                     resource.payload_offset);
             }
         }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            if (resource.payload_size !=
+                    sizeof(progpu_native_scene_layer_mask) ||
+                resource.auxiliary_size != 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const auto mask = read_record<progpu_native_scene_layer_mask>(
+                bytes,
+                resource.payload_offset);
+            if (!valid_scene_layer_mask(mask)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.payload_offset);
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {
+            if (resource.payload_size !=
+                    sizeof(progpu_native_scene_effect_chain) ||
+                resource.auxiliary_size == 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const auto chain = read_record<progpu_native_scene_effect_chain>(
+                bytes,
+                resource.payload_offset);
+            if (chain.struct_size != sizeof(chain) ||
+                chain.effect_count == 0U ||
+                chain.effect_count > PROGPU_NATIVE_MAX_GROUP_EFFECTS ||
+                chain.revision == 0U || chain.reserved != 0U ||
+                resource.auxiliary_size !=
+                    static_cast<std::uint64_t>(chain.effect_count) *
+                        sizeof(progpu_native_group_effect)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.payload_offset);
+            }
+            for (std::uint32_t effect_index = 0U;
+                 effect_index < chain.effect_count;
+                 ++effect_index) {
+                const auto effect = read_record<progpu_native_group_effect>(
+                    bytes,
+                    resource.auxiliary_offset +
+                        static_cast<std::size_t>(effect_index) *
+                            sizeof(progpu_native_group_effect));
+                if (!valid_scene_effect(effect)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        resource.auxiliary_offset +
+                            effect_index *
+                                sizeof(progpu_native_group_effect));
+                }
+            }
+        }
         previous_resource_id = resource.resource_id;
         payload_bytes += resource.payload_size;
         payload_bytes += resource.auxiliary_size;
@@ -463,6 +581,33 @@ validation_result validate(
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    offset);
+            }
+            const auto valid_layer_resource = [&](std::uint32_t index,
+                                                   std::uint32_t kind) {
+                if (index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    return true;
+                }
+                if (index >= header.resource_count) {
+                    return false;
+                }
+                const auto resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(index) *
+                                header.resource_stride);
+                return resource.kind == kind;
+            };
+            if (!valid_layer_resource(
+                    layer.mask_resource_index,
+                    PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
+                !valid_layer_resource(
+                    layer.effect_resource_index,
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
             }
             layer_is_materialized = layer_requires_materialization(layer);

@@ -199,6 +199,9 @@ public class NativeRendererInteropTests
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
+        Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeSceneEffectChain>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeSceneEffect>());
         Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
@@ -234,6 +237,15 @@ public class NativeRendererInteropTests
             40,
             OffsetOf<NativeSceneLayer>(
                 nameof(NativeSceneLayer.ContentRevision)));
+        Assert.Equal(
+            16,
+            OffsetOf<NativeSceneLayerMask>(nameof(NativeSceneLayerMask.Bounds)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeSceneLayerMask>(nameof(NativeSceneLayerMask.Transform)));
+        Assert.Equal(
+            88,
+            OffsetOf<NativeSceneLayerMask>(nameof(NativeSceneLayerMask.Opacity)));
         Assert.Equal(
             32,
             OffsetOf<NativeScenePathFill>(
@@ -889,6 +901,168 @@ public class NativeRendererInteropTests
             commandCapacity: 1,
             resourceCapacity: 0);
         Assert.False(invalidBuilder.TryPushLayer(1U, in invalid));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesTypedLayerResourcesWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        var mask = new NativeSceneLayerMask(
+            new NativeImageRect(4f, 5f, 24f, 16f),
+            Matrix3x2.CreateTranslation(2f, 3f),
+            new Vector4(3f, 4f, 5f, 6f),
+            new Vector4(6f, 5f, 4f, 3f),
+            opacity: 0.75f);
+        var effect = NativeSceneEffect.GaussianBlur(2f, 1.5f, revision: 3U);
+
+        static bool BuildLayerResources(
+            Span<byte> bytes,
+            in NativeSceneLayerMask maskDescriptor,
+            in NativeSceneEffect effectDescriptor,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
+            effects[0] = effectDescriptor;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                sceneId: 13U,
+                generation: 2U,
+                commandCapacity: 2,
+                resourceCapacity: 2);
+            if (!builder.TryAddLayerMaskResource(
+                    1U,
+                    1U,
+                    in maskDescriptor,
+                    out uint maskIndex) ||
+                !builder.TryAddEffectChainResource(
+                    2U,
+                    1U,
+                    effects,
+                    revision: 9U,
+                    out uint effectIndex))
+            {
+                return false;
+            }
+
+            var layer = new NativeSceneLayer(
+                opacity: 0.5f,
+                flags: NativeSceneLayerFlags.Bounds |
+                    NativeSceneLayerFlags.ForceIsolation,
+                bounds: new NativeImageRect(0f, 0f, 32f, 24f),
+                maskResourceIndex: maskIndex,
+                effectResourceIndex: effectIndex,
+                contentRevision: 11U,
+                compositeRevision: 12U);
+            return builder.TryPushLayer(1U, in layer) &&
+                builder.TryPopLayer(2U) &&
+                builder.TryBuild(out stream);
+        }
+
+        Assert.True(BuildLayerResources(
+            destination,
+            in mask,
+            in effect,
+            out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var maskResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var effectResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        Assert.Equal(NativeSceneResourceKind.LayerMask, maskResource.Kind);
+        Assert.Equal(104U, maskResource.PayloadSize);
+        Assert.Equal(NativeSceneResourceKind.EffectChain, effectResource.Kind);
+        Assert.Equal(16U, effectResource.PayloadSize);
+        Assert.Equal(56U, effectResource.AuxiliarySize);
+
+        var storedMask = MemoryMarshal.Read<NativeSceneLayerMask>(
+            stream[(int)maskResource.PayloadOffset..]);
+        var storedChain = MemoryMarshal.Read<NativeSceneEffectChain>(
+            stream[(int)effectResource.PayloadOffset..]);
+        var storedEffect = MemoryMarshal.Read<NativeSceneEffect>(
+            stream[(int)effectResource.AuxiliaryOffset..]);
+        Assert.Equal(NativeSceneLayerMaskKind.RoundedRectangle, storedMask.Kind);
+        Assert.Equal(0.75f, storedMask.Opacity);
+        Assert.Equal(1U, storedChain.EffectCount);
+        Assert.Equal(9U, storedChain.Revision);
+        Assert.Equal(NativeGroupEffectKind.GaussianBlur, storedEffect.Kind);
+        Assert.Equal(2f, storedEffect.SigmaX);
+        Assert.Equal(1.5f, storedEffect.SigmaY);
+
+        var push = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        var storedLayer = MemoryMarshal.Read<NativeSceneLayer>(
+            stream[(int)push.PayloadOffset..]);
+        Assert.Equal(0U, storedLayer.MaskResourceIndex);
+        Assert.Equal(1U, storedLayer.EffectResourceIndex);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= BuildLayerResources(
+                destination,
+                in mask,
+                in effect,
+                out _);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(success);
+        Assert.Equal(0L, allocated);
+
+        var invalidMask = new NativeSceneLayerMask(
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            new Matrix3x2(),
+            Vector4.Zero,
+            Vector4.Zero);
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            14U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddLayerMaskResource(
+            1U,
+            1U,
+            in invalidMask,
+            out _));
+
+        Span<NativeSceneEffect> invalidEffects = stackalloc NativeSceneEffect[1];
+        invalidEffects[0] = NativeSceneEffect.GaussianBlur(
+            0f,
+            1f,
+            revision: 1U);
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            15U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddEffectChainResource(
+            1U,
+            1U,
+            invalidEffects,
+            revision: 1U,
+            out _));
+
+        Span<NativeSceneEffect> validEffects = stackalloc NativeSceneEffect[1];
+        validEffects[0] = effect;
+        var wrongKindBuilder = new NativeSceneStreamBuilder(
+            destination,
+            16U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 1);
+        Assert.True(wrongKindBuilder.TryAddEffectChainResource(
+            1U,
+            1U,
+            validEffects,
+            revision: 1U,
+            out uint wrongKindIndex));
+        var wrongKindLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation,
+            maskResourceIndex: wrongKindIndex);
+        Assert.False(wrongKindBuilder.TryPushLayer(1U, in wrongKindLayer));
     }
 
     [Fact]

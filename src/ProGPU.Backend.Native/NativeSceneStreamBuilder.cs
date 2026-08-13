@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -152,9 +153,9 @@ public ref struct NativeSceneStreamBuilder
         NativeSceneResourceKind kind,
         ulong resourceId,
         ulong generation,
-        ReadOnlySpan<byte> payload,
+        scoped ReadOnlySpan<byte> payload,
         out uint resourceIndex,
-        ReadOnlySpan<byte> auxiliary = default,
+        scoped ReadOnlySpan<byte> auxiliary = default,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
     {
         resourceIndex = NativeMethods.SceneNoIndex;
@@ -271,6 +272,68 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             flags: flags);
 
+    public bool TryAddLayerMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerMask mask,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (!IsValidLayerMask(mask))
+        {
+            return false;
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            flags: flags);
+    }
+
+    public bool TryAddEffectChainResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneEffect> effects,
+        uint revision,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (effects.IsEmpty ||
+            effects.Length > NativeGroupEffectChain.MaximumEffectCount ||
+            revision == 0U)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeSceneEffect effect in effects)
+        {
+            if (!IsValidEffect(effect))
+            {
+                return false;
+            }
+        }
+
+        var chain = new NativeSceneEffectChain(
+            (uint)effects.Length,
+            revision);
+        return TryAddResource(
+            NativeSceneResourceKind.EffectChain,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(ref chain, 1)),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(effects),
+            flags);
+    }
+
     public bool TrySave(
         ulong commandId,
         uint stateIndex = NativeMethods.SceneNoIndex) =>
@@ -298,7 +361,13 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneLayer layer,
         uint stateIndex = NativeMethods.SceneNoIndex)
     {
-        if (!IsValidLayer(layer))
+        if (!IsValidLayer(layer) ||
+            !HasOptionalResourceKind(
+                layer.MaskResourceIndex,
+                NativeSceneResourceKind.LayerMask) ||
+            !HasOptionalResourceKind(
+                layer.EffectResourceIndex,
+                NativeSceneResourceKind.EffectChain))
         {
             return false;
         }
@@ -584,7 +653,7 @@ public ref struct NativeSceneStreamBuilder
     }
 
     private bool TryWriteArena(
-        ReadOnlySpan<byte> source,
+        scoped ReadOnlySpan<byte> source,
         out uint absoluteOffset)
     {
         absoluteOffset = 0U;
@@ -625,6 +694,13 @@ public ref struct NativeSceneStreamBuilder
         return resource.Kind == kind;
     }
 
+    private readonly bool HasOptionalResourceKind(
+        uint resourceIndex,
+        NativeSceneResourceKind kind) =>
+        resourceIndex == NativeMethods.SceneNoIndex ||
+        (resourceIndex < (uint)_resourceCount &&
+            ResourceHasKind(resourceIndex, kind));
+
     private static NativeSceneResourceKind ExpectedResourceKind(
         NativeSceneCommandKind kind) => kind switch
         {
@@ -641,7 +717,7 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.State;
+            <= NativeSceneResourceKind.EffectChain;
 
     private static bool IsFiniteBounds(NativeImageRect bounds) =>
         float.IsFinite(bounds.X) && float.IsFinite(bounds.Y) &&
@@ -665,10 +741,71 @@ public ref struct NativeSceneStreamBuilder
             float.IsFinite(layer.Opacity) &&
             layer.Opacity is >= 0f and <= 1f &&
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
-            layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
-            layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
             layer.HasCanonicalReservedFields;
     }
+
+    private static bool IsValidLayerMask(in NativeSceneLayerMask mask)
+    {
+        bool finiteRadii =
+            IsFiniteNonnegative(mask.CornerRadiiX) &&
+            IsFiniteNonnegative(mask.CornerRadiiY);
+        float determinant = mask.Transform.GetDeterminant();
+        return mask.StructSize == Unsafe.SizeOf<NativeSceneLayerMask>() &&
+            mask.Kind == NativeSceneLayerMaskKind.RoundedRectangle &&
+            mask.Flags == 0U && mask.HasCanonicalReservedFields &&
+            IsFinitePositive(mask.Bounds) &&
+            IsFinite(mask.Transform) && float.IsFinite(determinant) &&
+            MathF.Abs(determinant) > 0.000001f && finiteRadii &&
+            float.IsFinite(mask.Opacity) &&
+            mask.Opacity is >= 0f and <= 1f;
+    }
+
+    private static bool IsValidEffect(in NativeSceneEffect effect)
+    {
+        if (effect.StructSize != Unsafe.SizeOf<NativeSceneEffect>() ||
+            effect.Kind is not (NativeGroupEffectKind.GaussianBlur or
+                NativeGroupEffectKind.DropShadow) ||
+            effect.Flags != 0U || effect.Revision == 0U ||
+            !effect.HasCanonicalReservedFields ||
+            !float.IsFinite(effect.SigmaX) ||
+            !float.IsFinite(effect.SigmaY) || effect.SigmaX < 0f ||
+            effect.SigmaY < 0f || !float.IsFinite(effect.OffsetX) ||
+            !float.IsFinite(effect.OffsetY) ||
+            !float.IsFinite(effect.ColorR) ||
+            !float.IsFinite(effect.ColorG) ||
+            !float.IsFinite(effect.ColorB) ||
+            !float.IsFinite(effect.ColorA))
+        {
+            return false;
+        }
+        if (effect.Kind == NativeGroupEffectKind.GaussianBlur)
+        {
+            return effect.SigmaX > 0.01f && effect.SigmaY > 0.01f &&
+                effect.OffsetX == 0f && effect.OffsetY == 0f &&
+                effect.ColorR == 0f && effect.ColorG == 0f &&
+                effect.ColorB == 0f && effect.ColorA == 0f;
+        }
+        return effect.ColorR is >= 0f and <= 1f &&
+            effect.ColorG is >= 0f and <= 1f &&
+            effect.ColorB is >= 0f and <= 1f &&
+            effect.ColorA is >= 0f and <= 1f;
+    }
+
+    private static bool IsFinite(Matrix3x2 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32);
+
+    private static bool IsFinitePositive(NativeImageRect value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Width) && float.IsFinite(value.Height) &&
+        value.Width > 0f && value.Height > 0f;
+
+    private static bool IsFiniteNonnegative(Vector4 value) =>
+        float.IsFinite(value.X) && value.X >= 0f &&
+        float.IsFinite(value.Y) && value.Y >= 0f &&
+        float.IsFinite(value.Z) && value.Z >= 0f &&
+        float.IsFinite(value.W) && value.W >= 0f;
 
     private static bool RequiresMaterialization(in NativeSceneLayer layer) =>
         (layer.Flags & (NativeSceneLayerFlags.Backdrop |
