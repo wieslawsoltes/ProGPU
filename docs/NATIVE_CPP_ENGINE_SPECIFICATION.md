@@ -1124,14 +1124,16 @@ depth of 64. It is O(C + R) time with O(C + D) bounded scratch for command-id
 radix validation and stack depth D; the canonical resource table needs no
 lookup allocation. No partial snapshot becomes visible on failure.
 
-The current mixed renderer structurally preflights all four typed payloads
-before its first submission, then delegates value validation and GPU work to
-the existing family compilers. Therefore d3b1 remains incomplete: final
-preflight must validate every typed arena value and checked compilation bound
-before target mutation, or compile through an isolated transactional target.
-The later pass will also compute exact or checked upper bounds for batch
-vertices, indices, glyph instances, atlas demand, layer pixels, and effect
-passes and reject a live set above configured budgets.
+The current mixed renderer preflights all four typed payloads before its first
+submission. It validates analytic geometry and transforms; path/glyph segment
+kinds, points, reserved encodings, ranges, bounds, transforms, sample grids,
+raster scales, phases, and positioned-glyph values; and complete image sizes,
+strides, rectangles, transforms, sampling, and opacity. A late invalid draw
+therefore cannot submit or mutate an earlier target result. Therefore d3b1
+remains incomplete only at the checked compilation-budget boundary: the next
+pass must compute exact or checked upper bounds for batch vertices, indices,
+glyph instances, aggregate atlas demand, layer pixels, and effect passes and
+reject a live set above configured budgets before target mutation.
 
 The target compiler preserves display-list order. Compatible analytic/vector commands
 coalesce into the existing packed vector batches. Path, glyph, and image
@@ -1146,12 +1148,16 @@ texture for every save/restore pair.
 
 The current d3b1 checkpoint already preserves display-list order and target
 contents across family switches by clearing on the first draw and loading on
-later draws. It crosses the public ABI once per frame but submits one native
-command buffer per semantic draw. This is intentionally a correctness
-checkpoint, not the final performance topology: mixed-family encoder reuse,
-adjacent-family batching, visibility culling, and stable multi-command compiled
-pages remain required before the d3b1 checkbox closes. For C semantic commands,
-dispatch is currently O(C) CPU work and O(C) submissions in the worst case;
+later draws. It crosses the public ABI once per frame and shares one encoder
+across dedicated analytic, retained-path, glyph-instance, and image buffer
+domains. The four-family fixture therefore needs one command buffer and one
+submission instead of four. Reusing a domain flushes the current graph before
+its payload can be overwritten, so arbitrary display-list order remains
+correct. This is intentionally a conservative batching checkpoint, not the
+final performance topology: adjacent same-family coalescing, paged buffers,
+visibility culling, and stable multi-command compiled pages remain required
+before the d3b1 checkbox closes. For C semantic commands, dispatch is currently
+O(C) CPU work and O(C) submissions in an adversarial repeated-domain sequence;
 the target is O(C) compilation with submissions bounded by the compiled render
 graph rather than command count.
 

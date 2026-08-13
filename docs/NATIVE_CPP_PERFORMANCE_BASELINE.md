@@ -332,8 +332,9 @@ Retained ignored evidence:
 The first d3b1 rendering checkpoint installs one immutable pointer-free scene
 and renders analytic, retained-path, positioned-glyph, and upload-backed image
 commands through one public native entry point. The current compiler preserves
-order with four native command buffers/submissions for the four-command
-fixture; it is not yet the final mixed-family single-encoder/batching topology
+order with one native command buffer/submission for the four-command fixture.
+Analytic, path, glyph, and image use distinct retained buffer domains and share
+the encoder. It is not yet the final paged/coalesced topology
 and no C++/managed performance claim is made from this functional run.
 
 The real pinned WebScene `02823bf` / Dawn `710c33013` / Metal provider test
@@ -346,13 +347,20 @@ PNG inspection conversion beside it). The managed typed builder separately
 writes all four resource/command payloads into caller-owned memory with exactly
 zero managed bytes over 10,000 builds. A second render of the identical scene
 retains the snapshot hash, issues no image-texture upload and no path/glyph
-coverage staging, and still submits the four ordered family command buffers.
+coverage staging, and submits the same four ordered passes in one command
+buffer.
+The same hardware gate then installs a structurally valid scene whose fourth
+image draw contains a non-finite opacity. Whole-scene value preflight rejects
+it before submission, preserves the prior submission token, and the subsequent
+IOSurface pixel verification proves that no earlier draw or clear reached the
+target.
 
 This checkpoint does not close d3b1. Before performance evidence is recorded,
-the native compiler must complete whole-scene value/budget preflight, adjacent
-family batching and encoder reuse, complete stable upload/allocation counters,
-a matched managed scene, differential screenshots, distributions, and macOS
-native/.NET/GPU profiles. State resources and isolated layers remain d3b2.
+the native compiler must complete checked whole-scene compilation budgets,
+adjacent family batching and encoder reuse, complete stable upload/allocation
+counters, a matched managed scene, differential screenshots, distributions,
+and macOS native/.NET/GPU profiles. State resources and isolated layers remain
+d3b2.
 
 ## Root-group blend/compositing supplement
 

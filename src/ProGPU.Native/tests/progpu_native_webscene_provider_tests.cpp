@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <type_traits>
 #include <vector>
@@ -785,7 +786,7 @@ int main(int argc, char** argv) {
         semantic_metrics.command_count != 4U ||
         semantic_metrics.draw_call_count != 4U ||
         semantic_metrics.family_switch_count != 4U ||
-        semantic_metrics.submission_count != 4U ||
+        semantic_metrics.submission_count != 1U ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
         progpu_native_engine_get_last_error(
@@ -806,7 +807,7 @@ int main(int argc, char** argv) {
         semantic_metrics.command_count == 4U &&
         semantic_metrics.draw_call_count == 4U &&
         semantic_metrics.family_switch_count == 4U &&
-        semantic_metrics.submission_count == 4U &&
+        semantic_metrics.submission_count == 1U &&
         semantic_metrics.payload_hash != 0U,
         "mixed semantic scene rendering failed");
     const std::uint64_t semantic_payload_hash =
@@ -820,7 +821,7 @@ int main(int argc, char** argv) {
         semantic_metrics.command_count == 4U &&
         semantic_metrics.draw_call_count == 4U &&
         semantic_metrics.family_switch_count == 4U &&
-        semantic_metrics.submission_count == 4U &&
+        semantic_metrics.submission_count == 1U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.coverage_staging_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
@@ -831,6 +832,52 @@ int main(int argc, char** argv) {
         &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_submission != 0U,
         "semantic scene submission token unavailable");
+    auto invalid_value_scene = create_renderable_semantic_scene_stream(4U);
+    progpu_native_scene_header invalid_header{};
+    std::memcpy(
+        &invalid_header,
+        invalid_value_scene.data(),
+        sizeof(invalid_header));
+    progpu_native_scene_command invalid_image_command{};
+    std::memcpy(
+        &invalid_image_command,
+        invalid_value_scene.data() + invalid_header.command_offset +
+            3U * invalid_header.command_stride,
+        sizeof(invalid_image_command));
+    progpu_native_scene_image_draw invalid_image{};
+    std::memcpy(
+        &invalid_image,
+        invalid_value_scene.data() + invalid_image_command.payload_offset,
+        sizeof(invalid_image));
+    invalid_image.opacity = std::numeric_limits<float>::quiet_NaN();
+    std::memcpy(
+        invalid_value_scene.data() + invalid_image_command.payload_offset,
+        &invalid_image,
+        sizeof(invalid_image));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        invalid_value_scene.data(),
+        invalid_value_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "structurally valid semantic value-preflight scene was rejected");
+    progpu_native_scene_frame invalid_frame = semantic_frame;
+    invalid_frame.generation = 4U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &invalid_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.submission_count == 0U,
+        "semantic value preflight did not fail before submission");
+    std::uint64_t submission_after_invalid{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &submission_after_invalid) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        submission_after_invalid == semantic_submission,
+        "failed semantic value preflight mutated the submission timeline");
     std::uint8_t semantic_complete{};
     require(progpu_native_engine_poll_submission(
         engine,

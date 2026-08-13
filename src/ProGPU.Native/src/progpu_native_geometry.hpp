@@ -2912,11 +2912,9 @@ inline bool append_spline(
         double_count);
 }
 
-inline bool append_analytic_primitive(
+inline bool is_valid_analytic_primitive(
     const progpu_native_analytic_primitive& primitive,
-    float antialias_padding,
-    std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    float antialias_padding) noexcept {
     if (primitive.kind > PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE ||
         (primitive.flags & ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U ||
         !std::isfinite(primitive.x) || !std::isfinite(primitive.y) ||
@@ -2926,7 +2924,18 @@ inline bool append_analytic_primitive(
         !std::isfinite(primitive.stroke_thickness) ||
         primitive.stroke_thickness < 0.0F ||
         !is_finite(primitive.color) || !is_finite(primitive.transform) ||
-        !std::isfinite(antialias_padding) || antialias_padding <= 0.0F ||
+        !std::isfinite(antialias_padding) || antialias_padding <= 0.0F) {
+        return false;
+    }
+    return true;
+}
+
+inline bool append_analytic_primitive(
+    const progpu_native_analytic_primitive& primitive,
+    float antialias_padding,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    if (!is_valid_analytic_primitive(primitive, antialias_padding) ||
         vertices.size() > std::numeric_limits<std::uint32_t>::max() - 4U ||
         vertices.size() > std::numeric_limits<std::size_t>::max() - 4U ||
         indices.size() > std::numeric_limits<std::size_t>::max() - 6U) {

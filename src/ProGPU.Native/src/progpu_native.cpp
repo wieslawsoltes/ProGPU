@@ -291,7 +291,10 @@ struct path_raster_resources {
 private:
     static void release_buffer(WGPUBuffer buffer) {
         if (buffer != nullptr) {
-            wgpuBufferDestroy(buffer);
+            // Encoders and submitted command buffers retain temporary staging
+            // resources. Dropping caller ownership is safe; explicitly
+            // destroying here would invalidate a shared semantic encoder
+            // before it is finished.
             wgpuBufferRelease(buffer);
         }
     }
@@ -736,6 +739,153 @@ void set_brush_opacity(
     }
 }
 
+bool is_valid_semantic_analytic(
+    const progpu_native_analytic_primitive& primitive) noexcept {
+    float minimum_scale = 0.0F;
+    if (!progpu::native::try_get_minimum_scale(
+            primitive.transform,
+            minimum_scale)) {
+        return false;
+    }
+    return progpu::native::is_valid_analytic_primitive(
+        primitive,
+        antialias_padding_pixels / minimum_scale);
+}
+
+bool is_valid_semantic_segment(
+    const progpu_native_path_segment& segment,
+    bool allow_arc) noexcept {
+    const bool is_arc = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    return segment.kind <= (allow_arc
+            ? PROGPU_NATIVE_PATH_SEGMENT_ARC
+            : PROGPU_NATIVE_PATH_SEGMENT_CUBIC) &&
+        progpu::native::is_finite(segment.p0) &&
+        progpu::native::is_finite(segment.p1) &&
+        progpu::native::is_finite(segment.p2) &&
+        progpu::native::is_finite(segment.p3) &&
+        ((!is_arc && segment.pad0 == 0U && segment.pad1 == 0U &&
+             segment.pad2 == 0U) ||
+         (allow_arc && is_arc && segment.p3.x > 0.0F &&
+             segment.p3.y > 0.0F &&
+             std::isfinite(std::bit_cast<float>(segment.pad0)) &&
+             std::isfinite(std::bit_cast<float>(segment.pad1)) &&
+             std::isfinite(std::bit_cast<float>(segment.pad2))));
+}
+
+bool is_valid_semantic_path(
+    const progpu_native_scene_path_fill& path,
+    std::uint64_t segment_count) noexcept {
+    if (path.segment_count == 0U ||
+        path.segment_offset > segment_count ||
+        path.segment_count > segment_count - path.segment_offset ||
+        !std::isfinite(path.min_x) || !std::isfinite(path.min_y) ||
+        !std::isfinite(path.max_x) || !std::isfinite(path.max_y) ||
+        path.max_x <= path.min_x || path.max_y <= path.min_y ||
+        !progpu::native::is_finite(path.color) ||
+        !progpu::native::is_finite(path.transform) ||
+        path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
+        (path.sample_grid != 4U && path.sample_grid != 8U)) {
+        return false;
+    }
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    if (!progpu::native::try_get_stroke_scales(
+            path.transform,
+            maximum_scale,
+            minimum_scale)) {
+        return false;
+    }
+    (void)minimum_scale;
+    const double raster_width =
+        std::ceil(path.max_x * maximum_scale) + path_padding -
+        (std::floor(path.min_x * maximum_scale) - path_padding);
+    const double raster_height =
+        std::ceil(path.max_y * maximum_scale) + path_padding -
+        (std::floor(path.min_y * maximum_scale) - path_padding);
+    return std::isfinite(raster_width) && std::isfinite(raster_height) &&
+        raster_width > 0.0 && raster_height > 0.0 &&
+        raster_width <= native_max_atlas_size - 4U &&
+        raster_height <= native_max_atlas_size - 4U;
+}
+
+bool is_valid_semantic_glyph_outline(
+    const progpu_native_scene_glyph_outline& outline,
+    std::uint64_t segment_count) noexcept {
+    if (outline.segment_count == 0U ||
+        outline.segment_offset > segment_count ||
+        outline.segment_count > segment_count - outline.segment_offset ||
+        !std::isfinite(outline.min_x) || !std::isfinite(outline.min_y) ||
+        !std::isfinite(outline.max_x) || !std::isfinite(outline.max_y) ||
+        outline.max_x <= outline.min_x || outline.max_y <= outline.min_y ||
+        !std::isfinite(outline.raster_scale) ||
+        outline.raster_scale <= 0.0F ||
+        !std::isfinite(outline.subpixel_x) || outline.subpixel_x < 0.0F ||
+        outline.subpixel_x > 0.75F ||
+        std::abs(outline.subpixel_x * 4.0F -
+            std::round(outline.subpixel_x * 4.0F)) > 0.0001F) {
+        return false;
+    }
+    const float scaled_min_x = outline.min_x * outline.raster_scale;
+    const float scaled_min_y = -outline.max_y * outline.raster_scale;
+    const float scaled_max_x = outline.max_x * outline.raster_scale;
+    const float scaled_max_y = -outline.min_y * outline.raster_scale;
+    const double width = std::ceil(scaled_max_x) + path_padding -
+        (std::floor(scaled_min_x) - path_padding);
+    const double height = std::ceil(scaled_max_y) + path_padding -
+        (std::floor(scaled_min_y) - path_padding);
+    return std::isfinite(width) && std::isfinite(height) &&
+        width > 0.0 && height > 0.0 &&
+        width <= native_max_atlas_size - 4U &&
+        height <= native_max_atlas_size - 4U;
+}
+
+bool is_valid_semantic_positioned_glyph(
+    const progpu_native_positioned_glyph& glyph,
+    std::uint64_t outline_count) noexcept {
+    return glyph.outline_index < outline_count && glyph.reserved == 0U &&
+        glyph.reserved2 == 0.0F &&
+        progpu::native::is_finite(glyph.position) &&
+        progpu::native::is_finite(glyph.basis_x) &&
+        progpu::native::is_finite(glyph.basis_y) &&
+        progpu::native::is_finite(glyph.color) &&
+        std::isfinite(glyph.atlas_to_logical_scale) &&
+        glyph.atlas_to_logical_scale > 0.0F &&
+        std::isfinite(glyph.bold_offset) &&
+        std::isfinite(glyph.italic_skew);
+}
+
+bool is_valid_semantic_image(
+    const progpu_native_scene_image_draw& image,
+    std::uint64_t pixel_bytes) noexcept {
+    const auto valid_rect = [](const progpu_native_image_rect& rect) noexcept {
+        return std::isfinite(rect.x) && std::isfinite(rect.y) &&
+            std::isfinite(rect.width) && std::isfinite(rect.height) &&
+            rect.width > 0.0F && rect.height > 0.0F;
+    };
+    const std::uint64_t minimum_row_bytes =
+        static_cast<std::uint64_t>(image.image_width) * 4U;
+    const std::uint64_t required_pixels = image.image_height == 0U
+        ? 0U
+        : static_cast<std::uint64_t>(image.row_bytes) *
+                (image.image_height - 1U) + minimum_row_bytes;
+    return image.struct_size >= sizeof(image) && image.flags == 0U &&
+        image.reserved == 0U && image.image_width != 0U &&
+        image.image_height != 0U && image.image_width <= 16384U &&
+        image.image_height <= 16384U &&
+        image.row_bytes >= minimum_row_bytes &&
+        required_pixels <= pixel_bytes &&
+        image.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+        valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&
+        image.source_rect.x >= 0.0F && image.source_rect.y >= 0.0F &&
+        image.source_rect.x + image.source_rect.width <=
+            static_cast<float>(image.image_width) &&
+        image.source_rect.y + image.source_rect.height <=
+            static_cast<float>(image.image_height) &&
+        progpu::native::is_finite(image.transform) &&
+        std::isfinite(image.opacity) && image.opacity >= 0.0F &&
+        image.opacity <= 1.0F;
+}
+
 } // namespace
 
 struct progpu_native_engine {
@@ -799,6 +949,10 @@ struct progpu_native_engine {
     WGPUBuffer index_buffer = nullptr;
     std::uint64_t vertex_buffer_size = 0;
     std::uint64_t index_buffer_size = 0;
+    WGPUBuffer path_vertex_buffer = nullptr;
+    WGPUBuffer path_index_buffer = nullptr;
+    std::uint64_t path_vertex_buffer_size = 0U;
+    std::uint64_t path_index_buffer_size = 0U;
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<std::uint32_t> primitive_brush_indices;
@@ -1032,6 +1186,7 @@ struct progpu_native_engine {
     std::uint64_t semantic_scene_hash = 0U;
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
+    WGPUCommandEncoder semantic_encoder = nullptr;
     bool semantic_load_target = false;
     std::string last_error;
     std::uint64_t submission_count = 0;
@@ -1296,6 +1451,10 @@ struct progpu_native_engine {
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
+        if (semantic_encoder != nullptr) {
+            wgpuCommandEncoderRelease(semantic_encoder);
+            semantic_encoder = nullptr;
+        }
         release_effect_resources();
         release_clip_resources();
         if (group_blend_bind_group != nullptr) {
@@ -1534,6 +1693,14 @@ struct progpu_native_engine {
             wgpuBufferDestroy(vertex_buffer);
             wgpuBufferRelease(vertex_buffer);
         }
+        if (path_index_buffer != nullptr) {
+            wgpuBufferDestroy(path_index_buffer);
+            wgpuBufferRelease(path_index_buffer);
+        }
+        if (path_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(path_vertex_buffer);
+            wgpuBufferRelease(path_vertex_buffer);
+        }
         if (uniform_bind_group != nullptr) {
             wgpuBindGroupRelease(uniform_bind_group);
         }
@@ -1672,6 +1839,72 @@ struct progpu_native_engine {
         }
         index_buffer = replacement;
         index_buffer_size = new_size;
+        return true;
+    }
+
+    bool ensure_path_vertex_buffer(std::uint64_t required_size) {
+        if (required_size <= path_vertex_buffer_size &&
+            path_vertex_buffer != nullptr) {
+            return true;
+        }
+        std::uint64_t new_size = std::max(
+            initial_vertex_buffer_size,
+            path_vertex_buffer_size);
+        while (new_size < required_size) {
+            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
+                return false;
+            }
+            new_size *= 2U;
+        }
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained path vertex buffer");
+        descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        descriptor.size = new_size;
+        WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
+        if (replacement == nullptr) {
+            return false;
+        }
+        if (path_vertex_buffer != nullptr) {
+            wgpuBufferDestroy(path_vertex_buffer);
+            wgpuBufferRelease(path_vertex_buffer);
+        }
+        path_vertex_buffer = replacement;
+        path_vertex_buffer_size = new_size;
+        path_gpu_cache_valid = false;
+        return true;
+    }
+
+    bool ensure_path_index_buffer(std::uint64_t required_size) {
+        if (required_size <= path_index_buffer_size &&
+            path_index_buffer != nullptr) {
+            return true;
+        }
+        std::uint64_t new_size = std::max(
+            initial_index_buffer_size,
+            path_index_buffer_size);
+        while (new_size < required_size) {
+            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
+                return false;
+            }
+            new_size *= 2U;
+        }
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained path index buffer");
+        descriptor.usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+        descriptor.size = new_size;
+        WGPUBuffer replacement = wgpuDeviceCreateBuffer(device, &descriptor);
+        if (replacement == nullptr) {
+            return false;
+        }
+        if (path_index_buffer != nullptr) {
+            wgpuBufferDestroy(path_index_buffer);
+            wgpuBufferRelease(path_index_buffer);
+        }
+        path_index_buffer = replacement;
+        path_index_buffer_size = new_size;
+        path_gpu_cache_valid = false;
         return true;
     }
 
@@ -7604,11 +7837,15 @@ progpu_native_status progpu_native_engine_render_analytic(
             static_cast<std::size_t>(index_bytes));
     }
 
+    const bool owns_encoder = engine->semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine->device,
-        &encoder_descriptor);
+    if (owns_encoder) {
+        encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+    }
     if (encoder == nullptr) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -7640,7 +7877,9 @@ progpu_native_status progpu_native_engine_render_analytic(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native analytic render pass could not be created.");
@@ -7699,27 +7938,31 @@ progpu_native_status progpu_native_engine_render_analytic(
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
                 frame->clear_color,
                 draw_state)) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The analytic group composite pass could not be created.");
         }
     }
 
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The native analytic command buffer could not be finished.");
-    }
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic frame commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native analytic command buffer could not be finished.");
+        }
 
-    engine->submit(command);
-    wgpuCommandBufferRelease(command);
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
+    }
     if (use_group_layer) {
         retain_group_layer_content(
             *engine,
@@ -8864,8 +9107,8 @@ progpu_native_status progpu_native_engine_render_paths(
     const bool upload_brush_payload = upload_draw_payload || opacity_changed;
     bool uploaded_uniforms = false;
     if (vertex_bytes != 0U &&
-        (!engine->ensure_vertex_buffer(vertex_bytes) ||
-         !engine->ensure_index_buffer(index_bytes) ||
+        (!engine->ensure_path_vertex_buffer(vertex_bytes) ||
+         !engine->ensure_path_index_buffer(index_bytes) ||
          !ensure_analytic_brush_buffer(*engine, brush_bytes))) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -8884,13 +9127,13 @@ progpu_native_status progpu_native_engine_render_paths(
         if (upload_draw_payload) {
             wgpuQueueWriteBuffer(
                 engine->queue,
-                engine->vertex_buffer,
+                engine->path_vertex_buffer,
                 0U,
                 engine->path_vertices.data(),
                 vertex_bytes);
             wgpuQueueWriteBuffer(
                 engine->queue,
-                engine->index_buffer,
+                engine->path_index_buffer,
                 0U,
                 engine->path_indices.data(),
                 index_bytes);
@@ -8984,11 +9227,15 @@ progpu_native_status progpu_native_engine_render_paths(
         }
     }
 
+    const bool owns_encoder = engine->semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path frame encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine->device,
-        &encoder_descriptor);
+    if (owns_encoder) {
+        encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+    }
     if (encoder == nullptr) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -9011,7 +9258,9 @@ progpu_native_status progpu_native_engine_render_paths(
         WGPUComputePassEncoder compute_pass =
             wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
         if (compute_pass == nullptr) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native path compute pass could not be created.");
@@ -9077,7 +9326,9 @@ progpu_native_status progpu_native_engine_render_paths(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path render pass could not be created.");
@@ -9093,9 +9344,13 @@ progpu_native_status progpu_native_engine_render_paths(
         wgpuRenderPassEncoderSetBindGroup(
             pass, 1U, engine->path_atlas_bind_group, 0U, nullptr);
         wgpuRenderPassEncoderSetVertexBuffer(
-            pass, 0U, engine->vertex_buffer, 0U, vertex_bytes);
+            pass, 0U, engine->path_vertex_buffer, 0U, vertex_bytes);
         wgpuRenderPassEncoderSetIndexBuffer(
-            pass, engine->index_buffer, WGPUIndexFormat_Uint32, 0U, index_bytes);
+            pass,
+            engine->path_index_buffer,
+            WGPUIndexFormat_Uint32,
+            0U,
+            index_bytes);
         wgpuRenderPassEncoderDrawIndexed(
             pass,
             static_cast<std::uint32_t>(engine->path_indices.size()),
@@ -9119,26 +9374,30 @@ progpu_native_status progpu_native_engine_render_paths(
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
                 frame->clear_color,
                 draw_state)) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The path group composite pass could not be created.");
         }
     }
 
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The native path command buffer could not be finished.");
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native path command buffer could not be finished.");
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
     }
-    engine->submit(command);
-    wgpuCommandBufferRelease(command);
     if (use_group_layer) {
         retain_group_layer_content(
             *engine,
@@ -9713,11 +9972,15 @@ progpu_native_status progpu_native_engine_render_glyphs(
         }
     }
 
+    const bool owns_encoder = engine->semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph frame encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine->device,
-        &encoder_descriptor);
+    if (owns_encoder) {
+        encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+    }
     if (encoder == nullptr) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -9729,7 +9992,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
         WGPUComputePassEncoder compute_pass =
             wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
         if (compute_pass == nullptr) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native glyph compute pass could not be created.");
@@ -9800,7 +10065,9 @@ progpu_native_status progpu_native_engine_render_glyphs(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph render pass could not be created.");
@@ -9843,25 +10110,29 @@ progpu_native_status progpu_native_engine_render_glyphs(
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
                 frame->clear_color,
                 draw_state)) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The glyph group composite pass could not be created.");
         }
     }
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The native positioned glyph command buffer could not be finished.");
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native positioned glyph command buffer could not be finished.");
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
     }
-    engine->submit(command);
-    wgpuCommandBufferRelease(command);
     if (use_group_layer) {
         retain_group_layer_content(
             *engine,
@@ -10138,11 +10409,15 @@ progpu_native_status progpu_native_engine_render_image(
         engine->cached_image_uniforms,
         engine->image_uniform_cache_valid);
 
+    const bool owns_encoder = engine->semantic_encoder == nullptr;
+    WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
     encoder_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image encoder");
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-        engine->device,
-        &encoder_descriptor);
+    if (owns_encoder) {
+        encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+    }
     if (encoder == nullptr) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -10172,7 +10447,9 @@ progpu_native_status progpu_native_engine_render_image(
         encoder,
         &pass_descriptor);
     if (pass == nullptr) {
-        wgpuCommandEncoderRelease(encoder);
+        if (owns_encoder) {
+            wgpuCommandEncoderRelease(encoder);
+        }
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image render pass could not be created.");
@@ -10234,26 +10511,30 @@ progpu_native_status progpu_native_engine_render_image(
                 reinterpret_cast<WGPUTextureView>(frame->target_view),
                 frame->clear_color,
                 draw_state)) {
-            wgpuCommandEncoderRelease(encoder);
+            if (owns_encoder) {
+                wgpuCommandEncoderRelease(encoder);
+            }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The image group composite pass could not be created.");
         }
     }
 
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image commands");
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(
-        encoder,
-        &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    if (command == nullptr) {
-        return engine->fail(
-            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The retained RGBA image command buffer could not be finished.");
+    if (owns_encoder) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained RGBA image commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The retained RGBA image command buffer could not be finished.");
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
     }
-    engine->submit(command);
-    wgpuCommandBufferRelease(command);
     if (use_group_layer) {
         retain_group_layer_content(
             *engine,
@@ -10310,6 +10591,8 @@ progpu_native_status progpu_native_engine_render_scene(
     progpu_native_engine* engine,
     const progpu_native_scene_frame* frame,
     progpu_native_scene_frame_metrics* metrics) {
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        engine == nullptr ? nullptr : &engine->webgpu_dispatch);
     if (metrics != nullptr && metrics->struct_size >=
             sizeof(progpu_native_scene_frame_metrics)) {
         const std::uint32_t struct_size = metrics->struct_size;
@@ -10422,14 +10705,30 @@ progpu_native_status progpu_native_engine_render_scene(
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
         switch (command.kind) {
-            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC:
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                 valid = span_is_multiple(
                     resource.payload_size,
                     sizeof(progpu_native_analytic_primitive)) &&
                     resource.auxiliary_size == 0U &&
                     command.payload_size == 0U;
+                const std::uint64_t primitive_count = resource.payload_size /
+                    sizeof(progpu_native_analytic_primitive);
+                valid = valid && primitive_count <=
+                    std::numeric_limits<std::uint32_t>::max() / 6U;
+                for (std::uint64_t primitive_index = 0U;
+                     valid && primitive_index < primitive_count;
+                     ++primitive_index) {
+                    progpu_native_analytic_primitive primitive{};
+                    std::memcpy(
+                        &primitive,
+                        bytes + resource.payload_offset +
+                            primitive_index * sizeof(primitive),
+                        sizeof(primitive));
+                    valid = is_valid_semantic_analytic(primitive);
+                }
                 break;
-            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH:
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
                 valid = span_is_multiple(
                         resource.payload_size,
                         sizeof(progpu_native_scene_path_fill)) &&
@@ -10437,8 +10736,39 @@ progpu_native_status progpu_native_engine_render_scene(
                         resource.auxiliary_size,
                         sizeof(progpu_native_path_segment)) &&
                     command.payload_size == 0U;
+                const std::uint64_t path_count = resource.payload_size /
+                    sizeof(progpu_native_scene_path_fill);
+                const std::uint64_t segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                valid = valid && path_count <= (1U << 20U) &&
+                    segment_count <= (1U << 24U) &&
+                    path_count <=
+                        std::numeric_limits<std::uint32_t>::max() / 4U;
+                for (std::uint64_t segment_index = 0U;
+                     valid && segment_index < segment_count;
+                     ++segment_index) {
+                    progpu_native_path_segment segment{};
+                    std::memcpy(
+                        &segment,
+                        bytes + resource.auxiliary_offset +
+                            segment_index * sizeof(segment),
+                        sizeof(segment));
+                    valid = is_valid_semantic_segment(segment, true);
+                }
+                for (std::uint64_t path_index = 0U;
+                     valid && path_index < path_count;
+                     ++path_index) {
+                    progpu_native_scene_path_fill path{};
+                    std::memcpy(
+                        &path,
+                        bytes + resource.payload_offset +
+                            path_index * sizeof(path),
+                        sizeof(path));
+                    valid = is_valid_semantic_path(path, segment_count);
+                }
                 break;
-            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN:
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
                 valid = span_is_multiple(
                         resource.payload_size,
                         sizeof(progpu_native_scene_glyph_outline)) &&
@@ -10448,7 +10778,54 @@ progpu_native_status progpu_native_engine_render_scene(
                     span_is_multiple(
                         command.payload_size,
                         sizeof(progpu_native_positioned_glyph));
+                const std::uint64_t outline_count = resource.payload_size /
+                    sizeof(progpu_native_scene_glyph_outline);
+                const std::uint64_t segment_count = resource.auxiliary_size /
+                    sizeof(progpu_native_path_segment);
+                const std::uint64_t glyph_count = command.payload_size /
+                    sizeof(progpu_native_positioned_glyph);
+                valid = valid && outline_count <= (1U << 20U) &&
+                    segment_count <= (1U << 24U) &&
+                    glyph_count <= (1U << 24U);
+                for (std::uint64_t segment_index = 0U;
+                     valid && segment_index < segment_count;
+                     ++segment_index) {
+                    progpu_native_path_segment segment{};
+                    std::memcpy(
+                        &segment,
+                        bytes + resource.auxiliary_offset +
+                            segment_index * sizeof(segment),
+                        sizeof(segment));
+                    valid = is_valid_semantic_segment(segment, false);
+                }
+                for (std::uint64_t outline_index = 0U;
+                     valid && outline_index < outline_count;
+                     ++outline_index) {
+                    progpu_native_scene_glyph_outline outline{};
+                    std::memcpy(
+                        &outline,
+                        bytes + resource.payload_offset +
+                            outline_index * sizeof(outline),
+                        sizeof(outline));
+                    valid = is_valid_semantic_glyph_outline(
+                        outline,
+                        segment_count);
+                }
+                for (std::uint64_t glyph_index = 0U;
+                     valid && glyph_index < glyph_count;
+                     ++glyph_index) {
+                    progpu_native_positioned_glyph glyph{};
+                    std::memcpy(
+                        &glyph,
+                        bytes + command.payload_offset +
+                            glyph_index * sizeof(glyph),
+                        sizeof(glyph));
+                    valid = is_valid_semantic_positioned_glyph(
+                        glyph,
+                        outline_count);
+                }
                 break;
+            }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE: {
                 if (command.payload_size <
                     sizeof(progpu_native_scene_image_draw)) {
@@ -10459,24 +10836,12 @@ progpu_native_status progpu_native_engine_render_scene(
                     &image,
                     bytes + command.payload_offset,
                     sizeof(image));
-                const std::uint64_t required_pixels =
-                    static_cast<std::uint64_t>(image.row_bytes) *
-                    image.image_height;
-                const std::uint64_t minimum_row_bytes =
-                    static_cast<std::uint64_t>(image.image_width) * 4U;
                 valid = image.struct_size >= sizeof(image) &&
                     image.struct_size <= command.payload_size &&
-                    image.flags == 0U && image.reserved == 0U &&
-                    image.image_width != 0U && image.image_height != 0U &&
-                    image.row_bytes >= minimum_row_bytes &&
-                    required_pixels <= resource.payload_size &&
                     resource.auxiliary_size == 0U &&
-                    (image.sampling ==
-                            PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST ||
-                        image.sampling ==
-                            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) &&
-                    std::isfinite(image.opacity) && image.opacity >= 0.0F &&
-                    image.opacity <= 1.0F;
+                    is_valid_semantic_image(
+                        image,
+                        resource.payload_size);
                 break;
             }
             default:
@@ -10501,6 +10866,49 @@ progpu_native_status progpu_native_engine_render_scene(
     std::uint64_t coverage_staging_bytes = 0U;
     const std::uint64_t payload_hash = engine->semantic_scene_hash;
     bool target_has_content = false;
+    std::uint32_t encoded_buffer_domains = 0U;
+
+    const auto discard_encoder = [&]() noexcept {
+        if (engine->semantic_encoder != nullptr) {
+            wgpuCommandEncoderRelease(engine->semantic_encoder);
+            engine->semantic_encoder = nullptr;
+        }
+    };
+    const auto begin_encoder = [&]() noexcept {
+        if (engine->semantic_encoder != nullptr) {
+            return true;
+        }
+        WGPUCommandEncoderDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native semantic scene encoder");
+        engine->semantic_encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &descriptor);
+        return engine->semantic_encoder != nullptr;
+    };
+    const auto flush_encoder = [&]() noexcept {
+        if (engine->semantic_encoder == nullptr) {
+            return PROGPU_NATIVE_STATUS_SUCCESS;
+        }
+        WGPUCommandEncoder encoder = engine->semantic_encoder;
+        engine->semantic_encoder = nullptr;
+        WGPUCommandBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native semantic scene commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic scene command buffer could not be finished.");
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
+        encoded_buffer_domains = 0U;
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    };
 
     const auto prepare_family = [&](std::uint32_t family) noexcept {
         if (family != previous_family) {
@@ -10523,6 +10931,27 @@ progpu_native_status progpu_native_engine_render_scene(
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             continue;
         }
+        const std::uint32_t buffer_domain =
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
+            ? 1U
+            : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH
+                ? 2U
+                : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
+                    ? 4U
+                    : 8U;
+        if ((encoded_buffer_domains & buffer_domain) != 0U) {
+            const auto flush_status = flush_encoder();
+            if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                return flush_status;
+            }
+        }
+        if (!begin_encoder()) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic scene command encoder could not be created.");
+        }
+        encoded_buffer_domains |= buffer_domain;
         const auto resource = read_resource(command.resource_index);
         progpu_native_status status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
         switch (command.kind) {
@@ -10692,8 +11121,15 @@ progpu_native_status progpu_native_engine_render_scene(
         }
         if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
             engine->semantic_load_target = false;
+            discard_encoder();
             return status;
         }
+    }
+
+    const auto flush_status = flush_encoder();
+    if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        engine->semantic_load_target = false;
+        return flush_status;
     }
 
     if (semantic_draw_count == 0U) {

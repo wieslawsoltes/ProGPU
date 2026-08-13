@@ -11,9 +11,9 @@ namespace ProGPU.Backend.Native;
 /// </summary>
 /// <remarks>
 /// Each typed family render crosses the C ABI once and submits one native
-/// WebGPU command buffer. Semantic scene rendering also crosses once, then
-/// currently preserves display-list order with one native submission per draw
-/// until the mixed-family encoder/batching phase lands. The compositor is
+/// WebGPU command buffer. Semantic scene rendering also crosses once and
+/// shares one encoder across distinct retained buffer domains. Reusing a domain
+/// flushes the current graph before its payload can be overwritten. The compositor is
 /// owner-thread affine and must be disposed before its
 /// <see cref="WgpuContext"/> unless context disposal does so first.
 /// </remarks>
