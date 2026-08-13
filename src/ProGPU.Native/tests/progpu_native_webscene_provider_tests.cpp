@@ -623,7 +623,7 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream() {
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
         {},
         0.25F,
-        PROGPU_NATIVE_BLEND_SRC_OVER,
+        PROGPU_NATIVE_BLEND_PLUS,
         PROGPU_NATIVE_SCENE_NO_INDEX,
         PROGPU_NATIVE_SCENE_NO_INDEX,
         23U,
@@ -1135,8 +1135,8 @@ void verify_semantic_layer_scene(
         "outer semantic group opacity is incorrect");
     require(is_bgra(blue, 71U, 6U, 4U),
         "nested semantic group opacity is incorrect");
-    require(is_bgra(magenta, 71U, 6U, 68U),
-        "sequential same-depth semantic group opacity is incorrect");
+    require(is_bgra(magenta, 74U, 8U, 69U, 4),
+        "sequential same-depth semantic plus blend is incorrect");
     require(is_bgra(yellow, 0U, 255U, 255U),
         "semantic layer state was not restored after pop");
 

@@ -1295,6 +1295,7 @@ struct semantic_render_bundle_span {
     std::uint32_t target_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t source_layer = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t first_composite_vertex = 0U;
+    std::uint32_t blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
 };
 
 struct semantic_layer_slot {
@@ -7175,9 +7176,15 @@ bool encode_semantic_layer_composite(
     progpu_native_engine& engine,
     WGPURenderPassEncoder pass,
     const semantic_render_bundle_span& operation) {
+    bool blend_pipeline_cache_hit = false;
+    WGPURenderPipeline pipeline = get_or_create_fixed_group_blend_pipeline(
+        engine,
+        operation.blend_mode,
+        false,
+        blend_pipeline_cache_hit);
     if (operation.kind != semantic_replay_kind::pop_layer ||
         operation.source_layer >= engine.semantic_layer_slots.size() ||
-        engine.layer_composite_pipeline == nullptr ||
+        pipeline == nullptr ||
         engine.layer_uniform_bind_group == nullptr ||
         engine.layer_index_buffer == nullptr ||
         engine.semantic_layer_vertex_buffer == nullptr) {
@@ -7197,7 +7204,7 @@ bool encode_semantic_layer_composite(
     }
     wgpuRenderPassEncoderSetPipeline(
         pass,
-        engine.layer_composite_pipeline);
+        pipeline);
     wgpuRenderPassEncoderSetBindGroup(
         pass,
         0U,
@@ -11798,7 +11805,7 @@ progpu_native_status progpu_native_engine_render_scene(
             semantic_has_unsupported_layers |= materialized &&
                 (((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
                     PROGPU_NATIVE_SCENE_LAYER_BACKDROP)) != 0U) ||
-                    layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+                    is_advanced_group_blend(layer.blend_mode) ||
                     layer.mask_resource_index !=
                         PROGPU_NATIVE_SCENE_NO_INDEX ||
                     layer.effect_resource_index !=
@@ -13102,6 +13109,7 @@ progpu_native_status progpu_native_engine_render_scene(
                         : materialized_depth - 1U;
                     operation.source_layer = source_layer;
                     operation.first_composite_vertex = first_vertex;
+                    operation.blend_mode = layer.blend_mode;
                     compiled_spans.push_back(operation);
                     current_target_layer = operation.target_layer;
                     has_active_scissor = false;

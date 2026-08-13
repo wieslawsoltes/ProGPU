@@ -1176,9 +1176,10 @@ fixed 64-entry structural scope stack while separately limiting materialized
 depth to 16, caps peak layer pixels at 256 MiB, and includes that peak in the
 existing 512 MiB combined scene budget. Multiplication and accumulation are
 checked before an encoder is created. A valid budgeted layer renders when it
-is full-target, `SrcOver`, and needs isolation only for group opacity or
-`FORCE_ISOLATION`. Bounded, backdrop, mask/effect, and non-`SrcOver`
-descriptors still reach a typed `UNSUPPORTED` boundary. An oversized layer
+is full-target, has no backdrop/mask/effect dependency, and its blend has an
+exact fixed-function coefficient equation. Bounded, backdrop, mask/effect,
+and advanced destination-sampling blend descriptors still reach a typed
+`UNSUPPORTED` boundary. An oversized layer
 returns `OUT_OF_MEMORY` first and cannot mutate the target or submission
 timeline.
 
@@ -1193,9 +1194,11 @@ rendering observably incorrect. Otherwise its state is folded into the parent
 batch. This preserves group-opacity overlap behavior without allocating a
 texture for every save/restore pair.
 
-The initial implemented executor covers full-target `SrcOver` group opacity
-and forced isolation. It compiles one retained replay program containing
-ordered bundle, clear-layer, and composite operations. A pool indexed by live
+The initial implemented executor covers full-target group opacity, forced
+isolation, and every blend with an exact fixed-function coefficient equation,
+including the Porter-Duff family and `Plus`. It compiles one retained replay
+program containing ordered bundle, clear-layer, and composite operations. A
+pool indexed by live
 materialized depth owns at most 16 reusable RGBA target textures. Composite
 quads are packed per layer occurrence in one retained vertex page, so
 sequential scopes at the same depth can keep distinct opacity without mutable
@@ -1285,7 +1288,8 @@ allocation counter for the remaining wgpu-native/Metal pass/submit layer is
 still required before making a total native-allocation claim.
 
 The next checkpoint extends the depth-indexed pool to physical content bounds,
-typed mask/effect resources, every `GpuBlendMode`, and backdrop input. The
+typed mask/effect resources, advanced destination-sampling `GpuBlendMode`
+values, and backdrop input. The
 contract continues to permit at most 16 simultaneously materialized layers and
 eight effect nodes per layer. Each extended layer will run its retained effect
 chain, apply mask and opacity once, then composite into the parent. Advanced
