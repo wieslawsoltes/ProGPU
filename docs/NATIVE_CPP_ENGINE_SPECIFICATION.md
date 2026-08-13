@@ -967,8 +967,9 @@ and device-loss recreation remain open.
 - retained Gaussian blur, source-alpha drop shadow, and bounded linear chains
   with independent content/effect revisions, bounded pooled textures, stable
   zero-dispatch replay, and shared managed/native WGSL are implemented across
-  all six frame families; advanced blend, branching graphs, semantic layer
-  nesting, image/color filters, backdrop, and shader effects remain;
+  all six frame families; all 29 blend modes are implemented for the retained
+  root group. Branching graphs, semantic nested blend/layers, image/color
+  filters, arbitrary backdrop inputs, and shader effects remain;
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
@@ -1044,6 +1045,146 @@ layout, helpers, tables, or control flow from those engines. Rejected designs
 include CPU readback, per-mode runtime shader text generation, unbounded
 per-layer textures, and pretending a uniform clear backdrop provides nested
 backdrop semantics.
+
+## 10.9 Semantic mixed-scene and state-stack contract
+
+M2.4d3b and M3.5 replace the six isolated family calls with one additive,
+versioned mixed-scene entry point. This is the substitution boundary used by
+Avalonia.Skia-style drawing streams: geometry, glyph runs, images, clips,
+opacity, opacity masks, and layers must preserve their original ordering and
+nesting while crossing the managed/native boundary once per scene update and
+once per rendered frame. The existing family entry points remain supported as
+focused fast paths and compatibility shims; they are not reimplemented through
+per-command P/Invoke calls.
+
+### Stream and ownership model
+
+The first semantic stream version uses a pointer-free header plus fixed-size
+tables and typed arenas. A command record contains a kind, declared byte size,
+stable command id, state id, resource id, bounds, and offsets/counts into the
+owning arena. Brush, pen, path, positioned-glyph, image, mask, and effect
+resources carry stable ids and independent generations. Unknown optional
+records are skipped by size; an unknown required feature, invalid endian
+marker, unbalanced stack, non-finite value, duplicate stable id, out-of-range
+span, or generation regression rejects the complete update before native scene
+or GPU state changes.
+
+The command vocabulary is deliberately semantic:
+
+- save/restore transform and rectangular/rounded/vector clip state;
+- push/pop isolated layer with content bounds, opacity, mask, effect chain,
+  blend mode, and an explicit backdrop-input flag;
+- draw analytic/vector geometry, retained paths, positioned glyph runs, and
+  upload-backed or same-device images;
+- begin/end diagnostic and hit-test scopes without changing pixels.
+
+Records never contain managed references, C++ containers, backend descriptors,
+or borrowed pointers. A managed builder pins or copies one immutable update
+buffer for the duration of `scene_update`; native code validates and owns its
+result. GPU texture views remain explicit borrowed resources with device-domain
+identity and submission-token leases. A scene snapshot is immutable while a
+frame is being compiled or submitted.
+
+### Validation and bounded compilation
+
+Validation is transactional and precedes allocation or WebGPU submission. Pass
+one checks header/version/features, arena arithmetic, ids, values, resource
+lifetimes, and a maximum stack depth of 64. Pass two walks the command stream,
+proves balanced save/layer scopes, computes exact or checked upper bounds for
+batch vertices, indices, glyph instances, atlas demand, layer pixels, and
+effect passes, and rejects any live set above configured budgets. Both passes
+are O(C + R + A) time for C commands, R resources, and A arena values, with
+O(D + R) bounded scratch for stack depth D and resource validation. No partial
+scene becomes visible on failure.
+
+Compilation preserves display-list order. Compatible analytic/vector commands
+coalesce into the existing packed vector batches. Path, glyph, and image
+commands switch only the required pipeline/bind groups and reuse their retained
+native resources. Rectangular clips lower to physical scissors when no
+antialiased edge is required. Clip-only scopes remain non-isolating. A layer is
+materialized only when group opacity, a non-rectangular mask, an effect,
+destination-aware blend, explicit isolation, or backdrop input makes direct
+rendering observably incorrect. Otherwise its state is folded into the parent
+batch. This preserves group-opacity overlap behavior without allocating a
+texture for every save/restore pair.
+
+Materialized layers use a depth-indexed pool keyed by device-loss generation,
+format, physical extent, usage, and sample count. The initial contract permits
+at most 16 simultaneously materialized layers and eight effect nodes per layer.
+Each layer is cleared to transparent premultiplied RGBA, receives ordered child
+draws, runs its retained effect chain, applies mask and opacity once, then
+composites into the parent using the selected `GpuBlendMode`. Advanced blend or
+backdrop effects sample the actual parent texture, never the frame clear-color
+approximation. Storage is O(L*W*H) only for the bounded peak materialized depth
+L; direct scopes add no full-target texture. Pool entries are reused after the
+submission token completes and are released on device loss.
+
+### Incremental reuse and failure behavior
+
+Scene updates are keyed by scene generation and stable node/resource ids.
+Unchanged command/resource generations retain compiled CPU batches, atlas
+entries, image bindings, pipelines, and layer plans. State-only changes
+invalidate the smallest owning scope. Bounds, clip, transform, opacity, mask,
+effect, blend, target size, DPI, atlas generation, and device-loss generation
+participate in the relevant cache keys. A stable frame still encodes and
+submits the current target pass but performs no semantic-stream copy, managed
+allocation, path/glyph rasterization, source upload, or layer allocation.
+
+Device loss invalidates every device-domain handle and compiled GPU binding
+while retaining the immutable semantic snapshot and CPU compilation records.
+The first frame on the replacement device recreates bounded resources from that
+snapshot. Invalid borrowed textures fail closed; an exhausted live atlas or
+layer budget reports a typed terminal status instead of silently dropping
+content, looping, or falling back to CPU readback.
+
+### Clean-room research decisions
+
+This design follows observable public contracts rather than implementation
+text. [SkCanvas save/restore and `SaveLayerRec`](https://api.skia.org/structSkCanvas_1_1SaveLayerRec.html)
+establish ordered state and optional isolated bounds/paint/backdrop;
+[Direct2D layers](https://learn.microsoft.com/windows/win32/direct2d/direct2d-layers-overview)
+and [Win2D `CanvasActiveLayer`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasActiveLayer.htm)
+separate cheap axis-aligned clips or primitive opacity from group layers;
+[WebRender's picture-tree overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+turns stacking contexts into retained pictures with compositing properties;
+and [Vello `Scene`](https://docs.rs/vello/latest/vello/struct.Scene.html)
+records ordered drawing commands and explicit push/pop layers. ProGPU adopts
+semantic ordering, explicit isolation, retained ids/generations, and bounded
+layer pooling. It rejects per-command native calls, implicit pointer ownership,
+unbounded save-layer allocation, and flattening group opacity into primitive
+alpha.
+
+Unicode/OpenType shaping and paragraph layout remain reusable CPU results for
+this tranche, consistent with SkParagraph, DirectWrite, HarfBuzz shaping plans,
+and Parley. The stream transfers positioned glyph ids, advances, clusters, and
+font/resource identity; native rasterization, culling, atlas upload, batching,
+and composition proceed in C++. Native shaping is a later independently gated
+parallel implementation and is not used as a shortcut for scene substitution.
+
+### Delivery and evidence gates
+
+The counted M2.4d3b milestone is delivered through four tracked sub-slices:
+
+1. **d3b1 — stream foundation:** versioned ABI, transactional validation,
+   immutable snapshots, mixed analytic/path/glyph/image ordering, and a typed
+   allocation-free .NET builder;
+2. **d3b2 — state and layers:** save/restore, clip-only lowering, isolated
+   opacity/mask/effect/blend layers, bounded pooling, and nested backdrop
+   correctness;
+3. **d3b3 — text/color/vector resources:** live-set atlas recovery,
+   vector/color glyphs, decorations, text masks, color transforms, and missing
+   sampling/brush contracts used by Avalonia.Skia;
+4. **d3b4 — substitution proof:** switch a representative mixed Avalonia scene
+   wholesale, then gate pixel output, hit-test state, allocations, package
+   loading, and CPU/GPU timing against the managed renderer.
+
+Each sub-slice requires C ABI layout/compatibility tests, malformed-stream and
+stack fuzzing, retained-cache assertions, six-RID package consumers, real Dawn
+hardware coverage where available, matched Release distributions, inspected
+native/managed/difference screenshots, and platform-native profiling. M2.4d3b
+and M3.5 remain incomplete until the representative scene no longer depends on
+the transitional managed compiler and shows no functional, quality,
+allocation, or performance regression.
 
 ## 11. .NET substitution analysis
 
@@ -1150,10 +1291,10 @@ path with WebGPU validation and bounded resource policies.
    opacity, clipping, and retained reuse into C++ as one wider 2D tranche.
 3. Expand the differential to transformed and stroked primitives, multiple DPI
    values, opacity, clipping, resize, invalid input, lifetime, and device loss.
-4. Complete path/glyph multi-page eviction/recovery, vector/color text and text
-   masks, then extend retained RGBA images with layers, masks, color processing,
-   and external media textures while
-   continuing to reuse production WGSL modules.
+4. Add the versioned mixed-scene stream and nested save/clip/opacity/mask/layer
+   state used by Avalonia.Skia, then complete path/glyph live-set recovery,
+   vector/color text, text masks, image color processing, and external media
+   textures while continuing to reuse production WGSL modules.
 5. Extend the completed macOS-arm64 Dawn/WebScene provider gate to additional
    provider backends as WebScene exposes them. Shared-source compilation,
    procedure dispatch, ABI rejection, export/link isolation, provider-backed
