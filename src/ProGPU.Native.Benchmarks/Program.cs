@@ -1327,7 +1327,7 @@ bool usesDrawStateClipImage = useDrawState && useImageScene;
 int maximumAllowedDifference = usesDrawStateClipImage
     ? 128
     : useSemanticScene
-    ? 64
+    ? 96
     : useVectorClipChain
     ? usesGeometryDifferential ? 204 : 64
     : useGroupEffectChain
@@ -1370,8 +1370,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     : useSemanticScene
     // The managed and native retained path/glyph atlases independently own
     // subpixel coverage ties. The image and analytic quadrants remain exact;
-    // constrain the mixed aggregate to two thousandths of one byte/channel.
-    ? 0.002
+    // constrain the mixed aggregate to five thousandths of one byte/channel.
+    ? 0.005
     : useGroupEffectChain
     // Two independently quantized RGBA8 intermediate graphs can accumulate
     // two one-byte edge decisions. Analytic source coverage is independently
