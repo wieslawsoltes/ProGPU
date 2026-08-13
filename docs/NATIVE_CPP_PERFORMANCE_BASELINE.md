@@ -327,6 +327,72 @@ Retained ignored evidence:
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
 
+## Root-group blend/compositing supplement
+
+This slice appends all 29 `GpuBlendMode` values to the retained native draw
+state. Exact Porter-Duff/coefficient equations remain a one-pass
+fixed-function WebGPU composite. The 15 destination-aware modes resolve a
+bounded retained source and use one static `GroupBlend.wgsl` pipeline. The
+managed reference was also optimized: it now selects its advanced mode through
+a 32-byte uniform rather than allocating a newly substituted WGSL string on
+every frame, caches the pipeline pointer, and uses a non-boxing texture-usage
+test. Stable managed allocation fell from 30,235.2 bytes/frame to exactly zero.
+
+All six retained families pass both the `SrcAtop` fixed-function and `Overlay`
+destination-aware routes on Apple M3 Pro / Metal. `SrcAtop` is byte-exact for
+solid, path, glyph, and image scenes; analytic coverage stays at maximum
+51/255 and mean 0.007761/255, and independent geometry has one 204/255 edge-tie
+pixel. `Overlay` is byte-exact for solid, path, glyph, and image scenes;
+analytic coverage differs by at most 1/255 with mean 0.000147/255, while
+geometry has one 4/255 pixel and mean 0.0000034/255. A separate solid sweep is
+byte-exact for every one of the 29 modes. Both renderers allocate zero managed
+bytes per stable frame in every case.
+
+Three independent synchronized 600-frame Overlay runs after 120 warm-ups,
+using 384 retained solid rectangles at 960 by 540, produced these median p95
+values:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+| --- | ---: | ---: | ---: |
+| CPU submission | 0.0624 ms | 0.3164 ms | 80.3% lower |
+| GPU-completion wait portion | 3.0495 ms | 4.5704 ms | 33.3% lower |
+| Synchronized end to end | 3.0892 ms | 4.7911 ms | 35.5% lower |
+| Stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+The completion difference is a graph difference, not a language-speed claim.
+Native stable replay retains the already resolved group source and submits one
+advanced composite. The current managed command path still resolves its
+bounded texture draw, evaluates the advanced blend into ping-pong output, and
+copies the final texture back to the caller-owned target. It is therefore the
+next managed-compositor optimization candidate; removing those passes requires
+a retained semantic group/backdrop contract rather than bypassing correctness.
+
+The representative solid readback is byte-exact after quantizing the uniform
+backdrop through the target's `Rgba8Unorm` representation before nonlinear
+blend evaluation. Native and managed hashes are identical, and the inspected
+64-times difference image is black.
+
+Final-binary Time Profiler, Allocations/VM Tracker, and Metal System Trace
+captures all completed. The Metal trace contains `ProGPU native advanced
+group-blend composite pass`, `ProGPU native retained group replay encoder`, and
+managed `Offscreen Compositor Encoder` labels; it reports 2,783 submissions,
+3,196 completions, zero command-buffer errors, zero compiler spills, zero
+drawable waits/hang signals, and a 22,528,000-byte peak combined-process Metal
+allocation. The allocation export recorded 16,928,416 persistent heap bytes
+and 116,162,560 persistent anonymous-VM bytes for the whole instrumented .NET,
+wgpu-native, Metal, and tool process; those totals are not attributed to one
+renderer. All 766 observed Metal resources were deallocated before capture
+end.
+
+Retained ignored evidence:
+
+- `group-blend-matrix/*.json` for the 12 fixed/advanced family gates;
+- `group-blend-distributions/overlay-solid-sync-600-run-{1,2,3}.json`;
+- valid Allocations, Time Profiler, and Metal System Trace bundles plus compact
+  exports under `artifacts/progpu-native/traces/group-blend-20260813/`;
+- native, managed, and 64-times difference PNGs under
+  `artifacts/progpu-native/differential/png/`.
+
 ## Pooled frame-group opacity checkpoint
 
 The append-only 40-byte draw-state record adds true group opacity and an

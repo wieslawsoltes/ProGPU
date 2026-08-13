@@ -182,6 +182,16 @@ full-target RGBA8 intermediates. Add `--recompute-group-effect --sync` for the
 matched changed-graph GPU-complete distribution or `--write-images` for native,
 managed, and amplified-difference screenshots.
 
+Use `--group-blend-mode <GpuBlendMode>` to composite a retained root group
+through any of ProGPU's 29 blend modes. Exact Porter-Duff/coefficient modes use
+one fixed-function WebGPU composite pass. Multiply, Screen, Overlay, and the
+other destination-aware modes retain a bounded source texture and execute one
+static WGSL fullscreen pass over the target backdrop. Stable advanced replay
+skips the source-family pass, reuses its pipeline and texture, and allocates
+zero managed bytes after warm-up. The current ABI applies the mode to the root
+group against the frame clear color; semantic nested/backdrop layers remain a
+later tranche.
+
 Current native parity:
 
 - versioned C ABI and exact backend-ABI rejection;
@@ -227,6 +237,9 @@ Current native parity:
 - retained anisotropic Gaussian blur, source-alpha drop shadow, and immutable
   one-to-eight-node linear effect chains with bounded texture pooling,
   independent content/effect revisions, and zero-dispatch stable replay;
+- all 29 root-group blend/compositing modes, with fixed-function fast paths for
+  exact coefficient equations and one destination-aware static WGSL pipeline
+  for advanced modes, retained across all six frame families;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

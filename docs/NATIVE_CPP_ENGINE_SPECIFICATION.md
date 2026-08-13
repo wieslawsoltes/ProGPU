@@ -992,6 +992,59 @@ and device-loss recreation remain open.
 - eliminate transitional managed compiler paths only after parity and
   performance gates pass.
 
+## 10.8 Root-group blend and compositing contract
+
+The append-only draw-state ABI carries `group_blend_mode` after the original
+64-byte/52-byte 64-bit/32-bit prefix. Older callers therefore default to
+`SrcOver`; newer callers select the same stable numeric values as
+`GpuBlendMode`. Values above `Modulate`, a nonzero appended reserved field, or
+a partially present append fail before rendering. The capability bit
+`PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES` advertises this contract.
+
+The initial boundary is deliberately a **root-group** operation. The retained
+family renders to its existing layer texture, after group opacity, mask, clip,
+and effect processing, and that resolved source is composited against the
+frame's uniform clear-color backdrop. This does not claim semantic nested
+layer or arbitrary backdrop capture. Those require an ordered native scene
+stream and remain part of M3.5 rather than being simulated with extra readback
+or managed callbacks.
+
+The implementation divides the 29 modes into two measured paths:
+
+- `SrcOver`, `Src`, `Dst`, the remaining Porter-Duff equations, `Plus`,
+  `Clear`, and `Modulate` map exactly to WebGPU fixed-function color/alpha
+  factors and operations. They keep a one-pass composite and lazily cache the
+  masked/unmasked pipeline variant.
+- Multiply, Screen, Darken, Lighten, Exclusion, Overlay, ColorDodge,
+  ColorBurn, HardLight, SoftLight, Difference, Hue, Saturation, Color, and
+  Luminosity require destination values. A bounded full-target RGBA8 source
+  texture resolves the retained group once. One reusable static
+  `GroupBlend.wgsl` pipeline then evaluates the premultiplied W3C blend
+  equation over the backdrop. A stable content/state signature skips the
+  source-family pass and retains the source texture, bind group, and pipeline.
+
+The destination-aware pass is O(P) time and O(P) bounded GPU storage for P
+target pixels, with one source texture load per covered output fragment and no
+per-frame managed allocation after warm-up. Fixed-function modes add O(P)
+blend bandwidth but no extra source texture. The public metrics report selected
+mode, source-pass count, pipeline-cache hit, source-texture generation,
+allocation count, and bytes so cache behavior is externally testable.
+
+This is a clean-room design based on the public [W3C Compositing and Blending
+Level 1](https://www.w3.org/TR/compositing-1/) equations and group model, the
+[WebGPU `GPUBlendState`](https://gpuweb.github.io/gpuweb/#dictdef-gpublendstate)
+coefficient contract, [Skia `SkBlendMode`](https://skia.googlesource.com/skia/+/main/include/core/SkBlendMode.h)
+public mode definitions, [Direct2D composite modes](https://learn.microsoft.com/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_composite_mode),
+[Win2D `CanvasComposite`](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_CanvasComposite.htm),
+[WebRender's public blend shader](https://searchfox.org/firefox-main/source/gfx/wr/webrender/res/brush_mix_blend.glsl),
+and [Vello/Peniko layer blending](https://docs.rs/peniko/latest/peniko/struct.BlendMode.html).
+Adopted concepts are premultiplied group isolation, coefficient fast paths,
+and one destination-aware composition stage. ProGPU does not reproduce source
+layout, helpers, tables, or control flow from those engines. Rejected designs
+include CPU readback, per-mode runtime shader text generation, unbounded
+per-layer textures, and pretending a uniform clear backdrop provides nested
+backdrop semantics.
+
 ## 11. .NET substitution analysis
 
 ### Feasibility
