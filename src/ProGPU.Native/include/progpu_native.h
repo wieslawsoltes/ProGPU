@@ -53,7 +53,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_BOUNDED_GROUP_EFFECT_CHAIN = 1ULL << 27U,
     PROGPU_NATIVE_CAPABILITY_GROUP_BLEND_MODES = 1ULL << 28U,
     PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS = 1ULL << 29U,
-    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING = 1ULL << 30U
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING = 1ULL << 30U,
+    PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES = 1ULL << 31U
 };
 
 #if defined(__cplusplus)
@@ -70,6 +71,9 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_RESOURCES = 256U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS = 16U,
     PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES = 256U * 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_NO_INDEX = 0xffffffffU,
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
@@ -82,8 +86,30 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_IMAGE = 4,
     PROGPU_NATIVE_SCENE_RESOURCE_STATE = 5,
     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK = 6,
-    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN = 7
+    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN = 7,
+    PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE = 8
 } progpu_native_scene_resource_kind;
+
+/* Values intentionally match ProGPU.Scene.GpuBrush and Vector.wgsl. */
+typedef enum progpu_native_scene_brush_kind {
+    PROGPU_NATIVE_SCENE_BRUSH_SOLID = 0,
+    PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT = 1,
+    PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT = 2,
+    PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT = 5,
+    PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT = 6
+} progpu_native_scene_brush_kind;
+
+typedef enum progpu_native_scene_gradient_spread {
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
+    PROGPU_NATIVE_SCENE_GRADIENT_REFLECT = 1,
+    PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
+    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
+} progpu_native_scene_gradient_spread;
+
+typedef enum progpu_native_scene_gradient_interpolation {
+    PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB = 0,
+    PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB = 1
+} progpu_native_scene_gradient_interpolation;
 
 typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1
@@ -492,6 +518,61 @@ typedef struct progpu_native_scene_image_draw {
 } progpu_native_scene_image_draw;
 
 /*
+ * Exact pointer-free storage layout consumed by production Vector.wgsl.
+ * A brush-table resource stores one or more of these records in payload and
+ * its optional auxiliary span stores exact gradient-stop records. StopOffset
+ * is local to that resource. The semantic compiler packs referenced brushes
+ * and stops into one retained scene-wide GPU page and rewrites indices once.
+ *
+ * The initial native semantic lane accepts solid, linear, radial, two-point
+ * conical, and sweep brushes. Hatch and procedural noise remain explicit
+ * future kinds and therefore fail closed instead of degrading to a gradient.
+ */
+typedef struct progpu_native_scene_brush {
+    uint32_t type;
+    float opacity;
+    progpu_native_point start_point;
+    progpu_native_point end_point;
+    progpu_native_point center;
+    float radius;
+    uint32_t stop_count;
+    float radius_y;
+    uint32_t spread_method;
+    uint32_t color_interpolation_mode;
+    uint32_t stop_offset;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    progpu_native_color colors[8];
+    float offsets0[4];
+    float offsets1[4];
+    float coordinate_transform0[4];
+    float coordinate_transform1[4];
+} progpu_native_scene_brush;
+
+typedef struct progpu_native_scene_gradient_stop {
+    progpu_native_color color;
+    float offset;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
+} progpu_native_scene_gradient_stop;
+
+/*
+ * Optional DRAW_ANALYTIC/DRAW_PATH command payload prefix. Exactly
+ * brush_count uint32 indices follow this header in the same payload span.
+ * Each index addresses the named brush-table resource and corresponds to one
+ * primitive/path record in source order. The compact map permits one retained
+ * brush to be reused by an arbitrary number of records without duplicating a
+ * 256-byte GPU brush. Reserved fields must remain zero.
+ */
+typedef struct progpu_native_scene_draw_brushes {
+    uint32_t struct_size;
+    uint32_t brush_resource_index;
+    uint32_t brush_count;
+    uint32_t reserved;
+} progpu_native_scene_draw_brushes;
+
+/*
  * Semantic path/glyph resource records use fixed 64-bit arena indices rather
  * than host-sized size_t. Current 64-bit native packages consume these
  * records zero-copy; a future wasm32 build translates the fixed prefix while
@@ -544,6 +625,8 @@ typedef struct progpu_native_scene_frame_metrics {
     uint64_t uniform_upload_bytes;
     uint64_t coverage_staging_bytes;
     uint64_t payload_hash;
+    uint64_t brush_upload_bytes;
+    uint64_t gradient_stop_upload_bytes;
 } progpu_native_scene_frame_metrics;
 
 /*

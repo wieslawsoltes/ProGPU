@@ -334,6 +334,37 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    /// <summary>
+    /// Adds one retained material table shared by analytic and path commands.
+    /// </summary>
+    public bool TryAddBrushTableResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneBrush> brushes,
+        scoped ReadOnlySpan<NativeSceneGradientStop> gradientStops,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (brushes.IsEmpty ||
+            (uint)brushes.Length > NativeMethods.SceneMaximumBrushes ||
+            (uint)gradientStops.Length >
+                NativeMethods.SceneMaximumGradientStops ||
+            !IsValidBrushTable(brushes, gradientStops))
+        {
+            return false;
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.BrushTable,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(brushes),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(gradientStops),
+            flags);
+    }
+
     public bool TrySave(
         ulong commandId,
         uint stateIndex = NativeMethods.SceneNoIndex) =>
@@ -401,6 +432,25 @@ public ref struct NativeSceneStreamBuilder
             payload,
             stateIndex);
 
+    /// <summary>
+    /// Draws an analytic batch with one brush-table index per primitive.
+    /// </summary>
+    public bool TryDrawAnalytic(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawAnalytic,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
+            stateIndex);
+
     public bool TryDrawPath(
         ulong commandId,
         uint resourceIndex,
@@ -413,6 +463,25 @@ public ref struct NativeSceneStreamBuilder
             resourceIndex,
             bounds,
             payload,
+            stateIndex);
+
+    /// <summary>
+    /// Draws a path batch with one brush-table index per path record.
+    /// </summary>
+    public bool TryDrawPath(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawPath,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
             stateIndex);
 
     public bool TryDrawGlyphRun(
@@ -543,6 +612,115 @@ public ref struct NativeSceneStreamBuilder
             ResourceIndex = resourceIndex,
             PayloadOffset = payloadOffset,
             PayloadSize = (uint)payload.Length,
+            Bounds = bounds
+        };
+        Write(_commandOffset + _commandCount++ * CommandSize, command);
+        _lastCommandId = commandId;
+        return true;
+    }
+
+    private bool TryDrawWithBrushes(
+        NativeSceneCommandKind kind,
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            brushIndices.IsEmpty ||
+            (uint)brushIndices.Length >
+                NativeMethods.SceneMaximumDrawBrushIndices ||
+            brushResourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(
+                brushResourceIndex,
+                NativeSceneResourceKind.BrushTable) ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, ExpectedResourceKind(kind)) ||
+            brushIndices.Length != GetDrawRecordCount(kind, resourceIndex))
+        {
+            return false;
+        }
+
+        uint brushCount = GetResourceRecordCount<NativeSceneBrush>(
+            brushResourceIndex);
+        foreach (uint brushIndex in brushIndices)
+        {
+            if (brushIndex >= brushCount)
+            {
+                return false;
+            }
+        }
+
+        int originalArenaSize = _arenaSize;
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int payloadSize = checked(
+            Unsafe.SizeOf<NativeSceneDrawBrushes>() +
+            brushIndices.Length * sizeof(uint));
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + end > _destination.Length)
+        {
+            return false;
+        }
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        var header = new NativeSceneDrawBrushes(
+            brushResourceIndex,
+            checked((uint)brushIndices.Length));
+        Write((int)payloadOffset, header);
+        MemoryMarshal.AsBytes(brushIndices).CopyTo(
+            _destination.Slice(
+                (int)payloadOffset + Unsafe.SizeOf<NativeSceneDrawBrushes>(),
+                brushIndices.Length * sizeof(uint)));
+        _arenaSize = end;
+
+        if (!TryWriteDrawCommand(
+                kind,
+                commandId,
+                resourceIndex,
+                bounds,
+                payloadOffset,
+                checked((uint)payloadSize),
+                stateIndex))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
+    private bool TryWriteDrawCommand(
+        NativeSceneCommandKind kind,
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint payloadOffset,
+        uint payloadSize,
+        uint stateIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            commandId == 0U || commandId <= _lastCommandId ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, ExpectedResourceKind(kind)) ||
+            (stateIndex != NativeMethods.SceneNoIndex &&
+                (stateIndex >= (uint)_resourceCount ||
+                    !ResourceHasKind(
+                        stateIndex,
+                        NativeSceneResourceKind.State))) ||
+            !IsFiniteBounds(bounds))
+        {
+            return false;
+        }
+        var command = new NativeMethods.SceneCommand
+        {
+            StructSize = CommandSize,
+            Kind = kind,
+            Flags = NativeSceneRecordFlags.Required,
+            CommandId = commandId,
+            StateIndex = stateIndex,
+            ResourceIndex = resourceIndex,
+            PayloadOffset = payloadOffset,
+            PayloadSize = payloadSize,
             Bounds = bounds
         };
         Write(_commandOffset + _commandCount++ * CommandSize, command);
@@ -694,6 +872,29 @@ public ref struct NativeSceneStreamBuilder
         return resource.Kind == kind;
     }
 
+    private readonly uint GetResourceRecordCount<T>(uint resourceIndex)
+        where T : unmanaged
+    {
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            _destination.Slice(
+                _resourceOffset + checked((int)resourceIndex) * ResourceSize,
+                ResourceSize));
+        return resource.PayloadSize / checked((uint)Unsafe.SizeOf<T>());
+    }
+
+    private readonly int GetDrawRecordCount(
+        NativeSceneCommandKind kind,
+        uint resourceIndex) => kind switch
+        {
+            NativeSceneCommandKind.DrawAnalytic => checked((int)
+                GetResourceRecordCount<NativeAnalyticPrimitive>(
+                    resourceIndex)),
+            NativeSceneCommandKind.DrawPath => checked((int)
+                GetResourceRecordCount<NativeScenePathFill>(
+                    resourceIndex)),
+            _ => 0
+        };
+
     private readonly bool HasOptionalResourceKind(
         uint resourceIndex,
         NativeSceneResourceKind kind) =>
@@ -717,7 +918,89 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.EffectChain;
+            <= NativeSceneResourceKind.BrushTable;
+
+    private static bool IsValidBrushTable(
+        ReadOnlySpan<NativeSceneBrush> brushes,
+        ReadOnlySpan<NativeSceneGradientStop> gradientStops)
+    {
+        foreach (ref readonly NativeSceneGradientStop stop in gradientStops)
+        {
+            if (!stop.HasCanonicalReservedFields ||
+                !IsFinite(stop.Color) || !float.IsFinite(stop.Offset))
+            {
+                return false;
+            }
+        }
+
+        foreach (ref readonly NativeSceneBrush brush in brushes)
+        {
+            uint spread = (uint)brush.Spread;
+            bool conical = brush.Kind ==
+                NativeSceneBrushKind.TwoPointConicalGradient;
+            bool supported = brush.Kind is
+                NativeSceneBrushKind.Solid or
+                NativeSceneBrushKind.LinearGradient or
+                NativeSceneBrushKind.RadialGradient or
+                NativeSceneBrushKind.TwoPointConicalGradient or
+                NativeSceneBrushKind.SweepGradient;
+            bool gradient = brush.Kind != NativeSceneBrushKind.Solid;
+            if (!supported || !brush.HasCanonicalReservedFields ||
+                !float.IsFinite(brush.Opacity) ||
+                brush.Opacity is < 0f or > 1f ||
+                !IsFinite(brush.StartPoint) ||
+                !IsFinite(brush.EndPoint) ||
+                !IsFinite(brush.Center) ||
+                !float.IsFinite(brush.Radius) ||
+                !float.IsFinite(brush.RadiusY) ||
+                !IsFinite(brush.Color0) || !IsFinite(brush.Color1) ||
+                !IsFinite(brush.Color2) || !IsFinite(brush.Color3) ||
+                !IsFinite(brush.Color4) || !IsFinite(brush.Color5) ||
+                !IsFinite(brush.Color6) || !IsFinite(brush.Color7) ||
+                !IsFinite(brush.Offsets0) || !IsFinite(brush.Offsets1) ||
+                !IsFinite(brush.CoordinateTransform0) ||
+                !IsFinite(brush.CoordinateTransform1) ||
+                brush.CoordinateTransform0.W != 0f ||
+                brush.CoordinateTransform1.W != 0f ||
+                (uint)brush.Interpolation >
+                    (uint)NativeSceneGradientInterpolation.ScRgb ||
+                (spread & 0x7FFFFFFFU) >
+                    (uint)NativeSceneGradientSpread.Decal ||
+                ((spread & 0x80000000U) != 0U && !conical))
+            {
+                return false;
+            }
+            if (!gradient)
+            {
+                if (brush.StopCount != 0U || brush.StopOffset != 0U ||
+                    spread != 0U || brush.Interpolation !=
+                        NativeSceneGradientInterpolation.SRgb)
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (brush.StopCount == 0U ||
+                brush.StopOffset > (uint)gradientStops.Length ||
+                brush.StopCount >
+                    (uint)gradientStops.Length - brush.StopOffset)
+            {
+                return false;
+            }
+            float previous = float.NegativeInfinity;
+            for (uint index = 0U; index < brush.StopCount; index++)
+            {
+                float offset = gradientStops[
+                    checked((int)(brush.StopOffset + index))].Offset;
+                if (offset < previous)
+                {
+                    return false;
+                }
+                previous = offset;
+            }
+        }
+        return true;
+    }
 
     private static bool IsFiniteBounds(NativeImageRect bounds) =>
         float.IsFinite(bounds.X) && float.IsFinite(bounds.Y) &&
@@ -799,6 +1082,13 @@ public ref struct NativeSceneStreamBuilder
         float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
         float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
         float.IsFinite(value.M31) && float.IsFinite(value.M32);
+
+    private static bool IsFinite(Vector2 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private static bool IsFinite(Vector4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W);
 
     private static bool IsFinitePositive(NativeImageRect value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&

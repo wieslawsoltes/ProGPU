@@ -53,7 +53,7 @@ bool finish_evidence_frame(double, void*) {
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
         document.body.dataset.progpuNativeSemanticCommands = "6";
-        document.body.dataset.progpuNativeSemanticResources = "3";
+        document.body.dataset.progpuNativeSemanticResources = "4";
         document.body.dataset.progpuNativeSemanticDraws = "6";
         document.body.dataset.progpuNativeRendererSubmissions = "1";
         document.body.dataset.progpuNativeEvidenceTarget =
@@ -110,7 +110,11 @@ bool render_browser_frame(double, void*) {
             &semantic_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         semantic_metrics.command_count != 6U ||
         semantic_metrics.draw_call_count != 6U ||
-        semantic_metrics.submission_count != 1U) {
+        semantic_metrics.submission_count != 1U ||
+        semantic_metrics.brush_upload_bytes !=
+            4U * sizeof(progpu_native_scene_brush) ||
+        semantic_metrics.gradient_stop_upload_bytes !=
+            3U * sizeof(progpu_native_scene_gradient_stop)) {
         fail_engine(
             "The ProGPU C++ browser semantic backdrop render failed.");
     }
@@ -126,6 +130,17 @@ bool render_browser_frame(double, void*) {
         layer_metrics.effect_cache_hit != 0U ||
         layer_metrics.texture_bytes == 0U) {
         fail("The ProGPU C++ browser semantic layer metrics are invalid.");
+    }
+    progpu_native_scene_frame_metrics stable_metrics{};
+    stable_metrics.struct_size = sizeof(stable_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &stable_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        stable_metrics.brush_upload_bytes != 0U ||
+        stable_metrics.gradient_stop_upload_bytes != 0U) {
+        fail_engine(
+            "The stable browser semantic brush page was uploaded again.");
     }
     resources.render_texture = render_texture;
     resources.render_view = render_view;
@@ -191,7 +206,7 @@ int main() {
             semantic_scene.size(),
             &scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         scene_metrics.command_count != 6U ||
-        scene_metrics.resource_count != 3U ||
+        scene_metrics.resource_count != 4U ||
         scene_metrics.draw_count != 2U ||
         scene_metrics.maximum_stack_depth != 1U) {
         fail("The ProGPU C++ browser semantic scene update failed.");

@@ -21,6 +21,9 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumResources = 256U * 1024U;
     internal const uint SceneMaximumMaterializedLayers = 16U;
     internal const uint SceneMaximumLayerBytes = 256U * 1024U * 1024U;
+    internal const uint SceneMaximumBrushes = 1024U * 1024U;
+    internal const uint SceneMaximumGradientStops = 64U * 1024U;
+    internal const uint SceneMaximumDrawBrushIndices = 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;
     internal const uint SceneMetricsSnapshotReused = 1U;
 
@@ -193,6 +196,8 @@ internal static unsafe partial class NativeMethods
         internal ulong UniformUploadBytes;
         internal ulong CoverageStagingBytes;
         internal ulong PayloadHash;
+        internal ulong BrushUploadBytes;
+        internal ulong GradientStopUploadBytes;
     }
 
     [StructLayout(LayoutKind.Sequential)]

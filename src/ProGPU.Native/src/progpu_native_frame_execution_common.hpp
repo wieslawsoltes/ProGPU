@@ -46,6 +46,7 @@ using semantic_scissor = semantic::scissor;
 using semantic_compilation_budget = semantic::compilation_budget;
 using semantic_layer_budget = semantic::layer_budget;
 using semantic::apply_semantic_state;
+using semantic::apply_semantic_transform;
 using semantic::intersect_semantic_scissors;
 using semantic::is_valid_semantic_analytic;
 using semantic::is_valid_semantic_glyph_outline;

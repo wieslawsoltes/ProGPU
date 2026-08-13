@@ -1,4 +1,5 @@
 #include "progpu_native_scene.hpp"
+#include "progpu_native_semantic_brush.hpp"
 
 #include <algorithm>
 #include <array>
@@ -73,7 +74,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -355,6 +356,8 @@ validation_result validate(
     }
 
     std::uint64_t payload_bytes = 0U;
+    std::uint64_t aggregate_brush_count = 0U;
+    std::uint64_t aggregate_gradient_stop_count = 0U;
     std::uint64_t previous_resource_id = 0U;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const std::uint32_t offset = header.resource_offset +
@@ -472,6 +475,32 @@ validation_result validate(
                 }
             }
         }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            std::uint32_t brush_error_offset = resource.payload_offset;
+            if (!semantic::validate_brush_table(
+                    bytes,
+                    resource,
+                    brush_error_offset)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    brush_error_offset);
+            }
+            aggregate_brush_count += resource.payload_size /
+                sizeof(progpu_native_scene_brush);
+            aggregate_gradient_stop_count += resource.auxiliary_size /
+                sizeof(progpu_native_scene_gradient_stop);
+            if (aggregate_brush_count >
+                    PROGPU_NATIVE_SCENE_MAX_BRUSHES ||
+                aggregate_gradient_stop_count >
+                    PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                    offset,
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+            }
+        }
         previous_resource_id = resource.resource_id;
         payload_bytes += resource.payload_size;
         payload_bytes += resource.auxiliary_size;
@@ -574,6 +603,39 @@ validation_result validate(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                if (command.payload_size == 0U) {
+                    ++draw_count;
+                    payload_bytes += command.payload_size;
+                    continue;
+                }
+                const std::uint32_t record_size = command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
+                    ? sizeof(progpu_native_analytic_primitive)
+                    : sizeof(progpu_native_scene_path_fill);
+                if (resource.payload_size % record_size != 0U ||
+                    resource.payload_size / record_size >
+                        PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        resource.payload_offset);
+                }
+                std::uint32_t brush_error_offset =
+                    command.payload_offset;
+                if (!semantic::validate_draw_brushes(
+                        bytes,
+                        header,
+                        command,
+                        resource.payload_size / record_size,
+                        brush_error_offset)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        brush_error_offset);
+                }
             }
             ++draw_count;
             payload_bytes += command.payload_size;

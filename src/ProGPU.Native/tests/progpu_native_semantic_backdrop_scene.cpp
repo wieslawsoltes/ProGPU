@@ -25,7 +25,7 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
     std::uint32_t width,
     std::uint32_t height) {
     constexpr std::uint32_t command_count = 6U;
-    constexpr std::uint32_t resource_count = 3U;
+    constexpr std::uint32_t resource_count = 4U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -50,15 +50,32 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
     const std::array<progpu_native_analytic_primitive, 2U> backdrop{{
         {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
             0.0F, 0.0F, split_x, target_height,
-            0.0F, 0.0F, {1.0F, 0.0F, 0.0F, 1.0F}, identity},
+            0.0F, 0.0F, {1.0F, 0.0F, 1.0F, 1.0F}, identity},
         {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
             split_x, 0.0F, target_width - split_x, target_height,
-            0.0F, 0.0F, {0.0F, 0.0F, 1.0F, 1.0F}, identity}
+            0.0F, 0.0F, {1.0F, 0.0F, 1.0F, 1.0F}, identity}
     }};
-    const progpu_native_analytic_primitive marker{
-        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
-        marker_x, marker_y, marker_width, marker_height,
-        0.0F, 0.0F, {0.0F, 1.0F, 0.0F, 1.0F}, identity};
+    const std::array<progpu_native_path_segment, 4U> marker_segments{{
+        {{0.0F, 0.0F}, {marker_width, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{marker_width, 0.0F}, {marker_width, marker_height}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{marker_width, marker_height}, {0.0F, marker_height}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        {{0.0F, marker_height}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
+    }};
+    const progpu_native_scene_path_fill marker{
+        0U,
+        marker_segments.size(),
+        0.0F,
+        0.0F,
+        marker_width,
+        marker_height,
+        {1.0F, 0.0F, 1.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, marker_x, marker_y},
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U};
     const std::uint32_t backdrop_offset = append_scene_payload(
         stream,
         backdrop.data(),
@@ -66,6 +83,71 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
     const std::uint32_t marker_offset = append_scene_payload(
         stream,
         &marker,
+        1U);
+    const std::uint32_t marker_segment_offset = append_scene_payload(
+        stream,
+        marker_segments.data(),
+        marker_segments.size());
+    std::array<progpu_native_scene_brush, 3U> brushes{};
+    brushes[0].type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    brushes[0].opacity = 1.0F;
+    brushes[0].colors[0] = {1.0F, 0.0F, 0.0F, 1.0F};
+    brushes[0].coordinate_transform0[0] = 1.0F;
+    brushes[0].coordinate_transform1[1] = 1.0F;
+    brushes[1].type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    brushes[1].opacity = 1.0F;
+    brushes[1].colors[0] = {0.0F, 0.0F, 1.0F, 1.0F};
+    brushes[1].coordinate_transform0[0] = 1.0F;
+    brushes[1].coordinate_transform1[1] = 1.0F;
+    brushes[2].type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    brushes[2].opacity = 1.0F;
+    brushes[2].end_point = {marker_width, 0.0F};
+    brushes[2].stop_count = 2U;
+    brushes[2].coordinate_transform0[0] = 1.0F;
+    brushes[2].coordinate_transform1[1] = 1.0F;
+    const std::array<progpu_native_scene_gradient_stop, 2U>
+        marker_stops{{
+            {{0.0F, 1.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+            {{1.0F, 1.0F, 0.0F, 1.0F}, 1.0F, 0U, 0U, 0U}
+        }};
+    const std::uint32_t brush_offset = append_scene_payload(
+        stream,
+        brushes.data(),
+        brushes.size());
+    const std::uint32_t marker_stop_offset = append_scene_payload(
+        stream,
+        marker_stops.data(),
+        marker_stops.size());
+    const progpu_native_scene_draw_brushes backdrop_draw_brushes{
+        sizeof(progpu_native_scene_draw_brushes),
+        3U,
+        2U,
+        0U};
+    const std::uint32_t backdrop_draw_brushes_offset =
+        append_scene_payload(
+            stream,
+            &backdrop_draw_brushes,
+            1U);
+    constexpr std::array<std::uint32_t, 2U> backdrop_brush_indices{
+        0U, 1U};
+    append_scene_payload(
+        stream,
+        backdrop_brush_indices.data(),
+        backdrop_brush_indices.size());
+    const progpu_native_scene_draw_brushes marker_draw_brushes{
+        sizeof(progpu_native_scene_draw_brushes),
+        3U,
+        1U,
+        0U};
+    const std::uint32_t marker_draw_brushes_offset =
+        append_scene_payload(
+            stream,
+            &marker_draw_brushes,
+            1U);
+    constexpr std::uint32_t marker_brush_index = 2U;
+    append_scene_payload(
+        stream,
+        &marker_brush_index,
         1U);
 
     const progpu_native_group_effect blur{
@@ -159,13 +241,19 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 985U, 1U,
             backdrop_offset, sizeof(backdrop), 0U, 0U},
         {sizeof(progpu_native_scene_resource),
-            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 986U, 1U,
-            marker_offset, sizeof(marker), 0U, 0U},
+            marker_offset, sizeof(marker),
+            marker_segment_offset, sizeof(marker_segments)},
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 987U, 1U,
-            chain_offset, sizeof(chain), effect_offset, sizeof(blur)}
+            chain_offset, sizeof(chain), effect_offset, sizeof(blur)},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 996U, 1U,
+            brush_offset, sizeof(brushes),
+            marker_stop_offset, sizeof(marker_stops)}
     }};
     std::memcpy(
         stream.data() + resource_offset,
@@ -176,7 +264,10 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 988U,
-            PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, 0U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U,
+            backdrop_draw_brushes_offset,
+            sizeof(backdrop_draw_brushes) +
+                sizeof(backdrop_brush_indices),
             0.0F, 0.0F, target_width, target_height, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
@@ -186,9 +277,11 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
             layer_offset, sizeof(layer),
             0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
-            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 990U,
-            PROGPU_NATIVE_SCENE_NO_INDEX, 1U, 0U, 0U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 1U,
+            marker_draw_brushes_offset,
+            sizeof(marker_draw_brushes) + sizeof(marker_brush_index),
             marker_x, marker_y, marker_width, marker_height, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,

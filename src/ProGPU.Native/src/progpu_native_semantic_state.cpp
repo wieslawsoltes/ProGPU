@@ -69,22 +69,40 @@ progpu_native_scene_state semantic_state_cursor::read_state(
 void apply_semantic_state(
     progpu_native_analytic_primitive& primitive,
     const progpu_native_scene_state& state) noexcept {
-    primitive.transform = compose_affine(primitive.transform, state.transform);
+    apply_semantic_transform(primitive, state);
     primitive.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_analytic_primitive& primitive,
+    const progpu_native_scene_state& state) noexcept {
+    primitive.transform = compose_affine(primitive.transform, state.transform);
 }
 
 void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept {
-    path.transform = compose_affine(path.transform, state.transform);
+    apply_semantic_transform(path, state);
     path.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_scene_path_fill& path,
+    const progpu_native_scene_state& state) noexcept {
+    path.transform = compose_affine(path.transform, state.transform);
 }
 
 void apply_semantic_state(
     progpu_native_path_fill& path,
     const progpu_native_scene_state& state) noexcept {
-    path.transform = compose_affine(path.transform, state.transform);
+    apply_semantic_transform(path, state);
     path.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_path_fill& path,
+    const progpu_native_scene_state& state) noexcept {
+    path.transform = compose_affine(path.transform, state.transform);
 }
 
 void apply_semantic_state(

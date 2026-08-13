@@ -167,7 +167,8 @@ public enum NativeRendererCapabilities : ulong
     BoundedGroupEffectChain = 1UL << 27,
     GroupBlendModes = 1UL << 28,
     SemanticSceneSnapshots = 1UL << 29,
-    SemanticSceneRendering = 1UL << 30
+    SemanticSceneRendering = 1UL << 30,
+    SemanticRetainedBrushes = 1UL << 31
 }
 
 public enum NativeSceneResourceKind : uint
@@ -178,7 +179,35 @@ public enum NativeSceneResourceKind : uint
     Image = 4,
     State = 5,
     LayerMask = 6,
-    EffectChain = 7
+    EffectChain = 7,
+    BrushTable = 8
+}
+
+/// <summary>
+/// Selects the production WebGPU material program used by a native semantic
+/// brush-table record.
+/// </summary>
+public enum NativeSceneBrushKind : uint
+{
+    Solid = 0,
+    LinearGradient = 1,
+    RadialGradient = 2,
+    TwoPointConicalGradient = 5,
+    SweepGradient = 6
+}
+
+public enum NativeSceneGradientSpread : uint
+{
+    Pad = 0,
+    Reflect = 1,
+    Repeat = 2,
+    Decal = 3
+}
+
+public enum NativeSceneGradientInterpolation : uint
+{
+    SRgb = 0,
+    ScRgb = 1
 }
 
 public enum NativeSceneLayerMaskKind : uint
@@ -250,6 +279,280 @@ public enum NativeSceneValidationError : uint
     Value = 6,
     Generation = 7,
     Unsupported = 8
+}
+
+/// <summary>
+/// One exact 32-byte gradient stop consumed by the shared production vector
+/// shader. Stops belong to the auxiliary span of a semantic brush table.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 32)]
+public readonly struct NativeSceneGradientStop
+{
+    public NativeSceneGradientStop(Vector4 color, float offset)
+    {
+        Color = color;
+        Offset = offset;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+        Reserved2 = 0U;
+    }
+
+    [FieldOffset(0)] public readonly Vector4 Color;
+    [FieldOffset(16)] public readonly float Offset;
+    [FieldOffset(20)] private readonly uint Reserved0;
+    [FieldOffset(24)] private readonly uint Reserved1;
+    [FieldOffset(28)] private readonly uint Reserved2;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
+}
+
+/// <summary>
+/// Exact 256-byte retained material record consumed directly by
+/// <c>Vector.wgsl</c> on the native renderer.
+/// </summary>
+/// <remarks>
+/// Gradient stop offsets are local to the matching brush-table resource. The
+/// native compiler remaps them into one scene-wide retained GPU page. Factory
+/// methods initialize the coordinate transform and the first eight inline
+/// stop values consistently with the production managed compositor.
+/// </remarks>
+[StructLayout(LayoutKind.Explicit, Size = 256)]
+public struct NativeSceneBrush
+{
+    [FieldOffset(0)] public NativeSceneBrushKind Kind;
+    [FieldOffset(4)] public float Opacity;
+    [FieldOffset(8)] public Vector2 StartPoint;
+    [FieldOffset(16)] public Vector2 EndPoint;
+    [FieldOffset(24)] public Vector2 Center;
+    [FieldOffset(32)] public float Radius;
+    [FieldOffset(36)] public uint StopCount;
+    [FieldOffset(40)] public float RadiusY;
+    [FieldOffset(44)] public NativeSceneGradientSpread Spread;
+    [FieldOffset(48)] public NativeSceneGradientInterpolation Interpolation;
+    [FieldOffset(52)] public uint StopOffset;
+    [FieldOffset(56)] private uint Reserved0;
+    [FieldOffset(60)] private uint Reserved1;
+    [FieldOffset(64)] public Vector4 Color0;
+    [FieldOffset(80)] public Vector4 Color1;
+    [FieldOffset(96)] public Vector4 Color2;
+    [FieldOffset(112)] public Vector4 Color3;
+    [FieldOffset(128)] public Vector4 Color4;
+    [FieldOffset(144)] public Vector4 Color5;
+    [FieldOffset(160)] public Vector4 Color6;
+    [FieldOffset(176)] public Vector4 Color7;
+    [FieldOffset(192)] public Vector4 Offsets0;
+    [FieldOffset(208)] public Vector4 Offsets1;
+    [FieldOffset(224)] public Vector4 CoordinateTransform0;
+    [FieldOffset(240)] public Vector4 CoordinateTransform1;
+
+    public static NativeSceneBrush Solid(
+        Vector4 color,
+        float opacity = 1f)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.Solid,
+            opacity,
+            Matrix3x2.Identity);
+        brush.Color0 = color;
+        return brush;
+    }
+
+    public static NativeSceneBrush LinearGradient(
+        Vector2 startPoint,
+        Vector2 endPoint,
+        uint stopOffset,
+        ReadOnlySpan<NativeSceneGradientStop> stops,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Pad,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.LinearGradient,
+            stopOffset,
+            stops,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.StartPoint = startPoint;
+        brush.EndPoint = endPoint;
+        return brush;
+    }
+
+    public static NativeSceneBrush RadialGradient(
+        Vector2 center,
+        Vector2 origin,
+        float radiusX,
+        float radiusY,
+        uint stopOffset,
+        ReadOnlySpan<NativeSceneGradientStop> stops,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Pad,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.RadialGradient,
+            stopOffset,
+            stops,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.Center = center;
+        brush.StartPoint = origin;
+        brush.Radius = radiusX;
+        brush.RadiusY = radiusY;
+        return brush;
+    }
+
+    public static NativeSceneBrush TwoPointConicalGradient(
+        Vector2 startCenter,
+        float startRadius,
+        Vector2 endCenter,
+        float endRadius,
+        uint stopOffset,
+        ReadOnlySpan<NativeSceneGradientStop> stops,
+        Vector4? outsideColor = null,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Pad,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.TwoPointConicalGradient,
+            stopOffset,
+            stops,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.StartPoint = startCenter;
+        brush.Center = endCenter;
+        brush.Radius = startRadius;
+        brush.RadiusY = endRadius;
+        if (outsideColor is { } color)
+        {
+            brush.Spread = (NativeSceneGradientSpread)(
+                (uint)brush.Spread | 0x80000000U);
+            brush.Color0 = color;
+        }
+        return brush;
+    }
+
+    public static NativeSceneBrush SweepGradient(
+        Vector2 center,
+        float startAngle,
+        float endAngle,
+        uint stopOffset,
+        ReadOnlySpan<NativeSceneGradientStop> stops,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Repeat,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.SweepGradient,
+            stopOffset,
+            stops,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.Center = center;
+        brush.StartPoint = new Vector2(startAngle, endAngle);
+        return brush;
+    }
+
+    internal readonly bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
+
+    private static NativeSceneBrush CreateBase(
+        NativeSceneBrushKind kind,
+        float opacity,
+        Matrix3x2 coordinateTransform)
+    {
+        var brush = new NativeSceneBrush
+        {
+            Kind = kind,
+            Opacity = opacity
+        };
+        brush.SetCoordinateTransform(coordinateTransform);
+        return brush;
+    }
+
+    private static NativeSceneBrush CreateGradient(
+        NativeSceneBrushKind kind,
+        uint stopOffset,
+        ReadOnlySpan<NativeSceneGradientStop> stops,
+        float opacity,
+        NativeSceneGradientSpread spread,
+        NativeSceneGradientInterpolation interpolation,
+        Matrix3x2 coordinateTransform)
+    {
+        var brush = CreateBase(kind, opacity, coordinateTransform);
+        brush.StopOffset = stopOffset;
+        brush.StopCount = checked((uint)stops.Length);
+        brush.Spread = spread;
+        brush.Interpolation = interpolation;
+        brush.CopyInlineStops(stops);
+        return brush;
+    }
+
+    private void CopyInlineStops(ReadOnlySpan<NativeSceneGradientStop> stops)
+    {
+        Span<Vector4> colors = MemoryMarshal.CreateSpan(ref Color0, 8);
+        Span<float> offsets = stackalloc float[8]
+        {
+            0f, 1f, 1f, 1f, 1f, 1f, 1f, 1f
+        };
+        int count = Math.Min(stops.Length, 8);
+        for (int index = 0; index < count; index++)
+        {
+            colors[index] = stops[index].Color;
+            offsets[index] = stops[index].Offset;
+        }
+        Offsets0 = new Vector4(offsets[0], offsets[1], offsets[2], offsets[3]);
+        Offsets1 = new Vector4(offsets[4], offsets[5], offsets[6], offsets[7]);
+    }
+
+    private void SetCoordinateTransform(Matrix3x2 transform)
+    {
+        CoordinateTransform0 = new Vector4(
+            transform.M11,
+            transform.M21,
+            transform.M31,
+            0f);
+        CoordinateTransform1 = new Vector4(
+            transform.M12,
+            transform.M22,
+            transform.M32,
+            0f);
+    }
+
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct NativeSceneDrawBrushes
+{
+    internal NativeSceneDrawBrushes(uint brushResourceIndex, uint brushCount)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneDrawBrushes>();
+        BrushResourceIndex = brushResourceIndex;
+        BrushCount = brushCount;
+        Reserved = 0U;
+    }
+
+    internal readonly uint StructSize;
+    internal readonly uint BrushResourceIndex;
+    internal readonly uint BrushCount;
+    private readonly uint Reserved;
 }
 
 /// <summary>
@@ -1698,7 +2001,9 @@ public readonly record struct NativeSceneFrameMetrics(
     ulong TextureUploadBytes,
     ulong UniformUploadBytes,
     ulong CoverageStagingBytes,
-    ulong PayloadHash);
+    ulong PayloadHash,
+    ulong BrushUploadBytes,
+    ulong GradientStopUploadBytes);
 
 public readonly record struct NativeRendererInfo(
     uint AbiVersion,

@@ -50,7 +50,7 @@ try {
   assert.deepEqual(contract, {
     status: "passed",
     semanticCommands: "6",
-    semanticResources: "3",
+    semanticResources: "4",
     semanticDraws: "6",
     rendererSubmissions: "1",
     evidenceTarget: "offscreen-texture-readback",
@@ -120,9 +120,10 @@ try {
     `Browser backdrop effect did not filter the parent transition: ` +
       diagnostics);
   assert.ok(
-    near(pixels.marker[0], 0) && near(pixels.marker[1], 255) &&
+    near(pixels.marker[0], 128, 32) &&
+      near(pixels.marker[1], 255) &&
       near(pixels.marker[2], 0) && opaque(pixels.marker),
-    `Browser child content was not drawn over the filtered backdrop: ` +
+    `Browser retained linear gradient was not drawn over the backdrop: ` +
       diagnostics);
   assert.ok(red(pixels.initializedPrevious),
     `Browser backdrop did not initialize from previous pixels: ${diagnostics}`);

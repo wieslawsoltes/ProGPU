@@ -63,6 +63,15 @@ progpu_native_status render_paths(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The path batch exceeds the native safety bound.");
     }
+    const bool semantic_materials =
+        engine->semantic_path_materials_active;
+    if (semantic_materials &&
+        engine->semantic_path_cache.brush_indices.size() !=
+            frame->path_count) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic path brush map does not match the retained path page.");
+    }
     bool use_group_layer = false;
     bool group_cache_hit = false;
     const auto group_status = prepare_group_layer(
@@ -114,12 +123,13 @@ progpu_native_status render_paths(
             engine->path_rasters.reserve(frame->path_count);
             engine->path_vertices.reserve(frame->path_count * 4U);
             engine->path_indices.reserve(frame->path_count * 6U);
-            engine->path_brush_bytes.resize(
-                (frame->path_count + 1U) * gpu_brush_size);
-
-            set_brush_opacity(
-                engine->path_brush_bytes,
-                draw_state.opacity);
+            if (!semantic_materials) {
+                engine->path_brush_bytes.resize(
+                    (frame->path_count + 1U) * gpu_brush_size);
+                set_brush_opacity(
+                    engine->path_brush_bytes,
+                    draw_state.opacity);
+            }
 
             std::uint32_t atlas_x = 2U;
             std::uint32_t atlas_y = 2U;
@@ -331,6 +341,9 @@ progpu_native_status render_paths(
                 }};
                 const std::uint32_t vertex_start = static_cast<std::uint32_t>(
                     engine->path_vertices.size());
+                const std::uint32_t brush_index = semantic_materials
+                    ? engine->semantic_path_cache.brush_indices[index]
+                    : static_cast<std::uint32_t>(index + 1U);
                 for (std::size_t corner = 0U; corner < 4U; ++corner) {
                     progpu::native::vector_vertex vertex{};
                     progpu::native::transform_point(
@@ -345,7 +358,7 @@ progpu_native_status render_paths(
                         sizeof(path.color));
                     vertex.texture_coordinate[0] = atlas_points[corner].x;
                     vertex.texture_coordinate[1] = atlas_points[corner].y;
-                    vertex.brush_index = static_cast<float>(index + 1U);
+                    vertex.brush_index = static_cast<float>(brush_index);
                     vertex.shape_size[0] = local_points[corner].x;
                     vertex.shape_size[1] = local_points[corner].y;
                     vertex.corner_radius = 1.0F;
@@ -356,11 +369,13 @@ progpu_native_status render_paths(
                     engine->path_indices.end(),
                     {vertex_start, vertex_start + 1U, vertex_start + 2U,
                      vertex_start, vertex_start + 2U, vertex_start + 3U});
-                std::memcpy(
-                    engine->path_brush_bytes.data() +
-                        (index + 1U) * gpu_brush_size + 64U,
-                    &path.color,
-                    sizeof(path.color));
+                if (!semantic_materials) {
+                    std::memcpy(
+                        engine->path_brush_bytes.data() +
+                            (index + 1U) * gpu_brush_size + 64U,
+                        &path.color,
+                        sizeof(path.color));
+                }
 
             }
             coverage_staging_bytes = output_offset;
@@ -380,10 +395,12 @@ progpu_native_status render_paths(
                     engine->path_payload_hash,
                     engine->path_indices.data(),
                     engine->path_indices.size() * sizeof(std::uint32_t));
-                engine->path_payload_hash = append_fnv1a64(
-                    engine->path_payload_hash,
-                    engine->path_brush_bytes.data(),
-                    engine->path_brush_bytes.size());
+                if (!semantic_materials) {
+                    engine->path_payload_hash = append_fnv1a64(
+                        engine->path_payload_hash,
+                        engine->path_brush_bytes.data(),
+                        engine->path_brush_bytes.size());
+                }
                 engine->path_cache_valid = true;
             }
         } catch (const std::bad_alloc&) {
@@ -393,7 +410,8 @@ progpu_native_status render_paths(
         }
     }
 
-    const bool opacity_changed = compiled_payload_hit &&
+    const bool opacity_changed = !semantic_materials &&
+        compiled_payload_hit &&
         engine->path_opacity != draw_state.opacity;
     if (opacity_changed) {
         set_brush_opacity(engine->path_brush_bytes, draw_state.opacity);
@@ -437,12 +455,15 @@ progpu_native_status render_paths(
     const std::uint64_t brush_bytes = engine->path_brush_bytes.size();
     const bool upload_draw_payload =
         !compiled_payload_hit || !engine->path_gpu_cache_valid;
-    const bool upload_brush_payload = upload_draw_payload || opacity_changed;
+    const bool upload_brush_payload = !semantic_materials &&
+        (upload_draw_payload || opacity_changed ||
+            engine->analytic_material_owner_hash != 0U);
     bool uploaded_uniforms = false;
     if (vertex_bytes != 0U &&
         (!engine->ensure_path_vertex_buffer(vertex_bytes) ||
          !engine->ensure_path_index_buffer(index_bytes) ||
-         !ensure_analytic_brush_buffer(*engine, brush_bytes))) {
+         (!semantic_materials &&
+            !ensure_analytic_brush_buffer(*engine, brush_bytes)))) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The native path draw buffers could not be allocated.");
@@ -480,6 +501,7 @@ progpu_native_status render_paths(
                 0U,
                 engine->path_brush_bytes.data(),
                 brush_bytes);
+            engine->analytic_material_owner_hash = 0U;
         }
     }
     path_raster_resources temporary;

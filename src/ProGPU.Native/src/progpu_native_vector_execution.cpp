@@ -1024,7 +1024,8 @@ progpu_native_status render_geometry(
     const bool upload_compiled_payload =
         !compiled_payload_hit || !engine->geometry_gpu_cache_valid;
     const bool upload_brush_payload =
-        upload_compiled_payload || opacity_changed;
+        upload_compiled_payload || opacity_changed ||
+        engine->analytic_material_owner_hash != 0U;
     bool uploaded_uniforms = false;
     std::uint64_t payload_hash = 0U;
     if ((frame->flags &
@@ -1093,6 +1094,7 @@ progpu_native_status render_geometry(
                 0U,
                 engine->brush_bytes.data(),
                 engine->brush_bytes.size());
+            engine->analytic_material_owner_hash = 0U;
         }
     }
 

@@ -364,6 +364,11 @@ NativeAnalyticPrimitive[] semanticAnalyticPrimitives = useSemanticScene
         semanticHeight,
         xOffset: semanticWidth)
     : ([], []);
+(NativeSceneBrush[] semanticBrushes,
+ uint[] semanticAnalyticBrushIndices,
+ uint[] semanticPathBrushIndices) = useSemanticScene
+    ? CreateSemanticSolidBrushes(semanticAnalyticPrimitives, semanticPaths)
+    : ([], [], []);
 (NativeSceneGlyphOutline[] semanticGlyphOutlines,
  NativePathSegment[] semanticGlyphSegments,
  NativePositionedGlyph[] semanticGlyphs,
@@ -567,11 +572,14 @@ byte[] semanticSceneBuffer = useSemanticScene
         semanticGlyphSegments,
         semanticGlyphs,
         imagePixels,
+        semanticBrushes,
+        semanticAnalyticBrushIndices,
+        semanticPathBrushIndices,
         useSemanticLayerEffects)]
     : [];
 int semanticSceneLength = 0;
 uint expectedSemanticCommandCount = useSemanticLayerEffects ? 10U : 8U;
-uint expectedSemanticResourceCount = useSemanticLayerEffects ? 10U : 8U;
+uint expectedSemanticResourceCount = useSemanticLayerEffects ? 11U : 9U;
 if (useSemanticScene)
 {
     var semanticImageDraw = new NativeSceneImageDraw(
@@ -602,6 +610,9 @@ if (useSemanticScene)
         semanticGlyphSegments,
         semanticGlyphs,
         imagePixels,
+        semanticBrushes,
+        semanticAnalyticBrushIndices,
+        semanticPathBrushIndices,
         in semanticImageDraw,
         logicalWidth,
         logicalHeight,
@@ -1136,7 +1147,9 @@ if (useSemanticScene &&
      lastNativeSceneMetrics.IndexUploadBytes != 0UL ||
      lastNativeSceneMetrics.TextureUploadBytes != 0UL ||
      lastNativeSceneMetrics.UniformUploadBytes != 0UL ||
-     lastNativeSceneMetrics.CoverageStagingBytes != 0UL))
+     lastNativeSceneMetrics.CoverageStagingBytes != 0UL ||
+     lastNativeSceneMetrics.BrushUploadBytes != 0UL ||
+     lastNativeSceneMetrics.GradientStopUploadBytes != 0UL))
 {
     throw new InvalidOperationException(
         "Stable mixed semantic-scene replay did not preserve one ordered " +
@@ -1149,6 +1162,8 @@ if (useSemanticScene &&
         $"vertexUpload={lastNativeSceneMetrics.VertexUploadBytes} " +
         $"indexUpload={lastNativeSceneMetrics.IndexUploadBytes} " +
         $"textureUpload={lastNativeSceneMetrics.TextureUploadBytes} " +
+        $"brushUpload={lastNativeSceneMetrics.BrushUploadBytes} " +
+        $"gradientStopUpload={lastNativeSceneMetrics.GradientStopUploadBytes} " +
         $"coverage={lastNativeSceneMetrics.CoverageStagingBytes}.");
 }
 if (useSemanticLayerEffects &&
@@ -2404,6 +2419,9 @@ static int GetSemanticSceneBufferSize(
     ReadOnlySpan<NativePathSegment> glyphSegments,
     ReadOnlySpan<NativePositionedGlyph> glyphs,
     ReadOnlySpan<byte> imagePixels,
+    ReadOnlySpan<NativeSceneBrush> brushes,
+    ReadOnlySpan<uint> analyticBrushIndices,
+    ReadOnlySpan<uint> pathBrushIndices,
     bool includeLayerEffects)
 {
     int layerArenaCapacity = includeLayerEffects
@@ -2426,12 +2444,15 @@ static int GetSemanticSceneBufferSize(
         pathSegments.Length * Unsafe.SizeOf<NativePathSegment>() +
         imagePixels.Length +
         imagePixels.Length +
+        brushes.Length * Unsafe.SizeOf<NativeSceneBrush>() +
+        (analyticBrushIndices.Length + pathBrushIndices.Length) * sizeof(uint) +
+        4 * 16 +
         Unsafe.SizeOf<NativeSceneImageDraw>() +
         layerArenaCapacity +
-        128);
+        256);
     return NativeSceneStreamBuilder.GetRequiredBufferSize(
         commandCapacity: includeLayerEffects ? 10 : 8,
-        resourceCapacity: includeLayerEffects ? 10 : 8,
+        resourceCapacity: includeLayerEffects ? 11 : 9,
         arenaCapacity);
 }
 
@@ -2446,6 +2467,9 @@ static int BuildSemanticScene(
     ReadOnlySpan<NativePathSegment> glyphSegments,
     ReadOnlySpan<NativePositionedGlyph> glyphs,
     ReadOnlySpan<byte> imagePixels,
+    ReadOnlySpan<NativeSceneBrush> brushes,
+    ReadOnlySpan<uint> analyticBrushIndices,
+    ReadOnlySpan<uint> pathBrushIndices,
     in NativeSceneImageDraw imageDraw,
     float logicalWidth,
     float logicalHeight,
@@ -2464,6 +2488,10 @@ static int BuildSemanticScene(
         throw new InvalidOperationException(
             "The matched semantic scene requires two analytic payloads.");
     }
+    ReadOnlySpan<uint> firstAnalyticBrushIndices =
+        analyticBrushIndices[..analyticSplit];
+    ReadOnlySpan<uint> secondAnalyticBrushIndices =
+        analyticBrushIndices[analyticSplit..];
     int pathSplit = Math.Max(1, paths.Length / 2);
     ReadOnlySpan<NativeScenePathFill> firstPaths = paths[..pathSplit];
     ReadOnlySpan<NativeScenePathFill> secondPaths = paths[pathSplit..];
@@ -2472,6 +2500,10 @@ static int BuildSemanticScene(
         throw new InvalidOperationException(
             "The matched semantic scene requires two path payloads.");
     }
+    ReadOnlySpan<uint> firstPathBrushIndices =
+        pathBrushIndices[..pathSplit];
+    ReadOnlySpan<uint> secondPathBrushIndices =
+        pathBrushIndices[pathSplit..];
     int glyphSplit = Math.Max(1, glyphs.Length / 2);
     ReadOnlySpan<NativePositionedGlyph> firstGlyphs = glyphs[..glyphSplit];
     ReadOnlySpan<NativePositionedGlyph> secondGlyphs = glyphs[glyphSplit..];
@@ -2545,7 +2577,8 @@ static int BuildSemanticScene(
         sceneId,
         generation,
         commandCapacity: includeLayerEffects ? 10 : 8,
-        resourceCapacity: includeLayerEffects ? 10 : 8);
+        resourceCapacity: includeLayerEffects ? 11 : 9);
+    uint brushResource = uint.MaxValue;
     uint layerMaskResource = uint.MaxValue;
     uint layerEffectResource = uint.MaxValue;
     ulong commandOffset = includeLayerEffects ? 1U : 0U;
@@ -2594,6 +2627,12 @@ static int BuildSemanticScene(
             generation,
             imagePixels,
             out uint secondImageResource) &&
+        builder.TryAddBrushTableResource(
+            resourceId: 9U,
+            generation,
+            brushes,
+            gradientStops: [],
+            out brushResource) &&
         (!includeLayerEffects || builder.TryAddLayerMaskResource(
             resourceId: 100U,
             generation,
@@ -2616,7 +2655,9 @@ static int BuildSemanticScene(
         builder.TryDrawAnalytic(
             commandId: 1U + commandOffset,
             analyticResource,
-            new NativeImageRect(0f, 0f, logicalWidth * 0.5f, logicalHeight * 0.5f)) &&
+            new NativeImageRect(0f, 0f, logicalWidth * 0.5f, logicalHeight * 0.5f),
+            brushResource,
+            firstAnalyticBrushIndices) &&
         builder.TryDrawPath(
             commandId: 2U + commandOffset,
             pathResource,
@@ -2624,7 +2665,9 @@ static int BuildSemanticScene(
                 logicalWidth * 0.5f,
                 0f,
                 logicalWidth * 0.5f,
-                logicalHeight * 0.5f)) &&
+                logicalHeight * 0.5f),
+            brushResource,
+            firstPathBrushIndices) &&
         builder.TryDrawGlyphRun(
             commandId: 3U + commandOffset,
             glyphResource,
@@ -2650,7 +2693,9 @@ static int BuildSemanticScene(
                 logicalWidth * 0.5f,
                 0f,
                 logicalWidth * 0.5f,
-                logicalHeight * 0.5f)) &&
+                logicalHeight * 0.5f),
+            brushResource,
+            secondPathBrushIndices) &&
         builder.TryDrawGlyphRun(
             commandId: 6U + commandOffset,
             secondGlyphResource,
@@ -2676,7 +2721,9 @@ static int BuildSemanticScene(
                 0f,
                 0f,
                 logicalWidth * 0.5f,
-                logicalHeight * 0.5f)) &&
+                logicalHeight * 0.5f),
+            brushResource,
+            secondAnalyticBrushIndices) &&
         (!includeLayerEffects || builder.TryPopLayer(commandId: 10U)) &&
         builder.TryBuild(out stream);
     if (!success)
@@ -3613,6 +3660,32 @@ static (NativeScenePathFill[] Paths, NativePathSegment[] Segments)
             source.SampleGrid);
     }
     return (paths, segments);
+}
+
+static (
+    NativeSceneBrush[] Brushes,
+    uint[] AnalyticIndices,
+    uint[] PathIndices) CreateSemanticSolidBrushes(
+    ReadOnlySpan<NativeAnalyticPrimitive> analyticPrimitives,
+    ReadOnlySpan<NativeScenePathFill> paths)
+{
+    var brushes = new NativeSceneBrush[
+        analyticPrimitives.Length + paths.Length];
+    var analyticIndices = new uint[analyticPrimitives.Length];
+    var pathIndices = new uint[paths.Length];
+    int brushIndex = 0;
+    for (int index = 0; index < analyticPrimitives.Length; ++index)
+    {
+        brushes[brushIndex] = NativeSceneBrush.Solid(
+            analyticPrimitives[index].Color);
+        analyticIndices[index] = checked((uint)brushIndex++);
+    }
+    for (int index = 0; index < paths.Length; ++index)
+    {
+        brushes[brushIndex] = NativeSceneBrush.Solid(paths[index].Color);
+        pathIndices[index] = checked((uint)brushIndex++);
+    }
+    return (brushes, analyticIndices, pathIndices);
 }
 
 static (

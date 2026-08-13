@@ -24,7 +24,14 @@ WGPUBindGroup create_analytic_uniform_bind_group_for_buffer(
     WGPUBuffer uniform_buffer,
     WGPUBuffer brush_buffer,
     std::uint64_t brush_buffer_size,
+    WGPUBuffer gradient_buffer,
+    std::uint64_t gradient_buffer_size,
     const char* label);
+
+bool ensure_analytic_material_buffers(
+    progpu_native_engine& engine,
+    std::uint64_t required_brush_size,
+    std::uint64_t required_gradient_size);
 
 bool ensure_analytic_brush_buffer(
     progpu_native_engine& engine,

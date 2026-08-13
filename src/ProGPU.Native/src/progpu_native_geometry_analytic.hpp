@@ -26,7 +26,8 @@ inline bool append_analytic_primitive(
     const progpu_native_analytic_primitive& primitive,
     float antialias_padding,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    float brush_index = 0.0F) {
     if (!is_valid_analytic_primitive(primitive, antialias_padding) ||
         vertices.size() > std::numeric_limits<std::uint32_t>::max() - 4U ||
         vertices.size() > std::numeric_limits<std::size_t>::max() - 4U ||
@@ -72,6 +73,7 @@ inline bool append_analytic_primitive(
         vertex.color[3] = primitive.color.a;
         vertex.texture_coordinate[0] = u;
         vertex.texture_coordinate[1] = v;
+        vertex.brush_index = brush_index;
         vertex.shape_size[0] = primitive.width;
         vertex.shape_size[1] = primitive.height;
         vertex.corner_radius = radius;

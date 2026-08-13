@@ -323,6 +323,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
     src/progpu_native_semantic_budget.hpp
+    src/progpu_native_semantic_brush.cpp
+    src/progpu_native_semantic_brush.hpp
     src/progpu_native_semantic_effect_cache.cpp
     src/progpu_native_semantic_effect_cache.hpp
     src/progpu_native_semantic_execution.cpp
@@ -532,6 +534,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_scene.cpp
         src/progpu_native_scene.hpp
         src/progpu_native_semantic_budget.hpp
+        src/progpu_native_semantic_brush.cpp
+        src/progpu_native_semantic_brush.hpp
         src/progpu_native_semantic_effect_cache.cpp
         src/progpu_native_semantic_effect_cache.hpp
         src/progpu_native_semantic_replay.hpp
@@ -554,7 +558,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/progpu_native_scene.cpp
-        src/progpu_native_scene.hpp)
+        src/progpu_native_scene.hpp
+        src/progpu_native_semantic_brush.cpp
+        src/progpu_native_semantic_brush.hpp
+        src/progpu_native_semantic_state.cpp
+        src/progpu_native_semantic_state.hpp)
     target_compile_features(progpu_native_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"

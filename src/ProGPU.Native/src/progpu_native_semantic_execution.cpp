@@ -391,10 +391,18 @@ progpu_native_status render_scene(
     progpu_native_scene_frame_metrics* metrics) {
     const progpu::native::webgpu::dispatch_scope dispatch_scope(
         engine == nullptr ? nullptr : &engine->webgpu_dispatch);
-    if (metrics != nullptr && metrics->struct_size >=
-            sizeof(progpu_native_scene_frame_metrics)) {
+    constexpr std::uint32_t legacy_metrics_size = offsetof(
+        progpu_native_scene_frame_metrics,
+        brush_upload_bytes);
+    if (metrics != nullptr &&
+        metrics->struct_size >= legacy_metrics_size) {
         const std::uint32_t struct_size = metrics->struct_size;
-        *metrics = {};
+        std::memset(
+            metrics,
+            0,
+            std::min<std::size_t>(
+                struct_size,
+                sizeof(progpu_native_scene_frame_metrics)));
         metrics->struct_size = struct_size;
     }
     if (engine == nullptr) {
@@ -455,6 +463,61 @@ progpu_native_status render_scene(
     const auto span_is_multiple = [](std::uint32_t size,
                                      std::size_t stride) noexcept {
         return stride != 0U && size != 0U && size % stride == 0U;
+    };
+
+    auto& semantic_brush_page = engine->semantic_brush_cache;
+    if (!semantic_brush_page.cache_valid ||
+        semantic_brush_page.scene_hash != engine->semantic_scene_hash) {
+        if (!compile_brush_page(
+                bytes,
+                header,
+                engine->semantic_scene_hash,
+                semantic_brush_page)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic retained-brush page could not be compiled.");
+        }
+    }
+    const auto resolve_brush = [&](
+        std::uint32_t command_index,
+        const progpu_native_scene_command& command,
+        std::uint32_t record_index,
+        std::uint32_t& packed_index,
+        const progpu_native_scene_brush*& brush) noexcept {
+        packed_index = 0U;
+        brush = nullptr;
+        if (command.payload_size == 0U) {
+            return true;
+        }
+        if (!try_get_draw_brush_index(
+                semantic_brush_page,
+                command_index,
+                record_index,
+                packed_index)) {
+            return false;
+        }
+        brush = try_get_packed_brush(semantic_brush_page, packed_index);
+        return brush != nullptr;
+    };
+    const auto apply_analytic_material = [](
+        progpu_native_analytic_primitive& primitive,
+        const progpu_native_scene_brush& brush) noexcept {
+        if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+            primitive.color = brush.colors[0];
+        } else {
+            primitive.color = {
+                primitive.x + primitive.width * 0.5F,
+                primitive.y + primitive.height * 0.5F,
+                0.0F,
+                1.0F};
+        }
+    };
+    const auto apply_path_material = [](
+        auto& path,
+        const progpu_native_scene_brush& brush) noexcept {
+        if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+            path.color = brush.colors[0];
+        }
     };
 
     semantic_layer_budget layer_budget{};
@@ -640,8 +703,7 @@ progpu_native_status render_scene(
                 valid = span_is_multiple(
                     resource.payload_size,
                     sizeof(progpu_native_analytic_primitive)) &&
-                    resource.auxiliary_size == 0U &&
-                    command.payload_size == 0U;
+                    resource.auxiliary_size == 0U;
                 const std::uint64_t primitive_count = resource.payload_size /
                     sizeof(progpu_native_analytic_primitive);
                 valid = valid && primitive_count <=
@@ -659,7 +721,23 @@ progpu_native_status render_scene(
                         bytes + resource.payload_offset +
                             primitive_index * sizeof(primitive),
                         sizeof(primitive));
-                    apply_semantic_state(primitive, state);
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    valid = resolve_brush(
+                        index,
+                        command,
+                        static_cast<std::uint32_t>(primitive_index),
+                        brush_index,
+                        brush);
+                    if (!valid) {
+                        break;
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(primitive, state);
+                    } else {
+                        apply_semantic_transform(primitive, state);
+                        apply_analytic_material(primitive, *brush);
+                    }
                     valid = is_valid_semantic_analytic(primitive);
                 }
                 break;
@@ -670,8 +748,7 @@ progpu_native_status render_scene(
                         sizeof(progpu_native_scene_path_fill)) &&
                     span_is_multiple(
                         resource.auxiliary_size,
-                        sizeof(progpu_native_path_segment)) &&
-                    command.payload_size == 0U;
+                        sizeof(progpu_native_path_segment));
                 const std::uint64_t path_count = resource.payload_size /
                     sizeof(progpu_native_scene_path_fill);
                 const std::uint64_t segment_count = resource.auxiliary_size /
@@ -704,7 +781,23 @@ progpu_native_status render_scene(
                         bytes + resource.payload_offset +
                             path_index * sizeof(path),
                         sizeof(path));
-                    apply_semantic_state(path, state);
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    valid = resolve_brush(
+                        index,
+                        command,
+                        static_cast<std::uint32_t>(path_index),
+                        brush_index,
+                        brush);
+                    if (!valid) {
+                        break;
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(path, state);
+                    } else {
+                        apply_semantic_transform(path, state);
+                        apply_path_material(path, *brush);
+                    }
                     std::uint64_t path_coverage_bytes = 0U;
                     valid = is_valid_semantic_path(
                         path,
@@ -817,9 +910,20 @@ progpu_native_status render_scene(
                 break;
         }
         if (!valid) {
+            const char* family = command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
+                ? "analytic"
+                : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH
+                    ? "path"
+                    : command.kind ==
+                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
+                        ? "glyph"
+                        : "image";
+            const std::string detail = std::string("A typed semantic ") +
+                family + " scene resource payload is invalid.";
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                "A typed semantic scene resource payload is invalid.");
+                detail.c_str());
         }
         if (!budget_valid || !compilation_budget.add(
                 compiled_vertex_bytes,
@@ -916,9 +1020,24 @@ progpu_native_status render_scene(
         ? std::numeric_limits<std::uint64_t>::max()
         : pooled_layer_bytes + pooled_effect_bytes +
             semantic_destination_texture_bytes;
-    const std::uint64_t compiled_bytes =
+    const std::uint64_t semantic_brush_bytes =
+        semantic_brush_page.brushes.size() *
+            sizeof(progpu_native_scene_brush);
+    const std::uint64_t semantic_gradient_stop_bytes =
+        semantic_brush_page.gradient_stops.size() *
+            sizeof(progpu_native_scene_gradient_stop);
+    const std::uint64_t semantic_material_bytes =
+        semantic_brush_bytes + semantic_gradient_stop_bytes;
+    const std::uint64_t compiled_payload_bytes =
         compilation_budget.total_bytes();
-    if (invalid_layer_pool ||
+    const bool invalid_compiled_materials =
+        semantic_material_bytes > semantic_max_total_compiled_bytes ||
+        compiled_payload_bytes >
+            semantic_max_total_compiled_bytes - semantic_material_bytes;
+    const std::uint64_t compiled_bytes = invalid_compiled_materials
+        ? std::numeric_limits<std::uint64_t>::max()
+        : compiled_payload_bytes + semantic_material_bytes;
+    if (invalid_compiled_materials || invalid_layer_pool ||
         semantic_effect_uniform_bytes >
             semantic_max_total_compiled_bytes - compiled_bytes ||
         std::max(layer_budget.peak_bytes, retained_layer_bytes) >
@@ -945,6 +1064,47 @@ progpu_native_status render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The aggregate semantic glyph page exceeds the native safety bound.");
+    }
+
+    std::uint64_t semantic_brush_upload_bytes = 0U;
+    std::uint64_t semantic_gradient_stop_upload_bytes = 0U;
+    if (semantic_analytic_draw_count != 0U ||
+        semantic_path_draw_count != 0U) {
+        if (engine->analytic_pipeline == nullptr &&
+            !create_analytic_pipeline(*engine)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic retained-brush pipeline could not be created.");
+        }
+        if (!ensure_analytic_material_buffers(
+                *engine,
+                semantic_brush_bytes,
+                semantic_gradient_stop_bytes)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The semantic retained-brush GPU page could not be allocated.");
+        }
+        if (engine->analytic_material_owner_hash !=
+                engine->semantic_scene_hash ||
+            engine->analytic_material_owner_hash == 0U) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->analytic_brush_buffer,
+                0U,
+                semantic_brush_page.brushes.data(),
+                semantic_brush_bytes);
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                engine->analytic_gradient_buffer,
+                0U,
+                semantic_brush_page.gradient_stops.data(),
+                semantic_gradient_stop_bytes);
+            engine->analytic_material_owner_hash =
+                engine->semantic_scene_hash;
+            semantic_brush_upload_bytes = semantic_brush_bytes;
+            semantic_gradient_stop_upload_bytes =
+                semantic_gradient_stop_bytes;
+        }
     }
 
     const bool semantic_render_bundle_hit =
@@ -1025,7 +1185,24 @@ progpu_native_status render_scene(
                         bytes + resource.payload_offset +
                             primitive_index * sizeof(primitive),
                         sizeof(primitive));
-                    apply_semantic_state(primitive, state);
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    if (!resolve_brush(
+                            index,
+                            command,
+                            static_cast<std::uint32_t>(primitive_index),
+                            brush_index,
+                            brush)) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "A validated semantic analytic brush map could not be resolved.");
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(primitive, state);
+                    } else {
+                        apply_semantic_transform(primitive, state);
+                        apply_analytic_material(primitive, *brush);
+                    }
                     float minimum_scale = 0.0F;
                     if (!progpu::native::try_get_minimum_scale(
                             primitive.transform,
@@ -1034,7 +1211,8 @@ progpu_native_status render_scene(
                             primitive,
                             antialias_padding_pixels / minimum_scale,
                             engine->vertices,
-                            engine->indices)) {
+                            engine->indices,
+                            static_cast<float>(brush_index))) {
                         return engine->fail(
                             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A preflighted semantic analytic payload could not be compiled.");
@@ -1118,14 +1296,17 @@ progpu_native_status render_scene(
         semantic_path_page.target_height == frame->height &&
         semantic_path_page.draws.size() == semantic_path_draw_count;
     if (semantic_path_draw_count != 0U && !semantic_path_page_hit) {
-        std::vector<progpu_native_path_fill> compiled_paths;
+        std::vector<progpu_native_scene_path_fill> compiled_paths;
         std::vector<progpu_native_path_segment> compiled_segments;
+        std::vector<std::uint32_t> compiled_brush_indices;
         std::vector<semantic_path_draw> compiled_draws;
         try {
             compiled_paths.reserve(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_path_segment_count));
+            compiled_brush_indices.reserve(
+                static_cast<std::size_t>(semantic_path_count));
             compiled_draws.reserve(semantic_path_draw_count);
             semantic_state_cursor state_cursor(bytes, header);
             semantic_layer_target_cursor target_cursor(
@@ -1162,16 +1343,34 @@ progpu_native_status render_scene(
                 for (std::size_t path_index = 0U;
                      path_index < path_count;
                      ++path_index) {
-                    progpu_native_path_fill path{};
+                    progpu_native_scene_path_fill path{};
                     std::memcpy(
                         &path,
                         bytes + resource.payload_offset +
                             path_index *
                                 sizeof(progpu_native_scene_path_fill),
                         sizeof(path));
-                    apply_semantic_state(path, state);
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    if (!resolve_brush(
+                            index,
+                            command,
+                            static_cast<std::uint32_t>(path_index),
+                            brush_index,
+                            brush)) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "A validated semantic path brush map could not be resolved.");
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(path, state);
+                    } else {
+                        apply_semantic_transform(path, state);
+                        apply_path_material(path, *brush);
+                    }
                     path.segment_offset += segment_start;
                     compiled_paths.push_back(path);
+                    compiled_brush_indices.push_back(brush_index);
                 }
                 compiled_draws.push_back({
                     static_cast<std::uint32_t>(path_start * 6U),
@@ -1184,6 +1383,7 @@ progpu_native_status render_scene(
         }
         if (compiled_paths.size() != semantic_path_count ||
             compiled_segments.size() != semantic_path_segment_count ||
+            compiled_brush_indices.size() != semantic_path_count ||
             compiled_draws.size() != semantic_path_draw_count) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -1191,6 +1391,8 @@ progpu_native_status render_scene(
         }
         semantic_path_page.paths = std::move(compiled_paths);
         semantic_path_page.segments = std::move(compiled_segments);
+        semantic_path_page.brush_indices =
+            std::move(compiled_brush_indices);
         semantic_path_page.draws = std::move(compiled_draws);
         semantic_path_page.scene_hash = engine->semantic_scene_hash;
         semantic_path_page.dpi_scale = frame->dpi_scale;
@@ -1659,6 +1861,7 @@ progpu_native_status render_scene(
         engine->semantic_path_draw_active = false;
         engine->semantic_path_first_index = 0U;
         engine->semantic_path_index_count = 0U;
+        engine->semantic_path_materials_active = false;
         engine->semantic_glyph_draw_active = false;
         engine->semantic_glyph_first_instance = 0U;
         engine->semantic_glyph_instance_count = 0U;
@@ -1698,7 +1901,8 @@ progpu_native_status render_scene(
             fill_rule) == offsetof(
             progpu_native_path_fill,
             fill_rule));
-        family.paths = semantic_path_page.paths.data();
+        family.paths = reinterpret_cast<const progpu_native_path_fill*>(
+            semantic_path_page.paths.data());
         family.path_count = semantic_path_page.paths.size();
 #else
         std::vector<progpu_native_path_fill> translated_paths;
@@ -1742,6 +1946,7 @@ progpu_native_status render_scene(
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
         engine->semantic_path_draw_active = true;
+        engine->semantic_path_materials_active = true;
         engine->semantic_path_first_index =
             semantic_path_page.draws.front().first_index;
         engine->semantic_path_index_count =
@@ -2991,8 +3196,8 @@ progpu_native_status render_scene(
     }
 
     engine->last_error.clear();
-    if (metrics != nullptr && metrics->struct_size >=
-            sizeof(progpu_native_scene_frame_metrics)) {
+    if (metrics != nullptr &&
+        metrics->struct_size >= legacy_metrics_size) {
         metrics->command_count = header.command_count;
         metrics->draw_call_count = draw_calls;
         metrics->family_switch_count = family_switches;
@@ -3004,6 +3209,18 @@ progpu_native_status render_scene(
         metrics->uniform_upload_bytes = uniform_upload_bytes;
         metrics->coverage_staging_bytes = coverage_staging_bytes;
         metrics->payload_hash = payload_hash;
+        if (metrics->struct_size >= offsetof(
+                progpu_native_scene_frame_metrics,
+                brush_upload_bytes) + sizeof(std::uint64_t)) {
+            metrics->brush_upload_bytes =
+                semantic_brush_upload_bytes;
+        }
+        if (metrics->struct_size >= offsetof(
+                progpu_native_scene_frame_metrics,
+                gradient_stop_upload_bytes) + sizeof(std::uint64_t)) {
+            metrics->gradient_stop_upload_bytes =
+                semantic_gradient_stop_upload_bytes;
+        }
     }
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }

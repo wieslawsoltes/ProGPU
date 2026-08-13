@@ -1502,9 +1502,9 @@ void verify_semantic_backdrop_scene(
         transition[0] <= 220U && transition[2] <= 220U &&
         opaque(transition),
         "backdrop Gaussian effect did not filter the parent transition");
-    require(marker[1] >= 240U && marker[0] <= 16U && marker[2] <= 16U &&
-        opaque(marker),
-        "child content was not drawn over the filtered backdrop");
+    require(marker[1] >= 240U && marker[0] <= 16U &&
+        marker[2] >= 80U && marker[2] <= 180U && opaque(marker),
+        "retained linear gradient was not drawn over the filtered backdrop");
     require(filtered_right[0] >= 160U && filtered_right[2] <= 96U &&
         opaque(filtered_right),
         "filtered backdrop lost its right source");
@@ -2330,7 +2330,7 @@ int main(int argc, char** argv) {
         backdrop_scene.size(),
         &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         scene_metrics.command_count == 6U &&
-        scene_metrics.resource_count == 3U &&
+        scene_metrics.resource_count == 4U &&
         scene_metrics.draw_count == 2U &&
         scene_metrics.maximum_stack_depth == 1U,
         "semantic backdrop scene update failed");
@@ -2348,7 +2348,11 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 6U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.vertex_upload_bytes != 0U &&
-        semantic_metrics.uniform_upload_bytes != 0U,
+        semantic_metrics.uniform_upload_bytes != 0U &&
+        semantic_metrics.brush_upload_bytes ==
+            4U * sizeof(progpu_native_scene_brush) &&
+        semantic_metrics.gradient_stop_upload_bytes ==
+            3U * sizeof(progpu_native_scene_gradient_stop),
         "semantic backdrop rendering failed");
     semantic_layer_metrics = {};
     semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
@@ -2377,8 +2381,46 @@ int main(int argc, char** argv) {
         semantic_metrics.index_upload_bytes == 0U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes == 0U &&
-        semantic_metrics.coverage_staging_bytes == 0U,
+        semantic_metrics.coverage_staging_bytes == 0U &&
+        semantic_metrics.brush_upload_bytes == 0U &&
+        semantic_metrics.gradient_stop_upload_bytes == 0U,
         "stable semantic backdrop replay rebuilt retained resources");
+    struct legacy_scene_frame_metrics_v3 {
+        std::uint32_t struct_size;
+        std::uint32_t command_count;
+        std::uint32_t draw_call_count;
+        std::uint32_t family_switch_count;
+        std::uint64_t submission_count;
+        std::uint64_t vertex_upload_bytes;
+        std::uint64_t index_upload_bytes;
+        std::uint64_t texture_upload_bytes;
+        std::uint64_t uniform_upload_bytes;
+        std::uint64_t coverage_staging_bytes;
+        std::uint64_t payload_hash;
+    };
+    static_assert(sizeof(legacy_scene_frame_metrics_v3) == 72U);
+    struct legacy_scene_frame_metrics_guard {
+        legacy_scene_frame_metrics_v3 metrics{};
+        std::uint64_t canary{0XABCD'0123'4567'89EFULL};
+    } legacy_metrics{};
+    legacy_metrics.metrics.struct_size =
+        sizeof(legacy_scene_frame_metrics_v3);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &backdrop_frame,
+        reinterpret_cast<progpu_native_scene_frame_metrics*>(
+            &legacy_metrics.metrics)) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        legacy_metrics.metrics.command_count == 6U &&
+        legacy_metrics.metrics.draw_call_count == 6U &&
+        legacy_metrics.metrics.submission_count == 1U &&
+        legacy_metrics.metrics.vertex_upload_bytes == 0U &&
+        legacy_metrics.metrics.index_upload_bytes == 0U &&
+        legacy_metrics.metrics.texture_upload_bytes == 0U &&
+        legacy_metrics.metrics.uniform_upload_bytes == 0U &&
+        legacy_metrics.metrics.coverage_staging_bytes == 0U &&
+        legacy_metrics.metrics.payload_hash != 0U &&
+        legacy_metrics.canary == 0XABCD'0123'4567'89EFULL,
+        "legacy semantic frame metrics ABI was overwritten");
     semantic_layer_metrics = {};
     semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
     require(progpu_native_engine_get_layer_metrics(

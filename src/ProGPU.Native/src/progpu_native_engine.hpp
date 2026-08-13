@@ -58,6 +58,8 @@ struct progpu_native_engine {
     WGPUBuffer analytic_brush_buffer = nullptr;
     std::uint64_t analytic_brush_buffer_size = 0;
     WGPUBuffer analytic_gradient_buffer = nullptr;
+    std::uint64_t analytic_gradient_buffer_size = 0U;
+    std::uint64_t analytic_material_owner_hash = 0U;
     WGPUBindGroup analytic_uniform_bind_group = nullptr;
     WGPUBindGroup analytic_atlas_bind_group = nullptr;
     WGPUSampler analytic_sentinel_sampler = nullptr;
@@ -124,6 +126,7 @@ struct progpu_native_engine {
     std::uint64_t path_payload_hash = 0U;
     bool path_cache_valid = false;
     bool path_gpu_cache_valid = false;
+    bool semantic_path_materials_active = false;
     std::vector<gpu_glyph_instance> glyph_instances;
     std::vector<float> glyph_source_alphas;
     std::vector<native_glyph_raster> glyph_rasters;
@@ -333,6 +336,7 @@ struct progpu_native_engine {
     std::uint64_t semantic_scene_hash = 0U;
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
+    progpu::native::semantic::semantic_brush_page semantic_brush_cache;
     semantic_analytic_page semantic_analytic_cache;
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
@@ -775,6 +779,7 @@ struct progpu_native_engine {
                 slot.uniform_buffer = nullptr;
             }
             slot.bound_analytic_brush_buffer = nullptr;
+            slot.bound_analytic_gradient_buffer = nullptr;
             slot.bound_text_style_buffer = nullptr;
             slot.uniform_cache_valid = false;
             slot.width = 0U;
@@ -844,7 +849,19 @@ struct progpu_native_engine {
                 slot.analytic_uniform_bind_group = nullptr;
             }
             slot.bound_analytic_brush_buffer = nullptr;
+            slot.bound_analytic_gradient_buffer = nullptr;
         }
+        const auto release_slot = [](semantic_layer_slot& slot) noexcept {
+            if (slot.analytic_uniform_bind_group != nullptr) {
+                wgpuBindGroupRelease(slot.analytic_uniform_bind_group);
+                slot.analytic_uniform_bind_group = nullptr;
+            }
+            slot.bound_analytic_brush_buffer = nullptr;
+            slot.bound_analytic_gradient_buffer = nullptr;
+        };
+        release_slot(semantic_root_slot);
+        release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_advanced_output_slot);
     }
 
     bool ensure_semantic_analytic_page_buffers(

@@ -205,7 +205,17 @@ public class NativeRendererInteropTests
         Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
-        Assert.Equal(72, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
+        Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
+        Assert.Equal(88, Unsafe.SizeOf<NativeMethods.SceneFrameMetrics>());
+        Assert.Equal(
+            72,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.BrushUploadBytes)));
+        Assert.Equal(
+            80,
+            OffsetOf<NativeMethods.SceneFrameMetrics>(
+                nameof(NativeMethods.SceneFrameMetrics.GradientStopUploadBytes)));
         Assert.Equal(
             24,
             OffsetOf<NativeSceneImageDraw>(
@@ -581,6 +591,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             1073741824UL,
             (ulong)NativeRendererCapabilities.SemanticSceneRendering);
+        Assert.Equal(
+            2147483648UL,
+            (ulong)NativeRendererCapabilities.SemanticRetainedBrushes);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -723,6 +736,163 @@ public class NativeRendererInteropTests
         Assert.False(unbalanced.TryBuild(out _));
         Assert.True(success);
         Assert.Equal(0L, allocated);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesRetainedBrushTablesWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<NativeAnalyticPrimitive> primitives =
+            stackalloc NativeAnalyticPrimitive[2];
+        primitives[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            1f,
+            2f,
+            30f,
+            20f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        primitives[1] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Ellipse,
+            40f,
+            2f,
+            20f,
+            20f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Span<NativeSceneGradientStop> stops =
+            stackalloc NativeSceneGradientStop[2];
+        stops[0] = new NativeSceneGradientStop(
+            new Vector4(1f, 0f, 0f, 1f),
+            0f);
+        stops[1] = new NativeSceneGradientStop(
+            new Vector4(0f, 0f, 1f, 1f),
+            1f);
+        Span<NativeSceneBrush> brushes =
+            stackalloc NativeSceneBrush[2];
+        brushes[0] = NativeSceneBrush.Solid(
+            new Vector4(0.25f, 0.5f, 0.75f, 1f));
+        brushes[1] = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            new Vector2(64f, 0f),
+            0U,
+            stops);
+        Span<uint> brushIndices = stackalloc uint[2] { 0U, 1U };
+
+        static bool BuildBrushScene(
+            Span<byte> bytes,
+            ReadOnlySpan<NativeAnalyticPrimitive> primitives,
+            ReadOnlySpan<NativeSceneBrush> brushes,
+            ReadOnlySpan<NativeSceneGradientStop> stops,
+            ReadOnlySpan<uint> brushIndices,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                sceneId: 21U,
+                generation: 4U,
+                commandCapacity: 1,
+                resourceCapacity: 2);
+            return builder.TryAddAnalyticResource(
+                    1U,
+                    1U,
+                    primitives,
+                    out uint analyticIndex) &&
+                builder.TryAddBrushTableResource(
+                    2U,
+                    1U,
+                    brushes,
+                    stops,
+                    out uint brushIndex) &&
+                builder.TryDrawAnalytic(
+                    1U,
+                    analyticIndex,
+                    new NativeImageRect(0f, 0f, 64f, 32f),
+                    brushIndex,
+                    brushIndices) &&
+                builder.TryBuild(out stream);
+        }
+
+        Assert.True(BuildBrushScene(
+            destination,
+            primitives,
+            brushes,
+            stops,
+            brushIndices,
+            out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var brushResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        var drawBrushes = MemoryMarshal.Read<NativeSceneDrawBrushes>(
+            stream[(int)command.PayloadOffset..]);
+        var storedGradient = MemoryMarshal.Read<NativeSceneBrush>(
+            stream[((int)brushResource.PayloadOffset + 256)..]);
+        Assert.Equal(NativeSceneResourceKind.BrushTable, brushResource.Kind);
+        Assert.Equal(512U, brushResource.PayloadSize);
+        Assert.Equal(64U, brushResource.AuxiliarySize);
+        Assert.Equal(16U + 2U * sizeof(uint), command.PayloadSize);
+        Assert.Equal(1U, drawBrushes.BrushResourceIndex);
+        Assert.Equal(2U, drawBrushes.BrushCount);
+        Assert.Equal(NativeSceneBrushKind.LinearGradient, storedGradient.Kind);
+        Assert.Equal(2U, storedGradient.StopCount);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), storedGradient.Color0);
+        Assert.Equal(new Vector4(0f, 0f, 1f, 1f), storedGradient.Color1);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= BuildBrushScene(
+                destination,
+                primitives,
+                brushes,
+                stops,
+                brushIndices,
+                out _);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(success);
+        Assert.Equal(0L, allocated);
+
+        Span<NativeAnalyticPrimitive> one =
+            stackalloc NativeAnalyticPrimitive[1];
+        one[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            1f,
+            1f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Span<NativeSceneBrush> solid = stackalloc NativeSceneBrush[1];
+        solid[0] = NativeSceneBrush.Solid(Vector4.One);
+        var invalid = new NativeSceneStreamBuilder(
+            destination,
+            22U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+        Assert.True(invalid.TryAddAnalyticResource(
+            1U, 1U, one, out uint analytic));
+        Assert.True(invalid.TryAddBrushTableResource(
+            2U, 1U, solid, [], out uint brush));
+        Span<uint> wrongCount = stackalloc uint[2] { 0U, 0U };
+        Assert.False(invalid.TryDrawAnalytic(
+            1U,
+            analytic,
+            new NativeImageRect(0f, 0f, 1f, 1f),
+            brush,
+            wrongCount));
+        Span<uint> wrongIndex = stackalloc uint[1] { 1U };
+        Assert.False(invalid.TryDrawAnalytic(
+            1U,
+            analytic,
+            new NativeImageRect(0f, 0f, 1f, 1f),
+            brush,
+            wrongIndex));
     }
 
     [Fact]

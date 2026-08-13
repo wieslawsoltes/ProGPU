@@ -190,13 +190,15 @@ WGPUBindGroup create_analytic_uniform_bind_group_for_buffer(
     WGPUBuffer uniform_buffer,
     WGPUBuffer brush_buffer,
     std::uint64_t brush_buffer_size,
+    WGPUBuffer gradient_buffer,
+    std::uint64_t gradient_buffer_size,
     const char* label) {
     const std::array<WGPUBindGroupEntry, 3U> entries{{
         {nullptr, 0U, uniform_buffer, 0U, sizeof(gpu_uniforms),
             nullptr, nullptr},
         {nullptr, 1U, brush_buffer, 0U, brush_buffer_size,
             nullptr, nullptr},
-        {nullptr, 2U, engine.analytic_gradient_buffer, 0U, 32U,
+        {nullptr, 2U, gradient_buffer, 0U, gradient_buffer_size,
             nullptr, nullptr}
     }};
     WGPUBindGroupDescriptor descriptor{};
@@ -216,43 +218,116 @@ WGPUBindGroup create_analytic_uniform_bind_group(
         engine.analytic_uniform_buffer,
         brush_buffer,
         brush_buffer_size,
+        engine.analytic_gradient_buffer,
+        engine.analytic_gradient_buffer_size,
         "ProGPU native analytic bind group");
 }
 
-bool ensure_analytic_brush_buffer(
+bool ensure_analytic_material_buffers(
     progpu_native_engine& engine,
-    std::uint64_t required_size) {
-    if (required_size <= engine.analytic_brush_buffer_size &&
+    std::uint64_t required_brush_size,
+    std::uint64_t required_gradient_size) {
+    required_brush_size = std::max<std::uint64_t>(
+        required_brush_size,
+        gpu_brush_size);
+    required_gradient_size = std::max<std::uint64_t>(
+        required_gradient_size,
+        sizeof(progpu_native_scene_gradient_stop));
+    if (required_brush_size <= engine.analytic_brush_buffer_size &&
+        required_gradient_size <= engine.analytic_gradient_buffer_size &&
         engine.analytic_brush_buffer != nullptr &&
+        engine.analytic_gradient_buffer != nullptr &&
         engine.analytic_uniform_bind_group != nullptr) {
         return true;
     }
 
-    std::uint64_t new_size = std::max(
-        initial_brush_buffer_size,
-        engine.analytic_brush_buffer_size);
-    while (new_size < required_size) {
-        if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-            return false;
+    const auto grow_capacity = [](
+        std::uint64_t current,
+        std::uint64_t initial,
+        std::uint64_t required,
+        std::uint64_t& result) noexcept {
+        result = std::max(initial, current);
+        while (result < required) {
+            if (result > std::numeric_limits<std::uint64_t>::max() / 2U) {
+                return false;
+            }
+            result *= 2U;
         }
-        new_size *= 2U;
-    }
-
-    WGPUBufferDescriptor descriptor{};
-    descriptor.label = progpu::native::webgpu::string_view("ProGPU native solid brush table");
-    descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-    descriptor.size = new_size;
-    WGPUBuffer replacement = wgpuDeviceCreateBuffer(engine.device, &descriptor);
-    if (replacement == nullptr) {
+        return true;
+    };
+    std::uint64_t new_brush_size = 0U;
+    std::uint64_t new_gradient_size = 0U;
+    if (!grow_capacity(
+            engine.analytic_brush_buffer_size,
+            initial_brush_buffer_size,
+            required_brush_size,
+            new_brush_size) ||
+        !grow_capacity(
+            engine.analytic_gradient_buffer_size,
+            sizeof(progpu_native_scene_gradient_stop),
+            required_gradient_size,
+            new_gradient_size)) {
         return false;
     }
-    WGPUBindGroup replacement_group = create_analytic_uniform_bind_group(
-        engine,
-        replacement,
-        new_size);
+
+    const bool replace_brush = engine.analytic_brush_buffer == nullptr ||
+        new_brush_size != engine.analytic_brush_buffer_size;
+    const bool replace_gradient = engine.analytic_gradient_buffer == nullptr ||
+        new_gradient_size != engine.analytic_gradient_buffer_size;
+    WGPUBuffer replacement_brush = nullptr;
+    WGPUBuffer replacement_gradient = nullptr;
+    if (replace_brush) {
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained brush table");
+        descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        descriptor.size = new_brush_size;
+        replacement_brush = wgpuDeviceCreateBuffer(engine.device, &descriptor);
+        if (replacement_brush == nullptr) {
+            return false;
+        }
+    }
+    if (replace_gradient) {
+        WGPUBufferDescriptor descriptor{};
+        descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained gradient stops");
+        descriptor.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        descriptor.size = new_gradient_size;
+        replacement_gradient = wgpuDeviceCreateBuffer(
+            engine.device,
+            &descriptor);
+        if (replacement_gradient == nullptr) {
+            if (replacement_brush != nullptr) {
+                wgpuBufferDestroy(replacement_brush);
+                wgpuBufferRelease(replacement_brush);
+            }
+            return false;
+        }
+    }
+    WGPUBuffer selected_brush = replace_brush
+        ? replacement_brush
+        : engine.analytic_brush_buffer;
+    WGPUBuffer selected_gradient = replace_gradient
+        ? replacement_gradient
+        : engine.analytic_gradient_buffer;
+    WGPUBindGroup replacement_group =
+        create_analytic_uniform_bind_group_for_buffer(
+            engine,
+            engine.analytic_uniform_buffer,
+            selected_brush,
+            new_brush_size,
+            selected_gradient,
+            new_gradient_size,
+            "ProGPU native analytic bind group");
     if (replacement_group == nullptr) {
-        wgpuBufferDestroy(replacement);
-        wgpuBufferRelease(replacement);
+        if (replacement_gradient != nullptr) {
+            wgpuBufferDestroy(replacement_gradient);
+            wgpuBufferRelease(replacement_gradient);
+        }
+        if (replacement_brush != nullptr) {
+            wgpuBufferDestroy(replacement_brush);
+            wgpuBufferRelease(replacement_brush);
+        }
         return false;
     }
 
@@ -260,14 +335,32 @@ bool ensure_analytic_brush_buffer(
     if (engine.analytic_uniform_bind_group != nullptr) {
         wgpuBindGroupRelease(engine.analytic_uniform_bind_group);
     }
-    if (engine.analytic_brush_buffer != nullptr) {
+    if (replace_brush && engine.analytic_brush_buffer != nullptr) {
         wgpuBufferDestroy(engine.analytic_brush_buffer);
         wgpuBufferRelease(engine.analytic_brush_buffer);
     }
-    engine.analytic_brush_buffer = replacement;
-    engine.analytic_brush_buffer_size = new_size;
+    if (replace_gradient && engine.analytic_gradient_buffer != nullptr) {
+        wgpuBufferDestroy(engine.analytic_gradient_buffer);
+        wgpuBufferRelease(engine.analytic_gradient_buffer);
+    }
+    engine.analytic_brush_buffer = selected_brush;
+    engine.analytic_brush_buffer_size = new_brush_size;
+    engine.analytic_gradient_buffer = selected_gradient;
+    engine.analytic_gradient_buffer_size = new_gradient_size;
     engine.analytic_uniform_bind_group = replacement_group;
+    engine.analytic_material_owner_hash = 0U;
     return true;
+}
+
+bool ensure_analytic_brush_buffer(
+    progpu_native_engine& engine,
+    std::uint64_t required_size) {
+    return ensure_analytic_material_buffers(
+        engine,
+        required_size,
+        std::max<std::uint64_t>(
+            engine.analytic_gradient_buffer_size,
+            sizeof(progpu_native_scene_gradient_stop)));
 }
 
 bool create_analytic_pipeline(progpu_native_engine& engine) {
@@ -367,6 +460,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         engine.analytic_gradient_buffer == nullptr) {
         return false;
     }
+    engine.analytic_gradient_buffer_size = 32U;
 
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic sentinel texture");
@@ -425,6 +519,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
         0U,
         gradient_sentinel.data(),
         gradient_sentinel.size());
+    engine.analytic_material_owner_hash = 0U;
 
     const std::array<WGPUBindGroupEntry, 2U> atlas_entries{{
         {nullptr, 0U, nullptr, 0U, 0U,

@@ -360,7 +360,9 @@ bool ensure_semantic_layer_slot_bindings(
         engine.analytic_gradient_buffer != nullptr &&
         (slot.analytic_uniform_bind_group == nullptr ||
             slot.bound_analytic_brush_buffer !=
-                engine.analytic_brush_buffer)) {
+                engine.analytic_brush_buffer ||
+            slot.bound_analytic_gradient_buffer !=
+                engine.analytic_gradient_buffer)) {
         if (slot.analytic_uniform_bind_group != nullptr) {
             wgpuBindGroupRelease(slot.analytic_uniform_bind_group);
         }
@@ -370,12 +372,17 @@ bool ensure_semantic_layer_slot_bindings(
                 slot.uniform_buffer,
                 engine.analytic_brush_buffer,
                 engine.analytic_brush_buffer_size,
+                engine.analytic_gradient_buffer,
+                engine.analytic_gradient_buffer_size,
                 "ProGPU semantic bounded-layer analytic uniforms");
         if (slot.analytic_uniform_bind_group == nullptr) {
             slot.bound_analytic_brush_buffer = nullptr;
+            slot.bound_analytic_gradient_buffer = nullptr;
             return false;
         }
         slot.bound_analytic_brush_buffer = engine.analytic_brush_buffer;
+        slot.bound_analytic_gradient_buffer =
+            engine.analytic_gradient_buffer;
     }
     if (engine.text_uniform_layout != nullptr &&
         engine.text_style_buffer != nullptr &&

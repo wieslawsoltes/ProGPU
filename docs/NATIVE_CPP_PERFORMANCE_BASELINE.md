@@ -1746,3 +1746,64 @@ Retained ignored evidence:
   command-buffer errors, and allocation-size table;
 - native, managed, and 64-times-amplified difference PNG images under
   `artifacts/progpu-native/differential/`.
+
+## Retained semantic-material supplement
+
+The semantic scene ABI now retains solid, linear, radial, two-point conical,
+and sweep brushes as typed pointer-free resources. Commands refer to a compact
+brush map; scene compilation packs only referenced brushes and their exact
+gradient-stop ranges into one GPU material page. State opacity is folded into
+the packed variants. An unchanged replay uploads neither brushes nor stops.
+The existing production vector shader remains the sole GPU evaluator, so this
+slice changes material ownership and upload behavior rather than the gradient
+algorithm or output quality.
+
+The representative Release workload contains 384 deterministic mixed semantic
+items at 960 by 540 physical pixels. It maps all analytic and path commands
+through retained solid brushes while preserving the glyph and image families.
+The real Dawn/Metal and Chromium fixtures additionally replace source-local
+magenta analytic colors with retained red and blue solids and render a retained
+path with a green-to-yellow linear gradient inside a bounded backdrop effect.
+
+Three alternating 600-frame synchronized runs, each after 120 warm-up frames,
+produced these median p95 values on the Apple M3 Pro/Metal environment:
+
+| Stable p95, median of three runs | Native C++ | Managed | Native delta |
+|---|---:|---:|---:|
+| CPU submission | 0.1415 ms | 0.2312 ms | 38.8% lower |
+| GPU completion wait | 1.2812 ms | 1.2856 ms | within 0.4% |
+| Synchronized end to end | 1.4107 ms | 1.5323 ms | 7.9% lower |
+| Managed allocation after warm-up | 0 B/frame | 0 B/frame | equal |
+
+Three 3,000-frame drain-after-each-pair runs isolate the queue path. Median
+native/managed p95 was 0.1492/0.4272 ms, or 65.1% lower for native. The
+synchronized result is intentionally described as GPU-complete parity: both
+routes still execute equivalent rasterization, texture sampling, and bandwidth
+on the same Metal queue. The measured native gain is the reduced CPU material
+resolution and submission work outside that shared GPU floor.
+
+Stable native metrics report one submission, zero brush upload bytes, zero
+gradient-stop upload bytes, and zero other retained payload uploads. The mixed
+readback has maximum channel difference 68/255, 284 of 518,400 pixels above
+3/255, and mean absolute difference 0.003582658/255, unchanged from the
+pre-material semantic-scene contract. The inspected captures are:
+
+- `artifacts/progpu-native/differential/semantic-materials-native.png`;
+- `artifacts/progpu-native/differential/semantic-materials-managed.png`;
+- `artifacts/progpu-native/differential/semantic-materials-difference-64x.png`.
+
+Matched final-binary Time Profiler, Allocations/VM Tracker, and Metal System
+Trace captures all exited successfully. Time Profiler samples retained
+`RenderBundle::execute` and queue submission in the native steady path. Metal
+System Trace contains zero command-buffer-error rows and reports a peak
+combined-process `currentAllocatedSize` of 16,089,088 bytes (15.34 MiB); that
+shared-process number is not attributable to one renderer. Allocations/VM
+Tracker produced valid statistics and region tracks, while the benchmark's
+per-thread counter independently reports zero managed allocation after
+warm-up; no unsupported native-heap total is inferred from the trace.
+
+Raw evidence is retained under
+`artifacts/progpu-native/performance/semantic-materials-20260813/`, including
+the six JSON distributions, all three `.trace` bundles, exported Time Profiler
+and Metal tables, benchmark stdout, and trace TOCs. The browser screenshot is
+`artifacts/progpu-native/browser-evidence/progpu-native-browser-webgpu.png`.

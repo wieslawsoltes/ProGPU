@@ -4,6 +4,7 @@
 // WebGPU C header has declared the WGPU handle types.
 #include "progpu_native.h"
 #include "progpu_native_gpu_records.hpp"
+#include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 
 #include <array>
@@ -43,8 +44,9 @@ struct semantic_path_page {
     std::uint32_t target_width = 0U;
     std::uint32_t target_height = 0U;
     bool cache_valid = false;
-    std::vector<progpu_native_path_fill> paths;
+    std::vector<progpu_native_scene_path_fill> paths;
     std::vector<progpu_native_path_segment> segments;
+    std::vector<std::uint32_t> brush_indices;
     std::vector<semantic_path_draw> draws;
 };
 
@@ -143,6 +145,7 @@ struct semantic_layer_slot {
     WGPUBindGroup text_uniform_bind_group = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
     WGPUBuffer bound_analytic_brush_buffer = nullptr;
+    WGPUBuffer bound_analytic_gradient_buffer = nullptr;
     WGPUBuffer bound_text_style_buffer = nullptr;
     progpu::native::gpu_uniforms cached_uniforms{};
     bool uniform_cache_valid = false;
