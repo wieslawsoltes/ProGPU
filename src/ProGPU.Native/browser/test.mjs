@@ -74,7 +74,7 @@ try {
     const sample = (x, y) =>
       Array.from(context.getImageData(x, y, 1, 1).data);
     return {
-      clear: sample(10, 10),
+      clear: sample(20, 20),
       destination: sample(80, 60),
       composited: sample(200, 150)
     };
