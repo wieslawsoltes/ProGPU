@@ -1212,15 +1212,30 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeGroupEffect effect)
     {
         const float MaximumSigma = 128f / 3f;
-        if (effect.Kind != NativeGroupEffectKind.GaussianBlur ||
+        bool isGaussian = effect.Kind == NativeGroupEffectKind.GaussianBlur;
+        bool isDropShadow = effect.Kind == NativeGroupEffectKind.DropShadow;
+        bool invalidColor = !float.IsFinite(effect.Color.X) ||
+            !float.IsFinite(effect.Color.Y) ||
+            !float.IsFinite(effect.Color.Z) ||
+            !float.IsFinite(effect.Color.W) ||
+            effect.Color.X < 0f || effect.Color.X > 1f ||
+            effect.Color.Y < 0f || effect.Color.Y > 1f ||
+            effect.Color.Z < 0f || effect.Color.Z > 1f ||
+            effect.Color.W < 0f || effect.Color.W > 1f;
+        if ((!isGaussian && !isDropShadow) ||
             !float.IsFinite(effect.SigmaX) ||
             !float.IsFinite(effect.SigmaY) ||
-            effect.SigmaX <= 0.01f || effect.SigmaX > MaximumSigma ||
-            effect.SigmaY <= 0.01f || effect.SigmaY > MaximumSigma ||
+            effect.SigmaX < (isGaussian ? 0.01f : 0f) ||
+            effect.SigmaX > MaximumSigma ||
+            effect.SigmaY < (isGaussian ? 0.01f : 0f) ||
+            effect.SigmaY > MaximumSigma ||
+            (isDropShadow &&
+             (!float.IsFinite(effect.Offset.X) ||
+              !float.IsFinite(effect.Offset.Y) || invalidColor)) ||
             effect.Revision == 0U)
         {
             throw new ArgumentException(
-                "A native Gaussian group effect requires finite sigma values in (0.01, 128/3] and a nonzero revision.",
+                "A native group effect requires valid finite parameters, bounded sigma, normalized drop-shadow color, and a nonzero revision.",
                 nameof(effect));
         }
 
@@ -1230,7 +1245,13 @@ public sealed unsafe class NativeCompositor : IDisposable
             Kind = effect.Kind,
             Revision = effect.Revision,
             SigmaX = effect.SigmaX,
-            SigmaY = effect.SigmaY
+            SigmaY = effect.SigmaY,
+            OffsetX = effect.Offset.X,
+            OffsetY = effect.Offset.Y,
+            ColorR = effect.Color.X,
+            ColorG = effect.Color.Y,
+            ColorB = effect.Color.Z,
+            ColorA = effect.Color.W
         };
     }
 

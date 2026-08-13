@@ -91,7 +91,8 @@ public enum NativeClipOperation : uint
 public enum NativeGroupEffectKind : uint
 {
     None = 0,
-    GaussianBlur = 1
+    GaussianBlur = 1,
+    DropShadow = 2
 }
 
 internal enum NativeMaskTextureFormat : uint
@@ -161,7 +162,8 @@ public enum NativeRendererCapabilities : ulong
     CommonGroupMask = 1UL << 22,
     AnalyticRoundedGroupMask = 1UL << 23,
     RetainedVectorClipChain = 1UL << 24,
-    GroupGaussianBlur = 1UL << 25
+    GroupGaussianBlur = 1UL << 25,
+    GroupDropShadow = 1UL << 26
 }
 
 [Flags]
@@ -290,11 +292,15 @@ public readonly struct NativeGroupEffect
         NativeGroupEffectKind kind,
         float sigmaX,
         float sigmaY,
+        Vector2 offset,
+        Vector4 color,
         uint revision)
     {
         Kind = kind;
         SigmaX = sigmaX;
         SigmaY = sigmaY;
+        Offset = offset;
+        Color = color;
         Revision = revision;
     }
 
@@ -309,11 +315,27 @@ public readonly struct NativeGroupEffect
             NativeGroupEffectKind.GaussianBlur,
             sigmaX,
             sigmaY,
+            default,
+            default,
+            revision);
+
+    public static NativeGroupEffect DropShadow(
+        float blurSigma,
+        Vector2 offset,
+        Vector4 color,
+        uint revision) => new(
+            NativeGroupEffectKind.DropShadow,
+            blurSigma,
+            blurSigma,
+            offset,
+            color,
             revision);
 
     public NativeGroupEffectKind Kind { get; }
     public float SigmaX { get; }
     public float SigmaY { get; }
+    public Vector2 Offset { get; }
+    public Vector4 Color { get; }
     public uint Revision { get; }
     public bool IsEnabled => Kind != NativeGroupEffectKind.None;
 }

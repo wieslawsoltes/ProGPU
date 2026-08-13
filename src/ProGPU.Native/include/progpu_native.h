@@ -47,7 +47,8 @@ enum {
     PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK = 1ULL << 22U,
     PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK = 1ULL << 23U,
     PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN = 1ULL << 24U,
-    PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U
+    PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR = 1ULL << 25U,
+    PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW = 1ULL << 26U
 };
 
 enum {
@@ -73,7 +74,8 @@ typedef enum progpu_native_clip_operation {
 
 typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_NONE = 0,
-    PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1
+    PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
+    PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2
 } progpu_native_group_effect_kind;
 
 typedef enum progpu_native_mask_texture_format {
@@ -463,8 +465,13 @@ typedef struct progpu_native_group_mask {
 /*
  * One retained effect applied to the pooled frame-family result before its
  * final mask/opacity composite. The revision identifies immutable effect
- * parameters independently from group content. Gaussian sigma is expressed
- * in logical coordinates and converted to physical pixels with frame DPI.
+ * parameters independently from group content. Gaussian sigma and drop-shadow
+ * offset are expressed in logical coordinates and converted to physical pixels
+ * with frame DPI. Drop-shadow color is straight-alpha linear RGBA.
+ *
+ * The original 32-byte Gaussian prefix remains accepted. Drop shadow requires
+ * the full descriptor so older callers cannot accidentally select it without
+ * supplying offset and color.
  */
 typedef struct progpu_native_group_effect {
     uint32_t struct_size;
@@ -475,6 +482,12 @@ typedef struct progpu_native_group_effect {
     float sigma_y;
     uint32_t reserved;
     uint32_t reserved2;
+    float offset_x;
+    float offset_y;
+    float color_r;
+    float color_g;
+    float color_b;
+    float color_a;
 } progpu_native_group_effect;
 
 /*

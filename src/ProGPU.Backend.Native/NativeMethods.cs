@@ -38,6 +38,12 @@ internal static unsafe partial class NativeMethods
         internal float SigmaY;
         internal uint Reserved;
         internal uint Reserved2;
+        internal float OffsetX;
+        internal float OffsetY;
+        internal float ColorR;
+        internal float ColorG;
+        internal float ColorB;
+        internal float ColorA;
     }
 
     [StructLayout(LayoutKind.Sequential)]

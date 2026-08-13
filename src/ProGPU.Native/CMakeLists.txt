@@ -37,6 +37,9 @@ set(PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER
 set(PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl"
     CACHE FILEPATH "Shared ProGPU vertical Gaussian-blur shader source")
+set(PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl"
+    CACHE FILEPATH "Shared ProGPU group drop-shadow composition shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 option(PROGPU_NATIVE_ENABLE_SANITIZERS
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -97,6 +100,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_GAUSSIAN_BLUR_HORIZONTAL_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_GAUSSIAN_BLUR_VERTICAL_SHADER}")
     message(FATAL_ERROR "The shared ProGPU vertical Gaussian-blur shader source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU group drop-shadow composition shader source is missing")
 endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -212,6 +218,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU vertical Gaussian-blur shader"
     VERBATIM)
+set(generated_group_drop_shadow_compose_shader
+    "${generated_directory}/GroupDropShadowComposeWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_group_drop_shadow_compose_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER}"
+        "-DOUTPUT=${generated_group_drop_shadow_compose_shader}"
+        "-DSYMBOL=group_drop_shadow_compose_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_GROUP_DROP_SHADOW_COMPOSE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU group drop-shadow composition shader"
+    VERBATIM)
 
 add_library(progpu_native SHARED
     src/progpu_native.cpp
@@ -225,7 +245,8 @@ add_library(progpu_native SHARED
     "${generated_texture_shader}"
     "${generated_clip_compose_shader}"
     "${generated_gaussian_blur_horizontal_shader}"
-    "${generated_gaussian_blur_vertical_shader}")
+    "${generated_gaussian_blur_vertical_shader}"
+    "${generated_group_drop_shadow_compose_shader}")
 target_compile_features(progpu_native PRIVATE cxx_std_20)
 target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native

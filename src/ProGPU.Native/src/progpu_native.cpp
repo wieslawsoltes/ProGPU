@@ -4,6 +4,7 @@
 #include "ClipComposeWgsl.generated.hpp"
 #include "GaussianBlurHorizontalWgsl.generated.hpp"
 #include "GaussianBlurVerticalWgsl.generated.hpp"
+#include "GroupDropShadowComposeWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "TextWgsl.generated.hpp"
 #include "TextureWgsl.generated.hpp"
@@ -75,6 +76,14 @@ struct gpu_mask_sampling_uniforms {
     float corner_radii_y[4];
     float options[4];
 };
+
+struct gpu_drop_shadow_params {
+    float offset[2];
+    float padding[2];
+    float color[4];
+};
+
+static_assert(sizeof(gpu_drop_shadow_params) == 32U);
 
 static_assert(sizeof(gpu_mask_sampling_uniforms) == 96U);
 
@@ -468,21 +477,48 @@ bool resolve_group_effect(
     if (requested == nullptr) {
         return true;
     }
-    if (requested->struct_size < sizeof(progpu_native_group_effect) ||
-        requested->kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR ||
+    constexpr std::uint32_t gaussian_prefix_size =
+        offsetof(progpu_native_group_effect, offset_x);
+    if (requested->struct_size < gaussian_prefix_size ||
+        (requested->kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+         requested->kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
         requested->flags != 0U || requested->revision == 0U ||
         requested->reserved != 0U || requested->reserved2 != 0U ||
         !std::isfinite(requested->sigma_x) ||
         !std::isfinite(requested->sigma_y) ||
-        requested->sigma_x <= 0.01F || requested->sigma_y <= 0.01F) {
+        requested->sigma_x < 0.0F || requested->sigma_y < 0.0F) {
         return false;
+    }
+    if (requested->kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+        (requested->sigma_x <= 0.01F || requested->sigma_y <= 0.01F)) {
+        return false;
+    }
+    if (requested->kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) {
+        if (requested->struct_size < sizeof(progpu_native_group_effect) ||
+            !std::isfinite(requested->offset_x) ||
+            !std::isfinite(requested->offset_y) ||
+            !std::isfinite(requested->color_r) ||
+            !std::isfinite(requested->color_g) ||
+            !std::isfinite(requested->color_b) ||
+            !std::isfinite(requested->color_a) ||
+            requested->color_r < 0.0F || requested->color_r > 1.0F ||
+            requested->color_g < 0.0F || requested->color_g > 1.0F ||
+            requested->color_b < 0.0F || requested->color_b > 1.0F ||
+            requested->color_a < 0.0F || requested->color_a > 1.0F) {
+            return false;
+        }
     }
     constexpr float maximum_physical_sigma = 128.0F / 3.0F;
     if (requested->sigma_x * dpi_scale > maximum_physical_sigma ||
         requested->sigma_y * dpi_scale > maximum_physical_sigma) {
         return false;
     }
-    resolved = *requested;
+    resolved = {};
+    std::memcpy(
+        &resolved,
+        requested,
+        std::min<std::size_t>(requested->struct_size, sizeof(resolved)));
+    resolved.struct_size = sizeof(resolved);
     return true;
 }
 
@@ -812,17 +848,26 @@ struct progpu_native_engine {
     WGPUBindGroup effect_blur_horizontal_bind_group = nullptr;
     WGPUBindGroup effect_blur_vertical_bind_group = nullptr;
     WGPUBindGroup effect_output_bind_group = nullptr;
+    WGPUShaderModule effect_drop_shadow_shader = nullptr;
+    WGPUComputePipeline effect_drop_shadow_pipeline = nullptr;
+    WGPUBindGroupLayout effect_drop_shadow_layout = nullptr;
+    WGPUBuffer effect_drop_shadow_uniform_buffer = nullptr;
+    WGPUBindGroup effect_drop_shadow_bind_group = nullptr;
+    WGPUBindGroup effect_drop_shadow_output_bind_group = nullptr;
     gpu_gaussian_blur_params cached_effect_blur_horizontal{};
     gpu_gaussian_blur_params cached_effect_blur_vertical{};
+    gpu_drop_shadow_params cached_effect_drop_shadow{};
     std::uint32_t effect_width = 0U;
     std::uint32_t effect_height = 0U;
     std::uint32_t effect_texture_generation = 0U;
     std::uint32_t effect_allocation_count = 0U;
     std::uint32_t effect_cached_revision = 0U;
     std::uint32_t effect_cached_content_revision = 0U;
+    std::uint32_t effect_cached_kind = PROGPU_NATIVE_GROUP_EFFECT_NONE;
     float effect_cached_dpi_scale = 0.0F;
     bool effect_blur_horizontal_uniform_cache_valid = false;
     bool effect_blur_vertical_uniform_cache_valid = false;
+    bool effect_drop_shadow_uniform_cache_valid = false;
     bool effect_cache_valid = false;
     WGPUBuffer layer_uniform_buffer = nullptr;
     WGPUBindGroup layer_uniform_bind_group = nullptr;
@@ -963,6 +1008,14 @@ struct progpu_native_engine {
     }
 
     void release_effect_resources() noexcept {
+        if (effect_drop_shadow_output_bind_group != nullptr) {
+            wgpuBindGroupRelease(effect_drop_shadow_output_bind_group);
+            effect_drop_shadow_output_bind_group = nullptr;
+        }
+        if (effect_drop_shadow_bind_group != nullptr) {
+            wgpuBindGroupRelease(effect_drop_shadow_bind_group);
+            effect_drop_shadow_bind_group = nullptr;
+        }
         if (effect_output_bind_group != nullptr) {
             wgpuBindGroupRelease(effect_output_bind_group);
             effect_output_bind_group = nullptr;
@@ -998,6 +1051,23 @@ struct progpu_native_engine {
             wgpuBufferRelease(effect_blur_horizontal_uniform_buffer);
             effect_blur_horizontal_uniform_buffer = nullptr;
         }
+        if (effect_drop_shadow_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(effect_drop_shadow_uniform_buffer);
+            wgpuBufferRelease(effect_drop_shadow_uniform_buffer);
+            effect_drop_shadow_uniform_buffer = nullptr;
+        }
+        if (effect_drop_shadow_pipeline != nullptr) {
+            wgpuComputePipelineRelease(effect_drop_shadow_pipeline);
+            effect_drop_shadow_pipeline = nullptr;
+        }
+        if (effect_drop_shadow_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(effect_drop_shadow_layout);
+            effect_drop_shadow_layout = nullptr;
+        }
+        if (effect_drop_shadow_shader != nullptr) {
+            wgpuShaderModuleRelease(effect_drop_shadow_shader);
+            effect_drop_shadow_shader = nullptr;
+        }
         if (effect_blur_vertical_pipeline != nullptr) {
             wgpuComputePipelineRelease(effect_blur_vertical_pipeline);
             effect_blur_vertical_pipeline = nullptr;
@@ -1021,6 +1091,7 @@ struct progpu_native_engine {
         effect_width = 0U;
         effect_height = 0U;
         effect_cache_valid = false;
+        effect_drop_shadow_uniform_cache_valid = false;
     }
 
     ~progpu_native_engine() {
@@ -4297,6 +4368,153 @@ bool create_gaussian_effect_resources(progpu_native_engine& engine) {
     return true;
 }
 
+bool create_drop_shadow_effect_resources(progpu_native_engine& engine) {
+    if (engine.effect_drop_shadow_pipeline != nullptr &&
+        engine.effect_drop_shadow_layout != nullptr &&
+        engine.effect_drop_shadow_uniform_buffer != nullptr) {
+        return true;
+    }
+    if (engine.effect_drop_shadow_shader != nullptr ||
+        engine.effect_drop_shadow_pipeline != nullptr ||
+        engine.effect_drop_shadow_layout != nullptr ||
+        engine.effect_drop_shadow_uniform_buffer != nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+
+    progpu::native::webgpu::wgsl_source wgsl(
+        progpu::native::generated::group_drop_shadow_compose_wgsl,
+        progpu::native::generated::group_drop_shadow_compose_wgsl_size);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU shared GroupDropShadowCompose.wgsl");
+    engine.effect_drop_shadow_shader = wgpuDeviceCreateShaderModule(
+        engine.device,
+        &shader_descriptor);
+    if (engine.effect_drop_shadow_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 4U> entries{};
+    for (std::uint32_t index = 0U; index < 2U; ++index) {
+        entries[index].binding = index;
+        entries[index].visibility = WGPUShaderStage_Compute;
+        entries[index].texture.sampleType = WGPUTextureSampleType_Float;
+        entries[index].texture.viewDimension = WGPUTextureViewDimension_2D;
+        entries[index].texture.multisampled = false;
+    }
+    entries[2].binding = 2U;
+    entries[2].visibility = WGPUShaderStage_Compute;
+    entries[2].storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
+    entries[2].storageTexture.format = WGPUTextureFormat_RGBA8Unorm;
+    entries[2].storageTexture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[3].binding = 3U;
+    entries[3].visibility = WGPUShaderStage_Compute;
+    entries[3].buffer.type = WGPUBufferBindingType_Uniform;
+    entries[3].buffer.minBindingSize = sizeof(gpu_drop_shadow_params);
+    WGPUBindGroupLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native drop-shadow group-effect layout");
+    layout_descriptor.entryCount = entries.size();
+    layout_descriptor.entries = entries.data();
+    engine.effect_drop_shadow_layout = wgpuDeviceCreateBindGroupLayout(
+        engine.device,
+        &layout_descriptor);
+    if (engine.effect_drop_shadow_layout == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native drop-shadow group-effect pipeline layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts =
+        &engine.effect_drop_shadow_layout;
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &pipeline_layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+    WGPUComputePipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native drop-shadow group effect");
+    pipeline_descriptor.layout = pipeline_layout;
+    pipeline_descriptor.compute.module = engine.effect_drop_shadow_shader;
+    pipeline_descriptor.compute.entryPoint =
+        progpu::native::webgpu::string_view("main");
+    engine.effect_drop_shadow_pipeline = wgpuDeviceCreateComputePipeline(
+        engine.device,
+        &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
+    if (engine.effect_drop_shadow_pipeline == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native drop-shadow group-effect uniforms");
+    buffer_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    buffer_descriptor.size = sizeof(gpu_drop_shadow_params);
+    engine.effect_drop_shadow_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &buffer_descriptor);
+    if (engine.effect_drop_shadow_uniform_buffer == nullptr) {
+        engine.release_effect_resources();
+        return false;
+    }
+    return true;
+}
+
+bool ensure_drop_shadow_effect_bindings(progpu_native_engine& engine) {
+    if (engine.effect_drop_shadow_bind_group != nullptr &&
+        engine.effect_drop_shadow_output_bind_group != nullptr) {
+        return true;
+    }
+    const std::array<WGPUBindGroupEntry, 4U> entries{{
+        {nullptr, 0U, nullptr, 0U, 0U, nullptr, engine.layer_texture_view},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr,
+            engine.effect_texture_views[1]},
+        {nullptr, 2U, nullptr, 0U, 0U, nullptr,
+            engine.effect_texture_views[0]},
+        {nullptr, 3U, engine.effect_drop_shadow_uniform_buffer, 0U,
+            sizeof(gpu_drop_shadow_params), nullptr, nullptr}
+    }};
+    WGPUBindGroupDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native drop-shadow group-effect binding");
+    descriptor.layout = engine.effect_drop_shadow_layout;
+    descriptor.entryCount = entries.size();
+    descriptor.entries = entries.data();
+    engine.effect_drop_shadow_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &descriptor);
+    engine.effect_drop_shadow_output_bind_group =
+        create_image_texture_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            engine.effect_texture_views[0],
+            "ProGPU native drop-shadow group-effect output binding");
+    if (engine.effect_drop_shadow_bind_group == nullptr ||
+        engine.effect_drop_shadow_output_bind_group == nullptr) {
+        if (engine.effect_drop_shadow_output_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.effect_drop_shadow_output_bind_group);
+            engine.effect_drop_shadow_output_bind_group = nullptr;
+        }
+        if (engine.effect_drop_shadow_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.effect_drop_shadow_bind_group);
+            engine.effect_drop_shadow_bind_group = nullptr;
+        }
+        return false;
+    }
+    return true;
+}
+
 bool ensure_gaussian_effect_textures(
     progpu_native_engine& engine,
     std::uint32_t width,
@@ -4375,6 +4593,14 @@ bool ensure_gaussian_effect_textures(
         return false;
     }
 
+    if (engine.effect_drop_shadow_output_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.effect_drop_shadow_output_bind_group);
+        engine.effect_drop_shadow_output_bind_group = nullptr;
+    }
+    if (engine.effect_drop_shadow_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.effect_drop_shadow_bind_group);
+        engine.effect_drop_shadow_bind_group = nullptr;
+    }
     if (engine.effect_output_bind_group != nullptr) {
         wgpuBindGroupRelease(engine.effect_output_bind_group);
     }
@@ -4414,7 +4640,21 @@ bool prepare_gaussian_effect(
         ensure_gaussian_effect_textures(engine, width, height);
 }
 
-bool encode_gaussian_group_effect(
+bool prepare_group_effect(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height,
+    const resolved_draw_state& draw_state) {
+    if (!prepare_gaussian_effect(engine, width, height)) {
+        return false;
+    }
+    return draw_state.group_effect.kind !=
+            PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW ||
+        (create_drop_shadow_effect_resources(engine) &&
+         ensure_drop_shadow_effect_bindings(engine));
+}
+
+bool encode_group_effect(
     progpu_native_engine& engine,
     WGPUCommandEncoder encoder,
     const resolved_draw_state& draw_state,
@@ -4430,6 +4670,7 @@ bool encode_gaussian_group_effect(
         engine.effect_height * 8U;
     const bool cache_hit = draw_state.group_revision != 0U &&
         engine.effect_cache_valid &&
+        engine.effect_cached_kind == effect.kind &&
         engine.effect_cached_revision == effect.revision &&
         engine.effect_cached_content_revision == draw_state.group_revision &&
         engine.effect_cached_dpi_scale == dpi_scale;
@@ -4519,6 +4760,37 @@ bool encode_gaussian_group_effect(
         return false;
     }
     engine.last_layer_metrics.effect_pass_count = 2U;
+    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) {
+        gpu_drop_shadow_params drop_shadow{};
+        drop_shadow.offset[0] = effect.offset_x * dpi_scale;
+        drop_shadow.offset[1] = effect.offset_y * dpi_scale;
+        drop_shadow.color[0] = effect.color_r;
+        drop_shadow.color[1] = effect.color_g;
+        drop_shadow.color[2] = effect.color_b;
+        drop_shadow.color[3] = effect.color_a;
+        if (!engine.effect_drop_shadow_uniform_cache_valid ||
+            std::memcmp(
+                &engine.cached_effect_drop_shadow,
+                &drop_shadow,
+                sizeof(drop_shadow)) != 0) {
+            wgpuQueueWriteBuffer(
+                engine.queue,
+                engine.effect_drop_shadow_uniform_buffer,
+                0U,
+                &drop_shadow,
+                sizeof(drop_shadow));
+            engine.cached_effect_drop_shadow = drop_shadow;
+            engine.effect_drop_shadow_uniform_cache_valid = true;
+            uploaded_uniform_bytes += sizeof(drop_shadow);
+        }
+        if (!run_pass(
+                engine.effect_drop_shadow_pipeline,
+                engine.effect_drop_shadow_bind_group,
+                "ProGPU native drop-shadow group-effect composition pass")) {
+            return false;
+        }
+        engine.last_layer_metrics.effect_pass_count = 3U;
+    }
     engine.last_layer_metrics.effect_uniform_upload_bytes =
         uploaded_uniform_bytes;
     return true;
@@ -4534,6 +4806,7 @@ void retain_group_effect(
     }
     engine.effect_cached_revision = draw_state.group_effect.revision;
     engine.effect_cached_content_revision = draw_state.group_revision;
+    engine.effect_cached_kind = draw_state.group_effect.kind;
     engine.effect_cached_dpi_scale = dpi_scale;
     engine.effect_cache_valid = true;
 }
@@ -4705,7 +4978,10 @@ bool encode_layer_composite(
             pass,
             1U,
             draw_state.has_group_effect
-                ? engine.effect_output_bind_group
+                ? draw_state.group_effect.kind ==
+                        PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW
+                    ? engine.effect_drop_shadow_output_bind_group
+                    : engine.effect_output_bind_group
                 : engine.layer_texture_bind_group,
             0U,
             nullptr);
@@ -4759,10 +5035,10 @@ progpu_native_status prepare_group_layer(
             "The pooled group layer could not be prepared.");
     }
     if (draw_state.has_group_effect &&
-        !prepare_gaussian_effect(engine, width, height)) {
+        !prepare_group_effect(engine, width, height, draw_state)) {
         return engine.fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-            "The Gaussian group effect could not be prepared.");
+            "The retained group effect could not be prepared.");
     }
     bool uploaded_mask_uniforms = false;
     if (draw_state.has_group_mask &&
@@ -4802,7 +5078,7 @@ progpu_native_status prepare_group_layer(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained group replay encoder could not be created.");
     }
-    if (!encode_gaussian_group_effect(
+    if (!encode_group_effect(
             engine,
             encoder,
             draw_state,
@@ -5347,7 +5623,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_COMMON_GROUP_MASK |
         PROGPU_NATIVE_CAPABILITY_ANALYTIC_ROUNDED_GROUP_MASK |
         PROGPU_NATIVE_CAPABILITY_RETAINED_VECTOR_CLIP_CHAIN |
-        PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR;
+        PROGPU_NATIVE_CAPABILITY_GROUP_GAUSSIAN_BLUR |
+        PROGPU_NATIVE_CAPABILITY_GROUP_DROP_SHADOW;
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     constexpr char name[] = "ProGPU C++ core renderer / Dawn provider";
 #else
@@ -5634,7 +5911,7 @@ progpu_native_status progpu_native_engine_render(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
@@ -5925,7 +6202,7 @@ progpu_native_status progpu_native_engine_render_analytic(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
@@ -6593,7 +6870,7 @@ progpu_native_status progpu_native_engine_render_geometry(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
@@ -7339,7 +7616,7 @@ progpu_native_status progpu_native_engine_render_paths(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
@@ -8060,7 +8337,7 @@ progpu_native_status progpu_native_engine_render_glyphs(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
@@ -8449,7 +8726,7 @@ progpu_native_status progpu_native_engine_render_image(
     wgpuRenderPassEncoderRelease(pass);
     if (use_group_layer) {
         engine->last_layer_metrics.content_pass_count = 1U;
-        if (!encode_gaussian_group_effect(
+        if (!encode_group_effect(
                 *engine,
                 encoder,
                 draw_state,
