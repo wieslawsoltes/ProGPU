@@ -1,6 +1,7 @@
 #ifndef PROGPU_NATIVE_FONT_BYTES_HPP
 #define PROGPU_NATIVE_FONT_BYTES_HPP
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -36,6 +37,12 @@ inline std::uint32_t read_u32(
         (std::to_integer<std::uint32_t>(data[offset + 1U]) << 16U) |
         (std::to_integer<std::uint32_t>(data[offset + 2U]) << 8U) |
         std::to_integer<std::uint32_t>(data[offset + 3U]);
+}
+
+inline std::int32_t read_i32(
+    std::span<const std::byte> data,
+    std::size_t offset) noexcept {
+    return std::bit_cast<std::int32_t>(read_u32(data, offset));
 }
 
 } // namespace progpu::native::text::detail

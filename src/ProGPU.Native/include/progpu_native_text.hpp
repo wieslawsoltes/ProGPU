@@ -133,6 +133,25 @@ struct sfnt_expanded_glyph_requirements final {
 };
 
 /*
+ * One fixed-size axis record borrowed from an OpenType fvar table. Values stay
+ * in signed 16.16 form so the native port can normalize and cache instances
+ * without a float round trip. Name resolution is a separate provider concern.
+ */
+struct sfnt_variation_axis final {
+    open_type_tag tag{};
+    std::int32_t minimum_fixed = 0;
+    std::int32_t default_fixed = 0;
+    std::int32_t maximum_fixed = 0;
+    std::uint16_t flags = 0U;
+    std::uint16_t name_id = 0U;
+
+    float minimum() const noexcept;
+    float default_value() const noexcept;
+    float maximum() const noexcept;
+    bool hidden() const noexcept;
+};
+
+/*
  * Allocation-free lowering of decoded TrueType contours to the renderer's
  * canonical line/quadratic path ABI. The count pass and write pass are both
  * O(C + P) for C contours and P decoded points with O(1) internal storage.
@@ -226,6 +245,13 @@ public:
     bool try_get_glyph_index(
         std::uint32_t code_point,
         std::uint16_t& result) const noexcept;
+    bool try_get_variation_axis_count(
+        std::uint16_t& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_variation_axes(
+        std::span<sfnt_variation_axis> axes,
+        std::uint16_t& written,
+        font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
     std::uint32_t face_index() const noexcept;

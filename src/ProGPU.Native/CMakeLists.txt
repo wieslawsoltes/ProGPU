@@ -402,6 +402,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     include/progpu_native.h)
 
 add_library(progpu_native_text STATIC
+    src/progpu_native_font_variations.cpp
     src/progpu_native_font_bytes.hpp
     src/progpu_native_sfnt.cpp
     src/progpu_native_true_type_composite.cpp
@@ -703,7 +704,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_link_libraries(progpu_native_text_tests PRIVATE
         progpu_native_text)
     target_compile_definitions(progpu_native_text_tests PRIVATE
-        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Medium.ttf\"")
+        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Medium.ttf\""
+        "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\"")
     progpu_native_enable_warnings(progpu_native_text_tests)
     progpu_native_enable_sanitizers(progpu_native_text_tests)
     add_test(NAME progpu_native_text_tests COMMAND progpu_native_text_tests)

@@ -16,10 +16,14 @@ int main() {
     progpu_native_path_segment segments[2]{};
     const progpu::native::text::sfnt_composite_component component{};
     const progpu::native::text::sfnt_expanded_glyph_requirements expanded{};
+    const progpu::native::text::sfnt_variation_axis axis{};
     if (component.m00 != 1.0F || component.m11 != 1.0F) {
         return 1;
     }
     if (expanded.point_count != 0U || expanded.path_segment_count != 0U) {
+        return 1;
+    }
+    if (axis.minimum() != 0.0F || axis.hidden()) {
         return 1;
     }
     unsigned int written = 0U;

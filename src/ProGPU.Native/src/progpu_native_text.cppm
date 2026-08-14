@@ -21,6 +21,7 @@ using ::progpu::native::text::sfnt_horizontal_header_metrics;
 using ::progpu::native::text::sfnt_table_view;
 using ::progpu::native::text::sfnt_outline_point;
 using ::progpu::native::text::sfnt_simple_glyph_path;
+using ::progpu::native::text::sfnt_variation_axis;
 
 } // namespace progpu::native::text
 

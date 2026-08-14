@@ -60,6 +60,38 @@ public sealed class InterFontFamilyTests
         Assert.Equal(5543379682355176128UL, HashOutline(composite));
     }
 
+    [Fact]
+    public void NativeFvarCheckpointMatchesManagedVariableAxes()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("InterVariable.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+        using var memory = new MemoryStream();
+        resource.CopyTo(memory);
+        var font = new TtfFont(memory.ToArray());
+
+        Assert.Collection(
+            font.VariationAxes,
+            axis =>
+            {
+                Assert.Equal("opsz", axis.Tag);
+                Assert.Equal(14f, axis.Minimum);
+                Assert.Equal(14f, axis.Default);
+                Assert.Equal(32f, axis.Maximum);
+                Assert.False(axis.IsHidden);
+            },
+            axis =>
+            {
+                Assert.Equal("wght", axis.Tag);
+                Assert.Equal(100f, axis.Minimum);
+                Assert.Equal(400f, axis.Default);
+                Assert.Equal(900f, axis.Maximum);
+                Assert.False(axis.IsHidden);
+            });
+    }
+
     private static ulong HashOutline(ProGPU.Vector.PathGeometry outline)
     {
         ulong hash = 1469598103934665603UL;

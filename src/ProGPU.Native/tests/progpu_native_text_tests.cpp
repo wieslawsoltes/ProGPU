@@ -28,6 +28,7 @@ using progpu::native::text::sfnt_horizontal_header_metrics;
 using progpu::native::text::sfnt_outline_point;
 using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_table_view;
+using progpu::native::text::sfnt_variation_axis;
 
 void require(bool condition) {
     if (!condition) {
@@ -113,10 +114,38 @@ std::vector<std::byte> make_cmap() {
     return result;
 }
 
+std::vector<std::byte> make_fvar() {
+    std::vector<std::byte> result(56U);
+    write_u16(result, 0U, 1U);
+    write_u16(result, 2U, 0U);
+    write_u16(result, 4U, 16U);
+    write_u16(result, 6U, 2U);
+    write_u16(result, 8U, 2U);
+    write_u16(result, 10U, 20U);
+    write_u16(result, 12U, 0U);
+    write_u16(result, 14U, 0U);
+    write_u32(result, 16U,
+        open_type_tag::from_chars('o', 'p', 's', 'z').value);
+    write_u32(result, 20U, 14U << 16U);
+    write_u32(result, 24U, 14U << 16U);
+    write_u32(result, 28U, 32U << 16U);
+    write_u16(result, 32U, 1U);
+    write_u16(result, 34U, 256U);
+    write_u32(result, 36U,
+        open_type_tag::from_chars('w', 'g', 'h', 't').value);
+    write_u32(result, 40U, 100U << 16U);
+    write_u32(result, 44U, 400U << 16U);
+    write_u32(result, 48U, 900U << 16U);
+    write_u16(result, 52U, 0U);
+    write_u16(result, 54U, 257U);
+    return result;
+}
+
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
     std::size_t glyph_size = 22U,
-    std::size_t second_glyph_size = 0U) {
+    std::size_t second_glyph_size = 0U,
+    bool include_variations = false) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -181,6 +210,10 @@ std::vector<std::byte> make_font(
     tables.push_back(std::move(glyf));
     tables.push_back(table_data{
         open_type_tag::from_chars('c', 'm', 'a', 'p'), make_cmap()});
+    if (include_variations) {
+        tables.push_back(table_data{
+            open_type_tag::from_chars('f', 'v', 'a', 'r'), make_fvar()});
+    }
 
     const auto directory_size = 12U + tables.size() * 16U;
     std::size_t cursor = face_offset + directory_size;
@@ -205,6 +238,50 @@ std::vector<std::byte> make_font(
         }
     }
     return result;
+}
+
+void variation_axes_are_borrowed_bounded_and_transactional() {
+    const auto data = make_font(0U, 22U, 0U, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    std::uint16_t count = 0U;
+    require(font.try_get_variation_axis_count(count));
+    require(count == 2U);
+    std::array<sfnt_variation_axis, 1U> short_axes{};
+    std::uint16_t written = 99U;
+    font_error error = font_error::none;
+    require(!font.try_decode_variation_axes(short_axes, written, &error));
+    require(error == font_error::insufficient_buffer);
+    require(written == 0U);
+    require(short_axes[0].tag.value == 0U);
+
+    std::array<sfnt_variation_axis, 2U> axes{};
+    require(font.try_decode_variation_axes(axes, written, &error));
+    require(error == font_error::none && written == 2U);
+    require(axes[0].tag ==
+        open_type_tag::from_chars('o', 'p', 's', 'z'));
+    require(axes[0].minimum() == 14.0F);
+    require(axes[0].default_value() == 14.0F);
+    require(axes[0].maximum() == 32.0F);
+    require(axes[0].hidden());
+    require(axes[0].name_id == 256U);
+    require(axes[1].tag ==
+        open_type_tag::from_chars('w', 'g', 'h', 't'));
+    require(axes[1].minimum() == 100.0F);
+    require(axes[1].default_value() == 400.0F);
+    require(axes[1].maximum() == 900.0F);
+    require(!axes[1].hidden());
+    require(axes[1].name_id == 257U);
+
+    auto truncated = data;
+    const auto table_count = static_cast<std::size_t>(
+        (std::to_integer<std::uint16_t>(truncated[4U]) << 8U) |
+        std::to_integer<std::uint16_t>(truncated[5U]));
+    const auto fvar_record = 12U + (table_count - 1U) * 16U;
+    write_u32(truncated, fvar_record + 12U, 20U);
+    require(sfnt_font_view::try_create(truncated, 0U, font));
+    require(!font.try_get_variation_axis_count(count, &error));
+    require(error == font_error::invalid_face && count == 0U);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -891,15 +968,52 @@ void production_inter_font_decodes_real_simple_outline() {
         5543379682355176128ULL);
 }
 
+void production_inter_variable_font_matches_fvar_axes() {
+    std::ifstream stream(
+        PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT,
+        std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> data(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        data[index] = static_cast<std::byte>(source[index]);
+    }
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    std::uint16_t count = 0U;
+    require(font.try_get_variation_axis_count(count));
+    require(count == 2U);
+    std::array<sfnt_variation_axis, 2U> axes{};
+    std::uint16_t written = 0U;
+    require(font.try_decode_variation_axes(axes, written));
+    require(written == axes.size());
+    require(axes[0].tag ==
+        open_type_tag::from_chars('o', 'p', 's', 'z'));
+    require(axes[0].minimum_fixed == 14 * 65536);
+    require(axes[0].default_fixed == 14 * 65536);
+    require(axes[0].maximum_fixed == 32 * 65536);
+    require(axes[0].flags == 0U && axes[0].name_id == 256U);
+    require(axes[1].tag ==
+        open_type_tag::from_chars('w', 'g', 'h', 't'));
+    require(axes[1].minimum_fixed == 100 * 65536);
+    require(axes[1].default_fixed == 400 * 65536);
+    require(axes[1].maximum_fixed == 900 * 65536);
+    require(axes[1].flags == 0U && axes[1].name_id == 257U);
+}
+
 } // namespace
 
 int main() {
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
+    variation_axes_are_borrowed_bounded_and_transactional();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();
     expanded_composite_glyphs_preserve_transforms_and_point_attachment();
     production_inter_font_decodes_real_simple_outline();
+    production_inter_variable_font_matches_fvar_axes();
     return 0;
 }
