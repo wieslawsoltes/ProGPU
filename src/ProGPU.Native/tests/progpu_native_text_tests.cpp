@@ -35,6 +35,9 @@ using progpu::native::text::sfnt_gvar_tuple_requirements;
 using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
+using progpu::native::text::sfnt_item_variation_data;
+using progpu::native::text::sfnt_item_variation_store_view;
+using progpu::native::text::sfnt_delta_set_index_map_view;
 using progpu::native::text::sfnt_outline_point;
 using progpu::native::text::sfnt_packed_delta_requirements;
 using progpu::native::text::sfnt_packed_point_requirements;
@@ -736,6 +739,68 @@ void phantom_glyph_variations_apply_advance_delta() {
     require(!font.try_get_glyph_phantom_advance_delta(
         4U, normalized, 7U, delta, short_scratch, &error));
     require(error == font_error::insufficient_buffer && delta == 0.0F);
+
+    bool uses_hvar = true;
+    delta = 99.0F;
+    require(font.try_get_horizontal_advance_variation(
+        4U, normalized, delta, uses_hvar, &error));
+    require(error == font_error::none && !uses_hvar && delta == 0.0F);
+}
+
+void item_variation_store_and_index_map_are_bounded() {
+    std::vector<std::byte> data(46U);
+    write_u16(data, 0U, 1U);
+    write_u32(data, 2U, 12U);
+    write_u16(data, 6U, 1U);
+    write_u32(data, 8U, 28U);
+    write_u16(data, 12U, 1U);
+    write_u16(data, 14U, 1U);
+    write_i16(data, 16U, 0);
+    write_i16(data, 18U, 8192);
+    write_i16(data, 20U, 16384);
+    write_u16(data, 28U, 2U);
+    write_u16(data, 30U, 1U);
+    write_u16(data, 32U, 1U);
+    write_u16(data, 34U, 0U);
+    write_i16(data, 36U, 20);
+    write_i16(data, 38U, -10);
+    data[40U] = std::byte{0U};
+    data[41U] = std::byte{0U};
+    write_u16(data, 42U, 2U);
+    data[44U] = std::byte{0U};
+    data[45U] = std::byte{1U};
+
+    sfnt_item_variation_store_view store{};
+    font_error error = font_error::none;
+    require(sfnt_item_variation_data::try_get_store(
+        data, 0U, 1U, store, &error));
+    require(error == font_error::none);
+    const std::array<std::int16_t, 1U> normalized{8192};
+    float delta = 99.0F;
+    require(sfnt_item_variation_data::try_get_delta(
+        store, normalized, 0U, 0U, delta, &error));
+    require(delta == 20.0F);
+    require(sfnt_item_variation_data::try_get_delta(
+        store, normalized, 0U, 1U, delta, &error));
+    require(delta == -10.0F);
+
+    sfnt_delta_set_index_map_view map{};
+    require(sfnt_item_variation_data::try_get_delta_set_index_map(
+        data, 40U, map, &error));
+    std::uint16_t outer = 99U;
+    std::uint16_t inner = 99U;
+    sfnt_item_variation_data::get_delta_set_index(
+        map, 1U, outer, inner);
+    require(outer == 0U && inner == 1U);
+    sfnt_item_variation_data::get_delta_set_index(
+        map, 99U, outer, inner);
+    require(outer == 0U && inner == 1U);
+
+    auto truncated = data;
+    truncated.resize(38U);
+    require(!sfnt_item_variation_data::try_get_store(
+        truncated, 0U, 1U, store, &error));
+    require(error == font_error::invalid_face);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1585,6 +1650,14 @@ void production_inter_variable_font_matches_fvar_axes() {
     std::vector<progpu_native_point> varied_points(
         outline_requirements.point_count);
     const std::array<std::int16_t, 2U> optical_coordinates{8192, 0};
+    float horizontal_advance_delta = 99.0F;
+    bool uses_hvar = false;
+    require(font.try_get_horizontal_advance_variation(
+        397U,
+        optical_coordinates,
+        horizontal_advance_delta,
+        uses_hvar));
+    require(uses_hvar && horizontal_advance_delta == -28.0F);
     require(font.try_apply_simple_glyph_variations(
         397U,
         optical_coordinates,
@@ -1765,6 +1838,7 @@ int main() {
     simple_glyph_variations_apply_packed_tuple_deltas();
     composite_glyph_variations_apply_component_offsets();
     phantom_glyph_variations_apply_advance_delta();
+    item_variation_store_and_index_map_are_bounded();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

@@ -93,6 +93,8 @@ public sealed class InterFontFamilyTests
 
         TtfFont optical = font.WithVariations(
             new FontVariationSetting("opsz", 23f));
+        Assert.Equal(1314f, font.GetAdvanceWidth(397, 2048f));
+        Assert.Equal(1286f, optical.GetAdvanceWidth(397, 2048f));
         var opticalOutline = Assert.IsType<ProGPU.Vector.PathGeometry>(
             optical.GetGlyphOutline(397));
         Assert.Equal(

@@ -21,6 +21,7 @@ int main() {
     const progpu::native::text::sfnt_gvar_tuple_header gvar_tuple{};
     const progpu::native::text::sfnt_glyph_phantom_variation_requirements
         phantom_requirements{};
+    const progpu::native::text::sfnt_item_variation_store_view item_store{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -40,6 +41,9 @@ int main() {
     }
     if (gvar.axis_count != 0U || gvar_tuple.flags != 0U ||
         packed.point_count != 0U || phantom_requirements.delta_count != 0U) {
+        return 1;
+    }
+    if (item_store.region_count != 0U) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

@@ -280,6 +280,51 @@ struct sfnt_glyph_phantom_variation_scratch final {
     std::span<std::int16_t> y_deltas{};
 };
 
+struct sfnt_item_variation_store_view final {
+    std::span<const std::byte> bytes{};
+    std::size_t store_offset = 0U;
+    std::size_t region_list_offset = 0U;
+    std::size_t subtable_offsets_offset = 0U;
+    std::uint16_t axis_count = 0U;
+    std::uint16_t region_count = 0U;
+    std::uint16_t subtable_count = 0U;
+};
+
+struct sfnt_delta_set_index_map_view final {
+    std::span<const std::byte> bytes{};
+    std::size_t entries_offset = 0U;
+    std::uint32_t entry_count = 0U;
+    std::uint8_t entry_size = 0U;
+    std::uint8_t inner_index_bits = 0U;
+};
+
+class sfnt_item_variation_data final {
+public:
+    static bool try_get_store(
+        std::span<const std::byte> bytes,
+        std::size_t store_offset,
+        std::uint16_t expected_axis_count,
+        sfnt_item_variation_store_view& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_delta(
+        sfnt_item_variation_store_view store,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t outer_index,
+        std::uint16_t inner_index,
+        float& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_delta_set_index_map(
+        std::span<const std::byte> bytes,
+        std::size_t map_offset,
+        sfnt_delta_set_index_map_view& result,
+        font_error* error = nullptr) noexcept;
+    static void get_delta_set_index(
+        sfnt_delta_set_index_map_view map,
+        std::uint32_t item_index,
+        std::uint16_t& outer_index,
+        std::uint16_t& inner_index) noexcept;
+};
+
 /*
  * Exact maximum caller storage for recursive variable TrueType expansion.
  * Measurement is O(G + C) for G reachable glyphs and C components; decoding
@@ -526,6 +571,12 @@ public:
         std::uint32_t item_count,
         float& result,
         sfnt_glyph_phantom_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_horizontal_advance_variation(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        bool& uses_hvar,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
