@@ -1658,6 +1658,23 @@ void production_inter_variable_font_matches_fvar_axes() {
         horizontal_advance_delta,
         uses_hvar));
     require(uses_hvar && horizontal_advance_delta == -28.0F);
+    float x_height_delta = 99.0F;
+    bool has_x_height_record = false;
+    require(font.try_get_metric_variation(
+        open_type_tag::from_chars('x', 'h', 'g', 't'),
+        optical_coordinates,
+        x_height_delta,
+        has_x_height_record));
+    require(has_x_height_record && x_height_delta == -31.0F);
+    float layout_delta = 99.0F;
+    bool uses_layout_store = false;
+    require(font.try_get_layout_variation(
+        0U,
+        0U,
+        optical_coordinates,
+        layout_delta,
+        uses_layout_store));
+    require(uses_layout_store);
     require(font.try_apply_simple_glyph_variations(
         397U,
         optical_coordinates,

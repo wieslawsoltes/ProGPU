@@ -415,6 +415,8 @@ add_library(progpu_native_text STATIC
     src/progpu_native_gvar_tuples.cpp
     src/progpu_native_item_variation_store.cpp
     src/progpu_native_hvar.cpp
+    src/progpu_native_mvar.cpp
+    src/progpu_native_gdef_variations.cpp
     src/progpu_native_sfnt.cpp
     src/progpu_native_true_type_composite.cpp
     src/progpu_native_true_type_composite_internal.hpp

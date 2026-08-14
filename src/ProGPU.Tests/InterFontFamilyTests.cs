@@ -95,6 +95,8 @@ public sealed class InterFontFamilyTests
             new FontVariationSetting("opsz", 23f));
         Assert.Equal(1314f, font.GetAdvanceWidth(397, 2048f));
         Assert.Equal(1286f, optical.GetAdvanceWidth(397, 2048f));
+        Assert.Equal((short?)1118, font.XHeight);
+        Assert.Equal((short?)1087, optical.XHeight);
         var opticalOutline = Assert.IsType<ProGPU.Vector.PathGeometry>(
             optical.GetGlyphOutline(397));
         Assert.Equal(

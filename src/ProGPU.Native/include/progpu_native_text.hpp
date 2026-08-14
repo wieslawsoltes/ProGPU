@@ -578,6 +578,19 @@ public:
         float& result,
         bool& uses_hvar,
         font_error* error = nullptr) const noexcept;
+    bool try_get_metric_variation(
+        open_type_tag metric_tag,
+        std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        bool& has_metric_record,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_layout_variation(
+        std::uint16_t outer_index,
+        std::uint16_t inner_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        bool& uses_layout_store,
+        font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
     std::uint32_t face_index() const noexcept;
