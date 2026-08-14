@@ -319,9 +319,11 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_image_layer_resources.cpp
     src/progpu_native_layer_effect_execution.cpp
     src/progpu_native_path_text_resources.cpp
+    src/progpu_native_path_execution.cpp
+    src/progpu_native_glyph_execution.cpp
+    src/progpu_native_texture_execution.cpp
     src/progpu_native_pipeline.cpp
     src/progpu_native_pipeline.hpp
-    src/progpu_native_raster_execution.cpp
     src/progpu_native_replay_execution.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp

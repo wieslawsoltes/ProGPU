@@ -2125,3 +2125,24 @@ provider tests, and the Emscripten/Chromium WebGPU gate pass. Raw distributions,
 trace bundles, TOCs/table exports, and exact trace JSON are retained under
 `artifacts/progpu-native/performance/semantic-effect-cache-skip/`; the browser
 image and JSON contract are under `artifacts/progpu-native/browser-evidence/`.
+
+## Granular path/glyph/image execution module checkpoint
+
+The former 2,052-line frame-family raster translation unit is now three typed
+implementation files: retained path execution (833 lines), positioned-glyph
+execution (816 lines), and RGBA/external-image execution (413 lines). The
+public C ABI, private entry contract, engine ownership, resource lifetime, and
+all WebGPU commands are unchanged. Exact function-body SHA-256 values before
+and after the mechanical split are respectively
+`9569a32ac472d317efdb568bf9d5fbb4d202b04c065940b67c7b7652320f8ed1`,
+`54ba4cd245a6d3635fd2e5504cfb5829acd1812a9808b6af9853d4e654b2a7c9`,
+and `1fa9dd19723de90e2b63219b8d86790c2b82e557e8de983e60e3e4b80451c37a`.
+
+Three paired semantic layer/effect regression runs retained one executed draw,
+zero content/effect passes, zero stable upload/allocation, and the exact native
+and managed image hashes. Their median p95 submission was `0.1559/0.2677 ms`
+native/managed, completion wait `4.5195/4.5495 ms`, and synchronized end to end
+`4.5626/4.6965 ms`. Both renderers entered the same slower Metal scheduling
+regime in two runs; the split is therefore classified as on par, not a speedup.
+The real Emscripten/Chromium WebGPU gate also passes and retains screenshot
+SHA-256 `32d330540a4ef89c4b75b0e6c9cb15b37e957f67d9bf841cadb687d6869e9502`.

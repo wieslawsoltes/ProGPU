@@ -49,9 +49,14 @@ bindings. Retained execution is split separately from resource construction:
 and group composition, while `progpu_native_image_execution.cpp` owns image
 upload and image-mask updates. `progpu_native_replay_execution.hpp` is the
 small internal seam used by the remaining C ABI/frame-family entrypoints in
-`progpu_native.cpp`. Both wgpu-native and Dawn targets compile the same private
-module set. The CPU-only modules are also compiled directly into focused
-internal tests so their behavior cannot depend on WebGPU startup.
+`progpu_native.cpp`. Path, positioned-glyph, and RGBA-image frame execution is
+further separated into `progpu_native_path_execution.cpp`,
+`progpu_native_glyph_execution.cpp`, and
+`progpu_native_texture_execution.cpp`; each owns one frame-family algorithm
+without a shared mutable implementation file. Both wgpu-native and Dawn
+targets compile the same private module set. The CPU-only modules are also
+compiled directly into focused internal tests so their behavior cannot depend
+on WebGPU startup.
 Decoded color-glyph ownership is split again:
 `progpu_native_semantic_color_glyph.cpp` performs CPU-only pointer-free
 metadata/range validation, while `progpu_native_color_glyph_resources.cpp`

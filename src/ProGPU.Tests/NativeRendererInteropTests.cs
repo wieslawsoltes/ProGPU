@@ -2014,7 +2014,15 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_raster_execution.cpp",
+            "src/progpu_native_path_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_glyph_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_texture_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2058,8 +2066,12 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_layer_effect_execution.cpp"));
         string vectorExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_vector_execution.cpp"));
-        string rasterExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_raster_execution.cpp"));
+        string pathExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_path_execution.cpp"));
+        string glyphExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_glyph_execution.cpp"));
+        string textureExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_texture_execution.cpp"));
         string semanticExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_semantic_execution.cpp"));
         string advancedBlendSource = File.ReadAllText(FindRepoFile(
@@ -2084,7 +2096,9 @@ public class NativeRendererInteropTests
                      imageExecutionSource,
                      layerEffectExecutionSource,
                      vectorExecutionSource,
-                     rasterExecutionSource,
+                     pathExecutionSource,
+                     glyphExecutionSource,
+                     textureExecutionSource,
                      semanticExecutionSource,
                      advancedBlendSource,
                      frameExecutionCommonSource,

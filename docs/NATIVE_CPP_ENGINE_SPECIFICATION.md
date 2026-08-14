@@ -231,8 +231,10 @@ Their only cross-translation-unit seam is the typed private
 `progpu_native_replay_execution.hpp` contract. Frame-family execution is also
 partitioned by payload ownership: `progpu_native_vector_execution.cpp` owns
 solid, analytic, and retained-geometry recording/dispatch;
-`progpu_native_raster_execution.cpp` owns path, positioned-glyph, and RGBA-image
-recording/dispatch; and `progpu_native_semantic_execution.cpp` owns immutable
+`progpu_native_path_execution.cpp`, `progpu_native_glyph_execution.cpp`, and
+`progpu_native_texture_execution.cpp` independently own retained path,
+positioned-glyph, and RGBA-image recording/dispatch; and
+`progpu_native_semantic_execution.cpp` owns immutable
 semantic-scene updates, command adaptation, render-bundle compilation, and
 scene replay. These modules share only the typed private
 `progpu_native_frame_execution.hpp` entry contract and the internal
