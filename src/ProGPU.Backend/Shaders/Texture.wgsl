@@ -1,6 +1,6 @@
 // Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode.
 // Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products, and atlas color blending uses bounded scalar work.
-// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add 80 bytes of read-only uniform coefficients, and analytic rounded or uniform-opacity masks add fixed derivative arithmetic without another texture.
+// Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and analytic rounded or uniform-opacity masks add fixed derivative arithmetic without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -63,6 +63,7 @@ struct MaskSamplingUniforms {
 };
 
 @group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
+@group(3) @binding(2) var<uniform> colorMatrixSampling: MaskSamplingUniforms;
 
 fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
     let local = vec2<f32>(
@@ -424,10 +425,13 @@ fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // Semantic retained images lower all fused affine color operations to this
-// straight-RGBA 4x5 matrix. The mask uniform record is deliberately reused as
-// five vec4 rows so the native renderer needs no second texture shader ABI.
-@fragment
-fn fs_main_color_matrix_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+// straight-RGBA 4x5 matrix. A 96-byte mask-shaped record stores the five vec4
+// rows; the independent group-three record lets a state mask remain bound at
+// group two without materializing an intermediate texture.
+fn color_matrix_fs_main_with_mask(
+    input: VertexOutput,
+    matrix: MaskSamplingUniforms,
+    maskAlpha: f32) -> vec4<f32> {
     let textureCoordDx = dpdx(input.texCoord);
     let textureCoordDy = dpdy(input.texCoord);
     var source = textureSampleGrad(
@@ -443,15 +447,33 @@ fn fs_main_color_matrix_unmasked(input: VertexOutput) -> @location(0) vec4<f32> 
         source = atlas_unpremultiply(source);
     }
     let transformed = clamp(vec4<f32>(
-        dot(source, maskSampling.coordinate0) + maskSampling.cornerRadiiY.x,
-        dot(source, maskSampling.coordinate1) + maskSampling.cornerRadiiY.y,
-        dot(source, maskSampling.bounds) + maskSampling.cornerRadiiY.z,
-        dot(source, maskSampling.cornerRadiiX) + maskSampling.cornerRadiiY.w),
+        dot(source, matrix.coordinate0) + matrix.cornerRadiiY.x,
+        dot(source, matrix.coordinate1) + matrix.cornerRadiiY.y,
+        dot(source, matrix.bounds) + matrix.cornerRadiiY.z,
+        dot(source, matrix.cornerRadiiX) + matrix.cornerRadiiY.w),
         vec4<f32>(0.0),
         vec4<f32>(1.0));
     return vec4<f32>(
         transformed.rgb * input.color.r,
-        transformed.a * abs(input.color.a));
+        transformed.a * abs(input.color.a) * maskAlpha);
+}
+
+@fragment
+fn fs_main_color_matrix_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return color_matrix_fs_main_with_mask(input, maskSampling, 1.0);
+}
+
+@fragment
+fn fs_main_color_matrix(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0),
+        uniforms.canvasSize,
+        uniforms.boundedSourcePass > 0.5);
+    let maskAlpha = sample_mask_alpha(input.position.xy + fragmentOrigin);
+    return color_matrix_fs_main_with_mask(
+        input,
+        colorMatrixSampling,
+        maskAlpha);
 }
 
 @fragment

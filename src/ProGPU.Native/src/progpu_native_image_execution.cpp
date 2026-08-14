@@ -55,7 +55,8 @@ WGPUBindGroup create_image_mask_bind_group(
 
 bool create_image_mask_resources(progpu_native_engine& engine) {
     if (engine.image_mask_pipeline != nullptr &&
-        engine.image_color_matrix_pipeline != nullptr) {
+        engine.image_color_matrix_pipeline != nullptr &&
+        engine.image_masked_color_matrix_pipeline != nullptr) {
         return true;
     }
     if (engine.image_pipeline == nullptr || engine.image_shader == nullptr ||
@@ -63,7 +64,8 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
         engine.image_texture_layout == nullptr ||
         engine.image_mask_layout != nullptr ||
         engine.image_mask_uniform_buffer != nullptr ||
-        engine.image_color_matrix_pipeline != nullptr) {
+        engine.image_color_matrix_pipeline != nullptr ||
+        engine.image_masked_color_matrix_pipeline != nullptr) {
         return false;
     }
 
@@ -169,9 +171,41 @@ bool create_image_mask_resources(progpu_native_engine& engine) {
     engine.image_color_matrix_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
+    const std::array<WGPUBindGroupLayout, 4U> combined_layouts{{
+        engine.image_uniform_layout,
+        engine.image_texture_layout,
+        engine.image_mask_layout,
+        engine.image_mask_layout
+    }};
+    WGPUPipelineLayoutDescriptor combined_layout_descriptor{};
+    combined_layout_descriptor.label =
+        ::progpu::native::webgpu::string_view(
+            "ProGPU native masked color-matrix image layout");
+    combined_layout_descriptor.bindGroupLayoutCount =
+        combined_layouts.size();
+    combined_layout_descriptor.bindGroupLayouts =
+        combined_layouts.data();
+    WGPUPipelineLayout combined_layout =
+        wgpuDeviceCreatePipelineLayout(
+            engine.device,
+            &combined_layout_descriptor);
+    if (combined_layout != nullptr) {
+        pipeline_descriptor.layout = combined_layout;
+        fragment.entryPoint = ::progpu::native::webgpu::string_view(
+            "fs_main_color_matrix");
+        pipeline_descriptor.label =
+            ::progpu::native::webgpu::string_view(
+                "ProGPU native retained masked color-matrix image pipeline");
+        engine.image_masked_color_matrix_pipeline =
+            wgpuDeviceCreateRenderPipeline(
+                engine.device,
+                &pipeline_descriptor);
+        wgpuPipelineLayoutRelease(combined_layout);
+    }
     wgpuPipelineLayoutRelease(pipeline_layout);
     if (engine.image_mask_pipeline == nullptr ||
-        engine.image_color_matrix_pipeline == nullptr) {
+        engine.image_color_matrix_pipeline == nullptr ||
+        engine.image_masked_color_matrix_pipeline == nullptr) {
         return false;
     }
 

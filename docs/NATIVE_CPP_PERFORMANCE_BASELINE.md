@@ -2288,7 +2288,12 @@ draws. It also executes the exact per-draw state-mask fixture: three commands,
 three resources, and one physical analytic draw containing two overlapping
 translucent rectangles. Browser pixels verify clear, single-source, and
 premultiplied overlap equations inside one transformed rounded mask; stable
-replay uploads no rebuilt resources.
+replay uploads no rebuilt resources. A second per-draw fixture uses two
+commands, four resources, and two physical draws for one uploaded color-matrix
+image plus one retained color glyph. One shared 8x8 R8 coverage mask excludes
+the right half. Chromium and packaged Dawn/Metal verify the transformed image,
+glyph, included/excluded pixels, 96 first-frame texture bytes, and zero stable
+texture, glyph, vertex, or uniform uploads.
 
 The provider comparison found one real portability defect before this
 checkpoint: desktop wgpu-native accepted a bind-group layout extracted from an
@@ -2302,9 +2307,12 @@ C++ scene/compiler/WGSL contract rather than provider-specific renderers.
 rounded-rectangle geometry clip under any finite invertible affine and lowers
 it to the typed per-draw mask reference. The C++ renderer applies that mask in
 analytic, geometry, point-batch, vertex-mesh, connected-stroke, and retained-
-path fragment execution with no isolated texture or extra composite draw.
-General/nested vector masks, sampled per-draw masks, glyphs, and images remain
-fail-closed pending bounded mask composition and masked text/image pipelines.
+path fragment execution with no isolated texture or extra composite draw. The
+same state-mask reference now accepts retained R8 coverage on glyph and image
+families. Plain images, color-matrix images, and color glyphs bind the mask
+directly; the color matrix uses an independent binding and remains a single
+GPU draw. General/nested vector masks remain fail-closed pending bounded mask
+composition, and the managed compiler does not yet emit sampled mask resources.
 
 The updated mixed-picture benchmark exercises this rounded geometry clip and
 remains the regression guard for compiler and stable replay overhead. On Apple

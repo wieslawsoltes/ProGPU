@@ -1369,14 +1369,18 @@ synchronized total p50/p95 is 1.5576/4.5916 ms versus 1.7658/4.9971 ms. The
 three independently rasterized edge pixels above 3/255 and mean absolute
 channel difference of 0.000163/255 remain unchanged.
 
-The browser/Emscripten target now runs two independent mask contracts. The
+The browser/Emscripten target now runs three independent mask contracts. The
 isolated-layer rounded-mask and retained coverage-mask fixtures still render
 three semantic commands as two physical GPU draws. The per-draw state-mask
 fixture renders two overlapping translucent vector rectangles through one
 analytic batch and one physical GPU draw, with three typed resources and three
 semantic commands. It verifies independently transformed rounded coverage, the
 exact premultiplied overlap equation, first-frame preparation, zero-upload
-stable replay, and device recovery.
+stable replay, and device recovery. The sampled per-draw state-mask fixture
+renders an uploaded color-matrix image and retained color glyph through two
+draws and one shared R8 coverage mask. It verifies the matrix and mask in one
+image fragment pass, masked color-atlas text, excluded-half pixels, and zero
+image, glyph, mask, or uniform upload on stable replay.
 
 The semantic state record now carries an append-compatible `MASK` flag and a
 typed `mask_resource_index` in the former reserved slot. The reference must be
@@ -1399,11 +1403,14 @@ Emscripten/browser gates now execute the same layout and WGSL contract.
 `ProGPU.Scene.Native` lowers one canonical affine rectangle or rounded-rectangle
 `PushGeometryClip` scope to this exact state mask. It reads the retained
 canonical contour without flattening, preserves the full finite invertible
-affine and corner radii, and restores the prior state at pop. General vector
-clips, nested geometry masks, sampled per-draw masks, and state masks on glyph
-or image families remain typed fail-closed. Those cases require bounded mask
-intersection plus masked text/image pipelines; they are not approximated with
-an isolated group.
+affine and corner radii, and restores the prior state at pop. The native C++
+consumer now accepts either the analytic mask or a retained R8 coverage mask
+for vector, glyph, plain-image, and color-matrix-image draws. Text and image
+pipelines use canonical explicit layouts; a color matrix occupies an
+independent fourth bind group so it can be fused with the state mask in one
+draw. The managed picture compiler does not yet emit sampled or nested masks,
+and general/nested vector clips remain typed fail-closed pending bounded mask
+composition; they are not approximated with an isolated group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
@@ -1488,10 +1495,12 @@ must be zero. When present it is intersected with the physical target after DPI
 conversion; an empty result advances its retained family-page cursor but emits
 no draw or invalid zero-size WebGPU scissor.
 `MASK` is also canonical: an absent flag requires `NO_INDEX`, while a present
-flag requires a preceding exact `LAYER_MASK` resource. The current executable
-subset is one analytic rounded mask on vector draw families. Glyph, image,
-sampled coverage, and nested-mask state fail preflight with `UNSUPPORTED`
-before encoder creation.
+flag requires a preceding exact `LAYER_MASK` resource. The executable subset
+accepts one analytic rounded or retained R8 coverage mask on vector, glyph,
+plain-image, and color-matrix-image draw families. The mask is retained with
+the render-bundle span and changes split spans by exact resource identity.
+Nested-mask state still fails preflight before encoder creation until the
+version-one resource vocabulary carries a bounded exact composition.
 
 The isolated-layer payload is another exact 64-byte record stored directly in
 the `PUSH_LAYER` command arena: declared size and flags, optional logical target

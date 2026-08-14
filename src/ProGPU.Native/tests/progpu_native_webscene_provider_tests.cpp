@@ -6,6 +6,7 @@
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
+#include "progpu_native_webscene_state_mask_media_fixture.hpp"
 #include "webscene_gpu_provider.h"
 
 #include <webgpu.h>
@@ -34,6 +35,7 @@ using progpu::native::tests::
 using progpu::native::tests::create_semantic_backdrop_scene_stream;
 using progpu::native::tests::create_semantic_color_glyph_scene_stream;
 using progpu::native::tests::create_semantic_coverage_mask_scene_stream;
+using progpu::native::tests::create_semantic_state_mask_media_scene_stream;
 using progpu::native::tests::create_semantic_state_mask_scene_stream;
 using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
@@ -41,6 +43,7 @@ using progpu::native::tests::create_semantic_root_effect_layer_scene_stream;
 using progpu::native::tests::verify_semantic_advanced_blend_scene;
 using progpu::native::tests::verify_semantic_masked_effect_layer_scene;
 using progpu::native::tests::verify_semantic_state_mask_scene;
+using progpu::native::tests::verify_semantic_state_mask_media_scene;
 
 [[noreturn]] void fail(const char* message) {
     std::fprintf(stderr, "ProGPU WebScene provider integration failed: %s\n",
@@ -3108,6 +3111,122 @@ int main(int argc, char** argv) {
             state_mask_external.shared_handle),
         "progpu-native-semantic-state-mask.ppm");
     api.release_external(provider, &state_mask_external);
+    api.destroy_canvas(provider, canvas);
+
+    canvas = api.create_canvas(
+        provider, &canvas_configuration, 64U, 48U);
+    require(canvas != nullptr,
+        "semantic state-mask media canvas creation failed");
+    texture_handle = 0U;
+    require(api.acquire(provider, canvas, &texture_handle) ==
+            WEBSCENE_GPU_STATUS_SUCCESS && texture_handle != 0U,
+        "semantic state-mask media texture acquisition failed");
+    texture = reinterpret_cast<WGPUTexture>(texture_handle);
+    view = resolve<WGPUProcTextureCreateView>(
+        api, provider, "wgpuTextureCreateView")(
+        texture, &view_descriptor);
+    require(view != nullptr,
+        "semantic state-mask media target view creation failed");
+    auto state_mask_media_scene =
+        create_semantic_state_mask_media_scene_stream(64U, 48U);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        state_mask_media_scene.data(),
+        state_mask_media_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 2U &&
+        scene_metrics.resource_count == 4U &&
+        scene_metrics.draw_count == 2U,
+        "semantic state-mask media scene update failed");
+    progpu_native_scene_frame state_mask_media_frame = semantic_frame;
+    state_mask_media_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    state_mask_media_frame.scene_id = 103U;
+    state_mask_media_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &state_mask_media_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 2U &&
+        semantic_metrics.draw_call_count == 2U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.texture_upload_bytes == 96U &&
+        semantic_metrics.color_glyph_upload_bytes == 16U &&
+        semantic_metrics.uniform_upload_bytes >= 24U * sizeof(float),
+        "semantic state-mask media rendering failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 0U &&
+        semantic_layer_metrics.mask_uniform_upload_bytes ==
+            24U * sizeof(float),
+        "semantic state-mask media metrics are incorrect");
+    const std::uint32_t state_mask_media_bind_group_generation =
+        semantic_layer_metrics.mask_bind_group_generation;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &state_mask_media_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.color_glyph_upload_bytes == 0U,
+        "stable semantic state-mask media replay rebuilt resources");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.mask_bind_group_generation ==
+            state_mask_media_bind_group_generation &&
+        semantic_layer_metrics.mask_uniform_upload_bytes == 0U,
+        "stable semantic state-mask media metrics did not retain resources");
+    std::uint64_t state_mask_media_submission{};
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &state_mask_media_submission) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic state-mask media submission token unavailable");
+    std::uint8_t state_mask_media_complete{};
+    require(progpu_native_engine_poll_submission(
+        engine,
+        state_mask_media_submission,
+        1U,
+        &state_mask_media_complete) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        state_mask_media_complete != 0U,
+        "semantic state-mask media scene did not reach GPU completion");
+    resolve<WGPUProcTextureViewRelease>(
+        api, provider, "wgpuTextureViewRelease")(view);
+    resolve<WGPUProcTextureRelease>(
+        api, provider, "wgpuTextureRelease")(texture);
+    webscene_gpu_external_texture state_mask_media_external{};
+    state_mask_media_external.struct_size =
+        sizeof(state_mask_media_external);
+    require(api.present(provider, canvas, &state_mask_media_external) ==
+            WEBSCENE_GPU_STATUS_SUCCESS &&
+        state_mask_media_external.handle_kind ==
+            WEBSCENE_GPU_HANDLE_IOSURFACE &&
+        (state_mask_media_external.flags &
+            WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+        "semantic state-mask media presentation failed");
+    verify_semantic_state_mask_media_scene(
+        reinterpret_cast<IOSurfaceRef>(
+            state_mask_media_external.shared_handle),
+        "progpu-native-semantic-state-mask-media.ppm");
+    api.release_external(provider, &state_mask_media_external);
     api.destroy_canvas(provider, canvas);
 
     canvas = api.create_canvas(

@@ -83,6 +83,7 @@ struct progpu_native_engine {
     WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
     WGPUShaderModule text_shader = nullptr;
     WGPURenderPipeline text_pipeline = nullptr;
+    WGPURenderPipeline text_masked_pipeline = nullptr;
     WGPUBindGroupLayout text_uniform_layout = nullptr;
     WGPUBindGroupLayout text_atlas_layout = nullptr;
     WGPUBuffer text_style_buffer = nullptr;
@@ -148,6 +149,7 @@ struct progpu_native_engine {
     WGPURenderPipeline image_pipeline = nullptr;
     WGPURenderPipeline image_mask_pipeline = nullptr;
     WGPURenderPipeline image_color_matrix_pipeline = nullptr;
+    WGPURenderPipeline image_masked_color_matrix_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
     WGPUBindGroupLayout image_mask_layout = nullptr;
@@ -1119,14 +1121,17 @@ struct progpu_native_engine {
             wgpuBufferDestroy(image_mask_uniform_buffer);
             wgpuBufferRelease(image_mask_uniform_buffer);
         }
-        if (image_mask_layout != nullptr) {
-            wgpuBindGroupLayoutRelease(image_mask_layout);
+        if (image_masked_color_matrix_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_masked_color_matrix_pipeline);
         }
         if (image_color_matrix_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_color_matrix_pipeline);
         }
         if (image_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_mask_pipeline);
+        }
+        if (image_mask_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_mask_layout);
         }
         if (image_index_buffer != nullptr) {
             wgpuBufferDestroy(image_index_buffer);
@@ -1213,6 +1218,9 @@ struct progpu_native_engine {
         }
         if (text_pipeline != nullptr) {
             wgpuRenderPipelineRelease(text_pipeline);
+        }
+        if (text_masked_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(text_masked_pipeline);
         }
         if (text_shader != nullptr) {
             wgpuShaderModuleRelease(text_shader);

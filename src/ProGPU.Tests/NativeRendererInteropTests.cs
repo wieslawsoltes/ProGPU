@@ -2729,14 +2729,16 @@ public class NativeRendererInteropTests
         Assert.Contains("offscreen-texture-readback", browserTest,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Browser mask was not applied independently before overlap blending",
+            "Browser per-draw mask lost the color-matrix image",
             browserTest,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Browser per-draw mask escaped its transformed bounds",
+            "Browser coverage mask escaped its excluded half",
             browserTest,
             StringComparison.Ordinal);
         Assert.Contains("progpuNativeStateMasks", browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("progpuNativeStateMaskMedia", browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
             StringComparison.Ordinal);

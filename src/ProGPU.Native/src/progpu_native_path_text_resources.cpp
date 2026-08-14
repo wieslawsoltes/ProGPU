@@ -328,74 +328,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    const std::array<WGPUVertexAttribute, 8U> text_attributes{{
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x2, 0U, 0U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x2, 8U, 1U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x2, 16U, 2U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x4, 24U, 3U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x4, 40U, 4U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x4, 56U, 5U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32x4, 72U, 6U),
-        progpu::native::webgpu::vertex_attribute(
-            WGPUVertexFormat_Float32, 88U, 7U)
-    }};
-    WGPUVertexBufferLayout text_vertex_layout{};
-    text_vertex_layout.arrayStride = sizeof(gpu_glyph_instance);
-    text_vertex_layout.stepMode = WGPUVertexStepMode_Instance;
-    text_vertex_layout.attributeCount = text_attributes.size();
-    text_vertex_layout.attributes = text_attributes.data();
-    WGPUVertexState text_vertex_state{};
-    text_vertex_state.module = engine.text_shader;
-    text_vertex_state.entryPoint = progpu::native::webgpu::string_view("vs_main");
-    text_vertex_state.bufferCount = 1U;
-    text_vertex_state.buffers = &text_vertex_layout;
-    WGPUBlendState text_blend{};
-    text_blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
-    text_blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
-    text_blend.color.operation = WGPUBlendOperation_Add;
-    text_blend.alpha.srcFactor = WGPUBlendFactor_One;
-    text_blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
-    text_blend.alpha.operation = WGPUBlendOperation_Add;
-    WGPUColorTargetState text_target{};
-    text_target.format = engine.target_format;
-    text_target.blend = &text_blend;
-    text_target.writeMask = WGPUColorWriteMask_All;
-    WGPUFragmentState text_fragment_state{};
-    text_fragment_state.module = engine.text_shader;
-    text_fragment_state.entryPoint = progpu::native::webgpu::string_view("fs_main_unmasked");
-    text_fragment_state.targetCount = 1U;
-    text_fragment_state.targets = &text_target;
-    WGPURenderPipelineDescriptor text_pipeline_descriptor{};
-    text_pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph pipeline");
-    text_pipeline_descriptor.vertex = text_vertex_state;
-    text_pipeline_descriptor.primitive.topology =
-        WGPUPrimitiveTopology_TriangleList;
-    text_pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
-    text_pipeline_descriptor.primitive.cullMode = WGPUCullMode_None;
-    text_pipeline_descriptor.multisample.count = 1U;
-    text_pipeline_descriptor.multisample.mask = 0xFFFFFFFFU;
-    text_pipeline_descriptor.fragment = &text_fragment_state;
-    engine.text_pipeline = wgpuDeviceCreateRenderPipeline(
-        engine.device,
-        &text_pipeline_descriptor);
-    if (engine.text_pipeline == nullptr) {
-        return false;
-    }
-    engine.text_uniform_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.text_pipeline,
-        0U);
-    engine.text_atlas_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.text_pipeline,
-        1U);
-    if (engine.text_uniform_layout == nullptr ||
-        engine.text_atlas_layout == nullptr) {
+    if (!create_text_pipeline(engine)) {
         return false;
     }
 

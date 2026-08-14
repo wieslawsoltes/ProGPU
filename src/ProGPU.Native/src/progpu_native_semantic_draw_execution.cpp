@@ -219,7 +219,8 @@ progpu_native_status encode_semantic_glyph_draw(
     progpu_native_engine& engine,
     typename Commands::encoder_type encoder,
     const semantic_glyph_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     const std::uint64_t instance_bytes = engine.glyph_instances.size() *
         sizeof(gpu_glyph_instance);
     WGPUBindGroup uniform_group =
@@ -239,11 +240,23 @@ progpu_native_status encode_semantic_glyph_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic glyph packed page is incomplete.");
     }
-    Commands::set_pipeline(encoder, engine.text_pipeline);
+    const bool masked = mask_bind_group != nullptr;
+    if (masked && engine.text_masked_pipeline == nullptr &&
+        !create_text_masked_pipeline(engine)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic masked glyph pipeline could not be created.");
+    }
+    Commands::set_pipeline(
+        encoder,
+        masked ? engine.text_masked_pipeline : engine.text_pipeline);
     Commands::set_bind_group(
         encoder, 0U, uniform_group);
     Commands::set_bind_group(
         encoder, 1U, engine.text_atlas_bind_group);
+    if (masked) {
+        Commands::set_bind_group(encoder, 2U, mask_bind_group);
+    }
     Commands::set_vertex_buffer(
         encoder, engine.text_vertex_buffer, instance_bytes);
     Commands::draw(
@@ -256,7 +269,8 @@ progpu_native_status encode_semantic_image_draw(
     progpu_native_engine& engine,
     typename Commands::encoder_type encoder,
     const semantic_image_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     auto& page = engine.semantic_image_cache;
     WGPUBindGroup texture_group =
         draw.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
@@ -279,9 +293,20 @@ progpu_native_status encode_semantic_image_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic image packed page is incomplete.");
     }
-    WGPURenderPipeline pipeline = draw.has_color_matrix
-        ? engine.image_color_matrix_pipeline
-        : engine.image_pipeline;
+    const bool masked = mask_bind_group != nullptr;
+    if (masked && engine.image_mask_pipeline == nullptr &&
+        !create_image_mask_resources(engine)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic masked image pipeline could not be created.");
+    }
+    WGPURenderPipeline pipeline = masked
+        ? draw.has_color_matrix
+            ? engine.image_masked_color_matrix_pipeline
+            : engine.image_mask_pipeline
+        : draw.has_color_matrix
+            ? engine.image_color_matrix_pipeline
+            : engine.image_pipeline;
     if (pipeline == nullptr ||
         (draw.has_color_matrix && draw.color_matrix_bind_group == nullptr)) {
         return engine.fail(
@@ -292,7 +317,13 @@ progpu_native_status encode_semantic_image_draw(
     Commands::set_bind_group(
         encoder, 0U, uniform_group);
     Commands::set_bind_group(encoder, 1U, texture_group);
-    if (draw.has_color_matrix) {
+    if (masked) {
+        Commands::set_bind_group(encoder, 2U, mask_bind_group);
+        if (draw.has_color_matrix) {
+            Commands::set_bind_group(
+                encoder, 3U, draw.color_matrix_bind_group);
+        }
+    } else if (draw.has_color_matrix) {
         Commands::set_bind_group(
             encoder, 2U, draw.color_matrix_bind_group);
     }
@@ -329,18 +360,20 @@ progpu_native_status encode_semantic_glyph_bundle_draw(
     progpu_native_engine& engine,
     WGPURenderBundleEncoder encoder,
     const semantic_glyph_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     return encode_semantic_glyph_draw<semantic_render_bundle_commands>(
-        engine, encoder, draw, target_layer);
+        engine, encoder, draw, target_layer, mask_bind_group);
 }
 
 progpu_native_status encode_semantic_image_bundle_draw(
     progpu_native_engine& engine,
     WGPURenderBundleEncoder encoder,
     const semantic_image_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     return encode_semantic_image_draw<semantic_render_bundle_commands>(
-        engine, encoder, draw, target_layer);
+        engine, encoder, draw, target_layer, mask_bind_group);
 }
 
 } // namespace progpu::native::execution

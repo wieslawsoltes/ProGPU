@@ -138,4 +138,179 @@ std::vector<std::byte> create_semantic_state_mask_scene_stream(
     return stream;
 }
 
+std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    constexpr std::uint32_t command_count = 2U;
+    constexpr std::uint32_t resource_count = 4U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+
+    constexpr std::array<std::uint8_t, 16U> glyph_pixels{{
+        255U, 32U, 192U, 255U,
+        255U, 32U, 192U, 255U,
+        255U, 32U, 192U, 255U,
+        255U, 32U, 192U, 255U
+    }};
+    const float glyph_size = static_cast<float>(
+        std::min(target_width, target_height)) * 0.35F;
+    const progpu_native_scene_color_glyph_bitmap glyph_bitmap{
+        0U, 2U, 2U, 8U, 0U,
+        0.0F, 0.0F, glyph_size, glyph_size, 0U, 0U};
+    const progpu_native_positioned_glyph glyph{
+        0U, 0U,
+        {static_cast<float>(target_width) * 0.08F,
+            static_cast<float>(target_height) * 0.30F},
+        {1.0F, 0.0F}, {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F, 0.0F, 0.0F, 0.0F};
+    const std::uint32_t glyph_bitmap_offset = append(
+        stream, &glyph_bitmap, 1U);
+    const std::uint32_t glyph_pixel_offset = append(
+        stream, glyph_pixels.data(), glyph_pixels.size());
+    const std::uint32_t glyph_offset = append(stream, &glyph, 1U);
+
+    constexpr std::array<std::uint8_t, 16U> image_pixels{{
+        16U, 224U, 96U, 255U,
+        16U, 224U, 96U, 255U,
+        16U, 224U, 96U, 255U,
+        16U, 224U, 96U, 255U
+    }};
+    const std::uint32_t image_pixel_offset = append(
+        stream, image_pixels.data(), image_pixels.size());
+    const progpu_native_scene_image_draw image{
+        sizeof(progpu_native_scene_image_draw),
+        PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX,
+        2U,
+        2U,
+        8U,
+        PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST,
+        {0.0F, 0.0F, 2.0F, 2.0F},
+        {0.0F, 0.0F, static_cast<float>(target_width),
+            static_cast<float>(target_height)},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+        1.0F,
+        0U};
+    const std::uint32_t image_draw_offset = append(stream, &image, 1U);
+    const progpu_native_scene_image_color_matrix color_matrix{
+        sizeof(progpu_native_scene_image_color_matrix),
+        0U,
+        {0.0F, 1.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {0U, 0U}};
+    append(stream, &color_matrix, 1U);
+
+    progpu_native_scene_layer_coverage_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP;
+    mask.width = 8U;
+    mask.height = 8U;
+    mask.row_bytes = 8U;
+    mask.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    mask.bounds = {0.0F, 0.0F, 8.0F, 8.0F};
+    mask.transform = {
+        static_cast<float>(target_width) / 8.0F, 0.0F,
+        0.0F, static_cast<float>(target_height) / 8.0F,
+        0.0F, 0.0F};
+    mask.opacity = 1.0F;
+    const std::uint32_t mask_offset = append(stream, &mask, 1U);
+    std::array<std::uint8_t, 64U> coverage{};
+    for (std::uint32_t y = 0U; y < 8U; ++y) {
+        for (std::uint32_t x = 0U; x < 8U; ++x) {
+            coverage[y * 8U + x] = x < 4U ? 255U : 0U;
+        }
+    }
+    const std::uint32_t coverage_offset = append(
+        stream, coverage.data(), coverage.size());
+
+    progpu_native_scene_state state{};
+    state.struct_size = sizeof(state);
+    state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+    state.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    state.opacity = 1.0F;
+    state.mask_resource_index = 2U;
+    const std::uint32_t state_offset = append(stream, &state, 1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 103U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const std::array<progpu_native_scene_resource, resource_count> resources{{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+                PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS,
+            0U, 2201U, 1U,
+            glyph_bitmap_offset, sizeof(glyph_bitmap),
+            glyph_pixel_offset,
+            static_cast<std::uint32_t>(glyph_pixels.size())},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_IMAGE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U, 2202U, 1U,
+            image_pixel_offset,
+            static_cast<std::uint32_t>(image_pixels.size()), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U, 2203U, 1U,
+            mask_offset, sizeof(mask), coverage_offset,
+            static_cast<std::uint32_t>(coverage.size())},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STATE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U, 2204U, 1U,
+            state_offset, sizeof(state), 0U, 0U}
+    }};
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources.data(),
+        sizeof(resources));
+
+    const std::array<progpu_native_scene_command, command_count> commands{{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U, 2211U, 3U, 1U,
+            image_draw_offset, sizeof(image) + sizeof(color_matrix),
+            0.0F, 0.0F,
+            static_cast<float>(target_width),
+            static_cast<float>(target_height), 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U, 2212U, 3U, 0U,
+            glyph_offset, sizeof(glyph),
+            glyph.position.x, glyph.position.y,
+            glyph_size, glyph_size, 0U, 0U}
+    }};
+    std::memcpy(
+        stream.data() + command_offset,
+        commands.data(),
+        sizeof(commands));
+    return stream;
+}
+
 } // namespace progpu::native::tests

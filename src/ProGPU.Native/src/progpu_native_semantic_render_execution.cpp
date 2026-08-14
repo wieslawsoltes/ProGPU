@@ -337,6 +337,8 @@ progpu_native_status render_scene(
     bool semantic_has_styled_glyphs = false;
     bool semantic_has_image_color_matrices = false;
     bool semantic_has_state_masks = false;
+    bool semantic_has_masked_glyphs = false;
+    bool semantic_has_masked_images = false;
     semantic_compilation_budget compilation_budget{};
     semantic_state_cursor preflight_state_cursor(bytes, header);
     semantic_layer_target_cursor preflight_target_cursor(
@@ -364,12 +366,6 @@ progpu_native_status render_scene(
             continue;
         }
         if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
-            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN ||
-                command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                    "Per-draw semantic masks currently support vector draw families only.");
-            }
             const auto mask_resource = read_resource(
                 state.mask_resource_index);
             std::uint32_t mask_kind = 0U;
@@ -379,14 +375,23 @@ progpu_native_status render_scene(
                     sizeof(std::uint32_t),
                 sizeof(mask_kind));
             if (mask_kind !=
-                PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE) {
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+                mask_kind !=
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                    "Per-draw semantic masks currently require an analytic rounded-rectangle resource.");
+                    "The per-draw semantic mask kind is unsupported.");
             }
             semantic_has_state_masks = true;
             semantic_layer_mask_kind =
-                PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
+                mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE
+                ? PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE
+                : PROGPU_NATIVE_GROUP_MASK_TEXTURE;
+            semantic_has_masked_glyphs |= command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN;
+            semantic_has_masked_images |= command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE;
         }
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
@@ -2545,6 +2550,21 @@ progpu_native_status render_scene(
             engine->semantic_scene_hash;
     }
 
+    if (semantic_has_masked_glyphs &&
+        !create_text_masked_pipeline(*engine)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic per-draw masked glyph pipeline could not be created.");
+    }
+    if (semantic_has_masked_images &&
+        !create_image_mask_resources(*engine)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic per-draw masked image pipeline could not be created.");
+    }
+
     const gpu_uniforms uniforms = create_uniforms(
         frame->width,
         frame->height,
@@ -3362,7 +3382,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_glyph_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3380,7 +3401,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_image_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }

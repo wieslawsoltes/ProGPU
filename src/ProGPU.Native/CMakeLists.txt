@@ -331,6 +331,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_texture_execution.cpp
     src/progpu_native_pipeline.cpp
     src/progpu_native_pipeline.hpp
+    src/progpu_native_semantic_masked_text_pipeline.cpp
     src/progpu_native_semantic_masked_vector_pipeline.cpp
     src/progpu_native_replay_execution.hpp
     src/progpu_native_scene.cpp
@@ -473,7 +474,9 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
                 tests/progpu_native_webscene_semantic_effect_fixture.hpp
                 tests/progpu_native_webscene_state_mask_fixture.cpp
-                tests/progpu_native_webscene_state_mask_fixture.hpp)
+                tests/progpu_native_webscene_state_mask_fixture.hpp
+                tests/progpu_native_webscene_state_mask_media_fixture.cpp
+                tests/progpu_native_webscene_state_mask_media_fixture.hpp)
             target_compile_features(progpu_native_webscene_provider_tests
                 PRIVATE cxx_std_20)
             target_include_directories(

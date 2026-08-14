@@ -113,8 +113,14 @@ Independent mask fixtures then verify both isolated-layer and exact per-draw
 semantics. The state-mask fixture binds one transformed analytic rounded mask
 to two overlapping translucent rectangles in one vector batch: three semantic
 commands, three typed resources, one GPU draw, exact premultiplied overlap
-pixels, and zero-upload replay. It uses the same explicit bind-group layouts
-and production `Vector.wgsl` as direct wgpu-native and packaged Dawn/WebScene.
+pixels, and zero-upload replay. A second state-mask fixture binds one retained
+R8 coverage mask to an uploaded color-matrix image and a retained color glyph:
+two semantic commands, four resources, two GPU draws, exact excluded-half
+pixels, and zero image/glyph/mask/uniform upload on stable replay. The color
+matrix and state mask remain independent shader bindings and execute in one
+image draw without an intermediate texture. These fixtures use the same
+explicit bind-group layouts and production `Vector.wgsl`, `Text.wgsl`, and
+`Texture.wgsl` as direct wgpu-native and packaged Dawn/WebScene.
 The test rejects console and WebGPU
 validation errors, verifies clear, parent, gradient, and composited-layer
 pixels, and saves the exact canvas plus a JSON contract under
