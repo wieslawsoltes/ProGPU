@@ -65,6 +65,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION (UINT64_C(1) << 34U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH (UINT64_C(1) << 35U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH (UINT64_C(1) << 36U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VERTEX_MESH (UINT64_C(1) << 37U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -102,7 +103,8 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE = 8,
     PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE = 9,
     PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH = 10,
-    PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH = 11
+    PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH = 11,
+    PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH = 12
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -153,7 +155,8 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE = 19,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY = 20,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH = 21
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH = 21,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH = 22
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -184,6 +187,16 @@ enum {
     PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED = 1U << 0U,
     PROGPU_NATIVE_POINT_BATCH_ROUND = 1U << 1U,
     PROGPU_NATIVE_POINT_BATCH_HAIRLINE = 1U << 2U
+};
+
+typedef enum progpu_native_vertex_mesh_topology {
+    PROGPU_NATIVE_VERTEX_MESH_TRIANGLES = 0,
+    PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_STRIP = 1,
+    PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_FAN = 2
+} progpu_native_vertex_mesh_topology;
+
+enum {
+    PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED = 1U << 0U
 };
 
 enum {
@@ -835,6 +848,32 @@ typedef struct progpu_native_scene_point_batch {
     progpu_native_color color;
     progpu_native_affine_2d transform;
 } progpu_native_scene_point_batch;
+
+/*
+ * Compact pointer-free retained vertex-mesh record. VertexOffset/VertexCount
+ * address a tightly packed progpu_native_scene_mesh_vertex prefix in the
+ * owning resource auxiliary arena. IndexOffset/IndexCount address the uint16
+ * suffix that follows the complete vertex prefix. Changed scenes expand the
+ * selected topology into the shared vector page; stable replay uploads zero.
+ */
+typedef struct progpu_native_scene_vertex_mesh {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t topology;
+    uint32_t color_blend_mode;
+    uint32_t vertex_offset;
+    uint32_t vertex_count;
+    uint32_t index_offset;
+    uint32_t index_count;
+    progpu_native_affine_2d transform;
+    uint32_t reserved[2];
+} progpu_native_scene_vertex_mesh;
+
+typedef struct progpu_native_scene_mesh_vertex {
+    progpu_native_point position;
+    progpu_native_point texture_coordinate;
+    progpu_native_color color;
+} progpu_native_scene_mesh_vertex;
 
 /*
  * A connected stroke borrows a contiguous range from geometry_frame.points.

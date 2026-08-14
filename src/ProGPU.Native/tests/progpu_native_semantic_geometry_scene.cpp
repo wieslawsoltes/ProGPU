@@ -25,8 +25,8 @@ std::uint32_t append(
 std::vector<std::byte> create_semantic_geometry_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height) {
-    constexpr std::uint32_t command_count = 2U;
-    constexpr std::uint32_t resource_count = 4U;
+    constexpr std::uint32_t command_count = 3U;
+    constexpr std::uint32_t resource_count = 5U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -90,6 +90,35 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         stream,
         &point_batch,
         1U);
+    const std::array mesh_vertices{
+        progpu_native_scene_mesh_vertex{
+            {target_width * 0.4F, target_height * 0.1F},
+            {0.0F, 0.0F}, {1.0F, 0.2F, 0.2F, 1.0F}},
+        progpu_native_scene_mesh_vertex{
+            {target_width * 0.6F, target_height * 0.1F},
+            {1.0F, 0.0F}, {0.2F, 1.0F, 0.2F, 1.0F}},
+        progpu_native_scene_mesh_vertex{
+            {target_width * 0.5F, target_height * 0.2F},
+            {0.5F, 1.0F}, {0.2F, 0.2F, 1.0F, 1.0F}}
+    };
+    const std::uint32_t mesh_vertices_offset = append(
+        stream,
+        mesh_vertices.data(),
+        mesh_vertices.size());
+    constexpr std::array<std::uint16_t, 3U> mesh_indices{0U, 1U, 2U};
+    append(stream, mesh_indices.data(), mesh_indices.size());
+    const progpu_native_scene_vertex_mesh mesh{
+        sizeof(progpu_native_scene_vertex_mesh),
+        0U,
+        PROGPU_NATIVE_VERTEX_MESH_TRIANGLES,
+        13U,
+        0U,
+        static_cast<std::uint32_t>(mesh_vertices.size()),
+        0U,
+        static_cast<std::uint32_t>(mesh_indices.size()),
+        identity,
+        {0U, 0U}};
+    const std::uint32_t mesh_offset = append(stream, &mesh, 1U);
 
     progpu_native_scene_brush brush{};
     brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
@@ -124,6 +153,17 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         1U);
     constexpr std::uint32_t point_brush_index = 0U;
     append(stream, &point_brush_index, 1U);
+    const progpu_native_scene_draw_brushes mesh_draw_brushes{
+        sizeof(progpu_native_scene_draw_brushes),
+        1U,
+        1U,
+        0U};
+    const std::uint32_t mesh_draw_offset = append(
+        stream,
+        &mesh_draw_brushes,
+        1U);
+    constexpr std::uint32_t mesh_brush_index = 0U;
+    append(stream, &mesh_brush_index, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -161,7 +201,14 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
             PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1104U, 1U,
             point_batch_offset, sizeof(point_batch),
-            points_offset, static_cast<std::uint32_t>(sizeof(points))}
+            points_offset, static_cast<std::uint32_t>(sizeof(points))},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1105U, 1U,
+            mesh_offset, sizeof(mesh),
+            mesh_vertices_offset,
+            static_cast<std::uint32_t>(
+                sizeof(mesh_vertices) + sizeof(mesh_indices))}
     }};
     std::memcpy(
         stream.data() + resource_offset,
@@ -193,6 +240,21 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
             3U,
             point_draw_offset,
             sizeof(point_draw_brushes) + sizeof(point_brush_index),
+            0.0F,
+            0.0F,
+            static_cast<float>(target_width),
+            static_cast<float>(target_height),
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            1113U,
+            2U,
+            4U,
+            mesh_draw_offset,
+            sizeof(mesh_draw_brushes) + sizeof(mesh_brush_index),
             0.0F,
             0.0F,
             static_cast<float>(target_width),

@@ -2220,16 +2220,20 @@ approval.
 
 ## Managed `GpuPicture` substitution bridge checkpoint
 
-The native semantic ABI now retains analytic, geometry, and compact point
-batches in one packed vector page. The new standalone `ProGPU.Scene.Native` package lowers an
+The native semantic ABI now retains analytic, geometry, compact point batches,
+and vertex meshes in one packed vector page. The new standalone
+`ProGPU.Scene.Native` package lowers an
 ordinary immutable `GpuPicture` into that pointer-free scene: supported solid
 rectangles, ellipses, circles, equal-radius rounded rectangles, lines,
 quadratic/cubic curves, triangles, quadrilaterals, periodic dot grids, and
-square/round point batches are grouped by consecutive family. Dot grids retain
+square/round point batches, and indexed/unindexed triangle-list, strip, or fan
+meshes are grouped by consecutive family. Dot grids retain
 bounds, phase, spacing, and radius as one native primitive and one quad,
 independent of visible dot count. Point batches retain one 64-byte descriptor
 plus eight bytes per point, coalesce adjacent commands, and expand to the shared
 vector page only when the scene changes; hairlines remain one device pixel.
+Meshes retain 32 bytes per attributed vertex plus optional 16-bit indices, all
+29 vertex-color blend modes, and expand topology only when the scene changes.
 Solid, linear, radial, two-point conical, and sweep
 gradients share one retained brush/stop page with brush opacity and coordinate
 transforms. Unsupported brushes, transforms, dashes, or command kinds fail
@@ -2241,7 +2245,7 @@ records up to 4,096 public `DrawingContext` commands, compiles them once, shows
 the compile latency and native command/resource counts, and then uses the same
 retained `RenderScene` call as WebScene. Stable replay owns no command-array
 materialization and performs zero primitive translation. The deterministic
-compiler contract verifies analytic, geometry, dot-grid, and point-batch
+compiler contract verifies analytic, geometry, dot-grid, point-batch, and mesh
 lowering; the sample's family-grouped workload lowers hundreds or thousands of
 managed commands to a bounded number of retained native draws.
 
@@ -2255,55 +2259,62 @@ not a whole-engine replacement claim.
 
 The source-independent Apple M3 Pro gate now packages the complete transitive
 `ProGPU.Scene.Native` dependency closure, restores the managed sample without
-project references, and records a ten-command public `GpuPicture`. Nested
+project references, and records an eleven-command public `GpuPicture`. Nested
 opacity and transformed axis-aligned clip scopes lower with two solids plus
 one clipped linear gradient, one periodic dot grid, and adjacent round/hairline
-point batches into eight ordered native commands, four native draws, seven
-retained resources, six brush records, two gradient stops, and a maximum native
-stack depth of two.
+point batches plus an indexed vertex-color triangle into nine ordered native
+commands, five native draws, eight retained resources, seven brush records,
+two gradient stops, and a maximum native stack depth of two.
 Dawn/Metal renders the expected pixels, including the clipped background
 region and dot/gap samples; stable replay uploads zero
 vertex/index/brush/stop bytes, and forced device loss plus replacement-device
 recreation reproduces the output. The PPM SHA-256 is
-`108361b504295a221ae2d3f604f6aad6b9ea1a4afae0e3ae5a565c2631b2cf31`;
+`f5aa237185edf6fc94fe8e3c205b4e0b258d6f594f598097400bcb19e64e6754`;
 the inspected PNG is retained at
-`artifacts/progpu-native/sample/progpu-native-managed-point-batch.png`.
+`artifacts/progpu-native/sample/progpu-native-managed-vertex-mesh.png`.
 
 ### Matched public-picture benchmark
 
 The Apple M3 Pro/Metal Release qualification records 384 public drawing
-commands: 264 solid/linear/radial/two-point-conical/sweep gradient analytic
-fills, 59 gradient-stroked lines, 29 gradient dot grids, and 32 point-batch
-commands containing 96 points. The managed compiler lowers the immutable
-picture once to three retained native draws, four resources, five brushes,
-eight gradient stops, and a 33,152-byte pointer-free stream. The repeated
-qualification took `19.1357 ms` and allocated `147,224 bytes` to compile once;
-the initial C++ scene update took `0.3432 ms` and allocated `48 bytes`.
+commands: 240 solid/linear/radial/two-point-conical/sweep gradient analytic
+fills, 54 gradient-stroked lines, 26 gradient dot grids, 32 point-batch commands
+containing 96 points, and 32 attributed/indexed vertex meshes covering all
+three topologies and all 29 vertex-color blend modes. The managed compiler
+lowers the immutable picture once to four retained native draws, five
+resources, five brushes, eight gradient stops, and a 37,288-byte pointer-free
+stream. The 1,000-frame qualification took `17.0039 ms` and allocated `126,312
+bytes` to compile once; the initial C++ scene update took `0.3961 ms` and
+allocated `48 bytes`.
 Neither cost is included in steady replay timing.
 
-After 60 warm-up and 300 alternating synchronized frames:
+After 100 warm-up and 1,000 alternating synchronized frames:
 
 | Metric | Compiled C++ | Managed compositor |
 |---|---:|---:|
-| p50 CPU submission | 0.0542 ms | 0.1726 ms |
-| p95 CPU submission | 0.1389 ms | 0.3760 ms |
-| p50 GPU completion wait | 1.5144 ms | 1.5142 ms |
-| p95 GPU completion wait | 4.5400 ms | 4.5400 ms |
-| p50 synchronized end to end | 1.5785 ms | 1.7049 ms |
-| p95 synchronized end to end | 4.5947 ms | 4.7275 ms |
+| p50 CPU submission | 0.0445 ms | 0.1495 ms |
+| p95 CPU submission | 0.0828 ms | 0.2079 ms |
+| p50 GPU completion wait | 1.5116 ms | 1.5090 ms |
+| p95 GPU completion wait | 4.5318 ms | 4.5315 ms |
+| p50 synchronized end to end | 1.5711 ms | 1.6689 ms |
+| p95 synchronized end to end | 4.5795 ms | 4.6999 ms |
 | managed allocation / stable frame | 0 bytes | 0 bytes |
 
-Native submission p50 is 68.6% lower and p95 is 63.1% lower; synchronized p50
-is 7.4% lower and p95 is 2.8% lower. GPU-completion waits are on par because
+Native submission p50 is 70.2% lower and p95 is 60.2% lower; synchronized p50
+is 5.9% lower and p95 is 2.6% lower. GPU-completion waits are on par because
 both paths execute the shared production WGSL on the same Metal queue; the
 improvement is retained CPU compilation and submission overhead. A managed
 identity-transform fast path removed a measured 12,288 bytes/frame of
 redundant gradient-brush and pen clones from the managed baseline before the
 final comparison.
 
+Two preceding 300-frame repeats also placed median completion on par; their
+p95 completion clusters alternated between on-par and native-favorable. The
+larger qualification therefore treats the common completion floor as equal
+and does not infer a GPU-speed advantage from scheduler-sensitive tail samples.
+
 All 518,400 pixels are byte-identical: maximum channel difference `0`, no
 pixels over `3/255`, mean absolute difference `0`, and native/managed FNV-1a
-hash `A72909D4131275F2`. The JSON distribution is retained under
+hash `F81DCB260A6D6C30`. The JSON distribution is retained under
 `artifacts/progpu-native/performance/managed-picture/`; the byte-identical
 native/managed PNGs and amplified black difference image are retained under
 `artifacts/progpu-native/differential/managed-picture/`.

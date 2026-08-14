@@ -1240,6 +1240,25 @@ field before appending any output. Changed compilation is `O(B + N)` time and
 six indices per point; unchanged render-bundle replay performs no translation,
 managed allocation, or upload.
 
+The following append-only slice adds `VERTEX_MESH` and `DRAW_VERTEX_MESH`.
+Each exact 64-byte mesh descriptor retains topology, one of the 29 existing
+vertex-color blend modes, affine transform, and contiguous ranges into a
+resource-local auxiliary arena. The arena stores one exact 32-byte position /
+texture-coordinate / straight-color vertex record followed by compact 16-bit
+indices; unindexed meshes carry no index bytes. Consecutive managed mesh
+commands coalesce into one resource and one packed-vector draw while preserving
+one brush-table index per mesh. Changed C++ compilation transforms vertices,
+premultiplies vertex colors once, expands triangle lists/strips/fans into the
+shared 32-bit GPU index page, and deliberately skips only triangles whose
+source indices are out of range, matching the managed observable contract.
+All vertex attributes, transformed positions, ranges, topology, blend mode,
+and reserved fields are preflighted transactionally. Compilation is `O(V + T)`
+time and `O(V + T)` retained packed storage for `V` source vertices and `T`
+candidate triangles; stable render-bundle replay performs zero mesh translation,
+managed allocation, or upload. The implementation reuses production
+`Vector.wgsl` shape 18, including its existing GPU brush/vertex-color blend
+path, rather than introducing a second mesh shader.
+
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
@@ -1258,7 +1277,8 @@ rejecting their source organization and implementation details. It also
 rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
 narrow: affine analytic primitives, affine geometry, periodic dot grids, and
-square/round point batches including one-device-pixel hairlines, with solid,
+square/round point batches including one-device-pixel hairlines, and indexed or
+unindexed vertex meshes, with solid,
 linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
@@ -1270,7 +1290,7 @@ boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, vector clips, paths, text,
-images, nested pictures, isolated layers, effects, vertex meshes, and 3D remain
+images, nested pictures, isolated layers, effects, remaining extensions, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and

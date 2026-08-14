@@ -15,6 +15,11 @@ public sealed class NativeCompiledPicture
         int nativeDrawCount,
         int analyticPrimitiveCount,
         int geometryPrimitiveCount,
+        int pointBatchCount,
+        int pointCount,
+        int vertexMeshCount,
+        int meshVertexCount,
+        int meshIndexCount,
         int brushCount,
         int gradientStopCount)
     {
@@ -27,6 +32,11 @@ public sealed class NativeCompiledPicture
         NativeDrawCount = nativeDrawCount;
         AnalyticPrimitiveCount = analyticPrimitiveCount;
         GeometryPrimitiveCount = geometryPrimitiveCount;
+        PointBatchCount = pointBatchCount;
+        PointCount = pointCount;
+        VertexMeshCount = vertexMeshCount;
+        MeshVertexCount = meshVertexCount;
+        MeshIndexCount = meshIndexCount;
         BrushCount = brushCount;
         GradientStopCount = gradientStopCount;
     }
@@ -48,6 +58,16 @@ public sealed class NativeCompiledPicture
     public int AnalyticPrimitiveCount { get; }
 
     public int GeometryPrimitiveCount { get; }
+
+    public int PointBatchCount { get; }
+
+    public int PointCount { get; }
+
+    public int VertexMeshCount { get; }
+
+    public int MeshVertexCount { get; }
+
+    public int MeshIndexCount { get; }
 
     public int BrushCount { get; }
 

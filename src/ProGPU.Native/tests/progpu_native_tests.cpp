@@ -519,6 +519,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_VERTEX_MESH) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
@@ -1409,6 +1411,100 @@ void semantic_point_batch_compiles_compact_retained_points() {
     PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
+void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
+    const std::array source_vertices{
+        progpu_native_scene_mesh_vertex{
+            {0.0F, 0.0F}, {0.1F, 0.2F}, {1.0F, 0.5F, 0.25F, 0.5F}},
+        progpu_native_scene_mesh_vertex{
+            {10.0F, 0.0F}, {0.9F, 0.2F}, {0.2F, 1.0F, 0.4F, 1.0F}},
+        progpu_native_scene_mesh_vertex{
+            {0.0F, 10.0F}, {0.1F, 0.8F}, {0.4F, 0.2F, 1.0F, 0.75F}},
+        progpu_native_scene_mesh_vertex{
+            {10.0F, 10.0F}, {0.9F, 0.8F}, {1.0F, 1.0F, 1.0F, 1.0F}}
+    };
+    const progpu_native_scene_vertex_mesh mesh{
+        sizeof(progpu_native_scene_vertex_mesh),
+        PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED,
+        PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_STRIP,
+        21U,
+        0U,
+        static_cast<std::uint32_t>(source_vertices.size()),
+        0U,
+        0U,
+        {2.0F, 0.0F, 0.0F, 3.0F, 5.0F, 7.0F},
+        {0U, 0U}
+    };
+    std::size_t resource_vertex_count = 0U;
+    std::size_t resource_index_count = 0U;
+    PROGPU_REQUIRE(progpu::native::vertex_mesh_resource_layout(
+        &mesh,
+        1U,
+        sizeof(source_vertices),
+        resource_vertex_count,
+        resource_index_count));
+    PROGPU_REQUIRE(resource_vertex_count == 4U);
+    PROGPU_REQUIRE(resource_index_count == 0U);
+
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_vertex_mesh(
+        mesh,
+        source_vertices.data(),
+        source_vertices.size(),
+        nullptr,
+        0U,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 5.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 7.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[0], 0.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[1], 0.25F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[2], 0.125F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[3], 0.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], 0.1F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, 21.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1018.0F));
+    PROGPU_REQUIRE(indices[0] == 0U && indices[1] == 1U &&
+        indices[2] == 2U && indices[3] == 2U &&
+        indices[4] == 1U && indices[5] == 3U);
+
+    const std::array<std::uint16_t, 4U> fan_indices{0U, 1U, 8U, 3U};
+    auto indexed = mesh;
+    indexed.topology = PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_FAN;
+    indexed.flags = 0U;
+    indexed.index_count = static_cast<std::uint32_t>(fan_indices.size());
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(progpu::native::append_vertex_mesh(
+        indexed,
+        source_vertices.data(),
+        source_vertices.size(),
+        fan_indices.data(),
+        fan_indices.size(),
+        0.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U);
+    PROGPU_REQUIRE(indices.empty());
+
+    auto invalid_vertices = source_vertices;
+    invalid_vertices[3].texture_coordinate.x =
+        std::numeric_limits<float>::quiet_NaN();
+    vertices.clear();
+    PROGPU_REQUIRE(!progpu::native::append_vertex_mesh(
+        mesh,
+        invalid_vertices.data(),
+        invalid_vertices.size(),
+        nullptr,
+        0U,
+        0.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty());
+}
+
 void geometry_batch_preserves_cap_order_and_space() {
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
@@ -1937,6 +2033,7 @@ int main() {
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     geometry_batch_encodes_periodic_dot_grid_as_one_quad();
     semantic_point_batch_compiles_compact_retained_points();
+    semantic_vertex_mesh_preserves_topology_color_and_coordinates();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
     dashed_strokes_preserve_pattern_space_caps_and_closed_seams();

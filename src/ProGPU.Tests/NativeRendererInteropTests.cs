@@ -643,6 +643,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             68719476736UL,
             (ulong)NativeRendererCapabilities.SemanticPointBatch);
+        Assert.Equal(
+            137438953472UL,
+            (ulong)NativeRendererCapabilities.SemanticVertexMesh);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -650,6 +653,10 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeScenePointBatch>());
         Assert.Equal(11U, (uint)NativeSceneResourceKind.PointBatch);
         Assert.Equal(21U, (uint)NativeSceneCommandKind.DrawPointBatch);
+        Assert.Equal(64, Unsafe.SizeOf<NativeSceneVertexMesh>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeSceneMeshVertex>());
+        Assert.Equal(12U, (uint)NativeSceneResourceKind.VertexMesh);
+        Assert.Equal(22U, (uint)NativeSceneCommandKind.DrawVertexMesh);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
     }
@@ -881,6 +888,109 @@ public class NativeRendererInteropTests
             resource.PayloadSize);
         Assert.Equal(
             (uint)(points.Length * Unsafe.SizeOf<Vector2>()),
+            resource.AuxiliarySize);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderValidatesPackedVertexMeshesTransactionally()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<NativeSceneMeshVertex> vertices =
+            stackalloc NativeSceneMeshVertex[3]
+            {
+                new(new(2f, 3f), Vector2.Zero, Vector4.One),
+                new(new(22f, 3f), Vector2.UnitX, Vector4.One),
+                new(new(12f, 18f), Vector2.UnitY, Vector4.One)
+            };
+        Span<ushort> indices = stackalloc ushort[3] { 0, 1, 2 };
+        Span<NativeSceneVertexMesh> meshes =
+            stackalloc NativeSceneVertexMesh[1]
+            {
+                new(
+                    0U,
+                    3U,
+                    0U,
+                    3U,
+                    Matrix3x2.Identity,
+                    colorBlendMode: NativeVertexColorBlendMode.SrcOver)
+            };
+        Span<NativeSceneBrush> brushes = stackalloc NativeSceneBrush[1]
+        {
+            NativeSceneBrush.Solid(Vector4.One)
+        };
+        Span<uint> brushIndices = stackalloc uint[1] { 0U };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 53U,
+            generation: 1U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+
+        meshes[0] = new(
+            4U,
+            3U,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            colorBlendMode: NativeVertexColorBlendMode.SrcOver);
+        Assert.False(builder.TryAddVertexMeshResource(
+            100U,
+            1U,
+            meshes,
+            vertices,
+            indices,
+            out _));
+        meshes[0] = new(
+            0U,
+            3U,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            colorBlendMode: NativeVertexColorBlendMode.SrcOver);
+        vertices[1] = new(
+            new Vector2(float.PositiveInfinity, 3f),
+            Vector2.UnitX,
+            Vector4.One);
+        Assert.False(builder.TryAddVertexMeshResource(
+            100U,
+            1U,
+            meshes,
+            vertices,
+            indices,
+            out _));
+        vertices[1] = new(new(22f, 3f), Vector2.UnitX, Vector4.One);
+        Assert.True(builder.TryAddVertexMeshResource(
+            100U,
+            1U,
+            meshes,
+            vertices,
+            indices,
+            out uint vertexMesh));
+        Assert.True(builder.TryAddBrushTableResource(
+            101U,
+            1U,
+            brushes,
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint brushTable));
+        Assert.True(builder.TryDrawVertexMesh(
+            1000U,
+            vertexMesh,
+            new NativeImageRect(2f, 3f, 20f, 15f),
+            brushTable,
+            brushIndices));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        Assert.Equal(2U, header.ResourceCount);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        Assert.Equal(NativeSceneResourceKind.VertexMesh, resource.Kind);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeSceneVertexMesh>(),
+            resource.PayloadSize);
+        Assert.Equal(
+            (uint)(3 * Unsafe.SizeOf<NativeSceneMeshVertex>() +
+                3 * sizeof(ushort)),
             resource.AuxiliarySize);
     }
 

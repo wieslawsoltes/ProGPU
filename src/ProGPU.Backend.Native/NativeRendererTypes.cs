@@ -49,6 +49,53 @@ public enum NativePointBatchFlags : uint
     Hairline = 1U << 2
 }
 
+public enum NativeVertexMeshTopology : uint
+{
+    Triangles = 0,
+    TriangleStrip = 1,
+    TriangleFan = 2
+}
+
+public enum NativeVertexColorBlendMode : uint
+{
+    Clear,
+    Src,
+    Dst,
+    SrcOver,
+    DstOver,
+    SrcIn,
+    DstIn,
+    SrcOut,
+    DstOut,
+    SrcATop,
+    DstATop,
+    Xor,
+    Plus,
+    Modulate,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Multiply,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity
+}
+
+[Flags]
+public enum NativeVertexMeshFlags : uint
+{
+    None = 0,
+    EdgeAliased = 1U << 0
+}
+
 public enum NativeStrokeCap : uint
 {
     Flat = 0,
@@ -191,7 +238,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticColorGlyphAtlas = 1UL << 33,
     DeviceLossRecreation = 1UL << 34,
     SemanticGeometryBatch = 1UL << 35,
-    SemanticPointBatch = 1UL << 36
+    SemanticPointBatch = 1UL << 36,
+    SemanticVertexMesh = 1UL << 37
 }
 
 public enum NativeSceneResourceKind : uint
@@ -206,7 +254,8 @@ public enum NativeSceneResourceKind : uint
     BrushTable = 8,
     TextStyleTable = 9,
     GeometryBatch = 10,
-    PointBatch = 11
+    PointBatch = 11,
+    VertexMesh = 12
 }
 
 public enum NativeSceneTextRenderingMode : uint
@@ -261,7 +310,8 @@ public enum NativeSceneCommandKind : uint
     DrawGlyphRun = 18,
     DrawImage = 19,
     DrawGeometry = 20,
-    DrawPointBatch = 21
+    DrawPointBatch = 21,
+    DrawVertexMesh = 22
 }
 
 [Flags]
@@ -1833,6 +1883,71 @@ public readonly struct NativeScenePointBatch
     [FieldOffset(40)] public readonly Matrix3x2 Transform;
 
     internal readonly bool HasCanonicalReservedField => Reserved == 0f;
+}
+
+/// <summary>
+/// Compact retained vertex-mesh metadata. Vertex and 16-bit index ranges
+/// address the two packed arrays in the owning resource auxiliary arena.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 64)]
+public readonly struct NativeSceneVertexMesh
+{
+    public NativeSceneVertexMesh(
+        uint vertexOffset,
+        uint vertexCount,
+        uint indexOffset,
+        uint indexCount,
+        Matrix3x2 transform,
+        NativeVertexMeshTopology topology = NativeVertexMeshTopology.Triangles,
+        NativeVertexColorBlendMode colorBlendMode =
+            NativeVertexColorBlendMode.Modulate,
+        NativeVertexMeshFlags flags = NativeVertexMeshFlags.None)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneVertexMesh>();
+        Flags = flags;
+        Topology = topology;
+        ColorBlendMode = colorBlendMode;
+        VertexOffset = vertexOffset;
+        VertexCount = vertexCount;
+        IndexOffset = indexOffset;
+        IndexCount = indexCount;
+        Transform = transform;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    [FieldOffset(0)] public readonly uint StructSize;
+    [FieldOffset(4)] public readonly NativeVertexMeshFlags Flags;
+    [FieldOffset(8)] public readonly NativeVertexMeshTopology Topology;
+    [FieldOffset(12)] public readonly NativeVertexColorBlendMode ColorBlendMode;
+    [FieldOffset(16)] public readonly uint VertexOffset;
+    [FieldOffset(20)] public readonly uint VertexCount;
+    [FieldOffset(24)] public readonly uint IndexOffset;
+    [FieldOffset(28)] public readonly uint IndexCount;
+    [FieldOffset(32)] public readonly Matrix3x2 Transform;
+    [FieldOffset(56)] private readonly uint Reserved0;
+    [FieldOffset(60)] private readonly uint Reserved1;
+
+    internal readonly bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneMeshVertex
+{
+    public NativeSceneMeshVertex(
+        Vector2 position,
+        Vector2 textureCoordinate,
+        Vector4 color)
+    {
+        Position = position;
+        TextureCoordinate = textureCoordinate;
+        Color = color;
+    }
+
+    public readonly Vector2 Position;
+    public readonly Vector2 TextureCoordinate;
+    public readonly Vector4 Color;
 }
 
 [StructLayout(LayoutKind.Sequential)]

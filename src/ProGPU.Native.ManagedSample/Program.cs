@@ -57,6 +57,19 @@ drawing.DrawRectangle(
     new SolidColorBrush(new Vector4(0.98f, 0.52f, 0.08f, 1f)),
     null,
     new Rect(280f, 64f, 280f, 132f));
+drawing.DrawVertexMesh(
+    new SolidColorBrush(Vector4.One),
+    new VertexMesh2D(
+        VertexMeshTopology.Triangles,
+        [new(232f, 20f), new(278f, 20f), new(255f, 58f)],
+        colors:
+        [
+            new(1f, 0f, 0f, 1f),
+            new(0f, 1f, 0f, 1f),
+            new(0f, 0f, 1f, 1f)
+        ],
+        indices: [0, 1, 2]),
+    VertexColorBlendMode.Dst);
 drawing.PushOpacity(0.75f);
 drawing.PushClip(new Rect(128f, 224f, 256f, 72f));
 drawing.DrawRectangle(
@@ -103,14 +116,14 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 8U ||
-    updateMetrics.ResourceCount != 7U ||
-    updateMetrics.DrawCount != 4U ||
+if (updateMetrics.CommandCount != 9U ||
+    updateMetrics.ResourceCount != 8U ||
+    updateMetrics.DrawCount != 5U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 10 ||
-    compiled.NativeCommandCount != 8 ||
-    compiled.NativeDrawCount != 4 ||
-    compiled.BrushCount != 6 ||
+    compiled.SourceCommandCount != 11 ||
+    compiled.NativeCommandCount != 9 ||
+    compiled.NativeDrawCount != 5 ||
+    compiled.BrushCount != 7 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
@@ -216,6 +229,7 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var gridGap = Pixel(48, 320);
     var roundPoint = Pixel(96, 342);
     var hairlinePoint = Pixel(448, 342);
+    var meshCenter = Pixel(255, 34);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
@@ -226,6 +240,7 @@ static bool HasExpectedColors(byte[] pixels, int width)
         gridGap[0] < 30 && gridGap[1] < 30 &&
         roundPoint[0] > 200 && roundPoint[1] > 150 &&
         hairlinePoint[0] > 200 && hairlinePoint[2] > 120 &&
+        meshCenter[0] + meshCenter[1] + meshCenter[2] > 180 &&
         background[0] < 30 && background[1] < 30;
 }
 

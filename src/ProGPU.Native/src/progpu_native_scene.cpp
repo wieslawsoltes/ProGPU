@@ -81,7 +81,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -90,12 +90,12 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
@@ -112,6 +112,8 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
             return PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH:
             return PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH;
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH:
+            return PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH;
         default:
             return 0U;
     }
@@ -607,7 +609,9 @@ validation_result validate(
                     command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
                     command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
                     command.kind ==
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH) {
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
+                    command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
                 if (command.payload_size == 0U) {
                     ++draw_count;
                     payload_bytes += command.payload_size;
@@ -621,6 +625,9 @@ validation_result validate(
                         : command.kind ==
                                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH
                             ? sizeof(progpu_native_scene_point_batch)
+                        : command.kind ==
+                                PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                            ? sizeof(progpu_native_scene_vertex_mesh)
                         : sizeof(progpu_native_scene_path_fill);
                 if (resource.payload_size % record_size != 0U ||
                     resource.payload_size / record_size >

@@ -280,6 +280,9 @@ public class NativePictureCompilerTests
         Assert.Equal(2, compiled.SourceCommandCount);
         Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.PointBatchCount);
+        Assert.Equal(5, compiled.PointCount);
+        Assert.Equal(0, compiled.VertexMeshCount);
         Assert.Equal(2, compiled.BrushCount);
         Assert.Equal(2, compiled.GradientStopCount);
 
@@ -310,6 +313,107 @@ public class NativePictureCompilerTests
             NativePointBatchFlags.EdgeAliased |
                 NativePointBatchFlags.Hairline,
             nativeBatches[1].Flags);
+    }
+
+    [Fact]
+    public void CompilerCoalescesVertexMeshesAndPreservesPackedAttributes()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 96f, 64f));
+        drawing.DrawVertexMesh(
+            new SolidColorBrush(new Vector4(0.2f, 0.4f, 0.8f, 1f)),
+            new VertexMesh2D(
+                VertexMeshTopology.Triangles,
+                [new(2f, 3f), new(22f, 3f), new(12f, 18f)]),
+            VertexColorBlendMode.SrcOver,
+            Matrix4x4.CreateTranslation(4f, 5f, 0f));
+        drawing.DrawVertexMesh(
+            new LinearGradientBrush(
+                new Vector2(0f, 0f),
+                new Vector2(96f, 0f),
+                [
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 0f),
+                    new GradientStop(new Vector4(0f, 0f, 1f, 1f), 1f)
+                ]),
+            new VertexMesh2D(
+                VertexMeshTopology.TriangleStrip,
+                [new(30f, 8f), new(50f, 8f), new(30f, 28f), new(50f, 28f)],
+                [Vector2.Zero, Vector2.UnitX, Vector2.UnitY, Vector2.One],
+                [
+                    new(1f, 0f, 0f, 0.5f),
+                    new(0f, 1f, 0f, 1f),
+                    new(0f, 0f, 1f, 0.75f),
+                    Vector4.One
+                ],
+                [0, 1, 2, 3]),
+            VertexColorBlendMode.SoftLight,
+            isEdgeAliased: true);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            6U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.VertexMeshCount);
+        Assert.Equal(7, compiled.MeshVertexCount);
+        Assert.Equal(4, compiled.MeshIndexCount);
+        Assert.Equal(0, compiled.PointBatchCount);
+        Assert.Equal(2, compiled.BrushCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.VertexMesh, resource.Kind);
+        Assert.Equal(
+            2 * Unsafe.SizeOf<NativeSceneVertexMesh>(),
+            checked((int)resource.PayloadSize));
+        Assert.Equal(
+            7 * Unsafe.SizeOf<NativeSceneMeshVertex>() + 4 * sizeof(ushort),
+            checked((int)resource.AuxiliarySize));
+
+        ReadOnlySpan<NativeSceneVertexMesh> meshes =
+            MemoryMarshal.Cast<byte, NativeSceneVertexMesh>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.Equal(0U, meshes[0].VertexOffset);
+        Assert.Equal(3U, meshes[0].VertexCount);
+        Assert.Equal(0U, meshes[0].IndexCount);
+        Assert.Equal(NativeVertexColorBlendMode.SrcOver, meshes[0].ColorBlendMode);
+        Assert.Equal(3U, meshes[1].VertexOffset);
+        Assert.Equal(4U, meshes[1].VertexCount);
+        Assert.Equal(0U, meshes[1].IndexOffset);
+        Assert.Equal(4U, meshes[1].IndexCount);
+        Assert.Equal(NativeVertexMeshTopology.TriangleStrip, meshes[1].Topology);
+        Assert.Equal(NativeVertexMeshFlags.EdgeAliased, meshes[1].Flags);
+        Assert.Equal(
+            NativeVertexColorBlendMode.SoftLight,
+            meshes[1].ColorBlendMode);
+
+        ReadOnlySpan<NativeSceneMeshVertex> vertices =
+            MemoryMarshal.Cast<byte, NativeSceneMeshVertex>(
+                compiled.Stream.Slice(
+                    checked((int)resource.AuxiliaryOffset),
+                    7 * Unsafe.SizeOf<NativeSceneMeshVertex>()));
+        Assert.Equal(new Vector2(2f, 3f), vertices[0].Position);
+        Assert.Equal(vertices[0].Position, vertices[0].TextureCoordinate);
+        Assert.Equal(Vector4.One, vertices[0].Color);
+        Assert.Equal(Vector2.Zero, vertices[3].TextureCoordinate);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 0.5f), vertices[3].Color);
+        ReadOnlySpan<ushort> indices = MemoryMarshal.Cast<byte, ushort>(
+            compiled.Stream.Slice(
+                checked((int)resource.AuxiliaryOffset) +
+                    7 * Unsafe.SizeOf<NativeSceneMeshVertex>(),
+                4 * sizeof(ushort)));
+        Assert.True(indices.SequenceEqual(new ushort[] { 0, 1, 2, 3 }));
     }
 
     [Fact]

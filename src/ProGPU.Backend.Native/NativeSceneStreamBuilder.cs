@@ -277,6 +277,98 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    public bool TryAddVertexMeshResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneVertexMesh> meshes,
+        scoped ReadOnlySpan<NativeSceneMeshVertex> vertices,
+        scoped ReadOnlySpan<ushort> indices,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (_built || _resourceCount == _resourceCapacity ||
+            resourceId == 0U || resourceId <= _lastResourceId ||
+            generation == 0U || flags != NativeSceneRecordFlags.Required ||
+            meshes.IsEmpty || vertices.IsEmpty ||
+            (uint)meshes.Length > NativeMethods.SceneMaximumDrawBrushIndices)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeSceneMeshVertex vertex in vertices)
+        {
+            if (!IsFinite(vertex.Position) ||
+                !IsFinite(vertex.TextureCoordinate) ||
+                !IsFinite(vertex.Color))
+            {
+                return false;
+            }
+        }
+        uint expectedVertexOffset = 0U;
+        uint expectedIndexOffset = 0U;
+        foreach (ref readonly NativeSceneVertexMesh mesh in meshes)
+        {
+            if (mesh.StructSize != Unsafe.SizeOf<NativeSceneVertexMesh>() ||
+                (mesh.Flags & ~NativeVertexMeshFlags.EdgeAliased) != 0 ||
+                (uint)mesh.Topology >
+                    (uint)NativeVertexMeshTopology.TriangleFan ||
+                (uint)mesh.ColorBlendMode >
+                    (uint)NativeVertexColorBlendMode.Luminosity ||
+                mesh.VertexCount == 0U ||
+                mesh.VertexOffset != expectedVertexOffset ||
+                mesh.VertexOffset > (uint)vertices.Length ||
+                mesh.VertexCount >
+                    (uint)vertices.Length - mesh.VertexOffset ||
+                mesh.IndexOffset != expectedIndexOffset ||
+                mesh.IndexOffset > (uint)indices.Length ||
+                mesh.IndexCount > (uint)indices.Length - mesh.IndexOffset ||
+                !IsFinite(mesh.Transform) ||
+                !mesh.HasCanonicalReservedFields)
+            {
+                return false;
+            }
+            expectedVertexOffset = checked(
+                expectedVertexOffset + mesh.VertexCount);
+            expectedIndexOffset = checked(
+                expectedIndexOffset + mesh.IndexCount);
+        }
+        if (expectedVertexOffset != (uint)vertices.Length ||
+            expectedIndexOffset != (uint)indices.Length)
+        {
+            return false;
+        }
+
+        int originalArenaSize = _arenaSize;
+        ReadOnlySpan<byte> payload = MemoryMarshal.AsBytes(meshes);
+        ReadOnlySpan<byte> vertexBytes = MemoryMarshal.AsBytes(vertices);
+        ReadOnlySpan<byte> indexBytes = MemoryMarshal.AsBytes(indices);
+        if (!TryWriteArena(payload, out uint payloadOffset) ||
+            !TryWriteArena(vertexBytes, out uint auxiliaryOffset) ||
+            (!indexBytes.IsEmpty &&
+                (!TryWriteArena(indexBytes, out uint indexOffset) ||
+                    indexOffset != auxiliaryOffset + (uint)vertexBytes.Length)))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        var resource = new NativeMethods.SceneResource
+        {
+            StructSize = ResourceSize,
+            Kind = NativeSceneResourceKind.VertexMesh,
+            Flags = flags,
+            ResourceId = resourceId,
+            Generation = generation,
+            PayloadOffset = payloadOffset,
+            PayloadSize = (uint)payload.Length,
+            AuxiliaryOffset = auxiliaryOffset,
+            AuxiliarySize = checked((uint)(vertexBytes.Length + indexBytes.Length))
+        };
+        Write(_resourceOffset + _resourceCount * ResourceSize, resource);
+        resourceIndex = (uint)_resourceCount++;
+        _lastResourceId = resourceId;
+        return true;
+    }
+
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
@@ -678,6 +770,25 @@ public ref struct NativeSceneStreamBuilder
         uint stateIndex = uint.MaxValue) =>
         TryDrawWithBrushes(
             NativeSceneCommandKind.DrawPointBatch,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
+            stateIndex);
+
+    /// <summary>
+    /// Draws retained vertex meshes with one brush-table index per mesh.
+    /// </summary>
+    public bool TryDrawVertexMesh(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawVertexMesh,
             commandId,
             resourceIndex,
             bounds,
@@ -1295,6 +1406,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawPointBatch => checked((int)
                 GetResourceRecordCount<NativeScenePointBatch>(
                     resourceIndex)),
+            NativeSceneCommandKind.DrawVertexMesh => checked((int)
+                GetResourceRecordCount<NativeSceneVertexMesh>(
+                    resourceIndex)),
             NativeSceneCommandKind.DrawPath => checked((int)
                 GetResourceRecordCount<NativeScenePathFill>(
                     resourceIndex)),
@@ -1323,12 +1437,14 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.GeometryBatch,
             NativeSceneCommandKind.DrawPointBatch =>
                 NativeSceneResourceKind.PointBatch,
+            NativeSceneCommandKind.DrawVertexMesh =>
+                NativeSceneResourceKind.VertexMesh,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.PointBatch;
+            <= NativeSceneResourceKind.VertexMesh;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

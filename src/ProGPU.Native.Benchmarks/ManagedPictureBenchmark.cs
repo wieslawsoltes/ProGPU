@@ -195,6 +195,11 @@ internal static class ManagedPictureBenchmark
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
             GeometryPrimitiveCount: compiled.GeometryPrimitiveCount,
+            PointBatchCount: compiled.PointBatchCount,
+            PointCount: compiled.PointCount,
+            VertexMeshCount: compiled.VertexMeshCount,
+            MeshVertexCount: compiled.MeshVertexCount,
+            MeshIndexCount: compiled.MeshIndexCount,
             BrushCount: compiled.BrushCount,
             GradientStopCount: compiled.GradientStopCount,
             StreamBytes: compiled.Stream.Length,
@@ -315,7 +320,11 @@ internal static class ManagedPictureBenchmark
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
             Math.Max(1, primitiveCount / 12));
-        int graphicCommandCount = primitiveCount - pointBatchCount;
+        int vertexMeshCount = Math.Min(
+            primitiveCount - pointBatchCount - 1,
+            Math.Max(1, primitiveCount / 12));
+        int graphicCommandCount =
+            primitiveCount - pointBatchCount - vertexMeshCount;
         int analyticCount = Math.Max(1, graphicCommandCount * 5 / 6);
         int dotGridCount = Math.Min(
             analyticCount,
@@ -382,7 +391,8 @@ internal static class ManagedPictureBenchmark
                 (yIndex + 1) * cellHeight - inset);
             drawing.DrawLine(linePen, start, end);
         }
-        for (int index = graphicCommandCount; index < primitiveCount; index++)
+        int pointBatchEnd = graphicCommandCount + pointBatchCount;
+        for (int index = graphicCommandCount; index < pointBatchEnd; index++)
         {
             int xIndex = index % columns;
             int yIndex = index / columns;
@@ -399,6 +409,49 @@ internal static class ManagedPictureBenchmark
                 ],
                 MathF.Max(0.75f, MathF.Min(cellWidth, cellHeight) * 0.08f),
                 round: (index & 1) == 0);
+        }
+        for (int index = pointBatchEnd; index < primitiveCount; index++)
+        {
+            int xIndex = index % columns;
+            int yIndex = index / columns;
+            float left = xIndex * cellWidth + inset;
+            float top = yIndex * cellHeight + inset;
+            float right = (xIndex + 1) * cellWidth - inset;
+            float bottom = (yIndex + 1) * cellHeight - inset;
+            Vector2[] positions =
+            [
+                new(left, top),
+                new(right, top),
+                new(left, bottom),
+                new(right, bottom)
+            ];
+            Vector2[] textureCoordinates =
+            [Vector2.Zero, Vector2.UnitX, Vector2.UnitY, Vector2.One];
+            Vector4[] colors =
+            [
+                new(1f, 0.25f, 0.15f, 0.85f),
+                new(0.15f, 1f, 0.35f, 0.9f),
+                new(0.25f, 0.35f, 1f, 0.8f),
+                Vector4.One
+            ];
+            VertexMeshTopology topology =
+                (VertexMeshTopology)(index % 3);
+            ushort[] indices = topology switch
+            {
+                VertexMeshTopology.Triangles => [0, 1, 2, 1, 3, 2],
+                VertexMeshTopology.TriangleStrip => [0, 1, 2, 3],
+                _ => [0, 1, 3, 2]
+            };
+            drawing.DrawVertexMesh(
+                brushes[index % brushes.Length],
+                new VertexMesh2D(
+                    topology,
+                    positions,
+                    textureCoordinates,
+                    colors,
+                    indices),
+                (VertexColorBlendMode)(index % 29),
+                isEdgeAliased: (index & 1) != 0);
         }
         return recorder.EndRecording();
     }
@@ -542,6 +595,11 @@ internal static class ManagedPictureBenchmark
         int NativeCommandCount,
         int AnalyticPrimitiveCount,
         int GeometryPrimitiveCount,
+        int PointBatchCount,
+        int PointCount,
+        int VertexMeshCount,
+        int MeshVertexCount,
+        int MeshIndexCount,
         int BrushCount,
         int GradientStopCount,
         int StreamBytes,

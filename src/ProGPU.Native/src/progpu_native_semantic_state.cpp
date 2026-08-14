@@ -105,6 +105,12 @@ void apply_semantic_transform(
     batch.transform = compose_affine(batch.transform, state.transform);
 }
 
+void apply_semantic_transform(
+    progpu_native_scene_vertex_mesh& mesh,
+    const progpu_native_scene_state& state) noexcept {
+    mesh.transform = compose_affine(mesh.transform, state.transform);
+}
+
 void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept {
