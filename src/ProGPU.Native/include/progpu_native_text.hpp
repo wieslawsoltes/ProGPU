@@ -252,6 +252,16 @@ public:
         std::span<sfnt_variation_axis> axes,
         std::uint16_t& written,
         font_error* error = nullptr) const noexcept;
+    /*
+     * Normalize one signed 16.16 user coordinate to F2Dot14 and apply its
+     * optional avar segment map. Work is O(A + M) over A axis maps and M map
+     * pairs with O(1) storage; no variation instance is retained.
+     */
+    bool try_normalize_variation_coordinate(
+        std::uint16_t axis_index,
+        std::int32_t user_fixed,
+        std::int16_t& result,
+        font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
     std::uint32_t face_index() const noexcept;

@@ -141,11 +141,39 @@ std::vector<std::byte> make_fvar() {
     return result;
 }
 
+std::vector<std::byte> make_avar() {
+    std::vector<std::byte> result(44U);
+    write_u16(result, 0U, 1U);
+    write_u16(result, 2U, 0U);
+    write_u16(result, 4U, 0U);
+    write_u16(result, 6U, 2U);
+    write_u16(result, 8U, 3U);
+    write_i16(result, 10U, -16384);
+    write_i16(result, 12U, -16384);
+    write_i16(result, 14U, 0);
+    write_i16(result, 16U, 0);
+    write_i16(result, 18U, 16384);
+    write_i16(result, 20U, 16384);
+    write_u16(result, 22U, 5U);
+    write_i16(result, 24U, -16384);
+    write_i16(result, 26U, -16384);
+    write_i16(result, 28U, 0);
+    write_i16(result, 30U, 0);
+    write_i16(result, 32U, 3277);
+    write_i16(result, 34U, 2949);
+    write_i16(result, 36U, 9830);
+    write_i16(result, 38U, 8847);
+    write_i16(result, 40U, 16384);
+    write_i16(result, 42U, 16384);
+    return result;
+}
+
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
     std::size_t glyph_size = 22U,
     std::size_t second_glyph_size = 0U,
-    bool include_variations = false) {
+    bool include_variations = false,
+    bool include_axis_mapping = false) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -213,6 +241,10 @@ std::vector<std::byte> make_font(
     if (include_variations) {
         tables.push_back(table_data{
             open_type_tag::from_chars('f', 'v', 'a', 'r'), make_fvar()});
+    }
+    if (include_axis_mapping) {
+        tables.push_back(table_data{
+            open_type_tag::from_chars('a', 'v', 'a', 'r'), make_avar()});
     }
 
     const auto directory_size = 12U + tables.size() * 16U;
@@ -282,6 +314,36 @@ void variation_axes_are_borrowed_bounded_and_transactional() {
     require(sfnt_font_view::try_create(truncated, 0U, font));
     require(!font.try_get_variation_axis_count(count, &error));
     require(error == font_error::invalid_face && count == 0U);
+}
+
+void variation_coordinates_apply_bounded_avar_mapping() {
+    const auto data = make_font(0U, 22U, 0U, true, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    std::int16_t normalized = 99;
+    font_error error = font_error::none;
+    require(font.try_normalize_variation_coordinate(
+        0U, 23 * 65536, normalized, &error));
+    require(error == font_error::none && normalized == 8192);
+    require(font.try_normalize_variation_coordinate(
+        1U, 500 * 65536, normalized, &error));
+    require(normalized == 2949);
+    require(font.try_normalize_variation_coordinate(
+        1U, 700 * 65536, normalized, &error));
+    require(normalized == 8847);
+    require(font.try_normalize_variation_coordinate(
+        1U, 1000 * 65536, normalized, &error));
+    require(normalized == 16384);
+    require(!font.try_normalize_variation_coordinate(
+        2U, 0, normalized, &error));
+    require(error == font_error::invalid_argument && normalized == 0);
+
+    auto truncated = data;
+    truncated.pop_back();
+    require(sfnt_font_view::try_create(truncated, 0U, font));
+    require(font.try_normalize_variation_coordinate(
+        1U, 700 * 65536, normalized, &error));
+    require(error == font_error::none && normalized == 9830);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1001,6 +1063,16 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(axes[1].default_fixed == 400 * 65536);
     require(axes[1].maximum_fixed == 900 * 65536);
     require(axes[1].flags == 0U && axes[1].name_id == 257U);
+    std::int16_t normalized = 0;
+    require(font.try_normalize_variation_coordinate(
+        0U, 23 * 65536, normalized));
+    require(normalized == 8192);
+    require(font.try_normalize_variation_coordinate(
+        1U, 500 * 65536, normalized));
+    require(normalized == 2949);
+    require(font.try_normalize_variation_coordinate(
+        1U, 700 * 65536, normalized));
+    require(normalized == 8847);
 }
 
 } // namespace
@@ -1008,6 +1080,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 int main() {
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
+    variation_coordinates_apply_bounded_avar_mapping();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
