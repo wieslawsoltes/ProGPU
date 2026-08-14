@@ -4,7 +4,6 @@
 
 #include <array>
 #include <bit>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -27,8 +26,11 @@ void set_error(font_error* destination, font_error value) noexcept {
 bool append_real_nibble(
     std::uint8_t nibble,
     std::span<char> destination,
-    std::size_t& length) noexcept {
+    std::size_t& length,
+    bool& ended) noexcept {
+    ended = false;
     if (nibble == 15U) {
+        ended = true;
         return true;
     }
     std::array<char, 2U> encoded{};
@@ -49,14 +51,88 @@ bool append_real_nibble(
     } else if (nibble == 14U) {
         encoded[0] = '-';
         count = 1U;
+    } else if (nibble == 13U) {
+        return false;
     }
     if (count > destination.size() - length) {
-        return true;
+        return false;
     }
     for (std::size_t index = 0U; index < count; ++index) {
         destination[length++] = encoded[index];
     }
-    return false;
+    return true;
+}
+
+bool try_parse_real(
+    std::span<const char> encoded,
+    double& result) noexcept {
+    result = 0.0;
+    if (encoded.empty()) {
+        return false;
+    }
+    std::size_t cursor = 0U;
+    auto negative = false;
+    if (encoded[cursor] == '-') {
+        negative = true;
+        if (++cursor == encoded.size()) {
+            return false;
+        }
+    }
+    double significand = 0.0;
+    std::int32_t fractional_digits = 0;
+    auto saw_digit = false;
+    auto saw_decimal = false;
+    while (cursor < encoded.size() && encoded[cursor] != 'E') {
+        const auto value = encoded[cursor++];
+        if (value == '.') {
+            if (saw_decimal) {
+                return false;
+            }
+            saw_decimal = true;
+            continue;
+        }
+        if (value < '0' || value > '9') {
+            return false;
+        }
+        saw_digit = true;
+        significand = significand * 10.0 +
+            static_cast<double>(value - '0');
+        if (saw_decimal) {
+            ++fractional_digits;
+        }
+    }
+    if (!saw_digit) {
+        return false;
+    }
+    std::int32_t exponent = 0;
+    if (cursor < encoded.size()) {
+        ++cursor;
+        auto exponent_negative = false;
+        if (cursor < encoded.size() && encoded[cursor] == '-') {
+            exponent_negative = true;
+            ++cursor;
+        }
+        const auto first_exponent_digit = cursor;
+        while (cursor < encoded.size()) {
+            const auto value = encoded[cursor++];
+            if (value < '0' || value > '9' || exponent > 4096) {
+                return false;
+            }
+            exponent = exponent * 10 + (value - '0');
+        }
+        if (cursor == first_exponent_digit) {
+            return false;
+        }
+        if (exponent_negative) {
+            exponent = -exponent;
+        }
+    }
+    const auto scale = exponent - fractional_digits;
+    result = significand * std::pow(10.0, static_cast<double>(scale));
+    if (negative) {
+        result = -result;
+    }
+    return std::isfinite(result);
 }
 
 std::uint32_t to_offset(double value) noexcept {
@@ -119,17 +195,20 @@ bool sfnt_cff_data::try_read_dictionary_number(
     bool ended = false;
     while (cursor < bytes.size() && !ended) {
         const auto pair = std::to_integer<std::uint8_t>(bytes[cursor++]);
-        ended = append_real_nibble(pair >> 4U, encoded, length) ||
-            append_real_nibble(pair & 0x0FU, encoded, length);
+        if (!append_real_nibble(
+                pair >> 4U, encoded, length, ended)) {
+            return false;
+        }
+        if (!ended && !append_real_nibble(
+                pair & 0x0FU, encoded, length, ended)) {
+            return false;
+        }
     }
     if (!ended || length == 0U) {
         return false;
     }
-    const auto parsed = std::from_chars(
-        encoded.data(), encoded.data() + length, result,
-        std::chars_format::general);
-    return parsed.ec == std::errc{} &&
-        parsed.ptr == encoded.data() + length && std::isfinite(result);
+    return try_parse_real(
+        std::span<const char>{encoded}.first(length), result);
 }
 
 bool sfnt_cff_data::try_get_top_dictionary(

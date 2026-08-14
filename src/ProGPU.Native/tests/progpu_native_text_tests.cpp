@@ -1690,6 +1690,21 @@ void cff1_indexes_and_dictionaries_are_borrowed_and_bounded() {
         real_number, cursor, 30U, decoded));
     require(decoded == 1.5 && cursor == real_number.size());
 
+    const std::array<std::byte, 5U> exponent_number{
+        std::byte{0x1E}, std::byte{0xE1}, std::byte{0xA2},
+        std::byte{0x5C}, std::byte{0x2F}};
+    cursor = 1U;
+    require(sfnt_cff_data::try_read_dictionary_number(
+        exponent_number, cursor, 30U, decoded));
+    require(decoded < -0.01249 && decoded > -0.01251 &&
+        cursor == exponent_number.size());
+
+    const std::array<std::byte, 2U> reserved_real_nibble{
+        std::byte{0x1E}, std::byte{0x1D}};
+    cursor = 1U;
+    require(!sfnt_cff_data::try_read_dictionary_number(
+        reserved_real_nibble, cursor, 30U, decoded));
+
     const std::array<std::byte, 16U> dictionary{
         std::byte{0xF7}, std::byte{0xC0}, std::byte{0x11},
         std::byte{0x95}, std::byte{0xF8}, std::byte{0x24}, std::byte{0x12},
