@@ -185,9 +185,20 @@ execute allocation-free; InterVariable glyph 397 matches the managed HVAR
 delta `-28`. The native MVAR consumer now matches InterVariable
 `xhgt=-31` (`1118 -> 1087`), and the GDEF 1.3 consumer evaluates its borrowed
 layout store for the later GPOS port.
+The dependency-free compressed-glyph foundation now includes a separate
+caller-buffer zlib/DEFLATE library. It implements stored, fixed-Huffman, and
+dynamic-Huffman RFC 1951 blocks, overlapping 32 KiB history copies, RFC 1950
+header checks, and Adler-32 validation without heap allocation or a platform
+compression dependency. The output span is the explicit memory bound; invalid
+headers, truncated/oversubscribed streams, invalid distances, trailing bytes,
+short output, and checksum mismatches fail explicitly. PNG scanline filtering
+and SVG gzip framing remain the next consumers rather than being folded into
+the compression layer.
+
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
-slice lands. C++ clients can use the header surface or, on the supported LLVM
-configuration, `import progpu.native.text;`.
+slice lands. C++ clients can use the header surfaces or, on the supported LLVM
+configuration, `import progpu.native.text;` and
+`import progpu.native.compression;`.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.

@@ -280,6 +280,9 @@ match exactly: `A` is glyph 34 with 14 canonical segments and hash
 `1714381338565491643`; `日` is glyph 20220 with 16 segments and hash
 `5620540281806238275`. Normal Clang, LLVM named modules, ASan/UBSan, 20/20
 managed Noto tests, and Emscripten/Emdawnwebgpu/Chromium pass.
+The DICT real-number reader uses a bounded locale-independent decimal/exponent
+parser rather than optional floating-point `std::from_chars`, preserving C++20
+compatibility with Xcode 16.4 libc++ as well as current Clang, GCC, and MSVC.
 
 Borrowed color-font data begins with `sbix` at checkpoint
 `ad2d2c43b62d5814066b2b7316241d4204aba7dd`. Strike selection preserves the
@@ -321,6 +324,24 @@ and palette entry `0xFFFF` is retained as an explicit foreground-color flag.
 Normal Apple Clang, LLVM named modules, ASan/UBSan, Emscripten compilation plus
 the shared Emdawnwebgpu/Chromium runtime contract, and five focused managed
 color-glyph renderer/compiler tests pass.
+
+The dependency-free compressed-glyph foundation starts with a standalone
+zlib/DEFLATE C++20 module. ProGPU's managed implementation delegates this seam
+to `System.IO.Compression`, so the native implementation is original work from
+[RFC 1950](https://www.rfc-editor.org/info/rfc1950/) and
+[RFC 1951](https://www.rfc-editor.org/info/rfc1951/), with the eventual PNG
+consumer constrained by the [W3C PNG specification](https://www.w3.org/TR/png-3/).
+Stored, fixed-Huffman, and dynamic-Huffman blocks decode into a caller-owned
+output span, including overlapping history copies up to 32 KiB. Header,
+dictionary, canonical-tree, length/distance, trailing-byte, capacity, and
+Adler-32 failures are explicit. Decoding is `O(I + 15S + O)` worst-case time
+for input bytes `I`, Huffman symbols `S`, and output bytes `O`; scratch remains
+fixed `O(1)` stack storage with no heap allocation or native dependency. Normal
+Apple Clang, LLVM named-module, ASan/UBSan, and Emscripten compilation plus the
+shared Emdawnwebgpu/Chromium runtime contract cover all three block types,
+history overlap, malformed headers, trailing data, short output, and checksum
+failure. PNG chunk/filter conversion and SVG gzip framing remain separate
+bounded slices.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

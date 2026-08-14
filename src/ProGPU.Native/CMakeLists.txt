@@ -401,6 +401,24 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h)
 
+add_library(progpu_native_compression STATIC
+    src/progpu_native_deflate.cpp
+    src/progpu_native_deflate_huffman.cpp
+    src/progpu_native_deflate_internal.hpp
+    src/progpu_native_zlib.cpp
+    include/progpu_native_compression.hpp)
+target_compile_features(progpu_native_compression PUBLIC cxx_std_20)
+target_include_directories(progpu_native_compression
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    target_sources(progpu_native_compression
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/progpu_native_compression.cppm)
+endif()
+progpu_native_enable_warnings(progpu_native_compression)
+progpu_native_enable_sanitizers(progpu_native_compression)
+
 add_library(progpu_native_text STATIC
     src/progpu_native_font_variations.cpp
     src/progpu_native_font_bytes.hpp
@@ -699,6 +717,22 @@ endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+        add_executable(progpu_native_compression_module_tests
+            tests/progpu_native_compression_module_tests.cpp)
+        target_link_libraries(
+            progpu_native_compression_module_tests
+            PRIVATE progpu_native_compression)
+        progpu_native_enable_warnings(
+            progpu_native_compression_module_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_compression_module_tests)
+        add_test(
+            NAME progpu_native_compression_module_tests
+            COMMAND progpu_native_compression_module_tests)
+        set_tests_properties(
+            progpu_native_compression_module_tests
+            PROPERTIES TIMEOUT 60)
+
         add_executable(progpu_native_scene_builder_module_tests
             tests/progpu_native_scene_builder_module_tests.cpp)
         target_link_libraries(
@@ -731,6 +765,18 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native_text_module_tests
             PROPERTIES TIMEOUT 60)
     endif()
+
+    add_executable(progpu_native_compression_tests
+        tests/progpu_native_compression_tests.cpp)
+    target_link_libraries(progpu_native_compression_tests PRIVATE
+        progpu_native_compression)
+    progpu_native_enable_warnings(progpu_native_compression_tests)
+    progpu_native_enable_sanitizers(progpu_native_compression_tests)
+    add_test(
+        NAME progpu_native_compression_tests
+        COMMAND progpu_native_compression_tests)
+    set_tests_properties(
+        progpu_native_compression_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_tests
         tests/progpu_native_text_tests.cpp)
