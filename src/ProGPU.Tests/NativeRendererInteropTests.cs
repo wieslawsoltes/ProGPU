@@ -2445,6 +2445,27 @@ public class NativeRendererInteropTests
             "--dawn --device-loss \"${managed_capture}\"",
             providerVerifier,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU.Scene.Native",
+            providerVerifier,
+            StringComparison.Ordinal);
+        string managedSampleProject = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.ManagedSample",
+            "ProGPU.Native.ManagedSample.csproj"));
+        string managedSample = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.ManagedSample", "Program.cs"));
+        Assert.Contains(
+            "PackageReference Include=\"ProGPU.Scene.Native\"",
+            managedSampleProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GpuPictureNativeSceneCompiler.TryCompile",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "GradientStopUploadBytes",
+            managedSample,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));

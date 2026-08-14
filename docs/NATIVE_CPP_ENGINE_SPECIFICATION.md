@@ -1236,10 +1236,13 @@ primary-source research for Skia, Direct2D/Win2D, WebRender, and Vello, while
 rejecting their source organization and implementation details. It also
 rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
-narrow: solid analytic primitives and solid affine geometry. Gradients,
-paths, text, images, nested pictures, state stacks, effects, meshes, and 3D
-remain explicit fail-closed continuation slices rather than silent parity
-claims.
+narrow: affine analytic primitives and affine geometry with solid, linear,
+radial, two-point conical, or sweep-gradient brushes. Brush opacity, sorted
+stop ownership, spread, color-interpolation mode, optional conical outside
+color, and affine coordinate transforms are snapshotted into one deduplicated
+retained brush page. Perlin/hatch brushes, paths, text, images, nested
+pictures, state stacks, effects, meshes, and 3D remain explicit fail-closed
+continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical

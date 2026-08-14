@@ -2225,8 +2225,10 @@ packed vector page. The new standalone `ProGPU.Scene.Native` package lowers an
 ordinary immutable `GpuPicture` into that pointer-free scene: supported solid
 rectangles, ellipses, circles, equal-radius rounded rectangles, lines,
 quadratic/cubic curves, triangles, and quadrilaterals are grouped by
-consecutive family. Unsupported brushes, transforms, dashes, or command kinds
-fail with the exact source command index and type; they never fall back to the
+consecutive family. Solid, linear, radial, two-point conical, and sweep
+gradients share one retained brush/stop page with brush opacity and coordinate
+transforms. Unsupported brushes, transforms, dashes, or command kinds fail
+with the exact source command index and type; they never fall back to the
 managed renderer inside a qualification run.
 
 The desktop C++ renderer page includes a selectable managed-picture mode. It
@@ -2244,6 +2246,18 @@ publicly recorded picture through managed `Compositor` and compiled C++ paths,
 report one-time compilation separately from warm replay, retain GPU-completion
 and pixel-difference evidence, and pass the established 5% p95/no-allocation
 gate before this lane can be called a .NET substitute.
+
+The source-independent Apple M3 Pro gate now packages the complete transitive
+`ProGPU.Scene.Native` dependency closure, restores the managed sample without
+project references, records a three-command public `GpuPicture`, and compiles
+two solids plus one linear gradient into one native draw, two retained
+resources, three brush records, and two gradient stops. Dawn/Metal renders the
+expected pixels, stable replay uploads zero vertex/index/brush/stop bytes, and
+forced device loss plus replacement-device recreation reproduces the output.
+The PPM SHA-256 is
+`b56487fc89f2d4f12908e0841603dea3ffadc63a16b62a00e343767e35ea3fcf`;
+the inspected PNG is retained at
+`artifacts/progpu-native/sample/progpu-native-managed-dawn.png`.
 
 ## Representative aggregate qualification checkpoint
 

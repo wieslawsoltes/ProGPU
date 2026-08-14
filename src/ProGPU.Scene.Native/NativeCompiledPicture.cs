@@ -13,7 +13,9 @@ public sealed class NativeCompiledPicture
         int sourceCommandCount,
         int nativeDrawCount,
         int analyticPrimitiveCount,
-        int geometryPrimitiveCount)
+        int geometryPrimitiveCount,
+        int brushCount,
+        int gradientStopCount)
     {
         Storage = storage;
         Length = length;
@@ -23,6 +25,8 @@ public sealed class NativeCompiledPicture
         NativeDrawCount = nativeDrawCount;
         AnalyticPrimitiveCount = analyticPrimitiveCount;
         GeometryPrimitiveCount = geometryPrimitiveCount;
+        BrushCount = brushCount;
+        GradientStopCount = gradientStopCount;
     }
 
     private byte[] Storage { get; }
@@ -40,6 +44,10 @@ public sealed class NativeCompiledPicture
     public int AnalyticPrimitiveCount { get; }
 
     public int GeometryPrimitiveCount { get; }
+
+    public int BrushCount { get; }
+
+    public int GradientStopCount { get; }
 
     public ReadOnlyMemory<byte> Memory => Storage.AsMemory(0, Length);
 

@@ -116,14 +116,24 @@ ln -s "${build_dir}/libprogpu_native_dawn.dylib" \
 managed_capture="${sample_dir}/progpu-native-managed-dawn.ppm"
 managed_package_version="0.0.0-provider-test.g$(
   git -C "${repo_root}" rev-parse --short=12 HEAD)"
-dotnet pack "${repo_root}/src/ProGPU.Backend/ProGPU.Backend.csproj" \
-  --configuration Release --output "${managed_packages}" \
-  -p:Version="${managed_package_version}" \
-  -p:PackageVersion="${managed_package_version}"
-dotnet pack "${repo_root}/src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" \
-  --configuration Release --output "${managed_packages}" \
-  -p:Version="${managed_package_version}" \
-  -p:PackageVersion="${managed_package_version}"
+managed_package_projects=(
+  ProGPU.Backend
+  ProGPU.Backend.Dawn
+  ProGPU.WinRT
+  ProGPU.Transpiler
+  ProGPU.Text.Shaping
+  ProGPU.Vector
+  ProGPU.Text
+  ProGPU.Compute
+  ProGPU.Scene
+  ProGPU.Scene.Native
+)
+for project in "${managed_package_projects[@]}"; do
+  dotnet pack "${repo_root}/src/${project}/${project}.csproj" \
+    --configuration Release --output "${managed_packages}" \
+    -p:Version="${managed_package_version}" \
+    -p:PackageVersion="${managed_package_version}"
+done
 dotnet pack "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" \
   --configuration Release --output "${managed_packages}" \
   -p:Version="${managed_package_version}" \

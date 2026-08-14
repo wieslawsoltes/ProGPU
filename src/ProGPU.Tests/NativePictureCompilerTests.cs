@@ -84,11 +84,13 @@ public class NativePictureCompilerTests
         Assert.Equal(3, compiled.NativeDrawCount);
         Assert.Equal(3, compiled.AnalyticPrimitiveCount);
         Assert.Equal(2, compiled.GeometryPrimitiveCount);
+        Assert.Equal(3, compiled.BrushCount);
+        Assert.Equal(0, compiled.GradientStopCount);
 
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
             compiled.Stream);
         Assert.Equal(3U, header.CommandCount);
-        Assert.Equal(3U, header.ResourceCount);
+        Assert.Equal(4U, header.ResourceCount);
         Assert.Equal(81UL, header.SceneId);
         Assert.Equal(4UL, header.Generation);
         var secondResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
@@ -99,16 +101,106 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerFailsClosedForUnsupportedBrush()
+    public void CompilerSnapshotsAllRetainedGradientFamiliesAndTransforms()
     {
-        var gradient = new LinearGradientBrush(
-            Vector2.Zero,
-            Vector2.One,
+        GradientStop[] stops =
+        [
+            new(new Vector4(1f, 0f, 0f, 1f), 0f),
+            new(new Vector4(0f, 0f, 1f, 1f), 1f)
+        ];
+        var linear = new LinearGradientBrush(
+            new Vector2(2f, 3f),
+            new Vector2(40f, 3f),
+            stops)
+        {
+            Opacity = 0.75f,
+            CoordinateTransform = Matrix4x4.CreateTranslation(4f, 5f, 0f),
+            SpreadMethod = GradientSpreadMethod.Reflect,
+            ColorInterpolationMode =
+                GradientColorInterpolationMode.ScRgbLinearInterpolation
+        };
+        var radial = new RadialGradientBrush(
+            new Vector2(20f, 20f),
+            new Vector2(18f, 19f),
+            12f,
+            8f,
+            stops);
+        var conical = new TwoPointConicalGradientBrush(
+            new Vector2(5f, 5f),
+            2f,
+            new Vector2(30f, 20f),
+            14f,
+            stops)
+        {
+            OutsideColor = new Vector4(0f, 1f, 0f, 1f)
+        };
+        var sweep = new SweepGradientBrush(new Vector2(20f, 20f), stops)
+        {
+            StartAngle = 20f,
+            EndAngle = 300f
+        };
+        using var picture = new GpuPicture(
             new[]
             {
-                new GradientStop(Vector4.Zero, 0f),
-                new GradientStop(Vector4.One, 1f)
-            });
+                Rectangle(linear, 0f),
+                Rectangle(radial, 12f),
+                Rectangle(conical, 24f),
+                Rectangle(sweep, 36f)
+            },
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            90U,
+            2U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(4, compiled.BrushCount);
+        Assert.Equal(8, compiled.GradientStopCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        Assert.Equal(1U, header.CommandCount);
+        Assert.Equal(2U, header.ResourceCount);
+        var brushResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(
+                checked((int)header.ResourceOffset) +
+                    Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        Assert.Equal(NativeSceneResourceKind.BrushTable, brushResource.Kind);
+        ReadOnlySpan<NativeSceneBrush> brushes = MemoryMarshal.Cast<byte, NativeSceneBrush>(
+            compiled.Stream.Slice(
+                checked((int)brushResource.PayloadOffset),
+                checked((int)brushResource.PayloadSize)));
+        Assert.Equal(NativeSceneBrushKind.LinearGradient, brushes[0].Kind);
+        Assert.Equal(NativeSceneBrushKind.RadialGradient, brushes[1].Kind);
+        Assert.Equal(NativeSceneBrushKind.TwoPointConicalGradient, brushes[2].Kind);
+        Assert.Equal(NativeSceneBrushKind.SweepGradient, brushes[3].Kind);
+        Assert.Equal(0.75f, brushes[0].Opacity);
+        Assert.Equal(4f, brushes[0].CoordinateTransform0.Z);
+        Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
+
+        static RenderCommand Rectangle(Brush brush, float x) => new()
+        {
+            Type = RenderCommandType.DrawRect,
+            Rect = new Rect(x, 0f, 10f, 10f),
+            Brush = brush,
+            Transform = Matrix4x4.Identity
+        };
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForUnsupportedBrush()
+    {
+        var unsupported = new HatchPatternBrush(
+            45f,
+            8f,
+            1f,
+            Vector4.One);
         using var picture = new GpuPicture(
             new[]
             {
@@ -116,7 +208,7 @@ public class NativePictureCompilerTests
                 {
                     Type = RenderCommandType.DrawRect,
                     Rect = new Rect(0f, 0f, 10f, 10f),
-                    Brush = gradient,
+                    Brush = unsupported,
                     Transform = Matrix4x4.Identity
                 }
             },

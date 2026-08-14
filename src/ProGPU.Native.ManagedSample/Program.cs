@@ -2,6 +2,9 @@ using System.Numerics;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
+using ProGPU.Scene;
+using ProGPU.Scene.Native;
+using ProGPU.Vector;
 using Silk.NET.WebGPU;
 
 const uint width = 640;
@@ -44,17 +47,71 @@ using var compositor = dawnContext is null
         dawnContext,
         TextureFormat.Rgba8Unorm);
 
-ReadOnlySpan<NativeSolidRectangle> rectangles =
-[
-    new(48, 48, 180, 120, new Vector4(0.08f, 0.42f, 0.95f, 1f)),
-    new(280, 64, 280, 132, new Vector4(0.98f, 0.52f, 0.08f, 1f)),
-    new(128, 224, 384, 72, new Vector4(0.20f, 0.82f, 0.48f, 0.90f))
-];
-NativeFrameMetrics metrics = compositor.Render(
+var recorder = new GpuPictureRecorder();
+DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, width, height));
+drawing.DrawRectangle(
+    new SolidColorBrush(new Vector4(0.08f, 0.42f, 0.95f, 1f)),
+    null,
+    new Rect(48f, 48f, 180f, 120f));
+drawing.DrawRectangle(
+    new SolidColorBrush(new Vector4(0.98f, 0.52f, 0.08f, 1f)),
+    null,
+    new Rect(280f, 64f, 280f, 132f));
+drawing.DrawRectangle(
+    new LinearGradientBrush(
+        new Vector2(128f, 224f),
+        new Vector2(512f, 224f),
+        [
+            new GradientStop(new Vector4(0.20f, 0.82f, 0.48f, 1f), 0f),
+            new GradientStop(new Vector4(0.92f, 0.22f, 0.72f, 1f), 1f)
+        ]),
+    null,
+    new Rect(128f, 224f, 384f, 72f));
+using GpuPicture picture = recorder.EndRecording();
+const ulong sceneId = 0x4D414E4147454455UL;
+const ulong sceneGeneration = 1UL;
+if (!GpuPictureNativeSceneCompiler.TryCompile(
+        picture,
+        sceneId,
+        sceneGeneration,
+        out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure) ||
+    compiled is null)
+{
+    throw new InvalidOperationException(
+        $"The managed picture compiler failed: {failure}.");
+}
+NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
+if (updateMetrics.CommandCount != 1U ||
+    updateMetrics.ResourceCount != 2U ||
+    updateMetrics.DrawCount != 1U ||
+    compiled.SourceCommandCount != 3 ||
+    compiled.BrushCount != 3 ||
+    compiled.GradientStopCount != 2)
+{
+    throw new InvalidOperationException(
+        $"The compiled managed picture contract is invalid: {updateMetrics}.");
+}
+NativeSceneFrameMetrics metrics = compositor.RenderScene(
     target,
     dpiScale: 1f,
-    rectangles,
+    sceneId,
+    sceneGeneration,
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
+metrics = compositor.RenderScene(
+    target,
+    dpiScale: 1f,
+    sceneId,
+    sceneGeneration,
+    new Vector4(0.02f, 0.025f, 0.04f, 1f));
+if (metrics.VertexUploadBytes != 0U ||
+    metrics.IndexUploadBytes != 0U ||
+    metrics.BrushUploadBytes != 0U ||
+    metrics.GradientStopUploadBytes != 0U)
+{
+    throw new InvalidOperationException(
+        "Stable managed-picture replay rebuilt retained native resources.");
+}
 byte[] pixels = target.ReadPixels();
 
 if (!HasExpectedColors(pixels, checked((int)width)))
@@ -96,10 +153,11 @@ if (recreateAfterDeviceLoss)
         TextureFormat.Rgba8Unorm,
         TextureUsage.RenderAttachment | TextureUsage.CopySrc,
         "ProGPU recreated native managed sample target");
-    metrics = replacementCompositor.Render(
+    metrics = replacementCompositor.RenderScene(
         replacementTarget,
         dpiScale: 1f,
-        rectangles,
+        sceneId,
+        sceneGeneration,
         new Vector4(0.02f, 0.025f, 0.04f, 1f));
     pixels = replacementTarget.ReadPixels();
     if (!HasExpectedColors(pixels, checked((int)width)))
@@ -117,7 +175,8 @@ Console.WriteLine(
     $"[ProGPUNativeManaged] backend={(useDawn ? "Dawn" : "wgpu-native")}; " +
     $"recreated={recreateAfterDeviceLoss}; " +
     $"{info.Name}; " +
-    $"vertices={metrics.VertexCount}; draws={metrics.DrawCallCount}; " +
+    $"sourceCommands={compiled.SourceCommandCount}; " +
+    $"nativeCommands={metrics.CommandCount}; draws={metrics.DrawCallCount}; " +
     $"submissions={metrics.SubmissionCount}; output={outputPath}");
 
 static bool HasExpectedColors(byte[] pixels, int width)
@@ -126,9 +185,13 @@ static bool HasExpectedColors(byte[] pixels, int width)
         pixels.AsSpan((y * width + x) * 4, 4);
     var blue = Pixel(100, 100);
     var amber = Pixel(360, 130);
+    var gradientStart = Pixel(160, 260);
+    var gradientEnd = Pixel(480, 260);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
+        gradientStart[1] > gradientStart[0] &&
+        gradientEnd[0] > gradientEnd[1] &&
         background[0] < 30 && background[1] < 30;
 }
 
