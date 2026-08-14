@@ -1,11 +1,13 @@
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <utility>
 
 // Native uniform-run orchestration ported from the stage boundaries in
 // ProGPU-owned CpuOpenTypeShaper.cs/OpenTypeTextShaper.cs at checkpoint
@@ -20,6 +22,99 @@ constexpr open_type_tag gsub_tag =
     open_type_tag::from_chars('G', 'S', 'U', 'B');
 constexpr open_type_tag gpos_tag =
     open_type_tag::from_chars('G', 'P', 'O', 'S');
+constexpr std::uint32_t arabic_action_mask = 0x00000700U;
+constexpr std::uint32_t arabic_action_shift = 8U;
+
+bool uses_arabic_joining(open_type_tag script) noexcept {
+    constexpr std::array scripts{
+        open_type_tag::from_chars('a', 'd', 'l', 'm'),
+        open_type_tag::from_chars('a', 'r', 'a', 'b'),
+        open_type_tag::from_chars('c', 'h', 'r', 's'),
+        open_type_tag::from_chars('r', 'o', 'h', 'g'),
+        open_type_tag::from_chars('m', 'a', 'n', 'd'),
+        open_type_tag::from_chars('m', 'a', 'n', 'i'),
+        open_type_tag::from_chars('m', 'o', 'n', 'g'),
+        open_type_tag::from_chars('n', 'k', 'o', 'o'),
+        open_type_tag::from_chars('o', 'u', 'g', 'r'),
+        open_type_tag::from_chars('p', 'h', 'a', 'g'),
+        open_type_tag::from_chars('p', 'h', 'l', 'p'),
+        open_type_tag::from_chars('s', 'o', 'g', 'd'),
+        open_type_tag::from_chars('s', 'y', 'r', 'c')};
+    return std::find(scripts.begin(), scripts.end(), script) != scripts.end();
+}
+
+void set_arabic_action(
+    shaping_glyph& glyph,
+    open_type_arabic_action action) noexcept {
+    const std::uint32_t flags = static_cast<std::uint32_t>(glyph.flags);
+    glyph.flags = static_cast<shaping_glyph_flags>(
+        (flags & ~arabic_action_mask) |
+        (static_cast<std::uint32_t>(action) << arabic_action_shift));
+}
+
+open_type_arabic_action get_arabic_action(
+    const shaping_glyph& glyph) noexcept {
+    return static_cast<open_type_arabic_action>(
+        (static_cast<std::uint32_t>(glyph.flags) & arabic_action_mask) >>
+        arabic_action_shift);
+}
+
+void clear_arabic_actions(
+    std::span<shaping_glyph> glyphs) noexcept {
+    for (auto& glyph : glyphs) {
+        glyph.flags = static_cast<shaping_glyph_flags>(
+            static_cast<std::uint32_t>(glyph.flags) & ~arabic_action_mask);
+    }
+}
+
+bool apply_arabic_form_feature(
+    const open_type_layout_table_view& gsub,
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    open_type_arabic_action action,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gsub_apply_options& options,
+    font_error* error) noexcept {
+    std::uint32_t lookup_count = 0U;
+    if (!gsub.try_select_feature_lookups(
+            script,
+            language,
+            feature,
+            lookup_scratch,
+            lookup_count,
+            error)) {
+        return false;
+    }
+    for (std::uint32_t lookup = 0U; lookup < lookup_count; ++lookup) {
+        std::uint32_t position = 0U;
+        while (position < glyph_count) {
+            if (get_arabic_action(glyph_storage[position]) != action) {
+                ++position;
+                continue;
+            }
+            const std::uint32_t count_before = glyph_count;
+            bool applied = false;
+            if (!try_apply_open_type_gsub_lookup_at(
+                    gsub,
+                    lookup_scratch[lookup],
+                    glyph_storage,
+                    glyph_count,
+                    position,
+                    options,
+                    applied,
+                    error)) {
+                return false;
+            }
+            position += 1U + (glyph_count > count_before
+                ? glyph_count - count_before
+                : 0U);
+        }
+    }
+    return true;
+}
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
@@ -96,7 +191,8 @@ bool try_get_open_type_shape_run_requirements(
         static_cast<std::uint32_t>(input.size()),
         grapheme_count,
         gsub.lookup_count(),
-        gpos.lookup_count()};
+        gpos.lookup_count(),
+        static_cast<std::uint32_t>(input.size())};
     set_error(error, font_error::none);
     return true;
 }
@@ -115,10 +211,13 @@ bool try_shape_open_type_run(
             font, input, requirements, error)) {
         return false;
     }
+    const bool arabic_joining = uses_arabic_joining(options.script);
     if (glyph_storage.size() < requirements.initial_glyph_count ||
         scratch.grapheme_clusters.size() < requirements.grapheme_capacity ||
         scratch.gsub_lookups.size() < requirements.gsub_lookup_capacity ||
         scratch.gpos_lookups.size() < requirements.gpos_lookup_capacity ||
+        (arabic_joining && scratch.arabic_actions.size() <
+            requirements.script_action_capacity) ||
         scratch.attachments.size() < glyph_storage.size() ||
         scratch.attachment_states.size() < glyph_storage.size()) {
         set_error(error, font_error::insufficient_buffer);
@@ -169,6 +268,24 @@ bool try_shape_open_type_run(
     }
     glyph_count = requirements.initial_glyph_count;
 
+    if (arabic_joining) {
+        std::uint32_t action_count = 0U;
+        unicode_error action_error = unicode_error::none;
+        if (!try_assign_open_type_arabic_actions(
+                input,
+                scratch.arabic_actions.first(
+                    requirements.script_action_capacity),
+                action_count,
+                &action_error)) {
+            set_error(error, font_error::invalid_argument);
+            glyph_count = 0U;
+            return false;
+        }
+        for (std::uint32_t index = 0U; index < action_count; ++index) {
+            set_arabic_action(glyph_storage[index], scratch.arabic_actions[index]);
+        }
+    }
+
     open_type_layout_table_view gsub{};
     open_type_layout_table_view gpos{};
     std::size_t gsub_length = 0U;
@@ -210,6 +327,45 @@ bool try_shape_open_type_run(
                 return false;
             }
         }
+        if (arabic_joining) {
+            const open_type_gsub_apply_options apply_options{
+                gdef_pointer, options.alternate_value};
+            constexpr std::array form_features{
+                std::pair{open_type_tag::from_chars('i', 's', 'o', 'l'),
+                    open_type_arabic_action::isolated},
+                std::pair{open_type_tag::from_chars('f', 'i', 'n', 'a'),
+                    open_type_arabic_action::final},
+                std::pair{open_type_tag::from_chars('f', 'i', 'n', '2'),
+                    open_type_arabic_action::final2},
+                std::pair{open_type_tag::from_chars('f', 'i', 'n', '3'),
+                    open_type_arabic_action::final3},
+                std::pair{open_type_tag::from_chars('m', 'e', 'd', 'i'),
+                    open_type_arabic_action::medial},
+                std::pair{open_type_tag::from_chars('m', 'e', 'd', '2'),
+                    open_type_arabic_action::medial2},
+                std::pair{open_type_tag::from_chars('i', 'n', 'i', 't'),
+                    open_type_arabic_action::initial}};
+            for (const auto& [feature, action] : form_features) {
+                if (!apply_arabic_form_feature(
+                        gsub,
+                        options.script,
+                        options.language,
+                        feature,
+                        action,
+                        scratch.gsub_lookups.first(gsub.lookup_count()),
+                        glyph_storage,
+                        glyph_count,
+                        apply_options,
+                        error)) {
+                    clear_arabic_actions(glyph_storage.first(glyph_count));
+                    return false;
+                }
+            }
+        }
+    }
+
+    if (arabic_joining) {
+        clear_arabic_actions(glyph_storage.first(glyph_count));
     }
 
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {

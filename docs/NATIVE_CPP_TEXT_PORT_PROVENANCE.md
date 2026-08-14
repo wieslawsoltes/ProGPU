@@ -148,6 +148,16 @@ tables decode signed 2/4/8-bit ppem deltas before converting them back to font
 units. The shaper forwards the existing normalized-coordinate span in bulk;
 there is no secondary variation parser or glyph-by-glyph interop path.
 
+Arabic joining now ports ProGPU-owned `ArabicJoiningData.Generated.cs` and its
+state machine directly. Managed and native fallbacks share checked-in Unicode
+17 `Mn`/`Me`/`Cf` ranges generated from the official
+[`UnicodeData.txt`](https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt)
+(SHA-256 `2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c`).
+The uniform-run shaper carries the action in reserved internal flag bits across
+GSUB expansion/ligature replacement, targets `isol`/`fina`/`fin2`/`fin3`/
+`medi`/`med2`/`init` lookups at exact eligible glyph positions, then clears the
+internal bits before the public bulk glyph result crosses the ABI.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

@@ -309,6 +309,36 @@ bool try_segment_unicode_graphemes(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+enum class unicode_arabic_joining_type : std::uint8_t {
+    non_joining = 0U,
+    left_joining = 1U,
+    right_joining = 2U,
+    dual_joining = 3U,
+    alaph = 4U,
+    dalath_rish = 5U,
+    transparent = 6U
+};
+
+unicode_arabic_joining_type get_unicode_arabic_joining_type(
+    std::uint32_t code_point) noexcept;
+
+enum class open_type_arabic_action : std::uint8_t {
+    isolated = 0U,
+    final = 1U,
+    final2 = 2U,
+    final3 = 3U,
+    medial = 4U,
+    medial2 = 5U,
+    initial = 6U,
+    none = 7U
+};
+
+bool try_assign_open_type_arabic_actions(
+    std::span<const unicode_scalar> input,
+    std::span<open_type_arabic_action> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 /*
  * Strict, transactional UTF decoding. The requirements pass validates the
  * entire input in O(N) time and O(1) storage. Decode repeats validation before
@@ -518,6 +548,17 @@ public:
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
 
+    /* Selects only one allowed LangSys feature, excluding the required
+     * feature. This supports staged script shapers such as Arabic forms while
+     * retaining the same caller-owned lookup buffer. */
+    bool try_select_feature_lookups(
+        open_type_tag script,
+        open_type_tag language,
+        open_type_tag feature,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
 private:
     std::span<const std::byte> table_{};
     std::size_t script_list_offset_ = 0U;
@@ -595,6 +636,16 @@ bool try_apply_open_type_gsub_lookup(
     bool& applied,
     font_error* error = nullptr) noexcept;
 
+bool try_apply_open_type_gsub_lookup_at(
+    const open_type_layout_table_view& gsub,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    std::uint32_t position,
+    const open_type_gsub_apply_options& options,
+    bool& applied,
+    font_error* error = nullptr) noexcept;
+
 enum class shaping_attachment_kind : std::uint8_t {
     none = 0U,
     mark = 1U,
@@ -661,6 +712,7 @@ struct open_type_shape_run_scratch final {
     std::span<std::uint16_t> gpos_lookups{};
     std::span<shaping_attachment> attachments{};
     std::span<std::uint8_t> attachment_states{};
+    std::span<open_type_arabic_action> arabic_actions{};
 };
 
 struct open_type_shape_run_requirements final {
@@ -668,6 +720,7 @@ struct open_type_shape_run_requirements final {
     std::uint32_t grapheme_capacity = 0U;
     std::uint32_t gsub_lookup_capacity = 0U;
     std::uint32_t gpos_lookup_capacity = 0U;
+    std::uint32_t script_action_capacity = 0U;
 };
 
 bool try_get_open_type_shape_run_requirements(

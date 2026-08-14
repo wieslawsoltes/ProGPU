@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -102,6 +104,7 @@ bool select_layout_lookups(
     open_type_tag language,
     std::span<const open_type_tag> requested_features,
     std::span<std::uint16_t> output,
+    bool include_required,
     bool write,
     selection_result& result) noexcept {
     result = {};
@@ -205,7 +208,8 @@ bool select_layout_lookups(
         return true;
     };
 
-    if (required_feature != 0xFFFFU && !append_feature(required_feature)) {
+    if (include_required && required_feature != 0xFFFFU &&
+        !append_feature(required_feature)) {
         return false;
     }
     for (std::uint16_t index = 0U; index < feature_index_count; ++index) {
@@ -246,12 +250,14 @@ bool open_type_layout_table_view::try_get_lookup_selection_requirements(
             language,
             requested_features,
             {},
+            true,
             false,
             selected)) {
         set_error(error, font_error::invalid_face);
         return false;
     }
-    result.lookup_capacity = selected.capacity;
+    result.lookup_capacity = std::min<std::uint32_t>(
+        selected.capacity, lookup_count_);
     set_error(error, font_error::none);
     return true;
 }
@@ -283,6 +289,41 @@ bool open_type_layout_table_view::try_select_lookups(
             language,
             requested_features,
             output,
+            true,
+            true,
+            selected)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    written = selected.written;
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::try_select_feature_lookups(
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    std::span<std::uint16_t> output,
+    std::uint32_t& written,
+    font_error* error) const noexcept {
+    written = 0U;
+    if (output.size() < lookup_count_) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    const std::array requested{feature};
+    selection_result selected{};
+    if (!select_layout_lookups(
+            table_,
+            script_list_offset_,
+            feature_list_offset_,
+            lookup_count_,
+            script,
+            language,
+            requested,
+            output,
+            false,
             true,
             selected)) {
         set_error(error, font_error::invalid_face);

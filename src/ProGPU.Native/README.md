@@ -325,6 +325,13 @@ deliberately accepts an already uniform script/language/bidi run: fallback,
 script-specific joining/reordering, and paragraph layout remain independent
 stages so reusable shaping results do not inherit UI or renderer ownership.
 
+Arabic-family uniform runs now reuse the managed shaper's Unicode 17 packed
+joining classes and 42-entry state machine. Form actions survive substitutions
+inside reserved transient flag bits, drive feature-specific GSUB lookups at the
+matching glyph positions, and are removed before the 32-byte public glyph
+records return. Exact-feature lookup selection excludes required features so a
+staged form pass cannot accidentally replay required substitutions.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

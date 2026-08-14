@@ -26,6 +26,10 @@ using progpu::native::text::shaping_feature;
 using progpu::native::text::shaping_glyph;
 using progpu::native::text::shaping_glyph_flags;
 using progpu::native::text::get_unicode_script;
+using progpu::native::text::get_unicode_arabic_joining_type;
+using progpu::native::text::open_type_arabic_action;
+using progpu::native::text::try_assign_open_type_arabic_actions;
+using progpu::native::text::unicode_arabic_joining_type;
 using progpu::native::text::get_unicode_canonical_combining_class;
 using progpu::native::text::get_unicode_bidi_class;
 using progpu::native::text::try_get_unicode_bidi_bracket;
@@ -157,6 +161,28 @@ void unicode_contract_and_strict_decoders_are_transactional() {
 
     require(get_unicode_script(0x41U) ==
         open_type_tag::from_chars('l', 'a', 't', 'n'));
+    require(get_unicode_arabic_joining_type(0x0627U) ==
+        unicode_arabic_joining_type::right_joining);
+    require(get_unicode_arabic_joining_type(0x0628U) ==
+        unicode_arabic_joining_type::dual_joining);
+    require(get_unicode_arabic_joining_type(0x064BU) ==
+        unicode_arabic_joining_type::transparent);
+    require(get_unicode_arabic_joining_type(0x200EU) ==
+        unicode_arabic_joining_type::transparent);
+
+    const std::array<unicode_scalar, 3U> arabic{
+        unicode_scalar{0x0628U, 0U, 1U},
+        unicode_scalar{0x064BU, 1U, 1U},
+        unicode_scalar{0x0627U, 2U, 1U}};
+    std::array<open_type_arabic_action, 3U> actions{};
+    std::uint32_t action_count = 0U;
+    unicode_error unicode_result = unicode_error::none;
+    require(try_assign_open_type_arabic_actions(
+        arabic, actions, action_count, &unicode_result));
+    require(action_count == 3U &&
+        actions[0U] == open_type_arabic_action::initial &&
+        actions[1U] == open_type_arabic_action::none &&
+        actions[2U] == open_type_arabic_action::final);
     require(get_unicode_bidi_class(0x41U) ==
         unicode_bidi_class::left_to_right);
     require(get_unicode_bidi_class(0x05D0U) ==
@@ -1255,7 +1281,7 @@ void open_type_script_language_feature_selection_is_bounded() {
         requested,
         requirements,
         &error));
-    require(requirements.lookup_capacity == 4U);
+    require(requirements.lookup_capacity == 3U);
     std::array<std::uint16_t, 4U> selected{99U, 99U, 99U, 99U};
     std::uint32_t written = 99U;
     require(table.try_select_lookups(
@@ -1268,12 +1294,23 @@ void open_type_script_language_feature_selection_is_bounded() {
     require(written == 3U && selected[0U] == 0U && selected[1U] == 1U &&
         selected[2U] == 2U && selected[3U] == 99U);
 
+    selected.fill(99U);
+    require(table.try_select_feature_lookups(
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        {},
+        open_type_tag::from_chars('l', 'i', 'g', 'a'),
+        selected,
+        written,
+        &error));
+    require(written == 2U && selected[0U] == 1U && selected[1U] == 2U &&
+        selected[2U] == 99U);
+
     written = 99U;
     require(!table.try_select_lookups(
         open_type_tag::from_chars('l', 'a', 't', 'n'),
         {},
         requested,
-        std::span<std::uint16_t>{selected}.first(3U),
+        std::span<std::uint16_t>{selected}.first(2U),
         written,
         &error));
     require(error == font_error::insufficient_buffer && written == 0U);

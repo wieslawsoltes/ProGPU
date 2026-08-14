@@ -1368,4 +1368,39 @@ bool try_apply_open_type_gsub_lookup(
     return true;
 }
 
+bool try_apply_open_type_gsub_lookup_at(
+    const open_type_layout_table_view& gsub,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    std::uint32_t position,
+    const open_type_gsub_apply_options& options,
+    bool& applied,
+    font_error* error) noexcept {
+    applied = false;
+    if (glyph_count > glyph_storage.size() || position >= glyph_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    const apply_result result = apply_lookup_at(
+        gsub,
+        lookup_index,
+        glyph_storage,
+        glyph_count,
+        position,
+        options,
+        0U);
+    if (result == apply_result::malformed) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (result == apply_result::insufficient_buffer) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    applied = result == apply_result::applied;
+    set_error(error, font_error::none);
+    return true;
+}
+
 } // namespace progpu::native::text
