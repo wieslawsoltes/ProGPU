@@ -151,7 +151,10 @@ struct semantic_render_bundle_span {
     std::uint32_t target_height = 0U;
     std::uint32_t source_width = 0U;
     std::uint32_t source_height = 0U;
+    std::uint32_t draw_call_count = 0U;
+    std::uint64_t effect_cache_operation_id = 0U;
     bool backdrop = false;
+    bool can_skip_content_on_effect_cache = false;
 };
 
 struct semantic_layer_slot {

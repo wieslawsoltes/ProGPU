@@ -693,17 +693,19 @@ The changed frame records two content passes, two composites, five compute
 passes, and one queue submission. Its base layer pool is 10,752 bytes; the
 effected depth adds three reusable RGBA8 intermediates totaling 9,216 bytes.
 Five 256-byte-aligned parameter records upload as one 1,280-byte retained
-uniform page. The stable frame retains texture/binding generations and reports
-zero vertex, index, texture, uniform, mask-uniform, effect-uniform, and coverage
-upload while correctly re-executing the five compute passes for newly rendered
-layer content. The GPU-complete IOSurface asserts the clear background, clipped
-rounded corner, blurred source interior, and post-child parent continuation.
+uniform page. The stable frame retains texture/binding generations, replays the
+independent outer content, and composites the cached inner effect output. It
+reports three executed draws, one content pass, two composites, zero effect
+passes, and zero vertex, index, texture, uniform, mask-uniform, effect-uniform,
+or coverage upload. The GPU-complete IOSurface asserts the clear background,
+clipped rounded corner, blurred source interior, and post-child parent
+continuation.
 The inspected capture is
 `artifacts/progpu-native/build/progpu-native-semantic-mask-effects.ppm` with
 SHA-256 `b81fe250284b650763a36f97186dd7424b5c7c348bccb8d7b838c9aa60579e88`.
-This is functional, ordering, restoration, and retention evidence. Matched
+This is functional, ordering, restoration, and retention evidence. The matched
 managed/native mask-effect distributions and correlated Instruments evidence
-remain open before the aggregate mask/effect evidence checkbox can close.
+are recorded in the stable semantic effect-output replay checkpoint below.
 
 Three additional state-free 384-item regression runs (600 synchronized paired
 frames after 120 warm-ups) used byte-identical CMake and benchmark dylibs at
@@ -2037,3 +2039,89 @@ family use, then requires exactly zero texture, vertex, and uniform upload on
 stable replay. Managed interop validation now passes 33 tests, including zero
 allocation across 10,000 combined cubic/matrix stream builds; all four local
 C++ warnings/sanitizer/provider tests and Chromium WebGPU pass.
+
+## Stable semantic effect-output replay checkpoint
+
+The aggregate semantic layer/effect benchmark exposed a retained-replay defect:
+the output-cache lookup happened only at `PopLayer`, after the native renderer
+had already replayed the immutable child scene into an isolated content target.
+The later cache hit correctly avoided the five Gaussian/drop-shadow compute
+passes, but discarded that newly rendered content. Stable native replay still
+executed eight child draws plus one composite and one content pass. Three
+matched 300-frame runs therefore measured a median p95 GPU-completion wait of
+`4.5367 ms`, versus `3.0479 ms` for managed, even though the base semantic
+scene without the cached effect layer was on par.
+
+Bundle compilation now associates each non-backdrop effect layer's push record
+with its exact pop/effect operation identity. Replay performs the cache lookup
+at push. A hit skips the bounded nested span, preserves the open parent pass
+when possible, and composites the retained effect output directly. A root-first
+cached layer lazily opens its parent pass before the composite. Backdrop effects
+remain unskippable because their result depends on current destination pixels;
+advanced blends still close the parent pass and acquire their destination input.
+The key contains the immutable scene hash, effect operation, effect texture
+generation, and physical extent, so no texture from a stale scene, resized
+target, or replaced resource domain can be reused.
+
+Compilation remains `O(C)` for `C` scene commands and adds one fixed-width
+annotation per materialized effect layer. A cache hit scans `O(S)` retained
+replay records for the skipped subtree but performs `O(1)` cache state work,
+zero child WebGPU encoding, zero child GPU draws, zero content passes, and zero
+effect passes. Nested skip state is bounded by the existing maximum layer depth
+and allocates nothing per frame. Frame metrics now report executed draws and
+actual content passes rather than compiled child draws that were skipped.
+
+The clean-room decision used these primary public contracts:
+
+- [Win2D `CacheOutput`](https://microsoft.github.io/Win2D/WinUI2/html/P_Microsoft_Graphics_Canvas_Effects_CompositeEffect_CacheOutput.htm)
+  explicitly retains an effect result until its source is invalidated;
+- [WebRender rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html#caching)
+  caches unchanged picture/slice output and redraws it into the parent;
+- [Skia `saveLayer`](https://api.skia.org/classSkCanvas.html)
+  establishes the required offscreen-content, restore-effect, then parent-blend
+  ordering, but does not by itself justify re-rendering immutable content;
+- [Direct2D effect shader linking](https://learn.microsoft.com/en-us/windows/win32/direct2d/effect-shader-linking)
+  reduces compatible effect passes, while identifying multi-sample Gaussian
+  blur as a complex-input boundary that still needs an intermediate;
+- [Vello retained scenes](https://docs.rs/vello/latest/vello/struct.Scene.html)
+  retain command/resource identity but do not promise a reusable filtered
+  layer output, so ProGPU keeps explicit cache ownership and invalidation.
+
+SkParagraph/DirectWrite/HarfBuzz shaping and layout reuse were also checked and
+remain orthogonal: the change neither reshapes text nor changes glyph-resource
+identity. ProGPU adopts output identity and fail-closed invalidation from the
+relevant engines, while rejecting heuristic cache keys, destination-dependent
+backdrop reuse, per-frame effect graphs, and runtime shader generation.
+
+After the correction, three independent paired 300-frame synchronized runs
+followed 120 warmups on the Apple M3 Pro/Metal device. Their median p95 values
+were:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| CPU submission | 0.1208 ms | 0.2728 ms | 55.7% lower |
+| GPU-completion wait | 3.0388 ms | 3.0622 ms | 0.8% lower / on par |
+| Synchronized end to end | 3.1231 ms | 3.2478 ms | 3.8% lower |
+| Stable managed allocation | 0 B/frame | 0 B/frame | equal |
+
+Every stable frame now reports one composite draw, zero content passes, zero
+effect passes, one submission, and zero vertex/index/texture/uniform/coverage
+upload. Pixel evidence is unchanged: maximum channel difference `7/255`, 64 of
+518,400 pixels above `3/255`, and mean absolute difference `0.053851/255`.
+
+Final-binary Instruments captures used the same optimized dylib and exact
+semantic layer/effect workload. The 600-frame Time Profiler run measured p95
+submission/completion/end-to-end values of `0.1138/3.0358/3.1026 ms` native and
+`0.2279/3.0511/3.2006 ms` managed. The 2,000-frame Allocations capture exited
+zero and contains both Allocations and VM Tracker tracks. The synchronized
+200-frame Metal System Trace exited zero, recorded 2,103 submissions and 3,140
+completions, zero command-buffer errors and zero hang rows, and a 36,683,776-byte
+peak combined-process Metal allocation. Two 32-byte compiler-spill events occur
+during warmup pipeline creation; none is attributed to stable replay. The
+shared-process residency is not attributed to either renderer.
+
+Warnings-as-errors C++, all four real Dawn/Metal tests, all four ASan/UBSan
+provider tests, and the Emscripten/Chromium WebGPU gate pass. Raw distributions,
+trace bundles, TOCs/table exports, and exact trace JSON are retained under
+`artifacts/progpu-native/performance/semantic-effect-cache-skip/`; the browser
+image and JSON contract are under `artifacts/progpu-native/browser-evidence/`.

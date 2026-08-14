@@ -34,6 +34,7 @@ using progpu::native::tests::create_semantic_color_glyph_scene_stream;
 using progpu::native::tests::create_semantic_coverage_mask_scene_stream;
 using progpu::native::tests::
     create_semantic_masked_effect_layer_scene_stream;
+using progpu::native::tests::create_semantic_root_effect_layer_scene_stream;
 using progpu::native::tests::verify_semantic_advanced_blend_scene;
 using progpu::native::tests::verify_semantic_masked_effect_layer_scene;
 
@@ -3143,6 +3144,59 @@ int main(int argc, char** argv) {
         submission_after_oversized_effect ==
             submission_before_oversized_effect,
         "semantic oversized physical effect changed the submission timeline");
+
+    auto root_effect_scene =
+        create_semantic_root_effect_layer_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        root_effect_scene.data(),
+        root_effect_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 3U &&
+        scene_metrics.draw_count == 1U &&
+        scene_metrics.maximum_stack_depth == 1U,
+        "semantic root effect update failed");
+    progpu_native_scene_frame root_effect_frame = semantic_frame;
+    root_effect_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    root_effect_frame.scene_id = 98U;
+    root_effect_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &root_effect_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U &&
+        semantic_metrics.submission_count == 1U,
+        "semantic root effect first render failed");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &root_effect_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U,
+        "semantic root effect stable cache replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U &&
+        semantic_layer_metrics.effect_cache_hit == 1U &&
+        semantic_layer_metrics.effect_pass_count == 0U,
+        "semantic root effect stable metrics are incorrect");
+
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -3201,10 +3255,33 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.mask_bind_group_generation;
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto stable_mask_effect_status = progpu_native_engine_render_scene(
         engine,
         &mask_effect_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    if (stable_mask_effect_status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic_metrics.draw_call_count != 3U ||
+        semantic_metrics.submission_count != 1U ||
+        semantic_metrics.vertex_upload_bytes != 0U ||
+        semantic_metrics.index_upload_bytes != 0U ||
+        semantic_metrics.texture_upload_bytes != 0U ||
+        semantic_metrics.uniform_upload_bytes != 0U ||
+        semantic_metrics.coverage_staging_bytes != 0U) {
+        std::fprintf(
+            stderr,
+            "stable mask/effect status=%u draws=%u submissions=%llu "
+            "vertex=%llu index=%llu texture=%llu uniform=%llu coverage=%llu\n",
+            static_cast<unsigned>(stable_mask_effect_status),
+            semantic_metrics.draw_call_count,
+            static_cast<unsigned long long>(semantic_metrics.submission_count),
+            static_cast<unsigned long long>(semantic_metrics.vertex_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.index_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.texture_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.uniform_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.coverage_staging_bytes));
+    }
+    require(stable_mask_effect_status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U &&
         semantic_metrics.submission_count == 1U &&
         semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.index_upload_bytes == 0U &&
@@ -3218,6 +3295,8 @@ int main(int argc, char** argv) {
         engine,
         &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_layer_metrics.cache_hit == 1U &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 2U &&
         semantic_layer_metrics.effect_cache_hit == 1U &&
         semantic_layer_metrics.effect_pass_count == 0U &&
         semantic_layer_metrics.effect_allocation_count ==

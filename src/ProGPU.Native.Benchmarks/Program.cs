@@ -1147,7 +1147,7 @@ NativeLayerMetrics stableLayerMetrics = native.GetLayerMetrics();
 if (useSemanticScene &&
     (lastNativeSceneMetrics.CommandCount != expectedSemanticCommandCount ||
      lastNativeSceneMetrics.DrawCallCount !=
-        (useSemanticLayerEffects ? 9U : 8U) ||
+        (useSemanticLayerEffects ? 1U : 8U) ||
      lastNativeSceneMetrics.FamilySwitchCount != 8U ||
      lastNativeSceneMetrics.SubmissionCount != 1UL ||
      lastNativeSceneMetrics.VertexUploadBytes != 0UL ||
@@ -1177,7 +1177,7 @@ if (useSemanticScene &&
 }
 if (useSemanticLayerEffects &&
     (!stableLayerMetrics.CacheHit ||
-     stableLayerMetrics.ContentPassCount != 1U ||
+     stableLayerMetrics.ContentPassCount != 0U ||
      stableLayerMetrics.CompositePassCount != 1U ||
      stableLayerMetrics.MaskKind != NativeGroupMaskKind.RoundedRectangle ||
      stableLayerMetrics.MaskBindGroupGeneration == 0U ||

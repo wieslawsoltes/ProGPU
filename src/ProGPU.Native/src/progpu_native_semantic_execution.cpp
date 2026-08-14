@@ -2519,6 +2519,7 @@ progpu_native_status render_scene(
         }
         WGPURenderBundleEncoder bundle_encoder = nullptr;
         std::uint32_t semantic_effect_uniform_cursor = 0U;
+        std::uint32_t active_bundle_draw_count = 0U;
         semantic_scissor active_scissor{};
         bool has_active_scissor = false;
         std::uint32_t active_target_layer =
@@ -2588,7 +2589,9 @@ progpu_native_status render_scene(
             operation.clip_width = active_scissor.width;
             operation.clip_height = active_scissor.height;
             operation.target_layer = active_target_layer;
+            operation.draw_call_count = active_bundle_draw_count;
             compiled_spans.push_back(operation);
+            active_bundle_draw_count = 0U;
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
         const auto begin_active_bundle = [&](
@@ -2604,6 +2607,7 @@ progpu_native_status render_scene(
             }
             active_scissor = scissor;
             active_target_layer = target_layer;
+            active_bundle_draw_count = 0U;
             has_active_scissor = true;
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
@@ -2712,6 +2716,9 @@ progpu_native_status render_scene(
         std::array<semantic_scissor,
             PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
             materialized_extents{};
+        std::array<std::size_t,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            materialized_push_span_indices{};
         std::uint32_t layer_scope_depth = 0U;
         std::uint32_t materialized_depth = 0U;
         std::uint32_t advanced_operation_index = 0U;
@@ -2794,6 +2801,8 @@ progpu_native_status render_scene(
                             ? 0U
                             : 1U;
                     }
+                    materialized_push_span_indices[slot] =
+                        compiled_spans.size();
                     compiled_spans.push_back(operation);
                     current_target_layer = slot;
                     has_active_scissor = false;
@@ -2842,6 +2851,15 @@ progpu_native_status render_scene(
                         append_effect_program(
                             layer.effect_resource_index,
                             operation);
+                    }
+                    if (operation.effect_count != 0U &&
+                        !operation.backdrop) {
+                        auto& push_operation = compiled_spans[
+                            materialized_push_span_indices[source_layer]];
+                        push_operation.effect_cache_operation_id =
+                            operation.operation_id;
+                        push_operation.can_skip_content_on_effect_cache =
+                            true;
                     }
                     if (layer.mask_resource_index !=
                             PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -3069,6 +3087,7 @@ progpu_native_status render_scene(
                 return fail_bundle(status);
             }
             draw_calls += scissor.drawable ? 1U : 0U;
+            active_bundle_draw_count += scissor.drawable ? 1U : 0U;
         }
 
         if (semantic_destination_sampling_active) {
@@ -3171,6 +3190,8 @@ progpu_native_status render_scene(
     }
 
     WGPURenderPassEncoder pass = nullptr;
+    std::uint32_t executed_draw_calls = 0U;
+    std::uint32_t semantic_layer_content_pass_count = 0U;
     if (semantic_draw_count != 0U &&
         !semantic_has_materialized_layers) {
         WGPURenderPassColorAttachment color_attachment{};
@@ -3208,12 +3229,17 @@ progpu_native_status render_scene(
                 span.clip_height);
             wgpuRenderPassEncoderExecuteBundles(
                 pass, 1U, &span.bundle);
+            executed_draw_calls += span.draw_call_count;
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     } else if (semantic_has_materialized_layers) {
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t skipped_cached_depth = 0U;
+        std::array<bool,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            cached_layer_replay{};
         const auto finish_pass = [&]() noexcept {
             if (pass != nullptr) {
                 wgpuRenderPassEncoderEnd(pass);
@@ -3280,7 +3306,42 @@ progpu_native_status render_scene(
         }
         for (const auto& operation :
              engine->semantic_render_bundle_spans) {
+            if (skipped_cached_depth != 0U) {
+                if (operation.kind == semantic_replay_kind::push_layer) {
+                    ++skipped_cached_depth;
+                    continue;
+                }
+                if (operation.kind != semantic_replay_kind::pop_layer) {
+                    continue;
+                }
+                --skipped_cached_depth;
+                if (skipped_cached_depth != 0U) {
+                    continue;
+                }
+            }
             if (operation.kind == semantic_replay_kind::push_layer) {
+                if (operation.can_skip_content_on_effect_cache &&
+                    operation.source_layer <
+                        engine->semantic_layer_slots.size()) {
+                    const auto& slot = engine->semantic_layer_slots[
+                        operation.source_layer];
+                    const progpu::native::effects::semantic_output_cache_key
+                        cache_key{
+                            engine->semantic_scene_hash,
+                            operation.effect_cache_operation_id,
+                            slot.effect_generation,
+                            slot.effect_width,
+                            slot.effect_height};
+                    if (progpu::native::effects::semantic_output_cache_hit(
+                            semantic_effect_working_caches[
+                                operation.source_layer],
+                            cache_key)) {
+                        cached_layer_replay[operation.source_layer] = true;
+                        ++semantic_effect_cache_hit_count;
+                        skipped_cached_depth = 1U;
+                        continue;
+                    }
+                }
                 finish_pass();
                 if (operation.backdrop) {
                     if (operation.effect_count != 0U) {
@@ -3294,6 +3355,8 @@ progpu_native_status render_scene(
                         return fail_replay(
                             "A semantic backdrop capture could not be encoded.");
                     }
+                    executed_draw_calls +=
+                        operation.effect_count == 0U ? 0U : 1U;
                 }
                 if (!begin_pass(
                         operation.target_layer,
@@ -3303,10 +3366,21 @@ progpu_native_status render_scene(
                     return fail_replay(
                         "A semantic isolated-layer content pass could not be created.");
                 }
+                ++semantic_layer_content_pass_count;
                 continue;
             }
             if (operation.kind == semantic_replay_kind::pop_layer) {
-                finish_pass();
+                const bool content_cached =
+                    operation.source_layer < cached_layer_replay.size() &&
+                    cached_layer_replay[operation.source_layer];
+                if (operation.source_layer < cached_layer_replay.size()) {
+                    cached_layer_replay[operation.source_layer] = false;
+                }
+                const bool advanced_blend =
+                    is_advanced_group_blend(operation.blend_mode);
+                if (!content_cached || advanced_blend) {
+                    finish_pass();
+                }
                 bool effect_ready = true;
                 if (operation.effect_count != 0U) {
                     ++semantic_effect_operation_count;
@@ -3324,7 +3398,11 @@ progpu_native_status render_scene(
                             slot.effect_generation,
                             slot.effect_width,
                             slot.effect_height};
-                    if (progpu::native::effects::semantic_output_cache_hit(
+                    if (content_cached) {
+                        // Push-layer cache lookup already proved that the
+                        // immutable effect output belongs to this exact scene,
+                        // operation, texture generation, and extent.
+                    } else if (progpu::native::effects::semantic_output_cache_hit(
                             semantic_effect_working_caches[
                                 operation.source_layer],
                             cache_key)) {
@@ -3347,7 +3425,7 @@ progpu_native_status render_scene(
                     }
                 }
                 const bool composite_ready = effect_ready &&
-                    (is_advanced_group_blend(operation.blend_mode)
+                    (advanced_blend
                         ? ([&]() {
                             WGPUBindGroup parent_uniform_group =
                                 operation.target_layer ==
@@ -3367,9 +3445,9 @@ progpu_native_status render_scene(
                                     operation.target_layer,
                                     WGPULoadOp_Load);
                         })()
-                        : (begin_pass(
-                                operation.target_layer,
-                                WGPULoadOp_Load) &&
+                        : (((pass != nullptr) || begin_pass(
+                                  operation.target_layer,
+                                  WGPULoadOp_Load)) &&
                             encode_semantic_layer_composite(
                                 *engine,
                                 pass,
@@ -3378,6 +3456,7 @@ progpu_native_status render_scene(
                     return fail_replay(
                         "A semantic isolated-layer composite pass could not be encoded.");
                 }
+                executed_draw_calls += advanced_blend ? 3U : 1U;
                 continue;
             }
             if (operation.target_layer != active_target_layer) {
@@ -3399,6 +3478,7 @@ progpu_native_status render_scene(
                 pass,
                 1U,
                 &operation.bundle);
+            executed_draw_calls += operation.draw_call_count;
         }
         finish_pass();
         if (engine->semantic_destination_sampling_active &&
@@ -3410,7 +3490,11 @@ progpu_native_status render_scene(
             return fail_replay(
                 "The semantic destination-aware root copy could not be encoded.");
         }
+        executed_draw_calls +=
+            engine->semantic_destination_sampling_active ? 1U : 0U;
     }
+
+    draw_calls = executed_draw_calls;
 
     const auto flush_status = flush_encoder();
     if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
@@ -3469,7 +3553,7 @@ progpu_native_status render_scene(
         engine->last_layer_metrics.allocation_count =
             engine->semantic_layer_allocation_count;
         engine->last_layer_metrics.content_pass_count =
-            semantic_materialized_layer_count;
+            semantic_layer_content_pass_count;
         engine->last_layer_metrics.composite_pass_count =
             semantic_materialized_layer_count;
         engine->last_layer_metrics.cache_hit =

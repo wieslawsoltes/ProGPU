@@ -226,6 +226,29 @@ std::vector<std::byte> create_semantic_masked_effect_layer_scene_stream() {
     return stream;
 }
 
+std::vector<std::byte> create_semantic_root_effect_layer_scene_stream() {
+    auto stream = create_semantic_masked_effect_layer_scene_stream();
+    progpu_native_scene_header header{};
+    std::memcpy(&header, stream.data(), sizeof(header));
+
+    std::array<progpu_native_scene_command, 3U> commands{};
+    for (std::size_t index = 0U; index < commands.size(); ++index) {
+        std::memcpy(
+            &commands[index],
+            stream.data() + header.command_offset +
+                (index + 1U) * header.command_stride,
+            sizeof(commands[index]));
+    }
+    header.scene_id = 98U;
+    header.command_count = static_cast<std::uint32_t>(commands.size());
+    std::memcpy(stream.data(), &header, sizeof(header));
+    std::memcpy(
+        stream.data() + header.command_offset,
+        commands.data(),
+        sizeof(commands));
+    return stream;
+}
+
 
 void verify_semantic_masked_effect_layer_scene(
     IOSurfaceRef surface,
