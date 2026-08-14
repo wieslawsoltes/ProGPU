@@ -56,6 +56,11 @@ bool uses_hangul(open_type_tag script) noexcept {
     return script == open_type_tag::from_chars('h', 'a', 'n', 'g');
 }
 
+bool is_variation_selector(std::uint32_t code_point) noexcept {
+    return (code_point >= 0xFE00U && code_point <= 0xFE0FU) ||
+        (code_point >= 0xE0100U && code_point <= 0xE01EFU);
+}
+
 void set_arabic_action(
     shaping_glyph& glyph,
     open_type_arabic_action action) noexcept {
@@ -334,32 +339,6 @@ bool try_shape_open_type_run(
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    for (std::uint32_t cluster_index = 0U;
-         cluster_index < grapheme_count;
-         ++cluster_index) {
-        const auto cluster = scratch.grapheme_clusters[cluster_index];
-        for (std::uint32_t offset = 0U; offset < cluster.scalar_count; ++offset) {
-            const std::size_t scalar_index = cluster.scalar_index + offset;
-            std::uint16_t glyph = 0U;
-            if (!font.try_get_glyph_index(
-                    input[scalar_index].code_point, glyph)) {
-                set_error(error, font_error::invalid_face);
-                return false;
-            }
-            glyph_storage[scalar_index] = shaping_glyph{
-                glyph,
-                input[scalar_index].code_point,
-                static_cast<std::int32_t>(cluster.input_index)};
-        }
-    }
-    glyph_count = requirements.initial_glyph_count;
-
-    if (hangul && !try_prepare_open_type_hangul(
-            font, glyph_storage, glyph_count, error)) {
-        glyph_count = 0U;
-        return false;
-    }
-
     if (arabic_joining) {
         std::uint32_t action_count = 0U;
         unicode_error action_error = unicode_error::none;
@@ -368,14 +347,53 @@ bool try_shape_open_type_run(
                 scratch.arabic_actions.first(
                     requirements.script_action_capacity),
                 action_count,
-                &action_error)) {
+                &action_error) || action_count != input.size()) {
             set_error(error, font_error::invalid_argument);
-            glyph_count = 0U;
             return false;
         }
-        for (std::uint32_t index = 0U; index < action_count; ++index) {
-            set_arabic_action(glyph_storage[index], scratch.arabic_actions[index]);
+    }
+    std::uint32_t mapped_count = 0U;
+    for (std::uint32_t cluster_index = 0U;
+         cluster_index < grapheme_count;
+         ++cluster_index) {
+        const auto cluster = scratch.grapheme_clusters[cluster_index];
+        for (std::uint32_t offset = 0U; offset < cluster.scalar_count; ++offset) {
+            const std::size_t scalar_index = cluster.scalar_index + offset;
+            if (offset != 0U && mapped_count != 0U &&
+                is_variation_selector(input[scalar_index].code_point)) {
+                std::uint16_t variation_glyph = 0U;
+                if (font.try_get_variation_glyph(
+                        glyph_storage[mapped_count - 1U].code_point,
+                        input[scalar_index].code_point,
+                        variation_glyph)) {
+                    glyph_storage[mapped_count - 1U].glyph_id = variation_glyph;
+                    continue;
+                }
+            }
+            std::uint16_t glyph = 0U;
+            if (!font.try_get_glyph_index(
+                    input[scalar_index].code_point, glyph)) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            glyph_storage[mapped_count] = shaping_glyph{
+                glyph,
+                input[scalar_index].code_point,
+                static_cast<std::int32_t>(cluster.input_index)};
+            if (arabic_joining) {
+                set_arabic_action(
+                    glyph_storage[mapped_count],
+                    scratch.arabic_actions[scalar_index]);
+            }
+            ++mapped_count;
         }
+    }
+    glyph_count = mapped_count;
+
+    if (hangul && !try_prepare_open_type_hangul(
+            font, glyph_storage, glyph_count, error)) {
+        glyph_count = 0U;
+        return false;
     }
 
     open_type_layout_table_view gsub{};

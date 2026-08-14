@@ -64,7 +64,26 @@ std::span<const std::byte> cmap_subtable(
             ? cmap.subspan(subtable_offset, length)
             : std::span<const std::byte>{};
     }
+    if (format == 14U) {
+        if (!can_read(cmap, subtable_offset, 6U)) {
+            return {};
+        }
+        const auto length = read_u32(cmap, subtable_offset + 2U);
+        return length >= 10U && can_read(cmap, subtable_offset, length)
+            ? cmap.subspan(subtable_offset, length)
+            : std::span<const std::byte>{};
+    }
     return {};
+}
+
+std::uint32_t read_u24(
+    std::span<const std::byte> bytes,
+    std::size_t offset) noexcept {
+    return (static_cast<std::uint32_t>(
+            std::to_integer<std::uint8_t>(bytes[offset])) << 16U) |
+        (static_cast<std::uint32_t>(
+            std::to_integer<std::uint8_t>(bytes[offset + 1U])) << 8U) |
+        std::to_integer<std::uint8_t>(bytes[offset + 2U]);
 }
 
 bool lookup_format12_or_13(
@@ -298,6 +317,8 @@ bool sfnt_font_view::try_create(
         } else if (
             format == 4U && platform_id == 3U && encoding_id == 0U) {
             symbol_format4 = subtable;
+        } else if (format == 14U) {
+            result.cmap_format14_ = subtable;
         }
     }
     if (!symbol_format4.empty()) {
@@ -489,6 +510,94 @@ bool sfnt_font_view::try_get_glyph_index(
     }
     result = 0U;
     return true;
+}
+
+bool sfnt_font_view::try_get_variation_glyph(
+    std::uint32_t code_point,
+    std::uint32_t variation_selector,
+    std::uint16_t& result) const noexcept {
+    result = 0U;
+    const auto table = cmap_format14_;
+    if (table.size() < 10U) {
+        return false;
+    }
+    const std::uint32_t record_count = read_u32(table, 6U);
+    if (record_count > (table.size() - 10U) / 11U) {
+        return false;
+    }
+    std::uint32_t low = 0U;
+    std::uint32_t high = record_count;
+    while (low < high) {
+        const std::uint32_t middle = low + (high - low) / 2U;
+        const std::size_t record = 10U +
+            static_cast<std::size_t>(middle) * 11U;
+        const std::uint32_t selector = read_u24(table, record);
+        if (variation_selector < selector) {
+            high = middle;
+        } else if (variation_selector > selector) {
+            low = middle + 1U;
+        } else {
+            const std::uint32_t non_default_relative =
+                read_u32(table, record + 7U);
+            if (non_default_relative != 0U) {
+                const std::size_t mappings = non_default_relative;
+                if (!can_read(table, mappings, 4U)) {
+                    return false;
+                }
+                const std::uint32_t mapping_count = read_u32(table, mappings);
+                if (mapping_count > (table.size() - mappings - 4U) / 5U) {
+                    return false;
+                }
+                std::uint32_t mapping_low = 0U;
+                std::uint32_t mapping_high = mapping_count;
+                while (mapping_low < mapping_high) {
+                    const std::uint32_t mapping_middle = mapping_low +
+                        (mapping_high - mapping_low) / 2U;
+                    const std::size_t mapping = mappings + 4U +
+                        static_cast<std::size_t>(mapping_middle) * 5U;
+                    const std::uint32_t candidate = read_u24(table, mapping);
+                    if (code_point < candidate) {
+                        mapping_high = mapping_middle;
+                    } else if (code_point > candidate) {
+                        mapping_low = mapping_middle + 1U;
+                    } else {
+                        result = read_u16(table, mapping + 3U);
+                        return result != 0U;
+                    }
+                }
+            }
+
+            const std::uint32_t default_relative =
+                read_u32(table, record + 3U);
+            if (default_relative == 0U) {
+                return false;
+            }
+            const std::size_t ranges = default_relative;
+            if (!can_read(table, ranges, 4U)) {
+                return false;
+            }
+            const std::uint32_t range_count = read_u32(table, ranges);
+            if (range_count > (table.size() - ranges - 4U) / 4U) {
+                return false;
+            }
+            for (std::uint32_t index = 0U; index < range_count; ++index) {
+                const std::size_t range = ranges + 4U +
+                    static_cast<std::size_t>(index) * 4U;
+                const std::uint32_t start = read_u24(table, range);
+                const std::uint32_t end = start +
+                    std::to_integer<std::uint8_t>(table[range + 3U]);
+                if (code_point < start) {
+                    return false;
+                }
+                if (code_point <= end) {
+                    return try_get_glyph_index(code_point, result) &&
+                        result != 0U;
+                }
+            }
+            return false;
+        }
+    }
+    return false;
 }
 
 std::span<const std::byte> sfnt_font_view::data() const noexcept {

@@ -345,7 +345,13 @@ the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage
 explicitly, and performs no discovery callbacks, I/O, or allocation while
 itemizing. Variation selectors and join controls remain attached to their base
-cluster for the later cmap-format-14/script stage.
+cluster. The borrowed SFNT view now resolves cmap format 14 default and
+non-default UVS mappings with bounded binary searches. Uniform-run shaping
+absorbs a supported selector into the preceding glyph record in the same
+grapheme, preserving that base record's source cluster and avoiding a separate
+managed/native call or selector glyph. Malformed selector records fail closed;
+lookup is `O(log V + log M)` for `V` selector records and `M` non-default
+mappings, with `O(1)` internal storage.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

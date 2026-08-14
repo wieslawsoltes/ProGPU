@@ -1591,6 +1591,10 @@ public:
     bool try_get_glyph_index(
         std::uint32_t code_point,
         std::uint16_t& result) const noexcept;
+    bool try_get_variation_glyph(
+        std::uint32_t code_point,
+        std::uint32_t variation_selector,
+        std::uint16_t& result) const noexcept;
     bool try_get_variation_axis_count(
         std::uint16_t& result,
         font_error* error = nullptr) const noexcept;
@@ -1731,6 +1735,7 @@ private:
     std::span<const std::byte> cmap_format4_{};
     std::span<const std::byte> cmap_format12_{};
     std::span<const std::byte> cmap_format13_{};
+    std::span<const std::byte> cmap_format14_{};
     std::uint32_t face_index_ = 0U;
     std::uint32_t face_offset_ = 0U;
     std::size_t directory_offset_ = 0U;

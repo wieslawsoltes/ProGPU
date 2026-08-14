@@ -286,6 +286,16 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         untouched[0U].code_point == 99U);
 }
 
+void write_u24(
+    std::span<std::byte> destination,
+    std::size_t offset,
+    std::uint32_t value) {
+    destination[offset] = static_cast<std::byte>((value >> 16U) & 0xFFU);
+    destination[offset + 1U] =
+        static_cast<std::byte>((value >> 8U) & 0xFFU);
+    destination[offset + 2U] = static_cast<std::byte>(value & 0xFFU);
+}
+
 void unicode_bidi_resolution_is_bounded_and_source_preserving() {
     static_assert(sizeof(unicode_bidi_level) == 8U);
     static_assert(sizeof(unicode_bidi_unit) == 20U);
@@ -1946,6 +1956,41 @@ std::vector<std::byte> make_cmap() {
     return result;
 }
 
+std::vector<std::byte> make_cmap14() {
+    std::vector<std::byte> result(90U);
+    write_u16(result, 2U, 2U);
+    write_u16(result, 4U, 3U);
+    write_u16(result, 6U, 1U);
+    write_u32(result, 8U, 20U);
+    write_u16(result, 12U, 0U);
+    write_u16(result, 14U, 5U);
+    write_u32(result, 16U, 52U);
+
+    write_u16(result, 20U, 4U);
+    write_u16(result, 22U, 32U);
+    write_u16(result, 26U, 4U);
+    write_u16(result, 34U, 0x0041U);
+    write_u16(result, 36U, 0xFFFFU);
+    write_u16(result, 40U, 0x0041U);
+    write_u16(result, 42U, 0xFFFFU);
+    write_i16(result, 44U, -62);
+    write_i16(result, 46U, 1);
+
+    write_u16(result, 52U, 14U);
+    write_u32(result, 54U, 38U);
+    write_u32(result, 58U, 1U);
+    write_u24(result, 62U, 0xFE0FU);
+    write_u32(result, 65U, 21U);
+    write_u32(result, 69U, 29U);
+    write_u32(result, 73U, 1U);
+    write_u24(result, 77U, 0x41U);
+    result[80U] = std::byte{0U};
+    write_u32(result, 81U, 1U);
+    write_u24(result, 85U, 0x42U);
+    write_u16(result, 88U, 7U);
+    return result;
+}
+
 std::vector<std::byte> make_fvar() {
     std::vector<std::byte> result(56U);
     write_u16(result, 0U, 1U);
@@ -3456,6 +3501,63 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(font.try_get_glyph_index(0x1F600U, glyph));
     require(glyph == 7U);
     require(font.try_get_glyph_index(0x42U, glyph));
+    require(glyph == 0U);
+}
+
+void variation_selector_cmap_is_borrowed_and_bounded() {
+    const std::array<table_data, 1U> tables{
+        table_data{
+            open_type_tag::from_chars('c', 'm', 'a', 'p'), make_cmap14()}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, tables);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    std::uint16_t glyph = 0U;
+    require(font.try_get_variation_glyph(0x41U, 0xFE0FU, glyph));
+    require(glyph == 3U);
+    require(font.try_get_variation_glyph(0x42U, 0xFE0FU, glyph));
+    require(glyph == 7U);
+    require(!font.try_get_variation_glyph(0x41U, 0xFE0EU, glyph));
+    require(glyph == 0U);
+
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x42U, 0U, 1U},
+        unicode_scalar{0xFE0FU, 1U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        open_type_shape_run_options{
+            open_type_tag::from_chars('l', 'a', 't', 'n')},
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U);
+    require(glyphs[0U].glyph_id == 7U);
+    require(glyphs[0U].code_point == 0x42U);
+    require(glyphs[0U].cluster == 0);
+
+    auto malformed_cmap = make_cmap14();
+    write_u32(malformed_cmap, 81U, 0xFFFFFFFFU);
+    const std::array<table_data, 1U> malformed_tables{
+        table_data{
+            open_type_tag::from_chars('c', 'm', 'a', 'p'),
+            std::move(malformed_cmap)}};
+    const auto malformed_data = make_font(
+        0U, 22U, 0U, false, false, false, malformed_tables);
+    require(sfnt_font_view::try_create(
+        malformed_data, 0U, font, &error));
+    require(!font.try_get_variation_glyph(0x42U, 0xFE0FU, glyph));
     require(glyph == 0U);
 }
 
@@ -5097,6 +5199,7 @@ int main() {
     native_positioned_text_layout_wraps_without_allocation();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
+    variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
     variation_coordinates_apply_bounded_avar_mapping();
     packed_variation_streams_are_transactional_and_exact();
