@@ -201,7 +201,7 @@ public ref struct NativeSceneStreamBuilder
     public bool TryAddAnalyticResource(
         ulong resourceId,
         ulong generation,
-        ReadOnlySpan<NativeAnalyticPrimitive> primitives,
+        scoped ReadOnlySpan<NativeAnalyticPrimitive> primitives,
         out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
         TryAddResource(
@@ -215,8 +215,8 @@ public ref struct NativeSceneStreamBuilder
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
-        ReadOnlySpan<NativeScenePathFill> paths,
-        ReadOnlySpan<NativePathSegment> segments,
+        scoped ReadOnlySpan<NativeScenePathFill> paths,
+        scoped ReadOnlySpan<NativePathSegment> segments,
         out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
         TryAddResource(
@@ -231,8 +231,8 @@ public ref struct NativeSceneStreamBuilder
     public bool TryAddGlyphResource(
         ulong resourceId,
         ulong generation,
-        ReadOnlySpan<NativeSceneGlyphOutline> outlines,
-        ReadOnlySpan<NativePathSegment> segments,
+        scoped ReadOnlySpan<NativeSceneGlyphOutline> outlines,
+        scoped ReadOnlySpan<NativePathSegment> segments,
         out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
         TryAddResource(
@@ -298,7 +298,7 @@ public ref struct NativeSceneStreamBuilder
     public bool TryAddImageResource(
         ulong resourceId,
         ulong generation,
-        ReadOnlySpan<byte> rgbaPixels,
+        scoped ReadOnlySpan<byte> rgbaPixels,
         out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
         TryAddResource(

@@ -2389,6 +2389,9 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
         string page = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Samples.Desktop", "NativeRendererSamplePage.cs"));
+        string representativeScene = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Samples.Desktop",
+            "NativeRepresentativeSceneSample.cs"));
 
         Assert.Contains("\"--native-renderer\"", program, StringComparison.Ordinal);
         Assert.Contains("if (!useNativeRenderer)", program, StringComparison.Ordinal);
@@ -2412,6 +2415,34 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "GpuTextureAlphaMode.Straight",
             page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeBatchMode.RepresentativeScene",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_compositor.RenderScene(",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeSceneImageSamplingOptions.Mitchell",
+            representativeScene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeSceneImageFlags.ColorMatrix",
+            representativeScene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeSceneLayerFlags.ForceIsolation",
+            representativeScene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "builder.TryAddEffectChainResource(",
+            representativeScene,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "builder.TryBuild(out stream)",
+            representativeScene,
             StringComparison.Ordinal);
     }
 

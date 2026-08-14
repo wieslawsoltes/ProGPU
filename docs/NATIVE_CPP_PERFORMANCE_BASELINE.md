@@ -2195,3 +2195,25 @@ ASan/UBSan provider tests, exact Dawn/Metal headers, 52 managed native/shader
 tests, and the real Emscripten/Chromium WebGPU gate pass with the split files.
 Raw distributions are retained under
 `artifacts/progpu-native/performance/semantic-module-split/`.
+
+## Representative desktop substitution checkpoint
+
+`ProGPU.Samples.Desktop --native-renderer` now opens on one immutable semantic
+scene instead of an isolated frame-family demonstration. Its eight commands
+and nine resources combine analytic geometry, a retained cubic path, positioned
+glyphs, a cubic color-processed RGBA image, a translated clipped state, a
+bounded rounded mask, and a two-node blur/drop-shadow chain. One changed scene
+build copies the pointer-free arenas transactionally; unchanged rendering is
+one C ABI scene call, one cached composite draw, zero retained uploads, and
+zero managed allocation per frame. The prior family-specific modes remain
+available through the mode button for focused inspection.
+
+The local Release macOS launch stayed live without diagnostics and reported a
+stable `0.123 ms` C ABI/submission sample, `0 B` managed allocation, one draw,
+zero upload, and the expected `8/9` command/resource contract. The inspected
+window capture is retained at
+`artifacts/progpu-native/sample-evidence/native-representative-scene-macos.png`
+with SHA-256
+`d8e300d2658865ec0ec58a971ac61a78f23f24d2782e270853e2ed81be13ae58`.
+This is automated implementation evidence, not the required final user manual
+approval.

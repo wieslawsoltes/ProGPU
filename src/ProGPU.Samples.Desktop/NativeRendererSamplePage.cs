@@ -125,15 +125,20 @@ internal static class NativeRendererSamplePage
             new NativePositionedGlyph[MaximumRectangles];
         private readonly byte[] _imagePixels = new byte[192 * 128 * 4];
         private readonly byte[] _imageMaskPixels = new byte[192 * 128 * 4];
+        private readonly byte[] _semanticScene =
+            new byte[NativeRepresentativeSceneSample.RequiredBufferSize];
         private readonly NativeRendererInfo _info;
         private NativeTexturePreview? _preview;
         private Run? _countRun;
         private Run? _metricsRun;
         private int _rectangleCount = 384;
         private int _palette;
-        private NativeBatchMode _mode = NativeBatchMode.MaskedImages;
+        private NativeBatchMode _mode = NativeBatchMode.RepresentativeScene;
         private uint _contentRevision;
         private uint _imageRevision;
+        private ulong _semanticGeneration;
+        private int _semanticSceneLength;
+        private NativeSceneUpdateMetrics _semanticUpdateMetrics;
         private bool _imageNeedsUpload;
         private bool _sceneDirty = true;
         private int _disposeState;
@@ -201,6 +206,10 @@ internal static class NativeRendererSamplePage
                 "fast path, plus positioned glyph runs rasterized into the " +
                 "native-owned GPU atlas, retained RGBA image upload, or " +
                 "same-device zero-copy image and opacity-mask sampling. " +
+                "The default representative scene submits analytic, path, " +
+                "positioned-text, cubic color-processed image, transform, " +
+                "clip, rounded mask, and effect-chain work through one " +
+                "immutable semantic stream. " +
                 "Stable geometry, " +
                 "path, glyph, and image modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
@@ -257,7 +266,7 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 12);
+                _mode = (NativeBatchMode)(((int)_mode + 1) % 13);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -326,6 +335,22 @@ internal static class NativeRendererSamplePage
             {
                 switch (_mode)
                 {
+                    case NativeBatchMode.RepresentativeScene:
+                        FillImage(_palette, writeExternalSource: false);
+                        _semanticGeneration++;
+                        if (_semanticGeneration == 0U)
+                        {
+                            _semanticGeneration = 1U;
+                        }
+                        _semanticSceneLength =
+                            NativeRepresentativeSceneSample.Build(
+                                _semanticScene,
+                                _imagePixels,
+                                _semanticGeneration,
+                                _palette);
+                        _semanticUpdateMetrics = _compositor.UpdateScene(
+                            _semanticScene.AsSpan(0, _semanticSceneLength));
+                        break;
                     case NativeBatchMode.Analytic:
                         FillAnalyticPrimitives(_rectangleCount, _palette);
                         break;
@@ -378,7 +403,27 @@ internal static class NativeRendererSamplePage
             uint drawCallCount;
             uint vertexCount;
             ulong uploadBytes;
-            if (_mode == NativeBatchMode.Analytic)
+            if (_mode == NativeBatchMode.RepresentativeScene)
+            {
+                NativeSceneFrameMetrics metrics = _compositor.RenderScene(
+                    _target,
+                    dpiScale: 1f,
+                    NativeRepresentativeSceneSample.SceneId,
+                    _semanticGeneration,
+                    new Vector4(0.015f, 0.02f, 0.035f, 1f));
+                drawCallCount = metrics.DrawCallCount;
+                vertexCount = 0;
+                uploadBytes = metrics.VertexUploadBytes +
+                    metrics.IndexUploadBytes +
+                    metrics.TextureUploadBytes +
+                    metrics.UniformUploadBytes +
+                    metrics.CoverageStagingBytes +
+                    metrics.BrushUploadBytes +
+                    metrics.GradientStopUploadBytes +
+                    metrics.TextStyleUploadBytes +
+                    metrics.ColorGlyphUploadBytes;
+            }
+            else if (_mode == NativeBatchMode.Analytic)
             {
                 NativeAnalyticFrameMetrics metrics = _compositor.RenderAnalytic(
                     _target,
@@ -568,7 +613,11 @@ internal static class NativeRendererSamplePage
                     $"managed alloc {managedBytes} B · " +
                     $"draws {drawCallCount} · " +
                     $"vertices {vertexCount:N0} · " +
-                    $"upload {uploadBytes:N0} B";
+                    $"upload {uploadBytes:N0} B" +
+                    (_mode == NativeBatchMode.RepresentativeScene
+                        ? $" · scene {_semanticUpdateMetrics.CommandCount}/" +
+                          $"{_semanticUpdateMetrics.ResourceCount}"
+                        : string.Empty);
             }
             _preview?.Invalidate();
         }
@@ -1213,6 +1262,8 @@ internal static class NativeRendererSamplePage
             {
                 _countRun.Text = _mode switch
                 {
+                    NativeBatchMode.RepresentativeScene =>
+                        "Representative semantic scene",
                     NativeBatchMode.Analytic => $"Analytic: {_rectangleCount:N0}",
                     NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
                     NativeBatchMode.Curves => $"Curves: {_rectangleCount:N0}",
@@ -1231,6 +1282,7 @@ internal static class NativeRendererSamplePage
 
         private enum NativeBatchMode
         {
+            RepresentativeScene,
             Analytic,
             Geometry,
             Curves,

@@ -1643,6 +1643,13 @@ The counted M2.4d3b milestone is delivered through four tracked sub-slices:
    wholesale, then gate pixel output, hit-test state, allocations, package
    loading, and CPU/GPU timing against the managed renderer.
 
+The desktop opt-in sample now enters d3b4 through a single immutable semantic
+stream covering all four retained draw domains plus state, material, sampling,
+color processing, mask, and effect resources. Focused family modes remain only
+as diagnostics. The matched benchmark owns the managed comparison and explicit
+pixel tolerance; the sample owns the runnable substitution and manual review
+surface, so benchmark-only fixtures do not become application architecture.
+
 Each sub-slice requires C ABI layout/compatibility tests, malformed-stream and
 stack fuzzing, retained-cache assertions, six-RID package consumers, real Dawn
 hardware coverage where available, matched Release distributions, inspected
