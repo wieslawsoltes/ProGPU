@@ -21,7 +21,7 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
 
 bool semantic_scene_builder_is_deterministic_and_valid() {
     semantic_scene_builder builder(701U, 4U);
-    if (!builder.reserve(5U, 5U, 2048U)) {
+    if (!builder.reserve(6U, 6U, 3072U)) {
         return false;
     }
     std::uint32_t blue = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -114,7 +114,35 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             stroke_points,
             stroke_doubles,
             std::span<const std::uint32_t>(&blue, 1U),
-            {10.0F, 60.0F, 80.0F, 20.0F}) ||
+            {10.0F, 60.0F, 80.0F, 20.0F})) {
+        return false;
+    }
+    const std::array path_segments{
+        progpu_native_path_segment{
+            {20.0F, 20.0F}, {40.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {40.0F, 20.0F}, {30.0F, 42.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {30.0F, 42.0F}, {20.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_path_fill path{
+        0U,
+        path_segments.size(),
+        20.0F,
+        20.0F,
+        40.0F,
+        42.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U};
+    if (!builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(&path, 1U),
+            path_segments,
+            std::span<const std::uint32_t>(&amber, 1U),
+            {18.0F, 18.0F, 24.0F, 26.0F}) ||
         !builder.restore()) {
         return false;
     }
@@ -123,8 +151,8 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
     std::vector<std::byte> second;
     scene_build_metrics metrics{};
     if (!builder.build(first, &metrics) || !builder.build(second) ||
-        first != second || metrics.command_count != 5U ||
-        metrics.resource_count != 5U || metrics.brush_count != 2U ||
+        first != second || metrics.command_count != 6U ||
+        metrics.resource_count != 6U || metrics.brush_count != 2U ||
         metrics.maximum_stack_depth != 1U || metrics.arena_bytes == 0U) {
         return false;
     }
@@ -132,7 +160,7 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
     if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
         validated.header.scene_id != 701U ||
         validated.header.generation != 4U ||
-        validated.draw_count != 3U ||
+        validated.draw_count != 4U ||
         validated.maximum_stack_depth != 1U) {
         return false;
     }
@@ -156,6 +184,10 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
         first,
         validated.header.resource_offset +
             4U * sizeof(progpu_native_scene_resource));
+    const auto path_resource = read<progpu_native_scene_resource>(
+        first,
+        validated.header.resource_offset +
+            5U * sizeof(progpu_native_scene_resource));
     return brush_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE &&
         brush_resource.payload_size ==
             2U * sizeof(progpu_native_scene_brush) &&
@@ -170,7 +202,10 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH &&
         stroke_resource.payload_size == sizeof(stroke) &&
         stroke_resource.auxiliary_size ==
-            sizeof(stroke_points) + sizeof(stroke_doubles);
+            sizeof(stroke_points) + sizeof(stroke_doubles) &&
+        path_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH &&
+        path_resource.payload_size == sizeof(path) &&
+        path_resource.auxiliary_size == sizeof(path_segments);
 }
 
 bool semantic_scene_builder_rejects_invalid_state() {

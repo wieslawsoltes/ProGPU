@@ -292,11 +292,11 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(3U, 4U, 4096U)) {
+    if (!scene_builder.reserve(4U, 5U, 6144U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
-    std::array<std::uint32_t, 4U> brush_indices{};
+    std::array<std::uint32_t, 5U> brush_indices{};
     if (!scene_builder.add_solid_brush(
             {0.08F, 0.42F, 0.95F, 1.0F}, 1.0F, brush_indices[0]) ||
         !scene_builder.add_solid_brush(
@@ -304,7 +304,9 @@ int main(int argc, char** argv) {
         !scene_builder.add_solid_brush(
             {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2]) ||
         !scene_builder.add_solid_brush(
-            {0.20F, 0.82F, 0.95F, 1.0F}, 1.0F, brush_indices[3])) {
+            {0.20F, 0.82F, 0.95F, 1.0F}, 1.0F, brush_indices[3]) ||
+        !scene_builder.add_solid_brush(
+            {0.72F, 0.34F, 0.96F, 1.0F}, 1.0F, brush_indices[4])) {
         std::cerr << "Could not record native retained brushes.\n";
         return EXIT_FAILURE;
     }
@@ -372,6 +374,35 @@ int main(int argc, char** argv) {
             std::span<const std::uint32_t>(&brush_indices[3], 1U),
             {60.0F, 304.0F, 492.0F, 34.0F})) {
         std::cerr << "Could not record native retained strokes.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array native_path_segments{
+        progpu_native_path_segment{
+            {566.0F, 228.0F}, {616.0F, 264.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {616.0F, 264.0F}, {566.0F, 298.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {566.0F, 298.0F}, {566.0F, 228.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_path_fill native_path{
+        0U,
+        native_path_segments.size(),
+        566.0F,
+        228.0F,
+        616.0F,
+        298.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        8U};
+    if (!scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(&native_path, 1U),
+            native_path_segments,
+            std::span<const std::uint32_t>(&brush_indices[4], 1U),
+            {562.0F, 224.0F, 58.0F, 78.0F})) {
+        std::cerr << "Could not record native retained paths.\n";
         return EXIT_FAILURE;
     }
     std::vector<std::byte> scene_stream;

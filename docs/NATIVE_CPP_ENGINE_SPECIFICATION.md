@@ -1106,13 +1106,17 @@ ordered semantic layers now own bounded backdrop input.
   `progpu_native_scene_builder`: it records/deduplicates solid brushes,
   transform/opacity/rectangle-clip states, balanced save/restore scopes,
   analytic batches, general geometry primitives, and connected polyline/NURBS
-  strokes with canonical point/knot/weight/dash arenas, then deterministically emits the same bounded,
+  strokes with canonical point/knot/weight/dash arenas, plus retained path
+  fills with exact line/quadratic/cubic/analytic-arc segment streams, then
+  deterministically emits the same bounded,
   pointer-free version-one stream consumed by the native compiler. The
   desktop sample now uses this builder end to end, and the Emscripten gate
   compiles, submits, and stable-replays the same native-owned builder path.
-  Path/image/glyph/layer/effect recording and incremental range updates remain.
+  Image/glyph/layer/effect recording and incremental range updates remain.
   Geometry and stroke validation reuse the existing native compiler contracts
-  rather than maintaining builder-local approximations. This is a direct
+  rather than maintaining builder-local approximations; path recording likewise
+  reuses the exact transform-aware atlas, fill-rule, segment, and 4x4/8x8
+  validation contract. This is a direct
   parallel port of the ProGPU-owned
   `NativeSceneStreamBuilder.cs` contract at source checkpoint
   `4450f04561a91597a43de572ca2a5a68634faa8f`, with the existing native header
