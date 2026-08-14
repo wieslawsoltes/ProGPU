@@ -64,6 +64,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS (UINT64_C(1) << 33U)
 #define PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION (UINT64_C(1) << 34U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH (UINT64_C(1) << 35U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH (UINT64_C(1) << 36U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -100,7 +101,8 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN = 7,
     PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE = 8,
     PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE = 9,
-    PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH = 10
+    PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH = 10,
+    PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH = 11
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -150,7 +152,8 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH = 17,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE = 19,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY = 20
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY = 20,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH = 21
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -175,6 +178,12 @@ enum {
 
 enum {
     PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX = 1U << 0U
+};
+
+enum {
+    PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED = 1U << 0U,
+    PROGPU_NATIVE_POINT_BATCH_ROUND = 1U << 1U,
+    PROGPU_NATIVE_POINT_BATCH_HAIRLINE = 1U << 2U
 };
 
 enum {
@@ -808,6 +817,24 @@ typedef struct progpu_native_geometry_primitive {
     progpu_native_color color;
     progpu_native_affine_2d transform;
 } progpu_native_geometry_primitive;
+
+/*
+ * Compact pointer-free retained point-batch record. PointOffset/PointCount
+ * address the owning POINT_BATCH resource's auxiliary progpu_native_point
+ * array. A changed scene expands each point to one vector quad in O(N) time;
+ * stable replay retains the packed GPU page and uploads nothing. Radius is
+ * local for ordinary points and exactly 0.5 for device-space hairlines.
+ */
+typedef struct progpu_native_scene_point_batch {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t point_offset;
+    uint32_t point_count;
+    float radius;
+    float reserved;
+    progpu_native_color color;
+    progpu_native_affine_2d transform;
+} progpu_native_scene_point_batch;
 
 /*
  * A connected stroke borrows a contiguous range from geometry_frame.points.

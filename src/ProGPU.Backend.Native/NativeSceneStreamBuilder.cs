@@ -226,6 +226,57 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             flags: flags);
 
+    public bool TryAddPointBatchResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeScenePointBatch> batches,
+        scoped ReadOnlySpan<Vector2> points,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (batches.IsEmpty || points.IsEmpty ||
+            (uint)batches.Length > NativeMethods.SceneMaximumDrawBrushIndices)
+        {
+            return false;
+        }
+        foreach (ref readonly Vector2 point in points)
+        {
+            if (!IsFinite(point))
+            {
+                return false;
+            }
+        }
+        const NativePointBatchFlags allowedFlags =
+            NativePointBatchFlags.EdgeAliased |
+            NativePointBatchFlags.Round |
+            NativePointBatchFlags.Hairline;
+        foreach (ref readonly NativeScenePointBatch batch in batches)
+        {
+            if (batch.StructSize != Unsafe.SizeOf<NativeScenePointBatch>() ||
+                (batch.Flags & ~allowedFlags) != 0 ||
+                batch.PointCount == 0U ||
+                batch.PointOffset > (uint)points.Length ||
+                batch.PointCount > (uint)points.Length - batch.PointOffset ||
+                !float.IsFinite(batch.Radius) || batch.Radius <= 0f ||
+                !batch.HasCanonicalReservedField || !IsFinite(batch.Color) ||
+                !IsFinite(batch.Transform) ||
+                ((batch.Flags & NativePointBatchFlags.Hairline) != 0 &&
+                    batch.Radius != 0.5f))
+            {
+                return false;
+            }
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.PointBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(batches),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(points),
+            flags);
+    }
+
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
@@ -608,6 +659,25 @@ public ref struct NativeSceneStreamBuilder
         uint stateIndex = uint.MaxValue) =>
         TryDrawWithBrushes(
             NativeSceneCommandKind.DrawGeometry,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
+            stateIndex);
+
+    /// <summary>
+    /// Draws retained point batches with one brush-table index per batch.
+    /// </summary>
+    public bool TryDrawPointBatch(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawPointBatch,
             commandId,
             resourceIndex,
             bounds,
@@ -1222,6 +1292,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawGeometry => checked((int)
                 GetResourceRecordCount<NativeGeometryPrimitive>(
                     resourceIndex)),
+            NativeSceneCommandKind.DrawPointBatch => checked((int)
+                GetResourceRecordCount<NativeScenePointBatch>(
+                    resourceIndex)),
             NativeSceneCommandKind.DrawPath => checked((int)
                 GetResourceRecordCount<NativeScenePathFill>(
                     resourceIndex)),
@@ -1248,12 +1321,14 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.Image,
             NativeSceneCommandKind.DrawGeometry =>
                 NativeSceneResourceKind.GeometryBatch,
+            NativeSceneCommandKind.DrawPointBatch =>
+                NativeSceneResourceKind.PointBatch,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.GeometryBatch;
+            <= NativeSceneResourceKind.PointBatch;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

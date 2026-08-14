@@ -359,7 +359,7 @@ progpu_native_status render_scene(
             continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH) {
             continue;
         }
         const auto resource = read_resource(command.resource_index);
@@ -455,6 +455,83 @@ progpu_native_status render_scene(
                         primitive,
                         vertex_count,
                         index_count);
+                    budget_valid = valid &&
+                        vertex_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_vertex_bytes) /
+                                sizeof(progpu::native::vector_vertex) &&
+                        index_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_index_bytes) /
+                                sizeof(std::uint32_t);
+                    if (budget_valid) {
+                        compiled_vertex_bytes += vertex_count *
+                            sizeof(progpu::native::vector_vertex);
+                        compiled_index_bytes += index_count *
+                            sizeof(std::uint32_t);
+                    }
+                }
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH: {
+                valid = span_is_multiple(
+                        resource.payload_size,
+                        sizeof(progpu_native_scene_point_batch)) &&
+                    span_is_multiple(
+                        resource.auxiliary_size,
+                        sizeof(progpu_native_point));
+                const std::uint64_t batch_count = resource.payload_size /
+                    sizeof(progpu_native_scene_point_batch);
+                const std::uint64_t point_count = resource.auxiliary_size /
+                    sizeof(progpu_native_point);
+                valid = valid && batch_count != 0U && point_count != 0U &&
+                    batch_count <=
+                        PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES &&
+                    point_count <=
+                        std::numeric_limits<std::uint32_t>::max();
+                const auto* points = reinterpret_cast<
+                    const progpu_native_point*>(
+                        bytes + resource.auxiliary_offset);
+                for (std::uint64_t batch_index = 0U;
+                     valid && budget_valid && batch_index < batch_count;
+                     ++batch_index) {
+                    progpu_native_scene_point_batch batch{};
+                    std::memcpy(
+                        &batch,
+                        bytes + resource.payload_offset + batch_index *
+                            sizeof(batch),
+                        sizeof(batch));
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    valid = resolve_brush(
+                        index,
+                        command,
+                        static_cast<std::uint32_t>(batch_index),
+                        brush_index,
+                        brush);
+                    if (!valid) {
+                        break;
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(batch, state);
+                    } else {
+                        apply_semantic_transform(batch, state);
+                        if (brush->type ==
+                            PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                            batch.color = brush->colors[0];
+                        }
+                    }
+                    std::size_t vertex_count = 0U;
+                    std::size_t index_count = 0U;
+                    valid = progpu::native::is_valid_point_batch(
+                            batch,
+                            points,
+                            static_cast<std::size_t>(point_count)) &&
+                        progpu::native::point_batch_capacity(
+                            batch,
+                            static_cast<std::size_t>(point_count),
+                            vertex_count,
+                            index_count);
                     budget_valid = valid &&
                         vertex_count <=
                             (std::numeric_limits<std::uint64_t>::max() -
@@ -680,7 +757,10 @@ progpu_native_status render_scene(
                         : command.kind ==
                                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE
                             ? "image"
-                            : "geometry";
+                            : command.kind ==
+                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH
+                                ? "point-batch"
+                                : "geometry";
             const std::string detail = std::string("A typed semantic ") +
                 family + " scene resource payload is invalid.";
             return engine->fail(
@@ -697,7 +777,8 @@ progpu_native_status render_scene(
                 "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH) {
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
@@ -997,7 +1078,9 @@ progpu_native_status render_scene(
                 if (command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                     command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
+                    command.kind !=
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH) {
                     continue;
                 }
                 const auto resource = read_resource(command.resource_index);
@@ -1049,7 +1132,8 @@ progpu_native_status render_scene(
                                 "A preflighted semantic analytic payload could not be compiled.");
                         }
                     }
-                } else {
+                } else if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
                     const std::size_t primitive_count = resource.payload_size /
                         sizeof(progpu_native_geometry_primitive);
                     for (std::size_t primitive_index = 0U;
@@ -1087,6 +1171,59 @@ progpu_native_status render_scene(
                             return engine->fail(
                                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                                 "A preflighted semantic geometry payload could not be compiled.");
+                        }
+                    }
+                } else {
+                    const std::size_t batch_count = resource.payload_size /
+                        sizeof(progpu_native_scene_point_batch);
+                    const std::size_t point_count = resource.auxiliary_size /
+                        sizeof(progpu_native_point);
+                    const auto* points = reinterpret_cast<
+                        const progpu_native_point*>(
+                            bytes + resource.auxiliary_offset);
+                    for (std::size_t batch_index = 0U;
+                         batch_index < batch_count;
+                         ++batch_index) {
+                        progpu_native_scene_point_batch batch{};
+                        std::memcpy(
+                            &batch,
+                            bytes + resource.payload_offset + batch_index *
+                                sizeof(batch),
+                            sizeof(batch));
+                        std::uint32_t brush_index = 0U;
+                        const progpu_native_scene_brush* brush = nullptr;
+                        if (!resolve_brush(
+                                index,
+                                command,
+                                static_cast<std::uint32_t>(batch_index),
+                                brush_index,
+                                brush)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A validated semantic point-batch brush map could not be resolved.");
+                        }
+                        if (brush == nullptr) {
+                            apply_semantic_state(batch, state);
+                        } else {
+                            apply_semantic_transform(batch, state);
+                            if (brush->type ==
+                                PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                                batch.color = brush->colors[0];
+                            }
+                        }
+                        const bool local_brush_coordinates = brush != nullptr &&
+                            brush->type != PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+                        if (!progpu::native::append_point_batch(
+                                batch,
+                                points,
+                                point_count,
+                                static_cast<float>(brush_index),
+                                local_brush_coordinates,
+                                engine->vertices,
+                                engine->indices)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A preflighted semantic point-batch payload could not be compiled.");
                         }
                     }
                 }
@@ -2690,7 +2827,8 @@ progpu_native_status render_scene(
             }
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-                command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+                command.kind >
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH) {
                 continue;
             }
             const auto scissor = resolve_semantic_target_scissor(
@@ -2714,8 +2852,10 @@ progpu_native_status render_scene(
                 }
             }
             if (scissor.drawable) {
-                note_family(command.kind ==
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY
+                note_family((command.kind ==
+                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+                        command.kind ==
+                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH)
                     ? static_cast<std::uint32_t>(
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC)
                     : command.kind);
@@ -2747,6 +2887,24 @@ progpu_native_status render_scene(
                         return fail_bundle(engine->fail(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic geometry packed-page index is invalid."));
+                    }
+                    const auto draw_index = semantic_analytic_draw_index;
+                    ++semantic_analytic_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_analytic_bundle_draw(
+                                *engine,
+                                bundle_encoder,
+                                semantic_analytic_page.draws[draw_index],
+                                current_target_layer);
+                    }
+                    break;
+                }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH: {
+                    if (semantic_analytic_draw_index >=
+                        semantic_analytic_page.draws.size()) {
+                        return fail_bundle(engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "The semantic point-batch packed-page index is invalid."));
                     }
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;

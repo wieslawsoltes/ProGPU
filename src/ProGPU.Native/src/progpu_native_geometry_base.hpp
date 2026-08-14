@@ -45,6 +45,9 @@ static_assert(sizeof(progpu_native_group_effect) == 56U);
 static_assert(sizeof(progpu_native_analytic_primitive) == 72U);
 static_assert(sizeof(progpu_native_point) == 8U);
 static_assert(sizeof(progpu_native_geometry_primitive) == 88U);
+static_assert(sizeof(progpu_native_scene_point_batch) == 64U);
+static_assert(offsetof(progpu_native_scene_point_batch, color) == 24U);
+static_assert(offsetof(progpu_native_scene_point_batch, transform) == 40U);
 static_assert(sizeof(progpu_native_polyline) ==
     (sizeof(std::size_t) == 8U ? 72U : 64U));
 static_assert(sizeof(progpu_native_dash_style) ==

@@ -312,10 +312,14 @@ internal static class ManagedPictureBenchmark
 
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, Width, Height));
-        int analyticCount = Math.Max(1, primitiveCount * 5 / 6);
+        int pointBatchCount = Math.Min(
+            primitiveCount - 1,
+            Math.Max(1, primitiveCount / 12));
+        int graphicCommandCount = primitiveCount - pointBatchCount;
+        int analyticCount = Math.Max(1, graphicCommandCount * 5 / 6);
         int dotGridCount = Math.Min(
             analyticCount,
-            Math.Max(1, primitiveCount / 12));
+            Math.Max(1, graphicCommandCount / 12));
         int ordinaryAnalyticCount = analyticCount - dotGridCount;
         for (int index = 0; index < analyticCount; index++)
         {
@@ -366,7 +370,7 @@ internal static class ManagedPictureBenchmark
                     break;
             }
         }
-        for (int index = analyticCount; index < primitiveCount; index++)
+        for (int index = analyticCount; index < graphicCommandCount; index++)
         {
             int xIndex = index % columns;
             int yIndex = index / columns;
@@ -377,6 +381,24 @@ internal static class ManagedPictureBenchmark
                 (xIndex + 1) * cellWidth - inset,
                 (yIndex + 1) * cellHeight - inset);
             drawing.DrawLine(linePen, start, end);
+        }
+        for (int index = graphicCommandCount; index < primitiveCount; index++)
+        {
+            int xIndex = index % columns;
+            int yIndex = index / columns;
+            float left = xIndex * cellWidth + inset;
+            float top = yIndex * cellHeight + inset;
+            float right = (xIndex + 1) * cellWidth - inset;
+            float bottom = (yIndex + 1) * cellHeight - inset;
+            drawing.DrawPointBatch(
+                brushes[index % brushes.Length],
+                [
+                    new(left + (right - left) * 0.2f, top + (bottom - top) * 0.3f),
+                    new(left + (right - left) * 0.5f, top + (bottom - top) * 0.7f),
+                    new(left + (right - left) * 0.8f, top + (bottom - top) * 0.3f)
+                ],
+                MathF.Max(0.75f, MathF.Min(cellWidth, cellHeight) * 0.08f),
+                round: (index & 1) == 0);
         }
         return recorder.EndRecording();
     }

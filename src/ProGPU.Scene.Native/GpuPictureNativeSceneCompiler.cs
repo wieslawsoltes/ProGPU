@@ -21,7 +21,8 @@ public static class GpuPictureNativeSceneCompiler
     private enum BatchKind : byte
     {
         Analytic,
-        Geometry
+        Geometry,
+        PointBatch
     }
 
     private enum OperationKind : byte
@@ -43,6 +44,8 @@ public static class GpuPictureNativeSceneCompiler
         public int Start;
         public int Count;
         public int BrushStart;
+        public int AuxiliaryStart;
+        public int AuxiliaryCount;
         public NativeImageRect Bounds;
         public uint ResourceIndex;
     }
@@ -95,6 +98,9 @@ public static class GpuPictureNativeSceneCompiler
         var analyticBrushIndices = new List<uint>();
         var geometry = new List<NativeGeometryPrimitive>();
         var geometryBrushIndices = new List<uint>();
+        var pointBatches = new List<NativeScenePointBatch>();
+        var points = new List<Vector2>();
+        var pointBatchBrushIndices = new List<uint>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
         var states = new List<NativeSceneState>();
@@ -136,6 +142,9 @@ public static class GpuPictureNativeSceneCompiler
                     analyticBrushIndices,
                     geometry,
                     geometryBrushIndices,
+                    pointBatches,
+                    points,
+                    pointBatchBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -170,13 +179,16 @@ public static class GpuPictureNativeSceneCompiler
             int arenaCapacity = checked(
                 analytics.Count * Unsafe.SizeOf<NativeAnalyticPrimitive>() +
                 geometry.Count * Unsafe.SizeOf<NativeGeometryPrimitive>() +
+                pointBatches.Count * Unsafe.SizeOf<NativeScenePointBatch>() +
+                points.Count * Unsafe.SizeOf<Vector2>() +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
                 operations.Count * 64 +
                 batches.Count * 30 +
-                (analytics.Count + geometry.Count) * sizeof(uint) + 14);
+                (analytics.Count + geometry.Count + pointBatches.Count) *
+                    sizeof(uint) + 14);
             int resourceCount = checked(batches.Count + 1 + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
                 resourceCount,
@@ -193,10 +205,15 @@ public static class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(analytics);
             Span<NativeGeometryPrimitive> geometrySpan =
                 CollectionsMarshal.AsSpan(geometry);
+            Span<NativeScenePointBatch> pointBatchSpan =
+                CollectionsMarshal.AsSpan(pointBatches);
+            Span<Vector2> pointSpan = CollectionsMarshal.AsSpan(points);
             Span<uint> analyticBrushSpan =
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
                 CollectionsMarshal.AsSpan(geometryBrushIndices);
+            Span<uint> pointBatchBrushSpan =
+                CollectionsMarshal.AsSpan(pointBatchBrushIndices);
             for (int index = 0; index < batches.Count; index++)
             {
                 Batch batch = batches[index];
@@ -206,10 +223,19 @@ public static class GpuPictureNativeSceneCompiler
                         generation,
                         analyticSpan.Slice(batch.Start, batch.Count),
                         out batch.ResourceIndex)
-                    : builder.TryAddGeometryResource(
+                    : batch.Kind == BatchKind.Geometry
+                    ? builder.TryAddGeometryResource(
                         checked((ulong)index + 1U),
                         generation,
                         geometrySpan.Slice(batch.Start, batch.Count),
+                        out batch.ResourceIndex)
+                    : builder.TryAddPointBatchResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        pointBatchSpan.Slice(batch.Start, batch.Count),
+                        pointSpan.Slice(
+                            batch.AuxiliaryStart,
+                            batch.AuxiliaryCount),
                         out batch.ResourceIndex);
                 if (!added)
                 {
@@ -276,12 +302,21 @@ public static class GpuPictureNativeSceneCompiler
                             batch.Bounds,
                             brushResourceIndex,
                             analyticBrushSpan.Slice(batch.BrushStart, batch.Count))
-                        : builder.TryDrawGeometry(
+                        : batch.Kind == BatchKind.Geometry
+                        ? builder.TryDrawGeometry(
                             commandId,
                             batch.ResourceIndex,
                             batch.Bounds,
                             brushResourceIndex,
-                            geometryBrushSpan.Slice(batch.BrushStart, batch.Count));
+                            geometryBrushSpan.Slice(batch.BrushStart, batch.Count))
+                        : builder.TryDrawPointBatch(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            brushResourceIndex,
+                            pointBatchBrushSpan.Slice(
+                                batch.BrushStart,
+                                batch.Count));
                 }
                 if (!added)
                 {
@@ -447,6 +482,9 @@ public static class GpuPictureNativeSceneCompiler
         List<uint> analyticBrushIndices,
         List<NativeGeometryPrimitive> geometry,
         List<uint> geometryBrushIndices,
+        List<NativeScenePointBatch> pointBatches,
+        List<Vector2> points,
+        List<uint> pointBatchBrushIndices,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
@@ -603,6 +641,17 @@ public static class GpuPictureNativeSceneCompiler
                     transform,
                     geometry,
                     geometryBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
+            case RenderCommandType.DrawPointBatch:
+                return TryAppendPointBatch(
+                    command,
+                    transform,
+                    pointBatches,
+                    points,
+                    pointBatchBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -860,6 +909,133 @@ public static class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryAppendPointBatch(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeScenePointBatch> nativeBatches,
+        List<Vector2> points,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Brush is null ||
+            command.PolylinePoints is not { Length: > 0 } sourcePoints ||
+            !float.IsFinite(command.RadiusX))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        foreach (Vector2 point in sourcePoints)
+        {
+            if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+        }
+        bool hairline = command.RadiusX <= 0f;
+        float radius = hairline ? 0.5f : command.RadiusX;
+        NativePointBatchFlags flags = command.IsEdgeAliased
+            ? NativePointBatchFlags.EdgeAliased
+            : NativePointBatchFlags.None;
+        if (command.IntParam != 0)
+        {
+            flags |= NativePointBatchFlags.Round;
+        }
+        if (hairline)
+        {
+            flags |= NativePointBatchFlags.Hairline;
+        }
+
+        float minX = sourcePoints[0].X;
+        float minY = sourcePoints[0].Y;
+        float maxX = minX;
+        float maxY = minY;
+        for (int index = 1; index < sourcePoints.Length; index++)
+        {
+            minX = MathF.Min(minX, sourcePoints[index].X);
+            minY = MathF.Min(minY, sourcePoints[index].Y);
+            maxX = MathF.Max(maxX, sourcePoints[index].X);
+            maxY = MathF.Max(maxY, sourcePoints[index].Y);
+        }
+        float padding = command.IsEdgeAliased ? 0f : 1.5f;
+        float extent = radius + padding;
+        NativeImageRect bounds;
+        if (hairline)
+        {
+            Vector2 transformed = Vector2.Transform(sourcePoints[0], transform);
+            float transformedMinX = transformed.X;
+            float transformedMinY = transformed.Y;
+            float transformedMaxX = transformed.X;
+            float transformedMaxY = transformed.Y;
+            for (int index = 1; index < sourcePoints.Length; index++)
+            {
+                transformed = Vector2.Transform(sourcePoints[index], transform);
+                transformedMinX = MathF.Min(transformedMinX, transformed.X);
+                transformedMinY = MathF.Min(transformedMinY, transformed.Y);
+                transformedMaxX = MathF.Max(transformedMaxX, transformed.X);
+                transformedMaxY = MathF.Max(transformedMaxY, transformed.Y);
+            }
+            bounds = Inflate(new(
+                transformedMinX,
+                transformedMinY,
+                transformedMaxX - transformedMinX,
+                transformedMaxY - transformedMinY), extent);
+        }
+        else
+        {
+            bounds = TransformBounds(new Rect(
+                minX - extent,
+                minY - extent,
+                maxX - minX + extent * 2f,
+                maxY - minY + extent * 2f), transform);
+        }
+        if (!float.IsFinite(bounds.X) || !float.IsFinite(bounds.Y) ||
+            !float.IsFinite(bounds.Width) || !float.IsFinite(bounds.Height))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+
+        uint resourcePointOffset = 0U;
+        if (batches.Count > 0 && operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1 &&
+            batches[^1].Kind == BatchKind.PointBatch)
+        {
+            resourcePointOffset = checked((uint)batches[^1].AuxiliaryCount);
+        }
+        int pointStart = points.Count;
+        int batchStart = nativeBatches.Count;
+        points.AddRange(sourcePoints);
+        nativeBatches.Add(new(
+            resourcePointOffset,
+            checked((uint)sourcePoints.Length),
+            radius,
+            Vector4.One,
+            transform,
+            flags));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.PointBatch,
+            batchStart,
+            batchStart,
+            1,
+            bounds,
+            pointStart,
+            sourcePoints.Length);
+        return true;
+    }
+
     private static void AppendBatch(
         List<Batch> batches,
         List<Operation> operations,
@@ -867,7 +1043,9 @@ public static class GpuPictureNativeSceneCompiler
         int start,
         int brushStart,
         int count,
-        NativeImageRect bounds)
+        NativeImageRect bounds,
+        int auxiliaryStart = 0,
+        int auxiliaryCount = 0)
     {
         if (batches.Count > 0 &&
             operations.Count > 0 &&
@@ -877,9 +1055,13 @@ public static class GpuPictureNativeSceneCompiler
             Batch previous = batches[^1];
             if (previous.Kind == kind &&
                 previous.Start + previous.Count == start &&
-                previous.BrushStart + previous.Count == brushStart)
+                previous.BrushStart + previous.Count == brushStart &&
+                (kind != BatchKind.PointBatch ||
+                    previous.AuxiliaryStart + previous.AuxiliaryCount ==
+                        auxiliaryStart))
             {
                 previous.Count += count;
+                previous.AuxiliaryCount += auxiliaryCount;
                 previous.Bounds = Union(previous.Bounds, bounds);
                 batches[^1] = previous;
                 return;
@@ -891,6 +1073,8 @@ public static class GpuPictureNativeSceneCompiler
             Start = start,
             BrushStart = brushStart,
             Count = count,
+            AuxiliaryStart = auxiliaryStart,
+            AuxiliaryCount = auxiliaryCount,
             Bounds = bounds
         });
         operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));

@@ -40,6 +40,15 @@ public enum NativeGeometryPrimitiveKind : uint
     DotGrid = 5
 }
 
+[Flags]
+public enum NativePointBatchFlags : uint
+{
+    None = 0,
+    EdgeAliased = 1U << 0,
+    Round = 1U << 1,
+    Hairline = 1U << 2
+}
+
 public enum NativeStrokeCap : uint
 {
     Flat = 0,
@@ -181,7 +190,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticRetainedTextStyles = 1UL << 32,
     SemanticColorGlyphAtlas = 1UL << 33,
     DeviceLossRecreation = 1UL << 34,
-    SemanticGeometryBatch = 1UL << 35
+    SemanticGeometryBatch = 1UL << 35,
+    SemanticPointBatch = 1UL << 36
 }
 
 public enum NativeSceneResourceKind : uint
@@ -195,7 +205,8 @@ public enum NativeSceneResourceKind : uint
     EffectChain = 7,
     BrushTable = 8,
     TextStyleTable = 9,
-    GeometryBatch = 10
+    GeometryBatch = 10,
+    PointBatch = 11
 }
 
 public enum NativeSceneTextRenderingMode : uint
@@ -249,7 +260,8 @@ public enum NativeSceneCommandKind : uint
     DrawPath = 17,
     DrawGlyphRun = 18,
     DrawImage = 19,
-    DrawGeometry = 20
+    DrawGeometry = 20,
+    DrawPointBatch = 21
 }
 
 [Flags]
@@ -1784,6 +1796,43 @@ public readonly struct NativeGeometryPrimitive
 
     public NativeStrokeCap EndCap =>
         (NativeStrokeCap)(((uint)Flags >> 5) & 3U);
+}
+
+/// <summary>
+/// Compact retained point-batch metadata. The point range addresses the
+/// owning resource's auxiliary <see cref="Vector2"/> array.
+/// </summary>
+[StructLayout(LayoutKind.Explicit, Size = 64)]
+public readonly struct NativeScenePointBatch
+{
+    public NativeScenePointBatch(
+        uint pointOffset,
+        uint pointCount,
+        float radius,
+        Vector4 color,
+        Matrix3x2 transform,
+        NativePointBatchFlags flags = NativePointBatchFlags.None)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeScenePointBatch>();
+        Flags = flags;
+        PointOffset = pointOffset;
+        PointCount = pointCount;
+        Radius = radius;
+        Reserved = 0f;
+        Color = color;
+        Transform = transform;
+    }
+
+    [FieldOffset(0)] public readonly uint StructSize;
+    [FieldOffset(4)] public readonly NativePointBatchFlags Flags;
+    [FieldOffset(8)] public readonly uint PointOffset;
+    [FieldOffset(12)] public readonly uint PointCount;
+    [FieldOffset(16)] public readonly float Radius;
+    [FieldOffset(20)] private readonly float Reserved;
+    [FieldOffset(24)] public readonly Vector4 Color;
+    [FieldOffset(40)] public readonly Matrix3x2 Transform;
+
+    internal readonly bool HasCanonicalReservedField => Reserved == 0f;
 }
 
 [StructLayout(LayoutKind.Sequential)]

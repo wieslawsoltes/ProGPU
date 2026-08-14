@@ -48,6 +48,14 @@ void apply_semantic_transform(
     const progpu_native_scene_state& state) noexcept;
 
 void apply_semantic_state(
+    progpu_native_scene_point_batch& batch,
+    const progpu_native_scene_state& state) noexcept;
+
+void apply_semantic_transform(
+    progpu_native_scene_point_batch& batch,
+    const progpu_native_scene_state& state) noexcept;
+
+void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept;
 

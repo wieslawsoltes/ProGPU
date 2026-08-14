@@ -245,6 +245,74 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerCoalescesPointBatchesIntoCompactNativeResource()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 96f, 64f));
+        drawing.DrawPointBatch(
+            new SolidColorBrush(new Vector4(1f, 0.2f, 0.1f, 1f)),
+            [new(12f, 16f), new(28f, 20f), new(44f, 18f)],
+            3f,
+            round: true);
+        drawing.DrawPointBatch(
+            new LinearGradientBrush(
+                new Vector2(0f, 0f),
+                new Vector2(96f, 0f),
+                [
+                    new GradientStop(new Vector4(0f, 1f, 1f, 1f), 0f),
+                    new GradientStop(new Vector4(1f, 0f, 1f, 1f), 1f)
+                ]),
+            [new(60f, 22f), new(76f, 18f)],
+            radius: 0f,
+            round: false,
+            isEdgeAliased: true);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            93U,
+            5U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.BrushCount);
+        Assert.Equal(2, compiled.GradientStopCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.PointBatch, resource.Kind);
+        Assert.Equal(
+            2 * Unsafe.SizeOf<NativeScenePointBatch>(),
+            checked((int)resource.PayloadSize));
+        Assert.Equal(
+            5 * Unsafe.SizeOf<Vector2>(),
+            checked((int)resource.AuxiliarySize));
+
+        ReadOnlySpan<NativeScenePointBatch> nativeBatches =
+            MemoryMarshal.Cast<byte, NativeScenePointBatch>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.Equal(0U, nativeBatches[0].PointOffset);
+        Assert.Equal(3U, nativeBatches[0].PointCount);
+        Assert.Equal(3f, nativeBatches[0].Radius);
+        Assert.Equal(NativePointBatchFlags.Round, nativeBatches[0].Flags);
+        Assert.Equal(3U, nativeBatches[1].PointOffset);
+        Assert.Equal(2U, nativeBatches[1].PointCount);
+        Assert.Equal(0.5f, nativeBatches[1].Radius);
+        Assert.Equal(
+            NativePointBatchFlags.EdgeAliased |
+                NativePointBatchFlags.Hairline,
+            nativeBatches[1].Flags);
+    }
+
+    [Fact]
     public void CompilerLowersNestedOpacityAndAxisAlignedClipScopes()
     {
         var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));

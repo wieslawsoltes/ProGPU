@@ -25,8 +25,8 @@ std::uint32_t append(
 std::vector<std::byte> create_semantic_geometry_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height) {
-    constexpr std::uint32_t command_count = 1U;
-    constexpr std::uint32_t resource_count = 3U;
+    constexpr std::uint32_t command_count = 2U;
+    constexpr std::uint32_t resource_count = 4U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -65,6 +65,31 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         stream,
         geometry.data(),
         geometry.size());
+    const std::array points{
+        progpu_native_point{
+            target_width * 0.25F, target_height * 0.25F},
+        progpu_native_point{
+            target_width * 0.5F, target_height * 0.25F},
+        progpu_native_point{
+            target_width * 0.75F, target_height * 0.25F}
+    };
+    const std::uint32_t points_offset = append(
+        stream,
+        points.data(),
+        points.size());
+    const progpu_native_scene_point_batch point_batch{
+        sizeof(progpu_native_scene_point_batch),
+        PROGPU_NATIVE_POINT_BATCH_ROUND,
+        0U,
+        static_cast<std::uint32_t>(points.size()),
+        5.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    const std::uint32_t point_batch_offset = append(
+        stream,
+        &point_batch,
+        1U);
 
     progpu_native_scene_brush brush{};
     brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
@@ -88,6 +113,17 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
     const std::uint32_t draw_offset = append(stream, &draw_brushes, 1U);
     constexpr std::array<std::uint32_t, 2U> brush_indices{0U, 0U};
     append(stream, brush_indices.data(), brush_indices.size());
+    const progpu_native_scene_draw_brushes point_draw_brushes{
+        sizeof(progpu_native_scene_draw_brushes),
+        1U,
+        1U,
+        0U};
+    const std::uint32_t point_draw_offset = append(
+        stream,
+        &point_draw_brushes,
+        1U);
+    constexpr std::uint32_t point_brush_index = 0U;
+    append(stream, &point_brush_index, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -120,30 +156,54 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_STATE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1103U, 1U,
-            state_offset, sizeof(state), 0U, 0U}
+            state_offset, sizeof(state), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1104U, 1U,
+            point_batch_offset, sizeof(point_batch),
+            points_offset, static_cast<std::uint32_t>(sizeof(points))}
     }};
     std::memcpy(
         stream.data() + resource_offset,
         resources.data(),
         sizeof(resources));
 
-    const progpu_native_scene_command command{
-        sizeof(progpu_native_scene_command),
-        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY,
-        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-        0U,
-        1111U,
-        2U,
-        0U,
-        draw_offset,
-        sizeof(draw_brushes) + sizeof(brush_indices),
-        0.0F,
-        0.0F,
-        static_cast<float>(target_width),
-        static_cast<float>(target_height),
-        0U,
-        0U};
-    std::memcpy(stream.data() + command_offset, &command, sizeof(command));
+    const std::array<progpu_native_scene_command, command_count> commands{{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            1111U,
+            2U,
+            0U,
+            draw_offset,
+            sizeof(draw_brushes) + sizeof(brush_indices),
+            0.0F,
+            0.0F,
+            static_cast<float>(target_width),
+            static_cast<float>(target_height),
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            1112U,
+            2U,
+            3U,
+            point_draw_offset,
+            sizeof(point_draw_brushes) + sizeof(point_brush_index),
+            0.0F,
+            0.0F,
+            static_cast<float>(target_width),
+            static_cast<float>(target_height),
+            0U,
+            0U}
+    }};
+    std::memcpy(
+        stream.data() + command_offset,
+        commands.data(),
+        sizeof(commands));
     return stream;
 }
 

@@ -77,6 +77,17 @@ drawing.DrawDotGrid(
     spacing: 16f,
     radius: 4f,
     phase: new Vector2(40f, 320f));
+drawing.DrawPointBatch(
+    new SolidColorBrush(new Vector4(1f, 0.82f, 0.08f, 1f)),
+    [new(96f, 342f), new(128f, 342f), new(160f, 342f)],
+    radius: 6f,
+    round: true);
+drawing.DrawPointBatch(
+    new SolidColorBrush(new Vector4(1f, 0.12f, 0.72f, 1f)),
+    [new(448f, 342f), new(464f, 342f), new(480f, 342f)],
+    radius: 0f,
+    round: false,
+    isEdgeAliased: true);
 using GpuPicture picture = recorder.EndRecording();
 const ulong sceneId = 0x4D414E4147454455UL;
 const ulong sceneGeneration = 1UL;
@@ -92,14 +103,14 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 7U ||
-    updateMetrics.ResourceCount != 6U ||
-    updateMetrics.DrawCount != 3U ||
+if (updateMetrics.CommandCount != 8U ||
+    updateMetrics.ResourceCount != 7U ||
+    updateMetrics.DrawCount != 4U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 8 ||
-    compiled.NativeCommandCount != 7 ||
-    compiled.NativeDrawCount != 3 ||
-    compiled.BrushCount != 4 ||
+    compiled.SourceCommandCount != 10 ||
+    compiled.NativeCommandCount != 8 ||
+    compiled.NativeDrawCount != 4 ||
+    compiled.BrushCount != 6 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
@@ -203,6 +214,8 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var clippedGradient = Pixel(480, 260);
     var gridDot = Pixel(40, 320);
     var gridGap = Pixel(48, 320);
+    var roundPoint = Pixel(96, 342);
+    var hairlinePoint = Pixel(448, 342);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
@@ -211,6 +224,8 @@ static bool HasExpectedColors(byte[] pixels, int width)
         clippedGradient[0] < 30 && clippedGradient[1] < 30 &&
         gridDot[1] > 160 && gridDot[2] > 200 &&
         gridGap[0] < 30 && gridGap[1] < 30 &&
+        roundPoint[0] > 200 && roundPoint[1] > 150 &&
+        hairlinePoint[0] > 200 && hairlinePoint[2] > 120 &&
         background[0] < 30 && background[1] < 30;
 }
 

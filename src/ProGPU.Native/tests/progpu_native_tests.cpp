@@ -517,6 +517,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
@@ -1322,6 +1324,91 @@ void geometry_batch_encodes_periodic_dot_grid_as_one_quad() {
     PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
+void semantic_point_batch_compiles_compact_retained_points() {
+    const std::array points{
+        progpu_native_point{10.0F, 20.0F},
+        progpu_native_point{30.0F, 40.0F}
+    };
+    const progpu_native_scene_point_batch batch{
+        sizeof(progpu_native_scene_point_batch),
+        PROGPU_NATIVE_POINT_BATCH_ROUND,
+        0U,
+        static_cast<std::uint32_t>(points.size()),
+        2.0F,
+        0.0F,
+        {0.2F, 0.4F, 0.6F, 0.8F},
+        {2.0F, 0.0F, 0.0F, 3.0F, 5.0F, 7.0F}
+    };
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::point_batch_capacity(
+        batch,
+        points.size(),
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(vertex_capacity == 8U && index_capacity == 12U);
+
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_point_batch(
+        batch,
+        points.data(),
+        points.size(),
+        3.0F,
+        true,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 8U && indices.size() == 12U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 18.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 56.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], -3.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[1], -3.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[0], 10.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[1], 20.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[0], 4.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].brush_index, 3.0F));
+    PROGPU_REQUIRE(indices[6] == 4U && indices[11] == 7U);
+
+    auto hairline = batch;
+    hairline.flags = PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED |
+        PROGPU_NATIVE_POINT_BATCH_ROUND |
+        PROGPU_NATIVE_POINT_BATCH_HAIRLINE;
+    hairline.point_count = 1U;
+    hairline.radius = 0.5F;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(progpu::native::append_point_batch(
+        hairline,
+        points.data(),
+        points.size(),
+        1.0F,
+        false,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 25.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 67.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[3].position[0], 25.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[3].position[1], 67.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], -0.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1020.0F));
+
+    auto invalid_points = points;
+    invalid_points[1].x = std::numeric_limits<float>::infinity();
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(!progpu::native::append_point_batch(
+        batch,
+        invalid_points.data(),
+        invalid_points.size(),
+        0.0F,
+        false,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty() && indices.empty());
+}
+
 void geometry_batch_preserves_cap_order_and_space() {
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
@@ -1849,6 +1936,7 @@ int main() {
     geometry_batch_encodes_device_strokes_and_fills();
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
     geometry_batch_encodes_periodic_dot_grid_as_one_quad();
+    semantic_point_batch_compiles_compact_retained_points();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
     dashed_strokes_preserve_pattern_space_caps_and_closed_seams();

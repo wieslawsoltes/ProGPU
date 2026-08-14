@@ -640,10 +640,16 @@ public class NativeRendererInteropTests
         Assert.Equal(
             34359738368UL,
             (ulong)NativeRendererCapabilities.SemanticGeometryBatch);
+        Assert.Equal(
+            68719476736UL,
+            (ulong)NativeRendererCapabilities.SemanticPointBatch);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(5U, (uint)NativeGeometryPrimitiveKind.DotGrid);
+        Assert.Equal(64, Unsafe.SizeOf<NativeScenePointBatch>());
+        Assert.Equal(11U, (uint)NativeSceneResourceKind.PointBatch);
+        Assert.Equal(21U, (uint)NativeSceneCommandKind.DrawPointBatch);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
     }
@@ -801,6 +807,81 @@ public class NativeRendererInteropTests
         Assert.Equal(
             (uint)(primitives.Length * Unsafe.SizeOf<NativeGeometryPrimitive>()),
             resource.PayloadSize);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderValidatesCompactPointBatchesTransactionally()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<Vector2> points = stackalloc Vector2[3]
+        {
+            new(4f, 5f),
+            new(12f, 9f),
+            new(20f, 13f)
+        };
+        Span<NativeScenePointBatch> batches =
+            stackalloc NativeScenePointBatch[1]
+            {
+                new(
+                    pointOffset: 0U,
+                    pointCount: 3U,
+                    radius: 2f,
+                    color: Vector4.One,
+                    transform: Matrix3x2.Identity,
+                    flags: NativePointBatchFlags.Round)
+            };
+        Span<NativeSceneBrush> brushes = stackalloc NativeSceneBrush[1]
+        {
+            NativeSceneBrush.Solid(Vector4.One)
+        };
+        Span<uint> brushIndices = stackalloc uint[1] { 0U };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 52U,
+            generation: 1U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+
+        points[1] = new Vector2(float.NaN, 9f);
+        Assert.False(builder.TryAddPointBatchResource(
+            100U,
+            1U,
+            batches,
+            points,
+            out _));
+        points[1] = new Vector2(12f, 9f);
+        Assert.True(builder.TryAddPointBatchResource(
+            100U,
+            1U,
+            batches,
+            points,
+            out uint pointBatch));
+        Assert.True(builder.TryAddBrushTableResource(
+            101U,
+            1U,
+            brushes,
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint brushTable));
+        Assert.True(builder.TryDrawPointBatch(
+            1000U,
+            pointBatch,
+            new NativeImageRect(2f, 3f, 20f, 12f),
+            brushTable,
+            brushIndices));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        Assert.Equal(2U, header.ResourceCount);
+        Assert.Equal(1U, header.CommandCount);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        Assert.Equal(NativeSceneResourceKind.PointBatch, resource.Kind);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeScenePointBatch>(),
+            resource.PayloadSize);
+        Assert.Equal(
+            (uint)(points.Length * Unsafe.SizeOf<Vector2>()),
+            resource.AuxiliarySize);
     }
 
     [Fact]

@@ -81,6 +81,7 @@ metadata.
 | [Skia Graphite `Recorder`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Recorder.h) and [`Context`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Context.h) | Recording is separable from device submission; recordings own transferable GPU work while context/device resources remain explicit. | Separate semantic scene recording, native compilation, and queue submission. Make recordings immutable and device-domain caches explicit. |
 | [Skia `SkImage`](https://api.skia.org/classSkImage.html) | Images are immutable logical resources and may be raster- or texture-backed; drawing does not imply rebuilding their pixel payload. | Treat image and draw-content revisions independently. A changed image revision updates the retained GPU texture; a changed content revision alone recompiles the transformed destination quad. |
 | [Skia `SkGradientShader`](https://api.skia.org/classSkGradientShader.html), [Direct2D gradient-stop collections](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-creategradientstopcollection), and [Win2D brushes](https://microsoft.github.io/Win2D/WinUI2/html/N_Microsoft_Graphics_Canvas_Brushes.htm) | A gradient separates reusable stop/interpolation/spread state from the geometry that consumes it; linear, radial, sweep, and two-circle/conical forms retain their own coordinate parameters and local transform. | Add an original pointer-free 256-byte semantic brush record that exactly matches ProGPU's reviewed GPU material ABI, plus a separate 32-byte stop arena and compact per-draw indices. Validate resource-local offsets once, pack only referenced ranges into one scene-owned GPU page, and fold immutable state opacity into deduplicated variants. Do not materialize a brush per primitive or evaluate gradients on the CPU. |
+| [Skia `SkCanvas::drawPoints`](https://api.skia.org/classSkCanvas.html#a312223428af45c5d42a47f79905e9217), [Direct2D `ID2D1RenderTarget::FillGeometry`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillgeometry), and [Direct2D `ID2D1RenderTarget::FillMesh`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillmesh) | Point lists and immutable geometry/mesh resources are submitted in batches; reusable geometry state is separate from device-dependent drawing. | Retain one compact point arena plus fixed-size batch metadata, validate the complete range transactionally, and expand changed points directly into the existing packed vector page. Do not create one semantic primitive, managed object, native call, or GPU draw per point. WebRender/Vello retained-scene research supports the same reuse boundary, while HarfBuzz remains deliberately outside this non-text geometry slice. |
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Initially preserve ProGPU.Text shaping results and transfer positioned glyph IDs/runs. Native shaping is a later parallel implementation, never a prerequisite for moving raster/upload/composition to C++. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
 | [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
@@ -1223,11 +1224,27 @@ is `O(P)` time and `O(V + I)` retained storage for `P` primitives and bounded
 emitted vertices and indices `V` and `I`; stable replay performs no primitive
 translation, managed allocation, or upload.
 
+The next append-only slice adds `POINT_BATCH` and `DRAW_POINT_BATCH` without
+inflating each point into an 80/88-byte semantic primitive. One exact 64-byte
+batch record owns flags, point range, radius, color, and affine transform; its
+auxiliary arena stores each local point as exactly two 32-bit floats. Adjacent
+managed `DrawPointBatch` commands coalesce into one resource and one GPU draw
+while retaining one brush-table index per source batch. Ordinary square and
+round points reuse shared `Vector.wgsl` shape 0/1; device-space square and round
+hairlines reuse shape 19/20. Non-solid brushes retain the managed compositor's
+local point-center coordinate convention, so gradient evaluation remains in
+the shared GPU material program. The C++ preflight checks every referenced
+point, transform, emitted extent, aggregate vertex/index budget, and reserved
+field before appending any output. Changed compilation is `O(B + N)` time and
+`O(N)` packed storage for `B` batches and `N` points, with four vertices and
+six indices per point; unchanged render-bundle replay performs no translation,
+managed allocation, or upload.
+
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
-and coalesces consecutive analytic or geometry commands into native batches.
-Compilation is deliberately one-time `O(C + P)` work with `O(P)` bounded
+and coalesces consecutive analytic, geometry, or point commands into native
+batches. Compilation is deliberately one-time `O(C + P)` work with `O(P)` bounded
 managed/native stream storage for `C` source commands. The resulting
 `NativeCompiledPicture` owns one pointer-free stream; unchanged frames call
 only `UpdateScene` once and `RenderScene` thereafter. The desktop sample
@@ -1240,8 +1257,9 @@ primary-source research for Skia, Direct2D/Win2D, WebRender, and Vello, while
 rejecting their source organization and implementation details. It also
 rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
-narrow: affine analytic primitives, affine geometry, and periodic dot grids
-with solid, linear, radial, two-point conical, or sweep-gradient brushes. Brush
+narrow: affine analytic primitives, affine geometry, periodic dot grids, and
+square/round point batches including one-device-pixel hairlines, with solid,
+linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
@@ -1252,8 +1270,7 @@ boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, vector clips, paths, text,
-images, nested pictures, isolated layers, effects, point batches, vertex
-meshes, and 3D remain
+images, nested pictures, isolated layers, effects, vertex meshes, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and

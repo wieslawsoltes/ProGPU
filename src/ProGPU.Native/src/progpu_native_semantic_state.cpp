@@ -93,6 +93,19 @@ void apply_semantic_transform(
 }
 
 void apply_semantic_state(
+    progpu_native_scene_point_batch& batch,
+    const progpu_native_scene_state& state) noexcept {
+    apply_semantic_transform(batch, state);
+    batch.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_scene_point_batch& batch,
+    const progpu_native_scene_state& state) noexcept {
+    batch.transform = compose_affine(batch.transform, state.transform);
+}
+
+void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept {
     apply_semantic_transform(path, state);
