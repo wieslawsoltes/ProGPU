@@ -37,6 +37,14 @@ using progpu::native::text::unicode_bidi_requirements;
 using progpu::native::text::unicode_bidi_scratch;
 using progpu::native::text::try_get_unicode_bidi_requirements;
 using progpu::native::text::try_resolve_unicode_bidi;
+using progpu::native::text::unicode_grapheme_break_class;
+using progpu::native::text::unicode_indic_conjunct_class;
+using progpu::native::text::unicode_grapheme_cluster;
+using progpu::native::text::get_unicode_grapheme_break_class;
+using progpu::native::text::get_unicode_indic_conjunct_class;
+using progpu::native::text::is_unicode_extended_pictographic;
+using progpu::native::text::try_get_unicode_grapheme_cluster_count;
+using progpu::native::text::try_segment_unicode_graphemes;
 using progpu::native::text::try_get_utf8_decode_requirements;
 using progpu::native::text::try_decode_utf8;
 using progpu::native::text::try_get_utf16_decode_requirements;
@@ -307,6 +315,62 @@ void unicode_bidi_resolution_is_bounded_and_source_preserving() {
         &error));
     require(error == unicode_error::insufficient_buffer && written == 0U &&
         levels[0U].input_index == 99U);
+}
+
+void unicode_grapheme_segmentation_covers_extended_rules() {
+    static_assert(sizeof(unicode_grapheme_cluster) == 16U);
+    require(get_unicode_grapheme_break_class(0x0301U) ==
+        unicode_grapheme_break_class::extend);
+    require(get_unicode_grapheme_break_class(0x1F1FAU) ==
+        unicode_grapheme_break_class::regional_indicator);
+    require(get_unicode_indic_conjunct_class(0x094DU) ==
+        unicode_indic_conjunct_class::linker);
+    require(is_unicode_extended_pictographic(0x1F469U));
+
+    constexpr std::array<std::uint32_t, 15U> code_points{
+        0x41U, 0x0301U, 0x42U,
+        0x1F469U, 0x200DU, 0x1F469U,
+        0x1F1FAU, 0x1F1F8U, 0x1F1E8U,
+        0x1100U, 0x1161U, 0x11A8U,
+        0x0915U, 0x094DU, 0x0937U};
+    std::array<unicode_scalar, code_points.size()> input{};
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        input[index].code_point = code_points[index];
+        input[index].input_index = static_cast<std::uint32_t>(index);
+        input[index].input_length = 1U;
+    }
+    std::uint32_t count = 0U;
+    unicode_error error = unicode_error::invalid_argument;
+    require(try_get_unicode_grapheme_cluster_count(input, count, &error));
+    require(count == 7U);
+    std::array<unicode_grapheme_cluster, 7U> clusters{};
+    std::uint32_t written = 99U;
+    require(try_segment_unicode_graphemes(
+        input, clusters, written, &error));
+    require(written == 7U);
+    require(clusters[0U].scalar_index == 0U &&
+        clusters[0U].scalar_count == 2U && clusters[0U].input_length == 2U);
+    require(clusters[1U].scalar_index == 2U &&
+        clusters[1U].scalar_count == 1U);
+    require(clusters[2U].scalar_index == 3U &&
+        clusters[2U].scalar_count == 3U);
+    require(clusters[3U].scalar_index == 6U &&
+        clusters[3U].scalar_count == 2U);
+    require(clusters[4U].scalar_index == 8U &&
+        clusters[4U].scalar_count == 1U);
+    require(clusters[5U].scalar_index == 9U &&
+        clusters[5U].scalar_count == 3U);
+    require(clusters[6U].scalar_index == 12U &&
+        clusters[6U].scalar_count == 3U);
+
+    clusters.fill(unicode_grapheme_cluster{99U, 99U, 99U, 99U});
+    require(!try_segment_unicode_graphemes(
+        input,
+        std::span<unicode_grapheme_cluster>{clusters}.first(6U),
+        written,
+        &error));
+    require(error == unicode_error::insufficient_buffer && written == 0U &&
+        clusters[0U].input_index == 99U);
 }
 
 void canonical_unicode_normalization_uses_shared_borrowed_data() {
@@ -4346,6 +4410,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 int main() {
     unicode_contract_and_strict_decoders_are_transactional();
     unicode_bidi_resolution_is_bounded_and_source_preserving();
+    unicode_grapheme_segmentation_covers_extended_rules();
     canonical_unicode_normalization_uses_shared_borrowed_data();
     unicode_script_itemization_preserves_source_ranges();
     open_type_common_layout_views_are_borrowed_and_bounded();

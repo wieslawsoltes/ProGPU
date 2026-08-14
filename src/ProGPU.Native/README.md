@@ -279,6 +279,15 @@ is linear, retained state is `O(N)`, isolate/embedding depth is capped by the
 normative level 125, and the bracket stack uses the normative 63-entry bound.
 Capacity failure is transactional.
 
+Extended grapheme segmentation follows Unicode 17 UAX #29 revision 47 rules
+GB3-GB13, including Hangul composition, Extend/ZWJ/SpacingMark/Prepend,
+Indic-conjunct linking, emoji ZWJ sequences, and regional-indicator pairing.
+The official grapheme, emoji, and Indic property files are pinned by SHA-256
+into a managed generated source and copied into the native generated header by
+the existing stale-data gate. Counting and writing are separate linear passes,
+use `O(1)` internal state, preserve original source/scalar ranges, and leave the
+caller output untouched on insufficient capacity.
+
 The first shared OpenType execution primitive is a granular borrowed layout
 unit for Coverage formats 1/2, ClassDef formats 1/2, GSUB/GPOS headers, and lazy
 LookupList records. Construction validates complete sorted arrays, disjoint

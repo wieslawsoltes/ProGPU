@@ -111,6 +111,20 @@ scratch is touched. Typical work is `O(N)`, with `O(N log N)` bounded bracket
 pair ordering and `O(N)` caller storage. Explicit levels are capped at 125 and
 the paired-bracket stack at 63 as required by the algorithm.
 
+Extended grapheme segmentation is an original native implementation of
+[Unicode Standard Annex #29 revision 47](https://www.unicode.org/reports/tr29/tr29-47.html),
+rules GB3-GB13. Its generated Unicode 17 property inputs are the official
+[GraphemeBreakProperty.txt](https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakProperty.txt),
+[emoji-data.txt](https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt),
+and [DerivedCoreProperties.txt](https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt),
+each pinned by SHA-256 in `eng/generate-unicode-grapheme-table.py`. The generated
+managed property source is then the one input copied by the native Unicode
+generator, keeping property identity automatic. A compact streaming state
+implements Hangul, Extend/ZWJ/SpacingMark/Prepend, Indic-conjunct, emoji-ZWJ,
+and regional-indicator rules in `O(N)` time and `O(1)` internal storage. The
+count/write boundary is transactional and returns both source and decoded
+scalar ranges for shaping and caret reuse.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

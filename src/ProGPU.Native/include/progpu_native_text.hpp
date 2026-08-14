@@ -261,6 +261,52 @@ bool try_resolve_unicode_bidi(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+enum class unicode_grapheme_break_class : std::uint8_t {
+    other = 0U,
+    carriage_return,
+    line_feed,
+    control,
+    extend,
+    zero_width_joiner,
+    regional_indicator,
+    prepend,
+    spacing_mark,
+    hangul_l,
+    hangul_v,
+    hangul_t,
+    hangul_lv,
+    hangul_lvt
+};
+
+enum class unicode_indic_conjunct_class : std::uint8_t {
+    none = 0U,
+    consonant,
+    extend,
+    linker
+};
+
+struct unicode_grapheme_cluster final {
+    std::uint32_t input_index = 0U;
+    std::uint32_t input_length = 0U;
+    std::uint32_t scalar_index = 0U;
+    std::uint32_t scalar_count = 0U;
+};
+
+unicode_grapheme_break_class get_unicode_grapheme_break_class(
+    std::uint32_t code_point) noexcept;
+unicode_indic_conjunct_class get_unicode_indic_conjunct_class(
+    std::uint32_t code_point) noexcept;
+bool is_unicode_extended_pictographic(std::uint32_t code_point) noexcept;
+bool try_get_unicode_grapheme_cluster_count(
+    std::span<const unicode_scalar> input,
+    std::uint32_t& result,
+    unicode_error* error = nullptr) noexcept;
+bool try_segment_unicode_graphemes(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_grapheme_cluster> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 /*
  * Strict, transactional UTF decoding. The requirements pass validates the
  * entire input in O(N) time and O(1) storage. Decode repeats validation before
