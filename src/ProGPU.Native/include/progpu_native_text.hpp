@@ -315,10 +315,22 @@ struct sfnt_cff1_top_dictionary final {
     std::uint32_t fd_select_offset = 0U;
 };
 
+struct sfnt_cff_fd_select_view final {
+    std::span<const std::byte> bytes{};
+    std::size_t records_offset = 0U;
+    std::uint32_t glyph_count = 0U;
+    std::uint32_t range_count = 0U;
+    std::uint32_t font_dictionary_count = 0U;
+    std::uint8_t format = 0U;
+};
+
 struct sfnt_cff1_font_view final {
     std::span<const std::byte> bytes{};
     sfnt_cff_index_view char_strings{};
     sfnt_cff_index_view global_subroutines{};
+    sfnt_cff_index_view default_local_subroutines{};
+    sfnt_cff_index_view font_dictionaries{};
+    sfnt_cff_fd_select_view fd_select{};
     sfnt_cff1_top_dictionary top_dictionary{};
 };
 
@@ -342,6 +354,29 @@ public:
     static bool try_get_top_dictionary(
         std::span<const std::byte> bytes,
         sfnt_cff1_top_dictionary& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_read_local_subroutines(
+        std::span<const std::byte> bytes,
+        std::uint32_t private_offset,
+        std::uint32_t private_size,
+        sfnt_cff_index_view& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_read_fd_select(
+        std::span<const std::byte> bytes,
+        std::uint32_t offset,
+        std::uint32_t glyph_count,
+        std::uint32_t font_dictionary_count,
+        sfnt_cff_fd_select_view& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_font_dictionary(
+        sfnt_cff_fd_select_view fd_select,
+        std::uint32_t glyph_index,
+        std::uint32_t& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_local_subroutines(
+        sfnt_cff1_font_view font,
+        std::uint32_t glyph_index,
+        sfnt_cff_index_view& result,
         font_error* error = nullptr) noexcept;
 };
 

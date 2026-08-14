@@ -419,6 +419,8 @@ add_library(progpu_native_text STATIC
     src/progpu_native_gdef_variations.cpp
     src/progpu_native_cff_index.cpp
     src/progpu_native_cff_dictionary.cpp
+    src/progpu_native_cff_private.cpp
+    src/progpu_native_cff_fd_select.cpp
     src/progpu_native_cff1.cpp
     src/progpu_native_sfnt.cpp
     src/progpu_native_true_type_composite.cpp

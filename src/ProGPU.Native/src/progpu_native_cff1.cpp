@@ -79,7 +79,54 @@ bool sfnt_font_view::try_get_cff1_font(
         return false;
     }
 
-    result = {table.bytes, char_strings, global_subroutines, top};
+    sfnt_cff_index_view default_local_subroutines{};
+    if (top.private_size > 0U &&
+        !sfnt_cff_data::try_read_local_subroutines(
+            table.bytes,
+            top.private_offset,
+            top.private_size,
+            default_local_subroutines,
+            error)) {
+        result = {};
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+
+    sfnt_cff_index_view font_dictionaries{};
+    sfnt_cff_fd_select_view fd_select{};
+    if (top.font_dictionary_offset != 0U || top.fd_select_offset != 0U) {
+        if (top.font_dictionary_offset == 0U || top.fd_select_offset == 0U ||
+            top.font_dictionary_offset >= table.bytes.size()) {
+            result = {};
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        auto dictionary_cursor =
+            static_cast<std::size_t>(top.font_dictionary_offset);
+        if (!sfnt_cff_data::try_read_index(
+                table.bytes, dictionary_cursor, font_dictionaries, error) ||
+            font_dictionaries.count == 0U ||
+            !sfnt_cff_data::try_read_fd_select(
+                table.bytes,
+                top.fd_select_offset,
+                char_strings.count,
+                font_dictionaries.count,
+                fd_select,
+                error)) {
+            result = {};
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    }
+
+    result = {
+        table.bytes,
+        char_strings,
+        global_subroutines,
+        default_local_subroutines,
+        font_dictionaries,
+        fd_select,
+        top};
     set_error(error, font_error::none);
     return true;
 }

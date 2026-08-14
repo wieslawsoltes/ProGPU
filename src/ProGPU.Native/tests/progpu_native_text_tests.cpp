@@ -20,6 +20,7 @@ using progpu::native::text::sfnt_composite_glyph_decode_requirements;
 using progpu::native::text::sfnt_composite_glyph_variation_requirements;
 using progpu::native::text::sfnt_composite_glyph_variation_scratch;
 using progpu::native::text::sfnt_cff_data;
+using progpu::native::text::sfnt_cff_fd_select_view;
 using progpu::native::text::sfnt_cff_index_view;
 using progpu::native::text::sfnt_cff1_font_view;
 using progpu::native::text::sfnt_cff1_top_dictionary;
@@ -1429,6 +1430,87 @@ void cff1_indexes_and_dictionaries_are_borrowed_and_bounded() {
     require(top.private_size == 10U && top.private_offset == 400U);
     require(top.font_dictionary_offset == 500U);
     require(top.fd_select_offset == 600U);
+
+    const std::array<std::byte, 8U> private_and_subroutines{
+        std::byte{0x8D}, std::byte{0x13},
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x0B}};
+    sfnt_cff_index_view local_subroutines{};
+    require(sfnt_cff_data::try_read_local_subroutines(
+        private_and_subroutines,
+        0U,
+        2U,
+        local_subroutines,
+        &error));
+    require(local_subroutines.count == 1U);
+    require(sfnt_cff_data::try_get_index_item(
+        local_subroutines, 0U, item, &error));
+    require(item.size() == 1U && item[0] == std::byte{0x0B});
+    require(!sfnt_cff_data::try_read_local_subroutines(
+        private_and_subroutines,
+        7U,
+        2U,
+        local_subroutines,
+        &error));
+    require(error == font_error::invalid_face &&
+        local_subroutines.count == 0U);
+}
+
+void cff1_fd_select_formats_are_borrowed_and_searchable() {
+    const std::array<std::byte, 5U> format_zero{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x00}};
+    sfnt_cff_fd_select_view view{};
+    font_error error = font_error::none;
+    require(sfnt_cff_data::try_read_fd_select(
+        format_zero, 0U, 4U, 2U, view, &error));
+    require(view.format == 0U && view.range_count == 4U);
+    std::uint32_t dictionary = 0U;
+    require(sfnt_cff_data::try_get_font_dictionary(
+        view, 0U, dictionary, &error));
+    require(dictionary == 0U);
+    require(sfnt_cff_data::try_get_font_dictionary(
+        view, 2U, dictionary, &error));
+    require(dictionary == 1U);
+
+    const std::array<std::byte, 11U> format_three{
+        std::byte{0x03}, std::byte{0x00}, std::byte{0x02},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x02}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x04}};
+    require(sfnt_cff_data::try_read_fd_select(
+        format_three, 0U, 4U, 2U, view, &error));
+    require(view.format == 3U && view.range_count == 2U);
+    require(sfnt_cff_data::try_get_font_dictionary(
+        view, 1U, dictionary, &error));
+    require(dictionary == 0U);
+    require(sfnt_cff_data::try_get_font_dictionary(
+        view, 3U, dictionary, &error));
+    require(dictionary == 1U);
+
+    const std::array<std::byte, 21U> format_four{
+        std::byte{0x04},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x02},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x02},
+        std::byte{0x00}, std::byte{0x01},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x04}};
+    require(sfnt_cff_data::try_read_fd_select(
+        format_four, 0U, 4U, 2U, view, &error));
+    require(view.format == 4U && view.range_count == 2U);
+    require(sfnt_cff_data::try_get_font_dictionary(
+        view, 2U, dictionary, &error));
+    require(dictionary == 1U);
+    require(!sfnt_cff_data::try_get_font_dictionary(
+        view, 4U, dictionary, &error));
+    require(error == font_error::invalid_argument);
+
+    auto invalid = format_three;
+    invalid[8] = std::byte{0x02};
+    require(!sfnt_cff_data::try_read_fd_select(
+        invalid, 0U, 4U, 2U, view, &error));
+    require(error == font_error::invalid_face && view.bytes.empty());
 }
 
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
@@ -1452,10 +1534,20 @@ void production_noto_cff1_container_matches_sfnt_glyph_count() {
     require(error == font_error::none);
     require(cff.char_strings.count == glyph_count);
     require(!cff.bytes.empty() && cff.top_dictionary.char_strings_offset > 0U);
+    require(cff.font_dictionaries.count > 0U &&
+        !cff.fd_select.bytes.empty());
     std::span<const std::byte> notdef{};
     require(sfnt_cff_data::try_get_index_item(
         cff.char_strings, 0U, notdef, &error));
     require(error == font_error::none && !notdef.empty());
+    std::uint32_t dictionary = 0U;
+    require(sfnt_cff_data::try_get_font_dictionary(
+        cff.fd_select, 0U, dictionary, &error));
+    require(dictionary < cff.font_dictionaries.count);
+    sfnt_cff_index_view local_subroutines{};
+    require(sfnt_cff_data::try_get_local_subroutines(
+        cff, 0U, local_subroutines, &error));
+    require(error == font_error::none);
 
     sfnt_cff1_font_view mismatch{};
     require(!font.try_get_cff1_font(
@@ -1967,6 +2059,7 @@ int main() {
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();
     expanded_composite_glyphs_preserve_transforms_and_point_attachment();
     cff1_indexes_and_dictionaries_are_borrowed_and_bounded();
+    cff1_fd_select_formats_are_borrowed_and_searchable();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

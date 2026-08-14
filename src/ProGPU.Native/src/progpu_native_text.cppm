@@ -36,6 +36,7 @@ using ::progpu::native::text::sfnt_item_variation_data;
 using ::progpu::native::text::sfnt_item_variation_store_view;
 using ::progpu::native::text::sfnt_delta_set_index_map_view;
 using ::progpu::native::text::sfnt_cff_data;
+using ::progpu::native::text::sfnt_cff_fd_select_view;
 using ::progpu::native::text::sfnt_cff_index_view;
 using ::progpu::native::text::sfnt_cff1_font_view;
 using ::progpu::native::text::sfnt_cff1_top_dictionary;
