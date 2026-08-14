@@ -1168,12 +1168,16 @@ public static partial class GpuPictureNativeSceneCompiler
                     command,
                     transform,
                     targetDpiScale,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
                     glyphOutlines,
                     glyphSegments,
                     positionedGlyphs,
                     textStyles,
                     batches,
                     operations,
+                    materials,
                     out error);
             default:
                 error = NativePictureCompileError.UnsupportedCommand;

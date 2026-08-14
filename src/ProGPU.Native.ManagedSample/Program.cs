@@ -203,7 +203,7 @@ if (updateMetrics.CommandCount != 13U ||
     compiled.GlyphOutlineCount != 5 ||
     compiled.PositionedGlyphCount != 9 ||
     compiled.TextStyleCount != 1 ||
-    compiled.BrushCount != 9 ||
+    compiled.BrushCount != 8 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(

@@ -7773,7 +7773,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             pixels[index + 3]);
     }
 
-    private static byte[] BuildColorLayerFont()
+    internal static byte[] BuildColorLayerFont()
     {
         byte[][] glyphs =
         {

@@ -14,6 +14,153 @@ namespace ProGPU.Tests;
 public class NativePictureCompilerTests
 {
     [Fact]
+    public void CompilerPreservesMixedMonochromeAndColorGlyphDrawOrder()
+    {
+        var font = new TtfFont(
+            CompositorReviewRegressionTests.BuildColorLayerFont());
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = [2, 1, 3],
+                    GlyphPositions =
+                    [
+                        new Vector2(2f, 24f),
+                        new Vector2(22.125f, 24.25f),
+                        new Vector2(44f, 24f)
+                    ],
+                    Font = font,
+                    FontSize = 20f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    TextRenderingMode = TextRenderingMode.Grayscale,
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            90U,
+            6U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(3, compiled.NativeCommandCount);
+        Assert.Equal(3, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.PathCount);
+        Assert.True(compiled.PathSegmentCount > 0);
+        Assert.Equal(2, compiled.GlyphOutlineCount);
+        Assert.Equal(2, compiled.PositionedGlyphCount);
+        Assert.Equal(1, compiled.TextStyleCount);
+        Assert.Equal(2, compiled.BrushCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneCommand> commands =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(
+                    checked((int)header.CommandOffset),
+                    checked((int)header.CommandCount *
+                        Unsafe.SizeOf<NativeMethods.SceneCommand>())));
+        Assert.Equal(
+            [
+                NativeSceneCommandKind.DrawGlyphRun,
+                NativeSceneCommandKind.DrawPath,
+                NativeSceneCommandKind.DrawGlyphRun
+            ],
+            commands.ToArray().Select(static command => command.Kind));
+    }
+
+    [Fact]
+    public void CompilerDeduplicatesRepeatedColorGlyphSolidMaterials()
+    {
+        var font = new TtfFont(
+            CompositorReviewRegressionTests.BuildColorLayerFont());
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = [1, 1, 1],
+                    GlyphPositions =
+                    [
+                        new Vector2(2f, 24f),
+                        new Vector2(24f, 24f),
+                        new Vector2(46f, 24f)
+                    ],
+                    Font = font,
+                    FontSize = 20f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    TextRenderingMode = TextRenderingMode.Grayscale,
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            10U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(6, compiled.PathCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.BrushCount);
+        Assert.Equal(0, compiled.TextStyleCount);
+    }
+
+    [Fact]
+    public void CompilerLowersExplicitVectorGlyphRenderingToPathResource()
+    {
+        var font = InterFontFamily.Regular;
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = [font.GetGlyphIndex('A')],
+                    GlyphPositions = [new Vector2(12.125f, 30.25f)],
+                    Font = font,
+                    FontSize = 24f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    UseVectorGlyphRendering = true,
+                    TextRenderingMode = TextRenderingMode.Grayscale
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            93U,
+            9U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.PathCount);
+        Assert.True(compiled.PathSegmentCount > 0);
+        Assert.Equal(0, compiled.GlyphOutlineCount);
+        Assert.Equal(0, compiled.PositionedGlyphCount);
+        Assert.Equal(1, compiled.BrushCount);
+    }
+
+    [Fact]
     public void CompilerLowersShapedGlyphRunToNativeOutlineAndStyleResources()
     {
         var font = InterFontFamily.Regular;

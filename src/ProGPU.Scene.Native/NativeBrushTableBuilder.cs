@@ -14,8 +14,11 @@ namespace ProGPU.Scene.Native;
 /// </remarks>
 internal sealed class NativeBrushTableBuilder
 {
+    private readonly record struct SolidBrushKey(Vector4 Color, float Opacity);
+
     private readonly Dictionary<Brush, uint> _indices =
         new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<SolidBrushKey, uint> _solidIndices = [];
     private readonly List<NativeSceneBrush> _brushes = [];
     private readonly List<NativeSceneGradientStop> _gradientStops = [];
 
@@ -47,10 +50,12 @@ internal sealed class NativeBrushTableBuilder
         }
 
         NativeSceneBrush native;
+        SolidBrushKey? solidKey = null;
         switch (brush)
         {
             case SolidColorBrush solid when IsFinite(solid.Color):
                 native = NativeSceneBrush.Solid(solid.Color, brush.Opacity);
+                solidKey = new(solid.Color, brush.Opacity);
                 break;
             case LinearGradientBrush linear:
                 if (!IsFinite(linear.StartPoint) ||
@@ -168,9 +173,20 @@ internal sealed class NativeBrushTableBuilder
                 return Fail(out index, out error);
         }
 
+        if (solidKey is { } key && _solidIndices.TryGetValue(key, out index))
+        {
+            _indices.Add(brush, index);
+            error = NativePictureCompileError.None;
+            return true;
+        }
+
         index = checked((uint)_brushes.Count);
         _brushes.Add(native);
         _indices.Add(brush, index);
+        if (solidKey is { } registeredKey)
+        {
+            _solidIndices.Add(registeredKey, index);
+        }
         error = NativePictureCompileError.None;
         return true;
     }

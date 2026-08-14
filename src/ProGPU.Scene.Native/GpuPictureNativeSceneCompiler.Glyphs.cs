@@ -10,6 +10,7 @@ public static partial class GpuPictureNativeSceneCompiler
     private const float MinimumGlyphAtlasRasterSize = 4f;
     private const float MaximumGlyphAtlasRasterSize = 128f;
     private const float GlyphBoundsPadding = 4f;
+    private const float VectorGlyphPhaseCount = 128f;
 
     private readonly record struct GlyphOutlineKey(
         ushort GlyphIndex,
@@ -25,12 +26,16 @@ public static partial class GpuPictureNativeSceneCompiler
         in RenderCommand command,
         Matrix3x2 transform,
         float targetDpiScale,
+        List<NativeScenePathFill> paths,
+        List<NativePathSegment> pathSegments,
+        List<uint> pathBrushIndices,
         List<NativeSceneGlyphOutline> outlines,
         List<NativePathSegment> segments,
         List<NativePositionedGlyph> glyphs,
         List<NativeSceneTextStyle> styles,
         List<Batch> batches,
         List<Operation> operations,
+        NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
@@ -50,11 +55,6 @@ public static partial class GpuPictureNativeSceneCompiler
             solid.Opacity is < 0f or > 1f)
         {
             error = NativePictureCompileError.UnsupportedBrush;
-            return false;
-        }
-        if (command.UseVectorGlyphRendering)
-        {
-            error = NativePictureCompileError.UnsupportedCommand;
             return false;
         }
         if (command.TextRenderingMode is < TextRenderingMode.Grayscale or
@@ -143,6 +143,48 @@ public static partial class GpuPictureNativeSceneCompiler
         var outlineIndices = new Dictionary<GlyphOutlineKey, uint>();
         NativeImageRect bounds = default;
         bool hasBounds = false;
+        TextRenderingMode textRenderingMode = command.TextRenderingMode;
+        Vector4 glyphStyleColor = solid.Color;
+        glyphStyleColor.W *= solid.Opacity;
+
+        bool FlushGlyphChunk()
+        {
+            if (localGlyphs.Count == 0)
+            {
+                return true;
+            }
+
+            uint styleIndex = RegisterTextStyle(
+                styles,
+                glyphStyleColor,
+                ToNativeTextRenderingMode(textRenderingMode));
+            int outlineStart = outlines.Count;
+            int segmentBase = segments.Count;
+            int glyphStart = glyphs.Count;
+            outlines.AddRange(localOutlines);
+            segments.AddRange(localSegments);
+            glyphs.AddRange(localGlyphs);
+            batches.Add(new Batch
+            {
+                Kind = BatchKind.Glyph,
+                Start = outlineStart,
+                Count = localOutlines.Count,
+                AuxiliaryStart = segmentBase,
+                AuxiliaryCount = localSegments.Count,
+                SecondaryStart = glyphStart,
+                SecondaryCount = localGlyphs.Count,
+                Bounds = bounds,
+                StyleIndex = styleIndex
+            });
+            operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
+            localOutlines.Clear();
+            localSegments.Clear();
+            localGlyphs.Clear();
+            outlineIndices.Clear();
+            bounds = default;
+            hasBounds = false;
+            return true;
+        }
 
         int rangeEnd = rangeStart + rangeCount;
         for (int sourceIndex = rangeStart; sourceIndex < rangeEnd; sourceIndex++)
@@ -154,11 +196,34 @@ public static partial class GpuPictureNativeSceneCompiler
                 error = NativePictureCompileError.InvalidGeometry;
                 return false;
             }
-            if (font.HasColorGlyphs &&
-                font.GetColorLayers(glyphIndex) is { Count: > 0 })
+            List<FontColorLayer>? colorLayers = font.HasColorGlyphs
+                ? font.GetColorLayers(glyphIndex)
+                : null;
+            if (colorLayers is { Count: > 0 })
             {
-                error = NativePictureCompileError.UnsupportedCommand;
-                return false;
+                if (!FlushGlyphChunk())
+                {
+                    return false;
+                }
+                if (!TryAppendColorGlyphLayers(
+                        colorLayers,
+                        font,
+                        command,
+                        sourcePosition,
+                        italicSkew,
+                        fontScaleX,
+                        activeTransform,
+                        paths,
+                        pathSegments,
+                        pathBrushIndices,
+                        batches,
+                        operations,
+                        materials,
+                        out error))
+                {
+                    return false;
+                }
+                continue;
             }
             if (font.HasBitmapGlyphs &&
                 font.TryGetBitmapGlyph(glyphIndex, targetRasterSize, out _))
@@ -166,10 +231,32 @@ public static partial class GpuPictureNativeSceneCompiler
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
             }
-            if (font.HasCffOutlines && !command.PreferGlyphAtlas)
+            if (command.UseVectorGlyphRendering ||
+                (font.HasCffOutlines && !command.PreferGlyphAtlas))
             {
-                error = NativePictureCompileError.UnsupportedCommand;
-                return false;
+                if (!FlushGlyphChunk())
+                {
+                    return false;
+                }
+                if (!TryAppendVectorGlyph(
+                        font,
+                        glyphIndex,
+                        command,
+                        sourcePosition,
+                        italicSkew,
+                        fontScaleX,
+                        activeTransform,
+                        paths,
+                        pathSegments,
+                        pathBrushIndices,
+                        batches,
+                        operations,
+                        materials,
+                        out error))
+                {
+                    return false;
+                }
+                continue;
             }
 
             Vector2 transformedPosition = Vector2.Transform(
@@ -275,48 +362,313 @@ public static partial class GpuPictureNativeSceneCompiler
             }
         }
 
-        if (localGlyphs.Count == 0)
+        return FlushGlyphChunk();
+    }
+
+    private static bool TryAppendColorGlyphLayers(
+        List<FontColorLayer> colorLayers,
+        TtfFont font,
+        in RenderCommand textCommand,
+        Vector2 sourcePosition,
+        float italicSkew,
+        float scaleX,
+        Matrix3x2 activeTransform,
+        List<NativeScenePathFill> paths,
+        List<NativePathSegment> pathSegments,
+        List<uint> pathBrushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        Vector2 position = sourcePosition + textCommand.Position;
+        float emScale = textCommand.FontSize / font.UnitsPerEm;
+        for (int layerIndex = 0; layerIndex < colorLayers.Count; layerIndex++)
         {
+            FontColorLayer layer = colorLayers[layerIndex];
+            PathGeometry? outline =
+                layer.Geometry ?? font.GetGlyphOutline(layer.GlyphId);
+            if (outline is null)
+            {
+                continue;
+            }
+
+            ResolveVectorGlyphPlacement(
+                outline,
+                position,
+                emScale,
+                italicSkew,
+                scaleX,
+                layer.UsesSvgCoordinates,
+                activeTransform,
+                out PathGeometry positionedOutline,
+                out Matrix3x2 placementTransform,
+                out Vector2 brushPosition);
+            var pathCommand = new RenderCommand
+            {
+                Type = RenderCommandType.DrawPath,
+                Path = positionedOutline,
+                Brush = CreatePositionedColorLayerBrush(
+                    layer,
+                    emScale,
+                    brushPosition),
+                IsEdgeAliased =
+                    textCommand.TextRenderingMode == TextRenderingMode.Aliased,
+                PathSampleGrid =
+                    textCommand.TextRenderingMode == TextRenderingMode.Aliased
+                        ? PathAtlas.StandardCoverageSampleGrid
+                        : PathAtlas.HighPrecisionCoverageSampleGrid
+            };
+            if (!TryAppendPathFill(
+                    pathCommand,
+                    placementTransform,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
+        }
+
+        error = NativePictureCompileError.None;
+        return true;
+    }
+
+    private static bool TryAppendVectorGlyph(
+        TtfFont font,
+        ushort glyphIndex,
+        in RenderCommand textCommand,
+        Vector2 sourcePosition,
+        float italicSkew,
+        float scaleX,
+        Matrix3x2 activeTransform,
+        List<NativeScenePathFill> paths,
+        List<NativePathSegment> pathSegments,
+        List<uint> pathBrushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        PathGeometry? outline = font.GetGlyphOutline(glyphIndex);
+        if (outline is null)
+        {
+            error = NativePictureCompileError.None;
             return true;
         }
 
-        Vector4 styleColor = solid.Color;
-        styleColor.W *= solid.Opacity;
-        uint styleIndex = RegisterTextStyle(
-            styles,
-            styleColor,
-            ToNativeTextRenderingMode(command.TextRenderingMode));
-
-        int outlineStart = outlines.Count;
-        int segmentBase = segments.Count;
-        int glyphStart = glyphs.Count;
-        for (int index = 0; index < localOutlines.Count; index++)
+        float emScale = textCommand.FontSize / font.UnitsPerEm;
+        float boldOffset = textCommand.FontSize * 0.035f;
+        int passCount = textCommand.IsBold ? 2 : 1;
+        for (int pass = 0; pass < passCount; pass++)
         {
-            NativeSceneGlyphOutline outline = localOutlines[index];
-            outlines.Add(new NativeSceneGlyphOutline(
-                outline.SegmentOffset,
-                outline.SegmentCount,
-                outline.Minimum,
-                outline.Maximum,
-                outline.RasterScale,
-                outline.SubpixelX));
+            Vector2 position = sourcePosition + textCommand.Position +
+                new Vector2(pass * boldOffset, 0f);
+            ResolveVectorGlyphPlacement(
+                outline,
+                position,
+                emScale,
+                italicSkew,
+                scaleX,
+                usesSvgCoordinates: false,
+                activeTransform,
+                out PathGeometry positionedOutline,
+                out Matrix3x2 placementTransform,
+                out _);
+            var pathCommand = new RenderCommand
+            {
+                Type = RenderCommandType.DrawPath,
+                Path = positionedOutline,
+                Brush = textCommand.Brush,
+                IsEdgeAliased =
+                    textCommand.TextRenderingMode == TextRenderingMode.Aliased,
+                PathSampleGrid =
+                    textCommand.TextRenderingMode == TextRenderingMode.Aliased
+                        ? PathAtlas.StandardCoverageSampleGrid
+                        : PathAtlas.HighPrecisionCoverageSampleGrid
+            };
+            if (!TryAppendPathFill(
+                    pathCommand,
+                    placementTransform,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
         }
-        segments.AddRange(localSegments);
-        glyphs.AddRange(localGlyphs);
-        batches.Add(new Batch
-        {
-            Kind = BatchKind.Glyph,
-            Start = outlineStart,
-            Count = localOutlines.Count,
-            AuxiliaryStart = segmentBase,
-            AuxiliaryCount = localSegments.Count,
-            SecondaryStart = glyphStart,
-            SecondaryCount = localGlyphs.Count,
-            Bounds = bounds,
-            StyleIndex = styleIndex
-        });
-        operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
+
+        error = NativePictureCompileError.None;
         return true;
+    }
+
+    private static void ResolveVectorGlyphPlacement(
+        PathGeometry outline,
+        Vector2 position,
+        float emScale,
+        float italicSkew,
+        float scaleX,
+        bool usesSvgCoordinates,
+        Matrix3x2 activeTransform,
+        out PathGeometry positionedOutline,
+        out Matrix3x2 placementTransform,
+        out Vector2 brushPosition)
+    {
+        Vector2 integralPosition = new(
+            MathF.Floor(position.X),
+            MathF.Floor(position.Y));
+        Vector2 fractionalPosition = position - integralPosition;
+        Vector2 rasterPhase = new(
+            QuantizeVectorGlyphPhase(fractionalPosition.X),
+            QuantizeVectorGlyphPhase(fractionalPosition.Y));
+        positionedOutline = CreatePositionedGlyphOutline(
+            outline,
+            emScale,
+            rasterPhase,
+            italicSkew,
+            usesSvgCoordinates,
+            scaleX);
+        brushPosition = rasterPhase;
+        placementTransform = Matrix3x2.CreateTranslation(
+            position - rasterPhase) * activeTransform;
+    }
+
+    private static PathGeometry CreatePositionedGlyphOutline(
+        PathGeometry outline,
+        float emScale,
+        Vector2 position,
+        float italicSkew,
+        bool usesSvgCoordinates,
+        float scaleX)
+    {
+        float orientedItalicSkew = usesSvgCoordinates
+            ? -italicSkew
+            : italicSkew;
+        Vector2 TransformPoint(Vector2 point) => new(
+            position.X +
+                (point.X * scaleX + point.Y * orientedItalicSkew) * emScale,
+            position.Y + point.Y * emScale *
+                (usesSvgCoordinates ? 1f : -1f));
+
+        var transformedOutline = new PathGeometry { FillRule = outline.FillRule };
+        for (int figureIndex = 0;
+             figureIndex < outline.Figures.Count;
+             figureIndex++)
+        {
+            PathFigure figure = outline.Figures[figureIndex];
+            var transformedFigure = new PathFigure(
+                TransformPoint(figure.StartPoint),
+                figure.IsClosed)
+            {
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap
+            };
+            for (int segmentIndex = 0;
+                 segmentIndex < figure.Segments.Count;
+                 segmentIndex++)
+            {
+                switch (figure.Segments[segmentIndex])
+                {
+                    case LineSegment line:
+                        transformedFigure.Segments.Add(new LineSegment(
+                            TransformPoint(line.Point),
+                            line.IsSmoothJoin,
+                            line.IsStroked));
+                        break;
+                    case QuadraticBezierSegment quadratic:
+                        transformedFigure.Segments.Add(
+                            new QuadraticBezierSegment(
+                                TransformPoint(quadratic.ControlPoint),
+                                TransformPoint(quadratic.Point),
+                                quadratic.IsSmoothJoin,
+                                quadratic.IsStroked));
+                        break;
+                    case CubicBezierSegment cubic:
+                        transformedFigure.Segments.Add(new CubicBezierSegment(
+                            TransformPoint(cubic.ControlPoint1),
+                            TransformPoint(cubic.ControlPoint2),
+                            TransformPoint(cubic.Point),
+                            cubic.IsSmoothJoin,
+                            cubic.IsStroked));
+                        break;
+                    case ArcSegment arc:
+                        transformedFigure.Segments.Add(new ArcSegment(
+                            TransformPoint(arc.Point),
+                            new Vector2(
+                                MathF.Abs(arc.Size.X * emScale * scaleX),
+                                MathF.Abs(arc.Size.Y * emScale)),
+                            arc.RotationAngle,
+                            arc.IsLargeArc,
+                            arc.SweepDirection,
+                            arc.IsSmoothJoin,
+                            arc.IsStroked));
+                        break;
+                }
+            }
+            transformedOutline.Figures.Add(transformedFigure);
+        }
+        return transformedOutline;
+    }
+
+    private static Brush CreatePositionedColorLayerBrush(
+        FontColorLayer layer,
+        float emScale,
+        Vector2 position)
+    {
+        if (layer.Brush is null)
+        {
+            return new SolidColorBrush(layer.Color);
+        }
+        if (!layer.UsesSvgCoordinates)
+        {
+            return layer.Brush;
+        }
+
+        Vector2 PositionPoint(Vector2 point) => position + point * emScale;
+        return layer.Brush switch
+        {
+            SolidColorBrush solid => new SolidColorBrush(solid.Color)
+            {
+                Opacity = solid.Opacity
+            },
+            LinearGradientBrush linear => new LinearGradientBrush(
+                PositionPoint(linear.StartPoint),
+                PositionPoint(linear.EndPoint),
+                linear.Stops)
+            {
+                Opacity = linear.Opacity,
+                SpreadMethod = linear.SpreadMethod,
+                ColorInterpolationMode = linear.ColorInterpolationMode
+            },
+            RadialGradientBrush radial => new RadialGradientBrush(
+                PositionPoint(radial.Center),
+                PositionPoint(radial.GradientOrigin),
+                radial.RadiusX * emScale,
+                radial.RadiusY * emScale,
+                radial.Stops)
+            {
+                Opacity = radial.Opacity,
+                SpreadMethod = radial.SpreadMethod,
+                ColorInterpolationMode = radial.ColorInterpolationMode
+            },
+            _ => layer.Brush
+        };
+    }
+
+    private static float QuantizeVectorGlyphPhase(float value)
+    {
+        float quantized = MathF.Round(value * VectorGlyphPhaseCount) /
+            VectorGlyphPhaseCount;
+        return quantized >= 1f ? 0f : quantized;
     }
 
     private static uint RegisterTextStyle(

@@ -1065,9 +1065,12 @@ ordered semantic layers now own bounded backdrop input.
   `GlyphRasterizer.wgsl`, a bounded native text atlas, production `Text.wgsl`
   composition, Retina DPI, quarter-pixel phase input, and retained replay are
   implemented together with bounded geometric atlas growth and published
-  generation/growth counters; vector-text fallback, multi-page
-  eviction/recovery, phase/scale cache policies, color glyphs, decorations,
-  and masks remain;
+  generation/growth counters. The managed-picture compiler also lowers
+  explicit/CFF vector fallback and COLR/OpenType-SVG vector layers into the
+  retained native path/material lane, preserves mixed monochrome/color draw
+  order, and deduplicates equal solid layer materials. Standalone native text
+  compilation, bitmap glyphs, multi-page eviction/recovery, complete
+  phase/scale cache policy, decorations, and text-specific masks remain;
 - straight-alpha RGBA8 upload, source/destination rectangles, affine transform,
   opacity, persistent nearest/linear sampling, independent image/content
   revisions, and zero-upload stable replay are implemented with production
@@ -1994,8 +1997,11 @@ this tranche, consistent with SkParagraph, DirectWrite, HarfBuzz shaping plans,
 and Parley. The managed picture compiler now transfers its already-shaped glyph
 IDs and positions directly into the retained native outline/text-style ABI;
 native rasterization, culling, atlas upload, batching, and composition proceed
-in C++. The authoritative ProGPU-owned source provenance and upcoming parallel
-native parser/shaper/layout plan are recorded in
+in C++. Its vector/CFF fallback and COLR/OpenType-SVG vector presentations are
+lowered once into the same pointer-free native path and material resources;
+stable replay still crosses the ABI only for the batched render call. The
+authoritative ProGPU-owned source provenance and upcoming parallel native
+parser/shaper/layout plan are recorded in
 `NATIVE_CPP_TEXT_PORT_PROVENANCE.md`. Native shaping remains a separately gated
 parallel implementation and is not used as a prerequisite for scene
 substitution.
