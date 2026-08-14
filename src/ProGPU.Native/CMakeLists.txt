@@ -446,6 +446,7 @@ add_library(progpu_native_text STATIC
     src/progpu_native_unicode.cpp
     src/progpu_native_unicode_bidi.cpp
     src/progpu_native_unicode_grapheme.cpp
+    src/progpu_native_unicode_shaping.cpp
     src/progpu_native_unicode_arabic.cpp
     src/progpu_native_unicode_normalization.cpp
     src/progpu_native_open_type_layout.cpp

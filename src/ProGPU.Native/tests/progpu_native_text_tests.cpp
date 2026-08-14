@@ -94,6 +94,15 @@ using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
 using progpu::native::text::get_unicode_line_break_class;
 using progpu::native::text::try_resolve_unicode_line_breaks;
+using progpu::native::text::unicode_indic_shaping_properties;
+using progpu::native::text::unicode_syllable_machine;
+using progpu::native::text::unicode_syllable_transition;
+using progpu::native::text::get_unicode_indic_shaping_properties;
+using progpu::native::text::get_unicode_use_shaping_category;
+using progpu::native::text::get_unicode_syllable_machine_state_count;
+using progpu::native::text::get_unicode_syllable_machine_start_state;
+using progpu::native::text::try_get_unicode_syllable_transition;
+using progpu::native::text::try_get_unicode_syllable_eof_transition;
 using progpu::native::text::text_layout_options;
 using progpu::native::text::positioned_text_glyph;
 using progpu::native::text::positioned_text_line;
@@ -3097,6 +3106,69 @@ void unicode_line_breaks_feed_native_layout_without_allocation() {
         }));
 }
 
+void complex_script_properties_and_syllable_machines_are_bounded() {
+    static_assert(sizeof(unicode_indic_shaping_properties) == 2U);
+    static_assert(sizeof(unicode_syllable_transition) == 4U);
+
+    const auto consonant = get_unicode_indic_shaping_properties(0x0915U);
+    require(consonant.category == 1U && consonant.position == 4U);
+    const auto matra = get_unicode_indic_shaping_properties(0x093FU);
+    require(matra.category == 7U && matra.position == 2U);
+    const auto halant = get_unicode_indic_shaping_properties(0x094DU);
+    require(halant.category == 4U && halant.position == 8U);
+    const auto dotted_circle =
+        get_unicode_indic_shaping_properties(0x25CCU);
+    require(dotted_circle.category == 11U && dotted_circle.position == 4U);
+    const auto out_of_range =
+        get_unicode_indic_shaping_properties(0x110000U);
+    require(out_of_range.category == 0U && out_of_range.position == 14U);
+
+    require(get_unicode_use_shaping_category(0x0915U) == 1U);
+    require(get_unicode_use_shaping_category(0x093FU) == 22U);
+    require(get_unicode_use_shaping_category(0x094DU) == 12U);
+    require(get_unicode_use_shaping_category(0x1031U) == 22U);
+    require(get_unicode_use_shaping_category(0x25CCU) == 1U);
+    require(get_unicode_use_shaping_category(0x110000U) == 0U);
+
+    struct machine_expectation final {
+        unicode_syllable_machine machine;
+        std::uint16_t state_count;
+        std::uint16_t start_state;
+        std::uint16_t target;
+        std::uint8_t action;
+    };
+    constexpr std::array<machine_expectation, 4U> expectations{{
+        {unicode_syllable_machine::indic, 138U, 31U, 32U, 2U},
+        {unicode_syllable_machine::use, 127U, 1U, 31U, 0U},
+        {unicode_syllable_machine::myanmar, 53U, 0U, 1U, 0U},
+        {unicode_syllable_machine::khmer, 43U, 21U, 22U, 2U},
+    }};
+    for (const auto& expected : expectations) {
+        require(get_unicode_syllable_machine_state_count(expected.machine) ==
+            expected.state_count);
+        require(get_unicode_syllable_machine_start_state(expected.machine) ==
+            expected.start_state);
+        unicode_syllable_transition transition{99U, 99U, 99U};
+        require(try_get_unicode_syllable_transition(
+            expected.machine, expected.start_state, 1U, transition));
+        require(transition.target == expected.target &&
+            transition.action == expected.action &&
+            transition.reserved == 0U);
+
+        transition = {99U, 99U, 99U};
+        require(!try_get_unicode_syllable_transition(
+            expected.machine, expected.state_count, 1U, transition));
+        require(transition.target == 0U && transition.action == 0U &&
+            transition.reserved == 0U);
+
+        transition = {99U, 99U, 99U};
+        require(!try_get_unicode_syllable_eof_transition(
+            expected.machine, expected.state_count, transition));
+        require(transition.target == 0U && transition.action == 0U &&
+            transition.reserved == 0U);
+    }
+}
+
 void variation_axes_are_borrowed_bounded_and_transactional() {
     const auto data = make_font(0U, 22U, 0U, true);
     sfnt_font_view font{};
@@ -5369,6 +5441,7 @@ int main() {
     native_font_fallback_preserves_graphemes_and_missing_state();
     native_positioned_text_layout_wraps_without_allocation();
     unicode_line_breaks_feed_native_layout_without_allocation();
+    complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_selector_cmap_is_borrowed_and_bounded();

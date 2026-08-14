@@ -19,6 +19,24 @@ def parse_uint_array(source: str, name: str) -> list[int]:
     return [int(value) for value in re.findall(r"\b\d+\b", match.group("body"))]
 
 
+def parse_int_array(source: str, name: str) -> list[int]:
+    match = re.search(
+        rf"{re.escape(name)}\s*=\s*\[(?P<body>.*?)\];",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        raise RuntimeError(f"Could not find managed array {name}")
+    return [int(value) for value in re.findall(r"-?\d+", match.group("body"))]
+
+
+def parse_int_constant(source: str, name: str) -> int:
+    match = re.search(rf"\b{re.escape(name)}\s*=\s*(-?\d+)\s*;", source)
+    if match is None:
+        raise RuntimeError(f"Could not find managed constant {name}")
+    return int(match.group(1))
+
+
 def parse_ulong_span(source: str, name: str) -> list[int]:
     match = re.search(
         rf"{re.escape(name)}\s*=>\s*\[(?P<body>.*?)\];",
@@ -60,6 +78,43 @@ def format_u64_values(values: list[int], per_line: int = 4) -> str:
     )
 
 
+def format_signed_values(values: list[int], per_line: int = 12) -> str:
+    return "\n".join(
+        "    " + ", ".join(str(value) for value in values[index:index + per_line]) + ","
+        for index in range(0, len(values), per_line)
+    )
+
+
+def format_machine(name: str, source: str) -> str:
+    arrays = {
+        "trans_keys": ("std::uint8_t", parse_uint_array(source, "s_trans_keys")),
+        "key_spans": ("std::uint8_t", parse_uint_array(source, "s_key_spans")),
+        "index_offsets": ("std::uint16_t", parse_uint_array(source, "s_index_offsets")),
+        "indices": ("std::uint8_t", parse_uint_array(source, "s_indicies")),
+        "trans_targets": ("std::uint8_t", parse_uint_array(source, "s_trans_targs")),
+        "trans_actions": ("std::uint8_t", parse_uint_array(source, "s_trans_actions")),
+        "to_state_actions": ("std::uint8_t", parse_uint_array(source, "s_to_state_actions")),
+        "from_state_actions": ("std::uint8_t", parse_uint_array(source, "s_from_state_actions")),
+        "eof_transitions": ("std::int16_t", parse_int_array(source, "s_eof_trans")),
+    }
+    blocks: list[str] = []
+    for suffix, (kind, values) in arrays.items():
+        formatted = format_signed_values(values) if kind == "std::int16_t" else format_values(values)
+        blocks.append(
+            f"inline constexpr std::array<{kind}, {len(values)}> "
+            f"unicode_{name}_{suffix}{{{{\n{formatted}\n}}}};"
+        )
+    blocks.append(
+        f"inline constexpr std::uint16_t unicode_{name}_state_count = "
+        f"{len(arrays['key_spans'][1])}U;"
+    )
+    blocks.append(
+        f"inline constexpr std::uint16_t unicode_{name}_start_state = "
+        f"{parse_int_constant(source, 'StartState')}U;"
+    )
+    return "\n\n".join(blocks)
+
+
 def pack_tag(value: str) -> int:
     if not value:
         return 0
@@ -79,6 +134,8 @@ def generate(root: Path) -> str:
     arabic_path = root / "src/ProGPU.Text/ArabicJoiningData.Generated.cs"
     joining_fallback_path = root / "src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs"
     line_break_path = root / "src/ProGPU.Text/UnicodeLineBreakData.Generated.cs"
+    indic_shaping_path = root / "src/ProGPU.Text/IndicShapingData.Generated.cs"
+    use_shaping_path = root / "src/ProGPU.Text/UseShapingData.Generated.cs"
     script_source = script_path.read_text(encoding="utf-8")
     combining_source = combining_path.read_text(encoding="utf-8")
     bidi_source = bidi_path.read_text(encoding="utf-8")
@@ -86,6 +143,17 @@ def generate(root: Path) -> str:
     arabic_source = arabic_path.read_text(encoding="utf-8")
     joining_fallback_source = joining_fallback_path.read_text(encoding="utf-8")
     line_break_source = line_break_path.read_text(encoding="utf-8")
+    indic_shaping_source = indic_shaping_path.read_text(encoding="utf-8")
+    use_shaping_source = use_shaping_path.read_text(encoding="utf-8")
+    machine_sources = {
+        name: (root / f"src/ProGPU.Text/{managed}SyllableMachineData.Generated.cs").read_text(encoding="utf-8")
+        for name, managed in (
+            ("indic", "Indic"),
+            ("use", "Use"),
+            ("myanmar", "Myanmar"),
+            ("khmer", "Khmer"),
+        )
+    }
 
     scripts_match = re.search(
         r"s_scripts\s*=\s*\[(?P<body>.*?)\];",
@@ -119,6 +187,13 @@ def generate(root: Path) -> str:
     line_break_unassigned_ranges = parse_uint_array(
         line_break_source, "s_unassignedRanges"
     )
+    indic_shaping_values = parse_uint_array(indic_shaping_source, "s_values")
+    indic_shaping_data = parse_uint_array(indic_shaping_source, "s_u8")
+    use_shaping_data8 = parse_uint_array(use_shaping_source, "s_u8")
+    use_shaping_data16 = parse_uint_array(use_shaping_source, "s_u16")
+    machine_data = "\n\n".join(
+        format_machine(name, source) for name, source in machine_sources.items()
+    )
     if len(script_ranges) % 3 != 0 or len(combining_ranges) % 3 != 0:
         raise RuntimeError("Managed Unicode range tables are malformed")
     highest_script_index = max(script_ranges[2::3], default=0)
@@ -130,6 +205,8 @@ def generate(root: Path) -> str:
 // Source: ProGPU.Text UnicodeScriptData.Generated.cs,
 // UnicodeCombiningClassData.Generated.cs, UnicodeGraphemeData.Generated.cs,
 // UnicodeLineBreakData.Generated.cs,
+// IndicShapingData.Generated.cs, UseShapingData.Generated.cs, the four
+// ProGPU syllable-machine generated sources,
 // ArabicJoiningData.Generated.cs, UnicodeJoiningFallbackData.Generated.cs,
 // and Bidi/UnicodeBidiData.Generated.cs.
 // Regenerate with: ./eng/generate-native-unicode-tables.py --write
@@ -201,6 +278,24 @@ inline constexpr std::array<std::uint32_t, {len(line_break_east_asian_ranges)}> 
 inline constexpr std::array<std::uint32_t, {len(line_break_unassigned_ranges)}> unicode_line_break_unassigned_ranges{{
 {format_values(line_break_unassigned_ranges)}
 }};
+
+inline constexpr std::array<std::uint16_t, {len(indic_shaping_values)}> unicode_indic_shaping_values{{
+{format_values(indic_shaping_values)}
+}};
+
+inline constexpr std::array<std::uint8_t, {len(indic_shaping_data)}> unicode_indic_shaping_data{{
+{format_values(indic_shaping_data)}
+}};
+
+inline constexpr std::array<std::uint8_t, {len(use_shaping_data8)}> unicode_use_shaping_data8{{
+{format_values(use_shaping_data8)}
+}};
+
+inline constexpr std::array<std::uint16_t, {len(use_shaping_data16)}> unicode_use_shaping_data16{{
+{format_values(use_shaping_data16)}
+}};
+
+{machine_data}
 
 }} // namespace progpu::native::text::detail
 

@@ -353,6 +353,14 @@ the public glyph ABI. The preparation pass is `O(G)` with `O(1)` internal
 storage and uses a caller-owned conservative three-record capacity per input
 glyph; insufficient capacity leaves the input unchanged.
 
+Complex-script shaping data is generated from the same ProGPU-owned managed
+Indic and USE property tries and the same Indic, USE, Myanmar, and Khmer
+syllable machines. Native property lookup is fixed-depth `O(1)` and machine
+transition lookup is `O(1)` with no parsing, allocation, or foreign runtime
+dependency. The generated-data verification gate rejects drift between the
+managed and C++ contracts; these typed tables are the shared foundation for
+native syllable classification and script-specific reordering.
+
 Common pre-GSUB preparation is now part of the native uniform-run path rather
 than a managed callback. It inserts a font-supported dotted circle for an
 initial mark when requested, applies ProGPU's modified combining-class order

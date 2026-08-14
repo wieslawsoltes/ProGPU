@@ -309,6 +309,42 @@ bool try_segment_unicode_graphemes(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+struct unicode_indic_shaping_properties final {
+    std::uint8_t category = 0U;
+    std::uint8_t position = 0U;
+};
+
+enum class unicode_syllable_machine : std::uint8_t {
+    indic = 0U,
+    use = 1U,
+    myanmar = 2U,
+    khmer = 3U
+};
+
+struct unicode_syllable_transition final {
+    std::uint16_t target = 0U;
+    std::uint8_t action = 0U;
+    std::uint8_t reserved = 0U;
+};
+
+unicode_indic_shaping_properties get_unicode_indic_shaping_properties(
+    std::uint32_t code_point) noexcept;
+std::uint8_t get_unicode_use_shaping_category(
+    std::uint32_t code_point) noexcept;
+std::uint16_t get_unicode_syllable_machine_state_count(
+    unicode_syllable_machine machine) noexcept;
+std::uint16_t get_unicode_syllable_machine_start_state(
+    unicode_syllable_machine machine) noexcept;
+bool try_get_unicode_syllable_transition(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    std::uint8_t category,
+    unicode_syllable_transition& result) noexcept;
+bool try_get_unicode_syllable_eof_transition(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    unicode_syllable_transition& result) noexcept;
+
 enum class unicode_arabic_joining_type : std::uint8_t {
     non_joining = 0U,
     left_joining = 1U,
