@@ -92,6 +92,10 @@ progpu_native_status update_scene(
             14695981039346656037ULL,
             stream,
             stream_size);
+        const auto next_content_hashes =
+            progpu::native::semantic::compute_content_hashes(
+                static_cast<const std::byte*>(stream),
+                validation.header);
         // A lost device is terminal, so replacing the retained CPU snapshot
         // must not dispatch release calls into that device from this CPU-only
         // update path. The terminal engine destructor owns final handle release;
@@ -103,6 +107,7 @@ progpu_native_status update_scene(
         engine->semantic_scene_id = validation.header.scene_id;
         engine->semantic_scene_generation = validation.header.generation;
         engine->semantic_scene_hash = next_hash;
+        engine->semantic_hashes = next_content_hashes;
         engine->semantic_scene_header = validation.header;
         engine->semantic_scene_metrics = {};
         engine->semantic_scene_metrics.struct_size =

@@ -561,6 +561,8 @@ bool ensure_semantic_layer_vertex_buffer(
     }
     engine.semantic_layer_vertex_buffer = buffer;
     engine.semantic_layer_vertex_buffer_size = capacity;
+    engine.semantic_layer_vertex_content_hash = 0U;
+    engine.semantic_layer_vertex_content_bytes = 0U;
     return true;
 }
 

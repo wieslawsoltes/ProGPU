@@ -377,6 +377,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_semantic_image.hpp
     src/progpu_native_semantic_image_resources.cpp
     src/progpu_native_semantic_image_resources.hpp
+    src/progpu_native_semantic_identity.cpp
+    src/progpu_native_semantic_identity.hpp
     src/progpu_native_semantic_layer_mask.cpp
     src/progpu_native_semantic_layer_mask.hpp
     src/progpu_native_semantic_layer_mask_resources.cpp
@@ -687,6 +689,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_color_glyph.hpp
         src/progpu_native_semantic_image.cpp
         src/progpu_native_semantic_image.hpp
+        src/progpu_native_semantic_identity.cpp
+        src/progpu_native_semantic_identity.hpp
         src/progpu_native_semantic_layer_mask.hpp
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp

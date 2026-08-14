@@ -849,6 +849,39 @@ void semantic_scene_resource_generations_are_monotonic() {
         header,
         error_offset));
     PROGPU_REQUIRE(error_offset == resource_offset);
+
+    auto immutable_next = previous;
+    auto immutable_header = progpu::native::scene::validate(
+        immutable_next.data(), immutable_next.size()).header;
+    immutable_header.generation = 8U;
+    write_scene_record(immutable_next, 0U, immutable_header);
+    error_offset = 0U;
+    PROGPU_REQUIRE(progpu::native::scene::generations_do_not_regress(
+        previous.data(),
+        progpu::native::scene::validate(
+            previous.data(), previous.size()).header,
+        immutable_next.data(),
+        immutable_header,
+        error_offset));
+
+    const std::size_t immutable_resource_offset =
+        immutable_header.resource_offset +
+        2U * immutable_header.resource_stride;
+    progpu_native_scene_resource immutable_resource{};
+    std::memcpy(
+        &immutable_resource,
+        immutable_next.data() + immutable_resource_offset,
+        sizeof(immutable_resource));
+    PROGPU_REQUIRE(immutable_resource.payload_size != 0U);
+    immutable_next[immutable_resource.payload_offset] ^= std::byte{0x01};
+    PROGPU_REQUIRE(!progpu::native::scene::generations_do_not_regress(
+        previous.data(),
+        progpu::native::scene::validate(
+            previous.data(), previous.size()).header,
+        immutable_next.data(),
+        immutable_header,
+        error_offset));
+    PROGPU_REQUIRE(error_offset == immutable_resource_offset);
 }
 
 void semantic_scene_layer_descriptors_are_exact_and_canonical() {

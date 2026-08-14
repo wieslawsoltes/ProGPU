@@ -85,11 +85,11 @@ progpu_native_status render_scene(
 
     auto& semantic_brush_page = engine->semantic_brush_cache;
     if (!semantic_brush_page.cache_valid ||
-        semantic_brush_page.scene_hash != engine->semantic_scene_hash) {
+        semantic_brush_page.scene_hash != engine->semantic_hashes.brush) {
         if (!compile_brush_page(
                 bytes,
                 header,
-                engine->semantic_scene_hash,
+                engine->semantic_hashes.brush,
                 semantic_brush_page)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -98,11 +98,12 @@ progpu_native_status render_scene(
     }
     auto& semantic_text_style_page = engine->semantic_text_style_cache;
     if (!semantic_text_style_page.cache_valid ||
-        semantic_text_style_page.scene_hash != engine->semantic_scene_hash) {
+        semantic_text_style_page.scene_hash !=
+            engine->semantic_hashes.text_style) {
         if (!compile_text_style_page(
                 bytes,
                 header,
-                engine->semantic_scene_hash,
+                engine->semantic_hashes.text_style,
                 semantic_text_style_page)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -1189,7 +1190,7 @@ progpu_native_status render_scene(
                 "The semantic retained-brush GPU page could not be allocated.");
         }
         if (engine->analytic_material_owner_hash !=
-                engine->semantic_scene_hash ||
+                engine->semantic_hashes.brush ||
             engine->analytic_material_owner_hash == 0U) {
             wgpuQueueWriteBuffer(
                 engine->queue,
@@ -1204,7 +1205,7 @@ progpu_native_status render_scene(
                 semantic_brush_page.gradient_stops.data(),
                 semantic_gradient_stop_bytes);
             engine->analytic_material_owner_hash =
-                engine->semantic_scene_hash;
+                engine->semantic_hashes.brush;
             semantic_brush_upload_bytes = semantic_brush_bytes;
             semantic_gradient_stop_upload_bytes =
                 semantic_gradient_stop_bytes;
@@ -1223,7 +1224,8 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic retained text-style GPU page could not be allocated.");
         }
-        if (engine->text_style_owner_hash != engine->semantic_scene_hash ||
+        if (engine->text_style_owner_hash !=
+                engine->semantic_hashes.text_style ||
             engine->text_style_owner_hash == 0U) {
             wgpuQueueWriteBuffer(
                 engine->queue,
@@ -1231,7 +1233,8 @@ progpu_native_status render_scene(
                 0U,
                 semantic_text_style_page.styles.data(),
                 semantic_text_style_bytes);
-            engine->text_style_owner_hash = engine->semantic_scene_hash;
+            engine->text_style_owner_hash =
+                engine->semantic_hashes.text_style;
             semantic_text_style_upload_bytes = semantic_text_style_bytes;
         }
     }
@@ -1245,10 +1248,10 @@ progpu_native_status render_scene(
         engine->semantic_render_bundle_height == frame->height &&
         (semantic_path_draw_count == 0U ||
             engine->semantic_path_gpu_scene_hash ==
-                engine->semantic_scene_hash) &&
+                engine->semantic_hashes.path) &&
         (semantic_glyph_draw_count == 0U ||
             engine->semantic_glyph_gpu_scene_hash ==
-                engine->semantic_scene_hash);
+                engine->semantic_hashes.glyph);
     if (!semantic_render_bundle_hit) {
         engine->release_semantic_render_bundle();
     }
@@ -1259,7 +1262,8 @@ progpu_native_status render_scene(
     const bool semantic_analytic_page_hit =
         semantic_analytic_draw_count != 0U &&
         semantic_analytic_page.cache_valid &&
-        semantic_analytic_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_analytic_page.scene_hash ==
+            engine->semantic_hashes.analytic &&
         semantic_analytic_page.dpi_scale == frame->dpi_scale &&
         semantic_analytic_page.target_width == frame->width &&
         semantic_analytic_page.target_height == frame->height &&
@@ -1633,7 +1637,8 @@ progpu_native_status render_scene(
         semantic_analytic_page.draws = std::move(compiled_draws);
         semantic_analytic_page.vertex_bytes = compiled_vertex_bytes;
         semantic_analytic_page.index_bytes = compiled_index_bytes;
-        semantic_analytic_page.scene_hash = engine->semantic_scene_hash;
+        semantic_analytic_page.scene_hash =
+            engine->semantic_hashes.analytic;
         semantic_analytic_page.dpi_scale = frame->dpi_scale;
         semantic_analytic_page.target_width = frame->width;
         semantic_analytic_page.target_height = frame->height;
@@ -1646,7 +1651,7 @@ progpu_native_status render_scene(
     const bool semantic_path_page_hit =
         semantic_path_draw_count != 0U &&
         semantic_path_page.cache_valid &&
-        semantic_path_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_path_page.scene_hash == engine->semantic_hashes.path &&
         semantic_path_page.dpi_scale == frame->dpi_scale &&
         semantic_path_page.target_width == frame->width &&
         semantic_path_page.target_height == frame->height &&
@@ -1750,7 +1755,7 @@ progpu_native_status render_scene(
         semantic_path_page.brush_indices =
             std::move(compiled_brush_indices);
         semantic_path_page.draws = std::move(compiled_draws);
-        semantic_path_page.scene_hash = engine->semantic_scene_hash;
+        semantic_path_page.scene_hash = engine->semantic_hashes.path;
         semantic_path_page.dpi_scale = frame->dpi_scale;
         semantic_path_page.target_width = frame->width;
         semantic_path_page.target_height = frame->height;
@@ -1760,7 +1765,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         engine->semantic_path_gpu_scene_hash !=
-            engine->semantic_scene_hash) {
+            engine->semantic_hashes.path) {
         engine->path_cache_valid = false;
         engine->path_gpu_cache_valid = false;
     }
@@ -1769,7 +1774,7 @@ progpu_native_status render_scene(
     const bool semantic_glyph_page_hit =
         semantic_glyph_draw_count != 0U &&
         semantic_glyph_page.cache_valid &&
-        semantic_glyph_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_glyph_page.scene_hash == engine->semantic_hashes.glyph &&
         semantic_glyph_page.dpi_scale == frame->dpi_scale &&
         semantic_glyph_page.target_width == frame->width &&
         semantic_glyph_page.target_height == frame->height &&
@@ -1973,7 +1978,7 @@ progpu_native_status render_scene(
             std::move(compiled_color_bitmap_indices);
         semantic_glyph_page.color_rasters.clear();
         semantic_glyph_page.draws = std::move(compiled_draws);
-        semantic_glyph_page.scene_hash = engine->semantic_scene_hash;
+        semantic_glyph_page.scene_hash = engine->semantic_hashes.glyph;
         semantic_glyph_page.dpi_scale = frame->dpi_scale;
         semantic_glyph_page.target_width = frame->width;
         semantic_glyph_page.target_height = frame->height;
@@ -1983,7 +1988,7 @@ progpu_native_status render_scene(
 
     if (semantic_glyph_draw_count != 0U &&
         engine->semantic_glyph_gpu_scene_hash !=
-            engine->semantic_scene_hash) {
+            engine->semantic_hashes.glyph) {
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;
     }
@@ -1991,7 +1996,7 @@ progpu_native_status render_scene(
         !prepare_color_glyph_atlas(
             *engine,
             semantic_glyph_page,
-            engine->semantic_scene_hash,
+            engine->semantic_hashes.glyph,
             semantic_color_glyph_upload_bytes)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -2006,7 +2011,7 @@ progpu_native_status render_scene(
     const bool semantic_image_page_hit =
         semantic_image_draw_count != 0U &&
         semantic_image_page.cache_valid &&
-        semantic_image_page.scene_hash == engine->semantic_scene_hash &&
+        semantic_image_page.scene_hash == engine->semantic_hashes.image &&
         semantic_image_page.dpi_scale == frame->dpi_scale &&
         semantic_image_page.target_width == frame->width &&
         semantic_image_page.target_height == frame->height &&
@@ -2277,7 +2282,7 @@ progpu_native_status render_scene(
         compiled_vertex_buffer = nullptr;
         semantic_image_page.vertex_bytes = vertex_bytes;
         semantic_image_page.draws = std::move(compiled_draws);
-        semantic_image_page.scene_hash = engine->semantic_scene_hash;
+        semantic_image_page.scene_hash = engine->semantic_hashes.image;
         semantic_image_page.dpi_scale = frame->dpi_scale;
         semantic_image_page.target_width = frame->width;
         semantic_image_page.target_height = frame->height;
@@ -2397,7 +2402,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_draw_count != 0U &&
         (engine->semantic_path_gpu_scene_hash !=
-                engine->semantic_scene_hash ||
+                engine->semantic_hashes.path ||
             !engine->path_cache_valid ||
             !engine->path_gpu_cache_valid)) {
         progpu_native_path_frame family{};
@@ -2461,7 +2466,7 @@ progpu_native_status render_scene(
         family.segment_count = semantic_path_page.segments.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_scene_hash);
+        family.content_revision = revision32(engine->semantic_hashes.path);
         progpu_native_path_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -2482,12 +2487,13 @@ progpu_native_status render_scene(
             discard_encoder();
             return status;
         }
-        engine->semantic_path_gpu_scene_hash = engine->semantic_scene_hash;
+        engine->semantic_path_gpu_scene_hash =
+            engine->semantic_hashes.path;
     }
 
     if (semantic_glyph_draw_count != 0U &&
         (engine->semantic_glyph_gpu_scene_hash !=
-                engine->semantic_scene_hash ||
+                engine->semantic_hashes.glyph ||
             !engine->glyph_cache_valid ||
             !engine->glyph_gpu_cache_valid)) {
         progpu_native_glyph_frame family{};
@@ -2553,7 +2559,7 @@ progpu_native_status render_scene(
         family.glyph_count = semantic_glyph_page.glyphs.size();
         family.flags =
             PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD;
-        family.content_revision = revision32(engine->semantic_scene_hash);
+        family.content_revision = revision32(engine->semantic_hashes.glyph);
         progpu_native_glyph_frame_metrics family_metrics{};
         family_metrics.struct_size = sizeof(family_metrics);
         engine->semantic_prepare_only = true;
@@ -2573,7 +2579,7 @@ progpu_native_status render_scene(
             return status;
         }
         engine->semantic_glyph_gpu_scene_hash =
-            engine->semantic_scene_hash;
+            engine->semantic_hashes.glyph;
     }
 
     if (semantic_has_masked_glyphs &&
@@ -3540,14 +3546,27 @@ progpu_native_status render_scene(
             const std::uint64_t layer_vertex_bytes =
                 semantic_layer_vertices.size() *
                 sizeof(progpu::native::vector_vertex);
-            wgpuQueueWriteBuffer(
-                engine->queue,
-                engine->semantic_layer_vertex_buffer,
-                0U,
+            const std::uint64_t layer_vertex_hash = append_fnv1a64(
+                14695981039346656037ULL,
                 semantic_layer_vertices.data(),
-                layer_vertex_bytes);
-            vertex_upload_bytes += layer_vertex_bytes;
-            semantic_layer_vertex_upload_bytes = layer_vertex_bytes;
+                static_cast<std::size_t>(layer_vertex_bytes));
+            if (engine->semantic_layer_vertex_content_hash !=
+                    layer_vertex_hash ||
+                engine->semantic_layer_vertex_content_bytes !=
+                    layer_vertex_bytes) {
+                wgpuQueueWriteBuffer(
+                    engine->queue,
+                    engine->semantic_layer_vertex_buffer,
+                    0U,
+                    semantic_layer_vertices.data(),
+                    layer_vertex_bytes);
+                engine->semantic_layer_vertex_content_hash =
+                    layer_vertex_hash;
+                engine->semantic_layer_vertex_content_bytes =
+                    layer_vertex_bytes;
+                vertex_upload_bytes += layer_vertex_bytes;
+                semantic_layer_vertex_upload_bytes = layer_vertex_bytes;
+            }
         }
         if (!semantic_effect_uniform_data.empty()) {
             wgpuQueueWriteBuffer(

@@ -1,5 +1,6 @@
 #include "progpu_native_browser.h"
 #include "progpu_native_browser_evidence.hpp"
+#include "progpu_native_geometry_base.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -78,6 +79,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeStateMaskMedia = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeSceneBuilder = "passed";
+        document.body.dataset.progpuNativeIncrementalUpdate = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
@@ -369,6 +371,14 @@ bool render_browser_frame(double, void*) {
         !native_builder.pop_layer()) {
         fail("The browser native C++ scene builder could not record.");
     }
+    for (std::uint32_t index = 0U; index < 12U; ++index) {
+        if (!native_builder.set_resource_identity(
+                index,
+                100U + index,
+                1U)) {
+            fail("The browser native C++ scene builder identity failed.");
+        }
+    }
     std::vector<std::byte> builder_scene;
     if (!native_builder.build(builder_scene)) {
         fail("The browser native C++ scene builder could not compile.");
@@ -448,6 +458,81 @@ bool render_browser_frame(double, void*) {
         builder_frame_metrics.text_style_upload_bytes != 0U ||
         builder_frame_metrics.coverage_staging_bytes != 0U) {
         fail_engine("The stable browser native C++ scene was rebuilt.");
+    }
+
+    constexpr std::array<std::byte, 16U> updated_builder_image_pixels{
+        std::byte{0xff}, std::byte{0xd0}, std::byte{0x20}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xff}, std::byte{0xb0}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xff}, std::byte{0xb0}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xd0}, std::byte{0x20}, std::byte{0xff}};
+    if (!native_builder.advance_generation(2U) ||
+        !native_builder.update_rgba8_image(
+            builder_image_index,
+            2U,
+            2U,
+            8U,
+            updated_builder_image_pixels,
+            2U) ||
+        !native_builder.build(builder_scene)) {
+        fail("The browser retained image range update could not compile.");
+    }
+    builder_update_metrics = {};
+    builder_update_metrics.struct_size = sizeof(builder_update_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            builder_scene.data(),
+            builder_scene.size(),
+            &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        fail_engine("The browser retained image range update failed.");
+    }
+    semantic_frame.generation = native_builder.generation();
+    builder_frame_metrics = {};
+    builder_frame_metrics.struct_size = sizeof(builder_frame_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        builder_frame_metrics.brush_upload_bytes != 0U ||
+        builder_frame_metrics.gradient_stop_upload_bytes != 0U ||
+        builder_frame_metrics.index_upload_bytes != 0U ||
+        builder_frame_metrics.texture_upload_bytes != 16U ||
+        builder_frame_metrics.color_glyph_upload_bytes != 0U ||
+        builder_frame_metrics.text_style_upload_bytes != 0U ||
+        builder_frame_metrics.coverage_staging_bytes != 0U ||
+        builder_frame_metrics.vertex_upload_bytes !=
+            4U * sizeof(progpu::native::vector_vertex)) {
+        std::fprintf(
+            stderr,
+            "C++ incremental image metrics: brush=%" PRIu64
+            " gradient=%" PRIu64 " vertex=%" PRIu64
+            " index=%" PRIu64 " texture=%" PRIu64
+            " color_glyph=%" PRIu64 " text=%" PRIu64
+            " coverage=%" PRIu64 "\n",
+            builder_frame_metrics.brush_upload_bytes,
+            builder_frame_metrics.gradient_stop_upload_bytes,
+            builder_frame_metrics.vertex_upload_bytes,
+            builder_frame_metrics.index_upload_bytes,
+            builder_frame_metrics.texture_upload_bytes,
+            builder_frame_metrics.color_glyph_upload_bytes,
+            builder_frame_metrics.text_style_upload_bytes,
+            builder_frame_metrics.coverage_staging_bytes);
+        fail_engine(
+            "The browser retained image update rebuilt unrelated GPU pages.");
+    }
+    builder_frame_metrics = {};
+    builder_frame_metrics.struct_size = sizeof(builder_frame_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        builder_frame_metrics.brush_upload_bytes != 0U ||
+        builder_frame_metrics.vertex_upload_bytes != 0U ||
+        builder_frame_metrics.index_upload_bytes != 0U ||
+        builder_frame_metrics.texture_upload_bytes != 0U ||
+        builder_frame_metrics.color_glyph_upload_bytes != 0U ||
+        builder_frame_metrics.text_style_upload_bytes != 0U ||
+        builder_frame_metrics.coverage_staging_bytes != 0U) {
+        fail_engine("The updated browser retained scene was rebuilt.");
     }
 
     auto geometry_scene =

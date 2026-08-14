@@ -56,6 +56,37 @@ bool semantic_scene_builder::add_rgba8_image(
     }
 }
 
+bool semantic_scene_builder::update_rgba8_image(
+    std::uint32_t resource_index,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels,
+    std::uint64_t resource_generation) noexcept {
+    if (resource_index >= implementation_->resources.size()) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    auto& resource = implementation_->resources[resource_index];
+    if (!resource.rgba8_image || width != resource.image_width ||
+        height != resource.image_height ||
+        row_bytes != resource.image_row_bytes ||
+        pixels.size() != resource.payload.size() ||
+        resource_generation <= resource.record.generation) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        std::vector<std::byte> next(pixels.begin(), pixels.end());
+        resource.payload.swap(next);
+        resource.record.generation = resource_generation;
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::draw_image(
     std::uint32_t image_resource_index,
     const progpu_native_scene_image_draw& source,

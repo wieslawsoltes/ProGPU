@@ -54,6 +54,11 @@ public:
         std::uint32_t resource_count,
         std::uint64_t arena_bytes) noexcept;
     bool reset(std::uint64_t scene_id, std::uint64_t generation) noexcept;
+    bool advance_generation(std::uint64_t generation) noexcept;
+    bool set_resource_identity(
+        std::uint32_t resource_index,
+        std::uint64_t resource_id,
+        std::uint64_t generation) noexcept;
 
     bool add_solid_brush(
         progpu_native_color color,
@@ -68,6 +73,13 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    bool update_rgba8_image(
+        std::uint32_t resource_index,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint64_t resource_generation) noexcept;
     bool add_text_style(
         const progpu_native_scene_text_style& style,
         std::uint32_t& style_index) noexcept;

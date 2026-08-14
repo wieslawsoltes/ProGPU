@@ -88,6 +88,31 @@ bool semantic_scene_builder::reset(
     return true;
 }
 
+bool semantic_scene_builder::advance_generation(
+    std::uint64_t generation) noexcept {
+    if (generation <= implementation_->generation) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    implementation_->generation = generation;
+    implementation_->error = scene_build_error::none;
+    return true;
+}
+
+bool semantic_scene_builder::set_resource_identity(
+    std::uint32_t resource_index,
+    std::uint64_t resource_id,
+    std::uint64_t generation) noexcept {
+    if (resource_index >= implementation_->resources.size() ||
+        resource_id == 0U || generation == 0U) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    auto& resource = implementation_->resources[resource_index].record;
+    resource.resource_id = resource_id;
+    resource.generation = generation;
+    implementation_->error = scene_build_error::none;
+    return true;
+}
+
 bool semantic_scene_builder::add_solid_brush(
     progpu_native_color color,
     float opacity,
@@ -366,6 +391,15 @@ bool semantic_scene_builder::build(
             ? scene_build_error::invalid_state
             : scene_build_error::unbalanced_stack;
         return false;
+    }
+    std::uint64_t previous_resource_id = 0U;
+    for (const auto& resource : implementation_->resources) {
+        if (resource.record.resource_id <= previous_resource_id ||
+            resource.record.generation == 0U) {
+            implementation_->error = scene_build_error::invalid_state;
+            return false;
+        }
+        previous_resource_id = resource.record.resource_id;
     }
     try {
         const std::uint32_t command_count = static_cast<std::uint32_t>(

@@ -1,0 +1,26 @@
+#pragma once
+
+#include "progpu_native.h"
+
+#include <cstddef>
+#include <cstdint>
+
+namespace progpu::native::semantic {
+
+// Content identities deliberately exclude scene generation and resource
+// payload offsets. Stable resource id/generation pairs are the retained
+// ownership boundary; command records and their payloads describe placement.
+struct semantic_content_hashes final {
+    std::uint64_t brush = 0U;
+    std::uint64_t text_style = 0U;
+    std::uint64_t analytic = 0U;
+    std::uint64_t path = 0U;
+    std::uint64_t glyph = 0U;
+    std::uint64_t image = 0U;
+};
+
+semantic_content_hashes compute_content_hashes(
+    const std::byte* bytes,
+    const progpu_native_scene_header& header) noexcept;
+
+} // namespace progpu::native::semantic

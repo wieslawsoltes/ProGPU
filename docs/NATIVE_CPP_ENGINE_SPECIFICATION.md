@@ -1842,17 +1842,22 @@ render pass without payload overwrite or an intermediate submission. The
 d3b2 fixture adds clipped and empty-clip states without changing that emitted
 draw count.
 
-Full scene-hash ownership markers invalidate the shared path and glyph GPU
+Typed 64-bit content identities invalidate the shared path and glyph GPU
 caches after standalone family use, independently of the public 32-bit content
-revision, so a revision collision cannot replay a foreign page. Image-page
+revision, so a revision collision cannot replay a foreign page. They combine
+the ordered command/payload contract with stable resource ids and generations,
+but exclude the scene generation itself. Image-page
 replacement is transactional: every new texture, view, bind group, and vertex
 buffer is constructed and uploaded before the preceding immutable page is
 released. The render-bundle span table is keyed by full scene hash, DPI, and
 physical target dimensions and is released before page replacement or
 standalone family mutation; destruction also releases it before the resources
-it references. Visibility culling and
-per-resource incremental page replacement remain later optimization work, but
-stable multi-command ownership is complete for all four d3b1 draw families.
+it references. An image-only resource generation change now retains the brush,
+text-style, analytic, path, glyph, color-atlas, and coverage pages while
+replacing the image-family page. Visibility culling and sub-page replacement
+of one resource inside a multi-resource family remain later optimization work,
+but family-granular incremental ownership is complete for all four d3b1 draw
+families.
 
 Whole-scene value/budget validation remains O(C) CPU work for C commands.
 Changed-scene bundle recording is also O(C). Stable target encoding is O(K)

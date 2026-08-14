@@ -2,6 +2,7 @@
 
 #include "progpu_native_scene.hpp"
 #include "progpu_native_scene_builder.hpp"
+#include "progpu_native_semantic_identity.hpp"
 
 #include <array>
 #include <cstring>
@@ -337,6 +338,74 @@ bool semantic_scene_builder_reuses_retained_images() {
             &sampling,
             &matrix) &&
         invalid.last_error() == scene_build_error::invalid_argument;
+}
+
+bool semantic_scene_builder_updates_retained_images_transactionally() {
+    semantic_scene_builder builder(704U, 1U);
+    constexpr std::array<std::byte, 16U> first_pixels{
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    constexpr std::array<std::byte, 16U> second_pixels{
+        std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff}};
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_rgba8_image(
+            2U, 2U, 8U, first_pixels, image_index) ||
+        !builder.set_resource_identity(image_index, 100U, 1U)) {
+        return false;
+    }
+    progpu_native_scene_image_draw image{};
+    image.image_width = 2U;
+    image.image_height = 2U;
+    image.row_bytes = 8U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.destination_rect = {0.0F, 0.0F, 20.0F, 20.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F;
+    std::vector<std::byte> first;
+    if (!builder.draw_image(
+            image_index, image, {0.0F, 0.0F, 20.0F, 20.0F}) ||
+        !builder.build(first) || !builder.advance_generation(2U) ||
+        builder.advance_generation(2U) ||
+        builder.last_error() != scene_build_error::invalid_argument ||
+        builder.update_rgba8_image(
+            image_index, 3U, 2U, 8U, second_pixels, 2U) ||
+        builder.last_error() != scene_build_error::invalid_argument ||
+        !builder.update_rgba8_image(
+            image_index, 2U, 2U, 8U, second_pixels, 2U)) {
+        return false;
+    }
+    std::vector<std::byte> second;
+    if (!builder.build(second)) {
+        return false;
+    }
+    const auto first_validation = scene::validate(first.data(), first.size());
+    const auto second_validation =
+        scene::validate(second.data(), second.size());
+    if (first_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        second_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        first_validation.header.generation != 1U ||
+        second_validation.header.generation != 2U) {
+        return false;
+    }
+    const auto first_resource = read<progpu_native_scene_resource>(
+        first,
+        first_validation.header.resource_offset);
+    const auto second_resource = read<progpu_native_scene_resource>(
+        second,
+        second_validation.header.resource_offset);
+    return first_resource.resource_id == second_resource.resource_id &&
+        first_resource.generation == 1U &&
+        second_resource.generation == 2U &&
+        std::memcmp(
+            second.data() + second_resource.payload_offset,
+            second_pixels.data(),
+            second_pixels.size()) == 0;
 }
 
 bool semantic_scene_builder_records_styled_glyph_runs() {
@@ -679,6 +748,145 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
         draw.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
         draw.state_index == state_index &&
         pop.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+}
+
+bool semantic_scene_builder_preserves_stable_resource_identities() {
+    semantic_scene_builder builder(709U, 12U);
+    std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_solid_brush(
+            {0.2F, 0.5F, 0.9F, 1.0F},
+            1.0F,
+            brush)) {
+        return false;
+    }
+    auto state = semantic_scene_builder::identity_state();
+    state.opacity = 0.8F;
+    if (!builder.add_state(state, state_index)) {
+        return false;
+    }
+    const progpu_native_analytic_primitive primitive{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        4.0F,
+        6.0F,
+        32.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    if (!builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive,
+                1U),
+            std::span<const std::uint32_t>(&brush, 1U),
+            {4.0F, 6.0F, 32.0F, 20.0F},
+            state_index) ||
+        !builder.set_resource_identity(0U, 100U, 7U) ||
+        !builder.set_resource_identity(state_index, 200U, 4U) ||
+        !builder.set_resource_identity(2U, 300U, 9U)) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.header.resource_count != 3U) {
+        return false;
+    }
+    const auto first = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset);
+    const auto second = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset + validated.header.resource_stride);
+    const auto third = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset +
+            2U * validated.header.resource_stride);
+    std::vector<std::byte> unchanged{std::byte{0x5a}};
+    return first.resource_id == 100U && first.generation == 7U &&
+        second.resource_id == 200U && second.generation == 4U &&
+        third.resource_id == 300U && third.generation == 9U &&
+        builder.set_resource_identity(2U, 150U, 9U) &&
+        !builder.build(unchanged) &&
+        builder.last_error() == scene_build_error::invalid_state &&
+        unchanged == std::vector<std::byte>{std::byte{0x5a}};
+}
+
+bool semantic_scene_content_hashes_isolate_image_updates() {
+    semantic_scene_builder builder(710U, 1U);
+    std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_solid_brush(
+            {0.2F, 0.5F, 0.9F, 1.0F}, 1.0F, brush)) {
+        return false;
+    }
+    const progpu_native_analytic_primitive primitive{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        0.0F,
+        0.0F,
+        20.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    constexpr std::array<std::byte, 16U> first_pixels{
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    constexpr std::array<std::byte, 16U> second_pixels{
+        std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff}};
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw image{};
+    image.image_width = 2U;
+    image.image_height = 2U;
+    image.row_bytes = 8U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.destination_rect = {24.0F, 0.0F, 20.0F, 20.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F;
+    if (!builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive,
+                1U),
+            std::span<const std::uint32_t>(&brush, 1U),
+            {0.0F, 0.0F, 20.0F, 20.0F}) ||
+        !builder.add_rgba8_image(
+            2U, 2U, 8U, first_pixels, image_index) ||
+        !builder.draw_image(
+            image_index, image, {24.0F, 0.0F, 20.0F, 20.0F})) {
+        return false;
+    }
+    std::vector<std::byte> first;
+    std::vector<std::byte> second;
+    if (!builder.build(first) || !builder.advance_generation(2U) ||
+        !builder.update_rgba8_image(
+            image_index, 2U, 2U, 8U, second_pixels, 2U) ||
+        !builder.build(second)) {
+        return false;
+    }
+    const auto first_header = read<progpu_native_scene_header>(first, 0U);
+    const auto second_header = read<progpu_native_scene_header>(second, 0U);
+    const auto first_hashes = semantic::compute_content_hashes(
+        first.data(), first_header);
+    const auto second_hashes = semantic::compute_content_hashes(
+        second.data(), second_header);
+    return first_hashes.brush == second_hashes.brush &&
+        first_hashes.text_style == second_hashes.text_style &&
+        first_hashes.analytic == second_hashes.analytic &&
+        first_hashes.path == second_hashes.path &&
+        first_hashes.glyph == second_hashes.glyph &&
+        first_hashes.image != second_hashes.image;
 }
 
 } // namespace progpu::native::tests

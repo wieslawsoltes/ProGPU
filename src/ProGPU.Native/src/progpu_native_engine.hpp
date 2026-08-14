@@ -7,6 +7,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_webgpu_compat.hpp"
 #include "progpu_native_semantic_replay.hpp"
@@ -351,6 +352,8 @@ struct progpu_native_engine {
     std::uint64_t semantic_scene_id = 0U;
     std::uint64_t semantic_scene_generation = 0U;
     std::uint64_t semantic_scene_hash = 0U;
+    progpu::native::semantic::semantic_content_hashes
+        semantic_hashes{};
     progpu_native_scene_header semantic_scene_header{};
     progpu_native_scene_metrics semantic_scene_metrics{};
     progpu::native::semantic::semantic_brush_page semantic_brush_cache;
@@ -369,6 +372,8 @@ struct progpu_native_engine {
     semantic_layer_slot semantic_advanced_output_slot{};
     WGPUBuffer semantic_layer_vertex_buffer = nullptr;
     std::uint64_t semantic_layer_vertex_buffer_size = 0U;
+    std::uint64_t semantic_layer_vertex_content_hash = 0U;
+    std::uint64_t semantic_layer_vertex_content_bytes = 0U;
     WGPUBuffer semantic_effect_uniform_buffer = nullptr;
     std::uint64_t semantic_effect_uniform_buffer_size = 0U;
     std::uint32_t semantic_layer_allocation_count = 0U;
@@ -840,6 +845,8 @@ struct progpu_native_engine {
             semantic_effect_uniform_buffer = nullptr;
         }
         semantic_layer_vertex_buffer_size = 0U;
+        semantic_layer_vertex_content_hash = 0U;
+        semantic_layer_vertex_content_bytes = 0U;
         semantic_effect_uniform_buffer_size = 0U;
         if (semantic_advanced_blend_uniform_buffer != nullptr) {
             wgpuBufferDestroy(semantic_advanced_blend_uniform_buffer);

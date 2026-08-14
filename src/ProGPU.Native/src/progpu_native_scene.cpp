@@ -804,6 +804,30 @@ bool generations_do_not_regress(
                 error_offset = next_offset;
                 return false;
             }
+            if (new_resource.generation == old_resource.generation) {
+                const bool metadata_matches =
+                    new_resource.kind == old_resource.kind &&
+                    new_resource.flags == old_resource.flags &&
+                    new_resource.payload_size == old_resource.payload_size &&
+                    new_resource.auxiliary_size ==
+                        old_resource.auxiliary_size;
+                const bool payload_matches = metadata_matches &&
+                    (new_resource.payload_size == 0U ||
+                        std::memcmp(
+                            next_bytes + new_resource.payload_offset,
+                            previous_bytes + old_resource.payload_offset,
+                            new_resource.payload_size) == 0);
+                const bool auxiliary_matches = payload_matches &&
+                    (new_resource.auxiliary_size == 0U ||
+                        std::memcmp(
+                            next_bytes + new_resource.auxiliary_offset,
+                            previous_bytes + old_resource.auxiliary_offset,
+                            new_resource.auxiliary_size) == 0);
+                if (!auxiliary_matches) {
+                    error_offset = next_offset;
+                    return false;
+                }
+            }
             ++previous_index;
             ++next_index;
         }

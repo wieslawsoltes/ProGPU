@@ -2494,3 +2494,24 @@ the native package nuspec to declare it, so a stale source build or global
 package cache cannot conceal an incomplete distribution graph. Both consumers
 restore through an isolated package cache with cache reuse disabled, and the
 real Dawn package version includes the exact commit id.
+
+## Family-granular retained update checkpoint
+
+The C++ scene builder now exposes stable caller-owned resource identities,
+monotonic scene-generation advancement, and transactional same-layout RGBA8
+replacement. Equal resource id/generation pairs are immutable: changing their
+kind, flags, sizes, payload, or auxiliary bytes rejects the complete update
+before snapshot or GPU state changes.
+
+Content hashes are computed once per accepted snapshot for the brush,
+text-style, analytic, path, glyph, and image families. The full scene hash
+continues to own display-order render bundles and effect output. In the real
+Chromium/Emdawnwebgpu integration, generation 1 first uploads the complete
+11-command/12-resource builder scene and its stable replay uploads zero bytes.
+Generation 2 changes only one 2x2 RGBA8 image and advances only that resource:
+the next frame uploads exactly 16 texture bytes and the image family's exact
+224-byte four-vertex page, with zero brush, gradient-stop, text-style,
+color-glyph, coverage, or index upload. Its following stable replay again
+uploads zero bytes. This is family-granular reuse; sub-page replacement of one
+resource within a family containing multiple resources remains a separate
+optimization milestone.

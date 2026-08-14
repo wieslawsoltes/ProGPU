@@ -30,7 +30,10 @@ reuses the native path-rasterizer validation contract without a parallel
 builder-only approximation. `progpu_native_scene_builder_image.cpp` owns
 retained RGBA8 resources and nearest/linear/cubic image commands, including
 optional color matrices; multiple draws may reference the same pixels and
-stable replay performs no texture upload.
+stable replay performs no texture upload. Callers can advance the immutable
+scene generation and transactionally replace a same-layout RGBA8 resource
+while preserving its stable id; the replacement must advance that resource's
+generation.
 `progpu_native_scene_builder_glyph.cpp` owns retained vector-glyph outline
 resources, positioned runs, and deduplicated text styles. It is the direct
 native destination for the planned C++ shaper/layout output and does not add a
@@ -92,6 +95,10 @@ Semantic-scene execution follows the same boundary:
 snapshot updates, `progpu_native_semantic_draw_execution.cpp` owns packed-page
 render-bundle encoding, and `progpu_native_semantic_render_execution.cpp` owns
 scene compilation and replay orchestration.
+`progpu_native_semantic_identity.cpp` computes allocation-free typed content
+identities once per accepted update. Brush, text-style, analytic, path, glyph,
+and image pages are therefore retained independently across scene generations;
+the full scene hash still owns display-order render bundles and effect output.
 Decoded color-glyph ownership is split again:
 `progpu_native_semantic_color_glyph.cpp` performs CPU-only pointer-free
 metadata/range validation, while `progpu_native_color_glyph_resources.cpp`
