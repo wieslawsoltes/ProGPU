@@ -238,7 +238,22 @@ and publishes their difference only after complete validation. Work is
 produces exact left/right deltas `2/5` and advance delta `3`; short scratch and
 item-count-under-four behavior pass normal, named-module, and ASan/UBSan
 gates. This raw `gvar` fallback remains deliberately separate from the HVAR
-precedence and item-variation-store slice now in progress.
+precedence and item-variation-store slice.
+
+Borrowed item-variation stores and HVAR advance precedence follow at checkpoint
+`920df3b09c7994839d11d43e8af50b209c186848`. The granular
+`progpu_native_item_variation_store.cpp` unit validates format-1 region lists,
+subtable offsets, word/long-word delta rows, region indices, and format-0/1
+delta-set maps before exposing a borrowed view. Lookup scans only the selected
+row and its referenced regions in `O(R * A)` time with `O(1)` storage for `R`
+regions and `A` axes. `progpu_native_hvar.cpp` applies the optional advance map
+and reports whether HVAR owns advance variation so callers use phantom points
+only when the managed implementation would. InterVariable glyph 397 at
+`opsz=23` resolves exact native delta `-28`, matching the managed 2048-em
+advance `1314 -> 1286`. Synthetic map clamping, row selection, missing-HVAR,
+truncation, normal, named-module, ASan/UBSan, and 29/29 managed Inter gates
+pass. MVAR and GDEF layout-store consumers remain sequenced work over this
+shared parser.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

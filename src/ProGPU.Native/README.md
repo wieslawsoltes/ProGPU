@@ -170,7 +170,10 @@ canonical path ABI. The full native glyph-618 outline matches the same start,
 36 segments, and managed hash with caller-owned bounded scratch. Phantom
 advance fallback now reuses the same tuple walker and returns the exact
 right-minus-left phantom X delta without internal allocation. HVAR precedence,
-item-variation stores, and layout-store variation remain sequenced work.
+borrowed item-variation stores, long/short delta rows, and delta-set maps now
+execute allocation-free; InterVariable glyph 397 matches the managed HVAR
+delta `-28`. MVAR and GDEF layout-store consumers remain sequenced work over
+the shared store parser.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
