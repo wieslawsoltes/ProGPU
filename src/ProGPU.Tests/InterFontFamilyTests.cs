@@ -48,43 +48,60 @@ public sealed class InterFontFamilyTests
         var figure = Assert.Single(outline.Figures);
         Assert.Equal(new Vector2(665f, -25f), figure.StartPoint);
         Assert.Equal(34, figure.Segments.Count);
+        Assert.Equal(13245664145576799719UL, HashOutline(outline));
+
+        Assert.True(face.TryGetGlyphIndex(0x00E9, out ushort compositeIndex));
+        Assert.Equal((ushort)618, compositeIndex);
+        var composite = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            font.GetGlyphOutline(compositeIndex));
+        Assert.Equal(3, composite.Figures.Count);
+        Assert.Equal(27, composite.Figures.Sum(static item => item.Segments.Count));
+        Assert.Equal(new Vector2(630f, -23f), composite.Figures[0].StartPoint);
+        Assert.Equal(5543379682355176128UL, HashOutline(composite));
+    }
+
+    private static ulong HashOutline(ProGPU.Vector.PathGeometry outline)
+    {
         ulong hash = 1469598103934665603UL;
-        static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);
+        foreach (ProGPU.Vector.PathFigure figure in outline.Figures)
+        {
+            Vector2 current = figure.StartPoint;
+            foreach (ProGPU.Vector.PathSegment segment in figure.Segments)
+            {
+                Vector2 p0 = current;
+                uint kind;
+                Vector2 p1;
+                Vector2 p2;
+                switch (segment)
+                {
+                    case ProGPU.Vector.LineSegment line:
+                        kind = 0;
+                        p1 = line.Point;
+                        p2 = default;
+                        current = line.Point;
+                        break;
+                    case ProGPU.Vector.QuadraticBezierSegment quadratic:
+                        kind = 1;
+                        p1 = quadratic.ControlPoint;
+                        p2 = quadratic.Point;
+                        current = quadratic.Point;
+                        break;
+                    default:
+                        throw new InvalidOperationException(segment.GetType().Name);
+                }
+                hash = Append(hash, kind);
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p0.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p0.Y));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p1.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p1.Y));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p2.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p2.Y));
+            }
+        }
+        return hash;
+
         static ulong Append(ulong value, uint field) =>
             unchecked((value ^ field) * 1099511628211UL);
-        Vector2 current = figure.StartPoint;
-        foreach (ProGPU.Vector.PathSegment segment in figure.Segments)
-        {
-            Vector2 p0 = current;
-            uint kind;
-            Vector2 p1;
-            Vector2 p2;
-            switch (segment)
-            {
-                case ProGPU.Vector.LineSegment line:
-                    kind = 0;
-                    p1 = line.Point;
-                    p2 = default;
-                    current = line.Point;
-                    break;
-                case ProGPU.Vector.QuadraticBezierSegment quadratic:
-                    kind = 1;
-                    p1 = quadratic.ControlPoint;
-                    p2 = quadratic.Point;
-                    current = quadratic.Point;
-                    break;
-                default:
-                    throw new InvalidOperationException(segment.GetType().Name);
-            }
-            hash = Append(hash, kind);
-            hash = Append(hash, Bits(p0.X));
-            hash = Append(hash, Bits(p0.Y));
-            hash = Append(hash, Bits(p1.X));
-            hash = Append(hash, Bits(p1.Y));
-            hash = Append(hash, Bits(p2.X));
-            hash = Append(hash, Bits(p2.Y));
-        }
-        Assert.Equal(13245664145576799719UL, hash);
     }
 
     [Fact]

@@ -95,6 +95,7 @@ struct sfnt_glyph_decode_requirements final {
     sfnt_glyph_kind kind = sfnt_glyph_kind::empty;
     std::uint16_t contour_count = 0U;
     std::uint32_t point_count = 0U;
+    std::uint32_t path_segment_count = 0U;
     std::uint16_t instruction_bytes = 0U;
 };
 
@@ -122,6 +123,13 @@ struct sfnt_composite_component final {
     float m01 = 0.0F;
     float m10 = 0.0F;
     float m11 = 1.0F;
+};
+
+struct sfnt_expanded_glyph_requirements final {
+    std::uint32_t point_count = 0U;
+    std::uint32_t path_segment_count = 0U;
+    std::uint32_t simple_point_scratch_count = 0U;
+    std::uint16_t simple_contour_scratch_count = 0U;
 };
 
 /*
@@ -152,7 +160,11 @@ public:
  * format 4 segments. Simple-glyph decoding is two-pass O(C + P + B) for C
  * contours, P points, and B encoded flag/coordinate bytes: the first call
  * reports exact caller-buffer requirements and the second writes directly to
- * those spans. No operation allocates or initializes WebGPU.
+ * those spans. Composite expansion is O(G + K + P + S) normally and
+ * O(D * (G + K + P + S)) worst-case when nested point attachments require
+ * bounded child preflight, for visited glyphs G, components K, points P,
+ * segments S, and D <= 33. Scratch/output spans are caller-owned; no operation
+ * allocates or initializes WebGPU.
  */
 class sfnt_font_view final {
 public:
@@ -197,6 +209,19 @@ public:
     bool try_decode_composite_glyph(
         std::uint16_t glyph_index,
         std::span<sfnt_composite_component> components,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_expanded_glyph_requirements(
+        std::uint16_t glyph_index,
+        sfnt_expanded_glyph_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_glyph_outline(
+        std::uint16_t glyph_index,
+        std::span<std::uint16_t> simple_contour_scratch,
+        std::span<sfnt_outline_point> simple_point_scratch,
+        std::span<progpu_native_point> points,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& points_written,
+        std::uint32_t& segments_written,
         font_error* error = nullptr) const noexcept;
     bool try_get_glyph_index(
         std::uint32_t code_point,

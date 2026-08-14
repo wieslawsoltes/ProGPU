@@ -21,6 +21,7 @@ constexpr std::uint8_t y_same_or_positive_flag = 0x20U;
 struct simple_glyph_layout final {
     std::uint16_t contour_count = 0U;
     std::uint32_t point_count = 0U;
+    std::uint32_t path_segment_count = 0U;
     std::uint16_t instruction_bytes = 0U;
     std::size_t contour_offset = 10U;
     std::size_t flag_offset = 0U;
@@ -88,6 +89,11 @@ bool inspect_simple_glyph(
 
     auto cursor = layout.flag_offset;
     std::uint32_t expanded = 0U;
+    std::uint16_t contour_index = 0U;
+    std::uint32_t contour_start = 0U;
+    std::uint32_t off_to_on_transitions = 0U;
+    bool first_on_curve = false;
+    bool previous_on_curve = false;
     std::size_t x_bytes = 0U;
     std::size_t y_bytes = 0U;
     while (expanded < layout.point_count) {
@@ -117,7 +123,36 @@ bool inspect_simple_glyph(
             !checked_add(y_bytes, y_increment, y_bytes)) {
             return false;
         }
-        expanded += copies;
+        for (std::uint32_t copy = 0U; copy < copies; ++copy) {
+            const auto on_curve = (flag & 0x01U) != 0U;
+            if (expanded == contour_start) {
+                first_on_curve = on_curve;
+                previous_on_curve = on_curve;
+                off_to_on_transitions = 0U;
+            } else {
+                if (!previous_on_curve && on_curve) {
+                    ++off_to_on_transitions;
+                }
+                previous_on_curve = on_curve;
+            }
+            ++expanded;
+            const auto contour_end = read_u16(
+                glyph.bytes,
+                layout.contour_offset +
+                    static_cast<std::size_t>(contour_index) * 2U);
+            if (expanded - 1U == contour_end) {
+                const auto contour_points = expanded - contour_start;
+                if (contour_points >= 2U) {
+                    if (!previous_on_curve && first_on_curve) {
+                        ++off_to_on_transitions;
+                    }
+                    layout.path_segment_count +=
+                        contour_points - off_to_on_transitions;
+                }
+                contour_start = expanded;
+                ++contour_index;
+            }
+        }
     }
 
     layout.x_offset = cursor;
@@ -189,6 +224,7 @@ bool sfnt_font_view::try_get_glyph_decode_requirements(
         sfnt_glyph_kind::simple,
         layout.contour_count,
         layout.point_count,
+        layout.path_segment_count,
         layout.instruction_bytes};
     return true;
 }

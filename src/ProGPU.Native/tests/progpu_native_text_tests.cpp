@@ -17,6 +17,7 @@ using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
 using progpu::native::text::sfnt_composite_component;
 using progpu::native::text::sfnt_composite_glyph_decode_requirements;
+using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_glyph_decode_requirements;
@@ -114,7 +115,8 @@ std::vector<std::byte> make_cmap() {
 
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
-    std::size_t glyph_size = 22U) {
+    std::size_t glyph_size = 22U,
+    std::size_t second_glyph_size = 0U) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -151,12 +153,16 @@ std::vector<std::byte> make_font(
     table_data loca{open_type_tag::from_chars('l', 'o', 'c', 'a'),
         std::vector<std::byte>(36U)};
     write_u32(loca.bytes, 20U, static_cast<std::uint32_t>(glyph_size));
-    write_u32(loca.bytes, 24U, static_cast<std::uint32_t>(glyph_size));
-    write_u32(loca.bytes, 28U, static_cast<std::uint32_t>(glyph_size));
-    write_u32(loca.bytes, 32U, static_cast<std::uint32_t>(glyph_size));
+    const auto complete_glyph_size = glyph_size + second_glyph_size;
+    write_u32(loca.bytes, 24U,
+        static_cast<std::uint32_t>(complete_glyph_size));
+    write_u32(loca.bytes, 28U,
+        static_cast<std::uint32_t>(complete_glyph_size));
+    write_u32(loca.bytes, 32U,
+        static_cast<std::uint32_t>(complete_glyph_size));
     tables.push_back(std::move(loca));
     table_data glyf{open_type_tag::from_chars('g', 'l', 'y', 'f'),
-        std::vector<std::byte>(glyph_size)};
+        std::vector<std::byte>(complete_glyph_size)};
     write_i16(glyf.bytes, 0U, 1);
     write_i16(glyf.bytes, 2U, 10);
     write_i16(glyf.bytes, 4U, 0);
@@ -260,6 +266,7 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(requirements.kind == sfnt_glyph_kind::simple);
     require(requirements.contour_count == 1U);
     require(requirements.point_count == 3U);
+    require(requirements.path_segment_count == 2U);
     require(requirements.instruction_bytes == 0U);
     std::array<std::uint16_t, 1U> contour_ends{};
     std::array<sfnt_outline_point, 3U> outline_points{};
@@ -390,6 +397,7 @@ void simple_glyph_repeat_composite_and_malformed_paths_are_explicit() {
     require(font.try_get_glyph_decode_requirements(
         4U, requirements, &error));
     require(requirements.point_count == 3U);
+    require(requirements.path_segment_count == 3U);
     std::array<std::uint16_t, 1U> contour_ends{};
     std::array<sfnt_outline_point, 3U> points{};
     require(font.try_decode_simple_glyph(
@@ -639,6 +647,121 @@ void simple_glyph_path_preserves_implicit_midpoints_and_is_transactional() {
     require(contour_segments[2].p0.y == 20.0F);
 }
 
+void expanded_composite_glyphs_preserve_transforms_and_point_attachment() {
+    auto scaled = make_font(0U, 22U, 20U);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(scaled, 0U, font));
+    sfnt_table_view glyf{};
+    require(font.try_get_table(
+        open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf));
+    const auto composite_offset = static_cast<std::size_t>(
+        glyf.bytes.data() - scaled.data()) + 22U;
+    write_i16(scaled, composite_offset, -1);
+    write_u16(scaled, composite_offset + 10U, 0x000BU);
+    write_u16(scaled, composite_offset + 12U, 4U);
+    write_i16(scaled, composite_offset + 14U, 12);
+    write_i16(scaled, composite_offset + 16U, -7);
+    write_i16(scaled, composite_offset + 18U, 8192);
+    require(sfnt_font_view::try_create(scaled, 0U, font));
+
+    sfnt_expanded_glyph_requirements requirements{};
+    font_error error = font_error::none;
+    require(font.try_get_expanded_glyph_requirements(
+        5U, requirements, &error));
+    require(requirements.point_count == 3U);
+    require(requirements.path_segment_count == 2U);
+    require(requirements.simple_point_scratch_count == 3U);
+    require(requirements.simple_contour_scratch_count == 1U);
+    std::array<std::uint16_t, 1U> contour_scratch{};
+    std::array<sfnt_outline_point, 3U> point_scratch{};
+    std::array<progpu_native_point, 3U> points{};
+    std::array<progpu_native_path_segment, 2U> segments{};
+    std::uint32_t points_written = 0U;
+    std::uint32_t segments_written = 0U;
+    require(font.try_decode_glyph_outline(
+        5U,
+        contour_scratch,
+        point_scratch,
+        points,
+        segments,
+        points_written,
+        segments_written,
+        &error));
+    require(points_written == 3U && segments_written == 2U);
+    require(points[0].x == 17.0F && points[0].y == -7.0F);
+    require(points[1].x == 27.0F && points[1].y == 8.0F);
+    require(points[2].x == 24.5F && points[2].y == 13.0F);
+    require(segments[0].p0.x == 17.0F && segments[0].p0.y == -7.0F);
+    require(segments[1].p2.x == 17.0F && segments[1].p2.y == -7.0F);
+
+    points_written = 99U;
+    segments_written = 99U;
+    require(!font.try_decode_glyph_outline(
+        5U,
+        contour_scratch,
+        point_scratch,
+        std::span<progpu_native_point>{},
+        segments,
+        points_written,
+        segments_written,
+        &error));
+    require(points_written == 0U && segments_written == 0U);
+    require(error == font_error::insufficient_buffer);
+
+    auto attached = make_font(0U, 22U, 24U);
+    require(sfnt_font_view::try_create(attached, 0U, font));
+    require(font.try_get_table(
+        open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf));
+    const auto attached_offset = static_cast<std::size_t>(
+        glyf.bytes.data() - attached.data()) + 22U;
+    write_i16(attached, attached_offset, -1);
+    write_u16(attached, attached_offset + 10U, 0x0022U);
+    write_u16(attached, attached_offset + 12U, 4U);
+    attached[attached_offset + 14U] = static_cast<std::byte>(0U);
+    attached[attached_offset + 15U] = static_cast<std::byte>(0U);
+    write_u16(attached, attached_offset + 16U, 0x0001U);
+    write_u16(attached, attached_offset + 18U, 4U);
+    write_u16(attached, attached_offset + 20U, 1U);
+    write_u16(attached, attached_offset + 22U, 0U);
+    require(sfnt_font_view::try_create(attached, 0U, font));
+    require(font.try_get_expanded_glyph_requirements(
+        5U, requirements, &error));
+    require(requirements.point_count == 6U);
+    require(requirements.path_segment_count == 4U);
+    std::array<progpu_native_point, 6U> attached_points{};
+    std::array<progpu_native_path_segment, 4U> attached_segments{};
+    require(font.try_decode_glyph_outline(
+        5U,
+        contour_scratch,
+        point_scratch,
+        attached_points,
+        attached_segments,
+        points_written,
+        segments_written,
+        &error));
+    require(points_written == 6U && segments_written == 4U);
+    require(attached_points[1].x == attached_points[3].x);
+    require(attached_points[1].y == attached_points[3].y);
+    require(attached_points[4].x == 50.0F && attached_points[4].y == 60.0F);
+
+    write_u16(attached, attached_offset + 18U, 5U);
+    require(sfnt_font_view::try_create(attached, 0U, font));
+    require(font.try_get_expanded_glyph_requirements(
+        5U, requirements, &error));
+    require(requirements.point_count == 3U);
+    require(requirements.path_segment_count == 2U);
+    require(font.try_decode_glyph_outline(
+        5U,
+        contour_scratch,
+        point_scratch,
+        attached_points,
+        attached_segments,
+        points_written,
+        segments_written,
+        &error));
+    require(points_written == 3U && segments_written == 2U);
+}
+
 void production_inter_font_decodes_real_simple_outline() {
     std::ifstream stream(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
     require(stream.good());
@@ -682,6 +805,7 @@ void production_inter_font_decodes_real_simple_outline() {
     require(requirements.kind == sfnt_glyph_kind::simple);
     require(requirements.contour_count == 1U);
     require(requirements.point_count == 46U);
+    require(requirements.path_segment_count == 34U);
     require(requirements.instruction_bytes == 59U);
     std::vector<std::uint16_t> contours(requirements.contour_count);
     std::vector<sfnt_outline_point> points(requirements.point_count);
@@ -735,6 +859,36 @@ void production_inter_font_decodes_real_simple_outline() {
     require(decoded[1].flags == 7U);
     require(decoded[1].glyph_index == 1770U);
     require(decoded[1].argument1 == 349 && decoded[1].argument2 == 0);
+    sfnt_expanded_glyph_requirements expanded{};
+    require(font.try_get_expanded_glyph_requirements(
+        composite_index, expanded));
+    std::vector<std::uint16_t> expanded_contours(
+        expanded.simple_contour_scratch_count);
+    std::vector<sfnt_outline_point> expanded_scratch(
+        expanded.simple_point_scratch_count);
+    std::vector<progpu_native_point> expanded_points(expanded.point_count);
+    std::vector<progpu_native_path_segment> expanded_segments(
+        expanded.path_segment_count);
+    std::uint32_t expanded_points_written = 0U;
+    std::uint32_t expanded_segments_written = 0U;
+    require(font.try_decode_glyph_outline(
+        composite_index,
+        expanded_contours,
+        expanded_scratch,
+        expanded_points,
+        expanded_segments,
+        expanded_points_written,
+        expanded_segments_written));
+    require(expanded.point_count == 35U);
+    require(expanded.path_segment_count == 27U);
+    require(expanded.simple_point_scratch_count == 31U);
+    require(expanded.simple_contour_scratch_count == 2U);
+    require(expanded_points_written == 35U);
+    require(expanded_segments_written == 27U);
+    require(expanded_segments.front().p0.x == 630.0F);
+    require(expanded_segments.front().p0.y == -23.0F);
+    require(hash_path_segments(expanded_segments) ==
+        5543379682355176128ULL);
 }
 
 } // namespace
@@ -745,6 +899,7 @@ int main() {
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();
+    expanded_composite_glyphs_preserve_transforms_and_point_attachment();
     production_inter_font_decodes_real_simple_outline();
     return 0;
 }

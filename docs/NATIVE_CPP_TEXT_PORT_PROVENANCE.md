@@ -74,8 +74,8 @@ results. A second allocation-free count/write pair ports
 `TtfFont.DecodeContourToFigure` directly into the canonical
 `progpu_native_path_segment` ABI. It preserves line closure, explicit
 on-curve points, implied midpoints between consecutive off-curve points, and
-quadratic controls in `O(C + P)` time with `O(1)` internal storage. Composite
-expansion and `gvar` application remain open rather than silently approximated.
+quadratic controls in `O(C + P)` time with `O(1)` internal storage. `gvar`
+application remains open rather than silently approximated.
 
 The managed and native tests share the repository's exact `Inter-Medium.ttf`
 asset as a differential checkpoint. Both assert 2,048 units per em, 2,937
@@ -88,7 +88,7 @@ composite classification. Matched final path evidence covers all 34
 line/quadratic records for Inter Medium glyph 397 with an exact shared 64-bit
 hash of `13245664145576799719`, including the
 start point `(665,-25)` and closed endpoint. A GPU-rendered native-font
-screenshot waits for composite expansion and the font-to-scene connection.
+screenshot waits for the font-to-scene connection.
 Composite record parsing ports the descriptor loop in
 `TtfFont.ParseCompositeGlyphOutline` at checkpoint
 `3abbec85d749466130538c8371dc772f1ef08671`. A first pass validates every
@@ -96,10 +96,29 @@ component, signed/unsigned byte/word arguments, F2Dot14 uniform, axis, or 2x2
 transforms, continuation flags, and optional instruction range while reporting
 the exact component count. A second pass writes fixed caller-owned component
 records. Both passes are `O(K + B)` time and `O(1)` internal storage for `K`
-components and `B` component/instruction bytes. The Inter Medium U+00E9
-checkpoint resolves to composite glyph 618 and exactly reproduces its two
-component records (glyphs 614 and 1770). Recursive transform/point-attachment
-expansion remains the next slice.
+components and `B` component/instruction bytes.
+
+Recursive expansion ports `TtfFont.BuildCompositeGlyph` at checkpoint
+`d477532a4bec274bdb47634dacab91d809c80fa2` and uses a fixed 33-glyph ancestor
+stack matching ProGPU's
+depth limit plus caller-owned simple-point/contour scratch and final point/path
+spans. Its preflight reports exact scratch and output counts; the write pass
+applies byte/word XY offsets, scaled offsets, deterministic midpoint-to-even
+grid rounding, uniform/axis/2x2 transforms, and parent/component point
+attachment without retaining any temporary graph. Ordinary work is linear in
+visited glyph records, component records, decoded points, and path segments;
+nested point attachments may require bounded child preflight, making the
+worst case `O(D * (G + K + P + S))` for depth `D <= 33`, while internal storage
+remains `O(1)`. Cycles and excessive depth are bounded, invalid point
+attachments skip that component as in the managed implementation, and
+insufficient output fails before writing. The Inter Medium U+00E9 checkpoint
+resolves to composite glyph 618, exactly reproduces its two component records
+(glyphs 614 and 1770), and expands to 35 points and 27 path records. Managed
+and native streams share start `(630,-23)` and exact hash
+`5543379682355176128` across all three contours.
+Descriptor parsing and recursive outline assembly remain separate translation
+units sharing only a private fixed-record reader, keeping the native text port
+granular without duplicating component semantics.
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.

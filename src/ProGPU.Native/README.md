@@ -128,12 +128,15 @@ simple, and composite records are classified explicitly. The library performs
 no heap allocation in either pass. Decoded simple contours then use another
 allocation-free count/write pair to produce the renderer's canonical line and
 quadratic `progpu_native_path_segment` records with exact implied-midpoint and
-closed-contour behavior. Recursive composite expansion and variation deltas
-remain subsequent slices. Composite descriptor decoding is already allocation-free:
+closed-contour behavior. Variation deltas remain a subsequent slice. Composite
+descriptor decoding is allocation-free:
 it validates and writes caller-owned component records with byte/word XY or
 point arguments, F2Dot14 uniform/axis/2x2 transforms, continuation state, and
-optional instruction lengths. Recursive transform and point-attachment
-expansion is intentionally separate.
+optional instruction lengths. A bounded recursive count/write API then expands
+those records directly into caller-owned float points and canonical path
+segments, including scaled offsets, midpoint-to-even rounding, point
+attachment, and a fixed 33-glyph cycle/depth stack. No temporary outline graph
+or per-component allocation is retained.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

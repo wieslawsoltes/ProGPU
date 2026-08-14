@@ -1,24 +1,23 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_font_bytes.hpp"
+#include "progpu_native_true_type_composite_internal.hpp"
 
 // Direct native port of the component-record parser in
-// ProGPU.Text.TtfFont.ParseCompositeGlyphOutline. Recursive outline expansion
-// is deliberately a separate slice; this layer only validates and decodes the
-// caller-owned fixed records without allocating.
+// ProGPU.Text.TtfFont.ParseCompositeGlyphOutline. Recursive expansion lives in
+// progpu_native_true_type_outline.cpp so descriptor validation stays granular.
 namespace progpu::native::text {
 namespace {
 
 using detail::can_read;
+using detail::composite_arguments_are_words;
+using detail::composite_arguments_are_xy_values;
+using detail::composite_more_components;
+using detail::composite_we_have_instructions;
+using detail::composite_we_have_scale;
+using detail::composite_we_have_two_by_two;
+using detail::composite_we_have_x_and_y_scale;
 using detail::read_i16;
 using detail::read_u16;
-
-constexpr std::uint16_t arguments_are_words = 0x0001U;
-constexpr std::uint16_t arguments_are_xy_values = 0x0002U;
-constexpr std::uint16_t we_have_scale = 0x0008U;
-constexpr std::uint16_t more_components = 0x0020U;
-constexpr std::uint16_t we_have_x_and_y_scale = 0x0040U;
-constexpr std::uint16_t we_have_two_by_two = 0x0080U;
-constexpr std::uint16_t we_have_instructions = 0x0100U;
 
 struct composite_layout final {
     std::uint32_t component_count = 0U;
@@ -57,19 +56,19 @@ bool read_component(
     cursor += 4U;
 
     const auto argument_bytes =
-        (component.flags & arguments_are_words) != 0U ? 4U : 2U;
+        (component.flags & composite_arguments_are_words) != 0U ? 4U : 2U;
     if (!can_read(bytes, cursor, argument_bytes)) {
         return false;
     }
-    if ((component.flags & arguments_are_words) != 0U) {
-        if ((component.flags & arguments_are_xy_values) != 0U) {
+    if ((component.flags & composite_arguments_are_words) != 0U) {
+        if ((component.flags & composite_arguments_are_xy_values) != 0U) {
             component.argument1 = read_i16(bytes, cursor);
             component.argument2 = read_i16(bytes, cursor + 2U);
         } else {
             component.argument1 = read_u16(bytes, cursor);
             component.argument2 = read_u16(bytes, cursor + 2U);
         }
-    } else if ((component.flags & arguments_are_xy_values) != 0U) {
+    } else if ((component.flags & composite_arguments_are_xy_values) != 0U) {
         component.argument1 = read_i8(bytes[cursor]);
         component.argument2 = read_i8(bytes[cursor + 1U]);
     } else {
@@ -79,21 +78,21 @@ bool read_component(
     }
     cursor += argument_bytes;
 
-    if ((component.flags & we_have_scale) != 0U) {
+    if ((component.flags & composite_we_have_scale) != 0U) {
         if (!can_read(bytes, cursor, 2U)) {
             return false;
         }
         component.m00 = read_f2_dot_14(bytes, cursor);
         component.m11 = component.m00;
         cursor += 2U;
-    } else if ((component.flags & we_have_x_and_y_scale) != 0U) {
+    } else if ((component.flags & composite_we_have_x_and_y_scale) != 0U) {
         if (!can_read(bytes, cursor, 4U)) {
             return false;
         }
         component.m00 = read_f2_dot_14(bytes, cursor);
         component.m11 = read_f2_dot_14(bytes, cursor + 2U);
         cursor += 4U;
-    } else if ((component.flags & we_have_two_by_two) != 0U) {
+    } else if ((component.flags & composite_we_have_two_by_two) != 0U) {
         if (!can_read(bytes, cursor, 8U)) {
             return false;
         }
@@ -118,8 +117,8 @@ bool inspect_composite(
         return false;
     }
     auto cursor = static_cast<std::size_t>(10U);
-    std::uint16_t flags = more_components;
-    while ((flags & more_components) != 0U) {
+    std::uint16_t flags = composite_more_components;
+    while ((flags & composite_more_components) != 0U) {
         sfnt_composite_component component{};
         if (!read_component(glyph.bytes, cursor, &component)) {
             return false;
@@ -133,7 +132,7 @@ bool inspect_composite(
         }
         ++result.component_count;
     }
-    if ((flags & we_have_instructions) != 0U) {
+    if ((flags & composite_we_have_instructions) != 0U) {
         if (!can_read(glyph.bytes, cursor, 2U)) {
             return false;
         }
@@ -147,6 +146,17 @@ bool inspect_composite(
 }
 
 } // namespace
+
+namespace detail {
+
+bool read_composite_component(
+    std::span<const std::byte> bytes,
+    std::size_t& cursor,
+    sfnt_composite_component* destination) noexcept {
+    return read_component(bytes, cursor, destination);
+}
+
+} // namespace detail
 
 bool sfnt_font_view::try_get_composite_glyph_decode_requirements(
     std::uint16_t glyph_index,
