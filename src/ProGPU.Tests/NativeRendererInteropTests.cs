@@ -2515,7 +2515,7 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void DesktopNativeSampleSelectsSilkWithoutReinterpretingDawnHandles()
+    public void DesktopNativeSampleUsesTypedSilkAndDawnAdapters()
     {
         string program = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Samples.Desktop", "Program.cs"));
@@ -2528,6 +2528,8 @@ public class NativeRendererInteropTests
             "NativeRepresentativeSceneSample.cs"));
 
         Assert.Contains("\"--native-renderer\"", program, StringComparison.Ordinal);
+        Assert.Contains("\"--native-renderer-dawn\"", program,
+            StringComparison.Ordinal);
         Assert.Contains("if (!useNativeRenderer)", program, StringComparison.Ordinal);
         Assert.Contains(
             "builder.WithGpuContextFactory(CreateDesktopGpuContext)",
@@ -2542,9 +2544,17 @@ public class NativeRendererInteropTests
             wrapper,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Restart ProGPU.Samples.Desktop with --native-renderer",
+            "CurrentDawnContext = dawn",
+            program,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeDawnAdapter.CreateCompositor(",
             page,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "--native-renderer only for the direct wgpu-native comparison",
+            page,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RenderExternalImage(", page, StringComparison.Ordinal);
         Assert.Contains(
             "GpuTextureAlphaMode.Straight",

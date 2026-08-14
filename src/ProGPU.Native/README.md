@@ -139,8 +139,10 @@ Run the interactive desktop gallery directly on the exact wgpu-native backend:
 
 The launcher builds the independently reproducible CMake target, selects the
 portable desktop TFM, and opens the **Native C++ Renderer** page. The ordinary
-desktop launch remains on Dawn for native media interop. The two handle domains
-are deliberately separate.
+desktop launch remains on Dawn for native media interop. After the provider
+runtime is available, `--native-renderer-dawn` opens the same page through the
+typed provider-resolved adapter; `--native-renderer` remains the direct
+wgpu-native comparison. The two handle domains are deliberately separate.
 
 Verify that the same renderer source remains compatible with WebScene PR #10's
 exact modern WebGPU header contract:

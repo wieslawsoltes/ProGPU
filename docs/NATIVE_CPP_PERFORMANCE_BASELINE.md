@@ -2271,6 +2271,15 @@ SHA-256 is
 `ec9498caab8b64cf7f42e04ccd7c303c8e681c6a3061117651ab8ed9381d863e`.
 Readback is test-only and is not part of the production zero-copy path.
 
+The ordinary `ProGPU.Samples.Desktop` Dawn/Metal process also opens the full
+representative native page through this adapter. Its inspected 1280x828 frame
+reports the `8/9` scene contract, one stable draw, zero upload, `0 B` managed
+allocation, and a sampled C-ABI-plus-submit time of `0.188 ms`. The evidence is
+`artifacts/progpu-native/sample-evidence/native-dawn-representative-desktop.png`
+with SHA-256
+`99bee4d10b9298e1f9329ad591051cf5646b4a020143b5a21d63a4e722d5ff48`.
+This automated launch evidence does not replace the user's final manual review.
+
 The mobile build gate compiles the unchanged provider-resolved renderer against
 stable WebGPU header `01addc4b`: Android API 30 arm64-v8a/x86_64 shared objects
 have no Dawn, WebGPU, wgpu, or shared-libc++ dependency; the iOS static

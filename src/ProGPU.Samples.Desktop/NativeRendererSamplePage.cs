@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using ProGPU.Scene;
 using ProGPU.Samples;
@@ -24,19 +25,31 @@ internal static class NativeRendererSamplePage
                 "The gallery WebGPU context has not been initialized.");
         }
 
-        if (context.BackendKind != WgpuBackendKind.SilkNative)
+        DawnGpuContext? dawnContext = null;
+        if (context.BackendKind == WgpuBackendKind.DawnNative)
+        {
+            dawnContext = Program.CurrentDawnContext;
+            if (dawnContext is null ||
+                !ReferenceEquals(dawnContext.Context, context))
+            {
+                return CreateMessage(
+                    "Native C++ Dawn renderer unavailable",
+                    "The gallery does not own the typed Dawn context required " +
+                    "to resolve provider procedures safely.");
+            }
+        }
+        else if (context.BackendKind != WgpuBackendKind.SilkNative)
         {
             return CreateMessage(
-                "Native C++ renderer requires the exact wgpu-native ABI",
-                "Restart ProGPU.Samples.Desktop with --native-renderer. " +
-                "The ordinary desktop launch uses Dawn for media interop; " +
-                "Dawn handles are intentionally never reinterpreted as " +
-                "wgpu-native handles.");
+                "Native C++ renderer unavailable",
+                $"The {context.BackendKind} backend has no native adapter.");
         }
 
         try
         {
-            var session = new NativeRendererSampleSession(context);
+            var session = new NativeRendererSampleSession(
+                context,
+                dawnContext);
             FrameworkElement page = session.CreatePage();
             page.Unloaded += (_, _) => session.Dispose();
             return page;
@@ -50,8 +63,8 @@ internal static class NativeRendererSamplePage
             return CreateMessage(
                 "Native C++ renderer could not be loaded",
                 exception.Message +
-                " Run eng/build-progpu-native.sh once, then restart with " +
-                "--native-renderer.");
+                " Run eng/build-progpu-native.sh once; use " +
+                "--native-renderer only for the direct wgpu-native comparison.");
         }
     }
 
@@ -143,9 +156,13 @@ internal static class NativeRendererSamplePage
         private bool _sceneDirty = true;
         private int _disposeState;
 
-        public NativeRendererSampleSession(WgpuContext context)
+        public NativeRendererSampleSession(
+            WgpuContext context,
+            DawnGpuContext? dawnContext)
         {
-            _info = NativeCompositor.GetInfo();
+            _info = dawnContext is null
+                ? NativeCompositor.GetInfo()
+                : NativeDawnAdapter.GetInfo();
             _target = new GpuTexture(
                 context,
                 TargetWidth,
@@ -172,9 +189,13 @@ internal static class NativeRendererSamplePage
                 TextureUsage.TextureBinding | TextureUsage.CopyDst,
                 "Native C++ gallery same-device image mask",
                 alphaMode: GpuTextureAlphaMode.Straight);
-            _compositor = new NativeCompositor(
-                context,
-                TextureFormat.Rgba8Unorm);
+            _compositor = dawnContext is null
+                ? new NativeCompositor(
+                    context,
+                    TextureFormat.Rgba8Unorm)
+                : NativeDawnAdapter.CreateCompositor(
+                    dawnContext,
+                    TextureFormat.Rgba8Unorm);
             RenderFrame();
         }
 
