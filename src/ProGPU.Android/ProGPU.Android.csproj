@@ -10,12 +10,14 @@
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
     <ProGpuWgpuNativeAndroidRoot Condition="'$(ProGpuWgpuNativeAndroidRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/wgpu-native-android</ProGpuWgpuNativeAndroidRoot>
     <ProGpuDawnAndroidRoot Condition="'$(ProGpuDawnAndroidRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/dawn-android</ProGpuDawnAndroidRoot>
+    <ProGpuNativeDawnAndroidRoot Condition="'$(ProGpuNativeDawnAndroidRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-native/mobile/android</ProGpuNativeDawnAndroidRoot>
     <Description>Native Android SurfaceView host, input, storage, and WebGPU/Vulkan integration for ProGPU applications.</Description>
     <PackageTags>progpu;android;webgpu;vulkan;surfaceview;gpu;ui</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
@@ -26,6 +28,21 @@
   </ItemGroup>
   <ItemGroup Condition="Exists('$(ProGpuDawnAndroidRoot)')">
     <AndroidNativeLibrary Include="$(ProGpuDawnAndroidRoot)\**\libwebgpu_dawn.so" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuNativeDawnAndroidRoot)')">
+    <AndroidNativeLibrary Include="$(ProGpuNativeDawnAndroidRoot)\**\libprogpu_native_dawn.so" />
+    <None Include="$(ProGpuNativeDawnAndroidRoot)\lib\arm64-v8a\libprogpu_native_dawn.so"
+          Pack="true"
+          PackagePath="runtimes/android-arm64/native/libprogpu_native_dawn.so"
+          Visible="false" />
+    <None Include="$(ProGpuNativeDawnAndroidRoot)\lib\x86_64\libprogpu_native_dawn.so"
+          Pack="true"
+          PackagePath="runtimes/android-x64/native/libprogpu_native_dawn.so"
+          Visible="false" />
+    <None Include="$(ProGpuNativeDawnAndroidRoot)\BUILD-MANIFEST.txt"
+          Pack="true"
+          PackagePath="build/native/android/BUILD-MANIFEST.txt"
+          Visible="false" />
   </ItemGroup>
   <ItemGroup>
     <None Include="buildTransitive/ProGPU.Android.targets" Pack="true" PackagePath="buildTransitive/ProGPU.Android.targets" />

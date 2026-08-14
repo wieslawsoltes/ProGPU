@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using Xunit;
 
@@ -34,6 +35,16 @@ public class NativeRendererInteropTests
     public void PrivateInteropRecordsMatchNativeAbiThree()
     {
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
+        Assert.Equal(72, Unsafe.SizeOf<NativeDawnMethods.EngineOptions>());
+        Assert.Equal(24, Unsafe.SizeOf<DawnNativeDeviceHandles>());
+        Assert.Equal(
+            24,
+            OffsetOf<NativeDawnMethods.EngineOptions>(
+                nameof(NativeDawnMethods.EngineOptions.ResolverContext)));
+        Assert.Equal(
+            40,
+            OffsetOf<NativeDawnMethods.EngineOptions>(
+                nameof(NativeDawnMethods.EngineOptions.Instance)));
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.Frame>());
         Assert.Equal(
             56,
@@ -2295,7 +2306,7 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Backend.Native", "ProGPU.Backend.Native.csproj"));
 
         Assert.Contains(
-            "add_library(progpu_native_dawn SHARED",
+            "add_library(progpu_native_dawn ${PROGPU_NATIVE_DAWN_LIBRARY_TYPE}",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2360,6 +2371,10 @@ public class NativeRendererInteropTests
             "Verify exact WebScene provider on Metal",
             releaseWorkflow,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "--dawn \"${managed_capture}\"",
+            providerVerifier,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));
@@ -2378,6 +2393,80 @@ public class NativeRendererInteropTests
         Assert.Equal(
             "provider-hardware-integration",
             manifest.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void NativeRendererBuildsAndPackagesProviderResolvedMobileAdapters()
+    {
+        string cmake = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        string builder = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native-mobile.sh"));
+        string verifier = File.ReadAllText(FindRepoFile(
+            "eng", "progpu-verify-native-mobile-package.sh"));
+        string android = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Android", "ProGPU.Android.csproj"));
+        string ios = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.iOS", "ProGPU.iOS.csproj"));
+        string buildWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "build.yml"));
+        string releaseWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "release.yml"));
+        string managedAdapter = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeDawnAdapter.cs"));
+        string managedInterop = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeRendererInterop.cs"));
+
+        Assert.Contains("PROGPU_NATIVE_BUILD_WGPU_TARGET", cmake,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_DAWN_LIBRARY_TYPE", cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "01addc4ba8a2915a061b7095a6768b512071ab96",
+            builder,
+            StringComparison.Ordinal);
+        Assert.Contains("ANDROID_PLATFORM=android-30", builder,
+            StringComparison.Ordinal);
+        Assert.Contains("xcodebuild -create-xcframework", builder,
+            StringComparison.Ordinal);
+        Assert.Contains("provider-resolved-dawn", builder,
+            StringComparison.Ordinal);
+        Assert.Contains("runtimes/android-arm64/native", verifier,
+            StringComparison.Ordinal);
+        Assert.Contains("runtimes/ios/native", verifier,
+            StringComparison.Ordinal);
+        Assert.Contains("ProGPU.Backend.Native", android,
+            StringComparison.Ordinal);
+        Assert.Contains("ProGpuNativeDawnAndroidRoot", android,
+            StringComparison.Ordinal);
+        Assert.Contains("ProGPU.Backend.Native", ios,
+            StringComparison.Ordinal);
+        Assert.Contains("ProGpuNativeDawnIOSXCFramework", ios,
+            StringComparison.Ordinal);
+        Assert.Contains("Build provider-resolved mobile C++ renderer",
+            buildWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu-verify-native-mobile-package.sh",
+            buildWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains("Build provider-resolved mobile C++ renderer",
+            releaseWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu-verify-native-mobile-package.sh",
+            releaseWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains("CreateCompositor(", managedAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains("RecreateCompositor(", managedAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains("ValidateScene(", managedAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains("ResolveDawnProc", managedAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains("NativeDawnMethods.RenderScene", managedInterop,
+            StringComparison.Ordinal);
+        Assert.Contains("NativeDawnMethods.PollSubmission", managedInterop,
+            StringComparison.Ordinal);
     }
 
     [Fact]

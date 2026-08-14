@@ -2252,3 +2252,29 @@ and
 `4dd3a5bcbaea650c477cfd72ca19cfc5c3055f43f6cd383ef60e87b40198676d`.
 Cross-platform backend images and adapter records are produced by exact-head CI;
 manual sample approval remains intentionally held.
+
+## Typed Dawn and mobile distribution checkpoint
+
+The public managed substitution path now creates the provider-resolved C++
+renderer over a typed `DawnGpuContext`. A package-neutral three-handle record
+crosses the assembly boundary, while a process-lifetime Dawn module supplies
+the exact procedure resolver. Every stable render call branches once on the
+engine's immutable backend kind and otherwise uses the same C ABI records;
+there is no per-frame delegate, reflection, handle adapter, or allocation.
+
+The local Apple M3 Pro hardware smoke uses WebScene provider `02823bf8` and
+Dawn `710c3301`: `.NET -> Dawn -> progpu_native_dawn -> Metal` renders 18
+vertices in one draw and one submission, then verifies known readback pixels.
+The evidence image is
+`artifacts/progpu-native/sample/progpu-native-managed-dawn.png`; its PPM
+SHA-256 is
+`ec9498caab8b64cf7f42e04ccd7c303c8e681c6a3061117651ab8ed9381d863e`.
+Readback is test-only and is not part of the production zero-copy path.
+
+The mobile build gate compiles the unchanged provider-resolved renderer against
+stable WebGPU header `01addc4b`: Android API 30 arm64-v8a/x86_64 shared objects
+have no Dawn, WebGPU, wgpu, or shared-libc++ dependency; the iOS static
+XCFramework contains an arm64 device slice and arm64/x64 simulator slice.
+Package verification checks both native assets and the exact
+`ProGPU.Backend.Native` dependency. This is build/link/package evidence, not a
+mobile GPU latency claim; physical-device performance remains a manual gate.

@@ -100,11 +100,34 @@ cmake -E copy_if_different "${capture_source}" "${capture}"
 sips -s format png "${capture}" \
   --out "${sample_dir}/progpu-native-webscene-provider.png" >/dev/null
 
+managed_runtime="$(mktemp -d /tmp/progpu-native-dawn-managed.XXXXXX)"
+cleanup_managed_runtime() {
+  rm -rf "${managed_runtime}"
+}
+trap cleanup_managed_runtime EXIT
+ln -s "${provider_library}" \
+  "${managed_runtime}/libwebgpu_dawn.dylib"
+ln -s "${build_dir}/libprogpu_native_dawn.dylib" \
+  "${managed_runtime}/libprogpu_native_dawn.dylib"
+managed_capture="${sample_dir}/progpu-native-managed-dawn.ppm"
+DYLD_LIBRARY_PATH="${managed_runtime}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+  dotnet run \
+    --project "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
+    --configuration Release -- \
+    --dawn "${managed_capture}" | tee -a "${evidence}"
+if [[ ! -s "${managed_capture}" ]]; then
+  echo "The managed Dawn/C++ integration did not produce its capture." >&2
+  exit 1
+fi
+sips -s format png "${managed_capture}" \
+  --out "${sample_dir}/progpu-native-managed-dawn.png" >/dev/null
+
 {
   echo "WebScene provider revision: ${provider_revision}"
   echo "Dawn revision: ${dawn_revision}"
   shasum -a 256 "${provider_library}"
   shasum -a 256 "${capture}"
+  shasum -a 256 "${managed_capture}"
 } | tee -a "${evidence}"
 
-echo "Verified the ProGPU C++ renderer through WebScene's exact Metal provider."
+echo "Verified native and managed-hosted ProGPU C++ rendering through WebScene's exact Metal provider."

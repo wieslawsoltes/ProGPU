@@ -47,6 +47,11 @@ set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/AdvancedBlend.wgsl"
     CACHE FILEPATH "Shared ProGPU destination-aware blend shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
+option(PROGPU_NATIVE_BUILD_WGPU_TARGET
+    "Build the directly linked pinned wgpu-native renderer" ON)
+set(PROGPU_NATIVE_DAWN_LIBRARY_TYPE "SHARED" CACHE STRING
+    "Library kind for the provider-resolved Dawn adapter (SHARED or STATIC)")
+set_property(CACHE PROGPU_NATIVE_DAWN_LIBRARY_TYPE PROPERTY STRINGS SHARED STATIC)
 option(PROGPU_NATIVE_ENABLE_SANITIZERS
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
@@ -73,7 +78,7 @@ function(progpu_native_enable_sanitizers target_name)
     endif()
 endfunction()
 
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
     if(NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/webgpu.h"
         OR NOT EXISTS "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}/wgpu.h")
         message(FATAL_ERROR
@@ -360,7 +365,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h)
 
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 add_library(progpu_native SHARED
     ${PROGPU_NATIVE_RENDERER_SOURCES})
 add_dependencies(progpu_native progpu_native_generated_shaders)
@@ -387,7 +392,12 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         message(FATAL_ERROR
             "PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR must contain webgpu.h")
     endif()
-    add_library(progpu_native_dawn SHARED
+    if(NOT PROGPU_NATIVE_DAWN_LIBRARY_TYPE STREQUAL "SHARED" AND
+       NOT PROGPU_NATIVE_DAWN_LIBRARY_TYPE STREQUAL "STATIC")
+        message(FATAL_ERROR
+            "PROGPU_NATIVE_DAWN_LIBRARY_TYPE must be SHARED or STATIC")
+    endif()
+    add_library(progpu_native_dawn ${PROGPU_NATIVE_DAWN_LIBRARY_TYPE}
         ${PROGPU_NATIVE_RENDERER_SOURCES}
         include/progpu_native_dawn.h
         )
@@ -538,7 +548,7 @@ if(EMSCRIPTEN)
             "${CMAKE_CURRENT_SOURCE_DIR}/browser/pre.js;${CMAKE_CURRENT_SOURCE_DIR}/browser/shell.html")
 endif()
 
-if(NOT EMSCRIPTEN)
+if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 get_filename_component(webgpu_library_directory
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}" DIRECTORY)
 if(APPLE)
@@ -603,6 +613,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     set_tests_properties(
         progpu_native_internal_tests PROPERTIES TIMEOUT 60)
 
+    if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/progpu_native_scene.cpp
@@ -626,9 +637,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_tests)
     add_test(NAME progpu_native_tests COMMAND progpu_native_tests)
     set_tests_properties(progpu_native_tests PROPERTIES TIMEOUT 60)
+    endif()
 endif()
 
-if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN)
+if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_sample
         samples/progpu_native_sample.cpp)
     target_compile_features(progpu_native_sample PRIVATE cxx_std_20)

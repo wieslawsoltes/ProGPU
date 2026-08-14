@@ -10,12 +10,14 @@
     <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
     <ProGpuWgpuNativeXCFramework Condition="'$(ProGpuWgpuNativeXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/wgpu-native-ios/wgpu_native.xcframework</ProGpuWgpuNativeXCFramework>
     <ProGpuDawnIOSXCFramework Condition="'$(ProGpuDawnIOSXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/dawn-ios/webgpu_dawn.xcframework</ProGpuDawnIOSXCFramework>
+    <ProGpuNativeDawnIOSXCFramework Condition="'$(ProGpuNativeDawnIOSXCFramework)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-native/mobile/ios/progpu_native_dawn.xcframework</ProGpuNativeDawnIOSXCFramework>
     <Description>Native UIKit and CAMetalLayer host, input, storage, and WebGPU/Metal integration for ProGPU applications.</Description>
     <PackageTags>progpu;ios;webgpu;metal;uikit;cametallayer;gpu;ui</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
     <ProjectReference Include="..\ProGPU.Apple.Media\ProGPU.Apple.Media.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
@@ -39,6 +41,23 @@
       <IsCxx>true</IsCxx>
       <Frameworks>Metal</Frameworks>
     </NativeReference>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(ProGpuNativeDawnIOSXCFramework)')">
+    <NativeReference Include="$(ProGpuNativeDawnIOSXCFramework)">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <IsCxx>true</IsCxx>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+    <None Include="$(ProGpuNativeDawnIOSXCFramework)\**\*"
+          Pack="true"
+          PackagePath="runtimes/ios/native/progpu_native_dawn.xcframework/%(RecursiveDir)%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="$(ProGpuNativeDawnIOSXCFramework)\..\BUILD-MANIFEST.txt"
+          Pack="true"
+          PackagePath="build/native/ios/BUILD-MANIFEST.txt"
+          Visible="false" />
   </ItemGroup>
   <ItemGroup>
     <None Include="buildTransitive/ProGPU.iOS.targets" Pack="true" PackagePath="buildTransitive/ProGPU.iOS.targets" />

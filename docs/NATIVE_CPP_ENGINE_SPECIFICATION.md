@@ -1766,6 +1766,16 @@ do not acquire C++/Dawn/wgpu payloads. Each package records:
 - third-party license texts/notices;
 - exported-symbol allowlist and package-consumer verification.
 
+Desktop `ProGPU.Backend.Native` carries distinct directly linked wgpu-native
+and provider-resolved Dawn libraries for six x64/arm64 RIDs. Mobile keeps the
+provider-resolved adapter with its platform host: `ProGPU.Android` packages
+API-30 arm64-v8a/x86_64 DSOs and `ProGPU.iOS` packages a static device/simulator
+XCFramework. These adapters compile against pinned stable Dawn headers, contain
+the same private renderer sources, and deliberately have no Dawn/WebGPU dynamic
+dependency. The Android/iOS Dawn host supplies a live instance/device/queue and
+a procedure resolver through the typed .NET `NativeDawnAdapter`. OS decoder
+handles and producer fences remain owned by the Dawn platform assembly.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
@@ -1784,10 +1794,9 @@ path with WebGPU validation and bounded resource policies.
    state used by Avalonia.Skia, then complete path/glyph live-set recovery,
    vector/color text, text masks, image color processing, and external media
    textures while continuing to reuse production WGSL modules.
-5. Extend the completed macOS-arm64 Dawn/WebScene provider gate to additional
-   provider backends as WebScene exposes them. Shared-source compilation,
-   procedure dispatch, ABI rejection, export/link isolation, provider-backed
-   Metal device/canvas rendering, zero-copy presentation, package consumption,
-   synchronization, and lease ownership are already gated.
-6. Produce matched Metal, D3D12, and Vulkan Release evidence before allowing
-   opt-in .NET substitution to graduate beyond experimental status.
+5. Keep the completed macOS-arm64 managed/native Dawn/WebScene gate and the
+   build-only Android/iOS package gates green. Add physical mobile-device
+   rendering evidence only in the explicit final manual/device phase.
+6. Complete final-candidate Windows/Linux native profiling and user-owned
+   desktop/mobile manual review before allowing opt-in .NET substitution to
+   graduate beyond experimental status.

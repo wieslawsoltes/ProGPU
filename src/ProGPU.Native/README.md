@@ -170,7 +170,10 @@ ProGPU C++ frame into the acquired canvas texture, waits for its native queue
 submission, presents it, and verifies the external IOSurface retain/release
 lifecycle. Production rendering and presentation remain GPU-only and
 zero-copy. The gate maps the IOSurface only after presentation for deterministic
-pixel verification and a CI evidence image; that readback is test-only.
+pixel verification and a CI evidence image; that readback is test-only. It also
+creates the C++ renderer through the public typed .NET `NativeDawnAdapter`,
+resolves Dawn procedures from the provider module, renders and reads back known
+pixels, and publishes a second managed-host capture.
 
 Both `progpu_native` and `progpu_native_dawn` are staged in the
 `ProGPU.Backend.Native` RID package for Linux, macOS, and Windows x64/arm64.
@@ -181,6 +184,22 @@ reads back and checks known pixels, and uploads both the PPM capture and a
 `progpu-native-provider.txt` adapter/backend record. The exact WebScene
 provider hardware gate runs separately on macOS arm64 because that provider
 revision currently exposes Metal/IOSurface.
+
+Build the provider-resolved mobile C++ adapter without linking a private Dawn
+copy:
+
+```sh
+./eng/build-progpu-native-mobile.sh all
+```
+
+The Android output contains API-30 `arm64-v8a` and `x86_64` shared objects with
+static libc++ and no Dawn/WebGPU DSO dependency. The iOS output is a static
+XCFramework containing `ios-arm64` plus universal arm64/x64 simulator slices.
+Both use immutable WebGPU headers at
+`01addc4ba8a2915a061b7095a6768b512071ab96`, verify their exported ABI, and are
+packaged by `ProGPU.Android` and `ProGPU.iOS` with the typed managed host. The
+platform package continues to supply the actual Dawn runtime and same-device
+WebGPU handles.
 
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a
@@ -352,7 +371,7 @@ three-texture intermediates and one packed dynamic-offset uniform page before
 mask/opacity composition. Advanced destination-sampling now resolves the
 effected/masked source into bounded scratch, samples the actual rendered
 parent, and replaces the parent through shared `AdvancedBlend.wgsl`. Explicit
-backdrop input remains the active follow-up.
+bounded backdrop input and parent-dependent cache exclusion are implemented.
 
 Current native parity:
 
@@ -451,6 +470,10 @@ Current native parity:
 - reusable uniform/vertex resources with geometric buffer growth;
 - headless hardware-WebGPU image verification;
 - a typed zero-copy .NET host sharing device, queue, and render target;
+- allocation-free typed .NET substitution over both wgpu-native and Dawn,
+  including transactional Dawn device-loss recreation;
+- provider-resolved Android arm64/x64 and iOS device/simulator packaging with
+  no private Dawn linkage;
 - an interactive desktop page cycling reusable 1–4,096 rectangle, analytic,
   geometry, GPU Bezier, connected polyline, dashed, rational-spline, and
   retained compute-path batches plus upload-backed and same-device zero-copy

@@ -183,8 +183,8 @@ progpu_mobile_package_projects=(
 )
 
 progpu_mobile_package_purposes=(
-  "Native Android SurfaceView host, input, storage, and WebGPU/Vulkan integration."
-  "Native UIKit and CAMetalLayer host, input, storage, and WebGPU/Metal integration."
+  "Native Android SurfaceView host, input, storage, WebGPU/Vulkan integration, and packaged provider-resolved ProGPU C++ renderer."
+  "Native UIKit and CAMetalLayer host, input, storage, WebGPU/Metal integration, and packaged provider-resolved ProGPU C++ renderer."
   "Native Android MediaPlayer, ImageReader, AHardwareBuffer, and platform-audio media provider."
   "Native AVFoundation, IOSurface, and platform-audio provider for iOS and macOS."
 )

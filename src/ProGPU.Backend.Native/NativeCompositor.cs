@@ -7,7 +7,7 @@ using Silk.NET.WebGPU;
 namespace ProGPU.Backend.Native;
 
 /// <summary>
-/// Owns one ProGPU C++ renderer over an existing Silk/wgpu-native device.
+/// Owns one ProGPU C++ renderer over an existing typed WebGPU device.
 /// </summary>
 /// <remarks>
 /// Each typed family render crosses the C ABI once and submits one native
@@ -16,6 +16,8 @@ namespace ProGPU.Backend.Native;
 /// flushes the current graph before its payload can be overwritten. The compositor is
 /// owner-thread affine and must be disposed before its
 /// <see cref="WgpuContext"/> unless context disposal does so first.
+/// The public constructor selects the directly linked wgpu-native module;
+/// <see cref="NativeDawnAdapter"/> creates the provider-resolved Dawn variant.
 /// </remarks>
 public sealed unsafe class NativeCompositor : IDisposable
 {
@@ -23,6 +25,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
     private readonly WgpuContext _context;
     private readonly TextureFormat _targetFormat;
+    private readonly NativeRendererInteropKind _interopKind;
     private nint _engine;
     private int _disposeState;
 
@@ -67,18 +70,73 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         _context = context;
         _targetFormat = targetFormat;
+        _interopKind = NativeRendererInteropKind.WgpuNative;
         WgpuContext.Disposing += OnContextDisposing;
     }
 
     private NativeCompositor(
         WgpuContext context,
         TextureFormat targetFormat,
-        nint engine)
+        nint engine,
+        NativeRendererInteropKind interopKind)
     {
         _context = context;
         _targetFormat = targetFormat;
         _engine = engine;
+        _interopKind = interopKind;
         WgpuContext.Disposing += OnContextDisposing;
+    }
+
+    internal static NativeCompositor CreateDawn(
+        WgpuContext context,
+        TextureFormat targetFormat,
+        nuint instance,
+        nuint device,
+        nuint queue,
+        nint resolverContext,
+        nint resolveProc)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.IsDisposed || !context.IsInitialized)
+        {
+            throw new ObjectDisposedException(nameof(context));
+        }
+        if (context.BackendKind != WgpuBackendKind.DawnNative)
+        {
+            throw new NotSupportedException(
+                "The provider-resolved native renderer requires an exact Dawn context.");
+        }
+        if (instance == 0 || device == 0 || queue == 0 ||
+            resolverContext == 0 || resolveProc == 0)
+        {
+            throw new ArgumentException(
+                "Dawn instance, device, queue, and procedure resolver handles are required.");
+        }
+
+        var options = CreateDawnOptions(
+            targetFormat,
+            instance,
+            device,
+            queue,
+            resolverContext,
+            resolveProc);
+        nint engine = 0;
+        lock (context.RenderLock)
+        {
+            NativeRendererStatus status =
+                NativeDawnMethods.Create(&options, &engine);
+            if (status != NativeRendererStatus.Success || engine == 0)
+            {
+                throw new NativeRendererException(
+                    status,
+                    "The provider-resolved ProGPU native renderer could not be created.");
+            }
+        }
+        return new NativeCompositor(
+            context,
+            targetFormat,
+            engine,
+            NativeRendererInteropKind.Dawn);
     }
 
     public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
@@ -110,10 +168,11 @@ public sealed unsafe class NativeCompositor : IDisposable
                 "The replacement must be a live, newly initialized WebGPU context.",
                 nameof(replacementContext));
         }
-        if (replacementContext.BackendKind != WgpuBackendKind.SilkNative)
+        if (_interopKind != NativeRendererInteropKind.WgpuNative ||
+            replacementContext.BackendKind != WgpuBackendKind.SilkNative)
         {
             throw new NotSupportedException(
-                "Managed native recreation currently accepts the exact Silk.NET 2.23 wgpu-native ABI.");
+                "Use NativeDawnAdapter.RecreateCompositor for a Dawn renderer; this overload accepts only the exact Silk.NET 2.23 wgpu-native ABI.");
         }
 
         var options = new NativeMethods.EngineOptions
@@ -130,7 +189,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             ThrowIfDisposed();
-            ThrowForStatus(NativeMethods.MarkDeviceLost(_engine));
+            ThrowForStatus(NativeRendererInterop.MarkDeviceLost(
+                _interopKind, _engine));
             lock (replacementContext.RenderLock)
             {
                 var status = NativeMethods.Recreate(
@@ -148,7 +208,67 @@ public sealed unsafe class NativeCompositor : IDisposable
         return new NativeCompositor(
             replacementContext,
             _targetFormat,
-            replacement);
+            replacement,
+            NativeRendererInteropKind.WgpuNative);
+    }
+
+    internal NativeCompositor RecreateDawn(
+        WgpuContext replacementContext,
+        nuint instance,
+        nuint device,
+        nuint queue,
+        nint resolverContext,
+        nint resolveProc)
+    {
+        ArgumentNullException.ThrowIfNull(replacementContext);
+        if (_interopKind != NativeRendererInteropKind.Dawn ||
+            !_context.IsDeviceLost)
+        {
+            throw new InvalidOperationException(
+                "A Dawn compositor can be recreated only after its Dawn context reports device loss.");
+        }
+        if (ReferenceEquals(replacementContext, _context) ||
+            replacementContext.IsDisposed ||
+            !replacementContext.IsInitialized ||
+            replacementContext.IsDeviceLost ||
+            replacementContext.BackendKind != WgpuBackendKind.DawnNative)
+        {
+            throw new ArgumentException(
+                "The replacement must be a live, newly initialized Dawn context.",
+                nameof(replacementContext));
+        }
+
+        var options = CreateDawnOptions(
+            _targetFormat,
+            instance,
+            device,
+            queue,
+            resolverContext,
+            resolveProc);
+        nint replacement = 0;
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            ThrowForStatus(NativeDawnMethods.MarkDeviceLost(_engine));
+            lock (replacementContext.RenderLock)
+            {
+                NativeRendererStatus status = NativeDawnMethods.Recreate(
+                    _engine,
+                    &options,
+                    &replacement);
+                if (status != NativeRendererStatus.Success || replacement == 0)
+                {
+                    throw new NativeRendererException(
+                        status,
+                        ReadLastError());
+                }
+            }
+        }
+        return new NativeCompositor(
+            replacementContext,
+            _targetFormat,
+            replacement,
+            NativeRendererInteropKind.Dawn);
     }
 
     /// <summary>
@@ -160,7 +280,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             ThrowIfGpuUnavailable();
             ulong value = 0;
-            ThrowForStatus(NativeMethods.GetLastSubmission(_engine, &value));
+            ThrowForStatus(NativeRendererInterop.GetLastSubmission(
+                _interopKind, _engine, &value));
             return new NativeSubmissionToken(value, _engine);
         }
     }
@@ -177,7 +298,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             ThrowIfDisposed();
-            ThrowForStatus(NativeMethods.GetLayerMetrics(_engine, &metrics));
+            ThrowForStatus(NativeRendererInterop.GetLayerMetrics(
+                _interopKind, _engine, &metrics));
         }
         return new NativeLayerMetrics(
             metrics.TextureWidth,
@@ -288,7 +410,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfDisposed();
-                ThrowForStatus(NativeMethods.UpdateScene(
+                ThrowForStatus(NativeRendererInterop.UpdateScene(
+                    _interopKind,
                     _engine,
                     streamPointer,
                     (nuint)stream.Length,
@@ -334,7 +457,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             ThrowIfGpuUnavailable();
-            var status = NativeMethods.RenderScene(_engine, &frame, &metrics);
+            var status = NativeRendererInterop.RenderScene(
+                _interopKind, _engine, &frame, &metrics);
             if (status != NativeRendererStatus.Success)
             {
                 throw new NativeRendererException(status, ReadLastError());
@@ -364,7 +488,12 @@ public sealed unsafe class NativeCompositor : IDisposable
     /// mutating a renderer instance.
     /// </summary>
     public static NativeSceneUpdateMetrics ValidateScene(
-        ReadOnlySpan<byte> stream)
+        ReadOnlySpan<byte> stream) =>
+        ValidateScene(stream, NativeRendererInteropKind.WgpuNative);
+
+    internal static NativeSceneUpdateMetrics ValidateScene(
+        ReadOnlySpan<byte> stream,
+        NativeRendererInteropKind interopKind)
     {
         if (stream.IsEmpty)
         {
@@ -378,7 +507,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         };
         fixed (byte* streamPointer = stream)
         {
-            var status = NativeMethods.ValidateScene(
+            var status = NativeRendererInterop.ValidateScene(
+                interopKind,
                 streamPointer,
                 (nuint)stream.Length,
                 &metrics);
@@ -443,7 +573,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.Render(_engine, &frame, &metrics);
+                var status = NativeRendererInterop.Render(
+                    _interopKind, _engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
                 GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
@@ -513,7 +644,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.RenderAnalytic(
+                var status = NativeRendererInterop.RenderAnalytic(
+                    _interopKind,
                     _engine,
                     &frame,
                     &metrics);
@@ -695,7 +827,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.RenderGeometry(
+                var status = NativeRendererInterop.RenderGeometry(
+                    _interopKind,
                     _engine,
                     &frame,
                     &metrics);
@@ -785,7 +918,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.RenderPaths(_engine, &frame, &metrics);
+                var status = NativeRendererInterop.RenderPaths(
+                    _interopKind, _engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
                 GC.KeepAlive(drawState.GroupEffectChain);
                 if (status != NativeRendererStatus.Success)
@@ -882,7 +1016,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.RenderGlyphs(
+                var status = NativeRendererInterop.RenderGlyphs(
+                    _interopKind,
                     _engine,
                     &frame,
                     &metrics);
@@ -987,7 +1122,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             lock (_context.RenderLock)
             {
                 ThrowIfGpuUnavailable();
-                var status = NativeMethods.RenderImage(
+                var status = NativeRendererInterop.RenderImage(
+                    _interopKind,
                     _engine,
                     &frame,
                     &metrics);
@@ -1102,7 +1238,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             ThrowIfGpuUnavailable();
-            var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            var status = NativeRendererInterop.RenderImage(
+                _interopKind, _engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
             GC.KeepAlive(drawState.GroupEffectChain);
             if (status != NativeRendererStatus.Success)
@@ -1211,7 +1348,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         lock (_context.RenderLock)
         {
             ThrowIfGpuUnavailable();
-            var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
+            var status = NativeRendererInterop.RenderImage(
+                _interopKind, _engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
             GC.KeepAlive(drawState.GroupEffectChain);
             if (status != NativeRendererStatus.Success)
@@ -1264,7 +1402,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         lock (_context.RenderLock)
         {
-            NativeMethods.Destroy(engine);
+            NativeRendererInterop.Destroy(_interopKind, engine);
         }
     }
 
@@ -1287,7 +1425,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                     nameof(token));
             }
             byte complete = 0;
-            ThrowForStatus(NativeMethods.PollSubmission(
+            ThrowForStatus(NativeRendererInterop.PollSubmission(
+                _interopKind,
                 _engine,
                 token.Value,
                 wait ? (byte)1 : (byte)0,
@@ -1309,7 +1448,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         Span<byte> buffer = stackalloc byte[512];
         fixed (byte* pointer = buffer)
         {
-            var required = NativeMethods.GetLastError(
+            var required = NativeRendererInterop.GetLastError(
+                _interopKind,
                 _engine,
                 pointer,
                 (nuint)buffer.Length);
@@ -1338,7 +1478,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             return;
         }
-        ThrowForStatus(NativeMethods.MarkDeviceLost(_engine));
+        ThrowForStatus(NativeRendererInterop.MarkDeviceLost(
+            _interopKind, _engine));
         throw new NativeRendererException(
             NativeRendererStatus.DeviceLost,
             ReadLastError());
@@ -1437,6 +1578,26 @@ public sealed unsafe class NativeCompositor : IDisposable
                 nameof(mask));
         }
     }
+
+    private static NativeDawnMethods.EngineOptions CreateDawnOptions(
+        TextureFormat targetFormat,
+        nuint instance,
+        nuint device,
+        nuint queue,
+        nint resolverContext,
+        nint resolveProc) => new()
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeDawnMethods.EngineOptions>(),
+            NativeAbiVersion = NativeMethods.AbiVersion,
+            AdapterAbiVersion = NativeDawnMethods.AdapterAbiVersion,
+            ProviderAbiVersion = NativeDawnMethods.RequiredProviderAbiVersion,
+            TargetFormat = ToNativeFormat(targetFormat),
+            ResolverContext = resolverContext,
+            ResolveProc = resolveProc,
+            Instance = instance,
+            Device = device,
+            Queue = queue
+        };
 
     private static NativeRendererTextureFormat ToNativeFormat(
         TextureFormat format) => format switch

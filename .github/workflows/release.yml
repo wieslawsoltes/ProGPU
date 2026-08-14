@@ -98,6 +98,8 @@ jobs:
             artifacts/progpu-native/sample/progpu-native-webscene-provider.ppm
             artifacts/progpu-native/sample/progpu-native-webscene-provider.png
             artifacts/progpu-native/sample/progpu-native-webscene-provider.txt
+            artifacts/progpu-native/sample/progpu-native-managed-dawn.ppm
+            artifacts/progpu-native/sample/progpu-native-managed-dawn.png
           if-no-files-found: error
 
       - name: Upload native backend execution evidence
@@ -304,6 +306,19 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK
+        shell: bash
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/27.2.12479018" >> "${GITHUB_ENV}"
+
+      - name: Build provider-resolved mobile C++ renderer
+        shell: bash
+        run: ./eng/build-progpu-native-mobile.sh all
+
       - name: Resolve release version
         shell: bash
         run: |
@@ -324,7 +339,19 @@ jobs:
           dotnet workload restore src/ProGPU.iOS/ProGPU.iOS.csproj --skip-manifest-update
 
       - name: Pack mobile packages
-        run: PROGPU_PACKAGE_GROUP=mobile PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release ./eng/progpu-pack.sh
+        run: |
+          PROGPU_PACKAGE_GROUP=mobile \
+          PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release \
+            ./eng/progpu-pack.sh
+          PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release \
+            ./eng/progpu-verify-native-mobile-package.sh
+
+      - name: Upload mobile C++ renderer artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-mobile-${{ env.PROGPU_PACKAGE_VERSION }}
+          path: artifacts/progpu-native/mobile
+          if-no-files-found: error
 
       - name: Upload mobile packages
         uses: actions/upload-artifact@v7

@@ -1,16 +1,31 @@
 using System.Numerics;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
 const uint width = 640;
 const uint height = 360;
-var outputPath = args.Length > 0
-    ? args[0]
+bool useDawn = args.Contains("--dawn", StringComparer.Ordinal);
+string? requestedOutput = args.FirstOrDefault(
+    argument => !string.Equals(argument, "--dawn", StringComparison.Ordinal));
+var outputPath = requestedOutput is not null
+    ? requestedOutput
     : "progpu-native-managed-sample.ppm";
 
-using var context = new WgpuContext();
-context.Initialize(window: null);
+DawnGpuContext? dawnContext = null;
+WgpuContext context;
+if (useDawn)
+{
+    dawnContext = DawnGpuContext.CreateMetalPresentation();
+    context = dawnContext.Context;
+}
+else
+{
+    context = new WgpuContext();
+    context.Initialize(window: null);
+}
+using IDisposable contextOwner = (IDisposable?)dawnContext ?? context;
 using var target = new GpuTexture(
     context,
     width,
@@ -18,9 +33,11 @@ using var target = new GpuTexture(
     TextureFormat.Rgba8Unorm,
     TextureUsage.RenderAttachment | TextureUsage.CopySrc,
     "ProGPU native managed sample target");
-using var compositor = new NativeCompositor(
-    context,
-    TextureFormat.Rgba8Unorm);
+using var compositor = dawnContext is null
+    ? new NativeCompositor(context, TextureFormat.Rgba8Unorm)
+    : NativeDawnAdapter.CreateCompositor(
+        dawnContext,
+        TextureFormat.Rgba8Unorm);
 
 ReadOnlySpan<NativeSolidRectangle> rectangles =
 [
@@ -41,9 +58,12 @@ if (!HasExpectedColors(pixels, checked((int)width)))
         "The managed host did not observe the expected native GPU pixels.");
 }
 WritePpm(outputPath, pixels, checked((int)width), checked((int)height));
-var info = NativeCompositor.GetInfo();
+var info = dawnContext is null
+    ? NativeCompositor.GetInfo()
+    : NativeDawnAdapter.GetInfo();
 Console.WriteLine(
-    $"[ProGPUNativeManaged] {info.Name}; " +
+    $"[ProGPUNativeManaged] backend={(useDawn ? "Dawn" : "wgpu-native")}; " +
+    $"{info.Name}; " +
     $"vertices={metrics.VertexCount}; draws={metrics.DrawCallCount}; " +
     $"submissions={metrics.SubmissionCount}; output={outputPath}");
 

@@ -1,4 +1,10 @@
 <Project>
+  <PropertyGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And '$(ProGpuNativeDawnAndroidRoot)' == ''">
+    <ProGpuNativeDawnAndroidRoot>$(MSBuildThisFileDirectory)..\runtimes</ProGpuNativeDawnAndroidRoot>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And Exists('$(ProGpuNativeDawnAndroidRoot)')">
+    <AndroidNativeLibrary Include="$(ProGpuNativeDawnAndroidRoot)\android-*\native\libprogpu_native_dawn.so" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android' And '$(ProGpuWgpuNativeAndroidRoot)' != '' And Exists('$(ProGpuWgpuNativeAndroidRoot)')">
     <AndroidNativeLibrary Include="$(ProGpuWgpuNativeAndroidRoot)\**\libwgpu_native.so" />
   </ItemGroup>

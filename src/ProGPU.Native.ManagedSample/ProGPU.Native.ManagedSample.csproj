@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
   </ItemGroup>
 </Project>

@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
