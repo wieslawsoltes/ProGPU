@@ -168,7 +168,9 @@ simple child, retain parent offsets only for the active component stack, and
 apply scaled offsets, point attachment, and grid rounding directly into the
 canonical path ABI. The full native glyph-618 outline matches the same start,
 36 segments, and managed hash with caller-owned bounded scratch. Phantom
-metrics and layout-store variation remain sequenced work.
+advance fallback now reuses the same tuple walker and returns the exact
+right-minus-left phantom X delta without internal allocation. HVAR precedence,
+item-variation stores, and layout-store variation remain sequenced work.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

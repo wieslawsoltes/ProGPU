@@ -226,8 +226,19 @@ and caller-owned spans with no internal heap allocation. Native InterVariable
 glyph 618 now matches the full managed `opsz=23` checkpoint: start
 `(595,-24)`, 36 segments, and exact hash `12064242707506207632`. Normal,
 named C++20 module, ASan/UBSan, short-scratch transactionality, and focused
-managed differential gates pass. Phantom-metric variation remains the next
-`gvar` slice.
+managed differential gates pass.
+
+Phantom-point advance fallback follows at checkpoint
+`868906b5be72076b491a76c75b9e85d4bd6c64d1` in the granular
+`progpu_native_gvar_phantom.cpp` unit. It reuses the shared tuple payload
+walker, accumulates left/right phantom X deltas for all-point or sparse tuples,
+and publishes their difference only after complete validation. Work is
+`O(T * (A + D))` with caller-owned `O(T * A + I)` scratch for tuples `T`, axes
+`A`, packed deltas `D`, and glyph item count `I`. A synthetic half-scaled tuple
+produces exact left/right deltas `2/5` and advance delta `3`; short scratch and
+item-count-under-four behavior pass normal, named-module, and ASan/UBSan
+gates. This raw `gvar` fallback remains deliberately separate from the HVAR
+precedence and item-variation-store slice now in progress.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
