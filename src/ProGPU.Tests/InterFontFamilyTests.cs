@@ -99,6 +99,13 @@ public sealed class InterFontFamilyTests
             new Vector2(648.5f, -25f),
             Assert.Single(opticalOutline.Figures).StartPoint);
         Assert.Equal(12343280691057163238UL, HashOutline(opticalOutline));
+
+        var opticalComposite = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            optical.GetGlyphOutline(618));
+        Assert.Equal(12064242707506207632UL, HashOutline(opticalComposite));
+        Assert.Equal(new Vector2(595f, -24f), opticalComposite.Figures[0].StartPoint);
+        Assert.Equal(2, opticalComposite.Figures.Count);
+        Assert.Equal(36, opticalComposite.Figures.Sum(static figure => figure.Segments.Count));
     }
 
     private static ulong HashOutline(ProGPU.Vector.PathGeometry outline)

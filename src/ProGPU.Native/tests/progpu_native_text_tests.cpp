@@ -17,6 +17,8 @@ using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
 using progpu::native::text::sfnt_composite_component;
 using progpu::native::text::sfnt_composite_glyph_decode_requirements;
+using progpu::native::text::sfnt_composite_glyph_variation_requirements;
+using progpu::native::text::sfnt_composite_glyph_variation_scratch;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -631,6 +633,60 @@ void simple_glyph_variations_apply_packed_tuple_deltas() {
         &error));
     require(error == font_error::insufficient_buffer);
     require(short_varied[0].x == 99.0F && short_varied[0].y == 99.0F);
+}
+
+void composite_glyph_variations_apply_component_offsets() {
+    const auto data = make_font(0U, 22U, 0U, true, true, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_composite_glyph_variation_requirements requirements{};
+    require(font.try_get_composite_glyph_variation_requirements(
+        4U, 3U, requirements));
+    require(requirements.tuple_header_count == 1U);
+    require(requirements.region_coordinate_count == 6U);
+    require(requirements.point_number_count == 7U);
+    require(requirements.delta_count == 7U);
+
+    std::array<sfnt_gvar_tuple_header, 1U> headers{};
+    std::array<std::int16_t, 6U> regions{};
+    std::array<std::uint32_t, 7U> shared_points{};
+    std::array<std::uint32_t, 7U> private_points{};
+    std::array<std::int16_t, 7U> x_deltas{};
+    std::array<std::int16_t, 7U> y_deltas{};
+    sfnt_composite_glyph_variation_scratch scratch{
+        headers,
+        regions,
+        shared_points,
+        private_points,
+        x_deltas,
+        y_deltas};
+    const std::array<std::int16_t, 2U> normalized{4096, -4096};
+    std::array<progpu_native_point, 3U> offsets{{
+        {99.0F, 99.0F}, {99.0F, 99.0F}, {99.0F, 99.0F}}};
+    font_error error = font_error::none;
+    require(font.try_get_composite_glyph_variation_offsets(
+        4U,
+        normalized,
+        3U,
+        offsets,
+        scratch,
+        &error));
+    require(error == font_error::none);
+    require(offsets[0].x == 1.0F && offsets[0].y == 0.0F);
+    require(offsets[1].x == 0.0F && offsets[1].y == 0.0F);
+    require(offsets[2].x == 0.0F && offsets[2].y == 0.0F);
+
+    std::array<progpu_native_point, 2U> short_offsets{{
+        {99.0F, 99.0F}, {99.0F, 99.0F}}};
+    require(!font.try_get_composite_glyph_variation_offsets(
+        4U,
+        normalized,
+        3U,
+        short_offsets,
+        scratch,
+        &error));
+    require(error == font_error::insufficient_buffer);
+    require(short_offsets[0].x == 99.0F && short_offsets[0].y == 99.0F);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1501,6 +1557,42 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(varied_segments[0].p0.y == -25.0F);
     require(hash_path_segments(varied_segments) ==
         12343280691057163238ULL);
+
+    sfnt_composite_glyph_decode_requirements composite_requirements{};
+    require(font.try_get_composite_glyph_decode_requirements(
+        618U, composite_requirements));
+    require(composite_requirements.component_count == 2U);
+    sfnt_composite_glyph_variation_requirements component_variations{};
+    require(font.try_get_composite_glyph_variation_requirements(
+        618U, 2U, component_variations));
+    std::vector<sfnt_gvar_tuple_header> component_headers(
+        component_variations.tuple_header_count);
+    std::vector<std::int16_t> component_regions(
+        component_variations.region_coordinate_count);
+    std::vector<std::uint32_t> component_shared_points(
+        component_variations.point_number_count);
+    std::vector<std::uint32_t> component_private_points(
+        component_variations.point_number_count);
+    std::vector<std::int16_t> component_x(component_variations.delta_count);
+    std::vector<std::int16_t> component_y(component_variations.delta_count);
+    sfnt_composite_glyph_variation_scratch component_scratch{
+        component_headers,
+        component_regions,
+        component_shared_points,
+        component_private_points,
+        component_x,
+        component_y};
+    std::array<progpu_native_point, 2U> component_offsets{};
+    require(font.try_get_composite_glyph_variation_offsets(
+        618U,
+        optical_coordinates,
+        2U,
+        component_offsets,
+        component_scratch));
+    require(component_offsets[0].x == 0.0F &&
+        component_offsets[0].y == 0.0F &&
+        component_offsets[1].x == 15.0F &&
+        component_offsets[1].y == 0.0F);
 }
 
 } // namespace
@@ -1513,6 +1605,7 @@ int main() {
     glyph_variation_tuple_headers_are_bounded_and_exact();
     untouched_glyph_deltas_interpolate_without_allocation();
     simple_glyph_variations_apply_packed_tuple_deltas();
+    composite_glyph_variations_apply_component_offsets();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

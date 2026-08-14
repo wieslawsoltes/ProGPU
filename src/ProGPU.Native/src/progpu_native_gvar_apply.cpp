@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_gvar_payload_internal.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -32,73 +34,6 @@ bool validate_contours(
     return point_count == 0U
         ? contour_end_points.empty()
         : !contour_end_points.empty() && start == point_count;
-}
-
-struct point_set final {
-    sfnt_packed_point_requirements requirements{};
-    std::size_t data_offset = 0U;
-};
-
-bool try_preflight_payloads(
-    sfnt_glyph_variation_data_view view,
-    std::span<const sfnt_gvar_tuple_header> headers,
-    std::uint32_t item_count,
-    point_set& shared_points,
-    font_error* error) noexcept {
-    shared_points = {};
-    std::size_t cursor = view.serialized_data_offset;
-    if (view.has_shared_point_numbers) {
-        shared_points.data_offset = cursor;
-        if (!sfnt_packed_variation_data::try_get_point_requirements(
-                view.bytes.subspan(cursor),
-                shared_points.requirements,
-                error)) {
-            return false;
-        }
-        cursor += shared_points.requirements.bytes_consumed;
-    } else {
-        shared_points.requirements.all_points = true;
-    }
-
-    for (const auto& header : headers) {
-        if (header.serialized_data_size > view.bytes.size() - cursor) {
-            set_error(error, font_error::invalid_glyph);
-            return false;
-        }
-        const auto tuple_end = cursor + header.serialized_data_size;
-        sfnt_packed_point_requirements points = shared_points.requirements;
-        if (header.has_private_point_numbers()) {
-            if (!sfnt_packed_variation_data::try_get_point_requirements(
-                    view.bytes.subspan(cursor, tuple_end - cursor),
-                    points,
-                    error)) {
-                return false;
-            }
-            cursor += points.bytes_consumed;
-        }
-        const auto delta_count = points.all_points
-            ? item_count
-            : points.point_count;
-        sfnt_packed_delta_requirements x{};
-        if (!sfnt_packed_variation_data::try_get_delta_requirements(
-                view.bytes.subspan(cursor, tuple_end - cursor),
-                delta_count,
-                x,
-                error)) {
-            return false;
-        }
-        cursor += x.bytes_consumed;
-        sfnt_packed_delta_requirements y{};
-        if (!sfnt_packed_variation_data::try_get_delta_requirements(
-                view.bytes.subspan(cursor, tuple_end - cursor),
-                delta_count,
-                y,
-                error)) {
-            return false;
-        }
-        cursor = tuple_end;
-    }
-    return true;
 }
 
 } // namespace
@@ -194,22 +129,18 @@ bool sfnt_font_view::try_apply_simple_glyph_variations(
         return false;
     }
     const auto headers = scratch.tuple_headers.first(headers_written);
-    point_set shared_points{};
+    detail::gvar_point_set shared_points{};
     const auto item_count =
         static_cast<std::uint32_t>(original_points.size()) + 4U;
-    if (!try_preflight_payloads(
+    if (!detail::try_preflight_gvar_payloads(
             view, headers, item_count, shared_points, error)) {
         return false;
     }
 
-    std::uint32_t shared_written = 0U;
-    std::size_t ignored_consumed = 0U;
-    if (view.has_shared_point_numbers && !shared_points.requirements.all_points &&
-        !sfnt_packed_variation_data::try_decode_points(
-            view.bytes.subspan(shared_points.data_offset),
+    if (!detail::try_decode_gvar_shared_points(
+            view,
             scratch.shared_point_numbers,
-            shared_written,
-            ignored_consumed,
+            shared_points,
             error)) {
         return false;
     }
@@ -224,59 +155,21 @@ bool sfnt_font_view::try_apply_simple_glyph_variations(
             : 0U);
     const auto axis_count = static_cast<std::size_t>(gvar.axis_count);
     for (const auto& header : headers) {
-        const auto tuple_end = cursor + header.serialized_data_size;
-        auto point_numbers = scratch.shared_point_numbers.first(shared_written);
-        bool all_points = shared_points.requirements.all_points;
-        if (header.has_private_point_numbers()) {
-            sfnt_packed_point_requirements private_requirements{};
-            if (!sfnt_packed_variation_data::try_get_point_requirements(
-                    view.bytes.subspan(cursor, tuple_end - cursor),
-                    private_requirements,
-                    error)) {
-                return false;
-            }
-            std::uint32_t private_written = 0U;
-            std::size_t private_consumed = 0U;
-            if (!sfnt_packed_variation_data::try_decode_points(
-                    view.bytes.subspan(cursor, tuple_end - cursor),
-                    scratch.private_point_numbers,
-                    private_written,
-                    private_consumed,
-                    error)) {
-                return false;
-            }
-            cursor += private_consumed;
-            point_numbers =
-                scratch.private_point_numbers.first(private_written);
-            all_points = private_requirements.all_points;
-        }
-        const auto delta_count = all_points
-            ? item_count
-            : static_cast<std::uint32_t>(point_numbers.size());
-        std::uint32_t x_written = 0U;
-        std::size_t x_consumed = 0U;
-        if (!sfnt_packed_variation_data::try_decode_deltas(
-                view.bytes.subspan(cursor, tuple_end - cursor),
+        detail::gvar_tuple_payload payload{};
+        if (!detail::try_decode_gvar_tuple_payload(
+                view,
+                header,
+                item_count,
+                shared_points,
+                scratch.shared_point_numbers,
+                scratch.private_point_numbers,
                 scratch.x_deltas,
-                delta_count,
-                x_written,
-                x_consumed,
-                error)) {
-            return false;
-        }
-        cursor += x_consumed;
-        std::uint32_t y_written = 0U;
-        std::size_t y_consumed = 0U;
-        if (!sfnt_packed_variation_data::try_decode_deltas(
-                view.bytes.subspan(cursor, tuple_end - cursor),
                 scratch.y_deltas,
-                delta_count,
-                y_written,
-                y_consumed,
+                cursor,
+                payload,
                 error)) {
             return false;
         }
-        cursor = tuple_end;
 
         const auto region = scratch.region_coordinates.subspan(
             header.region_coordinate_offset, axis_count * 3U);
@@ -291,9 +184,9 @@ bool sfnt_font_view::try_apply_simple_glyph_variations(
             scratch.tuple_y.begin(), original_points.size(), 0.0F);
         std::fill_n(
             scratch.touched.begin(), original_points.size(), std::uint8_t{0U});
-        if (all_points) {
+        if (payload.all_points) {
             const auto count = std::min<std::size_t>(
-                original_points.size(), delta_count);
+                original_points.size(), payload.delta_count);
             for (std::size_t point = 0U; point < count; ++point) {
                 scratch.tuple_x[point] = scratch.x_deltas[point];
                 scratch.tuple_y[point] = scratch.y_deltas[point];
@@ -301,9 +194,9 @@ bool sfnt_font_view::try_apply_simple_glyph_variations(
             }
         } else {
             for (std::size_t delta = 0U;
-                 delta < point_numbers.size();
+                 delta < payload.point_numbers.size();
                  ++delta) {
-                const auto point = point_numbers[delta];
+                const auto point = payload.point_numbers[delta];
                 if (point >= original_points.size()) {
                     continue;
                 }

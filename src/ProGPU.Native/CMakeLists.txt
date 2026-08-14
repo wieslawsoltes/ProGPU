@@ -406,6 +406,9 @@ add_library(progpu_native_text STATIC
     src/progpu_native_font_bytes.hpp
     src/progpu_native_gvar.cpp
     src/progpu_native_gvar_apply.cpp
+    src/progpu_native_gvar_composite.cpp
+    src/progpu_native_gvar_payload.cpp
+    src/progpu_native_gvar_payload_internal.hpp
     src/progpu_native_gvar_packed.cpp
     src/progpu_native_gvar_interpolate.cpp
     src/progpu_native_gvar_tuples.cpp

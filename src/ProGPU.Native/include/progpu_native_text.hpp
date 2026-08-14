@@ -248,6 +248,22 @@ struct sfnt_simple_glyph_variation_scratch final {
     std::span<std::uint8_t> touched{};
 };
 
+struct sfnt_composite_glyph_variation_requirements final {
+    std::uint16_t tuple_header_count = 0U;
+    std::uint32_t region_coordinate_count = 0U;
+    std::uint32_t point_number_count = 0U;
+    std::uint32_t delta_count = 0U;
+};
+
+struct sfnt_composite_glyph_variation_scratch final {
+    std::span<sfnt_gvar_tuple_header> tuple_headers{};
+    std::span<std::int16_t> region_coordinates{};
+    std::span<std::uint32_t> shared_point_numbers{};
+    std::span<std::uint32_t> private_point_numbers{};
+    std::span<std::int16_t> x_deltas{};
+    std::span<std::int16_t> y_deltas{};
+};
+
 /*
  * Transactional two-pass decoders for gvar packed point and delta streams.
  * Each pass is O(N) time with O(1) internal storage for N encoded values. The
@@ -433,6 +449,18 @@ public:
         std::span<const sfnt_outline_point> original_points,
         std::span<progpu_native_point> varied_points,
         sfnt_simple_glyph_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_composite_glyph_variation_requirements(
+        std::uint16_t glyph_index,
+        std::uint32_t component_count,
+        sfnt_composite_glyph_variation_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_composite_glyph_variation_offsets(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint32_t component_count,
+        std::span<progpu_native_point> offsets,
+        sfnt_composite_glyph_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
