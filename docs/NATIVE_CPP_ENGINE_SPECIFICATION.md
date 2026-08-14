@@ -1746,6 +1746,8 @@ runtime boundary:
 - resource lifetime, cache generation, device loss, resize/DPI, and teardown;
 - native sample on Metal, D3D12, and Vulkan without software fallback;
 - .NET package consumer and NativeAOT smoke tests;
+- source-independent typed Dawn package restore plus real provider render and
+  device-loss recreation;
 - WebScene provider contract and zero-copy lease/fence tests;
 - protected sample macrobenchmarks and platform-native profiles.
 
@@ -1775,6 +1777,15 @@ the same private renderer sources, and deliberately have no Dawn/WebGPU dynamic
 dependency. The Android/iOS Dawn host supplies a live instance/device/queue and
 a procedure resolver through the typed .NET `NativeDawnAdapter`. OS decoder
 handles and producer fences remain owned by the Dawn platform assembly.
+
+The package gate produces `ProGPU.Backend`, `ProGPU.Backend.Dawn`, and
+`ProGPU.Backend.Native` at one exact version. The native package declares both
+managed dependencies explicitly. Its ordinary six-RID consumer exercises the
+direct wgpu-native library, while the macOS WebScene qualification restores the
+managed sample from those packages with all project references disabled and
+executes Dawn-to-C++ rendering plus replacement-device recovery on Metal. This
+prevents a source-tree build from hiding a missing Dawn package dependency or
+runtime asset.
 
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.

@@ -188,6 +188,9 @@ jobs:
           dotnet pack src/ProGPU.Backend/ProGPU.Backend.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
+          dotnet pack src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
           dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"

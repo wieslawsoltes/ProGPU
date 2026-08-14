@@ -5,10 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RestoreSources Condition="'$(ProGpuNativePackageSource)' != ''">$(ProGpuNativePackageSource);https://api.nuget.org/v3/index.json</RestoreSources>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ProGpuNativeUseProjectReference)' != 'false'">
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ProGpuNativeUseProjectReference)' == 'false'">
+    <PackageReference Include="ProGPU.Backend.Native"
+                      VersionOverride="$(ProGpuNativePackageVersion)" />
   </ItemGroup>
 </Project>

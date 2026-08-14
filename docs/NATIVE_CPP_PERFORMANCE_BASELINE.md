@@ -2290,3 +2290,17 @@ XCFramework contains an arm64 device slice and arm64/x64 simulator slice.
 Package verification checks both native assets and the exact
 `ProGPU.Backend.Native` dependency. This is build/link/package evidence, not a
 mobile GPU latency claim; physical-device performance remains a manual gate.
+
+## Source-independent Dawn package checkpoint
+
+The WebScene/Dawn/Metal hardware gate now produces the three exact-version
+managed packages, disables every project reference in the managed native
+sample, restores only `ProGPU.Backend.Native` from that isolated package
+directory, and relies on its declared transitive Dawn/backend dependencies.
+The packaged path renders the same 18-vertex scene, forces typed Dawn device
+loss, recreates the C++ engine on a replacement device, and produces the same
+PPM SHA-256
+`ec9498caab8b64cf7f42e04ccd7c303c8e681c6a3061117651ab8ed9381d863e`.
+The six-RID package gate separately requires the Dawn package to be present and
+the native package nuspec to declare it, so a stale source build or global
+package cache cannot conceal an incomplete distribution graph.

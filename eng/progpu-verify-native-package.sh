@@ -5,9 +5,19 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 package_version="${PROGPU_PACKAGE_VERSION:?PROGPU_PACKAGE_VERSION is required}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages-native/Release}"
 package="${package_output}/ProGPU.Backend.Native.${package_version}.nupkg"
+dawn_package="${package_output}/ProGPU.Backend.Dawn.${package_version}.nupkg"
 
 if [[ ! -f "${package}" ]]; then
   echo "Native backend package is missing: ${package}" >&2
+  exit 1
+fi
+if [[ ! -f "${dawn_package}" ]]; then
+  echo "Dawn backend package is missing: ${dawn_package}" >&2
+  exit 1
+fi
+if ! unzip -p "${package}" '*.nuspec' |
+    grep -Fq 'id="ProGPU.Backend.Dawn"'; then
+  echo "The native backend package does not depend on ProGPU.Backend.Dawn." >&2
   exit 1
 fi
 

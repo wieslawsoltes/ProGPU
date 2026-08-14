@@ -101,8 +101,10 @@ sips -s format png "${capture}" \
   --out "${sample_dir}/progpu-native-webscene-provider.png" >/dev/null
 
 managed_runtime="$(mktemp -d /tmp/progpu-native-dawn-managed.XXXXXX)"
+managed_packages="$(mktemp -d /tmp/progpu-native-dawn-packages.XXXXXX)"
 cleanup_managed_runtime() {
   rm -rf "${managed_runtime}"
+  rm -rf "${managed_packages}"
 }
 trap cleanup_managed_runtime EXIT
 ln -s "${provider_library}" \
@@ -110,10 +112,32 @@ ln -s "${provider_library}" \
 ln -s "${build_dir}/libprogpu_native_dawn.dylib" \
   "${managed_runtime}/libprogpu_native_dawn.dylib"
 managed_capture="${sample_dir}/progpu-native-managed-dawn.ppm"
+managed_package_version="0.0.0-provider-test"
+dotnet pack "${repo_root}/src/ProGPU.Backend/ProGPU.Backend.csproj" \
+  --configuration Release --output "${managed_packages}" \
+  -p:Version="${managed_package_version}" \
+  -p:PackageVersion="${managed_package_version}"
+dotnet pack "${repo_root}/src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" \
+  --configuration Release --output "${managed_packages}" \
+  -p:Version="${managed_package_version}" \
+  -p:PackageVersion="${managed_package_version}"
+dotnet pack "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" \
+  --configuration Release --output "${managed_packages}" \
+  -p:Version="${managed_package_version}" \
+  -p:PackageVersion="${managed_package_version}" \
+  -p:ProGpuNativeSkipRuntimeValidation=true
+dotnet restore \
+  "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
+  -p:ProGpuNativeUseProjectReference=false \
+  -p:ProGpuNativePackageSource="${managed_packages}" \
+  -p:ProGpuNativePackageVersion="${managed_package_version}"
 DYLD_LIBRARY_PATH="${managed_runtime}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
   dotnet run \
     --project "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
-    --configuration Release -- \
+    --configuration Release --no-restore \
+    -p:ProGpuNativeUseProjectReference=false \
+    -p:ProGpuNativePackageSource="${managed_packages}" \
+    -p:ProGpuNativePackageVersion="${managed_package_version}" -- \
     --dawn --device-loss "${managed_capture}" | tee -a "${evidence}"
 if [[ ! -s "${managed_capture}" ]]; then
   echo "The managed Dawn/C++ integration did not produce its capture." >&2
