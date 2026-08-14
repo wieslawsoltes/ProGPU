@@ -769,6 +769,46 @@ struct open_type_shape_run_requirements final {
     std::uint32_t script_action_capacity = 0U;
 };
 
+struct open_type_shape_plan_requirements final {
+    std::uint32_t gsub_lookup_capacity = 0U;
+    std::uint32_t gpos_lookup_capacity = 0U;
+};
+
+/* Borrowed reusable shaping plan. The font bytes and caller-owned lookup
+ * arrays must outlive the plan; no font data or feature list is copied. */
+struct open_type_shape_plan final {
+    open_type_layout_table_view gsub{};
+    open_type_layout_table_view gpos{};
+    open_type_gdef_view gdef{};
+    std::span<const std::uint16_t> gsub_lookups{};
+    std::span<const std::uint16_t> gpos_lookups{};
+    const std::byte* font_data = nullptr;
+    std::size_t font_size = 0U;
+    std::uint64_t feature_hash = 0U;
+    std::uint32_t face_index = 0U;
+    open_type_tag script{};
+    open_type_tag language{};
+    bool has_gdef = false;
+
+    bool matches(
+        const sfnt_font_view& font,
+        const open_type_shape_run_options& options) const noexcept;
+};
+
+bool try_get_open_type_shape_plan_requirements(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    open_type_shape_plan_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    open_type_shape_plan& result,
+    font_error* error = nullptr) noexcept;
+
 /* Applies the ProGPU Hangul composition/decomposition preparation in place.
  * The caller supplies expandable storage; capacity failure is transactional. */
 bool try_prepare_open_type_hangul(
@@ -1059,7 +1099,8 @@ bool try_shape_open_type_run(
     std::span<shaping_glyph> glyph_storage,
     open_type_shape_run_scratch scratch,
     std::uint32_t& glyph_count,
-    font_error* error = nullptr) noexcept;
+    font_error* error = nullptr,
+    const open_type_shape_plan* plan = nullptr) noexcept;
 
 struct sfnt_table_view final {
     open_type_tag tag{};

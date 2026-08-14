@@ -341,6 +341,14 @@ deliberately accepts an already uniform script/language/bidi run: fallback,
 script-specific joining/reordering, and paragraph layout remain independent
 stages so reusable shaping results do not inherit UI or renderer ownership.
 
+Reusable native shaping plans now borrow validated GSUB, GPOS, and GDEF views
+plus caller-owned selected-lookup arrays. A plan is keyed by the exact font
+buffer/face, script, language, and ordered requested-feature hash; incompatible
+reuse fails before glyph output is touched. Plan creation is `O(T + F + L)`
+for table validation, selected features, and lookups, while a compatible run
+reuses the parsed views and selected lookup order with `O(1)` plan validation,
+no allocation, and no font-table or feature-list copy.
+
 Arabic-family uniform runs now reuse the managed shaper's Unicode 17 packed
 joining classes and 42-entry state machine. Form actions survive substitutions
 inside reserved transient flag bits, drive feature-specific GSUB lookups at the

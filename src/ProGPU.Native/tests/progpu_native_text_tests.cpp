@@ -83,6 +83,10 @@ using progpu::native::text::open_type_shape_run_options;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
+using progpu::native::text::open_type_shape_plan_requirements;
+using progpu::native::text::open_type_shape_plan;
+using progpu::native::text::try_get_open_type_shape_plan_requirements;
+using progpu::native::text::try_build_open_type_shape_plan;
 using progpu::native::text::try_shape_open_type_run;
 using progpu::native::text::try_prepare_open_type_hangul;
 using progpu::native::text::font_fallback_candidate;
@@ -2559,20 +2563,49 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
     std::array<shaping_attachment, 4U> attachments{};
     std::array<std::uint8_t, 4U> states{};
     std::uint32_t glyph_count = 99U;
+    const open_type_shape_run_options latin_options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    open_type_shape_plan_requirements plan_requirements{};
+    require(try_get_open_type_shape_plan_requirements(
+        font, latin_options, plan_requirements, &error));
+    require(plan_requirements.gsub_lookup_capacity == 0U &&
+        plan_requirements.gpos_lookup_capacity == 0U);
+    open_type_shape_plan plan{};
+    require(try_build_open_type_shape_plan(
+        font, latin_options, {}, {}, plan, &error));
+    require(plan.matches(font, latin_options));
     require(try_shape_open_type_run(
         font,
         input,
-        open_type_shape_run_options{
-            open_type_tag::from_chars('l', 'a', 't', 'n')},
+        latin_options,
         glyphs,
         open_type_shape_run_scratch{
             graphemes, {}, {}, attachments, states},
         glyph_count,
-        &error));
+        &error,
+        &plan));
     require(glyph_count == 2U && glyphs[0U].glyph_id == 3U &&
         glyphs[1U].glyph_id == 3U && glyphs[0U].cluster == 0 &&
         glyphs[1U].cluster == 1 && glyphs[0U].advance_x > 0 &&
         glyphs[0U].advance_x == glyphs[1U].advance_x);
+
+    glyphs.fill(shaping_glyph{77U});
+    const std::array changed_features{
+        open_type_tag::from_chars('k', 'e', 'r', 'n')};
+    auto mismatched_options = latin_options;
+    mismatched_options.requested_features = changed_features;
+    require(!try_shape_open_type_run(
+        font,
+        input,
+        mismatched_options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error,
+        &plan));
+    require(error == font_error::invalid_argument && glyph_count == 0U &&
+        glyphs[0U].glyph_id == 77U);
 
     glyphs.fill(shaping_glyph{99U});
     require(!try_shape_open_type_run(

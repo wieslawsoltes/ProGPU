@@ -457,6 +457,7 @@ add_library(progpu_native_text STATIC
     src/progpu_native_open_type_gpos.cpp
     src/progpu_native_open_type_gpos_context.cpp
     src/progpu_native_open_type_gpos_internal.hpp
+    src/progpu_native_open_type_plan.cpp
     src/progpu_native_open_type_shaper.cpp
     src/progpu_native_open_type_hangul.cpp
     src/progpu_native_open_type_preprocess.cpp

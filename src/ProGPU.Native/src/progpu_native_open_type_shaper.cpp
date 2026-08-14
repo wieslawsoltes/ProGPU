@@ -303,8 +303,13 @@ bool try_shape_open_type_run(
     std::span<shaping_glyph> glyph_storage,
     open_type_shape_run_scratch scratch,
     std::uint32_t& glyph_count,
-    font_error* error) noexcept {
+    font_error* error,
+    const open_type_shape_plan* plan) noexcept {
     glyph_count = 0U;
+    if (plan != nullptr && !plan->matches(font, options)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     open_type_shape_run_requirements requirements{};
     if (!try_get_open_type_shape_run_requirements(
             font, input, requirements, error)) {
@@ -420,34 +425,47 @@ bool try_shape_open_type_run(
     open_type_layout_table_view gpos{};
     std::size_t gsub_length = 0U;
     std::size_t gpos_length = 0U;
-    if (!try_get_layout(font, gsub_tag, gsub, gsub_length, error) ||
-        !try_get_layout(font, gpos_tag, gpos, gpos_length, error)) {
-        return false;
-    }
     open_type_gdef_view gdef{};
     bool has_gdef = false;
-    if (!try_get_gdef(
-            font, gsub_length, gpos_length, gdef, has_gdef, error)) {
-        return false;
+    if (plan != nullptr) {
+        gsub = plan->gsub;
+        gpos = plan->gpos;
+        gdef = plan->gdef;
+        has_gdef = plan->has_gdef;
+    } else {
+        if (!try_get_layout(font, gsub_tag, gsub, gsub_length, error) ||
+            !try_get_layout(font, gpos_tag, gpos, gpos_length, error) ||
+            !try_get_gdef(
+                font, gsub_length, gpos_length, gdef, has_gdef, error)) {
+            return false;
+        }
     }
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
 
     if (gsub.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;
-        if (!gsub.try_select_lookups(
-                options.script,
-                options.language,
-                options.requested_features,
-                scratch.gsub_lookups.first(gsub.lookup_count()),
-                lookup_count,
-                error)) {
-            return false;
+        std::span<const std::uint16_t> selected_lookups{};
+        if (plan != nullptr) {
+            selected_lookups = plan->gsub_lookups;
+            lookup_count = static_cast<std::uint32_t>(
+                selected_lookups.size());
+        } else {
+            if (!gsub.try_select_lookups(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    lookup_count,
+                    error)) {
+                return false;
+            }
+            selected_lookups = scratch.gsub_lookups.first(lookup_count);
         }
         for (std::uint32_t index = 0U; index < lookup_count; ++index) {
             bool applied = false;
             if (!try_apply_open_type_gsub_lookup(
                     gsub,
-                    scratch.gsub_lookups[index],
+                    selected_lookups[index],
                     glyph_storage,
                     glyph_count,
                     open_type_gsub_apply_options{
@@ -573,14 +591,22 @@ bool try_shape_open_type_run(
 
     if (gpos.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;
-        if (!gpos.try_select_lookups(
-                options.script,
-                options.language,
-                options.requested_features,
-                scratch.gpos_lookups.first(gpos.lookup_count()),
-                lookup_count,
-                error)) {
-            return false;
+        std::span<const std::uint16_t> selected_lookups{};
+        if (plan != nullptr) {
+            selected_lookups = plan->gpos_lookups;
+            lookup_count = static_cast<std::uint32_t>(
+                selected_lookups.size());
+        } else {
+            if (!gpos.try_select_lookups(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    scratch.gpos_lookups.first(gpos.lookup_count()),
+                    lookup_count,
+                    error)) {
+                return false;
+            }
+            selected_lookups = scratch.gpos_lookups.first(lookup_count);
         }
         const auto glyphs = glyph_storage.first(glyph_count);
         const auto attachments = scratch.attachments.first(glyph_count);
@@ -588,7 +614,7 @@ bool try_shape_open_type_run(
             bool applied = false;
             if (!try_apply_open_type_gpos_lookup(
                     gpos,
-                    scratch.gpos_lookups[index],
+                    selected_lookups[index],
                     glyphs,
                     open_type_gpos_apply_options{
                         gdef_pointer,
