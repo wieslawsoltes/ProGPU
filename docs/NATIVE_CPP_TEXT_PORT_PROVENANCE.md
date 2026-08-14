@@ -265,9 +265,36 @@ InterVariable `opsz=23` resolves exact `xhgt=-31`, matching managed X-height
 named-module, ASan/UBSan, and 29/29 managed Inter gates pass. Wiring these
 layout deltas into the later native GPOS port remains sequenced with shaping.
 
+CFF1 container and Type 2 outline parity follows at checkpoint
+`fdb47fb7973c844cb3db27b8ab968318d22b4a7b`, porting the ProGPU-owned
+`Cff1OutlineSource.cs` implementation. CFF INDEX offsets, top/private
+dictionaries, FDSelect formats 0/3/4, global/local subroutines, and selected
+charstrings remain borrowed table views. Format-0 FD lookup is `O(1)` and
+range formats are `O(log R)` without the managed range arrays. The complete
+Type 2 operator set uses fixed 513-value operand and 32-value transient stacks,
+bounds subroutine depth at 10, and emits line/cubic records directly into the
+shared renderer ABI. A count pass makes caller-buffer writes transactional;
+execution is `O(B + S)` time and `O(1)` internal heap storage for executed
+bytes `B` and emitted segments `S`. Managed and native Noto CJK checkpoints
+match exactly: `A` is glyph 34 with 14 canonical segments and hash
+`1714381338565491643`; `日` is glyph 20220 with 16 segments and hash
+`5620540281806238275`. Normal Clang, LLVM named modules, ASan/UBSan, 20/20
+managed Noto tests, and Emscripten/Emdawnwebgpu/Chromium pass.
+
+Borrowed color-font data begins with `sbix` at checkpoint
+`ad2d2c43b62d5814066b2b7316241d4204aba7dd`. Strike selection preserves the
+managed closest-ppem rule and higher-ppem tie break; PNG/JPEG/TIFF payloads
+remain borrowed, and `dupe` chains preserve the referencing glyph's origin
+while bounding depth at 16. Lookup is `O(S + D)` time and `O(1)` storage for
+strikes `S` and duplicate depth `D`. OpenType SVG table/range lookup follows at
+`ca025130da3201972a9d11c07bcbf91f6d925e76`: a validated glyph record returns
+its borrowed encoded document, covered glyph interval, and explicit gzip flag,
+with a 16 MiB encoded-document bound. Gzip decoding, XML-to-color-layer
+conversion, CBLC/CBDT, and COLR/CPAL remain separate bounded slices.
+
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
-outlines, variations, and color glyph data remain later phase-1/2 work.
+remaining bitmap/color formats, and CFF2 remain later phase-1/2 work.
 
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
