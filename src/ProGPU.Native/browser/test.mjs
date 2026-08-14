@@ -46,6 +46,8 @@ try {
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
     coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
+    semanticGeometry:
+      document.body.dataset.progpuNativeSemanticGeometry,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
     error: document.body.dataset.progpuNativeError ?? ""
   }));
@@ -59,6 +61,7 @@ try {
     backendAbi: "3",
     explicitTimeline: "0",
     coverageMasks: "passed",
+    semanticGeometry: "passed",
     deviceRecovery: "passed",
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));

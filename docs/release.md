@@ -93,6 +93,7 @@ transform suite.
 - `ProGPU.Fonts.Inter`
 - `ProGPU.Fonts.Noto`
 - `ProGPU.Scene`
+- `ProGPU.Scene.Native`
 - `ProGPU.Voxel`
 - `ProGPU.Layout`
 - `ProGPU.Virtualization`

@@ -179,7 +179,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticRetainedBrushes = 1UL << 31,
     SemanticRetainedTextStyles = 1UL << 32,
     SemanticColorGlyphAtlas = 1UL << 33,
-    DeviceLossRecreation = 1UL << 34
+    DeviceLossRecreation = 1UL << 34,
+    SemanticGeometryBatch = 1UL << 35
 }
 
 public enum NativeSceneResourceKind : uint
@@ -192,7 +193,8 @@ public enum NativeSceneResourceKind : uint
     LayerMask = 6,
     EffectChain = 7,
     BrushTable = 8,
-    TextStyleTable = 9
+    TextStyleTable = 9,
+    GeometryBatch = 10
 }
 
 public enum NativeSceneTextRenderingMode : uint
@@ -245,7 +247,8 @@ public enum NativeSceneCommandKind : uint
     DrawAnalytic = 16,
     DrawPath = 17,
     DrawGlyphRun = 18,
-    DrawImage = 19
+    DrawImage = 19,
+    DrawGeometry = 20
 }
 
 [Flags]

@@ -81,7 +81,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -90,12 +90,12 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
@@ -108,6 +108,8 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
             return PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE:
             return PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY:
+            return PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH;
         default:
             return 0U;
     }
@@ -600,7 +602,8 @@ validation_result validate(
                     offset);
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
                 if (command.payload_size == 0U) {
                     ++draw_count;
                     payload_bytes += command.payload_size;
@@ -609,7 +612,9 @@ validation_result validate(
                 const std::uint32_t record_size = command.kind ==
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
                     ? sizeof(progpu_native_analytic_primitive)
-                    : sizeof(progpu_native_scene_path_fill);
+                    : command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY
+                        ? sizeof(progpu_native_geometry_primitive)
+                        : sizeof(progpu_native_scene_path_fill);
                 if (resource.payload_size % record_size != 0U ||
                     resource.payload_size / record_size >
                         PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES) {

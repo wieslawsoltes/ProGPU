@@ -2218,6 +2218,33 @@ with SHA-256
 This is automated implementation evidence, not the required final user manual
 approval.
 
+## Managed `GpuPicture` substitution bridge checkpoint
+
+The native semantic ABI now retains analytic and geometry batches in one
+packed vector page. The new standalone `ProGPU.Scene.Native` package lowers an
+ordinary immutable `GpuPicture` into that pointer-free scene: supported solid
+rectangles, ellipses, circles, equal-radius rounded rectangles, lines,
+quadratic/cubic curves, triangles, and quadrilaterals are grouped by
+consecutive family. Unsupported brushes, transforms, dashes, or command kinds
+fail with the exact source command index and type; they never fall back to the
+managed renderer inside a qualification run.
+
+The desktop C++ renderer page includes a selectable managed-picture mode. It
+records up to 4,096 public `DrawingContext` commands, compiles them once, shows
+the compile latency and native command/resource counts, and then uses the same
+retained `RenderScene` call as WebScene. Stable replay owns no command-array
+materialization and performs zero primitive translation. The deterministic
+five-command compiler contract lowers to three native draws (analytic,
+geometry, analytic); the sample's family-grouped workload lowers hundreds or
+thousands of managed commands to two native draws.
+
+This checkpoint is functional and packaging evidence, not yet a replacement
+performance claim. The next matched benchmark must compare the identical
+publicly recorded picture through managed `Compositor` and compiled C++ paths,
+report one-time compilation separately from warm replay, retain GPU-completion
+and pixel-difference evidence, and pass the established 5% p95/no-allocation
+gate before this lane can be called a .NET substitute.
+
 ## Representative aggregate qualification checkpoint
 
 The runnable native build entry points now include the retained semantic

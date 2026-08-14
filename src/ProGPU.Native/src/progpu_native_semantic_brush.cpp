@@ -348,7 +348,8 @@ bool compile_brush_page(
             const auto command = read_command(bytes, header, command_index);
             const auto state = state_cursor.advance(command);
             if ((command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) ||
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) ||
                 command.payload_size == 0U) {
                 continue;
             }

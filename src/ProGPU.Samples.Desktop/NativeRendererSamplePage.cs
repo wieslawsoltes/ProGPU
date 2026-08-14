@@ -7,6 +7,7 @@ using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using ProGPU.Samples;
 using ProGPU.Text;
 using ProGPU.Vector;
@@ -152,6 +153,9 @@ internal static class NativeRendererSamplePage
         private ulong _semanticGeneration;
         private int _semanticSceneLength;
         private NativeSceneUpdateMetrics _semanticUpdateMetrics;
+        private GpuPicture? _managedPicture;
+        private NativeCompiledPicture? _compiledPicture;
+        private double _managedPictureCompileMilliseconds;
         private bool _imageNeedsUpload;
         private bool _sceneDirty = true;
         private int _disposeState;
@@ -230,7 +234,10 @@ internal static class NativeRendererSamplePage
                 "The default representative scene submits analytic, path, " +
                 "positioned-text, cubic color-processed image, transform, " +
                 "clip, rounded mask, and effect-chain work through one " +
-                "immutable semantic stream. " +
+                "immutable semantic stream. The managed-picture mode records " +
+                "ordinary GpuPicture commands once, compiles them through the " +
+                "standalone ProGPU.Scene.Native package, and replays the " +
+                "retained C++ scene without per-frame managed allocation. " +
                 "Stable geometry, " +
                 "path, glyph, and image modes " +
                 "reuse retained native CPU/GPU payloads. Every mode " +
@@ -287,7 +294,8 @@ internal static class NativeRendererSamplePage
             var modeButton = CreateButton("Toggle batch mode", 156f);
             modeButton.Click += (_, _) =>
             {
-                _mode = (NativeBatchMode)(((int)_mode + 1) % 13);
+                _mode = (NativeBatchMode)(((int)_mode + 1) %
+                    Enum.GetValues<NativeBatchMode>().Length);
                 _sceneDirty = true;
                 UpdateCountText();
                 RenderFrame();
@@ -339,6 +347,7 @@ internal static class NativeRendererSamplePage
             {
                 return;
             }
+            _managedPicture?.Dispose();
             _compositor.Dispose();
             _externalImageMask.Dispose();
             _externalImageSource.Dispose();
@@ -371,6 +380,9 @@ internal static class NativeRendererSamplePage
                                 _palette);
                         _semanticUpdateMetrics = _compositor.UpdateScene(
                             _semanticScene.AsSpan(0, _semanticSceneLength));
+                        break;
+                    case NativeBatchMode.ManagedPicture:
+                        BuildAndCompileManagedPicture();
                         break;
                     case NativeBatchMode.Analytic:
                         FillAnalyticPrimitives(_rectangleCount, _palette);
@@ -424,12 +436,16 @@ internal static class NativeRendererSamplePage
             uint drawCallCount;
             uint vertexCount;
             ulong uploadBytes;
-            if (_mode == NativeBatchMode.RepresentativeScene)
+            if (_mode is NativeBatchMode.RepresentativeScene or
+                NativeBatchMode.ManagedPicture)
             {
+                ulong sceneId = _mode == NativeBatchMode.RepresentativeScene
+                    ? NativeRepresentativeSceneSample.SceneId
+                    : NativeRepresentativeSceneSample.SceneId + 1U;
                 NativeSceneFrameMetrics metrics = _compositor.RenderScene(
                     _target,
                     dpiScale: 1f,
-                    NativeRepresentativeSceneSample.SceneId,
+                    sceneId,
                     _semanticGeneration,
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
                 drawCallCount = metrics.DrawCallCount;
@@ -635,12 +651,131 @@ internal static class NativeRendererSamplePage
                     $"draws {drawCallCount} · " +
                     $"vertices {vertexCount:N0} · " +
                     $"upload {uploadBytes:N0} B" +
-                    (_mode == NativeBatchMode.RepresentativeScene
+                    (_mode is NativeBatchMode.RepresentativeScene or
+                        NativeBatchMode.ManagedPicture
                         ? $" · scene {_semanticUpdateMetrics.CommandCount}/" +
-                          $"{_semanticUpdateMetrics.ResourceCount}"
+                          $"{_semanticUpdateMetrics.ResourceCount}" +
+                          (_mode == NativeBatchMode.ManagedPicture
+                              ? $" · compile {_managedPictureCompileMilliseconds:F3} ms"
+                              : string.Empty)
                         : string.Empty);
             }
             _preview?.Invalidate();
+        }
+
+        private void BuildAndCompileManagedPicture()
+        {
+            _managedPicture?.Dispose();
+            _managedPicture = RecordManagedPicture(_rectangleCount, _palette);
+            _semanticGeneration++;
+            if (_semanticGeneration == 0U)
+            {
+                _semanticGeneration = 1U;
+            }
+
+            long timestamp = Stopwatch.GetTimestamp();
+            if (!GpuPictureNativeSceneCompiler.TryCompile(
+                    _managedPicture,
+                    NativeRepresentativeSceneSample.SceneId + 1U,
+                    _semanticGeneration,
+                    out _compiledPicture,
+                    out NativePictureCompileFailure failure) ||
+                _compiledPicture is null)
+            {
+                throw new InvalidOperationException(
+                    $"Managed picture could not be lowered to the native scene: {failure}.");
+            }
+            _managedPictureCompileMilliseconds =
+                Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
+            _semanticUpdateMetrics = _compositor.UpdateScene(_compiledPicture.Stream);
+            _semanticSceneLength = _compiledPicture.Length;
+        }
+
+        private static GpuPicture RecordManagedPicture(int count, int palette)
+        {
+            var recorder = new GpuPictureRecorder();
+            DrawingContext drawing = recorder.BeginRecording(
+                new Rect(0f, 0f, TargetWidth, TargetHeight));
+            var brushes = new SolidColorBrush[3]
+            {
+                new(Palette(0.08f, palette)),
+                new(Palette(0.42f, palette)),
+                new(Palette(0.76f, palette))
+            };
+            var pens = new Pen[3]
+            {
+                new(brushes[0], 2f),
+                new(brushes[1], 2.5f),
+                new(brushes[2], 3f)
+            };
+
+            const float inset = 18f;
+            const float gap = 3f;
+            float usableWidth = TargetWidth - inset * 2f;
+            float usableHeight = TargetHeight - inset * 2f;
+            int columns = Math.Max(
+                1,
+                (int)MathF.Ceiling(MathF.Sqrt(count * usableWidth / usableHeight)));
+            int rows = (count + columns - 1) / columns;
+            float cellWidth = usableWidth / columns;
+            float cellHeight = usableHeight / rows;
+            int analyticCount = (count + 1) / 2;
+
+            // Consecutive families let the compiler lower this managed display
+            // list to two retained native draw batches.
+            for (int index = 0; index < analyticCount; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                var rect = new Rect(
+                    inset + column * cellWidth + gap,
+                    inset + row * cellHeight + gap,
+                    MathF.Max(1f, cellWidth - gap * 2f),
+                    MathF.Max(1f, cellHeight - gap * 2f));
+                if ((index & 1) == 0)
+                {
+                    drawing.DrawRoundedRectangle(
+                        brushes[index % brushes.Length],
+                        null,
+                        rect,
+                        MathF.Min(5f, MathF.Min(rect.Width, rect.Height) * 0.25f));
+                }
+                else
+                {
+                    drawing.DrawEllipse(
+                        brushes[index % brushes.Length],
+                        null,
+                        new Vector2(rect.X + rect.Width * 0.5f, rect.Y + rect.Height * 0.5f),
+                        rect.Width * 0.5f,
+                        rect.Height * 0.5f);
+                }
+            }
+
+            for (int index = analyticCount; index < count; index++)
+            {
+                int column = index % columns;
+                int row = index / columns;
+                float left = inset + column * cellWidth + gap;
+                float top = inset + row * cellHeight + gap;
+                float right = left + MathF.Max(1f, cellWidth - gap * 2f);
+                float bottom = top + MathF.Max(1f, cellHeight - gap * 2f);
+                if ((index & 1) == 0)
+                {
+                    drawing.DrawLine(
+                        pens[index % pens.Length],
+                        new Vector2(left, bottom),
+                        new Vector2(right, top));
+                }
+                else
+                {
+                    drawing.FillTriangle(
+                        brushes[index % brushes.Length],
+                        new Vector2((left + right) * 0.5f, top),
+                        new Vector2(right, bottom),
+                        new Vector2(left, bottom));
+                }
+            }
+            return recorder.EndRecording();
         }
 
         private void FillRectangles(int count, int palette)
@@ -1285,6 +1420,8 @@ internal static class NativeRendererSamplePage
                 {
                     NativeBatchMode.RepresentativeScene =>
                         "Representative semantic scene",
+                    NativeBatchMode.ManagedPicture =>
+                        $"Managed → C++: {_rectangleCount:N0}",
                     NativeBatchMode.Analytic => $"Analytic: {_rectangleCount:N0}",
                     NativeBatchMode.Geometry => $"Geometry: {_rectangleCount:N0}",
                     NativeBatchMode.Curves => $"Curves: {_rectangleCount:N0}",
@@ -1304,6 +1441,7 @@ internal static class NativeRendererSamplePage
         private enum NativeBatchMode
         {
             RepresentativeScene,
+            ManagedPicture,
             Analytic,
             Geometry,
             Curves,

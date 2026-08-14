@@ -80,6 +80,19 @@ void apply_semantic_transform(
 }
 
 void apply_semantic_state(
+    progpu_native_geometry_primitive& primitive,
+    const progpu_native_scene_state& state) noexcept {
+    apply_semantic_transform(primitive, state);
+    primitive.color.a *= state.opacity;
+}
+
+void apply_semantic_transform(
+    progpu_native_geometry_primitive& primitive,
+    const progpu_native_scene_state& state) noexcept {
+    primitive.transform = compose_affine(primitive.transform, state.transform);
+}
+
+void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept {
     apply_semantic_transform(path, state);

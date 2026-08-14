@@ -50,6 +50,7 @@
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
     <ProjectReference Include="..\ProGPU.Media.Editing\ProGPU.Media.Editing.csproj" />
     <ProjectReference Include="..\ProGPU.Media.Scene\ProGPU.Media.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
     <ProjectReference Include="..\ProGPU.Windows.Media\ProGPU.Windows.Media.csproj">
       <Aliases>WindowsMediaProvider</Aliases>
     </ProjectReference>

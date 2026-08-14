@@ -2476,6 +2476,16 @@ public class GpuPicture :
     private RenderCommand[]? _materializedCommands;
     public RenderCommand[] Commands =>
         _materializedCommands ??= _retainedCommands.Clone();
+    /// <summary>
+    /// Gets the number of immutable retained commands without materializing
+    /// the compatibility <see cref="Commands"/> array.
+    /// </summary>
+    public int CommandCount => _retainedCommands.Count;
+
+    /// <summary>
+    /// Reads one immutable retained command in O(1) time without allocating.
+    /// </summary>
+    public RenderCommand GetCommand(int index) => _retainedCommands[index];
     public Vector2[] PointBuffer { get; }
     public double[] DoubleBuffer { get; }
     public Line3D[] Line3DBuffer { get; }

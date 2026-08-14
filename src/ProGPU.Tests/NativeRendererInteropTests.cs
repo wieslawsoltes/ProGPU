@@ -637,6 +637,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             17179869184UL,
             (ulong)NativeRendererCapabilities.DeviceLossRecreation);
+        Assert.Equal(
+            34359738368UL,
+            (ulong)NativeRendererCapabilities.SemanticGeometryBatch);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -730,6 +733,73 @@ public class NativeRendererInteropTests
         Assert.DoesNotContain(
             (byte)0,
             stream.Slice((int)firstResource.PayloadOffset, 8).ToArray());
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesRetainedGeometryWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<NativeGeometryPrimitive> primitives = stackalloc NativeGeometryPrimitive[2]
+        {
+            new(
+                NativeGeometryPrimitiveKind.Line,
+                new Vector2(2f, 3f),
+                new Vector2(42f, 19f),
+                new Vector4(1f, 0f, 0f, 1f),
+                Matrix3x2.Identity,
+                strokeThickness: 2f,
+                startCap: NativeStrokeCap.Round,
+                endCap: NativeStrokeCap.Square),
+            new(
+                NativeGeometryPrimitiveKind.Triangle,
+                new Vector2(5f, 6f),
+                new Vector2(25f, 7f),
+                new Vector4(0f, 1f, 0f, 1f),
+                Matrix3x2.Identity,
+                p2: new Vector2(12f, 30f))
+        };
+        Span<NativeSceneBrush> brushes = stackalloc NativeSceneBrush[1]
+        {
+            NativeSceneBrush.Solid(new Vector4(0.2f, 0.4f, 0.8f, 1f))
+        };
+        Span<uint> brushIndices = stackalloc uint[2] { 0U, 0U };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 51U,
+            generation: 3U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddGeometryResource(
+            100U,
+            1U,
+            primitives,
+            out uint geometry));
+        Assert.True(builder.TryAddBrushTableResource(
+            101U,
+            1U,
+            brushes,
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint brushTable));
+        Assert.True(builder.TryDrawGeometry(
+            1000U,
+            geometry,
+            new NativeImageRect(2f, 3f, 40f, 27f),
+            brushTable,
+            brushIndices));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        Assert.Equal(2U, header.ResourceCount);
+        Assert.Equal(1U, header.CommandCount);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        Assert.Equal(NativeSceneCommandKind.DrawGeometry, command.Kind);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        Assert.Equal(NativeSceneResourceKind.GeometryBatch, resource.Kind);
+        Assert.Equal(
+            (uint)(primitives.Length * Unsafe.SizeOf<NativeGeometryPrimitive>()),
+            resource.PayloadSize);
     }
 
     [Fact]

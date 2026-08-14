@@ -22,6 +22,7 @@
   <Project Path="ProGPU.Fonts.Noto/ProGPU.Fonts.Noto.csproj" />
   <Project Path="ProGPU.Compute/ProGPU.Compute.csproj" />
   <Project Path="ProGPU.Scene/ProGPU.Scene.csproj" />
+  <Project Path="ProGPU.Scene.Native/ProGPU.Scene.Native.csproj" />
   <Project Path="ProGPU.Voxel/ProGPU.Voxel.csproj" />
   <Project Path="ProGPU.Voxel.WinUI/ProGPU.Voxel.WinUI.csproj" />
   <Project Path="ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj" />

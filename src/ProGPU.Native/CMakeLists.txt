@@ -512,6 +512,8 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_color_glyph_scene.hpp
         tests/progpu_native_semantic_coverage_mask_scene.cpp
         tests/progpu_native_semantic_coverage_mask_scene.hpp
+        tests/progpu_native_semantic_geometry_scene.cpp
+        tests/progpu_native_semantic_geometry_scene.hpp
         tests/progpu_native_semantic_image_scene.cpp
         tests/progpu_native_semantic_image_scene.hpp
         tests/progpu_native_semantic_text_scene.cpp

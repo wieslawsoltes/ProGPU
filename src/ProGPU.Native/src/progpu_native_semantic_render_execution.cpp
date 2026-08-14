@@ -150,6 +150,13 @@ progpu_native_status render_scene(
             path.color = brush.colors[0];
         }
     };
+    const auto apply_geometry_material = [](
+        progpu_native_geometry_primitive& primitive,
+        const progpu_native_scene_brush& brush) noexcept {
+        if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+            primitive.color = brush.colors[0];
+        }
+    };
 
     semantic_layer_budget layer_budget{};
     semantic_layer_target_cursor layer_budget_cursor(
@@ -352,7 +359,7 @@ progpu_native_status render_scene(
             continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
             continue;
         }
         const auto resource = read_resource(command.resource_index);
@@ -403,6 +410,66 @@ progpu_native_status render_scene(
                         apply_analytic_material(primitive, *brush);
                     }
                     valid = is_valid_semantic_analytic(primitive);
+                }
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY: {
+                valid = span_is_multiple(
+                        resource.payload_size,
+                        sizeof(progpu_native_geometry_primitive)) &&
+                    resource.auxiliary_size == 0U;
+                const std::uint64_t primitive_count = resource.payload_size /
+                    sizeof(progpu_native_geometry_primitive);
+                valid = valid && primitive_count <=
+                    std::numeric_limits<std::uint32_t>::max();
+                for (std::uint64_t primitive_index = 0U;
+                     valid && budget_valid &&
+                        primitive_index < primitive_count;
+                     ++primitive_index) {
+                    progpu_native_geometry_primitive primitive{};
+                    std::memcpy(
+                        &primitive,
+                        bytes + resource.payload_offset +
+                            primitive_index * sizeof(primitive),
+                        sizeof(primitive));
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    valid = resolve_brush(
+                        index,
+                        command,
+                        static_cast<std::uint32_t>(primitive_index),
+                        brush_index,
+                        brush);
+                    if (!valid) {
+                        break;
+                    }
+                    if (brush == nullptr) {
+                        apply_semantic_state(primitive, state);
+                    } else {
+                        apply_semantic_transform(primitive, state);
+                        apply_geometry_material(primitive, *brush);
+                    }
+                    std::size_t vertex_count = 0U;
+                    std::size_t index_count = 0U;
+                    valid = progpu::native::geometry_primitive_capacity(
+                        primitive,
+                        vertex_count,
+                        index_count);
+                    budget_valid = valid &&
+                        vertex_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_vertex_bytes) /
+                                sizeof(progpu::native::vector_vertex) &&
+                        index_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_index_bytes) /
+                                sizeof(std::uint32_t);
+                    if (budget_valid) {
+                        compiled_vertex_bytes += vertex_count *
+                            sizeof(progpu::native::vector_vertex);
+                        compiled_index_bytes += index_count *
+                            sizeof(std::uint32_t);
+                    }
                 }
                 break;
             }
@@ -610,7 +677,10 @@ progpu_native_status render_scene(
                     : command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN
                         ? "glyph"
-                        : "image";
+                        : command.kind ==
+                                PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE
+                            ? "image"
+                            : "geometry";
             const std::string detail = std::string("A typed semantic ") +
                 family + " scene resource payload is invalid.";
             return engine->fail(
@@ -626,7 +696,8 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
-        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
@@ -924,54 +995,99 @@ progpu_native_status render_scene(
                     target_extent,
                     frame->dpi_scale);
                 if (command.kind !=
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
+                    command.kind !=
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
                     continue;
                 }
                 const auto resource = read_resource(command.resource_index);
                 const std::size_t vertex_start = engine->vertices.size();
                 const std::size_t index_start = engine->indices.size();
-                const std::size_t primitive_count = resource.payload_size /
-                    sizeof(progpu_native_analytic_primitive);
-                for (std::size_t primitive_index = 0U;
-                     primitive_index < primitive_count;
-                     ++primitive_index) {
-                    progpu_native_analytic_primitive primitive{};
-                    std::memcpy(
-                        &primitive,
-                        bytes + resource.payload_offset +
-                            primitive_index * sizeof(primitive),
-                        sizeof(primitive));
-                    std::uint32_t brush_index = 0U;
-                    const progpu_native_scene_brush* brush = nullptr;
-                    if (!resolve_brush(
-                            index,
-                            command,
-                            static_cast<std::uint32_t>(primitive_index),
-                            brush_index,
-                            brush)) {
-                        return engine->fail(
-                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                            "A validated semantic analytic brush map could not be resolved.");
+                if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+                    const std::size_t primitive_count = resource.payload_size /
+                        sizeof(progpu_native_analytic_primitive);
+                    for (std::size_t primitive_index = 0U;
+                         primitive_index < primitive_count;
+                         ++primitive_index) {
+                        progpu_native_analytic_primitive primitive{};
+                        std::memcpy(
+                            &primitive,
+                            bytes + resource.payload_offset +
+                                primitive_index * sizeof(primitive),
+                            sizeof(primitive));
+                        std::uint32_t brush_index = 0U;
+                        const progpu_native_scene_brush* brush = nullptr;
+                        if (!resolve_brush(
+                                index,
+                                command,
+                                static_cast<std::uint32_t>(primitive_index),
+                                brush_index,
+                                brush)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A validated semantic analytic brush map could not be resolved.");
+                        }
+                        if (brush == nullptr) {
+                            apply_semantic_state(primitive, state);
+                        } else {
+                            apply_semantic_transform(primitive, state);
+                            apply_analytic_material(primitive, *brush);
+                        }
+                        float minimum_scale = 0.0F;
+                        if (!progpu::native::try_get_minimum_scale(
+                                primitive.transform,
+                                minimum_scale) ||
+                            !progpu::native::append_analytic_primitive(
+                                primitive,
+                                antialias_padding_pixels / minimum_scale,
+                                engine->vertices,
+                                engine->indices,
+                                static_cast<float>(brush_index))) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A preflighted semantic analytic payload could not be compiled.");
+                        }
                     }
-                    if (brush == nullptr) {
-                        apply_semantic_state(primitive, state);
-                    } else {
-                        apply_semantic_transform(primitive, state);
-                        apply_analytic_material(primitive, *brush);
-                    }
-                    float minimum_scale = 0.0F;
-                    if (!progpu::native::try_get_minimum_scale(
-                            primitive.transform,
-                            minimum_scale) ||
-                        !progpu::native::append_analytic_primitive(
-                            primitive,
-                            antialias_padding_pixels / minimum_scale,
-                            engine->vertices,
-                            engine->indices,
-                            static_cast<float>(brush_index))) {
-                        return engine->fail(
-                            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                            "A preflighted semantic analytic payload could not be compiled.");
+                } else {
+                    const std::size_t primitive_count = resource.payload_size /
+                        sizeof(progpu_native_geometry_primitive);
+                    for (std::size_t primitive_index = 0U;
+                         primitive_index < primitive_count;
+                         ++primitive_index) {
+                        progpu_native_geometry_primitive primitive{};
+                        std::memcpy(
+                            &primitive,
+                            bytes + resource.payload_offset +
+                                primitive_index * sizeof(primitive),
+                            sizeof(primitive));
+                        std::uint32_t brush_index = 0U;
+                        const progpu_native_scene_brush* brush = nullptr;
+                        if (!resolve_brush(
+                                index,
+                                command,
+                                static_cast<std::uint32_t>(primitive_index),
+                                brush_index,
+                                brush)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A validated semantic geometry brush map could not be resolved.");
+                        }
+                        if (brush == nullptr) {
+                            apply_semantic_state(primitive, state);
+                        } else {
+                            apply_semantic_transform(primitive, state);
+                            apply_geometry_material(primitive, *brush);
+                        }
+                        if (!progpu::native::append_geometry_primitive(
+                                primitive,
+                                static_cast<float>(brush_index),
+                                engine->vertices,
+                                engine->indices)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A preflighted semantic geometry payload could not be compiled.");
+                        }
                     }
                 }
                 const std::size_t vertex_count =
@@ -1005,8 +1121,8 @@ progpu_native_status render_scene(
         const std::uint64_t compiled_index_bytes =
             engine->indices.size() * sizeof(std::uint32_t);
         if (compiled_draws.size() != semantic_analytic_draw_count ||
-            compiled_vertex_bytes != semantic_analytic_vertex_bytes ||
-            compiled_index_bytes != semantic_analytic_index_bytes) {
+            compiled_vertex_bytes > semantic_analytic_vertex_bytes ||
+            compiled_index_bytes > semantic_analytic_index_bytes) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic analytic packed-page budget did not match compilation.");
@@ -2574,7 +2690,7 @@ progpu_native_status render_scene(
             }
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-                command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
                 continue;
             }
             const auto scissor = resolve_semantic_target_scissor(
@@ -2598,7 +2714,10 @@ progpu_native_status render_scene(
                 }
             }
             if (scissor.drawable) {
-                note_family(command.kind);
+                note_family(command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY
+                    ? PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
+                    : command.kind);
             }
             progpu_native_status status =
                 PROGPU_NATIVE_STATUS_SUCCESS;
@@ -2609,6 +2728,24 @@ progpu_native_status render_scene(
                         return fail_bundle(engine->fail(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic analytic packed-page index is invalid."));
+                    }
+                    const auto draw_index = semantic_analytic_draw_index;
+                    ++semantic_analytic_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_analytic_bundle_draw(
+                                *engine,
+                                bundle_encoder,
+                                semantic_analytic_page.draws[draw_index],
+                                current_target_layer);
+                    }
+                    break;
+                }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY: {
+                    if (semantic_analytic_draw_index >=
+                        semantic_analytic_page.draws.size()) {
+                        return fail_bundle(engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "The semantic geometry packed-page index is invalid."));
                     }
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;

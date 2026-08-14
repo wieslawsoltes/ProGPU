@@ -678,11 +678,53 @@ inline bool append_primitive_caps(
     return true;
 }
 
+inline bool is_valid_geometry_primitive(
+    const progpu_native_geometry_primitive& primitive) noexcept {
+    constexpr std::uint32_t all_line_flags =
+        PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
+        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
+        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ||
+        !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
+        !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
+        !std::isfinite(primitive.stroke_thickness) ||
+        !std::isfinite(primitive.reserved) || primitive.reserved != 0.0F ||
+        !is_finite(primitive.color) || !is_finite(primitive.transform)) {
+        return false;
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_TRIANGLE ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL) {
+        return (primitive.flags &
+                ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
+            primitive.stroke_thickness == 0.0F;
+    }
+    if ((primitive.flags & ~all_line_flags) != 0U) {
+        return false;
+    }
+    const bool hairline = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE) != 0U;
+    const bool fixed_device = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U;
+    if ((hairline && fixed_device) ||
+        (hairline && primitive.stroke_thickness != 0.0F) ||
+        (!hairline && primitive.stroke_thickness <= 0.0F)) {
+        return false;
+    }
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    return try_get_stroke_scales(
+        primitive.transform,
+        maximum_scale,
+        minimum_scale);
+}
+
 inline bool geometry_primitive_capacity(
     const progpu_native_geometry_primitive& primitive,
     std::size_t& vertex_count,
     std::size_t& index_count) noexcept {
-    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) {
+    if (!is_valid_geometry_primitive(primitive)) {
         return false;
     }
     const std::size_t cap_count =
@@ -728,13 +770,8 @@ inline bool append_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
         PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
-    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ||
-        !std::isfinite(brush_index) || brush_index < 0.0F ||
-        !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
-        !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
-        !std::isfinite(primitive.stroke_thickness) ||
-        !std::isfinite(primitive.reserved) || primitive.reserved != 0.0F ||
-        !is_finite(primitive.color) || !is_finite(primitive.transform)) {
+    if (!is_valid_geometry_primitive(primitive) ||
+        !std::isfinite(brush_index) || brush_index < 0.0F) {
         return false;
     }
 

@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
+#include "progpu_native_semantic_geometry_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
@@ -64,6 +65,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
         document.body.dataset.progpuNativeCoverageMasks = "passed";
+        document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
@@ -109,6 +111,50 @@ bool render_browser_frame(double, void*) {
     semantic_frame.dpi_scale = 1.0F;
     semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    auto geometry_scene =
+        progpu::native::tests::create_semantic_geometry_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics geometry_scene_metrics{};
+    geometry_scene_metrics.struct_size = sizeof(geometry_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            geometry_scene.data(),
+            geometry_scene.size(),
+            &geometry_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        geometry_scene_metrics.command_count != 1U ||
+        geometry_scene_metrics.resource_count != 3U ||
+        geometry_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser retained geometry scene update failed.");
+    }
+    semantic_frame.scene_id = 101U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics geometry_metrics{};
+    geometry_metrics.struct_size = sizeof(geometry_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &geometry_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        geometry_metrics.command_count != 1U ||
+        geometry_metrics.draw_call_count != 1U ||
+        geometry_metrics.submission_count != 1U ||
+        geometry_metrics.brush_upload_bytes !=
+            2U * sizeof(progpu_native_scene_brush) ||
+        geometry_metrics.vertex_upload_bytes == 0U) {
+        fail_engine("The browser retained geometry render failed.");
+    }
+    geometry_metrics = {};
+    geometry_metrics.struct_size = sizeof(geometry_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &geometry_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        geometry_metrics.brush_upload_bytes != 0U ||
+        geometry_metrics.vertex_upload_bytes != 0U ||
+        geometry_metrics.index_upload_bytes != 0U) {
+        fail_engine("The stable browser geometry page was rebuilt.");
+    }
+
     auto color_glyph_scene =
         progpu::native::tests::create_semantic_color_glyph_scene_stream(
             width,
@@ -420,6 +466,8 @@ int main() {
             PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) == 0U ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
         (info.capabilities &

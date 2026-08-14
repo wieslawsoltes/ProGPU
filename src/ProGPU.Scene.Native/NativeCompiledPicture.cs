@@ -1,0 +1,47 @@
+namespace ProGPU.Scene.Native;
+
+/// <summary>
+/// Owns one immutable pointer-free native semantic scene snapshot.
+/// </summary>
+public sealed class NativeCompiledPicture
+{
+    internal NativeCompiledPicture(
+        byte[] storage,
+        int length,
+        ulong sceneId,
+        ulong generation,
+        int sourceCommandCount,
+        int nativeDrawCount,
+        int analyticPrimitiveCount,
+        int geometryPrimitiveCount)
+    {
+        Storage = storage;
+        Length = length;
+        SceneId = sceneId;
+        Generation = generation;
+        SourceCommandCount = sourceCommandCount;
+        NativeDrawCount = nativeDrawCount;
+        AnalyticPrimitiveCount = analyticPrimitiveCount;
+        GeometryPrimitiveCount = geometryPrimitiveCount;
+    }
+
+    private byte[] Storage { get; }
+
+    public int Length { get; }
+
+    public ulong SceneId { get; }
+
+    public ulong Generation { get; }
+
+    public int SourceCommandCount { get; }
+
+    public int NativeDrawCount { get; }
+
+    public int AnalyticPrimitiveCount { get; }
+
+    public int GeometryPrimitiveCount { get; }
+
+    public ReadOnlyMemory<byte> Memory => Storage.AsMemory(0, Length);
+
+    public ReadOnlySpan<byte> Stream => Storage.AsSpan(0, Length);
+}

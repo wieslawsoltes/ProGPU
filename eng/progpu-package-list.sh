@@ -22,6 +22,7 @@ progpu_portable_package_ids=(
   ProGPU.Fonts.Inter
   ProGPU.Fonts.Noto
   ProGPU.Scene
+  ProGPU.Scene.Native
   ProGPU.Voxel
   ProGPU.Layout
   ProGPU.Virtualization
@@ -63,6 +64,7 @@ progpu_portable_package_projects=(
   src/ProGPU.Fonts.Inter/ProGPU.Fonts.Inter.csproj
   src/ProGPU.Fonts.Noto/ProGPU.Fonts.Noto.csproj
   src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/ProGPU.Scene.Native/ProGPU.Scene.Native.csproj
   src/ProGPU.Voxel/ProGPU.Voxel.csproj
   src/ProGPU.Layout/ProGPU.Layout.csproj
   src/ProGPU.Virtualization/ProGPU.Virtualization.csproj
@@ -104,6 +106,7 @@ progpu_portable_package_purposes=(
   "Official Inter font assets and typed accessors for deterministic UI typography."
   "Official Noto fallback assets and typed accessors for CJK and symbol coverage."
   "Scene graph, compositor commands, retained visuals, effects, and presentation primitives."
+  "Typed compiler from immutable managed pictures to the retained native C++ WebGPU scene ABI."
   "Chunked voxel worlds, greedy meshing, collision, terrain generation, and grid ray casting."
   "Measure/arrange layout substrate shared by higher-level UI adapters."
   "Virtualization helpers for large retained visual and item surfaces."

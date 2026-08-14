@@ -1207,6 +1207,40 @@ checked translation into host path/glyph records before compilation; overflow
 fails closed. It does not redefine the version-one stream around 32-bit
 `size_t`.
 
+The first managed-scene substitution slice adds the append-only
+`GEOMETRY_BATCH` resource and `DRAW_GEOMETRY` command. Its payload is the
+existing fixed-width `progpu_native_geometry_primitive` record, so retained
+lines, quadratic/cubic curves, triangles, and quadrilaterals enter the same
+bounded C++ stroke compiler, packed vector page, WebGPU pipeline, and render
+bundle as native family calls. The command has no pointer-bearing state and
+supports the ordinary per-draw brush-index map. Validation computes exact
+upper bounds before allocation; changed compilation is `O(P)` time and
+`O(V + I)` retained storage for `P` primitives and bounded emitted vertices
+and indices `V` and `I`; stable replay performs no primitive translation,
+managed allocation, or upload.
+
+`ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
+the immutable allocation-free command view of a `GpuPicture`, rejects
+unsupported commands and materials with a typed source-command diagnostic,
+and coalesces consecutive analytic or geometry commands into native batches.
+Compilation is deliberately one-time `O(C + P)` work with `O(P)` bounded
+managed/native stream storage for `C` source commands. The resulting
+`NativeCompiledPicture` owns one pointer-free stream; unchanged frames call
+only `UpdateScene` once and `RenderScene` thereafter. The desktop sample
+exposes this real managed-picture lane beside the lower-level hand-authored
+semantic fixture.
+
+This adapter is an original ProGPU lowering over public project contracts. The
+design adopts retained immutable display-list reuse from the already recorded
+primary-source research for Skia, Direct2D/Win2D, WebRender, and Vello, while
+rejecting their source organization and implementation details. It also
+rejects per-command P/Invoke, reflection, implicit managed fallback, and
+per-frame stream rebuilding. The current accepted prefix is intentionally
+narrow: solid analytic primitives and solid affine geometry. Gradients,
+paths, text, images, nested pictures, state stacks, effects, meshes, and 3D
+remain explicit fail-closed continuation slices rather than silent parity
+claims.
+
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical
 target clip rectangle, and zeroed reserved fields. A save with a state index

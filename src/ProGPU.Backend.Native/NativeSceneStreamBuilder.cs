@@ -212,6 +212,20 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             flags: flags);
 
+    public bool TryAddGeometryResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeGeometryPrimitive> primitives,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.GeometryBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(primitives),
+            out resourceIndex,
+            flags: flags);
+
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
@@ -561,6 +575,39 @@ public ref struct NativeSceneStreamBuilder
         uint stateIndex = uint.MaxValue) =>
         TryDrawWithBrushes(
             NativeSceneCommandKind.DrawAnalytic,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
+            stateIndex);
+
+    public bool TryDrawGeometry(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        ReadOnlySpan<byte> payload = default,
+        uint stateIndex = uint.MaxValue) =>
+        TryDraw(
+            NativeSceneCommandKind.DrawGeometry,
+            commandId,
+            resourceIndex,
+            bounds,
+            payload,
+            stateIndex);
+
+    /// <summary>
+    /// Draws a retained geometry batch with one brush-table index per record.
+    /// </summary>
+    public bool TryDrawGeometry(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawGeometry,
             commandId,
             resourceIndex,
             bounds,
@@ -1172,6 +1219,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawAnalytic => checked((int)
                 GetResourceRecordCount<NativeAnalyticPrimitive>(
                     resourceIndex)),
+            NativeSceneCommandKind.DrawGeometry => checked((int)
+                GetResourceRecordCount<NativeGeometryPrimitive>(
+                    resourceIndex)),
             NativeSceneCommandKind.DrawPath => checked((int)
                 GetResourceRecordCount<NativeScenePathFill>(
                     resourceIndex)),
@@ -1196,12 +1246,14 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawImage =>
                 NativeSceneResourceKind.Image,
+            NativeSceneCommandKind.DrawGeometry =>
+                NativeSceneResourceKind.GeometryBatch,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.TextStyleTable;
+            <= NativeSceneResourceKind.GeometryBatch;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,
