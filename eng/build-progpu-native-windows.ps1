@@ -232,7 +232,8 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         $NativeSample = Join-Path $BinaryDirectory "progpu_native_sample.exe"
         $NativeSampleOutput = Join-Path $SampleDirectory "progpu-native-sample.ppm"
         $NativeProviderEvidence = Join-Path $SampleDirectory "progpu-native-provider.txt"
-        & $NativeSample $NativeSampleOutput $NativeProviderEvidence
+        $NativeFont = Join-Path $RepoRoot "src/ProGPU.Fonts.Inter/Fonts/Inter-Medium.ttf"
+        & $NativeSample $NativeSampleOutput $NativeProviderEvidence $NativeFont
         if ($LASTEXITCODE -ne 0) {
             throw "The D3D12 native renderer backend sample failed."
         }

@@ -794,7 +794,8 @@ endif()
 
 if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_sample
-        samples/progpu_native_sample.cpp)
+        samples/progpu_native_sample.cpp
+        samples/progpu_native_sample_font.cpp)
     target_compile_features(progpu_native_sample PRIVATE cxx_std_20)
     target_include_directories(progpu_native_sample PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -803,6 +804,7 @@ if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TA
     target_link_libraries(progpu_native_sample PRIVATE
         progpu_native
         progpu_native_scene_builder
+        progpu_native_text
         "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
     progpu_native_enable_warnings(progpu_native_sample)
     if(APPLE OR UNIX)

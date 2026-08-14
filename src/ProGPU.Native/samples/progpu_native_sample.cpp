@@ -1,4 +1,5 @@
 #include "progpu_native.h"
+#include "progpu_native_sample_font.hpp"
 #include "progpu_native_scene_builder.hpp"
 
 #include <wgpu.h>
@@ -203,16 +204,34 @@ bool write_evidence(
 
 bool has_expected_colors(
     const std::uint8_t* pixels,
-    std::uint32_t row_bytes) {
+    std::uint32_t row_bytes,
+    bool requires_decoded_glyph) {
     const auto pixel = [&](std::uint32_t x, std::uint32_t y) {
         return pixels + y * row_bytes + x * 4U;
     };
     const std::uint8_t* blue = pixel(100U, 100U);
     const std::uint8_t* amber = pixel(360U, 130U);
     const std::uint8_t* background = pixel(10U, 10U);
-    return blue[2] > 180U && blue[0] < 100U &&
+    if (!(blue[2] > 180U && blue[0] < 100U &&
         amber[0] > 180U && amber[1] > 90U &&
-        background[0] < 30U && background[1] < 30U;
+        background[0] < 30U && background[1] < 30U)) {
+        return false;
+    }
+    if (!requires_decoded_glyph) {
+        return true;
+    }
+    std::uint32_t yellow_coverage_pixels = 0U;
+    for (std::uint32_t y = 230U; y < 300U; ++y) {
+        for (std::uint32_t x = 68U; x < 116U; ++x) {
+            const std::uint8_t* glyph_pixel = pixel(x, y);
+            if (glyph_pixel[0] > 70U &&
+                glyph_pixel[1] > 55U &&
+                glyph_pixel[2] < 40U) {
+                ++yellow_coverage_pixels;
+            }
+        }
+    }
+    return yellow_coverage_pixels >= 24U;
 }
 
 } // namespace
@@ -222,6 +241,7 @@ int main(int argc, char** argv) {
         ? argv[1]
         : "progpu-native-sample.ppm";
     const std::string evidence_path = argc > 2 ? argv[2] : std::string{};
+    const std::string font_path = argc > 3 ? argv[3] : std::string{};
 
     WGPUInstanceExtras extras{};
     extras.chain.sType = static_cast<WGPUSType>(WGPUSType_InstanceExtras);
@@ -478,7 +498,7 @@ int main(int argc, char** argv) {
         std::cerr << "Could not record native retained image.\n";
         return EXIT_FAILURE;
     }
-    const std::array native_glyph_segments{
+    const std::array fallback_glyph_segments{
         progpu_native_path_segment{
             {0.0F, 0.0F}, {30.0F, 0.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
@@ -488,23 +508,59 @@ int main(int argc, char** argv) {
         progpu_native_path_segment{
             {15.0F, 40.0F}, {0.0F, 0.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    progpu::native::sample::decoded_font_glyph decoded_glyph{};
+    std::string font_error;
+    if (!font_path.empty() &&
+        !progpu::native::sample::try_load_font_glyph(
+            font_path,
+            0x00e9U,
+            decoded_glyph,
+            font_error)) {
+        std::cerr << "Could not decode U+00E9 from '" << font_path
+                  << "': " << font_error << ".\n";
+        return EXIT_FAILURE;
+    }
+    const bool uses_decoded_glyph = !decoded_glyph.segments.empty();
+    const std::span<const progpu_native_path_segment> native_glyph_segments =
+        uses_decoded_glyph
+            ? std::span<const progpu_native_path_segment>(
+                decoded_glyph.segments)
+            : std::span<const progpu_native_path_segment>(
+                fallback_glyph_segments);
+    constexpr float font_size = 48.0F;
+    constexpr float raster_font_size = 64.0F;
+    const float units_per_em = uses_decoded_glyph
+        ? static_cast<float>(decoded_glyph.units_per_em)
+        : raster_font_size;
+    const float design_to_logical = font_size / units_per_em;
+    const float glyph_min_x = uses_decoded_glyph ? decoded_glyph.min_x : 0.0F;
+    const float glyph_min_y = uses_decoded_glyph ? decoded_glyph.min_y : 0.0F;
+    const float glyph_max_x = uses_decoded_glyph ? decoded_glyph.max_x : 30.0F;
+    const float glyph_max_y = uses_decoded_glyph ? decoded_glyph.max_y : 40.0F;
+    const float glyph_raster_scale = uses_decoded_glyph
+        ? raster_font_size / units_per_em
+        : 1.0F;
+    const float atlas_to_logical_scale = uses_decoded_glyph
+        ? font_size / raster_font_size
+        : 1.0F;
     const progpu_native_scene_glyph_outline native_glyph_outline{
         0U,
         native_glyph_segments.size(),
-        0.0F,
-        0.0F,
-        30.0F,
-        40.0F,
-        1.0F,
+        glyph_min_x,
+        glyph_min_y,
+        glyph_max_x,
+        glyph_max_y,
+        glyph_raster_scale,
         0.25F};
+    constexpr progpu_native_point glyph_position{76.0F, 288.0F};
     const progpu_native_positioned_glyph native_glyph{
         0U,
         0U,
-        {76.0F, 244.0F},
+        glyph_position,
         {1.0F, 0.0F},
         {0.0F, 1.0F},
         {1.0F, 1.0F, 1.0F, 1.0F},
-        1.0F,
+        atlas_to_logical_scale,
         0.0F,
         0.0F,
         0.0F};
@@ -530,11 +586,21 @@ int main(int argc, char** argv) {
             std::span<const progpu_native_positioned_glyph>(
                 &native_glyph,
                 1U),
-            {76.0F, 204.0F, 30.0F, 40.0F},
+            {
+                glyph_position.x + glyph_min_x * design_to_logical,
+                glyph_position.y - glyph_max_y * design_to_logical,
+                (glyph_max_x - glyph_min_x) * design_to_logical,
+                (glyph_max_y - glyph_min_y) * design_to_logical},
             PROGPU_NATIVE_SCENE_NO_INDEX,
             native_text_style_index)) {
         std::cerr << "Could not record native retained glyph.\n";
         return EXIT_FAILURE;
+    }
+    if (uses_decoded_glyph) {
+        std::cout << "[ProGPUNativeText] decoded U+00E9 as glyph "
+                  << decoded_glyph.glyph_index << " with "
+                  << native_glyph_segments.size()
+                  << " retained path records.\n";
     }
     const progpu_native_scene_color_glyph_bitmap native_color_bitmap{
         0U, 2U, 2U, 8U, 0U,
@@ -655,7 +721,7 @@ int main(int argc, char** argv) {
     const bool passed =
         mapped.status == WGPUBufferMapAsyncStatus_Success &&
         pixels != nullptr &&
-        has_expected_colors(pixels, row_bytes) &&
+        has_expected_colors(pixels, row_bytes, uses_decoded_glyph) &&
         write_ppm(output_path, pixels, width, height, row_bytes) &&
         (evidence_path.empty() || write_evidence(
             evidence_path,

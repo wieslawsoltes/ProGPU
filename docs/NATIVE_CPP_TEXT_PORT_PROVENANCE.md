@@ -87,8 +87,7 @@ truncated coordinates, excessive repeats, decreasing endpoints, and explicit
 composite classification. Matched final path evidence covers all 34
 line/quadratic records for Inter Medium glyph 397 with an exact shared 64-bit
 hash of `13245664145576799719`, including the
-start point `(665,-25)` and closed endpoint. A GPU-rendered native-font
-screenshot waits for the font-to-scene connection.
+start point `(665,-25)` and closed endpoint.
 Composite record parsing ports the descriptor loop in
 `TtfFont.ParseCompositeGlyphOutline` at checkpoint
 `3abbec85d749466130538c8371dc772f1ef08671`. A first pass validates every
@@ -119,6 +118,21 @@ and native streams share start `(630,-23)` and exact hash
 Descriptor parsing and recursive outline assembly remain separate translation
 units sharing only a private fixed-record reader, keeping the native text port
 granular without duplicating component semantics.
+
+The native hardware sample now connects those exact canonical records directly
+to the retained glyph resource and the production glyph-atlas execution path.
+When passed the repository's Inter Medium face, it decodes U+00E9 through the
+standalone C++ font library, builds no intermediate geometry graph, and submits
+the resulting 27-record composite outline through the shared
+`GlyphRasterizer.wgsl` and `Text.wgsl` modules. The Apple M3 Pro/Metal
+checkpoint renders glyph 618 at 48 logical pixels from a 64-physical-pixel
+atlas raster, verifies a bounded yellow-coverage region during readback, and
+retains the complete sample's eight GPU draws and 11,616 uploaded vertex bytes.
+The fallback sample glyph remains available when no font path is supplied, so
+packaged consumers do not acquire a source-tree asset dependency. Repository
+Clang and Windows build scripts pass the font explicitly, making the real
+font-to-GPU connection an integration gate on runnable targets.
+
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.
@@ -190,7 +204,9 @@ has zero pixels over 3/255, and has mean absolute channel difference
 5. Port wrapping, trimming, caret/selection geometry, hit testing, and reusable
    positioned-run caches.
 6. Connect native shaped runs directly to the standalone C++ retained-scene
-   compiler and existing compute glyph/text pipelines.
+   compiler and existing compute glyph/text pipelines. The first direct
+   decoded-outline-to-GPU connection is complete; native shaping and run
+   assembly remain open.
 7. Gate cold start, first interaction, sustained layout/shaping throughput,
    allocations, cache residency, malformed input, DPI/subpixel quality,
    browser AOT, and matched C#/C++ screenshots before claiming parity.

@@ -137,6 +137,13 @@ those records directly into caller-owned float points and canonical path
 segments, including scaled offsets, midpoint-to-even rounding, point
 attachment, and a fixed 33-glyph cycle/depth stack. No temporary outline graph
 or per-component allocation is retained.
+The hardware sample accepts an optional third argument naming an SFNT/TTC font.
+With the repository's Inter Medium face it decodes composite U+00E9 in C++,
+passes its canonical path records directly to the retained glyph resource, and
+renders through the same shared compute-rasterizer/text shaders as managed
+compiled pictures. This validates the native font-to-GPU seam without adding a
+font parser to the renderer or a per-glyph ABI crossing. Omitting the argument
+keeps the source-independent fallback fixture used by package consumers.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
@@ -166,7 +173,10 @@ Build, test, and run the live offscreen sample from the repository root:
 The command writes the verified sample image to
 `artifacts/progpu-native/sample/progpu-native-sample.ppm` and then runs the
 typed .NET host to produce `progpu-native-managed-sample.ppm` through the same
-C++ engine. Third-party headers remain under ignored `artifacts/`; no upstream
+C++ engine. The repository build passes Inter Medium to the native sample and
+therefore gates composite C++ glyph decoding through the hardware glyph atlas;
+the executable's optional third argument can select another local SFNT/TTC
+face. Third-party headers remain under ignored `artifacts/`; no upstream
 implementation is vendored into ProGPU.
 
 Build the same C++ renderer as WebAssembly and execute it against a real

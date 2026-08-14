@@ -155,7 +155,8 @@ fi
 mkdir -p "${sample_dir}"
 "${build_dir}/progpu_native_sample" \
   "${sample_dir}/progpu-native-sample.ppm" \
-  "${sample_dir}/progpu-native-provider.txt"
+  "${sample_dir}/progpu-native-provider.txt" \
+  "${repo_root}/src/ProGPU.Fonts.Inter/Fonts/Inter-Medium.ttf"
 
 if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == "1" ]]; then
   echo "Skipped the managed differential/benchmark matrix for compiler qualification."
