@@ -27,6 +27,7 @@ using progpu::native::text::sfnt_cff1_font_view;
 using progpu::native::text::sfnt_cff1_outline_requirements;
 using progpu::native::text::sfnt_cff1_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
+using progpu::native::text::sfnt_color_glyph_layer;
 using progpu::native::text::sfnt_svg_glyph_document_view;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
@@ -451,6 +452,53 @@ cbdt_tables make_cbdt_tables(
     write_u32(cblc, 60U, 8U);
     std::copy(subtable.begin(), subtable.end(), cblc.begin() + 64);
     return {std::move(cblc), std::move(cbdt)};
+}
+
+std::vector<std::byte> make_colr() {
+    std::vector<std::byte> result(32U);
+    write_u16(result, 0U, 0U);
+    write_u16(result, 2U, 1U);
+    write_u32(result, 4U, 14U);
+    write_u32(result, 8U, 20U);
+    write_u16(result, 12U, 3U);
+    write_u16(result, 14U, 1U);
+    write_u16(result, 16U, 0U);
+    write_u16(result, 18U, 3U);
+    write_u16(result, 20U, 2U);
+    write_u16(result, 22U, 0U);
+    write_u16(result, 24U, 3U);
+    write_u16(result, 26U, 1U);
+    write_u16(result, 28U, 4U);
+    write_u16(result, 30U, 0xFFFFU);
+    return result;
+}
+
+std::vector<std::byte> make_cpal() {
+    std::vector<std::byte> result(32U);
+    write_u16(result, 0U, 0U);
+    write_u16(result, 2U, 2U);
+    write_u16(result, 4U, 2U);
+    write_u16(result, 6U, 4U);
+    write_u32(result, 8U, 16U);
+    write_u16(result, 12U, 0U);
+    write_u16(result, 14U, 2U);
+    result[16U] = std::byte{0U};
+    result[17U] = std::byte{0U};
+    result[18U] = std::byte{255U};
+    result[19U] = std::byte{255U};
+    result[20U] = std::byte{255U};
+    result[21U] = std::byte{0U};
+    result[22U] = std::byte{0U};
+    result[23U] = std::byte{255U};
+    result[24U] = std::byte{0U};
+    result[25U] = std::byte{255U};
+    result[26U] = std::byte{0U};
+    result[27U] = std::byte{255U};
+    result[28U] = std::byte{255U};
+    result[29U] = std::byte{255U};
+    result[30U] = std::byte{255U};
+    result[31U] = std::byte{128U};
+    return result;
 }
 
 std::vector<std::byte> make_font(
@@ -1906,6 +1954,115 @@ void cbdt_index_and_image_formats_remain_borrowed_and_bounded() {
     require(error == font_error::invalid_glyph && glyph.bytes.empty());
 }
 
+void colr_layers_and_cpal_palettes_are_transactional() {
+    const std::array<table_data, 2U> extra{
+        table_data{
+            open_type_tag::from_chars('C', 'O', 'L', 'R'), make_colr()},
+        table_data{
+            open_type_tag::from_chars('C', 'P', 'A', 'L'), make_cpal()}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, extra);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    font_error error = font_error::none;
+    std::uint16_t count = 0U;
+    require(font.try_get_colr_layer_count(1U, count, &error));
+    require(error == font_error::none && count == 3U);
+
+    std::array<sfnt_color_glyph_layer, 3U> layers{};
+    std::uint16_t written = 0U;
+    require(font.try_decode_colr_layers(
+        1U, 0U, layers, written, &error));
+    require(written == 3U);
+    require(layers[0U].glyph_index == 2U &&
+        layers[0U].palette_entry_index == 0U &&
+        layers[0U].color.red == 255U &&
+        layers[0U].color.green == 0U &&
+        layers[0U].color.blue == 0U &&
+        layers[0U].color.alpha == 255U);
+    require(layers[1U].glyph_index == 3U &&
+        layers[1U].color.red == 0U &&
+        layers[1U].color.blue == 255U);
+    require(layers[2U].glyph_index == 4U &&
+        layers[2U].uses_foreground_color &&
+        layers[2U].color.red == 255U);
+
+    require(font.try_decode_colr_layers(
+        1U, 1U, layers, written, &error));
+    require(layers[0U].color.red == 0U &&
+        layers[0U].color.green == 255U &&
+        layers[0U].color.blue == 0U);
+    require(layers[1U].color.red == 255U &&
+        layers[1U].color.green == 255U &&
+        layers[1U].color.blue == 255U &&
+        layers[1U].color.alpha == 128U);
+    require(font.try_decode_colr_layers(
+        1U, 9U, layers, written, &error));
+    require(layers[0U].color.red == 255U &&
+        layers[0U].color.green == 0U);
+
+    std::array<sfnt_color_glyph_layer, 2U> short_layers{};
+    short_layers[0U].glyph_index = 99U;
+    written = 99U;
+    require(!font.try_decode_colr_layers(
+        1U, 0U, short_layers, written, &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        short_layers[0U].glyph_index == 99U);
+    require(!font.try_get_colr_layer_count(7U, count, &error));
+    require(error == font_error::invalid_glyph && count == 0U);
+
+    const std::array<table_data, 1U> colr_only{
+        table_data{
+            open_type_tag::from_chars('C', 'O', 'L', 'R'), make_colr()}};
+    const auto colr_only_data = make_font(
+        0U, 22U, 0U, false, false, false, colr_only);
+    sfnt_font_view colr_only_font{};
+    require(sfnt_font_view::try_create(
+        colr_only_data, 0U, colr_only_font));
+    require(colr_only_font.try_decode_colr_layers(
+        1U, 0U, layers, written, &error));
+    require(written == 3U && layers[0U].color.red == 255U &&
+        layers[0U].color.green == 255U &&
+        layers[0U].color.blue == 255U &&
+        !layers[0U].uses_foreground_color &&
+        layers[2U].uses_foreground_color);
+
+    auto malformed_cpal = make_cpal();
+    write_u16(malformed_cpal, 12U, 4U);
+    const std::array<table_data, 2U> malformed_palette_tables{
+        table_data{
+            open_type_tag::from_chars('C', 'O', 'L', 'R'), make_colr()},
+        table_data{
+            open_type_tag::from_chars('C', 'P', 'A', 'L'),
+            std::move(malformed_cpal)}};
+    const auto malformed_palette_data = make_font(
+        0U, 22U, 0U, false, false, false, malformed_palette_tables);
+    sfnt_font_view malformed_palette_font{};
+    require(sfnt_font_view::try_create(
+        malformed_palette_data, 0U, malformed_palette_font));
+    layers[0U].glyph_index = 99U;
+    require(!malformed_palette_font.try_decode_colr_layers(
+        1U, 0U, layers, written, &error));
+    require(error == font_error::invalid_face && written == 0U &&
+        layers[0U].glyph_index == 99U);
+
+    auto malformed_colr = make_colr();
+    write_u16(malformed_colr, 16U, 2U);
+    const std::array<table_data, 1U> malformed_layer_tables{
+        table_data{
+            open_type_tag::from_chars('C', 'O', 'L', 'R'),
+            std::move(malformed_colr)}};
+    const auto malformed_layer_data = make_font(
+        0U, 22U, 0U, false, false, false, malformed_layer_tables);
+    sfnt_font_view malformed_layer_font{};
+    require(sfnt_font_view::try_create(
+        malformed_layer_data, 0U, malformed_layer_font));
+    count = 99U;
+    require(!malformed_layer_font.try_get_colr_layer_count(
+        1U, count, &error));
+    require(error == font_error::invalid_face && count == 0U);
+}
+
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -2483,6 +2640,7 @@ int main() {
     sbix_strikes_and_duplicates_remain_borrowed();
     svg_glyph_documents_remain_borrowed_and_bounded();
     cbdt_index_and_image_formats_remain_borrowed_and_bounded();
+    colr_layers_and_cpal_palettes_are_transactional();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

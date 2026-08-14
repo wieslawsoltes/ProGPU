@@ -619,12 +619,15 @@ Current native parity:
   row-stride/range validation, one native-owned bounded atlas texture, the
   production `Text.wgsl` intrinsic-color path, state/style alpha, and zero
   stable texture/instance upload. The standalone native text library now owns
-  bounded borrowed sbix and CBLC/CBDT strike selection plus OpenType SVG
-  document lookup. The current managed-picture bridge still owns compressed
-  PNG/SVG decoding and OpenType shaping until their native slices connect;
-  COLR, CPAL, and SVG vector layers lower to the existing retained path/brush/layer
-  resources instead of creating a second native vector engine; the shared
-  provider/browser fixture also lowers and validates ordered vector layers,
+  bounded borrowed sbix and CBLC/CBDT strike selection, OpenType SVG document
+  lookup, and allocation-free COLR version-0/CPAL layer decoding. COLR base
+  lookup is logarithmic, palette lookup is constant work per layer, malformed
+  tables fail transactionally, and `0xFFFF` foreground-color references remain
+  explicit. The current managed-picture bridge still owns compressed PNG/SVG
+  decoding and OpenType shaping until their native slices connect; COLR version-1
+  paint graphs and SVG vector layers will lower to the existing retained
+  path/brush/layer resources instead of creating a second native vector engine;
+  the shared provider/browser fixture also lowers and validates ordered vector layers,
   strikethrough, and underline without a text-specific geometry path;
 - destination-aware semantic nested blend restore and explicit bounded
   backdrop input using the actual rendered

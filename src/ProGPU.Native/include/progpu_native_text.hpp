@@ -357,6 +357,20 @@ struct sfnt_svg_glyph_document_view final {
     bool gzip_compressed = false;
 };
 
+struct sfnt_color_rgba8 final {
+    std::uint8_t red = 255U;
+    std::uint8_t green = 255U;
+    std::uint8_t blue = 255U;
+    std::uint8_t alpha = 255U;
+};
+
+struct sfnt_color_glyph_layer final {
+    std::uint16_t glyph_index = 0U;
+    std::uint16_t palette_entry_index = 0U;
+    sfnt_color_rgba8 color{};
+    bool uses_foreground_color = false;
+};
+
 class sfnt_cff_data final {
 public:
     static bool try_read_index(
@@ -724,6 +738,16 @@ public:
     bool try_get_svg_glyph_document(
         std::uint16_t glyph_index,
         sfnt_svg_glyph_document_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_colr_layer_count(
+        std::uint16_t glyph_index,
+        std::uint16_t& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_colr_layers(
+        std::uint16_t glyph_index,
+        std::uint16_t palette_index,
+        std::span<sfnt_color_glyph_layer> layers,
+        std::uint16_t& written,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;

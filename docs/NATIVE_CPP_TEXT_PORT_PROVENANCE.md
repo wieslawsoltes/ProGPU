@@ -289,8 +289,8 @@ while bounding depth at 16. Lookup is `O(S + D)` time and `O(1)` storage for
 strikes `S` and duplicate depth `D`. OpenType SVG table/range lookup follows at
 `ca025130da3201972a9d11c07bcbf91f6d925e76`: a validated glyph record returns
 its borrowed encoded document, covered glyph interval, and explicit gzip flag,
-with a 16 MiB encoded-document bound. Gzip decoding, XML-to-color-layer
-conversion, and COLR/CPAL remain separate bounded slices.
+with a 16 MiB encoded-document bound. Gzip decoding and XML-to-color-layer
+conversion remain separate bounded slices.
 
 CBLC/CBDT lookup ports the ProGPU-owned `TtfFont.cs` implementation at source
 checkpoint `873593a7c56ced46c2480ea72de017cd7f4e5cc3`. It follows the
@@ -306,9 +306,26 @@ strikes `S`, subtable records `R`, and sparse records `N`. Apple Clang, LLVM
 named-module, ASan/UBSan, Emscripten/Emdawnwebgpu/Chromium, and six focused
 managed CBLC/CBDT tests pass.
 
+Layered COLR/CPAL lookup ports the ProGPU-owned `TtfFont.cs` implementation at
+source checkpoint `30e9ebe57ef7e4a7e575dd57c9cf6540687b87ae`. It follows the
+[OpenType 1.9.1 COLR contract](https://learn.microsoft.com/en-us/typography/opentype/spec/colr)
+and the corresponding
+[CPAL palette contract](https://learn.microsoft.com/en-us/typography/opentype/spec/cpal).
+The current slice decodes the version-0 base/layer record model, including the
+compatible prefix in a version-1 table; full COLR version-1 paint graphs remain
+future work. Base-glyph lookup is `O(log B)`, layer decoding is `O(L)`, palette
+resolution is `O(1)` per layer, and all table storage stays borrowed. The caller
+supplies the exact output span, malformed tables fail before any output is
+written, invalid palette selections preserve the managed palette-0 fallback,
+and palette entry `0xFFFF` is retained as an explicit foreground-color flag.
+Normal Apple Clang, LLVM named modules, ASan/UBSan, Emscripten compilation plus
+the shared Emdawnwebgpu/Chromium runtime contract, and five focused managed
+color-glyph renderer/compiler tests pass.
+
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
-COLR/CPAL, PNG/SVG decoding, and CFF2 remain later phase-1/2 work.
+COLR version-1 paint graphs, PNG/SVG decoding, and CFF2 remain later phase-1/2
+work.
 
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
