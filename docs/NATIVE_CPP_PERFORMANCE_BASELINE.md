@@ -2515,3 +2515,21 @@ color-glyph, coverage, or index upload. Its following stable replay again
 uploads zero bytes. This is family-granular reuse; sub-page replacement of one
 resource within a family containing multiple resources remains a separate
 optimization milestone.
+
+## Windows native CI build-time checkpoint
+
+The exact `aae5ec3e7b0b78c1525451c982db758950c64d23` cold-cache GitHub
+`windows-latest` MSVC qualification job uses Ninja inside the Visual Studio
+MSVC environment and builds the directly linked C++20 renderer plus all three
+native/CPU test executables. It intentionally does not repeat the Dawn-ABI
+renderer, package staging, D3D12 sample, or managed differential matrix already
+owned by the full ClangCL Windows x64/arm64 lanes.
+
+Compared with exact predecessor `2f2a92c4286da763d4e4be0908b0f6b706a86c3f`,
+the end-to-end MSVC job fell from `3m33s` to `2m37s`, a `56s` or `26.3%`
+reduction. The native build/test step fell from `137.17s` to `75.44s`, a
+`61.73s` or `45.0%` reduction. Both runs were cache misses, so this comparison
+does not include the newly added pinned-source/NuGet dependency cache benefit.
+The new run configured in `17.3s` and passed all three native test executables;
+the improvement comes from removing duplicate compilation/integration work,
+not from weakening compiler or runtime coverage.
