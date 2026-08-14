@@ -52,6 +52,10 @@ const char* error_name(text::font_error error) noexcept {
             return "invalid glyph";
         case text::font_error::insufficient_buffer:
             return "insufficient buffer";
+        case text::font_error::invalid_container:
+            return "invalid container";
+        case text::font_error::invalid_compressed_data:
+            return "invalid compressed data";
     }
     return "unknown font error";
 }

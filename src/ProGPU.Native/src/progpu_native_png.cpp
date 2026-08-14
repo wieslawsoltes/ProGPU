@@ -272,7 +272,8 @@ bool try_parse_png(
                 metadata.requirements.color_type == 4U ||
                 (metadata.requirements.color_type == 3U &&
                     length / 3U >
-                        (1U << metadata.requirements.bit_depth))) {
+                        (std::size_t{1U} <<
+                            metadata.requirements.bit_depth))) {
                 error = image_error::invalid_chunk;
                 return false;
             }
