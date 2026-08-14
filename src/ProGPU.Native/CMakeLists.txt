@@ -10,10 +10,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(_progpu_native_modules_default OFF)
 if(NOT EMSCRIPTEN
     AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
-    AND CMAKE_GENERATOR MATCHES
-        "^(Ninja|Ninja Multi-Config|Visual Studio 17 2022)$"
-    AND (CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
-        OR CMAKE_GENERATOR STREQUAL "Visual Studio 17 2022"))
+    AND CMAKE_GENERATOR MATCHES "^Ninja"
+    AND CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)
     set(_progpu_native_modules_default ON)
 endif()
 option(PROGPU_NATIVE_ENABLE_CPP_MODULES
@@ -22,13 +20,11 @@ option(PROGPU_NATIVE_ENABLE_CPP_MODULES
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES
     AND (EMSCRIPTEN
         OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
-        OR NOT CMAKE_GENERATOR MATCHES
-            "^(Ninja|Ninja Multi-Config|Visual Studio 17 2022)$"
-        OR (CMAKE_GENERATOR MATCHES "^Ninja"
-            AND NOT CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)))
+        OR NOT CMAKE_GENERATOR MATCHES "^Ninja"
+        OR NOT CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS))
     message(FATAL_ERROR
         "PROGPU_NATIVE_ENABLE_CPP_MODULES requires LLVM Clang and a supported "
-        "Ninja or Visual Studio 17 2022 generator; Emscripten remains on the "
+        "Ninja generator; Emscripten and Visual Studio builds remain on the "
         "shared header compatibility path until module scanning is available.")
 endif()
 
@@ -639,6 +635,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native_scene_builder_module_tests
             PRIVATE progpu_native_scene_builder)
         progpu_native_enable_warnings(
+            progpu_native_scene_builder_module_tests)
+        progpu_native_enable_sanitizers(
             progpu_native_scene_builder_module_tests)
         add_test(
             NAME progpu_native_scene_builder_module_tests

@@ -108,7 +108,11 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ImportLibrary)) {
 }
 
 $ToolsetArguments = if ($Compiler -eq "ClangCL") { @("-T", "ClangCL") } else { @() }
-$ModuleArgument = if ($Compiler -eq "ClangCL") { "ON" } else { "OFF" }
+# CMake's Visual Studio generator currently supplies MSVC-only /interface and
+# /scanDependencies flags to clang-cl module units. Keep the identical C++20
+# public contract on the portable header path here; Linux LLVM Clang + Ninja is
+# the required named-module import gate.
+$ModuleArgument = "OFF"
 cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchitecture @ToolsetArguments `
     -DPROGPU_NATIVE_ENABLE_CPP_MODULES="$ModuleArgument" `
     -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="$IncludeDir" `
@@ -116,7 +120,13 @@ cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchite
     -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnHeadersDir" `
     -DPROGPU_NATIVE_BUILD_SAMPLE=ON `
     -DBUILD_TESTING=ON
+if ($LASTEXITCODE -ne 0) {
+    throw "CMake configuration failed for $Compiler/$Rid."
+}
 cmake --build $BuildDir --config Release --parallel
+if ($LASTEXITCODE -ne 0) {
+    throw "CMake build failed for $Compiler/$Rid."
+}
 
 $NativeDll = Join-Path $BuildDir "Release/progpu_native.dll"
 if (-not (Test-Path $NativeDll)) {
@@ -179,6 +189,9 @@ $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::Proc
 if ($CurrentArchitecture -eq $RunnableArchitecture) {
     $env:PATH = "$(Join-Path $BuildDir 'Release');$RuntimeDir;$env:PATH"
     ctest --test-dir $BuildDir -C Release --output-on-failure
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native C++20 tests failed for $Compiler/$Rid."
+    }
     $SampleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/sample"
     New-Item -ItemType Directory -Force -Path $SampleDirectory | Out-Null
     $NativeSample = Join-Path $BuildDir "Release/progpu_native_sample.exe"
