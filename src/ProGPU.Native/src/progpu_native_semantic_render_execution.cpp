@@ -2716,7 +2716,8 @@ progpu_native_status render_scene(
             if (scissor.drawable) {
                 note_family(command.kind ==
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY
-                    ? PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC
+                    ? static_cast<std::uint32_t>(
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC)
                     : command.kind);
             }
             progpu_native_status status =
