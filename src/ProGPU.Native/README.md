@@ -268,6 +268,17 @@ separate `O(N)` passes with `O(1)` internal state and transactional short-buffer
 failure. Script_Extensions and language tailoring remain explicit later stages
 rather than being guessed inside the decoder.
 
+The Unicode 17 bidi-class and paired-bracket ranges are generated from the
+same ProGPU managed packed tables and searched directly in native code. The
+native UAX #9 revision-51 resolver ports the managed explicit embedding,
+isolate, weak, bracket, neutral, implicit-level, and line-reset rules. It keeps
+source-unit ranges in the result and uses only exact caller-owned unit, index,
+level-run, and bracket-pair spans. Resolution is `O(N log N)` in the bounded
+worst case because bracket pairs are sorted by opening position; ordinary text
+is linear, retained state is `O(N)`, isolate/embedding depth is capped by the
+normative level 125, and the bracket stack uses the normative 63-entry bound.
+Capacity failure is transactional.
+
 The first shared OpenType execution primitive is a granular borrowed layout
 unit for Coverage formats 1/2, ClassDef formats 1/2, GSUB/GPOS headers, and lazy
 LookupList records. Construction validates complete sorted arrays, disjoint

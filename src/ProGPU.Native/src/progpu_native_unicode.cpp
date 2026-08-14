@@ -236,6 +236,64 @@ std::uint8_t get_unicode_canonical_combining_class(
         0U));
 }
 
+unicode_bidi_class get_unicode_bidi_class(
+    std::uint32_t code_point) noexcept {
+    if (!is_scalar(code_point)) {
+        return unicode_bidi_class::left_to_right;
+    }
+    constexpr std::uint64_t code_point_mask = (1ULL << 21U) - 1ULL;
+    std::size_t low = 0U;
+    std::size_t high = detail::unicode_bidi_class_ranges.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2U;
+        const std::uint64_t record = detail::unicode_bidi_class_ranges[middle];
+        const std::uint32_t start = static_cast<std::uint32_t>(
+            record & code_point_mask);
+        const std::uint32_t end = static_cast<std::uint32_t>(
+            (record >> 21U) & code_point_mask);
+        if (code_point < start) {
+            high = middle;
+        } else if (code_point > end) {
+            low = middle + 1U;
+        } else {
+            return static_cast<unicode_bidi_class>(record >> 42U);
+        }
+    }
+    return unicode_bidi_class::left_to_right;
+}
+
+bool try_get_unicode_bidi_bracket(
+    std::uint32_t code_point,
+    std::uint32_t& paired_code_point,
+    unicode_bidi_bracket_kind& kind) noexcept {
+    paired_code_point = 0U;
+    kind = unicode_bidi_bracket_kind::none;
+    if (!is_scalar(code_point)) {
+        return false;
+    }
+    constexpr std::uint64_t code_point_mask = (1ULL << 21U) - 1ULL;
+    std::size_t low = 0U;
+    std::size_t high = detail::unicode_bidi_bracket_records.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2U;
+        const std::uint64_t record =
+            detail::unicode_bidi_bracket_records[middle];
+        const std::uint32_t candidate = static_cast<std::uint32_t>(
+            record & code_point_mask);
+        if (code_point < candidate) {
+            high = middle;
+        } else if (code_point > candidate) {
+            low = middle + 1U;
+        } else {
+            paired_code_point = static_cast<std::uint32_t>(
+                (record >> 21U) & code_point_mask);
+            kind = static_cast<unicode_bidi_bracket_kind>(record >> 42U);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool try_get_utf8_decode_requirements(
     std::span<const std::byte> input,
     unicode_decode_requirements& result,

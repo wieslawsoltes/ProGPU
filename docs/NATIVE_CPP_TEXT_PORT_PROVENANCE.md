@@ -98,6 +98,19 @@ with cycle detection and a depth limit of 64. A lookup is
 device references are validated but their device/variation deltas remain an
 explicit subsequent slice.
 
+Unicode bidi analysis ports the ProGPU-owned `Bidi/Uax9Resolver.cs` at
+checkpoint `d9e89879`. The generator now copies the already generated Unicode
+17 bidi-class and paired-bracket packed records from
+`Bidi/UnicodeBidiData.Generated.cs` into the native table header, so the two
+backends cannot acquire independent property data. The native resolver applies
+UAX #9 revision 51 explicit embeddings/overrides, isolates, weak types, paired
+brackets, neutrals, implicit levels, L1 resets, and retained X9-control levels.
+All unit, active-index, level-run, and bracket-pair storage belongs to the
+caller; validation and short capacity fail before either output or caller
+scratch is touched. Typical work is `O(N)`, with `O(N log N)` bounded bracket
+pair ordering and `O(N)` caller storage. Explicit levels are capped at 125 and
+the paired-bracket stack at 63 as required by the algorithm.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

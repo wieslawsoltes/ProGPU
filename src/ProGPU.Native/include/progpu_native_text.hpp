@@ -79,6 +79,38 @@ enum class unicode_error : std::uint32_t {
     insufficient_buffer
 };
 
+enum class unicode_bidi_class : std::uint8_t {
+    left_to_right = 0U,
+    right_to_left,
+    arabic_letter,
+    european_number,
+    european_separator,
+    european_terminator,
+    arabic_number,
+    common_separator,
+    nonspacing_mark,
+    boundary_neutral,
+    paragraph_separator,
+    segment_separator,
+    whitespace,
+    other_neutral,
+    left_to_right_embedding,
+    left_to_right_override,
+    right_to_left_embedding,
+    right_to_left_override,
+    pop_directional_format,
+    left_to_right_isolate,
+    right_to_left_isolate,
+    first_strong_isolate,
+    pop_directional_isolate
+};
+
+enum class unicode_bidi_bracket_kind : std::uint8_t {
+    none = 0U,
+    open = 1U,
+    close = 2U
+};
+
 enum class shaping_direction : std::uint8_t {
     unspecified = 0U,
     left_to_right = 1U,
@@ -162,6 +194,72 @@ struct unicode_scalar final {
 open_type_tag get_unicode_script(std::uint32_t code_point) noexcept;
 std::uint8_t get_unicode_canonical_combining_class(
     std::uint32_t code_point) noexcept;
+unicode_bidi_class get_unicode_bidi_class(std::uint32_t code_point) noexcept;
+bool try_get_unicode_bidi_bracket(
+    std::uint32_t code_point,
+    std::uint32_t& paired_code_point,
+    unicode_bidi_bracket_kind& kind) noexcept;
+
+struct unicode_bidi_level final {
+    std::uint32_t input_index = 0U;
+    std::uint16_t input_length = 0U;
+    std::int8_t level = 0;
+    std::uint8_t reserved = 0U;
+};
+
+struct unicode_bidi_unit final {
+    std::uint32_t code_point = 0U;
+    std::uint32_t input_index = 0U;
+    std::uint16_t input_length = 0U;
+    unicode_bidi_class original = unicode_bidi_class::left_to_right;
+    unicode_bidi_class type = unicode_bidi_class::left_to_right;
+    std::int8_t level = 0;
+    std::uint8_t reserved = 0U;
+    std::int32_t matching_isolate = -1;
+};
+
+struct unicode_bidi_level_run final {
+    std::uint32_t active_start = 0U;
+    std::uint32_t active_count = 0U;
+    std::int32_t next = -1;
+    std::int8_t explicit_level = 0;
+    bool has_predecessor = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+};
+
+struct unicode_bidi_bracket_pair final {
+    std::uint32_t open_position = 0U;
+    std::uint32_t close_position = 0U;
+};
+
+struct unicode_bidi_requirements final {
+    std::uint32_t unit_count = 0U;
+    std::uint32_t index_count = 0U;
+    std::uint32_t run_count = 0U;
+    std::uint32_t bracket_pair_count = 0U;
+};
+
+struct unicode_bidi_scratch final {
+    std::span<unicode_bidi_unit> units{};
+    std::span<std::uint32_t> indices{};
+    std::span<unicode_bidi_level_run> runs{};
+    std::span<unicode_bidi_bracket_pair> bracket_pairs{};
+};
+
+bool try_get_unicode_bidi_requirements(
+    std::span<const unicode_scalar> input,
+    unicode_bidi_requirements& result,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_resolve_unicode_bidi(
+    std::span<const unicode_scalar> input,
+    std::int8_t requested_paragraph_level,
+    unicode_bidi_scratch scratch,
+    std::span<unicode_bidi_level> output,
+    std::int8_t& paragraph_level,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
 
 /*
  * Strict, transactional UTF decoding. The requirements pass validates the

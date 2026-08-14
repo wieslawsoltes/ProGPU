@@ -20,11 +20,23 @@ using progpu::native::text::open_type_tag;
 using progpu::native::text::unicode_error;
 using progpu::native::text::unicode_decode_requirements;
 using progpu::native::text::unicode_scalar;
+using progpu::native::text::unicode_bidi_class;
+using progpu::native::text::unicode_bidi_bracket_kind;
 using progpu::native::text::shaping_feature;
 using progpu::native::text::shaping_glyph;
 using progpu::native::text::shaping_glyph_flags;
 using progpu::native::text::get_unicode_script;
 using progpu::native::text::get_unicode_canonical_combining_class;
+using progpu::native::text::get_unicode_bidi_class;
+using progpu::native::text::try_get_unicode_bidi_bracket;
+using progpu::native::text::unicode_bidi_level;
+using progpu::native::text::unicode_bidi_unit;
+using progpu::native::text::unicode_bidi_level_run;
+using progpu::native::text::unicode_bidi_bracket_pair;
+using progpu::native::text::unicode_bidi_requirements;
+using progpu::native::text::unicode_bidi_scratch;
+using progpu::native::text::try_get_unicode_bidi_requirements;
+using progpu::native::text::try_resolve_unicode_bidi;
 using progpu::native::text::try_get_utf8_decode_requirements;
 using progpu::native::text::try_decode_utf8;
 using progpu::native::text::try_get_utf16_decode_requirements;
@@ -132,6 +144,19 @@ void unicode_contract_and_strict_decoders_are_transactional() {
 
     require(get_unicode_script(0x41U) ==
         open_type_tag::from_chars('l', 'a', 't', 'n'));
+    require(get_unicode_bidi_class(0x41U) ==
+        unicode_bidi_class::left_to_right);
+    require(get_unicode_bidi_class(0x05D0U) ==
+        unicode_bidi_class::right_to_left);
+    require(get_unicode_bidi_class(0x0627U) ==
+        unicode_bidi_class::arabic_letter);
+    std::uint32_t bracket_pair = 0U;
+    unicode_bidi_bracket_kind bracket_kind =
+        unicode_bidi_bracket_kind::none;
+    require(try_get_unicode_bidi_bracket(
+        0x28U, bracket_pair, bracket_kind));
+    require(bracket_pair == 0x29U &&
+        bracket_kind == unicode_bidi_bracket_kind::open);
     require(get_unicode_script(0x3042U) ==
         open_type_tag::from_chars('k', 'a', 'n', 'a'));
     require(get_unicode_script(0x0E81U) ==
@@ -189,6 +214,99 @@ void unicode_contract_and_strict_decoders_are_transactional() {
     require(!try_decode_utf16(lone_high, untouched, written, &error));
     require(error == unicode_error::invalid_encoding && written == 0U &&
         untouched[0U].code_point == 99U);
+}
+
+void unicode_bidi_resolution_is_bounded_and_source_preserving() {
+    static_assert(sizeof(unicode_bidi_level) == 8U);
+    static_assert(sizeof(unicode_bidi_unit) == 20U);
+    static_assert(sizeof(unicode_bidi_level_run) == 16U);
+    static_assert(sizeof(unicode_bidi_bracket_pair) == 8U);
+
+    std::array<unicode_scalar, 7U> input{};
+    constexpr std::array<std::uint32_t, 7U> code_points{
+        0x61U, 0x62U, 0x63U, 0x20U, 0x05D0U, 0x05D1U, 0x05D2U};
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        input[index].code_point = code_points[index];
+        input[index].input_index = static_cast<std::uint32_t>(index);
+        input[index].input_length = 1U;
+    }
+    unicode_bidi_requirements requirements{};
+    unicode_error error = unicode_error::invalid_argument;
+    require(try_get_unicode_bidi_requirements(input, requirements, &error));
+    require(requirements.unit_count == 7U && requirements.index_count == 28U &&
+        requirements.run_count == 7U && requirements.bracket_pair_count == 3U);
+    std::array<unicode_bidi_unit, 7U> units{};
+    std::array<std::uint32_t, 28U> indices{};
+    std::array<unicode_bidi_level_run, 7U> runs{};
+    std::array<unicode_bidi_bracket_pair, 3U> pairs{};
+    std::array<unicode_bidi_level, 7U> levels{};
+    std::int8_t paragraph = -1;
+    std::uint32_t written = 99U;
+    require(try_resolve_unicode_bidi(
+        input,
+        -1,
+        unicode_bidi_scratch{units, indices, runs, pairs},
+        levels,
+        paragraph,
+        written,
+        &error));
+    require(paragraph == 0 && written == 7U);
+    for (std::size_t index = 0U; index < 4U; ++index) {
+        require(levels[index].level == 0 &&
+            levels[index].input_index == index &&
+            levels[index].input_length == 1U);
+    }
+    for (std::size_t index = 4U; index < levels.size(); ++index) {
+        require(levels[index].level == 1);
+    }
+    require(try_resolve_unicode_bidi(
+        input,
+        1,
+        unicode_bidi_scratch{units, indices, runs, pairs},
+        levels,
+        paragraph,
+        written,
+        &error));
+    require(paragraph == 1 && levels[0U].level == 2 &&
+        levels[1U].level == 2 && levels[2U].level == 2 &&
+        levels[3U].level == 1 && levels[4U].level == 1 &&
+        levels[5U].level == 1 && levels[6U].level == 1);
+
+    std::array<unicode_scalar, 3U> explicit_input{};
+    explicit_input[0U] = unicode_scalar{0x202EU, 0U, 1U};
+    explicit_input[1U] = unicode_scalar{0x41U, 1U, 1U};
+    explicit_input[2U] = unicode_scalar{0x202CU, 2U, 1U};
+    std::array<unicode_bidi_unit, 3U> explicit_units{};
+    std::array<std::uint32_t, 12U> explicit_indices{};
+    std::array<unicode_bidi_level_run, 3U> explicit_runs{};
+    std::array<unicode_bidi_bracket_pair, 1U> explicit_pairs{};
+    std::array<unicode_bidi_level, 3U> explicit_levels{};
+    require(try_resolve_unicode_bidi(
+        explicit_input,
+        0,
+        unicode_bidi_scratch{
+            explicit_units, explicit_indices, explicit_runs, explicit_pairs},
+        explicit_levels,
+        paragraph,
+        written,
+        &error));
+    require(paragraph == 0 && written == 3U &&
+        explicit_levels[0U].level == 0 &&
+        explicit_levels[1U].level == 1 &&
+        explicit_levels[2U].level == 1);
+
+    levels.fill(unicode_bidi_level{99U, 99U, 99, 0U});
+    require(!try_resolve_unicode_bidi(
+        input,
+        -1,
+        unicode_bidi_scratch{
+            units, std::span<std::uint32_t>{indices}.first(27U), runs, pairs},
+        levels,
+        paragraph,
+        written,
+        &error));
+    require(error == unicode_error::insufficient_buffer && written == 0U &&
+        levels[0U].input_index == 99U);
 }
 
 void canonical_unicode_normalization_uses_shared_borrowed_data() {
@@ -4227,6 +4345,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 
 int main() {
     unicode_contract_and_strict_decoders_are_transactional();
+    unicode_bidi_resolution_is_bounded_and_source_preserving();
     canonical_unicode_normalization_uses_shared_borrowed_data();
     unicode_script_itemization_preserves_source_ranges();
     open_type_common_layout_views_are_borrowed_and_bounded();
