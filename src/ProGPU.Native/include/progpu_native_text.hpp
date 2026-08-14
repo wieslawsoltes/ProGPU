@@ -264,6 +264,22 @@ struct sfnt_composite_glyph_variation_scratch final {
     std::span<std::int16_t> y_deltas{};
 };
 
+struct sfnt_glyph_phantom_variation_requirements final {
+    std::uint16_t tuple_header_count = 0U;
+    std::uint32_t region_coordinate_count = 0U;
+    std::uint32_t point_number_count = 0U;
+    std::uint32_t delta_count = 0U;
+};
+
+struct sfnt_glyph_phantom_variation_scratch final {
+    std::span<sfnt_gvar_tuple_header> tuple_headers{};
+    std::span<std::int16_t> region_coordinates{};
+    std::span<std::uint32_t> shared_point_numbers{};
+    std::span<std::uint32_t> private_point_numbers{};
+    std::span<std::int16_t> x_deltas{};
+    std::span<std::int16_t> y_deltas{};
+};
+
 /*
  * Exact maximum caller storage for recursive variable TrueType expansion.
  * Measurement is O(G + C) for G reachable glyphs and C components; decoding
@@ -498,6 +514,18 @@ public:
         std::uint32_t component_count,
         std::span<progpu_native_point> offsets,
         sfnt_composite_glyph_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_glyph_phantom_variation_requirements(
+        std::uint16_t glyph_index,
+        std::uint32_t item_count,
+        sfnt_glyph_phantom_variation_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_glyph_phantom_advance_delta(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint32_t item_count,
+        float& result,
+        sfnt_glyph_phantom_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;

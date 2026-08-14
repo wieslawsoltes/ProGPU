@@ -25,6 +25,8 @@ using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_glyph_decode_requirements;
 using progpu::native::text::sfnt_glyph_kind;
 using progpu::native::text::sfnt_glyph_variation_data_view;
+using progpu::native::text::sfnt_glyph_phantom_variation_requirements;
+using progpu::native::text::sfnt_glyph_phantom_variation_scratch;
 using progpu::native::text::sfnt_gvar_header;
 using progpu::native::text::sfnt_gvar_deltas;
 using progpu::native::text::sfnt_gvar_tuple_data;
@@ -213,8 +215,8 @@ std::vector<std::byte> make_gvar() {
     result[64U] = std::byte{2U};
     result[65U] = std::byte{0U};
     result[66U] = std::byte{0U};
-    result[67U] = std::byte{0U};
-    result[68U] = std::byte{0U};
+    result[67U] = std::byte{4U};
+    result[68U] = std::byte{10U};
     result[69U] = std::byte{0U};
     result[70U] = std::byte{0U};
     result[71U] = std::byte{0x86U};
@@ -689,6 +691,51 @@ void composite_glyph_variations_apply_component_offsets() {
         &error));
     require(error == font_error::insufficient_buffer);
     require(short_offsets[0].x == 99.0F && short_offsets[0].y == 99.0F);
+}
+
+void phantom_glyph_variations_apply_advance_delta() {
+    const auto data = make_font(0U, 22U, 0U, true, true, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_glyph_phantom_variation_requirements requirements{};
+    require(font.try_get_glyph_phantom_variation_requirements(
+        4U, 7U, requirements));
+    require(requirements.tuple_header_count == 1U);
+    require(requirements.region_coordinate_count == 6U);
+    require(requirements.point_number_count == 7U);
+    require(requirements.delta_count == 7U);
+
+    std::array<sfnt_gvar_tuple_header, 1U> headers{};
+    std::array<std::int16_t, 6U> regions{};
+    std::array<std::uint32_t, 7U> shared_points{};
+    std::array<std::uint32_t, 7U> private_points{};
+    std::array<std::int16_t, 7U> x_deltas{};
+    std::array<std::int16_t, 7U> y_deltas{};
+    sfnt_glyph_phantom_variation_scratch scratch{
+        headers,
+        regions,
+        shared_points,
+        private_points,
+        x_deltas,
+        y_deltas};
+    const std::array<std::int16_t, 2U> normalized{4096, -4096};
+    float delta = 99.0F;
+    font_error error = font_error::none;
+    require(font.try_get_glyph_phantom_advance_delta(
+        4U, normalized, 7U, delta, scratch, &error));
+    require(error == font_error::none && delta == 3.0F);
+
+    delta = 99.0F;
+    require(font.try_get_glyph_phantom_advance_delta(
+        4U, normalized, 3U, delta, {}, &error));
+    require(error == font_error::none && delta == 0.0F);
+
+    auto short_scratch = scratch;
+    short_scratch.x_deltas = std::span<std::int16_t>{x_deltas}.first(6U);
+    delta = 99.0F;
+    require(!font.try_get_glyph_phantom_advance_delta(
+        4U, normalized, 7U, delta, short_scratch, &error));
+    require(error == font_error::insufficient_buffer && delta == 0.0F);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1717,6 +1764,7 @@ int main() {
     untouched_glyph_deltas_interpolate_without_allocation();
     simple_glyph_variations_apply_packed_tuple_deltas();
     composite_glyph_variations_apply_component_offsets();
+    phantom_glyph_variations_apply_advance_delta();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

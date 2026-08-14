@@ -30,6 +30,8 @@ using ::progpu::native::text::sfnt_gvar_deltas;
 using ::progpu::native::text::sfnt_gvar_tuple_header;
 using ::progpu::native::text::sfnt_gvar_tuple_requirements;
 using ::progpu::native::text::sfnt_glyph_variation_data_view;
+using ::progpu::native::text::sfnt_glyph_phantom_variation_requirements;
+using ::progpu::native::text::sfnt_glyph_phantom_variation_scratch;
 using ::progpu::native::text::sfnt_packed_delta_requirements;
 using ::progpu::native::text::sfnt_packed_point_requirements;
 using ::progpu::native::text::sfnt_packed_variation_data;

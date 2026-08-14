@@ -19,6 +19,8 @@ int main() {
     const progpu::native::text::sfnt_variation_axis axis{};
     const progpu::native::text::sfnt_gvar_header gvar{};
     const progpu::native::text::sfnt_gvar_tuple_header gvar_tuple{};
+    const progpu::native::text::sfnt_glyph_phantom_variation_requirements
+        phantom_requirements{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -37,7 +39,7 @@ int main() {
         return 1;
     }
     if (gvar.axis_count != 0U || gvar_tuple.flags != 0U ||
-        packed.point_count != 0U) {
+        packed.point_count != 0U || phantom_requirements.delta_count != 0U) {
         return 1;
     }
     (void)sizeof(gvar_deltas);
