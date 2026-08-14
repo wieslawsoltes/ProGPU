@@ -145,8 +145,19 @@ Counting is `O(1)` and decoding is `O(A)` time with `O(1)` internal storage for
 truncation, and transactional-buffer cases pass under normal, LLVM named-module,
 and ASan/UBSan builds. The real InterVariable checkpoint matches the managed
 implementation's `opsz` 14/14/32 and `wght` 100/400/900 axes exactly. `avar`
-normalization, named instances, `gvar` deltas, HVAR/MVAR/GDEF variation stores,
-and per-instance caching remain explicit later slices.
+normalization follows at checkpoint
+`05ca2df1faee220bd7783611a3cf13ad72189130`: one signed 16.16 user
+coordinate is clamped and normalized with the managed away-from-zero F2Dot14
+rule, then passed through the selected piecewise `avar` map with managed
+midpoint-to-even interpolation. The allocation-free scan validates every map
+range in `O(A + M)` time and `O(1)` storage for `A` axes and `M` map pairs;
+an absent/out-of-range optional table retains the base normalized coordinate,
+and an axis-count mismatch is ignored exactly like the managed implementation.
+Synthetic endpoints, clamping, interpolation, invalid-axis, and truncated-map
+cases plus the real InterVariable checkpoints match `opsz=23 -> 8192`,
+`wght=500 -> 2949`, and `wght=700 -> 8847`. Named instances, `gvar` deltas,
+HVAR/MVAR/GDEF variation stores, and per-instance caching remain explicit later
+slices.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

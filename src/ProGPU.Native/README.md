@@ -148,8 +148,10 @@ keeps the source-independent fallback fixture used by package consumers.
 allocation-free two-pass `fvar` axis reader. It retains each tag, signed 16.16
 range/default, flags, and name ID in fixed records, validates the complete table
 before writing caller storage, and is exported through both the header and LLVM
-module surfaces. `avar`/`gvar` and metric/layout variation application remain
-explicitly unsupported until their following bounded slices land.
+module surfaces. The same allocation-free surface now normalizes signed 16.16
+user coordinates and applies optional piecewise `avar` mappings in a bounded
+scan. `gvar` and metric/layout variation application remain explicitly
+unsupported until their following bounded slices land.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
