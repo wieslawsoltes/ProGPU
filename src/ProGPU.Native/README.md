@@ -175,15 +175,21 @@ pixel verification and a CI evidence image; that readback is test-only.
 Both `progpu_native` and `progpu_native_dawn` are staged in the
 `ProGPU.Backend.Native` RID package for Linux, macOS, and Windows x64/arm64.
 The source-independent package consumer loads both binaries and validates their
-distinct backend identities; it executes the existing wgpu-native hardware
-render smoke. The exact WebScene provider hardware gate runs separately on
-macOS arm64 because that provider revision currently exposes Metal/IOSurface.
+distinct backend identities. Every runnable RID build also executes the native
+C++ backend sample, requires the host backend (`Vulkan`, `Metal`, or `D3D12`),
+reads back and checks known pixels, and uploads both the PPM capture and a
+`progpu-native-provider.txt` adapter/backend record. The exact WebScene
+provider hardware gate runs separately on macOS arm64 because that provider
+revision currently exposes Metal/IOSurface.
 
 ABI v3 also publishes an opaque submission token for each native frame.
 External-image owners can poll or wait for that token before recycling a
 borrowed texture; stable rendering does not wait and creates no managed
-per-frame synchronization object. Platform decoder imports and cross-API
-producer fences remain separate adapters.
+per-frame synchronization object. Platform decoder handle import and producer
+fences remain in the typed Dawn platform adapters: IOSurface/MTLSharedEvent,
+DXGI/keyed mutex, AHardwareBuffer/SyncFD, and DMA-BUF/SyncFD are converted to a
+same-device WebGPU view before entering C++. The renderer deliberately does not
+duplicate OS handle descriptors in its stable semantic ABI.
 
 Run the matched managed/native rectangle differential and CPU-submission
 benchmark after the native build:
@@ -433,10 +439,10 @@ Current native parity:
   resources instead of creating a second native vector engine; the shared
   provider/browser fixture also lowers and validates ordered vector layers,
   strikethrough, and underline without a text-specific geometry path;
-- destination-aware semantic nested blend restore using the actual rendered
+- destination-aware semantic nested blend restore and explicit bounded
+  backdrop input using the actual rendered
   parent texture, shared `AdvancedBlend.wgsl`, and a checked three-texture
-  scratch budget; empty bounded layers avoid invalid zero-size scissors and
-  backdrop-input layers remain an explicit unsupported boundary;
+  scratch budget; empty bounded layers avoid invalid zero-size scissors;
 - compact reusable per-frame solid-brush tables only for geometry whose shader
   payload occupies the vertex color fields;
 - four vertices and six indices per analytic primitive, one draw/submission,

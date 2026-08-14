@@ -100,6 +100,15 @@ jobs:
             artifacts/progpu-native/sample/progpu-native-webscene-provider.txt
           if-no-files-found: error
 
+      - name: Upload native backend execution evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-backend-${{ matrix.rid }}
+          path: |
+            artifacts/progpu-native/sample/progpu-native-sample.ppm
+            artifacts/progpu-native/sample/progpu-native-provider.txt
+          if-no-files-found: error
+
       - name: Upload native runtime
         uses: actions/upload-artifact@v7
         with:

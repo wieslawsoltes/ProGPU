@@ -174,6 +174,15 @@ $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::Proc
 if ($CurrentArchitecture -eq $RunnableArchitecture) {
     $env:PATH = "$(Join-Path $BuildDir 'Release');$RuntimeDir;$env:PATH"
     ctest --test-dir $BuildDir -C Release --output-on-failure
+    $SampleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/sample"
+    New-Item -ItemType Directory -Force -Path $SampleDirectory | Out-Null
+    $NativeSample = Join-Path $BuildDir "Release/progpu_native_sample.exe"
+    $NativeSampleOutput = Join-Path $SampleDirectory "progpu-native-sample.ppm"
+    $NativeProviderEvidence = Join-Path $SampleDirectory "progpu-native-provider.txt"
+    & $NativeSample $NativeSampleOutput $NativeProviderEvidence
+    if ($LASTEXITCODE -ne 0) {
+        throw "The D3D12 native renderer backend sample failed."
+    }
     $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
     dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj") -c Release -- $SampleOutput

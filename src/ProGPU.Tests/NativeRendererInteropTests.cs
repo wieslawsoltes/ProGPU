@@ -2381,6 +2381,47 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeRendererPublishesBackendExplicitHardwareEvidence()
+    {
+        string sample = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "samples", "progpu_native_sample.cpp"));
+        string unixBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native.sh"));
+        string windowsBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native-windows.ps1"));
+        string buildWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "build.yml"));
+        string releaseWorkflow = File.ReadAllText(FindRepoFile(
+            ".github", "workflows", "release.yml"));
+
+        Assert.Contains("return WGPUBackendType_D3D12;", sample,
+            StringComparison.Ordinal);
+        Assert.Contains("return WGPUBackendType_Metal;", sample,
+            StringComparison.Ordinal);
+        Assert.Contains("return WGPUBackendType_Vulkan;", sample,
+            StringComparison.Ordinal);
+        Assert.Contains("wgpuAdapterGetProperties", sample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "adapter_properties.backendType != platform_backend_type()",
+            sample,
+            StringComparison.Ordinal);
+        Assert.Contains("has_expected_colors", sample,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu-native-provider.txt", unixBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu_native_sample.exe", windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("The D3D12 native renderer backend sample failed.",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("Upload native backend execution evidence", buildWorkflow,
+            StringComparison.Ordinal);
+        Assert.Contains("Upload native backend execution evidence", releaseWorkflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DesktopNativeSampleSelectsSilkWithoutReinterpretingDawnHandles()
     {
         string program = File.ReadAllText(FindRepoFile(

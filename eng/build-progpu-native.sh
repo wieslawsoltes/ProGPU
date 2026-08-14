@@ -121,7 +121,8 @@ fi
 
 mkdir -p "${sample_dir}"
 "${build_dir}/progpu_native_sample" \
-  "${sample_dir}/progpu-native-sample.ppm"
+  "${sample_dir}/progpu-native-sample.ppm" \
+  "${sample_dir}/progpu-native-provider.txt"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \

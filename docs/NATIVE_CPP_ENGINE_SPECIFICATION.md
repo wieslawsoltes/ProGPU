@@ -34,12 +34,13 @@ The migration is complete only when all of the following are true:
    checksum manifests, sample, .NET host, and WebScene provider integration are
    built and tested in CI.
 
-The implementation remains deliberately smaller than the managed compositor:
-it proves the engine ABI, exact WebGPU ABI selection, shared shader pipelines,
-native batching and submission, external-target ownership, hardware readback,
-the first indexed analytic/geometry batches, quadratic/cubic curves, connected
-polylines, and adaptive rational spline strokes. It is evidence for the
-architecture, not a claim of full parity.
+The implementation remains additive and opt-in. It now covers representative
+retained 2D semantic scene domains, including analytic/path/glyph/image pages,
+materials, state, clips, nested layers, masks, effect chains, backdrop input,
+blend modes, retained bundles, device recreation, and same-device external
+texture views. Broader shipping-scene substitution, platform lifecycle
+evidence, and final manual qualification remain open, so this is not yet a
+claim of full managed-compositor parity.
 
 ## 2. Clean-room and source policy
 
@@ -281,6 +282,16 @@ exists only in the integration test to validate pixels and emit CI evidence.
 Every Dawn validation error and unexpected device loss fails the gate. Direct
 Dawn linkage and cross-casting handles between the two binaries remain
 prohibited.
+
+The cross-platform provider checkpoint uses the separately linked pinned
+wgpu-native ABI because the pinned WebScene provider currently exposes only
+Metal. Its native executable requests exactly Metal on macOS, D3D12 on Windows,
+and Vulkan on Linux, rejects a different enumerated backend, renders through the
+C++ engine, performs a test-only pixel readback, and writes adapter/backend
+metadata. Build and release workflows publish the image and metadata separately
+for every runnable RID. This proves real C++ execution rather than merely
+compilation; it does not imply that one provider's opaque objects can enter the
+other adapter.
 
 ## 6. Stable native engine ABI
 
@@ -662,8 +673,11 @@ persistent sampler bind groups only when the view or source revision changes,
 and performs no pixel transfer. The reference is released when replaced or
 when the renderer is destroyed; callers must keep the underlying texture alive
 and must not destroy it while the view is retained. Native IOSurface, DXGI,
-DMA-BUF, browser-external-texture imports and explicit producer/consumer fence
-handoff remain future typed capabilities. Premultiplied formats, subrect
+DMA-BUF, and AHardwareBuffer import plus explicit producer/consumer fences are
+implemented by the typed Dawn platform layer before this boundary. C++ consumes
+only the validated same-device view and therefore keeps platform descriptors
+out of the stable renderer ABI. Browser external textures remain a separate
+browser-host acquisition concern. Premultiplied formats, subrect
 updates, mipmaps, cubic/anisotropic sampling, tiling, color transforms, and
 masks also remain.
 
@@ -679,9 +693,11 @@ stable replay performs no image, mask, vertex, index, or uniform upload.
 Mask binding and submission are `O(1)` CPU time/storage after warmup, add one
 texture sample per covered fragment, and retain no duplicate mask texture.
 The typed managed boundary rejects foreign-device, render-target, multisample,
-disposed, non-bindable, and unsupported-format masks. General nested layers,
-vector/text masks, decoder-native IOSurface/DXGI/DMA-BUF import, and explicit
-producer/consumer fences remain later capabilities.
+disposed, non-bindable, and unsupported-format masks. General nested layers and
+vector/text masks are implemented by the semantic scene path. Decoder-native
+platform import and producer-fence handling remain upstream responsibilities of
+the typed Dawn platform adapters; the native renderer owns only the consumer
+submission token and borrowed-view lifetime.
 
 The ABI-v3 increment adds an explicit same-queue consumer timeline. Every
 native render submits through the pinned wgpu-native indexed-submit extension
@@ -694,10 +710,11 @@ allocation-free, owner-thread-affine operations; ordinary rendering never
 polls or waits. A token is valid only for its originating compositor.
 
 This timeline is the consumer side of external-media synchronization. Work
-produced on the same WebGPU queue is already ordered. IOSurface shared events,
-DXGI shared fences, DMA-BUF sync files, and browser external-texture acquisition
-still require separate typed platform adapters before decoder-native imports
-can be claimed.
+produced on the same WebGPU queue is already ordered. The repository's Dawn
+platform layer supplies the separate typed IOSurface/MTLSharedEvent,
+DXGI/keyed-mutex, DMA-BUF/SyncFD, and AHardwareBuffer/SyncFD adapters. Browser
+external-texture acquisition remains host-owned. The C++ renderer never parses
+or owns those platform handle descriptors.
 
 The second ABI-v3 extension adds common per-draw primitive opacity and one
 target-space logical rectangle clip to every implemented frame family. Clip

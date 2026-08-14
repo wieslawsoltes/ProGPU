@@ -73,6 +73,29 @@ WGPUInstanceBackendFlags platform_backends() {
 #endif
 }
 
+WGPUBackendType platform_backend_type() {
+#if defined(__APPLE__)
+    return WGPUBackendType_Metal;
+#elif defined(_WIN32)
+    return WGPUBackendType_D3D12;
+#else
+    return WGPUBackendType_Vulkan;
+#endif
+}
+
+const char* backend_name(WGPUBackendType backend) {
+    switch (backend) {
+        case WGPUBackendType_D3D12:
+            return "D3D12";
+        case WGPUBackendType_Metal:
+            return "Metal";
+        case WGPUBackendType_Vulkan:
+            return "Vulkan";
+        default:
+            return "Unexpected";
+    }
+}
+
 bool request_device(
     WGPUInstance instance,
     WGPUAdapter& adapter,
@@ -85,7 +108,7 @@ bool request_device(
         &adapter_options,
         nullptr);
     if (adapter_count == 0U) {
-        std::cerr << "No hardware WebGPU adapter was found.\n";
+        std::cerr << "No requested WebGPU backend adapter was found.\n";
         return false;
     }
     std::vector<WGPUAdapter> adapters(adapter_count);
@@ -151,6 +174,32 @@ bool write_ppm(
     return output.good();
 }
 
+bool write_evidence(
+    const std::string& path,
+    const WGPUAdapterProperties& properties,
+    const progpu_native_frame_metrics& metrics,
+    const std::string& capture_path) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        return false;
+    }
+    output << "backend=" << backend_name(properties.backendType) << '\n'
+           << "adapter="
+           << (properties.name == nullptr ? "unknown" : properties.name)
+           << '\n'
+           << "driver="
+           << (properties.driverDescription == nullptr
+               ? "unknown"
+               : properties.driverDescription)
+           << '\n'
+           << "vendor_id=" << properties.vendorID << '\n'
+           << "device_id=" << properties.deviceID << '\n'
+           << "draw_calls=" << metrics.draw_call_count << '\n'
+           << "vertices=" << metrics.vertex_count << '\n'
+           << "capture=" << capture_path << '\n';
+    return output.good();
+}
+
 bool has_expected_colors(
     const std::uint8_t* pixels,
     std::uint32_t row_bytes) {
@@ -171,6 +220,7 @@ int main(int argc, char** argv) {
     const std::string output_path = argc > 1
         ? argv[1]
         : "progpu-native-sample.ppm";
+    const std::string evidence_path = argc > 2 ? argv[2] : std::string{};
 
     WGPUInstanceExtras extras{};
     extras.chain.sType = static_cast<WGPUSType>(WGPUSType_InstanceExtras);
@@ -189,6 +239,17 @@ int main(int argc, char** argv) {
     WGPUQueue queue = nullptr;
     if (!request_device(instance, adapter, device, queue)) {
         wgpuInstanceRelease(instance);
+        return EXIT_FAILURE;
+    }
+    WGPUAdapterProperties adapter_properties{};
+    wgpuAdapterGetProperties(adapter, &adapter_properties);
+    const std::string adapter_name = adapter_properties.name == nullptr
+        ? "unknown"
+        : adapter_properties.name;
+    if (adapter_properties.backendType != platform_backend_type()) {
+        std::cerr << "Expected " << backend_name(platform_backend_type())
+                  << " but selected "
+                  << backend_name(adapter_properties.backendType) << ".\n";
         return EXIT_FAILURE;
     }
 
@@ -302,7 +363,12 @@ int main(int argc, char** argv) {
         mapped.status == WGPUBufferMapAsyncStatus_Success &&
         pixels != nullptr &&
         has_expected_colors(pixels, row_bytes) &&
-        write_ppm(output_path, pixels, width, height, row_bytes);
+        write_ppm(output_path, pixels, width, height, row_bytes) &&
+        (evidence_path.empty() || write_evidence(
+            evidence_path,
+            adapter_properties,
+            metrics,
+            output_path));
 
     if (pixels != nullptr) {
         wgpuBufferUnmap(readback);
@@ -323,7 +389,11 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    std::cout << "[ProGPUNative] rendered " << metrics.vertex_count
+    std::cout << "[ProGPUNative] "
+              << backend_name(adapter_properties.backendType)
+              << " adapter '"
+              << adapter_name
+              << "' rendered " << metrics.vertex_count
               << " vertices in " << metrics.draw_call_count
               << " draw call; wrote " << output_path << '\n';
     return EXIT_SUCCESS;

@@ -125,6 +125,16 @@ jobs:
             artifacts/progpu-native/sample/progpu-native-webscene-provider.txt
           if-no-files-found: error
 
+      - name: Upload native backend execution evidence
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'linux-arm64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64' || matrix.rid == 'win-arm64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-backend-${{ matrix.rid }}
+          path: |
+            artifacts/progpu-native/sample/progpu-native-sample.ppm
+            artifacts/progpu-native/sample/progpu-native-provider.txt
+          if-no-files-found: error
+
       - name: Upload native runtime
         uses: actions/upload-artifact@v7
         with:
