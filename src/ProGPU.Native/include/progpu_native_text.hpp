@@ -704,6 +704,10 @@ struct open_type_shape_run_options final {
     std::span<const std::int16_t> normalized_coordinates{};
     std::uint32_t alternate_value = 1U;
     bool zero_mark_advances = true;
+    shaping_cluster_level cluster_level =
+        shaping_cluster_level::monotone_graphemes;
+    shaping_buffer_flags buffer_flags = shaping_buffer_flags::none;
+    bool compose_hebrew_presentation_forms = true;
 };
 
 struct open_type_shape_run_scratch final {
@@ -728,6 +732,21 @@ struct open_type_shape_run_requirements final {
  * The caller supplies expandable storage; capacity failure is transactional. */
 bool try_prepare_open_type_hangul(
     const sfnt_font_view& font,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error = nullptr) noexcept;
+
+/* Ports ProGPU's common pre-GSUB glyph preparation: optional start-of-text
+ * dotted circle, modified combining-class ordering (including Arabic modifier
+ * marks), Hebrew presentation-form composition, and Thai/Lao Sara Am
+ * decomposition/reordering. The caller supplies expandable storage and the
+ * operation preflights capacity before mutation. */
+bool try_preprocess_open_type_glyphs(
+    const sfnt_font_view& font,
+    open_type_tag script,
+    shaping_cluster_level cluster_level,
+    shaping_buffer_flags buffer_flags,
+    bool compose_hebrew_presentation_forms,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     font_error* error = nullptr) noexcept;

@@ -27,6 +27,8 @@ using progpu::native::text::unicode_bidi_bracket_kind;
 using progpu::native::text::shaping_feature;
 using progpu::native::text::shaping_glyph;
 using progpu::native::text::shaping_glyph_flags;
+using progpu::native::text::shaping_cluster_level;
+using progpu::native::text::shaping_buffer_flags;
 using progpu::native::text::get_unicode_script;
 using progpu::native::text::get_unicode_arabic_joining_type;
 using progpu::native::text::open_type_arabic_action;
@@ -87,6 +89,7 @@ using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
 using progpu::native::text::try_itemize_font_fallback;
+using progpu::native::text::try_preprocess_open_type_glyphs;
 using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
 using progpu::native::text::get_unicode_line_break_class;
@@ -1959,6 +1962,25 @@ std::vector<std::byte> make_cmap() {
     return result;
 }
 
+std::vector<std::byte> make_cmap_groups(
+    std::span<const std::pair<std::uint32_t, std::uint32_t>> mappings) {
+    std::vector<std::byte> result(28U + mappings.size() * 12U);
+    write_u16(result, 2U, 1U);
+    write_u16(result, 4U, 3U);
+    write_u16(result, 6U, 10U);
+    write_u32(result, 8U, 12U);
+    write_u16(result, 12U, 12U);
+    write_u32(result, 16U, static_cast<std::uint32_t>(result.size() - 12U));
+    write_u32(result, 24U, static_cast<std::uint32_t>(mappings.size()));
+    for (std::size_t index = 0U; index < mappings.size(); ++index) {
+        const std::size_t offset = 28U + index * 12U;
+        write_u32(result, offset, mappings[index].first);
+        write_u32(result, offset + 4U, mappings[index].first);
+        write_u32(result, offset + 8U, mappings[index].second);
+    }
+    return result;
+}
+
 std::vector<std::byte> make_cmap14() {
     std::vector<std::byte> result(90U);
     write_u16(result, 2U, 2U);
@@ -2394,7 +2416,8 @@ std::vector<std::byte> make_font(
     bool include_variations = false,
     bool include_axis_mapping = false,
     bool include_glyph_variations = false,
-    std::span<const table_data> extra_tables = {}) {
+    std::span<const table_data> extra_tables = {},
+    std::span<const std::byte> cmap_override = {}) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -2458,7 +2481,11 @@ std::vector<std::byte> make_font(
     glyf.bytes[21U] = static_cast<std::byte>(10U);
     tables.push_back(std::move(glyf));
     tables.push_back(table_data{
-        open_type_tag::from_chars('c', 'm', 'a', 'p'), make_cmap()});
+        open_type_tag::from_chars('c', 'm', 'a', 'p'),
+        cmap_override.empty()
+            ? make_cmap()
+            : std::vector<std::byte>(
+                cmap_override.begin(), cmap_override.end())});
     if (include_variations) {
         tables.push_back(table_data{
             open_type_tag::from_chars('f', 'v', 'a', 'r'), make_fvar()});
@@ -2553,6 +2580,93 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
         &error));
     require(error == font_error::insufficient_buffer && glyph_count == 0U &&
         glyphs[0U].glyph_id == 99U);
+}
+
+void open_type_common_preprocessing_matches_managed_stages() {
+    constexpr std::array mappings{
+        std::pair{0x05BCU, 2U},
+        std::pair{0x05E9U, 6U},
+        std::pair{0x0E31U, 2U},
+        std::pair{0x0E32U, 3U},
+        std::pair{0x0E33U, 4U},
+        std::pair{0x0E4DU, 5U},
+        std::pair{0x25CCU, 1U},
+        std::pair{0xFB49U, 7U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    std::array<shaping_glyph, 6U> marks{
+        shaping_glyph{0U, 0x0301U, 0},
+        shaping_glyph{0U, 0x0316U, 1}};
+    std::uint32_t count = 2U;
+    require(try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        shaping_cluster_level::monotone_characters,
+        shaping_buffer_flags::beginning_of_text,
+        true,
+        marks,
+        count,
+        &error));
+    require(count == 3U && marks[0U].code_point == 0x25CCU &&
+        marks[1U].code_point == 0x0316U &&
+        marks[2U].code_point == 0x0301U && marks[2U].cluster == 0);
+
+    std::array<shaping_glyph, 4U> hebrew_glyphs{
+        shaping_glyph{6U, 0x05E9U, 4},
+        shaping_glyph{2U, 0x05BCU, 4}};
+    count = 2U;
+    require(try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('h', 'e', 'b', 'r'),
+        shaping_cluster_level::monotone_graphemes,
+        shaping_buffer_flags::none,
+        true,
+        hebrew_glyphs,
+        count,
+        &error));
+    require(count == 1U && hebrew_glyphs[0U].code_point == 0xFB49U &&
+        hebrew_glyphs[0U].glyph_id == 7U);
+
+    std::array<shaping_glyph, 6U> thai_glyphs{
+        shaping_glyph{2U, 0x0E31U, 0},
+        shaping_glyph{4U, 0x0E33U, 1}};
+    count = 2U;
+    require(try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('t', 'h', 'a', 'i'),
+        shaping_cluster_level::monotone_graphemes,
+        shaping_buffer_flags::none,
+        true,
+        thai_glyphs,
+        count,
+        &error));
+    require(count == 3U && thai_glyphs[0U].code_point == 0x0E4DU &&
+        thai_glyphs[1U].code_point == 0x0E31U &&
+        thai_glyphs[2U].code_point == 0x0E32U &&
+        thai_glyphs[0U].cluster == 0 && thai_glyphs[1U].cluster == 0 &&
+        thai_glyphs[2U].cluster == 0);
+
+    std::array<shaping_glyph, 2U> short_storage{
+        shaping_glyph{0U, 0x0301U, 5},
+        shaping_glyph{0U, 0x0316U, 6}};
+    count = 2U;
+    require(!try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        shaping_cluster_level::monotone_graphemes,
+        shaping_buffer_flags::beginning_of_text,
+        true,
+        short_storage,
+        count,
+        &error));
+    require(error == font_error::insufficient_buffer && count == 2U &&
+        short_storage[0U].code_point == 0x0301U &&
+        short_storage[1U].code_point == 0x0316U);
 }
 
 void open_type_hangul_preparation_composes_and_decomposes() {
@@ -5249,6 +5363,7 @@ int main() {
     open_type_gpos_context_format3_applies_nested_lookup();
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
+    open_type_common_preprocessing_matches_managed_stages();
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();

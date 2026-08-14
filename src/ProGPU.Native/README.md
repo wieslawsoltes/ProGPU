@@ -353,6 +353,16 @@ the public glyph ABI. The preparation pass is `O(G)` with `O(1)` internal
 storage and uses a caller-owned conservative three-record capacity per input
 glyph; insufficient capacity leaves the input unchanged.
 
+Common pre-GSUB preparation is now part of the native uniform-run path rather
+than a managed callback. It inserts a font-supported dotted circle for an
+initial mark when requested, applies ProGPU's modified combining-class order
+and Arabic modifier-mark order, composes font-supported Hebrew presentation
+forms, and decomposes/reorders Thai or Lao Sara Am. The stage is allocation-free
+and preflights expansion before mutation. Ordinary work is `O(G)`; stable
+combining-mark insertion is `O(M^2)` only for an adversarial reverse-ordered
+mark run of length `M`. Script options and the 32-byte bulk glyph ABI are shared
+by the standalone stage and the uniform-run orchestrator.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

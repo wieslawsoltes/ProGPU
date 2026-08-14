@@ -56,6 +56,18 @@ bool uses_hangul(open_type_tag script) noexcept {
     return script == open_type_tag::from_chars('h', 'a', 'n', 'g');
 }
 
+bool may_expand_preprocessing(
+    open_type_tag script,
+    shaping_buffer_flags flags) noexcept {
+    const bool beginning =
+        (static_cast<std::uint8_t>(flags) &
+            static_cast<std::uint8_t>(
+                shaping_buffer_flags::beginning_of_text)) != 0U;
+    return beginning || uses_hangul(script) ||
+        script == open_type_tag::from_chars('t', 'h', 'a', 'i') ||
+        script == open_type_tag::from_chars('l', 'a', 'o', ' ');
+}
+
 bool is_variation_selector(std::uint32_t code_point) noexcept {
     return (code_point >= 0xFE00U && code_point <= 0xFE0FU) ||
         (code_point >= 0xE0100U && code_point <= 0xE01EFU);
@@ -300,7 +312,8 @@ bool try_shape_open_type_run(
     }
     const bool arabic_joining = uses_arabic_joining(options.script);
     const bool hangul = uses_hangul(options.script);
-    const std::size_t glyph_capacity = hangul
+    const std::size_t glyph_capacity = may_expand_preprocessing(
+        options.script, options.buffer_flags)
         ? requirements.glyph_capacity
         : requirements.initial_glyph_count;
     if (glyph_storage.size() < glyph_capacity ||
@@ -390,8 +403,15 @@ bool try_shape_open_type_run(
     }
     glyph_count = mapped_count;
 
-    if (hangul && !try_prepare_open_type_hangul(
-            font, glyph_storage, glyph_count, error)) {
+    if (!try_preprocess_open_type_glyphs(
+            font,
+            options.script,
+            options.cluster_level,
+            options.buffer_flags,
+            options.compose_hebrew_presentation_forms,
+            glyph_storage,
+            glyph_count,
+            error)) {
         glyph_count = 0U;
         return false;
     }

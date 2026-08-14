@@ -92,8 +92,19 @@ bool try_prepare_open_type_hangul(
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    if (glyph_count > std::numeric_limits<std::uint32_t>::max() / 3U ||
-        glyph_storage.size() < static_cast<std::size_t>(glyph_count) * 3U) {
+    std::size_t maximum_count = glyph_count;
+    for (std::size_t index = 0U; index < glyph_count; ++index) {
+        const std::uint32_t code_point = glyph_storage[index].code_point;
+        if (code_point >= 0xAC00U && code_point <= 0xD7A3U) {
+            if (maximum_count > glyph_storage.size() ||
+                glyph_storage.size() - maximum_count < 2U) {
+                set_error(error, font_error::insufficient_buffer);
+                return false;
+            }
+            maximum_count += 2U;
+        }
+    }
+    if (maximum_count > glyph_storage.size()) {
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
