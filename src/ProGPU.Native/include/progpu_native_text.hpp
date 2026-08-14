@@ -152,6 +152,73 @@ struct sfnt_variation_axis final {
 };
 
 /*
+ * Borrowed metadata for an OpenType gvar table and one glyph's tuple-data
+ * slice. Header parsing is O(G + A * T) only when the caller requests a glyph
+ * offset or shared tuple, for G glyph offsets, A axes, and T shared tuples;
+ * the views themselves retain no storage and never allocate.
+ */
+struct sfnt_gvar_header final {
+    std::uint16_t axis_count = 0U;
+    std::uint16_t shared_tuple_count = 0U;
+    std::uint16_t glyph_count = 0U;
+    bool uses_long_offsets = false;
+};
+
+struct sfnt_glyph_variation_data_view final {
+    std::span<const std::byte> bytes{};
+    std::uint16_t tuple_count = 0U;
+    std::uint16_t serialized_data_offset = 0U;
+    bool has_shared_point_numbers = false;
+
+    bool empty() const noexcept {
+        return bytes.empty();
+    }
+};
+
+struct sfnt_packed_point_requirements final {
+    std::uint32_t point_count = 0U;
+    std::size_t bytes_consumed = 0U;
+    bool all_points = false;
+};
+
+struct sfnt_packed_delta_requirements final {
+    std::uint32_t delta_count = 0U;
+    std::size_t bytes_consumed = 0U;
+};
+
+/*
+ * Transactional two-pass decoders for gvar packed point and delta streams.
+ * Each pass is O(N) time with O(1) internal storage for N encoded values. The
+ * caller owns every output span; insufficient or malformed input writes no
+ * partial output.
+ */
+class sfnt_packed_variation_data final {
+public:
+    static bool try_get_point_requirements(
+        std::span<const std::byte> data,
+        sfnt_packed_point_requirements& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_decode_points(
+        std::span<const std::byte> data,
+        std::span<std::uint32_t> points,
+        std::uint32_t& written,
+        std::size_t& bytes_consumed,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_delta_requirements(
+        std::span<const std::byte> data,
+        std::uint32_t delta_count,
+        sfnt_packed_delta_requirements& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_decode_deltas(
+        std::span<const std::byte> data,
+        std::span<std::int16_t> deltas,
+        std::uint32_t delta_count,
+        std::uint32_t& written,
+        std::size_t& bytes_consumed,
+        font_error* error = nullptr) noexcept;
+};
+
+/*
  * Allocation-free lowering of decoded TrueType contours to the renderer's
  * canonical line/quadratic path ABI. The count pass and write pass are both
  * O(C + P) for C contours and P decoded points with O(1) internal storage.
@@ -261,6 +328,18 @@ public:
         std::uint16_t axis_index,
         std::int32_t user_fixed,
         std::int16_t& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_gvar_header(
+        sfnt_gvar_header& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_glyph_variation_data(
+        std::uint16_t glyph_index,
+        sfnt_glyph_variation_data_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_gvar_shared_tuple(
+        std::uint16_t tuple_index,
+        std::span<std::int16_t> coordinates,
+        std::uint16_t& written,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;

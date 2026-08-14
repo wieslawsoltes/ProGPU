@@ -22,6 +22,11 @@ using ::progpu::native::text::sfnt_table_view;
 using ::progpu::native::text::sfnt_outline_point;
 using ::progpu::native::text::sfnt_simple_glyph_path;
 using ::progpu::native::text::sfnt_variation_axis;
+using ::progpu::native::text::sfnt_gvar_header;
+using ::progpu::native::text::sfnt_glyph_variation_data_view;
+using ::progpu::native::text::sfnt_packed_delta_requirements;
+using ::progpu::native::text::sfnt_packed_point_requirements;
+using ::progpu::native::text::sfnt_packed_variation_data;
 
 } // namespace progpu::native::text
 

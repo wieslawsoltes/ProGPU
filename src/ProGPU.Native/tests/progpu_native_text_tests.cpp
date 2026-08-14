@@ -22,10 +22,15 @@ using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_glyph_decode_requirements;
 using progpu::native::text::sfnt_glyph_kind;
+using progpu::native::text::sfnt_glyph_variation_data_view;
+using progpu::native::text::sfnt_gvar_header;
 using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
 using progpu::native::text::sfnt_outline_point;
+using progpu::native::text::sfnt_packed_delta_requirements;
+using progpu::native::text::sfnt_packed_point_requirements;
+using progpu::native::text::sfnt_packed_variation_data;
 using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_table_view;
 using progpu::native::text::sfnt_variation_axis;
@@ -344,6 +349,79 @@ void variation_coordinates_apply_bounded_avar_mapping() {
     require(font.try_normalize_variation_coordinate(
         1U, 700 * 65536, normalized, &error));
     require(error == font_error::none && normalized == 9830);
+}
+
+void packed_variation_streams_are_transactional_and_exact() {
+    const std::array point_bytes{
+        std::byte{4U},
+        std::byte{3U},
+        std::byte{1U},
+        std::byte{2U},
+        std::byte{0U},
+        std::byte{5U}};
+    sfnt_packed_point_requirements point_requirements{};
+    font_error error = font_error::none;
+    require(sfnt_packed_variation_data::try_get_point_requirements(
+        point_bytes, point_requirements, &error));
+    require(point_requirements.point_count == 4U);
+    require(point_requirements.bytes_consumed == point_bytes.size());
+    require(!point_requirements.all_points);
+    std::array<std::uint32_t, 3U> short_points{};
+    std::uint32_t written = 99U;
+    std::size_t consumed = 99U;
+    require(!sfnt_packed_variation_data::try_decode_points(
+        point_bytes, short_points, written, consumed, &error));
+    require(error == font_error::insufficient_buffer);
+    require(written == 0U && consumed == 0U);
+    require(short_points[0] == 0U);
+    std::array<std::uint32_t, 4U> points{};
+    require(sfnt_packed_variation_data::try_decode_points(
+        point_bytes, points, written, consumed, &error));
+    require(written == 4U && consumed == point_bytes.size());
+    require(points == std::array<std::uint32_t, 4U>{1U, 3U, 3U, 8U});
+
+    const std::array all_points{std::byte{0U}};
+    require(sfnt_packed_variation_data::try_get_point_requirements(
+        all_points, point_requirements, &error));
+    require(point_requirements.all_points);
+    require(point_requirements.point_count == 0U);
+    require(point_requirements.bytes_consumed == 1U);
+
+    const std::array delta_bytes{
+        std::byte{0x81U},
+        std::byte{0x41U},
+        std::byte{0x00U},
+        std::byte{0x64U},
+        std::byte{0xffU},
+        std::byte{0xfeU},
+        std::byte{0x01U},
+        std::byte{0x03U},
+        std::byte{0xfcU}};
+    sfnt_packed_delta_requirements delta_requirements{};
+    require(sfnt_packed_variation_data::try_get_delta_requirements(
+        delta_bytes, 6U, delta_requirements, &error));
+    require(delta_requirements.delta_count == 6U);
+    require(delta_requirements.bytes_consumed == delta_bytes.size());
+    std::array<std::int16_t, 6U> deltas{};
+    require(sfnt_packed_variation_data::try_decode_deltas(
+        delta_bytes,
+        deltas,
+        6U,
+        written,
+        consumed,
+        &error));
+    require(written == 6U && consumed == delta_bytes.size());
+    require(deltas == std::array<std::int16_t, 6U>{0, 0, 100, -2, 3, -4});
+
+    const std::array invalid_points{
+        std::byte{2U}, std::byte{2U}, std::byte{1U}};
+    require(!sfnt_packed_variation_data::try_get_point_requirements(
+        invalid_points, point_requirements, &error));
+    require(error == font_error::invalid_glyph);
+    const std::array invalid_deltas{std::byte{0x03U}, std::byte{1U}};
+    require(!sfnt_packed_variation_data::try_get_delta_requirements(
+        invalid_deltas, 2U, delta_requirements, &error));
+    require(error == font_error::invalid_glyph);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1073,6 +1151,37 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(font.try_normalize_variation_coordinate(
         1U, 700 * 65536, normalized));
     require(normalized == 8847);
+
+    sfnt_gvar_header gvar{};
+    require(font.try_get_gvar_header(gvar));
+    require(gvar.axis_count == 2U);
+    require(gvar.shared_tuple_count == 5U);
+    require(gvar.glyph_count == 2937U);
+    require(gvar.uses_long_offsets);
+    std::array<std::int16_t, 2U> tuple{};
+    std::uint16_t tuple_written = 0U;
+    require(font.try_decode_gvar_shared_tuple(0U, tuple, tuple_written));
+    require(tuple_written == 2U);
+    require(tuple == std::array<std::int16_t, 2U>{16384, 0});
+    require(font.try_decode_gvar_shared_tuple(4U, tuple, tuple_written));
+    require(tuple == std::array<std::int16_t, 2U>{0, -16384});
+
+    sfnt_glyph_variation_data_view glyph_variation{};
+    require(font.try_get_glyph_variation_data(397U, glyph_variation));
+    require(glyph_variation.bytes.size() == 594U);
+    require(glyph_variation.tuple_count == 5U);
+    require(glyph_variation.serialized_data_offset == 24U);
+    require(glyph_variation.has_shared_point_numbers);
+    sfnt_packed_point_requirements shared_points{};
+    require(sfnt_packed_variation_data::try_get_point_requirements(
+        glyph_variation.bytes.subspan(
+            glyph_variation.serialized_data_offset),
+        shared_points));
+    require(shared_points.all_points && shared_points.bytes_consumed == 1U);
+    require(font.try_get_glyph_variation_data(618U, glyph_variation));
+    require(glyph_variation.bytes.size() == 60U);
+    require(glyph_variation.tuple_count == 5U);
+    require(glyph_variation.serialized_data_offset == 24U);
 }
 
 } // namespace
@@ -1081,6 +1190,7 @@ int main() {
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
     variation_coordinates_apply_bounded_avar_mapping();
+    packed_variation_streams_are_transactional_and_exact();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
