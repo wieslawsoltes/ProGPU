@@ -15,14 +15,19 @@ algorithms described in specifications or papers, architecture, test cases, and 
 tradeoffs. It must not be used as a source-text implementation shortcut.
 
 This restriction does not prohibit cross-language or cross-backend ports of original
-ProGPU-owned implementation already present in this repository. ProGPU C#, C++, and
-production shader source that already satisfies this clean-room policy may be translated,
-refactored, or shared across ProGPU backends. Such work must record the in-repository
-source provenance, preserve the original public and performance contracts, add matched
-cross-implementation differential tests, and must not introduce implementation text or
-structure that originated in a third-party project. The existing ProGPU implementation
-is authoritative for behavioral compatibility; third-party engines remain research and
-conformance references only.
+ProGPU-owned implementation already present in this repository. The existing original
+ProGPU C# implementation, C++ implementation, and production shader sources are already
+covered by this clean-room policy and are approved authoritative sources for direct ports,
+translations, refactoring, and sharing across ProGPU languages and backends. Such work
+must record the exact in-repository source provenance, preserve the original public and
+performance contracts, add matched cross-implementation differential tests, and must not
+introduce implementation text or structure that originated in a third-party project.
+Parallel ProGPU backends should fully port the applicable proven ProGPU-owned algorithms
+and contracts rather than replace them with reduced approximations. Backend-specific data
+layout and ownership may be optimized when behavior, quality, complexity, and performance
+contracts remain equivalent and the difference is documented and measured.
+The existing ProGPU implementation is authoritative for behavioral compatibility;
+third-party engines remain research and conformance references only.
 
 When an equivalent feature exists elsewhere, implement it clean-room:
 
@@ -77,6 +82,13 @@ When creating or refactoring UI controls:
 ### D. Mandatory Shader Source and Complexity Contract
 
 Static production shader source must be reusable, reviewable source code rather than a C# string literal.
+
+The managed and native backends must consume the same canonical ProGPU-owned production
+shader files whenever they implement the same GPU algorithm. Build systems may generate
+different embedding wrappers or bindings, but must not maintain translated or duplicated
+WGSL, GLSL, or HLSL forks. A genuinely target-specific shader variant requires a documented
+technical reason, the same algorithm/complexity contract, and matched output/performance
+tests against the canonical implementation.
 
 * Put each fixed WGSL, GLSL, or HLSL module or composition template in its owning project's `Shaders/` directory, using the proper `.wgsl`, `.glsl`, or `.hlsl` extension. Keep one logical module or template per file.
 * Load embedded shader source through `ProGPU.Backend.ShaderResource` into a `static readonly string`. The shared build glob in `Directory.Build.props` embeds the files, and the loader caches UTF-8 decoding by assembly and filename. Never open a manifest stream, read a shader file, concatenate fixed helpers, or decode source in a frame, draw, dispatch, atlas, or pipeline-cache hot path.

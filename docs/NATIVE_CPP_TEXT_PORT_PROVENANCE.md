@@ -2,8 +2,9 @@
 
 ## Scope and policy
 
-ProGPU's native text implementation is a parallel backend port of original,
-ProGPU-owned clean-room C# and production shader code. The authoritative source
+ProGPU's native text implementation is a full parallel backend port of the proven,
+original ProGPU-owned clean-room C# implementation. Managed and native builds share
+the same canonical production shader files rather than maintaining shader forks. The authoritative source
 checkpoint for the first managed-picture glyph-lowering slice is
 `2de7e5c618ce9515a46b915fb7ef91642b6fdfcb`. The repository policy in
 `agents.md` permits this cross-language/backend work when each slice records
@@ -29,9 +30,11 @@ text core used below those frameworks.
 | GPU text composition | `src/ProGPU.Backend/Shaders/Text.wgsl` | Physical-pixel atlas sampling, affine placement, style modes, masks, premultiplied output, and bounded shader work. |
 
 Every C++ source file added for later phases must name the exact source file and
-source checkpoint in its adjacent design note or provenance table. Structure,
-ownership, and file boundaries may be redesigned for native performance; the
-observable and performance contracts above remain authoritative.
+source checkpoint in its adjacent design note or provenance table. Native data layout,
+ownership, and file boundaries may be optimized for native performance, but the applicable
+algorithms and observable, quality, complexity, and performance contracts are ported in
+full. Shader algorithms use the same canonical ProGPU resource files in both managed and
+native builds; only generated embedding or binding wrappers may differ.
 
 ## Cross-engine research gate
 
