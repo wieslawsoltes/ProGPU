@@ -196,6 +196,55 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersDotGridToOneNativeGeometryPrimitive()
+    {
+        var brush = new LinearGradientBrush(
+            new Vector2(4f, 6f),
+            new Vector2(44f, 6f),
+            [
+                new GradientStop(new Vector4(1f, 1f, 0f, 1f), 0f),
+                new GradientStop(new Vector4(0f, 1f, 1f, 1f), 1f)
+            ]);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 48f));
+        drawing.DrawDotGrid(
+            brush,
+            new Rect(4f, 6f, 40f, 30f),
+            8f,
+            1.5f,
+            new Vector2(2f, 3f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            92U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(0, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.GeometryPrimitiveCount);
+        Assert.Equal(1, compiled.BrushCount);
+        Assert.Equal(2, compiled.GradientStopCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeGeometryPrimitiveKind.DotGrid, primitive.Kind);
+        Assert.Equal(new Vector2(4f, 6f), primitive.P0);
+        Assert.Equal(new Vector2(40f, 30f), primitive.P1);
+        Assert.Equal(new Vector2(2f, 3f), primitive.P2);
+        Assert.Equal(new Vector2(8f, 1.5f), primitive.P3);
+    }
+
+    [Fact]
     public void CompilerLowersNestedOpacityAndAxisAlignedClipScopes()
     {
         var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));

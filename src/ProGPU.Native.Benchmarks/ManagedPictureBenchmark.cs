@@ -313,6 +313,10 @@ internal static class ManagedPictureBenchmark
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, Width, Height));
         int analyticCount = Math.Max(1, primitiveCount * 5 / 6);
+        int dotGridCount = Math.Min(
+            analyticCount,
+            Math.Max(1, primitiveCount / 12));
+        int ordinaryAnalyticCount = analyticCount - dotGridCount;
         for (int index = 0; index < analyticCount; index++)
         {
             int xIndex = index % columns;
@@ -323,6 +327,21 @@ internal static class ManagedPictureBenchmark
                 MathF.Max(1f, cellWidth - inset * 2f),
                 MathF.Max(1f, cellHeight - inset * 2f));
             Brush brush = brushes[index % brushes.Length];
+            if (index >= ordinaryAnalyticCount)
+            {
+                float spacing = MathF.Max(
+                    3f,
+                    MathF.Min(rect.Width, rect.Height) * 0.45f);
+                drawing.DrawDotGrid(
+                    brush,
+                    rect,
+                    spacing,
+                    MathF.Max(0.75f, spacing * 0.18f),
+                    new Vector2(
+                        rect.X + spacing * 0.35f,
+                        rect.Y + spacing * 0.2f));
+                continue;
+            }
             switch (index % 3)
             {
                 case 0:

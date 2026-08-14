@@ -36,7 +36,8 @@ public enum NativeGeometryPrimitiveKind : uint
     Triangle = 1,
     Quadrilateral = 2,
     QuadraticBezier = 3,
-    CubicBezier = 4
+    CubicBezier = 4,
+    DotGrid = 5
 }
 
 public enum NativeStrokeCap : uint

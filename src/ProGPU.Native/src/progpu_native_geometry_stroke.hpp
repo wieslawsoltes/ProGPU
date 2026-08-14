@@ -686,13 +686,20 @@ inline bool is_valid_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
         PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
-    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ||
+    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_DOT_GRID ||
         !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
         !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
         !std::isfinite(primitive.stroke_thickness) ||
         !std::isfinite(primitive.reserved) || primitive.reserved != 0.0F ||
         !is_finite(primitive.color) || !is_finite(primitive.transform)) {
         return false;
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_DOT_GRID) {
+        return (primitive.flags &
+                ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
+            primitive.p1.x >= 0.0F && primitive.p1.y >= 0.0F &&
+            primitive.p3.x > 0.0F && primitive.p3.y > 0.0F &&
+            primitive.stroke_thickness == 0.0F;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_TRIANGLE ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL) {
@@ -738,6 +745,7 @@ inline bool geometry_primitive_capacity(
         return true;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_DOT_GRID ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE) {
         vertex_count = 4U + cap_count * 32U;
         index_count = 6U + cap_count * 48U;
@@ -836,6 +844,43 @@ inline bool append_geometry_primitive(
         vertex.shape_type = 7.0F + alias_offset;
         vertices.push_back(vertex);
     };
+
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_DOT_GRID) {
+        const progpu_native_point points[4] = {
+            primitive.p0,
+            {primitive.p0.x + primitive.p1.x, primitive.p0.y},
+            {primitive.p0.x + primitive.p1.x,
+                primitive.p0.y + primitive.p1.y},
+            {primitive.p0.x, primitive.p0.y + primitive.p1.y}
+        };
+        const auto append_dot_grid_vertex = [&](
+            const progpu_native_point& point) {
+            const auto position = transformed(point);
+            vector_vertex vertex{};
+            vertex.position[0] = position.x;
+            vertex.position[1] = position.y;
+            set_color(vertex, primitive.color);
+            vertex.texture_coordinate[0] = point.x;
+            vertex.texture_coordinate[1] = point.y;
+            vertex.brush_index = brush_index;
+            vertex.shape_size[0] = primitive.p3.x;
+            vertex.shape_size[1] = primitive.p3.y;
+            vertex.corner_radius = primitive.p2.x;
+            vertex.stroke_thickness = primitive.p2.y;
+            vertex.shape_type = 21.0F + alias_offset;
+            vertices.push_back(vertex);
+        };
+        for (const auto& point : points) {
+            append_dot_grid_vertex(point);
+        }
+        indices.push_back(base);
+        indices.push_back(base + 1U);
+        indices.push_back(base + 2U);
+        indices.push_back(base);
+        indices.push_back(base + 2U);
+        indices.push_back(base + 3U);
+        return true;
+    }
 
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_TRIANGLE ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL) {

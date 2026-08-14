@@ -1210,14 +1210,18 @@ fails closed. It does not redefine the version-one stream around 32-bit
 The first managed-scene substitution slice adds the append-only
 `GEOMETRY_BATCH` resource and `DRAW_GEOMETRY` command. Its payload is the
 existing fixed-width `progpu_native_geometry_primitive` record, so retained
-lines, quadratic/cubic curves, triangles, and quadrilaterals enter the same
-bounded C++ stroke compiler, packed vector page, WebGPU pipeline, and render
-bundle as native family calls. The command has no pointer-bearing state and
-supports the ordinary per-draw brush-index map. Validation computes exact
-upper bounds before allocation; changed compilation is `O(P)` time and
-`O(V + I)` retained storage for `P` primitives and bounded emitted vertices
-and indices `V` and `I`; stable replay performs no primitive translation,
-managed allocation, or upload.
+lines, quadratic/cubic curves, triangles, quadrilaterals, and periodic dot
+grids enter the same bounded C++ compiler, packed vector page, WebGPU pipeline,
+and render bundle as native family calls. A dot grid stores its bounds, phase,
+spacing, and radius in one primitive and emits one quad for the complete grid.
+The shared production `Vector.wgsl` shape-21 fragment branch evaluates the
+periodic coverage in constant bounded work per covered fragment; neither the
+managed adapter nor C++ expands visible dots on the CPU. The command has no
+pointer-bearing state and supports the ordinary per-draw brush-index map.
+Validation computes exact upper bounds before allocation; changed compilation
+is `O(P)` time and `O(V + I)` retained storage for `P` primitives and bounded
+emitted vertices and indices `V` and `I`; stable replay performs no primitive
+translation, managed allocation, or upload.
 
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
@@ -1236,8 +1240,9 @@ primary-source research for Skia, Direct2D/Win2D, WebRender, and Vello, while
 rejecting their source organization and implementation details. It also
 rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
-narrow: affine analytic primitives and affine geometry with solid, linear,
-radial, two-point conical, or sweep-gradient brushes. Brush opacity, sorted
+narrow: affine analytic primitives, affine geometry, and periodic dot grids
+with solid, linear, radial, two-point conical, or sweep-gradient brushes. Brush
+opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
 retained brush page. Nested `PushOpacity`/`PopOpacity` and affine axis-aligned
@@ -1247,7 +1252,8 @@ boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, vector clips, paths, text,
-images, nested pictures, isolated layers, effects, meshes, and 3D remain
+images, nested pictures, isolated layers, effects, point batches, vertex
+meshes, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and

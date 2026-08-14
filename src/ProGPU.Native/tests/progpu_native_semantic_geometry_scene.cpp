@@ -37,18 +37,34 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
 
     const progpu_native_affine_2d identity{
         1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-    const progpu_native_geometry_primitive line{
-        PROGPU_NATIVE_GEOMETRY_LINE,
-        0U,
-        {target_width * 0.125F, target_height * 0.5F},
-        {target_width * 0.875F, target_height * 0.5F},
-        {},
-        {},
-        8.0F,
-        0.0F,
-        {1.0F, 0.0F, 1.0F, 1.0F},
-        identity};
-    const std::uint32_t line_offset = append(stream, &line, 1U);
+    const std::array geometry{
+        progpu_native_geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_LINE,
+            0U,
+            {target_width * 0.125F, target_height * 0.5F},
+            {target_width * 0.875F, target_height * 0.5F},
+            {},
+            {},
+            8.0F,
+            0.0F,
+            {1.0F, 0.0F, 1.0F, 1.0F},
+            identity},
+        progpu_native_geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_DOT_GRID,
+            0U,
+            {target_width * 0.125F, target_height * 0.625F},
+            {target_width * 0.75F, target_height * 0.25F},
+            {8.0F, 8.0F},
+            {16.0F, 3.0F},
+            0.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity}
+    };
+    const std::uint32_t geometry_offset = append(
+        stream,
+        geometry.data(),
+        geometry.size());
 
     progpu_native_scene_brush brush{};
     brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
@@ -67,11 +83,11 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
     const progpu_native_scene_draw_brushes draw_brushes{
         sizeof(progpu_native_scene_draw_brushes),
         1U,
-        1U,
+        static_cast<std::uint32_t>(geometry.size()),
         0U};
     const std::uint32_t draw_offset = append(stream, &draw_brushes, 1U);
-    constexpr std::uint32_t brush_index = 0U;
-    append(stream, &brush_index, 1U);
+    constexpr std::array<std::uint32_t, 2U> brush_indices{0U, 0U};
+    append(stream, brush_indices.data(), brush_indices.size());
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -95,7 +111,8 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1101U, 1U,
-            line_offset, sizeof(line), 0U, 0U},
+            geometry_offset,
+            static_cast<std::uint32_t>(sizeof(geometry)), 0U, 0U},
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1102U, 1U,
@@ -119,7 +136,7 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         2U,
         0U,
         draw_offset,
-        sizeof(draw_brushes) + sizeof(brush_index),
+        sizeof(draw_brushes) + sizeof(brush_indices),
         0.0F,
         0.0F,
         static_cast<float>(target_width),

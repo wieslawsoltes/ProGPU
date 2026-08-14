@@ -1267,6 +1267,61 @@ void geometry_batch_encodes_gpu_and_affine_bezier_strokes() {
     PROGPU_REQUIRE(vertices[vertices.size() - 1U].shape_type == 17.0F);
 }
 
+void geometry_batch_encodes_periodic_dot_grid_as_one_quad() {
+    const progpu_native_geometry_primitive grid{
+        PROGPU_NATIVE_GEOMETRY_DOT_GRID,
+        PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED,
+        {4.0F, 6.0F},
+        {40.0F, 30.0F},
+        {2.0F, 3.0F},
+        {8.0F, 1.5F},
+        0.0F,
+        0.0F,
+        {0.8F, 0.9F, 0.2F, 1.0F},
+        {2.0F, 0.0F, 0.0F, 3.0F, 5.0F, 7.0F}
+    };
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::geometry_primitive_capacity(
+        grid,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(vertex_capacity == 4U && index_capacity == 6U);
+
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        grid,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 13.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 25.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[2].position[0], 93.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[2].position[1], 115.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], 4.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[1], 6.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[0], 8.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_size[1], 1.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, 2.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 3.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1021.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].brush_index, 3.0F));
+    PROGPU_REQUIRE(indices[0] == 0U && indices[5] == 3U);
+
+    auto invalid = grid;
+    invalid.p3.x = 0.0F;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(!progpu::native::append_geometry_primitive(
+        invalid,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty() && indices.empty());
+}
+
 void geometry_batch_preserves_cap_order_and_space() {
     std::vector<progpu::native::vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
@@ -1793,6 +1848,7 @@ int main() {
     geometry_batch_encodes_direct_and_affine_lines();
     geometry_batch_encodes_device_strokes_and_fills();
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
+    geometry_batch_encodes_periodic_dot_grid_as_one_quad();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
     dashed_strokes_preserve_pattern_space_caps_and_closed_seams();

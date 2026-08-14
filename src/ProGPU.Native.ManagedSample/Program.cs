@@ -71,6 +71,12 @@ drawing.DrawRectangle(
     new Rect(128f, 224f, 384f, 72f));
 drawing.PopClip();
 drawing.PopOpacity();
+drawing.DrawDotGrid(
+    new SolidColorBrush(new Vector4(0.10f, 0.82f, 1f, 1f)),
+    new Rect(32f, 304f, 560f, 40f),
+    spacing: 16f,
+    radius: 4f,
+    phase: new Vector2(40f, 320f));
 using GpuPicture picture = recorder.EndRecording();
 const ulong sceneId = 0x4D414E4147454455UL;
 const ulong sceneGeneration = 1UL;
@@ -86,14 +92,14 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 6U ||
-    updateMetrics.ResourceCount != 5U ||
-    updateMetrics.DrawCount != 2U ||
+if (updateMetrics.CommandCount != 7U ||
+    updateMetrics.ResourceCount != 6U ||
+    updateMetrics.DrawCount != 3U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 7 ||
-    compiled.NativeCommandCount != 6 ||
-    compiled.NativeDrawCount != 2 ||
-    compiled.BrushCount != 3 ||
+    compiled.SourceCommandCount != 8 ||
+    compiled.NativeCommandCount != 7 ||
+    compiled.NativeDrawCount != 3 ||
+    compiled.BrushCount != 4 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
@@ -195,12 +201,16 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var gradientStart = Pixel(160, 260);
     var gradientInside = Pixel(352, 260);
     var clippedGradient = Pixel(480, 260);
+    var gridDot = Pixel(40, 320);
+    var gridGap = Pixel(48, 320);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
         gradientStart[1] > gradientStart[0] &&
         gradientInside[0] > gradientInside[1] &&
         clippedGradient[0] < 30 && clippedGradient[1] < 30 &&
+        gridDot[1] > 160 && gridDot[2] > 200 &&
+        gridGap[0] < 30 && gridGap[1] < 30 &&
         background[0] < 30 && background[1] < 30;
 }
 

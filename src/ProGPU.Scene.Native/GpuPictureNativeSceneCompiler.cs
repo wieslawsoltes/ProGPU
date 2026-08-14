@@ -597,6 +597,16 @@ public static class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawDotGrid:
+                return TryAppendDotGrid(
+                    command,
+                    transform,
+                    geometry,
+                    geometryBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             default:
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
@@ -798,6 +808,55 @@ public static class GpuPictureNativeSceneCompiler
                 BoundsOfPoints(p0, p1, p2, p3, kind ==
                     NativeGeometryPrimitiveKind.Triangle ? 3 : 4),
                 transform));
+        return true;
+    }
+
+    private static bool TryAppendDotGrid(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeGeometryPrimitive> primitives,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Brush is null ||
+            !IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f ||
+            !float.IsFinite(command.RadiusY) || command.RadiusY <= 0f ||
+            !float.IsFinite(command.Position2.X) ||
+            !float.IsFinite(command.Position2.Y))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+        int start = primitives.Count;
+        primitives.Add(new(
+            NativeGeometryPrimitiveKind.DotGrid,
+            new Vector2(command.Rect.X, command.Rect.Y),
+            new Vector2(command.Rect.Width, command.Rect.Height),
+            Vector4.One,
+            transform,
+            command.Position2,
+            new Vector2(command.RadiusX, command.RadiusY),
+            flags: command.IsEdgeAliased
+                ? NativeGeometryPrimitiveFlags.EdgeAliased
+                : NativeGeometryPrimitiveFlags.None));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Geometry,
+            start,
+            start,
+            1,
+            TransformBounds(command.Rect, transform));
         return true;
     }
 
