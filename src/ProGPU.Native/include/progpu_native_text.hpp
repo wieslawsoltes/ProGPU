@@ -449,6 +449,23 @@ bool try_apply_open_type_gsub_lookup(
     bool& applied,
     font_error* error = nullptr) noexcept;
 
+struct open_type_gpos_apply_options final {
+    const open_type_gdef_view* gdef = nullptr;
+};
+
+/*
+ * Allocation-free GPOS execution over the same caller-owned shaped glyph
+ * records. The initial executor covers Single and Pair positioning plus
+ * Extension wrappers; values remain in font units for later run scaling.
+ */
+bool try_apply_open_type_gpos_lookup(
+    const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyphs,
+    const open_type_gpos_apply_options& options,
+    bool& applied,
+    font_error* error = nullptr) noexcept;
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;

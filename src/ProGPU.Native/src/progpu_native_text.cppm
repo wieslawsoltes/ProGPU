@@ -43,6 +43,8 @@ using ::progpu::native::text::open_type_gdef_view;
 using ::progpu::native::text::is_open_type_gdef_blocklisted;
 using ::progpu::native::text::open_type_gsub_apply_options;
 using ::progpu::native::text::try_apply_open_type_gsub_lookup;
+using ::progpu::native::text::open_type_gpos_apply_options;
+using ::progpu::native::text::try_apply_open_type_gpos_lookup;
 using ::progpu::native::text::sfnt_font_view;
 using ::progpu::native::text::sfnt_bitmap_glyph_data_view;
 using ::progpu::native::text::sfnt_color_glyph_layer;

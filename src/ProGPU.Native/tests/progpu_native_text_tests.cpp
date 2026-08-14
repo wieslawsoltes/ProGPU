@@ -46,6 +46,8 @@ using progpu::native::text::open_type_gdef_view;
 using progpu::native::text::is_open_type_gdef_blocklisted;
 using progpu::native::text::open_type_gsub_apply_options;
 using progpu::native::text::try_apply_open_type_gsub_lookup;
+using progpu::native::text::open_type_gpos_apply_options;
+using progpu::native::text::try_apply_open_type_gpos_lookup;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -1092,6 +1094,82 @@ void open_type_script_language_feature_selection_is_bounded() {
         requirements,
         &error));
     require(requirements.lookup_capacity == 0U);
+}
+
+void open_type_gpos_single_and_pair_adjustments_are_bounded() {
+    std::array<std::byte, 42U> single{};
+    write_u16(single, 0U, 1U);
+    write_u16(single, 4U, 10U);
+    write_u16(single, 6U, 12U);
+    write_u16(single, 8U, 14U);
+    write_u16(single, 14U, 1U);
+    write_u16(single, 16U, 4U);
+    write_u16(single, 18U, 1U);
+    write_u16(single, 22U, 1U);
+    write_u16(single, 24U, 8U);
+    write_u16(single, 26U, 1U);
+    write_u16(single, 28U, 10U);
+    write_u16(single, 30U, 0x0005U);
+    write_u16(single, 32U, 3U);
+    write_u16(single, 34U, 0xFFFEU);
+    write_u16(single, 36U, 1U);
+    write_u16(single, 38U, 1U);
+    write_u16(single, 40U, 5U);
+    open_type_layout_table_view gpos{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(single, gpos, &error));
+    std::array<shaping_glyph, 3U> glyphs{
+        shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0}};
+    bool applied = false;
+    require(try_apply_open_type_gpos_lookup(
+        gpos, 0U, std::span<shaping_glyph>{glyphs}.first(1U),
+        open_type_gpos_apply_options{},
+        applied, &error));
+    require(applied && glyphs[0U].offset_x == 4 &&
+        glyphs[0U].advance_x == 8);
+
+    std::array<std::byte, 52U> pair{};
+    write_u16(pair, 0U, 1U);
+    write_u16(pair, 4U, 10U);
+    write_u16(pair, 6U, 12U);
+    write_u16(pair, 8U, 14U);
+    write_u16(pair, 14U, 1U);
+    write_u16(pair, 16U, 4U);
+    write_u16(pair, 18U, 2U);
+    write_u16(pair, 22U, 1U);
+    write_u16(pair, 24U, 8U);
+    write_u16(pair, 26U, 1U);
+    write_u16(pair, 28U, 12U);
+    write_u16(pair, 30U, 0x0004U);
+    write_u16(pair, 32U, 0x0001U);
+    write_u16(pair, 34U, 1U);
+    write_u16(pair, 36U, 18U);
+    write_u16(pair, 38U, 1U);
+    write_u16(pair, 40U, 1U);
+    write_u16(pair, 42U, 5U);
+    write_u16(pair, 44U, 1U);
+    write_u16(pair, 46U, 6U);
+    write_u16(pair, 48U, 0xFFFEU);
+    write_u16(pair, 50U, 3U);
+    require(open_type_layout_table_view::try_create(pair, gpos, &error));
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U}};
+    require(try_apply_open_type_gpos_lookup(
+        gpos, 0U, std::span<shaping_glyph>{glyphs}.first(2U),
+        {}, applied, &error));
+    require(applied && glyphs[0U].advance_x == 8 &&
+        glyphs[1U].offset_x == 3);
+
+    auto malformed = pair;
+    write_u16(malformed, 36U, 0xFFFFU);
+    require(open_type_layout_table_view::try_create(malformed, gpos, &error));
+    glyphs[0U] = shaping_glyph{5U};
+    glyphs[1U] = shaping_glyph{6U};
+    require(!try_apply_open_type_gpos_lookup(
+        gpos, 0U, std::span<shaping_glyph>{glyphs}.first(2U),
+        {}, applied, &error));
+    require(error == font_error::invalid_face &&
+        glyphs[0U].advance_x == 0 && glyphs[1U].offset_x == 0);
 }
 
 std::uint64_t hash_path_segments(
@@ -4015,6 +4093,7 @@ int main() {
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     open_type_script_language_feature_selection_is_bounded();
+    open_type_gpos_single_and_pair_adjustments_are_bounded();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

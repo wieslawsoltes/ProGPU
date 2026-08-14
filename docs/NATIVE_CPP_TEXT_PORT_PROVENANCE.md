@@ -82,6 +82,13 @@ DFLT/default LangSys, preserves feature and lookup order, and deduplicates
 lookup indices into caller storage. The requirements pass reports a safe
 upper-bound capacity in `O(S + F + L)` time; selection is `O(S + F + L^2)` in
 the worst case because deduplication intentionally uses no heap scratch.
+The initial GPOS executor applies SinglePos formats 1/2 and PairPos glyph-set
+and ClassDef formats directly to the bulk `shaping_glyph` records, including
+ExtensionPos wrappers and the shared GDEF lookup filter. Base placement and
+advance values remain signed font units; every variable-length ValueRecord and
+referenced device table is bounded before either glyph is mutated. A single
+lookup is `O(P * S * (log C + log K))` for positions `P`, subtables `S`,
+coverage size `C`, and pair-set size `K`, with `O(1)` internal storage.
 
 ## Delivered borrowed SFNT/TTC foundation
 
