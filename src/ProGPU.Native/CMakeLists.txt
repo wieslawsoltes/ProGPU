@@ -346,7 +346,10 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_semantic_text_style.hpp
     src/progpu_native_semantic_effect_cache.cpp
     src/progpu_native_semantic_effect_cache.hpp
-    src/progpu_native_semantic_execution.cpp
+    src/progpu_native_semantic_draw_execution.cpp
+    src/progpu_native_semantic_draw_execution.hpp
+    src/progpu_native_semantic_update_execution.cpp
+    src/progpu_native_semantic_render_execution.cpp
     src/progpu_native_semantic_replay.hpp
     src/progpu_native_semantic_state.cpp
     src/progpu_native_semantic_state.hpp

@@ -236,9 +236,10 @@ solid, analytic, and retained-geometry recording/dispatch;
 `progpu_native_path_execution.cpp`, `progpu_native_glyph_execution.cpp`, and
 `progpu_native_texture_execution.cpp` independently own retained path,
 positioned-glyph, and RGBA-image recording/dispatch; and
-`progpu_native_semantic_execution.cpp` owns immutable
-semantic-scene updates, command adaptation, render-bundle compilation, and
-scene replay. These modules share only the typed private
+`progpu_native_semantic_update_execution.cpp` owns transactional immutable
+scene updates, `progpu_native_semantic_draw_execution.cpp` owns packed-page
+render-bundle adaptation, and `progpu_native_semantic_render_execution.cpp`
+owns scene compilation/replay. These modules share only the typed private
 `progpu_native_frame_execution.hpp` entry contract and the internal
 `progpu_native_frame_execution_common.hpp` WebGPU execution vocabulary.
 `progpu_native.cpp` is consequently a small C ABI and engine-lifecycle owner:

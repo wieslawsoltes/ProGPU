@@ -2026,7 +2026,15 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_semantic_execution.cpp",
+            "src/progpu_native_semantic_update_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_semantic_draw_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_semantic_render_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2088,8 +2096,12 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_glyph_execution.cpp"));
         string textureExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_texture_execution.cpp"));
-        string semanticExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_semantic_execution.cpp"));
+        string semanticUpdateExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_semantic_update_execution.cpp"));
+        string semanticDrawExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_semantic_draw_execution.cpp"));
+        string semanticRenderExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_semantic_render_execution.cpp"));
         string advancedBlendSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_advanced_blend_execution.cpp"));
         string frameExecutionCommonSource = File.ReadAllText(FindRepoFile(
@@ -2117,7 +2129,9 @@ public class NativeRendererInteropTests
                      pathExecutionSource,
                      glyphExecutionSource,
                      textureExecutionSource,
-                     semanticExecutionSource,
+                     semanticUpdateExecutionSource,
+                     semanticDrawExecutionSource,
+                     semanticRenderExecutionSource,
                      advancedBlendSource,
                      frameExecutionCommonSource,
                  })

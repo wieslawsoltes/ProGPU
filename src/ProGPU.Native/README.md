@@ -59,6 +59,11 @@ without a shared mutable implementation file. Both wgpu-native and Dawn
 targets compile the same private module set. The CPU-only modules are also
 compiled directly into focused internal tests so their behavior cannot depend
 on WebGPU startup.
+Semantic-scene execution follows the same boundary:
+`progpu_native_semantic_update_execution.cpp` owns transactional immutable
+snapshot updates, `progpu_native_semantic_draw_execution.cpp` owns packed-page
+render-bundle encoding, and `progpu_native_semantic_render_execution.cpp` owns
+scene compilation and replay orchestration.
 Decoded color-glyph ownership is split again:
 `progpu_native_semantic_color_glyph.cpp` performs CPU-only pointer-free
 metadata/range validation, while `progpu_native_color_glyph_resources.cpp`

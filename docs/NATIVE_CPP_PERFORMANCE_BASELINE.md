@@ -2163,3 +2163,35 @@ zero content/effect passes, and zero stable allocation/upload. Median p95 was
 `4.5787/4.6849 ms` synchronized end to end for native/managed. Warnings-as-
 errors, ASan/UBSan, real Dawn/Metal, and Emscripten/Chromium WebGPU pass with
 the three new translation units.
+
+## Granular semantic execution module checkpoint
+
+The former 3,653-line semantic execution unit is now separated into immutable
+scene updates (126 lines), packed-page render-bundle draw encoding (322 lines),
+and scene compilation/replay orchestration (3,248 lines). The first two are
+small ownership units; the remaining render orchestrator stays intentionally
+whole until its state-machine lifetime boundaries can be split without moving
+or duplicating cleanup paths. The public C ABI, retained scene format, WebGPU
+commands, cache ownership, and resource release order are unchanged.
+
+The update function body is byte-identical before and after the split with
+SHA-256
+`b8937b65c6d686173784833c995655c248919b05cf61e46dd4926683247eb5fc`.
+The four draw encoders are byte-identical and hash to
+`b16c6f942a65cf5069ae8c84cde8090cad6a486b2408f7efed59366e350bd0ad`;
+the only additions are typed, private wrappers that bind their existing command
+adapter. After normalizing those four wrapper call names, render replay is
+byte-identical with SHA-256
+`dfe869d65fb660d2ffb5458b3ea93e90c2b3438135eaffbca66bde26073495ef`.
+
+Three paired retained layer/effect runs preserve the exact native and managed
+image hashes, one stable draw, zero content/effect passes, zero stable upload,
+and zero managed allocation per frame. Median p95 native/managed results are
+`0.1242/0.2595 ms` submission, `3.0329/3.0683 ms` completion wait, and
+`3.0953/3.2401 ms` synchronized end to end. Pixel evidence remains bounded at
+maximum channel difference `7/255`, 64 of 518,400 pixels above `3/255`, and
+mean absolute difference `0.053851/255`. Warnings-as-errors, all four
+ASan/UBSan provider tests, exact Dawn/Metal headers, 52 managed native/shader
+tests, and the real Emscripten/Chromium WebGPU gate pass with the split files.
+Raw distributions are retained under
+`artifacts/progpu-native/performance/semantic-module-split/`.
