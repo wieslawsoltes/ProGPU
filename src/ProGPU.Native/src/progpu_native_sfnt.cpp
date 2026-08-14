@@ -17,7 +17,9 @@ constexpr auto cmap_tag = open_type_tag::from_chars('c', 'm', 'a', 'p');
 constexpr auto head_tag = open_type_tag::from_chars('h', 'e', 'a', 'd');
 constexpr auto hhea_tag = open_type_tag::from_chars('h', 'h', 'e', 'a');
 constexpr auto hmtx_tag = open_type_tag::from_chars('h', 'm', 't', 'x');
+constexpr auto loca_tag = open_type_tag::from_chars('l', 'o', 'c', 'a');
 constexpr auto maxp_tag = open_type_tag::from_chars('m', 'a', 'x', 'p');
+constexpr auto glyf_tag = open_type_tag::from_chars('g', 'l', 'y', 'f');
 
 void set_error(font_error* destination, font_error value) noexcept {
     if (destination != nullptr) {
@@ -428,6 +430,60 @@ bool sfnt_font_view::try_get_glyph_count(std::uint16_t& result) const noexcept {
         return false;
     }
     result = read_u16(table.bytes, 4U);
+    return true;
+}
+
+bool sfnt_font_view::try_get_glyph_data(
+    std::uint16_t glyph_index,
+    sfnt_glyph_data_view& result) const noexcept {
+    result = {};
+    sfnt_header_metrics header{};
+    sfnt_table_view loca{};
+    sfnt_table_view glyf{};
+    if (!try_get_header_metrics(header) ||
+        !try_get_table(loca_tag, loca) ||
+        !try_get_table(glyf_tag, glyf)) {
+        return false;
+    }
+
+    std::uint32_t start = 0U;
+    std::uint32_t end = 0U;
+    if (header.index_to_loc_format == 0) {
+        const auto offset = static_cast<std::size_t>(glyph_index) * 2U;
+        if (!can_read(loca.bytes, offset, 4U)) {
+            return false;
+        }
+        start = static_cast<std::uint32_t>(read_u16(loca.bytes, offset)) * 2U;
+        end = static_cast<std::uint32_t>(read_u16(
+            loca.bytes,
+            offset + 2U)) * 2U;
+    } else if (header.index_to_loc_format == 1) {
+        const auto offset = static_cast<std::size_t>(glyph_index) * 4U;
+        if (!can_read(loca.bytes, offset, 8U)) {
+            return false;
+        }
+        start = read_u32(loca.bytes, offset);
+        end = read_u32(loca.bytes, offset + 4U);
+    } else {
+        return false;
+    }
+    if (start > end || end > glyf.bytes.size()) {
+        return false;
+    }
+    if (start == end) {
+        return true;
+    }
+    const auto glyph_bytes = glyf.bytes.subspan(start, end - start);
+    if (glyph_bytes.size() < 10U) {
+        return false;
+    }
+    result = sfnt_glyph_data_view{
+        read_i16(glyph_bytes, 0U),
+        read_i16(glyph_bytes, 2U),
+        read_i16(glyph_bytes, 4U),
+        read_i16(glyph_bytes, 6U),
+        read_i16(glyph_bytes, 8U),
+        glyph_bytes};
     return true;
 }
 

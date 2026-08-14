@@ -13,6 +13,7 @@ namespace {
 using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
 using progpu::native::text::sfnt_font_view;
+using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
@@ -117,6 +118,21 @@ std::vector<std::byte> make_font(std::size_t face_offset = 0U) {
         std::vector<std::byte>(6U)};
     write_u16(maxp.bytes, 4U, 8U);
     tables.push_back(std::move(maxp));
+    table_data loca{open_type_tag::from_chars('l', 'o', 'c', 'a'),
+        std::vector<std::byte>(36U)};
+    write_u32(loca.bytes, 20U, 10U);
+    write_u32(loca.bytes, 24U, 10U);
+    write_u32(loca.bytes, 28U, 10U);
+    write_u32(loca.bytes, 32U, 10U);
+    tables.push_back(std::move(loca));
+    table_data glyf{open_type_tag::from_chars('g', 'l', 'y', 'f'),
+        std::vector<std::byte>(10U)};
+    write_i16(glyf.bytes, 0U, 1);
+    write_i16(glyf.bytes, 2U, -4);
+    write_i16(glyf.bytes, 4U, -8);
+    write_i16(glyf.bytes, 6U, 40);
+    write_i16(glyf.bytes, 8U, 80);
+    tables.push_back(std::move(glyf));
     tables.push_back(table_data{
         open_type_tag::from_chars('c', 'm', 'a', 'p'), make_cmap()});
 
@@ -153,7 +169,7 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(error == font_error::none);
     require(font.face_index() == 0U);
     require(font.face_offset() == 0U);
-    require(font.table_count() == 5U);
+    require(font.table_count() == 7U);
     require(!font.uses_symbol_character_map());
     require(font.data().data() == data.data());
 
@@ -161,7 +177,7 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(font.try_get_table(
         open_type_tag::from_chars('c', 'm', 'a', 'p'), cmap));
     require(cmap.bytes.size() == 80U);
-    require(cmap.checksum == 0x1004U);
+    require(cmap.checksum == 0x1006U);
 
     sfnt_header_metrics head{};
     require(font.try_get_header_metrics(head));
@@ -185,6 +201,17 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     std::uint16_t glyph_count = 0U;
     require(font.try_get_glyph_count(glyph_count));
     require(glyph_count == 8U);
+
+    sfnt_glyph_data_view empty_glyph{};
+    require(font.try_get_glyph_data(3U, empty_glyph));
+    require(empty_glyph.empty());
+    sfnt_glyph_data_view glyph_data{};
+    require(font.try_get_glyph_data(4U, glyph_data));
+    require(!glyph_data.empty());
+    require(glyph_data.bytes.size() == 10U);
+    require(glyph_data.contour_count == 1);
+    require(glyph_data.x_min == -4 && glyph_data.y_min == -8);
+    require(glyph_data.x_max == 40 && glyph_data.y_max == 80);
 
     std::uint16_t glyph = 0U;
     require(font.try_get_glyph_index(0x41U, glyph));
@@ -237,7 +264,7 @@ void collection_and_failure_paths_are_bounded() {
 
 void table_directory_preserves_managed_duplicate_and_bounds_rules() {
     auto duplicate = make_font();
-    const auto last_record = 12U + 4U * 16U;
+    const auto last_record = 12U + 6U * 16U;
     write_u32(duplicate, last_record,
         open_type_tag::from_chars('h', 'e', 'a', 'd').value);
     sfnt_font_view font{};
@@ -245,7 +272,7 @@ void table_directory_preserves_managed_duplicate_and_bounds_rules() {
     sfnt_table_view head{};
     require(font.try_get_table(
         open_type_tag::from_chars('h', 'e', 'a', 'd'), head));
-    require(head.checksum == 0x1004U);
+    require(head.checksum == 0x1006U);
     require(head.bytes.size() == 80U);
 
     auto invalid_record = make_font();

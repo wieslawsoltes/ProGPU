@@ -57,6 +57,10 @@ The same view reads `head`, `hhea`, `hmtx`, and `maxp` metrics without copying
 and selects cmap format 4, 12, and 13 subtables using the managed Unicode and
 Microsoft-symbol precedence. Format 12/13 lookup is `O(log G)` for `G` groups;
 format 4 is `O(S)` for `S` segments. All paths are allocation-free and CPU-only.
+Short and long `loca` tables resolve into borrowed `glyf` byte spans in `O(1)`
+time and storage per glyph; empty glyphs preserve an empty successful result,
+and non-empty records expose their contour count and exact font-unit bounds
+without parsing or allocating an outline graph.
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.

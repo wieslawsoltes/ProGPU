@@ -118,6 +118,9 @@ The first standalone text-core slice now lives in `progpu_native_text`.
 SFNT/TTC face view with bounded directory lookup, `head`/`hhea`/`hmtx`/`maxp`
 metrics, and selected cmap format 4/12/13 lookup. It performs no file I/O,
 decompression, WebGPU initialization, or managed/native call per character.
+The same borrowed view resolves short/long `loca` offsets into zero-copy
+`glyf` slices and exposes contour count plus exact font-unit bounds without
+materializing an outline graph.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
