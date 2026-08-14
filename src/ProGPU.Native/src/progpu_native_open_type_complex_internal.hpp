@@ -99,6 +99,23 @@ bool try_prepare_khmer(
     std::span<std::uint8_t> syllable_scratch,
     font_error* error) noexcept;
 
+bool try_prepare_indic(
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t glyph_count,
+    std::span<std::uint8_t> category_scratch,
+    std::span<std::uint8_t> syllable_scratch,
+    font_error* error) noexcept;
+bool try_initial_reorder_indic(
+    const sfnt_font_view& font,
+    open_type_tag script,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error) noexcept;
+void final_reorder_indic(
+    open_type_tag script,
+    std::span<shaping_glyph> glyphs) noexcept;
+
 bool try_prepare_myanmar(
     const sfnt_font_view& font,
     shaping_buffer_flags buffer_flags,

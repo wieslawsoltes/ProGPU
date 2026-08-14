@@ -299,6 +299,14 @@ bool apply_complex_feature_group(
             } else if (feature == open_type_tag::from_chars('c', 'f', 'a', 'r')) {
                 mask = 4U;
             }
+        } else if (options.complex_script == open_type_complex_script::indic) {
+            if (feature == open_type_tag::from_chars('r', 'p', 'h', 'f')) mask = 1U;
+            else if (feature == open_type_tag::from_chars('p', 'r', 'e', 'f')) mask = 2U;
+            else if (feature == open_type_tag::from_chars('b', 'l', 'w', 'f')) mask = 4U;
+            else if (feature == open_type_tag::from_chars('a', 'b', 'v', 'f')) mask = 8U;
+            else if (feature == open_type_tag::from_chars('h', 'a', 'l', 'f')) mask = 16U;
+            else if (feature == open_type_tag::from_chars('p', 's', 't', 'f')) mask = 32U;
+            else if (feature == open_type_tag::from_chars('i', 'n', 'i', 't')) mask = 64U;
         } else if (options.complex_script == open_type_complex_script::use &&
             feature == open_type_tag::from_chars('r', 'p', 'h', 'f')) {
             mask = 1U;
@@ -385,6 +393,18 @@ bool apply_complex_script_features(
         open_type_tag::from_chars('p', 'r', 'e', 'f'),
         open_type_tag::from_chars('b', 'l', 'w', 'f'),
         open_type_tag::from_chars('p', 's', 't', 'f')};
+    constexpr std::array indic_basic{
+        open_type_tag::from_chars('n', 'u', 'k', 't'),
+        open_type_tag::from_chars('a', 'k', 'h', 'n'),
+        open_type_tag::from_chars('r', 'p', 'h', 'f'),
+        open_type_tag::from_chars('r', 'k', 'r', 'f'),
+        open_type_tag::from_chars('p', 'r', 'e', 'f'),
+        open_type_tag::from_chars('b', 'l', 'w', 'f'),
+        open_type_tag::from_chars('a', 'b', 'v', 'f'),
+        open_type_tag::from_chars('h', 'a', 'l', 'f'),
+        open_type_tag::from_chars('p', 's', 't', 'f'),
+        open_type_tag::from_chars('v', 'a', 't', 'u'),
+        open_type_tag::from_chars('c', 'j', 'c', 't')};
     constexpr std::array use_repha{
         open_type_tag::from_chars('r', 'p', 'h', 'f')};
     constexpr std::array use_prebase{
@@ -419,6 +439,23 @@ bool apply_complex_script_features(
             known_applied = apply_complex_feature_group(
                 gsub, options, myanmar_basic, lookup_scratch, glyph_storage,
                 glyph_count, gdef, error);
+        }
+    } else if (options.complex_script == open_type_complex_script::indic) {
+        known_applied = complex_detail::try_initial_reorder_indic(
+            font,
+            options.script,
+            options.buffer_flags,
+            glyph_storage,
+            glyph_count,
+            error);
+        if (known_applied) {
+            known_applied = apply_complex_feature_group(
+                gsub, options, indic_basic, lookup_scratch, glyph_storage,
+                glyph_count, gdef, error);
+        }
+        if (known_applied) {
+            complex_detail::final_reorder_indic(
+                options.script, glyph_storage.first(glyph_count));
         }
     } else {
         complex_detail::clear_substituted(
@@ -460,6 +497,7 @@ bool apply_complex_script_features(
             contains_feature(preprocessing, feature) ||
             contains_feature(khmer_basic, feature) ||
             contains_feature(myanmar_basic, feature) ||
+            contains_feature(indic_basic, feature) ||
             contains_feature(use_repha, feature) ||
             contains_feature(use_prebase, feature) ||
             contains_feature(use_basic, feature)) {
@@ -716,6 +754,17 @@ bool try_shape_open_type_run(
             return false;
         }
         complex_guard.enabled = true;
+    } else if (options.complex_script == open_type_complex_script::indic) {
+        if (!complex_detail::try_prepare_indic(
+                glyph_storage,
+                glyph_count,
+                scratch.script_categories,
+                scratch.script_syllables,
+                error)) {
+            glyph_count = 0U;
+            return false;
+        }
+        complex_guard.enabled = true;
     } else if (options.complex_script == open_type_complex_script::myanmar) {
         if (!complex_detail::try_prepare_myanmar(
                 font,
@@ -882,22 +931,36 @@ bool try_shape_open_type_run(
     }
     if (gsub.lookup_count() == 0U &&
         complex_script) {
-        const bool reordered = options.complex_script ==
-                open_type_complex_script::use
-            ? complex_detail::try_reorder_use(
+        bool reordered = true;
+        if (options.complex_script == open_type_complex_script::use) {
+            reordered = complex_detail::try_reorder_use(
                 font,
                 options.buffer_flags,
                 glyph_storage,
                 glyph_count,
-                error)
-            : options.complex_script == open_type_complex_script::myanmar
-            ? complex_detail::try_reorder_myanmar(
+                error);
+        } else if (options.complex_script ==
+            open_type_complex_script::myanmar) {
+            reordered = complex_detail::try_reorder_myanmar(
                 font,
                 options.buffer_flags,
                 glyph_storage,
                 glyph_count,
-                error)
-            : true;
+                error);
+        } else if (options.complex_script ==
+            open_type_complex_script::indic) {
+            reordered = complex_detail::try_initial_reorder_indic(
+                font,
+                options.script,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                error);
+            if (reordered) {
+                complex_detail::final_reorder_indic(
+                    options.script, glyph_storage.first(glyph_count));
+            }
+        }
         if (!reordered) {
             return false;
         }

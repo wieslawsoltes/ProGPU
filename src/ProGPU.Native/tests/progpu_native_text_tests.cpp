@@ -2882,6 +2882,54 @@ void open_type_use_preparation_reorders_prebase_vowels() {
         glyphs[1U].cluster == 0);
 }
 
+void open_type_indic_preparation_reorders_prebase_matras() {
+    const auto consonant_properties =
+        get_unicode_indic_shaping_properties(0x0915U);
+    const auto matra_properties =
+        get_unicode_indic_shaping_properties(0x093FU);
+    require(consonant_properties.category == 1U &&
+        matra_properties.position == 2U);
+    constexpr std::array mappings{
+        std::pair{0x0915U, 2U},
+        std::pair{0x093FU, 3U},
+        std::pair{0x25CCU, 1U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x0915U, 0U, 1U},
+        unicode_scalar{0x093FU, 1U, 1U}};
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::array<std::uint8_t, 2U> categories{};
+    std::array<std::uint8_t, 2U> syllables{};
+    auto options = open_type_shape_run_options{
+        open_type_tag::from_chars('d', 'e', 'v', '2')};
+    options.complex_script = open_type_complex_script::indic;
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = graphemes,
+            .attachments = attachments,
+            .attachment_states = states,
+            .script_categories = categories,
+            .script_syllables = syllables},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0U].code_point == 0x093FU &&
+        glyphs[1U].code_point == 0x0915U && glyphs[0U].cluster == 0 &&
+        glyphs[1U].cluster == 0);
+}
+
 void open_type_hangul_preparation_composes_and_decomposes() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -5719,6 +5767,7 @@ int main() {
     open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_myanmar_preparation_reorders_prebase_vowels();
     open_type_use_preparation_reorders_prebase_vowels();
+    open_type_indic_preparation_reorders_prebase_matras();
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
