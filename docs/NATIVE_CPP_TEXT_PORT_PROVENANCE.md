@@ -51,6 +51,16 @@ Coverage and range-class queries are `O(log R)`, dense class queries are
 `O(1)`, fixed blocklist evaluation is bounded `O(1)`, and all views retain
 `O(1)` storage. This common validated layer is shared by the following native
 GSUB and GPOS executors so lookup flags do not fork or allocate per glyph.
+The first GSUB executor ports the managed raw bounded path for Single,
+Multiple, Alternate, Ligature, and Extension substitutions. It mutates a
+caller-owned fixed-capacity `shaping_glyph` span in place, preserves clusters
+and placement fields across expansion, applies GDEF base/ligature/mark and
+mark-set filtering, clamps one-based alternate feature values, and preflights
+each individual substitution before mutation. A lookup pass is commonly
+`O(P * S * (log C + K))`; in-place expansion or compaction makes the bounded
+worst case `O(P * S * (log C + K + N))` for `P` input positions, `S`
+subtables, coverage size `C`, matched ligature length `K`, and glyph capacity
+`N`. Storage is `O(1)` beyond caller capacity.
 
 ## Delivered borrowed SFNT/TTC foundation
 

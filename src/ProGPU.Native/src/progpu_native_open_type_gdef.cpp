@@ -69,6 +69,46 @@ constexpr std::array<gdef_blocklist_record, 40U> gdef_blocklist{{
     {816U, 7868U, 17052U}, {816U, 7868U, 17138U}
 }};
 
+std::int32_t find_validated_coverage(
+    std::span<const std::byte> table,
+    std::size_t offset,
+    std::uint16_t glyph_id) noexcept {
+    const std::uint16_t format = read_u16(table, offset);
+    const std::uint16_t count = read_u16(table, offset + 2U);
+    std::uint32_t low = 0U;
+    std::uint32_t high = count;
+    if (format == 1U) {
+        while (low < high) {
+            const std::uint32_t middle = low + (high - low) / 2U;
+            const std::uint16_t current =
+                read_u16(table, offset + 4U + middle * 2U);
+            if (glyph_id < current) {
+                high = middle;
+            } else if (glyph_id > current) {
+                low = middle + 1U;
+            } else {
+                return static_cast<std::int32_t>(middle);
+            }
+        }
+        return -1;
+    }
+    while (low < high) {
+        const std::uint32_t middle = low + (high - low) / 2U;
+        const std::size_t range = offset + 4U + middle * 6U;
+        const std::uint16_t start = read_u16(table, range);
+        const std::uint16_t end = read_u16(table, range + 2U);
+        if (glyph_id < start) {
+            high = middle;
+        } else if (glyph_id > end) {
+            low = middle + 1U;
+        } else {
+            return static_cast<std::int32_t>(
+                read_u16(table, range + 4U) + glyph_id - start);
+        }
+    }
+    return -1;
+}
+
 } // namespace
 
 bool open_type_gdef_view::try_create(
@@ -188,10 +228,8 @@ bool open_type_gdef_view::is_in_mark_set(
     const std::uint32_t relative = read_u32(
         table_,
         mark_sets_offset_ + 4U + set_index * 4U);
-    open_type_coverage_view coverage{};
-    return open_type_coverage_view::try_create(
-               table_, mark_sets_offset_ + relative, coverage) &&
-        coverage.find(glyph_id) >= 0;
+    return find_validated_coverage(
+        table_, mark_sets_offset_ + relative, glyph_id) >= 0;
 }
 
 bool is_open_type_gdef_blocklisted(

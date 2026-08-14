@@ -402,6 +402,27 @@ bool is_open_type_gdef_blocklisted(
     std::size_t gsub_length,
     std::size_t gpos_length) noexcept;
 
+struct open_type_gsub_apply_options final {
+    const open_type_gdef_view* gdef = nullptr;
+    std::uint32_t alternate_value = 1U;
+};
+
+/*
+ * Allocation-free GSUB lookup execution over a caller-owned bulk glyph buffer.
+ * The initial executor covers Single, Multiple, Alternate, Ligature, and
+ * Extension substitutions with GDEF lookup filtering. Each individual
+ * substitution preflights all table and capacity reads before mutation.
+ * `glyph_count` must describe the initialized prefix of `glyph_storage`.
+ */
+bool try_apply_open_type_gsub_lookup(
+    const open_type_layout_table_view& gsub,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gsub_apply_options& options,
+    bool& applied,
+    font_error* error = nullptr) noexcept;
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;

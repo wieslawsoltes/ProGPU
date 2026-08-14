@@ -44,6 +44,8 @@ using progpu::native::text::open_type_layout_table_view;
 using progpu::native::text::open_type_glyph_class;
 using progpu::native::text::open_type_gdef_view;
 using progpu::native::text::is_open_type_gdef_blocklisted;
+using progpu::native::text::open_type_gsub_apply_options;
+using progpu::native::text::try_apply_open_type_gsub_lookup;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -482,6 +484,152 @@ void open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded() {
     write_u16(malformed, 54U, 10U);
     require(!open_type_gdef_view::try_create(malformed, gdef, &error));
     require(error == font_error::invalid_face && gdef.mark_set_count() == 0U);
+}
+
+void open_type_gsub_basic_lookups_use_caller_owned_storage() {
+    font_error error = font_error::invalid_argument;
+    bool applied = false;
+
+    // One SingleSubst format 2 lookup: glyph 5 -> 9.
+    std::array<std::byte, 42U> single{};
+    write_u16(single, 0U, 1U);
+    write_u16(single, 4U, 10U);
+    write_u16(single, 6U, 12U);
+    write_u16(single, 8U, 14U);
+    write_u16(single, 14U, 1U);
+    write_u16(single, 16U, 4U);
+    write_u16(single, 18U, 1U);
+    write_u16(single, 22U, 1U);
+    write_u16(single, 24U, 8U);
+    write_u16(single, 26U, 2U);
+    write_u16(single, 28U, 10U);
+    write_u16(single, 30U, 1U);
+    write_u16(single, 32U, 9U);
+    write_u16(single, 36U, 1U);
+    write_u16(single, 38U, 1U);
+    write_u16(single, 40U, 5U);
+    open_type_layout_table_view gsub{};
+    require(open_type_layout_table_view::try_create(single, gsub, &error));
+    std::array<shaping_glyph, 6U> glyphs{
+        shaping_glyph{5U, 0x66U, 0}, shaping_glyph{7U, 0x78U, 1}};
+    std::uint32_t count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 9U &&
+        glyphs[1U].glyph_id == 7U);
+
+    // One MultipleSubst: glyph 5 -> [8, 9], preserving source metadata.
+    std::array<std::byte, 46U> multiple{};
+    write_u16(multiple, 0U, 1U);
+    write_u16(multiple, 4U, 10U);
+    write_u16(multiple, 6U, 12U);
+    write_u16(multiple, 8U, 14U);
+    write_u16(multiple, 14U, 1U);
+    write_u16(multiple, 16U, 4U);
+    write_u16(multiple, 18U, 2U);
+    write_u16(multiple, 22U, 1U);
+    write_u16(multiple, 24U, 8U);
+    write_u16(multiple, 26U, 1U);
+    write_u16(multiple, 28U, 8U);
+    write_u16(multiple, 30U, 1U);
+    write_u16(multiple, 32U, 14U);
+    write_u16(multiple, 34U, 1U);
+    write_u16(multiple, 36U, 1U);
+    write_u16(multiple, 38U, 5U);
+    write_u16(multiple, 40U, 2U);
+    write_u16(multiple, 42U, 8U);
+    write_u16(multiple, 44U, 9U);
+    require(open_type_layout_table_view::try_create(multiple, gsub, &error));
+    glyphs = {shaping_glyph{5U, 0x66U, 12},
+        shaping_glyph{7U, 0x78U, 13}};
+    count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 3U && glyphs[0U].glyph_id == 8U &&
+        glyphs[1U].glyph_id == 9U && glyphs[1U].cluster == 12 &&
+        glyphs[2U].glyph_id == 7U);
+
+    auto insufficient = glyphs;
+    count = 2U;
+    insufficient[0U] = shaping_glyph{5U, 0x66U, 12};
+    insufficient[1U] = shaping_glyph{7U, 0x78U, 13};
+    require(!try_apply_open_type_gsub_lookup(
+        gsub,
+        0U,
+        std::span<shaping_glyph>{insufficient}.first(2U),
+        count,
+        {},
+        applied,
+        &error));
+    require(error == font_error::insufficient_buffer && count == 2U &&
+        insufficient[0U].glyph_id == 5U && insufficient[1U].glyph_id == 7U);
+
+    // One AlternateSubst: value 2 selects the second member.
+    multiple[18U] = std::byte{0U};
+    multiple[19U] = std::byte{3U};
+    require(open_type_layout_table_view::try_create(multiple, gsub, &error));
+    glyphs[0U] = shaping_glyph{5U, 0x66U, 2};
+    count = 1U;
+    open_type_gsub_apply_options alternate{};
+    alternate.alternate_value = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, alternate, applied, &error));
+    require(applied && count == 1U && glyphs[0U].glyph_id == 9U);
+
+    // Ligature lookup ignores a GDEF mark between matching components.
+    std::array<std::byte, 50U> ligature{};
+    write_u16(ligature, 0U, 1U);
+    write_u16(ligature, 4U, 10U);
+    write_u16(ligature, 6U, 12U);
+    write_u16(ligature, 8U, 14U);
+    write_u16(ligature, 14U, 1U);
+    write_u16(ligature, 16U, 4U);
+    write_u16(ligature, 18U, 4U);
+    write_u16(ligature, 20U, 0x0008U);
+    write_u16(ligature, 22U, 1U);
+    write_u16(ligature, 24U, 8U);
+    write_u16(ligature, 26U, 1U);
+    write_u16(ligature, 28U, 8U);
+    write_u16(ligature, 30U, 1U);
+    write_u16(ligature, 32U, 14U);
+    write_u16(ligature, 34U, 1U);
+    write_u16(ligature, 36U, 1U);
+    write_u16(ligature, 38U, 5U);
+    write_u16(ligature, 40U, 1U);
+    write_u16(ligature, 42U, 4U);
+    write_u16(ligature, 44U, 12U);
+    write_u16(ligature, 46U, 2U);
+    write_u16(ligature, 48U, 6U);
+    std::array<std::byte, 24U> gdef_bytes{};
+    write_u16(gdef_bytes, 0U, 1U);
+    write_u16(gdef_bytes, 4U, 12U);
+    write_u16(gdef_bytes, 12U, 1U);
+    write_u16(gdef_bytes, 14U, 10U);
+    write_u16(gdef_bytes, 16U, 2U);
+    write_u16(gdef_bytes, 18U, 1U);
+    write_u16(gdef_bytes, 20U, 3U);
+    open_type_gdef_view gdef{};
+    require(open_type_gdef_view::try_create(gdef_bytes, gdef, &error));
+    require(open_type_layout_table_view::try_create(ligature, gsub, &error));
+    glyphs = {shaping_glyph{5U, 0x66U, 0},
+        shaping_glyph{11U, 0x0301U, 0},
+        shaping_glyph{6U, 0x69U, 1}};
+    count = 3U;
+    open_type_gsub_apply_options ligature_options{};
+    ligature_options.gdef = &gdef;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, ligature_options, applied, &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
+        glyphs[1U].glyph_id == 11U);
+
+    auto malformed = single;
+    write_u16(malformed, 28U, 0xFFFFU);
+    require(open_type_layout_table_view::try_create(malformed, gsub, &error));
+    glyphs[0U] = shaping_glyph{5U};
+    count = 1U;
+    require(!try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(error == font_error::invalid_face && glyphs[0U].glyph_id == 5U);
 }
 
 std::uint64_t hash_path_segments(
@@ -3399,6 +3547,7 @@ int main() {
     unicode_script_itemization_preserves_source_ranges();
     open_type_common_layout_views_are_borrowed_and_bounded();
     open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded();
+    open_type_gsub_basic_lookups_use_caller_owned_storage();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
