@@ -2051,6 +2051,75 @@ int main(int argc, char** argv) {
         semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
+    require(progpu_native_engine_mark_device_lost(engine) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "native device-loss notification failed");
+    require(progpu_native_engine_mark_device_lost(engine) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "native device-loss notification was not idempotent");
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_DEVICE_LOST,
+        "lost native engine did not fail closed");
+    auto loss_updated_scene = renderable_scene;
+    progpu_native_scene_header loss_updated_header{};
+    std::memcpy(
+        &loss_updated_header,
+        loss_updated_scene.data(),
+        sizeof(loss_updated_header));
+    loss_updated_header.scene_id = 191U;
+    loss_updated_header.generation = 1U;
+    std::memcpy(
+        loss_updated_scene.data(),
+        &loss_updated_header,
+        sizeof(loss_updated_header));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        loss_updated_scene.data(),
+        loss_updated_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "CPU-only scene replacement after device loss failed");
+    semantic_frame.scene_id = 191U;
+    semantic_frame.generation = 1U;
+    progpu_native_engine* replacement_engine{};
+    require(progpu_native_dawn_engine_recreate(
+        engine,
+        &engine_options,
+        &replacement_engine) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        replacement_engine != nullptr,
+        "native Dawn engine recreation failed");
+    progpu_native_engine_destroy(engine);
+    engine = replacement_engine;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.payload_hash != 0U &&
+        semantic_metrics.payload_hash != semantic_payload_hash &&
+        semantic_metrics.vertex_upload_bytes != 0U &&
+        semantic_metrics.text_style_upload_bytes ==
+            3U * sizeof(progpu_native_scene_text_style),
+        "replacement Dawn engine did not rebuild retained GPU state");
+    const std::uint64_t replacement_payload_hash =
+        semantic_metrics.payload_hash;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.payload_hash == replacement_payload_hash &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.uniform_upload_bytes == 0U &&
+        semantic_metrics.text_style_upload_bytes == 0U,
+        "stable Dawn replay after device recovery rebuilt resources");
     std::uint64_t semantic_submission{};
     require(progpu_native_engine_get_last_submission(
         engine,

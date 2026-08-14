@@ -62,6 +62,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES (UINT64_C(1) << 31U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES (UINT64_C(1) << 32U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS (UINT64_C(1) << 33U)
+#define PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION (UINT64_C(1) << 34U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -1352,6 +1353,19 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_create(
     progpu_native_engine** engine);
 PROGPU_NATIVE_API void progpu_native_engine_destroy(
     progpu_native_engine* engine);
+/*
+ * Owner-thread host hook for an asynchronously reported device loss. It is
+ * idempotent and performs no WebGPU calls. Every subsequent GPU operation
+ * fails with DEVICE_LOST while scene updates may still replace the retained
+ * CPU snapshot. Recreate transactionally clones that snapshot into a fresh
+ * device-domain engine; the caller destroys the terminal source afterwards.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_mark_device_lost(
+    progpu_native_engine* engine);
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_recreate(
+    const progpu_native_engine* source,
+    const progpu_native_engine_options* options,
+    progpu_native_engine** replacement);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
     progpu_native_engine* engine,
     const void* stream,

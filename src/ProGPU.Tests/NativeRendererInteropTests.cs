@@ -623,6 +623,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             4294967296UL,
             (ulong)NativeRendererCapabilities.SemanticRetainedTextStyles);
+        Assert.Equal(
+            17179869184UL,
+            (ulong)NativeRendererCapabilities.DeviceLossRecreation);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);

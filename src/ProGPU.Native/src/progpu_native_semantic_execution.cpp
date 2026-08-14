@@ -373,7 +373,13 @@ progpu_native_status update_scene(
             14695981039346656037ULL,
             stream,
             stream_size);
-        engine->release_semantic_render_bundle();
+        // A lost device is terminal, so replacing the retained CPU snapshot
+        // must not dispatch release calls into that device from this CPU-only
+        // update path. The terminal engine destructor owns final handle release;
+        // recreation never clones the stale bundle or any other GPU object.
+        if (!engine->device_lost) {
+            engine->release_semantic_render_bundle();
+        }
         engine->semantic_scene_snapshot.swap(next);
         engine->semantic_scene_id = validation.header.scene_id;
         engine->semantic_scene_generation = validation.header.generation;

@@ -298,6 +298,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native.cpp
     src/progpu_native_draw_state.cpp
     src/progpu_native_draw_state.hpp
+    src/progpu_native_device_recovery.cpp
+    src/progpu_native_device_recovery.hpp
     src/progpu_native_engine.hpp
     src/progpu_native_effect_plan.cpp
     src/progpu_native_effect_plan.hpp

@@ -535,6 +535,17 @@ internal static unsafe partial class NativeMethods
         EngineOptions* options,
         nint* engine);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_mark_device_lost")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus MarkDeviceLost(nint engine);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_recreate")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus Recreate(
+        nint source,
+        EngineOptions* options,
+        nint* replacement);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_destroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial void Destroy(nint engine);

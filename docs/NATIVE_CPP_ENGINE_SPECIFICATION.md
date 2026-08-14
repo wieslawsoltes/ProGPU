@@ -1544,11 +1544,49 @@ submits the current target pass but performs no semantic-stream copy, managed
 allocation, path/glyph rasterization, source upload, or layer allocation.
 
 Device loss invalidates every device-domain handle and compiled GPU binding
-while retaining the immutable semantic snapshot and CPU compilation records.
+while retaining the immutable semantic snapshot and pointer-free CPU material
+pages that are safe to carry across device domains.
 The first frame on the replacement device recreates bounded resources from that
 snapshot. Invalid borrowed textures fail closed; an exhausted live atlas or
 layer budget reports a typed terminal status instead of silently dropping
 content, looping, or falling back to CPU readback.
+
+The ABI-v3 recovery checkpoint implements that contract through one terminal
+owner-thread notification and three provider-specific transactional recreate
+entry points. `progpu_native_engine_mark_device_lost` is idempotent and makes
+no WebGPU call, so a host may safely forward an asynchronous device-loss event
+after returning to the engine owner thread. It advances the loss generation;
+render and submission APIs then fail with `DEVICE_LOST`, while the CPU-only
+semantic update API may still replace the retained snapshot. Recreation first
+constructs a complete engine in the replacement device domain and then clones
+only the immutable stream, canonical header/metrics/hash, and pointer-free
+brush/text-style pages. It never copies a pipeline, buffer, texture, view,
+sampler, bind group, atlas slot, render bundle, borrowed view, or submission
+token. Allocation or device initialization failure destroys the incomplete
+replacement and leaves the terminal source unchanged.
+
+Snapshot transfer is `O(S + B + G + T)` time and additional CPU storage for
+`S` stream bytes, `B` brushes, `G` gradient stops/remapped indices, and `T`
+text styles/command indices. Loss notification and subsequent rejection are
+allocation-free `O(1)`. The first replacement frame performs the ordinary
+bounded device-resource compilation/upload for its live scene; the next
+unchanged frame returns to zero payload upload. The Dawn/Metal provider gate
+and real Chromium WebGPU gate both mark loss, prove old-engine rejection,
+recreate without resending the scene stream, require first-frame rebuild, and
+require stable zero-upload replay. They use a deterministic host-reported loss
+instead of intentionally terminating the workstation GPU.
+
+This follows the [WebGPU device-loss
+contract](https://www.w3.org/TR/webgpu/#device-lost) that a lost device is
+terminal and its child objects cannot migrate, [Direct2D resource
+domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains)
+that separate device-independent from device-dependent state, and [Win2D's
+explicit device-loss
+guidance](https://microsoft.github.io/Win2D/WinUI3/html/HandlingDeviceLost.htm)
+for whole-device recreation. ProGPU adopts retained CPU state plus
+all-or-nothing device-domain replacement; it rejects in-place handle reuse and
+automatic hidden fallback. The implementation is original and does not
+reproduce source or internal organization from another engine.
 
 ### Clean-room research decisions
 

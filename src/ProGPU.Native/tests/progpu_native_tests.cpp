@@ -513,6 +513,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);

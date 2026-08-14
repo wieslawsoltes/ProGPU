@@ -3,6 +3,7 @@
 #include "progpu_native_browser.h"
 #endif
 #include "progpu_native_frame_execution.hpp"
+#include "progpu_native_device_recovery.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_scene.hpp"
 
@@ -68,6 +69,53 @@ progpu_native_status create_engine(
     }
 }
 
+progpu_native_status require_gpu_engine(
+    progpu_native_engine* engine) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native GPU operations are owner-thread affine.");
+    }
+    if (engine->device_lost) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "The native WebGPU device was lost; recreate the engine on a replacement device.");
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status finish_recreation(
+    const progpu_native_engine* source,
+    progpu_native_engine** replacement) {
+    const progpu_native_status clone_status =
+        progpu::native::recovery::clone_retained_cpu_state(
+            source,
+            *replacement);
+    if (clone_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        delete *replacement;
+        *replacement = nullptr;
+    }
+    return clone_status;
+}
+
+progpu_native_status validate_recreation_source(
+    const progpu_native_engine* source,
+    progpu_native_engine** replacement) {
+    if (source == nullptr || replacement == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *replacement = nullptr;
+    if (!source->is_owner_thread()) {
+        return PROGPU_NATIVE_STATUS_WRONG_THREAD;
+    }
+    return source->device_lost
+        ? PROGPU_NATIVE_STATUS_SUCCESS
+        : PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
 } // namespace
 
 extern "C" {
@@ -127,7 +175,8 @@ uint8_t progpu_native_get_info(progpu_native_engine_info* info) {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_RENDERING |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_BRUSHES |
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES |
-        PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS;
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_COLOR_GLYPH_ATLAS |
+        PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION;
 #if defined(PROGPU_NATIVE_BROWSER)
     constexpr char name[] = "ProGPU C++ core renderer / browser WebGPU";
 #elif defined(PROGPU_NATIVE_DAWN_ABI)
@@ -179,6 +228,22 @@ progpu_native_status progpu_native_engine_create(
 #endif
 }
 
+progpu_native_status progpu_native_engine_recreate(
+    const progpu_native_engine* source,
+    const progpu_native_engine_options* options,
+    progpu_native_engine** replacement) {
+    const progpu_native_status validation =
+        validate_recreation_source(source, replacement);
+    if (validation != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return validation;
+    }
+    const progpu_native_status status =
+        progpu_native_engine_create(options, replacement);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? finish_recreation(source, replacement)
+        : status;
+}
+
 #if defined(PROGPU_NATIVE_DAWN_ABI) && !defined(PROGPU_NATIVE_BROWSER)
 static_assert(sizeof(progpu_native_dawn_engine_options) == 72U);
 
@@ -224,6 +289,22 @@ progpu_native_status progpu_native_dawn_engine_create(
         webgpu_dispatch,
         engine);
 }
+
+progpu_native_status progpu_native_dawn_engine_recreate(
+    const progpu_native_engine* source,
+    const progpu_native_dawn_engine_options* options,
+    progpu_native_engine** replacement) {
+    const progpu_native_status validation =
+        validate_recreation_source(source, replacement);
+    if (validation != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return validation;
+    }
+    const progpu_native_status status =
+        progpu_native_dawn_engine_create(options, replacement);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? finish_recreation(source, replacement)
+        : status;
+}
 #endif
 
 #if defined(PROGPU_NATIVE_BROWSER)
@@ -262,10 +343,31 @@ progpu_native_status progpu_native_browser_engine_create(
         webgpu_dispatch,
         engine);
 }
+
+progpu_native_status progpu_native_browser_engine_recreate(
+    const progpu_native_engine* source,
+    const progpu_native_browser_engine_options* options,
+    progpu_native_engine** replacement) {
+    const progpu_native_status validation =
+        validate_recreation_source(source, replacement);
+    if (validation != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return validation;
+    }
+    const progpu_native_status status =
+        progpu_native_browser_engine_create(options, replacement);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? finish_recreation(source, replacement)
+        : status;
+}
 #endif
 
 void progpu_native_engine_destroy(progpu_native_engine* engine) {
     delete engine;
+}
+
+progpu_native_status progpu_native_engine_mark_device_lost(
+    progpu_native_engine* engine) {
+    return progpu::native::recovery::mark_device_lost(engine);
 }
 
 progpu_native_status progpu_native_engine_update_scene(
@@ -281,56 +383,77 @@ progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,
     progpu_native_frame_metrics* metrics) {
-    return progpu::native::execution::render_solid(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_solid(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_analytic(
     progpu_native_engine* engine,
     const progpu_native_analytic_frame* frame,
     progpu_native_analytic_frame_metrics* metrics) {
-    return progpu::native::execution::render_analytic(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_analytic(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_geometry(
     progpu_native_engine* engine,
     const progpu_native_geometry_frame* frame,
     progpu_native_geometry_frame_metrics* metrics) {
-    return progpu::native::execution::render_geometry(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_geometry(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_paths(
     progpu_native_engine* engine,
     const progpu_native_path_frame* frame,
     progpu_native_path_frame_metrics* metrics) {
-    return progpu::native::execution::render_paths(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_paths(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_glyphs(
     progpu_native_engine* engine,
     const progpu_native_glyph_frame* frame,
     progpu_native_glyph_frame_metrics* metrics) {
-    return progpu::native::execution::render_glyphs(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_glyphs(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_image(
     progpu_native_engine* engine,
     const progpu_native_image_frame* frame,
     progpu_native_image_frame_metrics* metrics) {
-    return progpu::native::execution::render_image(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_image(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_render_scene(
     progpu_native_engine* engine,
     const progpu_native_scene_frame* frame,
     progpu_native_scene_frame_metrics* metrics) {
-    return progpu::native::execution::render_scene(
-        engine, frame, metrics);
+    const progpu_native_status status = require_gpu_engine(engine);
+    return status == PROGPU_NATIVE_STATUS_SUCCESS
+        ? progpu::native::execution::render_scene(
+            engine, frame, metrics)
+        : status;
 }
 
 progpu_native_status progpu_native_engine_get_last_submission(
@@ -343,6 +466,11 @@ progpu_native_status progpu_native_engine_get_last_submission(
         return engine->fail(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer submission timeline must be queried from its owner thread.");
+    }
+    if (engine->device_lost) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "Submission tokens from the lost native device are invalid.");
     }
     *submission_index = engine->last_submission_index;
     engine->last_error.clear();
@@ -397,6 +525,11 @@ progpu_native_status progpu_native_engine_poll_submission(
         return engine->fail(
             PROGPU_NATIVE_STATUS_WRONG_THREAD,
             "The native renderer submission timeline must be polled from its owner thread.");
+    }
+    if (engine->device_lost) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "Submissions from the lost native device cannot be polled.");
     }
     *complete = progpu::native::webgpu::poll_submission(
         engine->instance,

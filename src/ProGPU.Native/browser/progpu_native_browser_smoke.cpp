@@ -64,6 +64,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
         document.body.dataset.progpuNativeCoverageMasks = "passed";
+        document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
         document.body.dataset.progpuNativeBackendAbi = "3";
@@ -342,6 +343,58 @@ bool render_browser_frame(double, void*) {
         coverage_metrics.uniform_upload_bytes != 0U) {
         fail_engine("The stable browser coverage mask was rebuilt.");
     }
+
+    if (progpu_native_engine_mark_device_lost(resources.engine) !=
+            PROGPU_NATIVE_STATUS_SUCCESS ||
+        progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &coverage_metrics) != PROGPU_NATIVE_STATUS_DEVICE_LOST) {
+        fail_engine("The browser device-loss gate did not fail closed.");
+    }
+    progpu_native_browser_engine_options replacement_options{};
+    replacement_options.struct_size = sizeof(replacement_options);
+    replacement_options.native_abi_version = PROGPU_NATIVE_ABI_VERSION;
+    replacement_options.adapter_abi_version =
+        PROGPU_NATIVE_BROWSER_ADAPTER_ABI_VERSION;
+    replacement_options.target_format =
+        PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM;
+    replacement_options.device =
+        reinterpret_cast<std::uintptr_t>(resources.device);
+    replacement_options.queue =
+        reinterpret_cast<std::uintptr_t>(resources.queue);
+    progpu_native_engine* replacement = nullptr;
+    if (progpu_native_browser_engine_recreate(
+            resources.engine,
+            &replacement_options,
+            &replacement) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        replacement == nullptr) {
+        fail_engine("The browser engine could not be recreated.");
+    }
+    progpu_native_engine_destroy(resources.engine);
+    resources.engine = replacement;
+    coverage_metrics = {};
+    coverage_metrics.struct_size = sizeof(coverage_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &coverage_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        coverage_metrics.texture_upload_bytes != 64U ||
+        coverage_metrics.vertex_upload_bytes == 0U ||
+        coverage_metrics.uniform_upload_bytes == 0U) {
+        fail_engine("The recreated browser engine did not rebuild the retained scene.");
+    }
+    coverage_metrics = {};
+    coverage_metrics.struct_size = sizeof(coverage_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &coverage_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        coverage_metrics.texture_upload_bytes != 0U ||
+        coverage_metrics.vertex_upload_bytes != 0U ||
+        coverage_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("Stable browser replay after device recovery rebuilt resources.");
+    }
     resources.render_texture = render_texture;
     resources.render_view = render_view;
     if (!progpu::native::browser::begin_evidence_readback(
@@ -367,6 +420,8 @@ int main() {
             PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) == 0U ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE) != 0U) {
         fail("The ProGPU browser ABI/capability contract is invalid.");

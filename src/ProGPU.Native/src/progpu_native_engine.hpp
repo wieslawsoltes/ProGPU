@@ -392,6 +392,8 @@ struct progpu_native_engine {
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
+    std::uint64_t device_loss_generation = 0U;
+    bool device_lost = false;
 
     void submit(WGPUCommandBuffer command) noexcept {
         last_submission_index = progpu::native::webgpu::submit(

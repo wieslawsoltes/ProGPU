@@ -178,7 +178,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticSceneRendering = 1UL << 30,
     SemanticRetainedBrushes = 1UL << 31,
     SemanticRetainedTextStyles = 1UL << 32,
-    SemanticColorGlyphAtlas = 1UL << 33
+    SemanticColorGlyphAtlas = 1UL << 33,
+    DeviceLossRecreation = 1UL << 34
 }
 
 public enum NativeSceneResourceKind : uint

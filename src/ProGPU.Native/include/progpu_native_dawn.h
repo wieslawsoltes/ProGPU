@@ -40,6 +40,10 @@ PROGPU_NATIVE_API uint32_t progpu_native_dawn_get_adapter_abi_version(void);
 PROGPU_NATIVE_API progpu_native_status progpu_native_dawn_engine_create(
     const progpu_native_dawn_engine_options* options,
     progpu_native_engine** engine);
+PROGPU_NATIVE_API progpu_native_status progpu_native_dawn_engine_recreate(
+    const progpu_native_engine* source,
+    const progpu_native_dawn_engine_options* options,
+    progpu_native_engine** replacement);
 
 #ifdef __cplusplus
 }

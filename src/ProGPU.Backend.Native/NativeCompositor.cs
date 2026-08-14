@@ -70,7 +70,86 @@ public sealed unsafe class NativeCompositor : IDisposable
         WgpuContext.Disposing += OnContextDisposing;
     }
 
+    private NativeCompositor(
+        WgpuContext context,
+        TextureFormat targetFormat,
+        nint engine)
+    {
+        _context = context;
+        _targetFormat = targetFormat;
+        _engine = engine;
+        WgpuContext.Disposing += OnContextDisposing;
+    }
+
     public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
+
+    /// <summary>
+    /// Creates a replacement native compositor on a newly initialized WebGPU
+    /// context after device loss, preserving the latest immutable semantic
+    /// scene snapshot without carrying any old-device GPU handle across.
+    /// </summary>
+    /// <remarks>
+    /// The source remains terminal and caller-owned. Dispose it only after
+    /// this transactional operation succeeds. The replacement's first frame
+    /// rebuilds device resources; stable replay performs no payload upload.
+    /// </remarks>
+    public NativeCompositor Recreate(WgpuContext replacementContext)
+    {
+        ArgumentNullException.ThrowIfNull(replacementContext);
+        if (!_context.IsDeviceLost)
+        {
+            throw new InvalidOperationException(
+                "A native compositor can be recreated only after its WebGPU context reports device loss.");
+        }
+        if (ReferenceEquals(replacementContext, _context) ||
+            replacementContext.IsDisposed ||
+            !replacementContext.IsInitialized ||
+            replacementContext.IsDeviceLost)
+        {
+            throw new ArgumentException(
+                "The replacement must be a live, newly initialized WebGPU context.",
+                nameof(replacementContext));
+        }
+        if (replacementContext.BackendKind != WgpuBackendKind.SilkNative)
+        {
+            throw new NotSupportedException(
+                "Managed native recreation currently accepts the exact Silk.NET 2.23 wgpu-native ABI.");
+        }
+
+        var options = new NativeMethods.EngineOptions
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMethods.EngineOptions>(),
+            AbiVersion = NativeMethods.AbiVersion,
+            BackendAbi = NativeMethods.WgpuNativeMay2024BackendAbi,
+            TargetFormat = ToNativeFormat(_targetFormat),
+            Device = (nuint)replacementContext.Device,
+            Queue = (nuint)replacementContext.Queue
+        };
+
+        nint replacement = 0;
+        lock (_context.RenderLock)
+        {
+            ThrowIfDisposed();
+            ThrowForStatus(NativeMethods.MarkDeviceLost(_engine));
+            lock (replacementContext.RenderLock)
+            {
+                var status = NativeMethods.Recreate(
+                    _engine,
+                    &options,
+                    &replacement);
+                if (status != NativeRendererStatus.Success || replacement == 0)
+                {
+                    throw new NativeRendererException(
+                        status,
+                        ReadLastError());
+                }
+            }
+        }
+        return new NativeCompositor(
+            replacementContext,
+            _targetFormat,
+            replacement);
+    }
 
     /// <summary>
     /// Returns the queue token for the most recently submitted native frame.
@@ -79,7 +158,7 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         lock (_context.RenderLock)
         {
-            ThrowIfDisposed();
+            ThrowIfGpuUnavailable();
             ulong value = 0;
             ThrowForStatus(NativeMethods.GetLastSubmission(_engine, &value));
             return new NativeSubmissionToken(value, _engine);
@@ -254,7 +333,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         };
         lock (_context.RenderLock)
         {
-            ThrowIfDisposed();
+            ThrowIfGpuUnavailable();
             var status = NativeMethods.RenderScene(_engine, &frame, &metrics);
             if (status != NativeRendererStatus.Success)
             {
@@ -363,7 +442,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.Render(_engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
                 GC.KeepAlive(drawState.GroupEffectChain);
@@ -433,7 +512,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.RenderAnalytic(
                     _engine,
                     &frame,
@@ -615,7 +694,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.RenderGeometry(
                     _engine,
                     &frame,
@@ -705,7 +784,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.RenderPaths(_engine, &frame, &metrics);
                 GC.KeepAlive(drawState.GroupMask.ClipChain);
                 GC.KeepAlive(drawState.GroupEffectChain);
@@ -802,7 +881,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.RenderGlyphs(
                     _engine,
                     &frame,
@@ -907,7 +986,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
             lock (_context.RenderLock)
             {
-                ThrowIfDisposed();
+                ThrowIfGpuUnavailable();
                 var status = NativeMethods.RenderImage(
                     _engine,
                     &frame,
@@ -1022,7 +1101,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         lock (_context.RenderLock)
         {
-            ThrowIfDisposed();
+            ThrowIfGpuUnavailable();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
             GC.KeepAlive(drawState.GroupEffectChain);
@@ -1131,7 +1210,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         lock (_context.RenderLock)
         {
-            ThrowIfDisposed();
+            ThrowIfGpuUnavailable();
             var status = NativeMethods.RenderImage(_engine, &frame, &metrics);
             GC.KeepAlive(drawState.GroupMask.ClipChain);
             GC.KeepAlive(drawState.GroupEffectChain);
@@ -1200,7 +1279,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         lock (_context.RenderLock)
         {
-            ThrowIfDisposed();
+            ThrowIfGpuUnavailable();
             if (token.Owner != _engine)
             {
                 throw new ArgumentException(
@@ -1250,6 +1329,19 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             throw new ObjectDisposedException(nameof(NativeCompositor));
         }
+    }
+
+    private void ThrowIfGpuUnavailable()
+    {
+        ThrowIfDisposed();
+        if (!_context.IsDeviceLost)
+        {
+            return;
+        }
+        ThrowForStatus(NativeMethods.MarkDeviceLost(_engine));
+        throw new NativeRendererException(
+            NativeRendererStatus.DeviceLost,
+            ReadLastError());
     }
 
     private void ValidateTarget(GpuTexture target)

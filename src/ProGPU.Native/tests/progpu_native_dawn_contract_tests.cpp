@@ -64,6 +64,8 @@ int main() {
         PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07);
     require((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_SCENE_SNAPSHOTS) != 0U);
+    require((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) != 0U);
     require(std::strstr(info.name, "Dawn provider") != nullptr);
 
     progpu_native_engine* engine = nullptr;

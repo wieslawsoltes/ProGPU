@@ -46,6 +46,7 @@ try {
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
     coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
+    deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
     error: document.body.dataset.progpuNativeError ?? ""
   }));
   assert.deepEqual(contract, {
@@ -58,6 +59,7 @@ try {
     backendAbi: "3",
     explicitTimeline: "0",
     coverageMasks: "passed",
+    deviceRecovery: "passed",
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
   const screenshotPath = path.join(
