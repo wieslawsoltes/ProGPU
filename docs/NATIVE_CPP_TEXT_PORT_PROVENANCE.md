@@ -204,7 +204,7 @@ segments, and exact full-stream hash `12343280691057163238` under normal,
 named-module, ASan/UBSan, and focused managed gates.
 
 Composite-component tuple application follows at checkpoint
-`6ca97ba77341108cc5766574d54773a38b0a24a6`. The shared/private point and
+`6ca97ba7fc9def783fc511c8918e1743de701414`. The shared/private point and
 packed-delta walker is isolated in `progpu_native_gvar_payload.cpp` and reused
 by both simple and composite glyphs. `progpu_native_gvar_composite.cpp`
 preflights every tuple, evaluates the same normalized regions, and writes
@@ -215,7 +215,7 @@ outline independently matches start `(595,-24)`, 2 figures, 36 segments, and
 hash `12064242707506207632`.
 
 Recursive varied-composite expansion follows at checkpoint
-`7c045a80d0b0509b71d402505a9345210f48b2dc`. The dedicated
+`7c045a805a3f4d7028d2f503660c402ff3ead09d`. The dedicated
 `progpu_native_true_type_varied_requirements.cpp` pass measures exact maximum
 simple-tuple, composite-tuple, varied-point, and active recursion-path offset
 storage. `progpu_native_true_type_varied_outline.cpp` then varies every simple
@@ -229,7 +229,7 @@ named C++20 module, ASan/UBSan, short-scratch transactionality, and focused
 managed differential gates pass.
 
 Phantom-point advance fallback follows at checkpoint
-`868906b5be72076b491a76c75b9e85d4bd6c64d1` in the granular
+`868906b56aba0e79d918555de2482e351b57e125` in the granular
 `progpu_native_gvar_phantom.cpp` unit. It reuses the shared tuple payload
 walker, accumulates left/right phantom X deltas for all-point or sparse tuples,
 and publishes their difference only after complete validation. Work is
@@ -241,7 +241,7 @@ gates. This raw `gvar` fallback remains deliberately separate from the HVAR
 precedence and item-variation-store slice.
 
 Borrowed item-variation stores and HVAR advance precedence follow at checkpoint
-`920df3b09c7994839d11d43e8af50b209c186848`. The granular
+`920df3b0a2971232f84720ab384a3c2a737dd15c`. The granular
 `progpu_native_item_variation_store.cpp` unit validates format-1 region lists,
 subtable offsets, word/long-word delta rows, region indices, and format-0/1
 delta-set maps before exposing a borrowed view. Lookup scans only the selected
@@ -255,7 +255,7 @@ truncation, normal, named-module, ASan/UBSan, and 29/29 managed Inter gates
 pass.
 
 MVAR and GDEF layout-store consumers follow at checkpoint
-`aed98a9921ad36864ee95687747629b195a42dc4`. The granular MVAR unit validates
+`aed98a99996447a5b2048d5b1f7df6c14c9d1eb4`. The granular MVAR unit validates
 record stride/count/store bounds, preserves the managed last-duplicate-tag
 rule, and evaluates each metric record through its own borrowed store. The
 GDEF 1.3 unit resolves layout variation indices through the same parser and
