@@ -156,10 +156,15 @@ shared tuples, and transactional packed point/delta decoding with no internal
 allocation. A third granular unit validates and decodes shared/embedded tuple
 regions and evaluates exact managed piecewise scalars directly from F2Dot14
 caller spans. The next granular units implement allocation-free circular IUP
-inference and transactional simple-glyph tuple application. Fractional results lower
-without rounding to the canonical path ABI; native and managed InterVariable
-`opsz=23` glyph 397 match all 39 segments and the exact stream hash. Composite
-component, phantom-metric, and layout-store variation remain sequenced work.
+inference and transactional simple-glyph tuple application. Fractional results
+lower without rounding to the canonical path ABI; native and managed
+InterVariable `opsz=23` glyph 397 match all 39 segments and the exact stream
+hash. A shared granular payload walker now also drives allocation-free
+composite-component tuple application. Native glyph 618 resolves the exact
+managed component offsets `(0,0)` and `(15,0)` while the managed reference
+outline is pinned at 2 figures, 36 segments, and its full-stream hash.
+Recursive varied-composite expansion, phantom metrics, and layout-store
+variation remain sequenced work.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

@@ -201,8 +201,19 @@ caller storage and `O(1)` internal storage for tuples `T`, axes `A`, points
 canonical line/quadratic path ABI without rounding. The managed and native
 InterVariable `opsz=23` glyph-397 checkpoint matches start `(648.5,-25)`, 39
 segments, and exact full-stream hash `12343280691057163238` under normal,
-named-module, ASan/UBSan, and focused managed gates. Composite component and
-phantom-metric variation application remain later slices.
+named-module, ASan/UBSan, and focused managed gates.
+
+Composite-component tuple application follows at checkpoint
+`6ca97ba77341108cc5766574d54773a38b0a24a6`. The shared/private point and
+packed-delta walker is isolated in `progpu_native_gvar_payload.cpp` and reused
+by both simple and composite glyphs. `progpu_native_gvar_composite.cpp`
+preflights every tuple, evaluates the same normalized regions, and writes
+caller-owned component offsets transactionally with no internal allocation.
+The native InterVariable `opsz=23` glyph-618 checkpoint exactly resolves its
+two component offsets to `(0,0)` and `(15,0)`; the authoritative managed
+outline independently matches start `(595,-24)`, 2 figures, 36 segments, and
+hash `12064242707506207632`. Recursive application of those offsets to varied
+child outlines and phantom-metric variation remain later slices.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
