@@ -144,6 +144,12 @@ renders through the same shared compute-rasterizer/text shaders as managed
 compiled pictures. This validates the native font-to-GPU seam without adding a
 font parser to the renderer or a per-glyph ABI crossing. Omitting the argument
 keeps the source-independent fallback fixture used by package consumers.
+`progpu_native_font_variations.cpp` begins variable-font parity with an
+allocation-free two-pass `fvar` axis reader. It retains each tag, signed 16.16
+range/default, flags, and name ID in fixed records, validates the complete table
+before writing caller storage, and is exported through both the header and LLVM
+module surfaces. `avar`/`gvar` and metric/layout variation application remain
+explicitly unsupported until their following bounded slices land.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

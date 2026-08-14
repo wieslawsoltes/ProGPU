@@ -133,6 +133,21 @@ packaged consumers do not acquire a source-tree asset dependency. Repository
 Clang and Windows build scripts pass the font explicitly, making the real
 font-to-GPU connection an integration gate on runnable targets.
 
+Variable-font metadata starts at checkpoint
+`3d1bae9477bd5c03199eff66daee07c388b840a9` with a separate
+`progpu_native_font_variations.cpp` translation unit that ports
+`OpenTypeVariationData.ParseAxes`. The borrowed two-pass API validates the
+`fvar` header, axis offset/count/stride, and complete fixed-size record range
+before writing. It preserves tags, signed 16.16 minimum/default/maximum values,
+flags, and name IDs without resolving provider-owned strings or allocating.
+Counting is `O(1)` and decoding is `O(A)` time with `O(1)` internal storage for
+`A` axes; an undersized caller span writes nothing. Synthetic hidden-axis,
+truncation, and transactional-buffer cases pass under normal, LLVM named-module,
+and ASan/UBSan builds. The real InterVariable checkpoint matches the managed
+implementation's `opsz` 14/14/32 and `wght` 100/400/900 axes exactly. `avar`
+normalization, named instances, `gvar` deltas, HVAR/MVAR/GDEF variation stores,
+and per-instance caching remain explicit later slices.
+
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.
