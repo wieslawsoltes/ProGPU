@@ -2030,6 +2030,18 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
+            "src/progpu_native_layer_resource_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_effect_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "src/progpu_native_layer_composite_execution.cpp",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "src/progpu_native_advanced_blend_execution.cpp",
             cmake,
             StringComparison.Ordinal);
@@ -2062,8 +2074,12 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_clip_execution.cpp"));
         string imageExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_image_execution.cpp"));
-        string layerEffectExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_layer_effect_execution.cpp"));
+        string layerResourceExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_layer_resource_execution.cpp"));
+        string effectExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_effect_execution.cpp"));
+        string layerCompositeExecutionSource = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "progpu_native_layer_composite_execution.cpp"));
         string vectorExecutionSource = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "progpu_native_vector_execution.cpp"));
         string pathExecutionSource = File.ReadAllText(FindRepoFile(
@@ -2080,11 +2096,11 @@ public class NativeRendererInteropTests
             "src", "ProGPU.Native", "src", "progpu_native_frame_execution_common.hpp"));
         Assert.Contains(
             "GaussianBlurHorizontalWgsl.generated.hpp",
-            layerEffectExecutionSource,
+            effectExecutionSource,
             StringComparison.Ordinal);
         Assert.Contains(
             "GroupDropShadowComposeWgsl.generated.hpp",
-            layerEffectExecutionSource,
+            effectExecutionSource,
             StringComparison.Ordinal);
         foreach (string source in new[]
                  {
@@ -2094,7 +2110,9 @@ public class NativeRendererInteropTests
                      clipSource,
                      clipExecutionSource,
                      imageExecutionSource,
-                     layerEffectExecutionSource,
+                     layerResourceExecutionSource,
+                     effectExecutionSource,
+                     layerCompositeExecutionSource,
                      vectorExecutionSource,
                      pathExecutionSource,
                      glyphExecutionSource,

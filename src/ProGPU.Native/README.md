@@ -45,9 +45,11 @@ image, layer-mask, and fixed/advanced blend pipelines, and
 `progpu_native_clip_resources.cpp` owns retained clip textures, buffers, and
 bindings. Retained execution is split separately from resource construction:
 `progpu_native_clip_execution.cpp` owns vector-clip replay,
-`progpu_native_layer_effect_execution.cpp` owns pooled layers, masks, effects,
-and group composition, while `progpu_native_image_execution.cpp` owns image
-upload and image-mask updates. `progpu_native_replay_execution.hpp` is the
+`progpu_native_layer_resource_execution.cpp` owns pooled layer/mask resources,
+`progpu_native_effect_execution.cpp` owns effect resources and dispatch,
+`progpu_native_layer_composite_execution.cpp` owns group composition, while
+`progpu_native_image_execution.cpp` owns image upload and image-mask updates.
+`progpu_native_replay_execution.hpp` is the
 small internal seam used by the remaining C ABI/frame-family entrypoints in
 `progpu_native.cpp`. Path, positioned-glyph, and RGBA-image frame execution is
 further separated into `progpu_native_path_execution.cpp`,

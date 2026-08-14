@@ -224,8 +224,10 @@ layer-mask, and blend pipelines live in
 `progpu_native_image_layer_resources.cpp`; and retained clip GPU resources live
 in `progpu_native_clip_resources.cpp`. Retained execution is independently
 partitioned: `progpu_native_clip_execution.cpp` compiles and replays vector
-clip chains, `progpu_native_layer_effect_execution.cpp` owns pooled layers,
-masks, effect chains, and group composition, and
+clip chains, `progpu_native_layer_resource_execution.cpp` owns pooled layer and
+mask resources, `progpu_native_effect_execution.cpp` owns effect resources and
+dispatch, `progpu_native_layer_composite_execution.cpp` owns group composition,
+and
 `progpu_native_image_execution.cpp` owns image texture upload and mask updates.
 Their only cross-translation-unit seam is the typed private
 `progpu_native_replay_execution.hpp` contract. Frame-family execution is also

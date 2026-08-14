@@ -317,7 +317,9 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_color_glyph_resources.cpp
     src/progpu_native_image_execution.cpp
     src/progpu_native_image_layer_resources.cpp
-    src/progpu_native_layer_effect_execution.cpp
+    src/progpu_native_layer_resource_execution.cpp
+    src/progpu_native_effect_execution.cpp
+    src/progpu_native_layer_composite_execution.cpp
     src/progpu_native_path_text_resources.cpp
     src/progpu_native_path_execution.cpp
     src/progpu_native_glyph_execution.cpp

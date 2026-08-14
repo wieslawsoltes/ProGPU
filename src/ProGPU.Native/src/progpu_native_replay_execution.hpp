@@ -16,6 +16,17 @@ void apply_scissor(
     WGPURenderPassEncoder pass,
     const resolved_draw_state& state) noexcept;
 
+bool update_layer_group_mask(
+    progpu_native_engine& engine,
+    const resolved_draw_state& draw_state,
+    float dpi_scale,
+    bool& uploaded_uniforms);
+
+bool ensure_layer_texture(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height);
+
 bool rebuild_vector_clip_chain(
     progpu_native_engine& engine,
     const progpu_native_group_mask& mask,
@@ -107,11 +118,35 @@ bool ensure_semantic_effect_uniform_buffer(
     progpu_native_engine& engine,
     std::uint64_t required_bytes);
 
+WGPUBindGroup get_or_create_semantic_effect_blur_binding(
+    progpu_native_engine& engine,
+    semantic_layer_slot& slot,
+    std::int32_t source,
+    std::uint32_t output);
+
+WGPUBindGroup get_or_create_semantic_effect_drop_shadow_binding(
+    progpu_native_engine& engine,
+    semantic_layer_slot& slot,
+    std::int32_t source,
+    std::uint32_t blurred,
+    std::uint32_t output);
+
 bool encode_group_effect(
     progpu_native_engine& engine,
     WGPUCommandEncoder encoder,
     const resolved_draw_state& draw_state,
     float dpi_scale);
+
+bool prepare_group_effect(
+    progpu_native_engine& engine,
+    std::uint32_t width,
+    std::uint32_t height,
+    const resolved_draw_state& draw_state);
+
+void retain_group_effect(
+    progpu_native_engine& engine,
+    float dpi_scale,
+    const resolved_draw_state& draw_state) noexcept;
 
 void reset_layer_metrics(progpu_native_engine& engine) noexcept;
 

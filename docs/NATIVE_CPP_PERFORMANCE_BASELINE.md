@@ -2146,3 +2146,20 @@ native/managed, completion wait `4.5195/4.5495 ms`, and synchronized end to end
 regime in two runs; the split is therefore classified as on par, not a speedup.
 The real Emscripten/Chromium WebGPU gate also passes and retains screenshot
 SHA-256 `32d330540a4ef89c4b75b0e6c9cb15b37e957f67d9bf841cadb687d6869e9502`.
+
+The former 2,756-line layer/effect unit is likewise separated into pooled
+layer/mask resource ownership (755 lines), effect resource/dispatch ownership
+(1,268 lines), and layer composition/cache ownership (818 lines). Exact body
+hashes before and after are
+`4893044d3443b7e97fd11da38bf387364d2ae2515a8f5efa46bb30d025cd40c3`,
+`cf85fe8a54cba1f330e33bbaea3de8afd4484f73b14a75ea52bc3fa34233e853`,
+and `f4128cc0b9899652d185570e1a93a0c373adda69146f08aca8927b7c6b67a872`.
+The only new linkage is through typed declarations in the existing private
+replay seam; no public export is added.
+
+Three post-split paired runs again preserved the exact images, one stable draw,
+zero content/effect passes, and zero stable allocation/upload. Median p95 was
+`0.1990/0.3261 ms` submission, `4.5259/4.5405 ms` completion wait, and
+`4.5787/4.6849 ms` synchronized end to end for native/managed. Warnings-as-
+errors, ASan/UBSan, real Dawn/Metal, and Emscripten/Chromium WebGPU pass with
+the three new translation units.
