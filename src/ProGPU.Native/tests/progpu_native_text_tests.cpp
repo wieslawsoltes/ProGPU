@@ -2438,6 +2438,123 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
         glyphs[0U].glyph_id == 99U);
 }
 
+void open_type_gpos_device_and_variation_deltas_are_applied() {
+    const auto make_device_gpos = [](std::uint16_t first,
+                                      std::uint16_t second,
+                                      std::uint16_t format,
+                                      std::uint16_t packed) {
+        std::vector<std::byte> table(52U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 12U);
+        write_u16(table, 8U, 14U);
+        write_u16(table, 14U, 1U);
+        write_u16(table, 16U, 4U);
+        write_u16(table, 18U, 1U);
+        write_u16(table, 22U, 1U);
+        write_u16(table, 24U, 8U);
+        write_u16(table, 26U, 1U);
+        write_u16(table, 28U, 10U);
+        write_u16(table, 30U, 0x0040U);
+        write_u16(table, 32U, 18U);
+        write_u16(table, 36U, 1U);
+        write_u16(table, 38U, 1U);
+        write_u16(table, 40U, 3U);
+        write_u16(table, 44U, first);
+        write_u16(table, 46U, second);
+        write_u16(table, 48U, format);
+        write_u16(table, 50U, packed);
+        return table;
+    };
+
+    const auto device_gpos = make_device_gpos(20U, 20U, 3U, 0xFF00U);
+    const std::array device_tables{table_data{
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), device_gpos}};
+    const auto device_font_bytes = make_font(
+        0U, 22U, 0U, false, false, false, device_tables);
+    sfnt_font_view device_font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(
+        device_font_bytes, 0U, device_font, &error));
+    sfnt_table_view gpos_table{};
+    require(device_font.try_get_table(
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
+    open_type_layout_table_view gpos{};
+    require(open_type_layout_table_view::try_create(
+        gpos_table.bytes, gpos, &error));
+    std::array<shaping_glyph, 1U> glyphs{
+        shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500}};
+    bool applied = false;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            {},
+            &device_font,
+            {},
+            20U,
+            20U},
+        applied,
+        &error));
+    require(applied && glyphs[0U].advance_x == 450);
+
+    std::vector<std::byte> gdef(56U);
+    write_u16(gdef, 0U, 1U);
+    write_u16(gdef, 2U, 3U);
+    write_u32(gdef, 14U, 18U);
+    write_u16(gdef, 18U, 1U);
+    write_u32(gdef, 20U, 12U);
+    write_u16(gdef, 24U, 1U);
+    write_u32(gdef, 26U, 28U);
+    write_u16(gdef, 30U, 2U);
+    write_u16(gdef, 32U, 1U);
+    write_i16(gdef, 34U, 0);
+    write_i16(gdef, 36U, 8192);
+    write_i16(gdef, 38U, 16384);
+    write_i16(gdef, 40U, 0);
+    write_i16(gdef, 42U, 8192);
+    write_i16(gdef, 44U, 16384);
+    write_u16(gdef, 46U, 1U);
+    write_u16(gdef, 48U, 1U);
+    write_u16(gdef, 50U, 1U);
+    write_u16(gdef, 52U, 0U);
+    write_i16(gdef, 54U, 20);
+    const auto variation_gpos =
+        make_device_gpos(0U, 0U, 0x8000U, 0U);
+    const std::array variation_tables{
+        table_data{open_type_tag::from_chars('G', 'D', 'E', 'F'), gdef},
+        table_data{
+            open_type_tag::from_chars('G', 'P', 'O', 'S'), variation_gpos}};
+    const auto variation_font_bytes = make_font(
+        0U, 22U, 0U, true, false, false, variation_tables);
+    sfnt_font_view variation_font{};
+    require(sfnt_font_view::try_create(
+        variation_font_bytes, 0U, variation_font, &error));
+    require(variation_font.try_get_table(
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
+    require(open_type_layout_table_view::try_create(
+        gpos_table.bytes, gpos, &error));
+    glyphs[0U] = shaping_glyph{
+        3U, 0U, 0, shaping_glyph_flags::none, 500};
+    const std::array<std::int16_t, 2U> normalized{8192, 8192};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            {},
+            &variation_font,
+            normalized},
+        applied,
+        &error));
+    require(applied && glyphs[0U].advance_x == 520);
+}
+
 void variation_axes_are_borrowed_bounded_and_transactional() {
     const auto data = make_font(0U, 22U, 0U, true);
     sfnt_font_view font{};
@@ -4647,6 +4764,7 @@ int main() {
     open_type_gpos_context_format3_applies_nested_lookup();
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
+    open_type_gpos_device_and_variation_deltas_are_applied();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

@@ -614,15 +614,21 @@ struct open_type_gpos_apply_options final {
     const open_type_gdef_view* gdef = nullptr;
     shaping_direction direction = shaping_direction::left_to_right;
     std::span<shaping_attachment> attachments{};
+    const sfnt_font_view* font = nullptr;
+    std::span<const std::int16_t> normalized_coordinates{};
+    std::uint16_t pixels_per_em_x = 0U;
+    std::uint16_t pixels_per_em_y = 0U;
 };
 
 /*
  * Allocation-free GPOS execution over the same caller-owned shaped glyph
  * records. The executor covers Single, Pair, Cursive, Mark-to-Base,
  * Mark-to-Ligature, and Mark-to-Mark positioning plus Extension wrappers and
- * Context/Chaining Context formats 1-3 with bounded nested lookups.
- * Anchor relationships use caller-owned attachment records and values remain
- * in font units for later run scaling.
+ * Context/Chaining Context formats 1-3 with bounded nested lookups. Value and
+ * anchor Device tables plus VariationIndex records are applied when the caller
+ * supplies the font/coordinates and optional target ppem. Anchor relationships
+ * use caller-owned attachment records and values remain in font units for later
+ * run scaling.
  */
 bool try_apply_open_type_gpos_lookup(
     const open_type_layout_table_view& gpos,

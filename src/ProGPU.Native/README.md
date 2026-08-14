@@ -305,8 +305,10 @@ beyond 64, and applies pen-advance compensation without a heap graph. Lookup
 execution is `O(P * S * K)` in the bounded worst case and attachment resolution
 is normally `O(P + A)`, where `P` is glyph count, `S` is subtable count, `K` is
 coverage/anchor search work, and `A` is the advances crossed by attached marks.
-Anchor formats 1-3 are validated; device/variation deltas remain a later GPOS
-slice rather than being silently approximated.
+Anchor formats 1-3 are validated. GPOS ValueRecord and anchor Device tables now
+apply packed 2/4/8-bit ppem deltas after exact font-unit conversion, while
+VariationIndex records resolve through the borrowed GDEF ItemVariationStore.
+Both paths reuse caller font/coordinate state and allocate no parser objects.
 
 GPOS Context and Chaining Context formats 1-3 now execute nested position
 lookups with a fixed 64-level recursion bound, GDEF-aware eligible-sequence

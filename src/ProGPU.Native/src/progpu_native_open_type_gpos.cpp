@@ -74,11 +74,90 @@ std::size_t value_record_size(std::uint16_t format) noexcept {
         std::popcount(static_cast<unsigned>(format))) * 2U;
 }
 
+bool read_device_delta(
+    std::span<const std::byte> table,
+    std::size_t parent,
+    std::uint16_t relative,
+    std::uint16_t pixels_per_em,
+    const open_type_gpos_apply_options& options,
+    std::int32_t& delta) noexcept {
+    delta = 0;
+    if (relative == 0U) {
+        return true;
+    }
+    std::size_t device = 0U;
+    if (!try_add(parent, relative, device) || !can_read(table, device, 6U)) {
+        return false;
+    }
+    const std::uint16_t first = read_u16(table, device);
+    const std::uint16_t second = read_u16(table, device + 2U);
+    const std::uint16_t format = read_u16(table, device + 4U);
+    if (format == 0x8000U) {
+        if (options.font == nullptr) {
+            return true;
+        }
+        float variation = 0.0F;
+        bool uses_store = false;
+        if (!options.font->try_get_layout_variation(
+                first,
+                second,
+                options.normalized_coordinates,
+                variation,
+                uses_store)) {
+            return false;
+        }
+        if (uses_store) {
+            delta = static_cast<std::int32_t>(std::lround(variation));
+        }
+        return true;
+    }
+    if (format < 1U || format > 3U || second < first) {
+        return false;
+    }
+    const std::uint32_t bits = 1U << format;
+    const std::uint32_t values_per_word = 16U / bits;
+    const std::uint32_t value_count =
+        static_cast<std::uint32_t>(second) - first + 1U;
+    const std::size_t word_count =
+        (value_count + values_per_word - 1U) / values_per_word;
+    if (!can_read(table, device + 6U, word_count * 2U)) {
+        return false;
+    }
+    if (pixels_per_em < first || pixels_per_em > second ||
+        options.font == nullptr || pixels_per_em == 0U) {
+        return true;
+    }
+    const std::uint32_t value_index = pixels_per_em - first;
+    const std::uint16_t packed = read_u16(
+        table,
+        device + 6U +
+            static_cast<std::size_t>(value_index / values_per_word) * 2U);
+    const std::uint32_t shift =
+        16U - bits * (value_index % values_per_word + 1U);
+    const std::uint32_t mask = (1U << bits) - 1U;
+    std::int32_t pixels = static_cast<std::int32_t>(
+        (static_cast<std::uint32_t>(packed) >> shift) & mask);
+    const std::int32_t sign = 1 << (bits - 1U);
+    if ((pixels & sign) != 0) {
+        pixels -= 1 << bits;
+    }
+    sfnt_header_metrics header{};
+    if (!options.font->try_get_header_metrics(header) ||
+        header.units_per_em == 0U) {
+        return false;
+    }
+    delta = static_cast<std::int32_t>(std::lround(
+        static_cast<double>(pixels) * header.units_per_em /
+        pixels_per_em));
+    return true;
+}
+
 bool parse_value_record(
     std::span<const std::byte> table,
     std::size_t parent,
     std::size_t offset,
     std::uint16_t format,
+    const open_type_gpos_apply_options& options,
     value_adjustment& result) noexcept {
     result = {};
     if ((format & 0xFF00U) != 0U ||
@@ -102,11 +181,26 @@ bool parse_value_record(
         }
         const std::uint16_t relative = read_u16(table, cursor);
         cursor += 2U;
-        std::size_t device = 0U;
-        if (relative != 0U &&
-            (!try_add(parent, relative, device) ||
-                !can_read(table, device, 6U))) {
+        std::int32_t delta = 0;
+        const bool horizontal = bit == 0x0010U || bit == 0x0040U;
+        if (!read_device_delta(
+                table,
+                parent,
+                relative,
+                horizontal ? options.pixels_per_em_x
+                           : options.pixels_per_em_y,
+                options,
+                delta)) {
             return false;
+        }
+        if (bit == 0x0010U) {
+            result.offset_x += delta;
+        } else if (bit == 0x0020U) {
+            result.offset_y += delta;
+        } else if (bit == 0x0040U) {
+            result.advance_x += delta;
+        } else {
+            result.advance_y += delta;
         }
     }
     return true;
@@ -198,6 +292,7 @@ std::size_t previous_eligible(
 bool parse_anchor(
     std::span<const std::byte> table,
     std::size_t offset,
+    const open_type_gpos_apply_options& options,
     std::int32_t& x,
     std::int32_t& y) noexcept {
     x = 0;
@@ -214,16 +309,26 @@ bool parse_anchor(
     x = read_i16(table, offset + 2U);
     y = read_i16(table, offset + 4U);
     if (format == 3U) {
-        for (std::size_t record = offset + 6U; record < offset + 10U;
-             record += 2U) {
-            const std::uint16_t relative = read_u16(table, record);
-            std::size_t device = 0U;
-            if (relative != 0U &&
-                (!try_add(offset, relative, device) ||
-                    !can_read(table, device, 6U))) {
-                return false;
-            }
+        std::int32_t x_delta = 0;
+        std::int32_t y_delta = 0;
+        if (!read_device_delta(
+                table,
+                offset,
+                read_u16(table, offset + 6U),
+                options.pixels_per_em_x,
+                options,
+                x_delta) ||
+            !read_device_delta(
+                table,
+                offset,
+                read_u16(table, offset + 8U),
+                options.pixels_per_em_y,
+                options,
+                y_delta)) {
+            return false;
         }
+        x += x_delta;
+        y += y_delta;
     }
     return true;
 }
@@ -291,8 +396,8 @@ apply_result apply_cursive(
     if (exit_relative == 0U ||
         !try_add(subtable, entry_relative, entry_offset) ||
         !try_add(subtable, exit_relative, exit_offset) ||
-        !parse_anchor(table, entry_offset, entry_x, entry_y) ||
-        !parse_anchor(table, exit_offset, exit_x, exit_y)) {
+        !parse_anchor(table, entry_offset, options, entry_x, entry_y) ||
+        !parse_anchor(table, exit_offset, options, exit_x, exit_y)) {
         return apply_result::malformed;
     }
     shaping_glyph& first = glyphs[previous];
@@ -449,8 +554,9 @@ apply_result attach_mark(
     if (target_anchor_relative == 0U ||
         !try_add(header.mark_array, mark_anchor_relative, mark_anchor) ||
         !try_add(target_anchor_base, target_anchor_relative, target_anchor) ||
-        !parse_anchor(table, mark_anchor, mark_x, mark_y) ||
-        !parse_anchor(table, target_anchor, target_x, target_y)) {
+        !parse_anchor(table, mark_anchor, options, mark_x, mark_y) ||
+        !parse_anchor(
+            table, target_anchor, options, target_x, target_y)) {
         return apply_result::malformed;
     }
     glyphs[mark_index].offset_x = target_x - mark_x;
@@ -468,7 +574,8 @@ apply_result apply_single(
     std::span<const std::byte> table,
     std::size_t subtable,
     std::span<shaping_glyph> glyphs,
-    std::size_t position) noexcept {
+    std::size_t position,
+    const open_type_gpos_apply_options& options) noexcept {
     if (!can_read(table, subtable, 6U)) {
         return apply_result::malformed;
     }
@@ -507,7 +614,7 @@ apply_result apply_single(
     }
     value_adjustment value{};
     if (!parse_value_record(
-            table, subtable, value_offset, value_format, value)) {
+            table, subtable, value_offset, value_format, options, value)) {
         return apply_result::malformed;
     }
     apply_value(glyphs[position], value);
@@ -637,12 +744,18 @@ apply_result apply_pair(
     value_adjustment value1{};
     value_adjustment value2{};
     if (!parse_value_record(
-            table, subtable, value1_offset, value_format1, value1) ||
+            table,
+            subtable,
+            value1_offset,
+            value_format1,
+            options,
+            value1) ||
         !parse_value_record(
             table,
             subtable,
             value1_offset + value_size1,
             value_format2,
+            options,
             value2)) {
         return apply_result::malformed;
     }
@@ -834,7 +947,7 @@ apply_result apply_subtable(
             depth);
     }
     if (type == 1U) {
-        return apply_single(table, subtable, glyphs, position);
+        return apply_single(table, subtable, glyphs, position, options);
     }
     if (type == 2U) {
         return apply_pair(

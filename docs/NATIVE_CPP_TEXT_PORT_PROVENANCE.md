@@ -142,6 +142,12 @@ Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle
 bound, preserving GDEF filtering and unsafe-to-break ranges.
 
+GPOS ValueRecord and anchor adjustments now share the native font variation
+store port: VariationIndex records resolve through GDEF 1.3, and classic Device
+tables decode signed 2/4/8-bit ppem deltas before converting them back to font
+units. The shaper forwards the existing normalized-coordinate span in bulk;
+there is no secondary variation parser or glyph-by-glyph interop path.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

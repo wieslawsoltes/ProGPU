@@ -275,7 +275,11 @@ bool try_shape_open_type_run(
                     scratch.gpos_lookups[index],
                     glyphs,
                     open_type_gpos_apply_options{
-                        gdef_pointer, options.direction, attachments},
+                        gdef_pointer,
+                        options.direction,
+                        attachments,
+                        &font,
+                        options.normalized_coordinates},
                     applied,
                     error)) {
                 return false;
