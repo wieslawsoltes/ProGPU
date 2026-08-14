@@ -144,8 +144,13 @@ typedef enum progpu_native_scene_gradient_interpolation {
 
 typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2
+    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3
 } progpu_native_scene_layer_mask_kind;
+
+enum {
+    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U
+};
 
 typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_SAVE = 1,
@@ -588,6 +593,20 @@ typedef struct progpu_native_scene_layer_coverage_mask {
     float opacity;
     uint32_t reserved1;
 } progpu_native_scene_layer_coverage_mask;
+
+/*
+ * Pointer-free fixed-capacity intersection of two to four analytic masks.
+ * Each active entry is a canonical rounded-rectangle record; unused trailing
+ * entries are all-zero. The bounded representation keeps validation, upload,
+ * shader evaluation, and replay storage O(1) without an auxiliary allocation.
+ */
+typedef struct progpu_native_scene_layer_mask_chain {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t mask_count;
+    progpu_native_scene_layer_mask masks[PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS];
+} progpu_native_scene_layer_mask_chain;
 
 /*
  * Version-one upload-backed image command payload. Its resource payload is a

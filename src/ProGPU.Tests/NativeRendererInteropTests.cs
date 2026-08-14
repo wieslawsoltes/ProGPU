@@ -213,6 +213,27 @@ public class NativeRendererInteropTests
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
+        Assert.Equal(432, Unsafe.SizeOf<NativeSceneLayerMaskChain>());
+        Assert.Equal(
+            12,
+            OffsetOf<NativeSceneLayerMaskChain>(
+                nameof(NativeSceneLayerMaskChain.MaskCount)));
+        Assert.Equal(
+            16,
+            OffsetOf<NativeSceneLayerMaskChain>(
+                nameof(NativeSceneLayerMaskChain.Mask0)));
+        Assert.Equal(
+            120,
+            OffsetOf<NativeSceneLayerMaskChain>(
+                nameof(NativeSceneLayerMaskChain.Mask1)));
+        Assert.Equal(
+            224,
+            OffsetOf<NativeSceneLayerMaskChain>(
+                nameof(NativeSceneLayerMaskChain.Mask2)));
+        Assert.Equal(
+            328,
+            OffsetOf<NativeSceneLayerMaskChain>(
+                nameof(NativeSceneLayerMaskChain.Mask3)));
         Assert.Equal(80, Unsafe.SizeOf<NativeSceneLayerCoverageMask>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneEffectChain>());
         Assert.Equal(56, Unsafe.SizeOf<NativeSceneEffect>());
@@ -1490,6 +1511,103 @@ public class NativeRendererInteropTests
             4U,
             1U,
             in missingResource,
+            out _));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesBoundedMaskChainWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<NativeSceneLayerMask> masks = stackalloc NativeSceneLayerMask[2];
+        masks[0] = new NativeSceneLayerMask(
+            new NativeImageRect(0f, 0f, 30f, 20f),
+            Matrix3x2.Identity,
+            new Vector4(4f),
+            new Vector4(3f),
+            opacity: 0.75f);
+        masks[1] = new NativeSceneLayerMask(
+            new NativeImageRect(2f, 3f, 20f, 12f),
+            Matrix3x2.CreateTranslation(1f, 2f),
+            Vector4.Zero,
+            Vector4.Zero);
+        var chain = new NativeSceneLayerMaskChain(masks);
+
+        static bool Build(
+            Span<byte> bytes,
+            in NativeSceneLayerMaskChain value,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                sceneId: 83U,
+                generation: 1U,
+                commandCapacity: 0,
+                resourceCapacity: 1);
+            return builder.TryAddLayerMaskChainResource(
+                    1U,
+                    1U,
+                    in value,
+                    out uint resourceIndex) &&
+                resourceIndex == 0U &&
+                builder.TryBuild(out stream);
+        }
+
+        Assert.True(Build(destination, in chain, out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayerMaskChain>(
+            stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(NativeSceneResourceKind.LayerMask, resource.Kind);
+        Assert.Equal(432U, resource.PayloadSize);
+        Assert.Equal(2U, stored.MaskCount);
+        Assert.Equal(masks[0], stored.Mask0);
+        Assert.Equal(masks[1], stored.Mask1);
+        Assert.Equal(default, stored.Mask2);
+        Assert.Equal(default, stored.Mask3);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, in chain, out _);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(success);
+        Assert.Equal(0L, allocated);
+
+        Span<byte> encoded = stackalloc byte[432];
+        MemoryMarshal.Write(encoded, in chain);
+        encoded[224] = 1;
+        var nonCanonical = MemoryMarshal.Read<NativeSceneLayerMaskChain>(
+            encoded);
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 84U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddLayerMaskChainResource(
+            1U,
+            1U,
+            in nonCanonical,
+            out _));
+
+        uint invalidCount = 1U;
+        MemoryMarshal.Write(encoded[12..], in invalidCount);
+        encoded[224] = 0;
+        var tooShort = MemoryMarshal.Read<NativeSceneLayerMaskChain>(encoded);
+        invalidBuilder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 85U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 1);
+        Assert.False(invalidBuilder.TryAddLayerMaskChainResource(
+            1U,
+            1U,
+            in tooShort,
             out _));
     }
 

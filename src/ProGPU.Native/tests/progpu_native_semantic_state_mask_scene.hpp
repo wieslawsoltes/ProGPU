@@ -14,4 +14,8 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height);
 
+std::vector<std::byte> create_semantic_state_mask_chain_media_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height);
+
 } // namespace progpu::native::tests

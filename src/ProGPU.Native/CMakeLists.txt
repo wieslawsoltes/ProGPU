@@ -333,6 +333,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_pipeline.hpp
     src/progpu_native_semantic_masked_text_pipeline.cpp
     src/progpu_native_semantic_masked_vector_pipeline.cpp
+    src/progpu_native_semantic_mask_chain_pipeline.cpp
     src/progpu_native_replay_execution.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp

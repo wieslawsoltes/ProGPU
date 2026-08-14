@@ -47,6 +47,10 @@ struct gpu_mask_sampling_uniforms {
     float options[4];
 };
 
+struct gpu_mask_chain_uniforms {
+    gpu_mask_sampling_uniforms masks[3];
+};
+
 struct gpu_drop_shadow_params {
     float offset[2];
     float padding[2];
@@ -220,6 +224,7 @@ struct native_glyph_raster {
 
 static_assert(sizeof(gpu_uniforms) == 224U);
 static_assert(sizeof(gpu_mask_sampling_uniforms) == 96U);
+static_assert(sizeof(gpu_mask_chain_uniforms) == 288U);
 static_assert(sizeof(gpu_drop_shadow_params) == 32U);
 static_assert(sizeof(gpu_group_blend_uniforms) == 32U);
 static_assert(sizeof(gpu_gaussian_blur_params) == 16U);

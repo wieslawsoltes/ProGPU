@@ -462,7 +462,7 @@ bool render_browser_frame(double, void*) {
         state_mask_layer_metrics.content_pass_count != 0U ||
         state_mask_layer_metrics.composite_pass_count != 0U ||
         state_mask_layer_metrics.mask_uniform_upload_bytes !=
-            24U * sizeof(float)) {
+            4U * 24U * sizeof(float)) {
         fail_engine("The browser per-draw mask metrics are invalid.");
     }
     state_mask_metrics = {};
@@ -540,6 +540,64 @@ bool render_browser_frame(double, void*) {
         state_mask_media_metrics.uniform_upload_bytes != 0U ||
         state_mask_media_metrics.color_glyph_upload_bytes != 0U) {
         fail_engine("The stable browser masked glyph/image page was rebuilt.");
+    }
+
+    auto mask_chain_media_scene = progpu::native::tests::
+        create_semantic_state_mask_chain_media_scene_stream(width, height);
+    state_mask_media_scene_metrics = {};
+    state_mask_media_scene_metrics.struct_size =
+        sizeof(state_mask_media_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            mask_chain_media_scene.data(),
+            mask_chain_media_scene.size(),
+            &state_mask_media_scene_metrics) !=
+                PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_media_scene_metrics.command_count != 2U ||
+        state_mask_media_scene_metrics.resource_count != 4U ||
+        state_mask_media_scene_metrics.draw_count != 2U) {
+        fail_engine("The browser mask-chain glyph/image scene update failed.");
+    }
+    semantic_frame.scene_id = 104U;
+    state_mask_media_metrics = {};
+    state_mask_media_metrics.struct_size =
+        sizeof(state_mask_media_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &state_mask_media_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_media_metrics.draw_call_count != 2U ||
+        state_mask_media_metrics.texture_upload_bytes != 32U ||
+        state_mask_media_metrics.color_glyph_upload_bytes != 16U ||
+        state_mask_media_metrics.uniform_upload_bytes <
+            4U * 24U * sizeof(float)) {
+        fail_engine("The browser mask-chain glyph/image render failed.");
+    }
+    state_mask_media_layer_metrics = {};
+    state_mask_media_layer_metrics.struct_size =
+        sizeof(state_mask_media_layer_metrics);
+    if (progpu_native_engine_get_layer_metrics(
+            resources.engine,
+            &state_mask_media_layer_metrics) !=
+                PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_media_layer_metrics.mask_kind !=
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
+        state_mask_media_layer_metrics.mask_uniform_upload_bytes !=
+            4U * 24U * sizeof(float)) {
+        fail_engine("The browser mask-chain glyph/image metrics are invalid.");
+    }
+    state_mask_media_metrics = {};
+    state_mask_media_metrics.struct_size =
+        sizeof(state_mask_media_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &state_mask_media_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_media_metrics.texture_upload_bytes != 0U ||
+        state_mask_media_metrics.color_glyph_upload_bytes != 0U ||
+        state_mask_media_metrics.vertex_upload_bytes != 0U ||
+        state_mask_media_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser mask-chain glyph/image page was rebuilt.");
     }
 
     auto coverage_scene =

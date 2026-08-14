@@ -1369,18 +1369,24 @@ synchronized total p50/p95 is 1.5576/4.5916 ms versus 1.7658/4.9971 ms. The
 three independently rasterized edge pixels above 3/255 and mean absolute
 channel difference of 0.000163/255 remain unchanged.
 
-The browser/Emscripten target now runs three independent mask contracts. The
+The browser/Emscripten target now runs five independent mask contracts. The
 isolated-layer rounded-mask and retained coverage-mask fixtures still render
 three semantic commands as two physical GPU draws. The per-draw state-mask
 fixture renders two overlapping translucent vector rectangles through one
 analytic batch and one physical GPU draw, with three typed resources and three
-semantic commands. It verifies independently transformed rounded coverage, the
-exact premultiplied overlap equation, first-frame preparation, zero-upload
-stable replay, and device recovery. The sampled per-draw state-mask fixture
+semantic commands. It now intersects two independently transformed analytic
+rounded masks, verifies the inner and outer boundaries plus the exact
+premultiplied overlap equation, uploads 384 mask-uniform bytes once, and keeps
+zero-upload stable replay and device recovery. The sampled per-draw state-mask fixture
 renders an uploaded color-matrix image and retained color glyph through two
 draws and one shared R8 coverage mask. It verifies the matrix and mask in one
 image fragment pass, masked color-atlas text, excluded-half pixels, and zero
-image, glyph, mask, or uniform upload on stable replay.
+image, glyph, mask, or uniform upload on stable replay. A fifth fixture applies
+the same two-record analytic chain to the image and glyph paths: it uploads 32
+image bytes, 16 color-glyph bytes, and 384 mask-uniform bytes without a mask
+texture or extra draw, then uploads nothing on stable replay. Real Chromium and
+the packaged WebScene/Dawn/Metal provider execute the same fixtures and pixel
+oracles.
 
 The semantic state record now carries an append-compatible `MASK` flag and a
 typed `mask_resource_index` in the former reserved slot. The reference must be
@@ -1393,6 +1399,20 @@ mask at fragment group 2. Coverage is multiplied per draw before destination
 blending; no isolated texture or extra composite draw is created. Stable replay
 performs no mask, vertex, index, brush, stop, or coverage upload.
 
+An append-only `ANALYTIC_CHAIN` layer-mask payload extends that state contract
+without pointers or auxiliary storage. Its exact 432-byte record contains a
+16-byte header followed by four inline 104-byte analytic masks. Counts from two
+through four are valid; unused trailing records must be all-zero, and a fifth
+mask fails closed at the originating source command. CPU validation and storage
+are fixed `O(1)`. The GPU binds the primary 96-byte sampling record and a fixed
+288-byte continuation block in group 2 bindings 2 and 3. Vector, text, plain
+image, and fused color-matrix image shaders run one fixed three-iteration loop,
+skipping zero continuation records. This stays within WebGPU bind groups 0–3;
+the color matrix remains at group 3, and no provider-specific layout is used.
+The chain is currently a per-draw state feature. An isolated layer that names a
+chain is rejected rather than approximated because group masking and per-draw
+coverage differ for overlapping translucent content.
+
 Normal and masked analytic pipelines use canonical explicit bind-group layouts.
 This is required by WebGPU portability: Chromium/Dawn correctly rejects a bind
 group layout extracted from an auto-layout pipeline when it is reused by a
@@ -1400,17 +1420,18 @@ different explicit pipeline, even though the desktop wgpu-native Metal provider
 accepted that construction. Direct wgpu-native, packaged Dawn/WebScene, and
 Emscripten/browser gates now execute the same layout and WGSL contract.
 
-`ProGPU.Scene.Native` lowers one canonical affine rectangle or rounded-rectangle
-`PushGeometryClip` scope to this exact state mask. It reads the retained
-canonical contour without flattening, preserves the full finite invertible
-affine and corner radii, and restores the prior state at pop. The native C++
+`ProGPU.Scene.Native` lowers one to four nested canonical affine rectangle or
+rounded-rectangle `PushGeometryClip` scopes to this exact state mask or bounded
+chain. It reads each retained canonical contour without flattening, preserves
+the full finite invertible affine and corner radii, and restores the prior state
+at each pop. The native C++
 consumer now accepts either the analytic mask or a retained R8 coverage mask
 for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
-draw. The managed picture compiler does not yet emit sampled or nested masks,
-and general/nested vector clips remain typed fail-closed pending bounded mask
-composition; they are not approximated with an isolated group.
+draw. The managed picture compiler does not yet emit sampled masks. A fifth
+nested canonical clip, non-canonical/general vector clip, or isolated-layer
+chain remains typed fail-closed; none is approximated with an isolated group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized

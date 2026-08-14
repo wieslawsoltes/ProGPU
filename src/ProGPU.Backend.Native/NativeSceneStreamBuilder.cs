@@ -689,6 +689,30 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    public bool TryAddLayerMaskChainResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerMaskChain chain,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (!IsValidLayerMaskChain(chain))
+        {
+            return false;
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in chain),
+                    1)),
+            out resourceIndex,
+            flags: flags);
+    }
+
     public bool TryAddEffectChainResource(
         ulong resourceId,
         ulong generation,
@@ -1801,6 +1825,27 @@ public ref struct NativeSceneStreamBuilder
             MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&
             float.IsFinite(mask.Opacity) &&
             mask.Opacity is >= 0f and <= 1f;
+    }
+
+    private static bool IsValidLayerMaskChain(
+        in NativeSceneLayerMaskChain chain)
+    {
+        if (chain.StructSize != Unsafe.SizeOf<NativeSceneLayerMaskChain>() ||
+            chain.Kind != NativeSceneLayerMaskKind.AnalyticChain ||
+            chain.Flags != 0U || chain.MaskCount is < 2U or > 4U ||
+            !chain.HasCanonicalTrailingMasks)
+        {
+            return false;
+        }
+        for (int index = 0; index < chain.MaskCount; index++)
+        {
+            NativeSceneLayerMask mask = chain.GetMask(index);
+            if (!IsValidLayerMask(in mask))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static bool IsValidEffect(in NativeSceneEffect effect)

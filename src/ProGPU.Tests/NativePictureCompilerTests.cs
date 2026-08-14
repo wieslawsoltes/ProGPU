@@ -1003,7 +1003,7 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerFailsClosedForNestedGeometryMasks()
+    public void CompilerLowersNestedGeometryMasksToBoundedAnalyticChain()
     {
         PathGeometry outer = PrimitivePathGeometry.CreateRoundedRectangle(
             0f, 0f, 40f, 30f, 5f, 5f);
@@ -1023,8 +1023,87 @@ public class NativePictureCompilerTests
                     Path = inner,
                     Transform = Matrix4x4.Identity
                 },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 40f, 30f),
+                    Transform = Matrix4x4.Identity
+                },
                 new RenderCommand { Type = RenderCommandType.PopGeometryClip },
                 new RenderCommand { Type = RenderCommandType.PopGeometryClip }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        Assert.Equal(6U, header.ResourceCount);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        Assert.Equal(NativeSceneResourceKind.LayerMask, resources[3].Kind);
+        var chain = MemoryMarshal.Read<NativeSceneLayerMaskChain>(
+            compiled.Stream.Slice(checked((int)resources[3].PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.AnalyticChain, chain.Kind);
+        Assert.Equal(2U, chain.MaskCount);
+        Assert.Equal(40f, chain.Mask0.Bounds.Width);
+        Assert.Equal(20f, chain.Mask1.Bounds.Width);
+        Assert.Equal(default, chain.Mask2);
+        Assert.Equal(default, chain.Mask3);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedWhenNestedGeometryMaskExceedsBoundedChain()
+    {
+        PathGeometry mask = PrimitivePathGeometry.CreateRectangle(
+            0f, 0f, 40f, 30f);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = mask,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = mask,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = mask,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = mask,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = mask,
+                    Transform = Matrix4x4.Identity
+                }
             ],
             Array.Empty<Vector2>(),
             Array.Empty<double>(),
@@ -1039,7 +1118,7 @@ public class NativePictureCompilerTests
             out NativePictureCompileFailure failure));
         Assert.Null(compiled);
         Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
-        Assert.Equal(1, failure.CommandIndex);
+        Assert.Equal(4, failure.CommandIndex);
         Assert.Equal(RenderCommandType.PushGeometryClip, failure.CommandType);
     }
 

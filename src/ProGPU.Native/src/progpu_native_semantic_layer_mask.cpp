@@ -82,6 +82,30 @@ bool valid_coverage(
         mask.opacity >= 0.0F && mask.opacity <= 1.0F;
 }
 
+bool valid_chain(const progpu_native_scene_layer_mask_chain& chain) noexcept {
+    if (chain.struct_size != sizeof(chain) ||
+        chain.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN ||
+        chain.flags != 0U || chain.mask_count < 2U ||
+        chain.mask_count > PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS) {
+        return false;
+    }
+    for (std::uint32_t index = 0U;
+         index < PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS;
+         ++index) {
+        if (index < chain.mask_count) {
+            if (!valid_analytic(chain.masks[index])) {
+                return false;
+            }
+        } else {
+            const progpu_native_scene_layer_mask zero{};
+            if (std::memcmp(&chain.masks[index], &zero, sizeof(zero)) != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool validate_layer_mask_resource(
@@ -116,6 +140,16 @@ bool validate_layer_mask_resource(
         std::memcpy(&result.coverage, bytes + resource.payload_offset,
             sizeof(result.coverage));
         if (!valid_coverage(result.coverage, resource.auxiliary_size)) {
+            return false;
+        }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN) {
+        if (resource.payload_size != sizeof(result.chain) ||
+            resource.auxiliary_size != 0U) {
+            return false;
+        }
+        std::memcpy(&result.chain, bytes + resource.payload_offset,
+            sizeof(result.chain));
+        if (!valid_chain(result.chain)) {
             return false;
         }
     } else {

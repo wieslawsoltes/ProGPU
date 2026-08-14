@@ -37,6 +37,7 @@ static_assert(offsetof(progpu_native_scene_state, transform) == 8U);
 static_assert(offsetof(progpu_native_scene_state, opacity) == 32U);
 static_assert(offsetof(progpu_native_scene_state, clip_rect) == 40U);
 static_assert(sizeof(progpu_native_scene_layer_mask) == 104U);
+static_assert(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
 static_assert(offsetof(progpu_native_scene_layer_mask, bounds) == 16U);
 static_assert(offsetof(progpu_native_scene_layer_mask, transform) == 32U);
 static_assert(offsetof(progpu_native_scene_layer_mask, opacity) == 88U);

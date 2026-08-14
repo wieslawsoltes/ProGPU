@@ -535,6 +535,7 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_state) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_layer) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_layer_mask) == 104U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_effect_chain) == 16U);
     PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 56U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);

@@ -142,9 +142,11 @@ struct semantic_render_bundle_span {
     std::uint32_t final_effect_texture = 0U;
     std::uint64_t operation_id = 0U;
     WGPUBuffer mask_uniform_buffer = nullptr;
+    WGPUBuffer mask_chain_uniform_buffer = nullptr;
     WGPUTexture mask_texture = nullptr;
     WGPUTextureView mask_texture_view = nullptr;
     WGPUBindGroup mask_bind_group = nullptr;
+    WGPUBindGroup mask_chain_bind_group = nullptr;
     WGPUBindGroup advanced_blend_bind_group = nullptr;
     std::uint32_t advanced_uniform_offset = 0U;
     std::uint32_t target_width = 0U;
@@ -152,6 +154,7 @@ struct semantic_render_bundle_span {
     std::uint32_t source_width = 0U;
     std::uint32_t source_height = 0U;
     std::uint32_t draw_call_count = 0U;
+    std::uint32_t mask_uniform_upload_bytes = 0U;
     std::uint64_t effect_cache_operation_id = 0U;
     bool backdrop = false;
     bool can_skip_content_on_effect_cache = false;

@@ -304,7 +304,8 @@ public enum NativeSceneGradientInterpolation : uint
 public enum NativeSceneLayerMaskKind : uint
 {
     RoundedRectangle = 1,
-    CoverageBitmap = 2
+    CoverageBitmap = 2,
+    AnalyticChain = 3
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1129,6 +1130,67 @@ public readonly struct NativeSceneLayerCoverageMask
 
     internal bool HasCanonicalReservedFields =>
         Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>
+/// Fixed-capacity intersection of two to four analytic scene masks.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerMaskChain
+{
+    public const int MaximumMaskCount = 4;
+
+    public NativeSceneLayerMaskChain(scoped ReadOnlySpan<NativeSceneLayerMask> masks)
+    {
+        if (masks.Length is < 2 or > MaximumMaskCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(masks));
+        }
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerMaskChain>();
+        Kind = NativeSceneLayerMaskKind.AnalyticChain;
+        Flags = 0U;
+        MaskCount = (uint)masks.Length;
+        Mask0 = masks[0];
+        Mask1 = masks[1];
+        Mask2 = masks.Length > 2 ? masks[2] : default;
+        Mask3 = masks.Length > 3 ? masks[3] : default;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint MaskCount;
+    public readonly NativeSceneLayerMask Mask0;
+    public readonly NativeSceneLayerMask Mask1;
+    public readonly NativeSceneLayerMask Mask2;
+    public readonly NativeSceneLayerMask Mask3;
+
+    internal bool HasCanonicalTrailingMasks =>
+        (MaskCount >= 3U || IsZero(in Mask2)) &&
+        (MaskCount >= 4U || IsZero(in Mask3));
+
+    internal NativeSceneLayerMask GetMask(int index) => index switch
+    {
+        0 => Mask0,
+        1 => Mask1,
+        2 => Mask2,
+        3 => Mask3,
+        _ => throw new ArgumentOutOfRangeException(nameof(index))
+    };
+
+    private static bool IsZero(in NativeSceneLayerMask mask)
+    {
+        ReadOnlySpan<NativeSceneLayerMask> value =
+            MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(in mask), 1);
+        foreach (byte item in MemoryMarshal.AsBytes(value))
+        {
+            if (item != 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 /// <summary>

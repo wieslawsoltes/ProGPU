@@ -9,14 +9,14 @@ public static partial class GpuPictureNativeSceneCompiler
     private static bool TryGetGeometryMaskState(
         in RenderCommand command,
         StateSnapshot current,
-        List<NativeSceneLayerMask> stateMasks,
+        List<StateMaskProgram> stateMasks,
         out StateSnapshot next,
         out NativePictureCompileError error)
     {
         next = current;
         error = NativePictureCompileError.None;
-        if (current.MaskIndex >= 0 || command.Picture is not null ||
-            command.Path is null || command.Path.IsCombined ||
+        if (command.Picture is not null || command.Path is null ||
+            command.Path.IsCombined ||
             command.Path.Figures.Count != 1)
         {
             error = NativePictureCompileError.UnsupportedCommand;
@@ -35,8 +35,7 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
 
-        int maskIndex = stateMasks.Count;
-        stateMasks.Add(new NativeSceneLayerMask(
+        var mask = new NativeSceneLayerMask(
             new NativeImageRect(
                 contour.Left,
                 contour.Top,
@@ -44,7 +43,19 @@ public static partial class GpuPictureNativeSceneCompiler
                 contour.Height),
             transform,
             contour.CornerRadiiX,
-            contour.CornerRadiiY));
+            contour.CornerRadiiY);
+        StateMaskProgram program;
+        if (current.MaskIndex < 0)
+        {
+            program = new StateMaskProgram(mask);
+        }
+        else if (!stateMasks[current.MaskIndex].TryAppend(mask, out program))
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+        int maskIndex = stateMasks.Count;
+        stateMasks.Add(program);
         next = current with { MaskIndex = maskIndex };
         return true;
     }

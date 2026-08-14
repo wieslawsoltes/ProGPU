@@ -11,6 +11,7 @@ struct semantic_layer_mask final {
     std::uint32_t kind = 0U;
     progpu_native_scene_layer_mask analytic{};
     progpu_native_scene_layer_coverage_mask coverage{};
+    progpu_native_scene_layer_mask_chain chain{};
 };
 
 bool validate_layer_mask_resource(

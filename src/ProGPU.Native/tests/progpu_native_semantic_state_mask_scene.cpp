@@ -35,7 +35,6 @@ std::vector<std::byte> create_semantic_state_mask_scene_stream(
     constexpr std::uint32_t arena_offset = resource_offset +
         resource_count * sizeof(progpu_native_scene_resource);
     std::vector<std::byte> stream(arena_offset);
-
     const float scale_x = static_cast<float>(target_width) / 64.0F;
     const float scale_y = static_cast<float>(target_height) / 48.0F;
     const progpu_native_affine_2d identity{
@@ -55,17 +54,32 @@ std::vector<std::byte> create_semantic_state_mask_scene_stream(
         content.data(),
         content.size());
 
-    progpu_native_scene_layer_mask mask{};
+    progpu_native_scene_layer_mask_chain mask{};
     mask.struct_size = sizeof(mask);
-    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
-    mask.bounds = {0.0F, 0.0F, 44.0F, 32.0F};
-    mask.transform = {
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
+    mask.mask_count = 2U;
+    auto& outer_mask = mask.masks[0];
+    outer_mask.struct_size = sizeof(outer_mask);
+    outer_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+    outer_mask.bounds = {0.0F, 0.0F, 44.0F, 32.0F};
+    outer_mask.transform = {
         scale_x, 0.12F * scale_y,
         -0.10F * scale_x, scale_y,
         11.0F * scale_x, 5.0F * scale_y};
-    std::fill_n(mask.corner_radii_x, 4U, 9.0F);
-    std::fill_n(mask.corner_radii_y, 4U, 7.0F);
-    mask.opacity = 0.8F;
+    std::fill_n(outer_mask.corner_radii_x, 4U, 9.0F);
+    std::fill_n(outer_mask.corner_radii_y, 4U, 7.0F);
+    outer_mask.opacity = 0.8F;
+    auto& inner_mask = mask.masks[1];
+    inner_mask.struct_size = sizeof(inner_mask);
+    inner_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+    inner_mask.bounds = {0.0F, 0.0F, 36.0F, 26.0F};
+    inner_mask.transform = {
+        scale_x, -0.06F * scale_y,
+        0.08F * scale_x, scale_y,
+        15.0F * scale_x, 8.0F * scale_y};
+    std::fill_n(inner_mask.corner_radii_x, 4U, 5.0F);
+    std::fill_n(inner_mask.corner_radii_y, 4U, 6.0F);
+    inner_mask.opacity = 1.0F;
     const std::uint32_t mask_offset = append(stream, &mask, 1U);
 
     progpu_native_scene_state state{};
@@ -138,9 +152,10 @@ std::vector<std::byte> create_semantic_state_mask_scene_stream(
     return stream;
 }
 
-std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
+std::vector<std::byte> create_semantic_state_mask_media_scene_stream_impl(
     std::uint32_t target_width,
-    std::uint32_t target_height) {
+    std::uint32_t target_height,
+    bool analytic_chain) {
     constexpr std::uint32_t command_count = 2U;
     constexpr std::uint32_t resource_count = 4U;
     constexpr std::uint32_t command_offset =
@@ -150,6 +165,8 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
     constexpr std::uint32_t arena_offset = resource_offset +
         resource_count * sizeof(progpu_native_scene_resource);
     std::vector<std::byte> stream(arena_offset);
+    const std::uint64_t resource_id_base = analytic_chain ? 2300U : 2200U;
+    const std::uint64_t command_id_base = analytic_chain ? 2310U : 2210U;
 
     constexpr std::array<std::uint8_t, 16U> glyph_pixels{{
         255U, 32U, 192U, 255U,
@@ -208,28 +225,49 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
         {0U, 0U}};
     append(stream, &color_matrix, 1U);
 
-    progpu_native_scene_layer_coverage_mask mask{};
-    mask.struct_size = sizeof(mask);
-    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP;
-    mask.width = 8U;
-    mask.height = 8U;
-    mask.row_bytes = 8U;
-    mask.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
-    mask.bounds = {0.0F, 0.0F, 8.0F, 8.0F};
-    mask.transform = {
+    progpu_native_scene_layer_coverage_mask coverage_mask{};
+    coverage_mask.struct_size = sizeof(coverage_mask);
+    coverage_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP;
+    coverage_mask.width = 8U;
+    coverage_mask.height = 8U;
+    coverage_mask.row_bytes = 8U;
+    coverage_mask.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    coverage_mask.bounds = {0.0F, 0.0F, 8.0F, 8.0F};
+    coverage_mask.transform = {
         static_cast<float>(target_width) / 8.0F, 0.0F,
         0.0F, static_cast<float>(target_height) / 8.0F,
         0.0F, 0.0F};
-    mask.opacity = 1.0F;
-    const std::uint32_t mask_offset = append(stream, &mask, 1U);
+    coverage_mask.opacity = 1.0F;
+    progpu_native_scene_layer_mask_chain mask_chain{};
+    mask_chain.struct_size = sizeof(mask_chain);
+    mask_chain.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
+    mask_chain.mask_count = 2U;
+    for (std::uint32_t index = 0U; index < mask_chain.mask_count; ++index) {
+        auto& item = mask_chain.masks[index];
+        item.struct_size = sizeof(item);
+        item.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+        item.bounds = index == 0U
+            ? progpu_native_image_rect{0.0F, 0.0F,
+                static_cast<float>(target_width) * 0.5F,
+                static_cast<float>(target_height)}
+            : progpu_native_image_rect{0.0F, 0.0F,
+                static_cast<float>(target_width),
+                static_cast<float>(target_height)};
+        item.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+        item.opacity = 1.0F;
+    }
+    const std::uint32_t mask_offset = analytic_chain
+        ? append(stream, &mask_chain, 1U)
+        : append(stream, &coverage_mask, 1U);
     std::array<std::uint8_t, 64U> coverage{};
     for (std::uint32_t y = 0U; y < 8U; ++y) {
         for (std::uint32_t x = 0U; x < 8U; ++x) {
             coverage[y * 8U + x] = x < 4U ? 255U : 0U;
         }
     }
-    const std::uint32_t coverage_offset = append(
-        stream, coverage.data(), coverage.size());
+    const std::uint32_t coverage_offset = analytic_chain
+        ? 0U
+        : append(stream, coverage.data(), coverage.size());
 
     progpu_native_scene_state state{};
     state.struct_size = sizeof(state);
@@ -245,7 +283,7 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
     header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
     header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
     header.total_size = static_cast<std::uint32_t>(stream.size());
-    header.scene_id = 103U;
+    header.scene_id = analytic_chain ? 104U : 103U;
     header.generation = 1U;
     header.command_offset = command_offset;
     header.command_count = command_count;
@@ -262,26 +300,32 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
             PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
                 PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS,
-            0U, 2201U, 1U,
+            0U, resource_id_base + 1U, 1U,
             glyph_bitmap_offset, sizeof(glyph_bitmap),
             glyph_pixel_offset,
             static_cast<std::uint32_t>(glyph_pixels.size())},
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U, 2202U, 1U,
+            0U, resource_id_base + 2U, 1U,
             image_pixel_offset,
             static_cast<std::uint32_t>(image_pixels.size()), 0U, 0U},
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U, 2203U, 1U,
-            mask_offset, sizeof(mask), coverage_offset,
-            static_cast<std::uint32_t>(coverage.size())},
+            0U, resource_id_base + 3U, 1U,
+            mask_offset,
+            static_cast<std::uint32_t>(analytic_chain
+                ? sizeof(mask_chain)
+                : sizeof(coverage_mask)),
+            coverage_offset,
+            analytic_chain
+                ? 0U
+                : static_cast<std::uint32_t>(coverage.size())},
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_STATE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U, 2204U, 1U,
+            0U, resource_id_base + 4U, 1U,
             state_offset, sizeof(state), 0U, 0U}
     }};
     std::memcpy(
@@ -293,7 +337,7 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U, 2211U, 3U, 1U,
+            0U, command_id_base + 1U, 3U, 1U,
             image_draw_offset, sizeof(image) + sizeof(color_matrix),
             0.0F, 0.0F,
             static_cast<float>(target_width),
@@ -301,7 +345,7 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
-            0U, 2212U, 3U, 0U,
+            0U, command_id_base + 2U, 3U, 0U,
             glyph_offset, sizeof(glyph),
             glyph.position.x, glyph.position.y,
             glyph_size, glyph_size, 0U, 0U}
@@ -311,6 +355,24 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
         commands.data(),
         sizeof(commands));
     return stream;
+}
+
+std::vector<std::byte> create_semantic_state_mask_media_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    return create_semantic_state_mask_media_scene_stream_impl(
+        target_width,
+        target_height,
+        false);
+}
+
+std::vector<std::byte> create_semantic_state_mask_chain_media_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    return create_semantic_state_mask_media_scene_stream_impl(
+        target_width,
+        target_height,
+        true);
 }
 
 } // namespace progpu::native::tests

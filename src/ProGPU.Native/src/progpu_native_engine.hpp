@@ -28,6 +28,7 @@ using progpu::native::gpu_gaussian_blur_params;
 using progpu::native::gpu_glyph_instance;
 using progpu::native::gpu_group_blend_uniforms;
 using progpu::native::gpu_mask_sampling_uniforms;
+using progpu::native::gpu_mask_chain_uniforms;
 using progpu::native::gpu_uniforms;
 using progpu::native::initial_index_buffer_size;
 using progpu::native::initial_vertex_buffer_size;
@@ -47,6 +48,7 @@ struct progpu_native_engine {
     WGPURenderPipeline pipeline = nullptr;
     WGPURenderPipeline analytic_pipeline = nullptr;
     WGPURenderPipeline analytic_masked_pipeline = nullptr;
+    WGPURenderPipeline analytic_mask_chain_pipeline = nullptr;
     WGPUBindGroupLayout uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_atlas_layout = nullptr;
@@ -84,6 +86,7 @@ struct progpu_native_engine {
     WGPUShaderModule text_shader = nullptr;
     WGPURenderPipeline text_pipeline = nullptr;
     WGPURenderPipeline text_masked_pipeline = nullptr;
+    WGPURenderPipeline text_mask_chain_pipeline = nullptr;
     WGPUBindGroupLayout text_uniform_layout = nullptr;
     WGPUBindGroupLayout text_atlas_layout = nullptr;
     WGPUBuffer text_style_buffer = nullptr;
@@ -150,9 +153,12 @@ struct progpu_native_engine {
     WGPURenderPipeline image_mask_pipeline = nullptr;
     WGPURenderPipeline image_color_matrix_pipeline = nullptr;
     WGPURenderPipeline image_masked_color_matrix_pipeline = nullptr;
+    WGPURenderPipeline image_mask_chain_pipeline = nullptr;
+    WGPURenderPipeline image_mask_chain_color_matrix_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
     WGPUBindGroupLayout image_mask_layout = nullptr;
+    WGPUBindGroupLayout semantic_mask_chain_layout = nullptr;
     WGPUBuffer image_uniform_buffer = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
     WGPUSampler image_nearest_sampler = nullptr;
@@ -702,10 +708,19 @@ struct progpu_native_engine {
                 wgpuBindGroupRelease(span.mask_bind_group);
                 span.mask_bind_group = nullptr;
             }
+            if (span.mask_chain_bind_group != nullptr) {
+                wgpuBindGroupRelease(span.mask_chain_bind_group);
+                span.mask_chain_bind_group = nullptr;
+            }
             if (span.mask_uniform_buffer != nullptr) {
                 wgpuBufferDestroy(span.mask_uniform_buffer);
                 wgpuBufferRelease(span.mask_uniform_buffer);
                 span.mask_uniform_buffer = nullptr;
+            }
+            if (span.mask_chain_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(span.mask_chain_uniform_buffer);
+                wgpuBufferRelease(span.mask_chain_uniform_buffer);
+                span.mask_chain_uniform_buffer = nullptr;
             }
             if (span.mask_texture_view != nullptr) {
                 wgpuTextureViewRelease(span.mask_texture_view);
@@ -1124,6 +1139,12 @@ struct progpu_native_engine {
         if (image_masked_color_matrix_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_masked_color_matrix_pipeline);
         }
+        if (image_mask_chain_color_matrix_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_mask_chain_color_matrix_pipeline);
+        }
+        if (image_mask_chain_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_mask_chain_pipeline);
+        }
         if (image_color_matrix_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_color_matrix_pipeline);
         }
@@ -1221,6 +1242,9 @@ struct progpu_native_engine {
         }
         if (text_masked_pipeline != nullptr) {
             wgpuRenderPipelineRelease(text_masked_pipeline);
+        }
+        if (text_mask_chain_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(text_mask_chain_pipeline);
         }
         if (text_shader != nullptr) {
             wgpuShaderModuleRelease(text_shader);
@@ -1327,6 +1351,12 @@ struct progpu_native_engine {
         }
         if (analytic_masked_pipeline != nullptr) {
             wgpuRenderPipelineRelease(analytic_masked_pipeline);
+        }
+        if (analytic_mask_chain_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(analytic_mask_chain_pipeline);
+        }
+        if (semantic_mask_chain_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_mask_chain_layout);
         }
         if (pipeline != nullptr) {
             wgpuRenderPipelineRelease(pipeline);

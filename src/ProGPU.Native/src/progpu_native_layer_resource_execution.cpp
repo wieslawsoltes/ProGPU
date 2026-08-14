@@ -696,27 +696,34 @@ bool create_semantic_layer_mask_binding(
             operation,
             texture_upload_bytes);
     }
-    const auto& source = parsed.analytic;
     if (!create_layer_mask_resources(engine)) {
         return false;
     }
-
-    progpu_native_group_mask mask{};
-    mask.struct_size = sizeof(mask);
-    mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
-    mask.bounds = source.bounds;
-    mask.transform = source.transform;
-    mask.transform.m31 -=
-        static_cast<float>(target_extent.x) / dpi_scale;
-    mask.transform.m32 -=
-        static_cast<float>(target_extent.y) / dpi_scale;
-    std::copy_n(source.corner_radii_x, 4U, mask.corner_radii_x);
-    std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
-    mask.opacity = source.opacity;
-    normalize_group_mask_radii(mask);
-
+    const auto create_uniforms_for = [&](
+        const progpu_native_scene_layer_mask& source,
+        gpu_mask_sampling_uniforms& uniforms) noexcept {
+        progpu_native_group_mask mask{};
+        mask.struct_size = sizeof(mask);
+        mask.kind = PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
+        mask.bounds = source.bounds;
+        mask.transform = source.transform;
+        mask.transform.m31 -=
+            static_cast<float>(target_extent.x) / dpi_scale;
+        mask.transform.m32 -=
+            static_cast<float>(target_extent.y) / dpi_scale;
+        std::copy_n(source.corner_radii_x, 4U, mask.corner_radii_x);
+        std::copy_n(source.corner_radii_y, 4U, mask.corner_radii_y);
+        mask.opacity = source.opacity;
+        normalize_group_mask_radii(mask);
+        return create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms);
+    };
+    const bool chained = parsed.kind ==
+        PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
+    const auto& primary_source = chained
+        ? parsed.chain.masks[0]
+        : parsed.analytic;
     gpu_mask_sampling_uniforms uniforms{};
-    if (!create_rounded_group_mask_uniforms(mask, dpi_scale, uniforms)) {
+    if (!create_uniforms_for(primary_source, uniforms)) {
         return false;
     }
 
@@ -729,17 +736,6 @@ bool create_semantic_layer_mask_binding(
     if (buffer == nullptr) {
         return false;
     }
-    WGPUBindGroup bind_group = create_layer_mask_bind_group(
-        engine,
-        engine.image_linear_sampler,
-        engine.layer_mask_dummy_view,
-        "ProGPU retained semantic analytic mask binding",
-        buffer);
-    if (bind_group == nullptr) {
-        wgpuBufferDestroy(buffer);
-        wgpuBufferRelease(buffer);
-        return false;
-    }
     wgpuQueueWriteBuffer(
         engine.queue,
         buffer,
@@ -747,7 +743,75 @@ bool create_semantic_layer_mask_binding(
         &uniforms,
         sizeof(uniforms));
     operation.mask_uniform_buffer = buffer;
-    operation.mask_bind_group = bind_group;
+    operation.mask_uniform_upload_bytes = sizeof(uniforms);
+    if (chained) {
+        progpu::native::gpu_mask_chain_uniforms chain_uniforms{};
+        for (std::uint32_t index = 1U;
+             index < parsed.chain.mask_count;
+             ++index) {
+            if (!create_uniforms_for(
+                    parsed.chain.masks[index],
+                    chain_uniforms.masks[index - 1U])) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+                operation.mask_uniform_buffer = nullptr;
+                operation.mask_uniform_upload_bytes = 0U;
+                return false;
+            }
+        }
+        WGPUBufferDescriptor chain_descriptor{};
+        chain_descriptor.label = ::progpu::native::webgpu::string_view(
+            "ProGPU retained semantic analytic mask-chain uniforms");
+        chain_descriptor.usage =
+            WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        chain_descriptor.size = sizeof(chain_uniforms);
+        WGPUBuffer chain_buffer = wgpuDeviceCreateBuffer(
+            engine.device,
+            &chain_descriptor);
+        WGPUBindGroup chain_bind_group = chain_buffer == nullptr
+            ? nullptr
+            : create_semantic_mask_chain_bind_group(
+                engine,
+                engine.image_linear_sampler,
+                engine.layer_mask_dummy_view,
+                buffer,
+                chain_buffer);
+        if (chain_bind_group == nullptr) {
+            if (chain_buffer != nullptr) {
+                wgpuBufferDestroy(chain_buffer);
+                wgpuBufferRelease(chain_buffer);
+            }
+            wgpuBufferDestroy(buffer);
+            wgpuBufferRelease(buffer);
+            operation.mask_uniform_buffer = nullptr;
+            operation.mask_uniform_upload_bytes = 0U;
+            return false;
+        }
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            chain_buffer,
+            0U,
+            &chain_uniforms,
+            sizeof(chain_uniforms));
+        operation.mask_chain_uniform_buffer = chain_buffer;
+        operation.mask_chain_bind_group = chain_bind_group;
+        operation.mask_uniform_upload_bytes += sizeof(chain_uniforms);
+    } else {
+        WGPUBindGroup bind_group = create_layer_mask_bind_group(
+            engine,
+            engine.image_linear_sampler,
+            engine.layer_mask_dummy_view,
+            "ProGPU retained semantic analytic mask binding",
+            buffer);
+        if (bind_group == nullptr) {
+            wgpuBufferDestroy(buffer);
+            wgpuBufferRelease(buffer);
+            operation.mask_uniform_buffer = nullptr;
+            operation.mask_uniform_upload_bytes = 0U;
+            return false;
+        }
+        operation.mask_bind_group = bind_group;
+    }
     ++engine.layer_mask_bind_group_generation;
     return true;
 }

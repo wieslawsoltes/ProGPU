@@ -159,6 +159,7 @@ bool create_semantic_coverage_mask_binding(
     operation.mask_texture_view = view;
     operation.mask_uniform_buffer = buffer;
     operation.mask_bind_group = bind_group;
+    operation.mask_uniform_upload_bytes = sizeof(uniforms);
     texture_upload_bytes = upload_size;
     ++engine.layer_mask_bind_group_generation;
     return true;

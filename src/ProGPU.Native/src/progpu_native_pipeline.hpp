@@ -42,6 +42,15 @@ bool create_analytic_bind_group_layouts(progpu_native_engine& engine);
 bool create_analytic_masked_pipeline(progpu_native_engine& engine);
 bool create_text_pipeline(progpu_native_engine& engine);
 bool create_text_masked_pipeline(progpu_native_engine& engine);
+bool create_semantic_vector_mask_chain_pipeline(progpu_native_engine& engine);
+bool create_semantic_text_mask_chain_pipeline(progpu_native_engine& engine);
+bool create_semantic_image_mask_chain_pipelines(progpu_native_engine& engine);
+WGPUBindGroup create_semantic_mask_chain_bind_group(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    WGPUTextureView view,
+    WGPUBuffer primary_uniform_buffer,
+    WGPUBuffer chain_uniform_buffer);
 bool create_path_resources(progpu_native_engine& engine);
 bool create_glyph_resources(progpu_native_engine& engine);
 bool ensure_text_style_buffer(

@@ -56,17 +56,17 @@ void verify_semantic_state_mask_media_scene(
     };
     require(
         near_bgra(pixel(25U, 36U), 96, 16, 224, 8),
-        "coverage state mask lost the color-matrix image");
+        "state mask lost the color-matrix image");
     require(
         near_bgra(pixel(13U, 22U), 192, 32, 255, 8),
-        "coverage state mask lost the retained color glyph");
+        "state mask lost the retained color glyph");
     require(
         near_bgra(pixel(30U, 24U), 96, 16, 224, 8),
-        "coverage state mask clipped its included half");
+        "state mask clipped its included half");
     require(
         near_bgra(pixel(34U, 24U), 8, 4, 3, 12) &&
             near_bgra(pixel(48U, 24U), 8, 4, 3, 12),
-        "coverage state mask escaped its excluded half");
+        "state mask escaped its excluded half");
 
     if (output_path != nullptr && output_path[0] != '\0') {
         std::FILE* output = std::fopen(output_path, "wb");

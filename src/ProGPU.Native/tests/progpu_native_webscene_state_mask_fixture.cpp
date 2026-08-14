@@ -54,17 +54,36 @@ void verify_semantic_state_mask_scene(
             std::abs(static_cast<int>(value[2]) - red) <= tolerance &&
             value[3] >= 240U;
     };
+    const auto* chain_excluded = pixel(15U, 24U);
+    const auto* cyan = pixel(20U, 24U);
+    const auto* overlap = pixel(30U, 24U);
+    const auto* magenta = pixel(48U, 24U);
+    const auto* outside = pixel(6U, 24U);
+    std::fprintf(
+        stderr,
+        "semantic-state-mask excluded=%u,%u,%u,%u cyan=%u,%u,%u,%u "
+        "overlap=%u,%u,%u,%u "
+        "magenta=%u,%u,%u,%u outside=%u,%u,%u,%u\n",
+        chain_excluded[0], chain_excluded[1],
+        chain_excluded[2], chain_excluded[3],
+        cyan[0], cyan[1], cyan[2], cyan[3],
+        overlap[0], overlap[1], overlap[2], overlap[3],
+        magenta[0], magenta[1], magenta[2], magenta[3],
+        outside[0], outside[1], outside[2], outside[3]);
     require(
-        near_bgra(pixel(15U, 24U), 136, 108, 1, 20),
+        near_bgra(chain_excluded, 8, 4, 3, 12),
+        "inner per-draw mask did not exclude its left edge");
+    require(
+        near_bgra(cyan, 136, 108, 1, 20),
         "per-draw mask lost the cyan source");
     require(
-        near_bgra(pixel(30U, 24U), 138, 78, 133, 18),
+        near_bgra(overlap, 138, 78, 133, 18),
         "mask was not applied independently before overlap blending");
     require(
-        near_bgra(pixel(48U, 24U), 77, 28, 134, 20),
+        near_bgra(magenta, 77, 28, 134, 20),
         "per-draw mask lost the magenta source");
     require(
-        near_bgra(pixel(6U, 24U), 8, 4, 3, 12),
+        near_bgra(outside, 8, 4, 3, 12),
         "per-draw mask escaped its transformed bounds");
 
     if (output_path != nullptr && output_path[0] != '\0') {

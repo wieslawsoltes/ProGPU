@@ -2295,6 +2295,16 @@ the right half. Chromium and packaged Dawn/Metal verify the transformed image,
 glyph, included/excluded pixels, 96 first-frame texture bytes, and zero stable
 texture, glyph, vertex, or uniform uploads.
 
+The same providers also execute bounded analytic-chain variants. The vector
+fixture intersects two transformed rounded masks in one physical draw and
+uploads one fixed 384-byte mask block. The glyph/color-matrix-image fixture
+keeps two physical draws, uploads 32 image bytes, 16 color-glyph bytes, and 384
+mask-uniform bytes, and allocates no R8 mask texture. Both variants upload zero
+retained bytes on stable replay. The chain layout uses group 2 bindings 0–3;
+the fused image color matrix remains group 3, so the pipeline stays within the
+portable four-bind-group WebGPU limit. Browser evidence is retained at
+`artifacts/progpu-native/browser-evidence/progpu-native-browser-mask-chain.png`.
+
 The provider comparison found one real portability defect before this
 checkpoint: desktop wgpu-native accepted a bind-group layout extracted from an
 auto-layout analytic pipeline and reused by the masked explicit pipeline,
@@ -2303,16 +2313,19 @@ the same canonical explicit uniform/atlas layouts. The direct wgpu-native,
 packaged Dawn/WebScene, and browser WebGPU gates therefore exercise one shared
 C++ scene/compiler/WGSL contract rather than provider-specific renderers.
 
-`ProGPU.Scene.Native` now recognizes one canonical retained rectangle or
-rounded-rectangle geometry clip under any finite invertible affine and lowers
-it to the typed per-draw mask reference. The C++ renderer applies that mask in
+`ProGPU.Scene.Native` now recognizes one to four nested canonical retained
+rectangle or rounded-rectangle geometry clips under finite invertible affines
+and lowers them to the typed per-draw mask reference or fixed 432-byte chain.
+The C++ renderer applies that mask in
 analytic, geometry, point-batch, vertex-mesh, connected-stroke, and retained-
 path fragment execution with no isolated texture or extra composite draw. The
 same state-mask reference now accepts retained R8 coverage on glyph and image
 families. Plain images, color-matrix images, and color glyphs bind the mask
 directly; the color matrix uses an independent binding and remains a single
-GPU draw. General/nested vector masks remain fail-closed pending bounded mask
-composition, and the managed compiler does not yet emit sampled mask resources.
+GPU draw. A fifth nested clip, general/non-canonical vector mask, and isolated
+layer chain remain fail-closed; the managed compiler does not yet emit sampled
+mask resources. A 10,000-iteration managed caller-buffer gate confirms exactly
+zero allocation while constructing, validating, and writing two-mask chains.
 
 The updated mixed-picture benchmark exercises this rounded geometry clip and
 remains the regression guard for compiler and stable replay overhead. On Apple

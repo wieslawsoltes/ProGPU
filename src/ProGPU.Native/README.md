@@ -455,12 +455,17 @@ Current native parity:
   analytic rounded coverage in analytic, geometry, point-batch, vertex-mesh,
   connected-stroke, and retained-path families. Batch spans split only when
   mask identity changes, keep the retained mask binding alive, and add no
-  isolated texture or composite draw. Glyph/image masks, sampled state masks,
-  and nested mask composition remain explicit continuation work;
-- clean-room managed lowering of one canonical affine rectangle or rounded-
-  rectangle `PushGeometryClip` scope to the exact per-draw mask state, including
-  rotated/sheared finite invertible transforms and typed fail-closed behavior
-  for nested or general vector clips;
+  isolated texture or composite draw. Retained glyphs, plain images, and fused
+  color-matrix images share the same analytic or sampled mask state;
+- a pointer-free 432-byte analytic mask-chain payload with two to four inline
+  transformed rounded masks, canonical zero trailing records, fixed three-step
+  shader continuation, and one portable group-2 binding. Vector, text, and
+  image chains add no draw or mask texture and retain zero-upload replay;
+- clean-room managed lowering of one to four nested canonical affine rectangle
+  or rounded-rectangle `PushGeometryClip` scopes to the exact per-draw mask
+  state, including rotated/sheared finite invertible transforms. A fifth clip,
+  general vector mask, sampled-mask construction, or isolated-layer chain is
+  typed fail-closed rather than approximated;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only

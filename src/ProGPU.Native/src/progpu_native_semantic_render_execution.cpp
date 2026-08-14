@@ -205,6 +205,12 @@ progpu_native_status render_scene(
                     bytes + mask_resource.payload_offset +
                         sizeof(std::uint32_t),
                     sizeof(mask_kind));
+                if (mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "Nested analytic masks are currently supported for per-draw state, not isolated layer composites.");
+                }
                 semantic_layer_mask_kind = mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
@@ -337,6 +343,9 @@ progpu_native_status render_scene(
     bool semantic_has_styled_glyphs = false;
     bool semantic_has_image_color_matrices = false;
     bool semantic_has_state_masks = false;
+    bool semantic_has_vector_mask_chains = false;
+    bool semantic_has_text_mask_chains = false;
+    bool semantic_has_image_mask_chains = false;
     bool semantic_has_masked_glyphs = false;
     bool semantic_has_masked_images = false;
     semantic_compilation_budget compilation_budget{};
@@ -377,20 +386,37 @@ progpu_native_status render_scene(
             if (mask_kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
                 mask_kind !=
-                    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP) {
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP &&
+                mask_kind !=
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "The per-draw semantic mask kind is unsupported.");
             }
             semantic_has_state_masks = true;
+            const bool mask_chain = mask_kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
+            if (mask_chain) {
+                if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+                    semantic_has_text_mask_chains = true;
+                } else if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                    semantic_has_image_mask_chains = true;
+                } else {
+                    semantic_has_vector_mask_chains = true;
+                }
+            }
             semantic_layer_mask_kind =
                 mask_kind ==
-                    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE ||
+                mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN
                 ? PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE
                 : PROGPU_NATIVE_GROUP_MASK_TEXTURE;
-            semantic_has_masked_glyphs |= command.kind ==
+            semantic_has_masked_glyphs |= !mask_chain && command.kind ==
                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN;
-            semantic_has_masked_images |= command.kind ==
+            semantic_has_masked_images |= !mask_chain && command.kind ==
                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE;
         }
         const auto resource = read_resource(command.resource_index);
@@ -2564,6 +2590,27 @@ progpu_native_status render_scene(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic per-draw masked image pipeline could not be created.");
     }
+    if (semantic_has_vector_mask_chains &&
+        !create_semantic_vector_mask_chain_pipeline(*engine)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic bounded vector mask-chain pipeline could not be created.");
+    }
+    if (semantic_has_text_mask_chains &&
+        !create_semantic_text_mask_chain_pipeline(*engine)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic bounded text mask-chain pipeline could not be created.");
+    }
+    if (semantic_has_image_mask_chains &&
+        !create_semantic_image_mask_chain_pipelines(*engine)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic bounded image mask-chain pipelines could not be created.");
+    }
 
     const gpu_uniforms uniforms = create_uniforms(
         frame->width,
@@ -2721,10 +2768,19 @@ progpu_native_status render_scene(
                 wgpuBindGroupRelease(span.mask_bind_group);
                 span.mask_bind_group = nullptr;
             }
+            if (span.mask_chain_bind_group != nullptr) {
+                wgpuBindGroupRelease(span.mask_chain_bind_group);
+                span.mask_chain_bind_group = nullptr;
+            }
             if (span.mask_uniform_buffer != nullptr) {
                 wgpuBufferDestroy(span.mask_uniform_buffer);
                 wgpuBufferRelease(span.mask_uniform_buffer);
                 span.mask_uniform_buffer = nullptr;
+            }
+            if (span.mask_chain_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(span.mask_chain_uniform_buffer);
+                wgpuBufferRelease(span.mask_chain_uniform_buffer);
+                span.mask_chain_uniform_buffer = nullptr;
             }
             if (span.mask_texture_view != nullptr) {
                 wgpuTextureViewRelease(span.mask_texture_view);
@@ -2788,13 +2844,22 @@ progpu_native_status render_scene(
             operation.draw_call_count = active_bundle_draw_count;
             operation.mask_uniform_buffer =
                 active_mask.mask_uniform_buffer;
+            operation.mask_chain_uniform_buffer =
+                active_mask.mask_chain_uniform_buffer;
             operation.mask_texture = active_mask.mask_texture;
             operation.mask_texture_view = active_mask.mask_texture_view;
             operation.mask_bind_group = active_mask.mask_bind_group;
+            operation.mask_chain_bind_group =
+                active_mask.mask_chain_bind_group;
+            operation.mask_uniform_upload_bytes =
+                active_mask.mask_uniform_upload_bytes;
             active_mask.mask_uniform_buffer = nullptr;
+            active_mask.mask_chain_uniform_buffer = nullptr;
             active_mask.mask_texture = nullptr;
             active_mask.mask_texture_view = nullptr;
             active_mask.mask_bind_group = nullptr;
+            active_mask.mask_chain_bind_group = nullptr;
+            active_mask.mask_uniform_upload_bytes = 0U;
             compiled_spans.push_back(operation);
             active_bundle_draw_count = 0U;
             active_mask_resource_index =
@@ -2837,9 +2902,9 @@ progpu_native_status render_scene(
                 }
                 texture_upload_bytes += mask_texture_upload_bytes;
                 semantic_layer_mask_uniform_upload_bytes +=
-                    sizeof(gpu_mask_sampling_uniforms);
+                    active_mask.mask_uniform_upload_bytes;
                 semantic_layer_uniform_upload_bytes +=
-                    sizeof(gpu_mask_sampling_uniforms);
+                    active_mask.mask_uniform_upload_bytes;
             }
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
@@ -3112,9 +3177,9 @@ progpu_native_status render_scene(
                         }
                         texture_upload_bytes += mask_texture_upload_bytes;
                         semantic_layer_mask_uniform_upload_bytes +=
-                            sizeof(gpu_mask_sampling_uniforms);
+                            operation.mask_uniform_upload_bytes;
                         semantic_layer_uniform_upload_bytes +=
-                            sizeof(gpu_mask_sampling_uniforms);
+                            operation.mask_uniform_upload_bytes;
                     }
                     if (advanced_blend) {
                         operation.first_resolve_vertex =
@@ -3269,7 +3334,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3288,7 +3354,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3307,7 +3374,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3326,7 +3394,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3345,7 +3414,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3364,7 +3434,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_path_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3383,7 +3454,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_glyph_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
@@ -3402,7 +3474,8 @@ progpu_native_status render_scene(
                                 bundle_encoder,
                                 semantic_image_page.draws[draw_index],
                                 current_target_layer,
-                                active_mask.mask_bind_group);
+                                active_mask.mask_bind_group,
+                                active_mask.mask_chain_bind_group);
                     }
                     break;
                 }
