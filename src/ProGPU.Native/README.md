@@ -46,7 +46,17 @@ parallel single-configuration Ninja build by default; `-Generator VisualStudio`
 is retained as a local compatibility fallback. The independent MSVC
 qualification lane builds the directly linked renderer and all CPU/native unit
 tests, while the ClangCL Windows runtime lanes own the duplicate Dawn-ABI build,
-package staging, D3D12 sample, and managed differential matrix. This avoids
+package staging, D3D12 sample, and a bounded representative managed
+differential profile. The Windows entry point accepts `-BenchmarkProfile Full`
+for the exhaustive 44-case cross-product and `-BenchmarkProfile Smoke` for the
+10-case D3D12 CI profile; Linux/macOS CI retains the exhaustive scene-family
+coverage. Both Windows profiles build each managed harness once and execute its
+DLL directly. On Build run 31819205840, ClangCL compiled and linked 139 native
+steps in about 53 seconds while repeated D3D12 process cold starts extended the
+win-x64 job to about 31 minutes. The bounded profile removes 34 of those 44
+benchmark process starts without removing native tests, ABI/export checks,
+package staging, the D3D12 sample, managed/native image comparison, or any
+semantic resource/effect family. This avoids
 compiling the same renderer twice in the compatibility lane without removing a
 compiler, ABI, runtime, or package gate. Module-capable LLVM Clang/Ninja builds additionally expose and test
 `import progpu.native.scene_builder;` through a CMake `CXX_MODULES` file set.

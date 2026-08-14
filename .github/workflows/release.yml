@@ -95,7 +95,10 @@ jobs:
       - name: Build and integration-test native renderer on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./eng/build-progpu-native-windows.ps1 -Rid "${{ matrix.rid }}"
+        run: >-
+          ./eng/build-progpu-native-windows.ps1
+          -Rid "${{ matrix.rid }}"
+          -BenchmarkProfile Smoke
 
       - name: Verify exact WebScene provider on Metal
         if: matrix.rid == 'osx-arm64'

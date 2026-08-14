@@ -5,6 +5,8 @@ param(
     [string] $Compiler = $(if ($env:PROGPU_NATIVE_WINDOWS_COMPILER) { $env:PROGPU_NATIVE_WINDOWS_COMPILER } else { "ClangCL" }),
     [ValidateSet("Ninja", "VisualStudio")]
     [string] $Generator = $(if ($env:PROGPU_NATIVE_WINDOWS_GENERATOR) { $env:PROGPU_NATIVE_WINDOWS_GENERATOR } else { "Ninja" }),
+    [ValidateSet("Full", "Smoke")]
+    [string] $BenchmarkProfile = $(if ($env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE) { $env:PROGPU_NATIVE_WINDOWS_BENCHMARK_PROFILE } else { "Full" }),
     [switch] $SkipExtendedIntegration
 )
 
@@ -239,24 +241,52 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         }
         $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj") -c Release -- $SampleOutput
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --managed-picture --rectangles 384 --warmup 4 --iterations 8
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --group-opacity --rectangles 384 --warmup 4 --iterations 8
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --external-images --warmup 2 --iterations 4
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --masked-images --warmup 2 --iterations 4
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --semantic-scene --rectangles 96 --warmup 2 --iterations 4
-        dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") -c Release -- --semantic-layer-effects --rectangles 96 --warmup 2 --iterations 4
-        $VectorClipScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
+        $ManagedSampleProject = Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj"
+        $ManagedSampleDll = Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/bin/Release/net10.0/ProGPU.Native.ManagedSample.dll"
+        $BenchmarkProject = Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj"
+        $BenchmarkDll = Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/bin/Release/net10.0/ProGPU.Native.Benchmarks.dll"
+        dotnet build $ManagedSampleProject -c Release --nologo
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ManagedSampleDll)) {
+            throw "The managed native-renderer sample build failed."
+        }
+        dotnet build $BenchmarkProject -c Release --nologo
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $BenchmarkDll)) {
+            throw "The native differential benchmark build failed."
+        }
+        & dotnet $ManagedSampleDll $SampleOutput
+        if ($LASTEXITCODE -ne 0) {
+            throw "The managed native-renderer sample failed."
+        }
+        function Invoke-NativeBenchmark {
+            & dotnet $BenchmarkDll @args
+            if ($LASTEXITCODE -ne 0) {
+                throw "The native differential benchmark failed: $args"
+            }
+        }
+        Invoke-NativeBenchmark --managed-picture --rectangles 384 --warmup 4 --iterations 8
+        Invoke-NativeBenchmark --group-opacity --rectangles 384 --warmup 4 --iterations 8
+        Invoke-NativeBenchmark --external-images --warmup 2 --iterations 4
+        Invoke-NativeBenchmark --masked-images --warmup 2 --iterations 4
+        Invoke-NativeBenchmark --semantic-scene --rectangles 96 --warmup 2 --iterations 4
+        Invoke-NativeBenchmark --semantic-layer-effects --rectangles 96 --warmup 2 --iterations 4
+        if ($BenchmarkProfile -eq "Smoke") {
+            # Windows qualifies the D3D12-specific paths with one representative
+            # member of every retained resource/effect family. The exhaustive
+            # scene cross-product remains on the Linux/macOS integration lanes.
+            Invoke-NativeBenchmark --paths --group-vector-clip-chain --rectangles 96 --warmup 2 --iterations 4
+            Invoke-NativeBenchmark --images --group-effect-chain --rectangles 96 --warmup 2 --iterations 4
+            Invoke-NativeBenchmark --images --group-blend-mode Overlay --rectangles 96 --warmup 2 --iterations 4
+            Invoke-NativeBenchmark --group-blend-mode ColorDodge --rectangles 96 --warmup 2 --iterations 4
+            Write-Host "Completed the bounded Windows D3D12 differential smoke profile."
+        } else {
+            $VectorClipScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
         foreach ($Scene in $VectorClipScenes) {
             $SceneArgs = @()
             if ($Scene) {
                 $SceneArgs += $Scene
             }
             $SceneArgs += @("--group-vector-clip-chain", "--rectangles", "96", "--warmup", "2", "--iterations", "4")
-            dotnet run `
-                --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
-                -c Release -- `
-                @SceneArgs
+            Invoke-NativeBenchmark @SceneArgs
         }
         $EffectScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
         foreach ($Effect in @(
@@ -269,10 +299,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                     $SceneArgs += $Scene
                 }
                 $SceneArgs += @($Effect, "--rectangles", "96", "--warmup", "2", "--iterations", "4")
-                dotnet run `
-                    --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
-                    -c Release -- `
-                    @SceneArgs
+                Invoke-NativeBenchmark @SceneArgs
             }
         }
         foreach ($BlendMode in @("SrcAtop", "Overlay")) {
@@ -284,18 +311,14 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                 $SceneArgs += @(
                     "--group-blend-mode", $BlendMode,
                     "--rectangles", "96", "--warmup", "2", "--iterations", "4")
-                dotnet run `
-                    --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
-                    -c Release -- `
-                    @SceneArgs
+                Invoke-NativeBenchmark @SceneArgs
             }
         }
         foreach ($BlendMode in @("ColorDodge", "Saturation")) {
-            dotnet run `
-                --project (Join-Path $RepoRoot "src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj") `
-                -c Release -- `
+            Invoke-NativeBenchmark `
                 --group-blend-mode $BlendMode `
                 --rectangles 96 --warmup 2 --iterations 4
+        }
         }
     }
 } else {
