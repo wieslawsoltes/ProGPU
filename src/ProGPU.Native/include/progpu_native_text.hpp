@@ -867,6 +867,69 @@ struct font_fallback_run final {
     std::uint8_t reserved2 = 0U;
 };
 
+enum class font_provider_slant : std::uint8_t {
+    normal = 0U,
+    italic = 1U,
+    oblique = 2U
+};
+
+/* Platform adapters expose borrowed face bytes through this neutral record.
+ * `family_identity` is a provider-stable normalized family hash. */
+struct font_provider_face final {
+    std::span<const std::byte> data{};
+    std::uint64_t identity = 0U;
+    std::uint64_t family_identity = 0U;
+    std::uint32_t face_index = 0U;
+    std::uint16_t weight = 400U;
+    std::uint8_t stretch = 5U;
+    font_provider_slant slant = font_provider_slant::normal;
+};
+
+using font_provider_count_callback = std::uint32_t(*)(void*) noexcept;
+using font_provider_face_callback = bool(*)(
+    void*, std::uint32_t, font_provider_face&) noexcept;
+
+struct font_provider_view final {
+    void* context = nullptr;
+    std::uint64_t generation = 0U;
+    font_provider_count_callback get_face_count = nullptr;
+    font_provider_face_callback try_get_face = nullptr;
+};
+
+struct font_provider_cache_entry final {
+    std::uint64_t generation = 0U;
+    std::uint64_t family_identity = 0U;
+    std::uint32_t code_point = 0U;
+    std::uint32_t face_index = 0U;
+    std::uint16_t weight = 0U;
+    std::uint8_t stretch = 0U;
+    font_provider_slant slant = font_provider_slant::normal;
+    bool found = false;
+    bool occupied = false;
+};
+
+struct font_provider_result final {
+    font_provider_face face{};
+    std::uint32_t provider_index = 0U;
+    bool found = false;
+};
+
+/* Resolves one family/style/scalar request. Cache storage and replacement
+ * cursor belong to the caller. Hits are O(C), misses O(F*T) for cache slots C,
+ * provider faces F, and bounded SFNT table lookup T; no allocation or I/O is
+ * performed by the native resolver. */
+bool try_resolve_font_provider_face(
+    const font_provider_view& provider,
+    std::uint64_t family_identity,
+    std::uint16_t weight,
+    std::uint8_t stretch,
+    font_provider_slant slant,
+    std::uint32_t code_point,
+    std::span<font_provider_cache_entry> cache,
+    std::uint32_t& replacement_cursor,
+    font_provider_result& result,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_font_fallback_run_count(
     std::span<const unicode_scalar> input,
     std::span<const unicode_grapheme_cluster> graphemes,

@@ -94,6 +94,12 @@ using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
 using progpu::native::text::try_itemize_font_fallback;
+using progpu::native::text::font_provider_slant;
+using progpu::native::text::font_provider_face;
+using progpu::native::text::font_provider_view;
+using progpu::native::text::font_provider_cache_entry;
+using progpu::native::text::font_provider_result;
+using progpu::native::text::try_resolve_font_provider_face;
 using progpu::native::text::try_preprocess_open_type_glyphs;
 using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
@@ -3143,6 +3149,69 @@ void native_font_fallback_preserves_graphemes_and_missing_state() {
     require(error == font_error::insufficient_buffer && written == 0U);
 }
 
+void native_font_provider_cache_is_borrowed_and_generation_safe() {
+    constexpr std::array regular_mappings{std::pair{0x41U, 2U}};
+    constexpr std::array bold_mappings{std::pair{0x41U, 3U}};
+    const auto regular_cmap = make_cmap_groups(regular_mappings);
+    const auto bold_cmap = make_cmap_groups(bold_mappings);
+    const auto regular = make_font(
+        0U, 22U, 0U, false, false, false, {}, regular_cmap);
+    const auto bold = make_font(
+        0U, 22U, 0U, false, false, false, {}, bold_cmap);
+    struct provider_context final {
+        std::array<font_provider_face, 2U> faces{};
+        std::uint32_t reads = 0U;
+    } context{
+        std::array{
+            font_provider_face{regular, 1U, 7U, 0U, 400U, 5U,
+                font_provider_slant::normal},
+            font_provider_face{bold, 2U, 7U, 0U, 700U, 5U,
+                font_provider_slant::normal}}};
+    const auto count = +[](void* value) noexcept -> std::uint32_t {
+        return static_cast<std::uint32_t>(
+            static_cast<provider_context*>(value)->faces.size());
+    };
+    const auto get = +[](void* value, std::uint32_t index,
+                         font_provider_face& result) noexcept -> bool {
+        auto& source = *static_cast<provider_context*>(value);
+        ++source.reads;
+        if (index >= source.faces.size()) {
+            return false;
+        }
+        result = source.faces[index];
+        return true;
+    };
+    font_provider_view provider{&context, 3U, count, get};
+    std::array<font_provider_cache_entry, 4U> cache{};
+    std::uint32_t cursor = 0U;
+    font_provider_result result{};
+    font_error error = font_error::invalid_argument;
+    require(try_resolve_font_provider_face(
+        provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
+        cache, cursor, result, &error));
+    require(result.found && result.provider_index == 1U &&
+        result.face.identity == 2U && context.reads == 2U);
+    require(try_resolve_font_provider_face(
+        provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
+        cache, cursor, result, &error));
+    require(result.found && context.reads == 3U);
+
+    require(try_resolve_font_provider_face(
+        provider, 7U, 400U, 5U, font_provider_slant::normal, 0x2603U,
+        cache, cursor, result, &error));
+    require(!result.found && context.reads == 5U);
+    require(try_resolve_font_provider_face(
+        provider, 7U, 400U, 5U, font_provider_slant::normal, 0x2603U,
+        cache, cursor, result, &error));
+    require(!result.found && context.reads == 5U);
+
+    provider.generation = 4U;
+    require(try_resolve_font_provider_face(
+        provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
+        cache, cursor, result, &error));
+    require(result.found && context.reads == 7U);
+}
+
 void native_positioned_text_layout_wraps_without_allocation() {
     const std::array<shaping_glyph, 4U> glyphs{
         shaping_glyph{1U, 0U, 0, shaping_glyph_flags::none, 10},
@@ -5771,6 +5840,7 @@ int main() {
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
+    native_font_provider_cache_is_borrowed_and_generation_safe();
     native_positioned_text_layout_wraps_without_allocation();
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
