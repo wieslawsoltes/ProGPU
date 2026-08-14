@@ -2303,4 +2303,6 @@ PPM SHA-256
 `ec9498caab8b64cf7f42e04ccd7c303c8e681c6a3061117651ab8ed9381d863e`.
 The six-RID package gate separately requires the Dawn package to be present and
 the native package nuspec to declare it, so a stale source build or global
-package cache cannot conceal an incomplete distribution graph.
+package cache cannot conceal an incomplete distribution graph. Both consumers
+restore through an isolated package cache with cache reuse disabled, and the
+real Dawn package version includes the exact commit id.

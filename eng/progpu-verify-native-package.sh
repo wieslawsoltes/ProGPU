@@ -45,10 +45,17 @@ for entry in "${required_entries[@]}"; do
 done
 
 consumer="${repo_root}/tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj"
-dotnet restore "${consumer}" \
+consumer_packages="$(mktemp -d /tmp/progpu-native-consumer-packages.XXXXXX)"
+cleanup_consumer_packages() {
+  rm -rf "${consumer_packages}"
+}
+trap cleanup_consumer_packages EXIT
+NUGET_PACKAGES="${consumer_packages}" dotnet restore "${consumer}" \
+  --no-cache \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}"
-dotnet run --project "${consumer}" --configuration Release --no-restore \
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}"
 

@@ -102,9 +102,11 @@ sips -s format png "${capture}" \
 
 managed_runtime="$(mktemp -d /tmp/progpu-native-dawn-managed.XXXXXX)"
 managed_packages="$(mktemp -d /tmp/progpu-native-dawn-packages.XXXXXX)"
+managed_package_cache="$(mktemp -d /tmp/progpu-native-dawn-cache.XXXXXX)"
 cleanup_managed_runtime() {
   rm -rf "${managed_runtime}"
   rm -rf "${managed_packages}"
+  rm -rf "${managed_package_cache}"
 }
 trap cleanup_managed_runtime EXIT
 ln -s "${provider_library}" \
@@ -112,7 +114,8 @@ ln -s "${provider_library}" \
 ln -s "${build_dir}/libprogpu_native_dawn.dylib" \
   "${managed_runtime}/libprogpu_native_dawn.dylib"
 managed_capture="${sample_dir}/progpu-native-managed-dawn.ppm"
-managed_package_version="0.0.0-provider-test"
+managed_package_version="0.0.0-provider-test.g$(
+  git -C "${repo_root}" rev-parse --short=12 HEAD)"
 dotnet pack "${repo_root}/src/ProGPU.Backend/ProGPU.Backend.csproj" \
   --configuration Release --output "${managed_packages}" \
   -p:Version="${managed_package_version}" \
@@ -126,12 +129,14 @@ dotnet pack "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj
   -p:Version="${managed_package_version}" \
   -p:PackageVersion="${managed_package_version}" \
   -p:ProGpuNativeSkipRuntimeValidation=true
-dotnet restore \
+NUGET_PACKAGES="${managed_package_cache}" dotnet restore \
   "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
+  --no-cache \
   -p:ProGpuNativeUseProjectReference=false \
   -p:ProGpuNativePackageSource="${managed_packages}" \
   -p:ProGpuNativePackageVersion="${managed_package_version}"
 DYLD_LIBRARY_PATH="${managed_runtime}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+  NUGET_PACKAGES="${managed_package_cache}" \
   dotnet run \
     --project "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
     --configuration Release --no-restore \

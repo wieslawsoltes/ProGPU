@@ -1785,7 +1785,9 @@ direct wgpu-native library, while the macOS WebScene qualification restores the
 managed sample from those packages with all project references disabled and
 executes Dawn-to-C++ rendering plus replacement-device recovery on Metal. This
 prevents a source-tree build from hiding a missing Dawn package dependency or
-runtime asset.
+runtime asset. Both package consumers use an isolated package cache; the real
+Dawn gate also uses a commit-qualified package version and disables HTTP/cache
+reuse.
 
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
