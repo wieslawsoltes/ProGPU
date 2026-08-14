@@ -175,7 +175,9 @@ zero-copy. The gate maps the IOSurface only after presentation for deterministic
 pixel verification and a CI evidence image; that readback is test-only. It also
 creates the C++ renderer through the public typed .NET `NativeDawnAdapter`,
 resolves Dawn procedures from the provider module, renders and reads back known
-pixels, and publishes a second managed-host capture.
+pixels, forces a real Dawn device loss, recreates the engine on a replacement
+device, verifies the same pixels again, and publishes a second managed-host
+capture.
 
 Both `progpu_native` and `progpu_native_dawn` are staged in the
 `ProGPU.Backend.Native` RID package for Linux, macOS, and Windows x64/arm64.

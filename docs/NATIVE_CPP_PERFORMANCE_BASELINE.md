@@ -2265,6 +2265,9 @@ there is no per-frame delegate, reflection, handle adapter, or allocation.
 The local Apple M3 Pro hardware smoke uses WebScene provider `02823bf8` and
 Dawn `710c3301`: `.NET -> Dawn -> progpu_native_dawn -> Metal` renders 18
 vertices in one draw and one submission, then verifies known readback pixels.
+It forces a real device loss, observes the typed notification, recreates the
+C++ engine on a replacement Dawn device, and reproduces the byte-identical
+capture in one draw and one submission.
 The evidence image is
 `artifacts/progpu-native/sample/progpu-native-managed-dawn.png`; its PPM
 SHA-256 is

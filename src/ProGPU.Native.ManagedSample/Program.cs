@@ -7,8 +7,13 @@ using Silk.NET.WebGPU;
 const uint width = 640;
 const uint height = 360;
 bool useDawn = args.Contains("--dawn", StringComparer.Ordinal);
+bool recreateAfterDeviceLoss = args.Contains(
+    "--device-loss",
+    StringComparer.Ordinal);
 string? requestedOutput = args.FirstOrDefault(
-    argument => !string.Equals(argument, "--dawn", StringComparison.Ordinal));
+    argument =>
+        !string.Equals(argument, "--dawn", StringComparison.Ordinal) &&
+        !string.Equals(argument, "--device-loss", StringComparison.Ordinal));
 var outputPath = requestedOutput is not null
     ? requestedOutput
     : "progpu-native-managed-sample.ppm";
@@ -45,24 +50,72 @@ ReadOnlySpan<NativeSolidRectangle> rectangles =
     new(280, 64, 280, 132, new Vector4(0.98f, 0.52f, 0.08f, 1f)),
     new(128, 224, 384, 72, new Vector4(0.20f, 0.82f, 0.48f, 0.90f))
 ];
-var metrics = compositor.Render(
+NativeFrameMetrics metrics = compositor.Render(
     target,
     dpiScale: 1f,
     rectangles,
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
-var pixels = target.ReadPixels();
+byte[] pixels = target.ReadPixels();
 
 if (!HasExpectedColors(pixels, checked((int)width)))
 {
     throw new InvalidOperationException(
         "The managed host did not observe the expected native GPU pixels.");
 }
+if (recreateAfterDeviceLoss)
+{
+    if (dawnContext is null)
+    {
+        throw new ArgumentException(
+            "--device-loss requires the --dawn provider path.");
+    }
+    dawnContext.ForceDeviceLossForDiagnostics();
+    for (int attempt = 0;
+         attempt < 5_000 && !context.IsDeviceLost;
+         attempt++)
+    {
+        context.PollDevice(wait: false);
+        Thread.Sleep(1);
+    }
+    if (!context.IsDeviceLost)
+    {
+        throw new InvalidOperationException(
+            "The forced Dawn device loss was not observed.");
+    }
+
+    using DawnGpuContext replacement =
+        DawnGpuContext.CreateMetalPresentation();
+    using NativeCompositor replacementCompositor =
+        NativeDawnAdapter.RecreateCompositor(
+            compositor,
+            replacement);
+    using var replacementTarget = new GpuTexture(
+        replacement.Context,
+        width,
+        height,
+        TextureFormat.Rgba8Unorm,
+        TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+        "ProGPU recreated native managed sample target");
+    metrics = replacementCompositor.Render(
+        replacementTarget,
+        dpiScale: 1f,
+        rectangles,
+        new Vector4(0.02f, 0.025f, 0.04f, 1f));
+    pixels = replacementTarget.ReadPixels();
+    if (!HasExpectedColors(pixels, checked((int)width)))
+    {
+        throw new InvalidOperationException(
+            "The recreated Dawn/C++ renderer did not preserve expected GPU pixels.");
+    }
+}
+
 WritePpm(outputPath, pixels, checked((int)width), checked((int)height));
 var info = dawnContext is null
     ? NativeCompositor.GetInfo()
     : NativeDawnAdapter.GetInfo();
 Console.WriteLine(
     $"[ProGPUNativeManaged] backend={(useDawn ? "Dawn" : "wgpu-native")}; " +
+    $"recreated={recreateAfterDeviceLoss}; " +
     $"{info.Name}; " +
     $"vertices={metrics.VertexCount}; draws={metrics.DrawCallCount}; " +
     $"submissions={metrics.SubmissionCount}; output={outputPath}");

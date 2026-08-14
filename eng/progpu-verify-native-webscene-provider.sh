@@ -114,7 +114,7 @@ DYLD_LIBRARY_PATH="${managed_runtime}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}
   dotnet run \
     --project "${repo_root}/src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" \
     --configuration Release -- \
-    --dawn "${managed_capture}" | tee -a "${evidence}"
+    --dawn --device-loss "${managed_capture}" | tee -a "${evidence}"
 if [[ ! -s "${managed_capture}" ]]; then
   echo "The managed Dawn/C++ integration did not produce its capture." >&2
   exit 1

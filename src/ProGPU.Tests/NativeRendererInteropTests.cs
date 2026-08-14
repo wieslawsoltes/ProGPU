@@ -2372,7 +2372,7 @@ public class NativeRendererInteropTests
             releaseWorkflow,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--dawn \"${managed_capture}\"",
+            "--dawn --device-loss \"${managed_capture}\"",
             providerVerifier,
             StringComparison.Ordinal);
 
