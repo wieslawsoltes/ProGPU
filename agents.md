@@ -14,6 +14,16 @@ for research, but that research may inform only observable behavior, public cont
 algorithms described in specifications or papers, architecture, test cases, and measured
 tradeoffs. It must not be used as a source-text implementation shortcut.
 
+This restriction does not prohibit cross-language or cross-backend ports of original
+ProGPU-owned implementation already present in this repository. ProGPU C#, C++, and
+production shader source that already satisfies this clean-room policy may be translated,
+refactored, or shared across ProGPU backends. Such work must record the in-repository
+source provenance, preserve the original public and performance contracts, add matched
+cross-implementation differential tests, and must not introduce implementation text or
+structure that originated in a third-party project. The existing ProGPU implementation
+is authoritative for behavioral compatibility; third-party engines remain research and
+conformance references only.
+
 When an equivalent feature exists elsewhere, implement it clean-room:
 
 * Start from authoritative specifications, public API contracts, primary research, and
