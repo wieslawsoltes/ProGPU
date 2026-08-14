@@ -52,6 +52,10 @@ inline void set_position(shaping_glyph& glyph, std::uint8_t value) noexcept {
     set_field(glyph, position_mask, position_shift, value);
 }
 
+inline std::uint8_t position(const shaping_glyph& glyph) noexcept {
+    return get_field(glyph, position_mask, position_shift);
+}
+
 inline void set_syllable(shaping_glyph& glyph, std::uint8_t value) noexcept {
     set_field(glyph, syllable_mask, syllable_shift, value);
 }
@@ -74,6 +78,15 @@ inline void clear_metadata(std::span<shaping_glyph> glyphs) noexcept {
 }
 
 bool try_prepare_khmer(
+    const sfnt_font_view& font,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    std::span<std::uint8_t> category_scratch,
+    std::span<std::uint8_t> syllable_scratch,
+    font_error* error) noexcept;
+
+bool try_prepare_myanmar(
     const sfnt_font_view& font,
     shaping_buffer_flags buffer_flags,
     std::span<shaping_glyph> glyph_storage,
