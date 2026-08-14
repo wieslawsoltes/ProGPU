@@ -63,6 +63,11 @@ each individual substitution before mutation. A lookup pass is commonly
 worst case `O(P * S * (log C + K + N))` for `P` input positions, `S`
 subtables, coverage size `C`, matched ligature length `K`, and glyph capacity
 `N`. Storage is `O(1)` beyond caller capacity.
+Coverage-based Context and Chaining Context format 3 tables share the same GDEF
+eligibility walk, validate every ordered coverage before dispatch, apply
+sequence lookup records against the current post-mutation buffer, propagate
+unsafe-to-break flags across matched input, and cap nested lookup recursion at
+64 without heap scratch.
 
 ## Delivered borrowed SFNT/TTC foundation
 

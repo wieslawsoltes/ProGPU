@@ -689,6 +689,109 @@ void open_type_gsub_reverse_chaining_matches_bounded_context() {
     require(error == font_error::invalid_face && glyphs[1U].glyph_id == 5U);
 }
 
+void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
+    std::array<std::byte, 74U> context{};
+    write_u16(context, 0U, 1U);
+    write_u16(context, 4U, 10U);
+    write_u16(context, 6U, 12U);
+    write_u16(context, 8U, 14U);
+    write_u16(context, 14U, 2U);
+    write_u16(context, 16U, 6U);
+    write_u16(context, 18U, 40U);
+    write_u16(context, 20U, 5U);
+    write_u16(context, 24U, 1U);
+    write_u16(context, 26U, 8U);
+    write_u16(context, 28U, 3U);
+    write_u16(context, 30U, 2U);
+    write_u16(context, 32U, 1U);
+    write_u16(context, 34U, 14U);
+    write_u16(context, 36U, 20U);
+    write_u16(context, 38U, 1U);
+    write_u16(context, 40U, 1U);
+    write_u16(context, 42U, 1U);
+    write_u16(context, 44U, 1U);
+    write_u16(context, 46U, 5U);
+    write_u16(context, 48U, 1U);
+    write_u16(context, 50U, 1U);
+    write_u16(context, 52U, 6U);
+    write_u16(context, 54U, 1U);
+    write_u16(context, 58U, 1U);
+    write_u16(context, 60U, 8U);
+    write_u16(context, 62U, 1U);
+    write_u16(context, 64U, 6U);
+    write_u16(context, 66U, 6U);
+    write_u16(context, 68U, 1U);
+    write_u16(context, 70U, 1U);
+    write_u16(context, 72U, 6U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(context, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{5U}, shaping_glyph{6U}};
+    std::uint32_t count = 2U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 5U &&
+        glyphs[1U].glyph_id == 12U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 1U) != 0U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 1U) != 0U);
+
+    std::array<std::byte, 86U> chaining{};
+    write_u16(chaining, 0U, 1U);
+    write_u16(chaining, 4U, 10U);
+    write_u16(chaining, 6U, 12U);
+    write_u16(chaining, 8U, 14U);
+    write_u16(chaining, 14U, 2U);
+    write_u16(chaining, 16U, 6U);
+    write_u16(chaining, 18U, 52U);
+    write_u16(chaining, 20U, 6U);
+    write_u16(chaining, 24U, 1U);
+    write_u16(chaining, 26U, 8U);
+    write_u16(chaining, 28U, 3U);
+    write_u16(chaining, 30U, 1U);
+    write_u16(chaining, 32U, 20U);
+    write_u16(chaining, 34U, 1U);
+    write_u16(chaining, 36U, 26U);
+    write_u16(chaining, 38U, 1U);
+    write_u16(chaining, 40U, 32U);
+    write_u16(chaining, 42U, 1U);
+    write_u16(chaining, 44U, 0U);
+    write_u16(chaining, 46U, 1U);
+    write_u16(chaining, 48U, 1U);
+    write_u16(chaining, 50U, 1U);
+    write_u16(chaining, 52U, 1U);
+    write_u16(chaining, 54U, 1U);
+    write_u16(chaining, 56U, 1U);
+    write_u16(chaining, 58U, 5U);
+    write_u16(chaining, 60U, 1U);
+    write_u16(chaining, 62U, 1U);
+    write_u16(chaining, 64U, 7U);
+    write_u16(chaining, 66U, 1U);
+    write_u16(chaining, 70U, 1U);
+    write_u16(chaining, 72U, 8U);
+    write_u16(chaining, 74U, 1U);
+    write_u16(chaining, 76U, 6U);
+    write_u16(chaining, 78U, 7U);
+    write_u16(chaining, 80U, 1U);
+    write_u16(chaining, 82U, 1U);
+    write_u16(chaining, 84U, 5U);
+    require(open_type_layout_table_view::try_create(chaining, gsub, &error));
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 3U && glyphs[0U].glyph_id == 1U &&
+        glyphs[1U].glyph_id == 12U && glyphs[2U].glyph_id == 7U);
+
+    glyphs = {shaping_glyph{2U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && glyphs[1U].glyph_id == 5U);
+}
+
 std::uint64_t hash_path_segments(
     std::span<const progpu_native_path_segment> segments) {
     std::uint64_t hash = 1469598103934665603ULL;
@@ -3606,6 +3709,7 @@ int main() {
     open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded();
     open_type_gsub_basic_lookups_use_caller_owned_storage();
     open_type_gsub_reverse_chaining_matches_bounded_context();
+    open_type_gsub_context_format3_applies_bounded_nested_lookups();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
