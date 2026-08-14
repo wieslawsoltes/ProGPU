@@ -2410,7 +2410,11 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("progpu-native-provider.txt", unixBuild,
             StringComparison.Ordinal);
+        Assert.Contains("--semantic-layer-effects", unixBuild,
+            StringComparison.Ordinal);
         Assert.Contains("progpu_native_sample.exe", windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("--semantic-layer-effects", windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains("The D3D12 native renderer backend sample failed.",
             windowsBuild,

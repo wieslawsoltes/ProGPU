@@ -2217,3 +2217,38 @@ with SHA-256
 `d8e300d2658865ec0ec58a971ac61a78f23f24d2782e270853e2ed81be13ae58`.
 This is automated implementation evidence, not the required final user manual
 approval.
+
+## Representative aggregate qualification checkpoint
+
+The runnable native build entry points now include the retained semantic
+layer/effect workload in addition to the base mixed scene. This is the widest
+matched final-scene gate: eight ordered analytic, path, positioned-glyph, and
+image draws are wrapped in one rounded mask and a retained Gaussian-blur then
+drop-shadow chain. Linux, macOS, and Windows execute the same command through
+their Vulkan, Metal, and D3D12 wgpu-native backends respectively; the build
+fails on a backend mismatch, readback failure, retained upload, allocation, or
+the established edge-difference budget.
+
+A local Apple M3 Pro/Metal Release run used 60 warm-up and 300 alternating
+synchronized frames. Native/managed p95 submission was `0.1582/0.3174 ms`,
+completion wait `3.0311/3.0588 ms`, and end to end `3.1221/3.3210 ms`.
+Native submission was 50.2% lower and synchronized p95 was 6.0% lower; both
+paths allocated `0 B/frame`. Stable native replay reported one composite draw,
+one submission, zero child/effect passes, and zero vertex, index, texture,
+uniform, coverage, brush, gradient-stop, text-style, or color-glyph upload.
+GPU completion remains intentionally on par because both routes execute the
+same retained blur/shadow and composition work on the same Metal queue.
+
+The 518,400-pixel differential has maximum channel difference `13/255`, 143
+pixels above `3/255`, and mean absolute channel difference
+`0.026700424/255`, within the independent intermediate-edge contract. Ignored
+evidence is retained at
+`artifacts/progpu-native/performance/final-representative/semantic-layer-effects-macos.json`.
+The inspected native, managed, and 64-times-amplified difference PNG hashes are
+respectively
+`64b2f7ae0f2206d91019fc11adb5de0c2553c58a76bec6da8599cadc735b766c`,
+`2741a8777851f65138eb9045abd9d93698716dd6b1066805b18d89efdcd1ecb5`,
+and
+`4dd3a5bcbaea650c477cfd72ca19cfc5c3055f43f6cd383ef60e87b40198676d`.
+Cross-platform backend images and adapter records are produced by exact-head CI;
+manual sample approval remains intentionally held.
