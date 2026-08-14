@@ -40,4 +40,10 @@ bool is_valid_semantic_image_sampling_options(
 bool is_valid_semantic_image_color_matrix(
     const progpu_native_scene_image_color_matrix& matrix) noexcept;
 
+bool is_valid_semantic_layer(
+    const progpu_native_scene_layer& layer) noexcept;
+
+bool is_valid_semantic_effect(
+    const progpu_native_group_effect& effect) noexcept;
+
 } // namespace progpu::native::semantic

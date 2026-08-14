@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(6U, 8U, 7168U)) {
+    if (!scene_builder.reserve(8U, 10U, 9216U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -312,6 +312,51 @@ int main(int argc, char** argv) {
     }
     const auto identity =
         progpu::native::semantic_scene_builder::identity_transform();
+    progpu_native_scene_layer_mask scene_mask{};
+    scene_mask.bounds = {36.0F, 36.0F, 600.0F, 314.0F};
+    scene_mask.transform = identity;
+    for (std::size_t index = 0U; index < 4U; ++index) {
+        scene_mask.corner_radii_x[index] = 18.0F;
+        scene_mask.corner_radii_y[index] = 18.0F;
+    }
+    scene_mask.opacity = 1.0F;
+    progpu_native_group_effect drop_shadow{};
+    drop_shadow.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
+    drop_shadow.revision = 1U;
+    drop_shadow.sigma_x = 2.0F;
+    drop_shadow.sigma_y = 2.0F;
+    drop_shadow.offset_x = 5.0F;
+    drop_shadow.offset_y = 5.0F;
+    drop_shadow.color_r = 0.0F;
+    drop_shadow.color_g = 0.0F;
+    drop_shadow.color_b = 0.0F;
+    drop_shadow.color_a = 0.65F;
+    std::uint32_t scene_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t scene_effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_rounded_rectangle_mask(
+            scene_mask,
+            scene_mask_index) ||
+        !scene_builder.add_effect_chain(
+            std::span<const progpu_native_group_effect>(&drop_shadow, 1U),
+            1U,
+            scene_effect_index)) {
+        std::cerr << "Could not record native retained layer resources.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer scene_layer{};
+    scene_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    scene_layer.bounds = {32.0F, 32.0F, 608.0F, 324.0F};
+    scene_layer.opacity = 1.0F;
+    scene_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    scene_layer.mask_resource_index = scene_mask_index;
+    scene_layer.effect_resource_index = scene_effect_index;
+    scene_layer.content_revision = 1U;
+    scene_layer.composite_revision = 1U;
+    if (!scene_builder.push_layer(scene_layer)) {
+        std::cerr << "Could not begin the native retained layer.\n";
+        return EXIT_FAILURE;
+    }
     const std::array primitives{
         progpu_native_analytic_primitive{
             PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
@@ -489,6 +534,10 @@ int main(int argc, char** argv) {
             PROGPU_NATIVE_SCENE_NO_INDEX,
             native_text_style_index)) {
         std::cerr << "Could not record native retained glyph.\n";
+        return EXIT_FAILURE;
+    }
+    if (!scene_builder.pop_layer()) {
+        std::cerr << "Could not close the native retained layer.\n";
         return EXIT_FAILURE;
     }
     std::vector<std::byte> scene_stream;

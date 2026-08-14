@@ -446,4 +446,167 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
             sizeof(glyphs);
 }
 
+bool semantic_scene_builder_records_layers_masks_and_effects() {
+    semantic_scene_builder builder(706U, 7U);
+    if (!builder.reserve(3U, 6U, 2048U)) {
+        return false;
+    }
+    const auto identity = semantic_scene_builder::identity_transform();
+    progpu_native_scene_layer_mask left{};
+    left.bounds = {4.0F, 4.0F, 56.0F, 48.0F};
+    left.transform = identity;
+    left.corner_radii_x[0] = 6.0F;
+    left.corner_radii_x[1] = 6.0F;
+    left.corner_radii_x[2] = 6.0F;
+    left.corner_radii_x[3] = 6.0F;
+    left.corner_radii_y[0] = 6.0F;
+    left.corner_radii_y[1] = 6.0F;
+    left.corner_radii_y[2] = 6.0F;
+    left.corner_radii_y[3] = 6.0F;
+    left.opacity = 1.0F;
+    auto right = left;
+    right.bounds = {20.0F, 8.0F, 56.0F, 48.0F};
+    right.transform.m31 = 2.0F;
+
+    std::uint32_t rounded_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t coverage_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t chain_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_rounded_rectangle_mask(left, rounded_mask)) {
+        return false;
+    }
+    progpu_native_scene_layer_coverage_mask coverage{};
+    coverage.width = 4U;
+    coverage.height = 4U;
+    coverage.row_bytes = 4U;
+    coverage.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    coverage.bounds = {0.0F, 0.0F, 4.0F, 4.0F};
+    coverage.transform = {16.0F, 0.0F, 0.0F, 12.0F, 4.0F, 4.0F};
+    coverage.opacity = 0.75F;
+    const std::array<std::byte, 16U> coverage_bytes{
+        std::byte{0x00}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff},
+        std::byte{0x40}, std::byte{0x80}, std::byte{0xff}, std::byte{0x80},
+        std::byte{0x80}, std::byte{0xff}, std::byte{0x80}, std::byte{0x40},
+        std::byte{0xff}, std::byte{0x80}, std::byte{0x40}, std::byte{0x00}};
+    const std::array analytic_masks{left, right};
+    if (!builder.add_coverage_mask(
+            coverage,
+            coverage_bytes,
+            coverage_mask) ||
+        !builder.add_analytic_mask_chain(analytic_masks, chain_mask) ||
+        rounded_mask == coverage_mask || coverage_mask == chain_mask) {
+        return false;
+    }
+
+    progpu_native_group_effect blur{};
+    blur.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+    blur.revision = 31U;
+    blur.sigma_x = 1.5F;
+    blur.sigma_y = 2.0F;
+    std::uint32_t effect_chain = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_effect_chain(
+            std::span<const progpu_native_group_effect>(&blur, 1U),
+            41U,
+            effect_chain)) {
+        return false;
+    }
+
+    auto state = semantic_scene_builder::identity_state();
+    state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+    state.mask_resource_index = rounded_mask;
+    std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_state(state, state_index)) {
+        return false;
+    }
+    progpu_native_scene_layer layer{};
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    layer.bounds = {0.0F, 0.0F, 96.0F, 64.0F};
+    layer.opacity = 0.85F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_OVERLAY;
+    layer.mask_resource_index = chain_mask;
+    layer.effect_resource_index = effect_chain;
+    layer.content_revision = 51U;
+    layer.composite_revision = 52U;
+    if (!builder.push_layer(layer) || builder.restore() ||
+        builder.last_error() != scene_build_error::unbalanced_stack) {
+        return false;
+    }
+    const progpu_native_analytic_primitive primitive{
+        PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
+        0U,
+        8.0F,
+        8.0F,
+        72.0F,
+        44.0F,
+        8.0F,
+        0.0F,
+        {0.2F, 0.7F, 1.0F, 0.9F},
+        identity};
+    if (!builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive,
+                1U),
+            {},
+            {8.0F, 8.0F, 72.0F, 44.0F},
+            state_index) ||
+        !builder.pop_layer()) {
+        return false;
+    }
+
+    std::vector<std::byte> first;
+    std::vector<std::byte> second;
+    scene_build_metrics metrics{};
+    if (!builder.build(first, &metrics) || !builder.build(second) ||
+        first != second || metrics.command_count != 3U ||
+        metrics.resource_count != 6U ||
+        metrics.maximum_stack_depth != 1U) {
+        return false;
+    }
+    const auto validated = scene::validate(first.data(), first.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.draw_count != 1U || validated.maximum_stack_depth != 1U) {
+        return false;
+    }
+    const auto resource_at = [&](std::uint32_t index) {
+        return read<progpu_native_scene_resource>(
+            first,
+            validated.header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+    };
+    const auto rounded_record = resource_at(rounded_mask);
+    const auto coverage_record = resource_at(coverage_mask);
+    const auto chain_record = resource_at(chain_mask);
+    const auto effect_record = resource_at(effect_chain);
+    const auto state_record = resource_at(state_index);
+    const auto push = read<progpu_native_scene_command>(
+        first,
+        validated.header.command_offset);
+    const auto draw = read<progpu_native_scene_command>(
+        first,
+        validated.header.command_offset +
+            sizeof(progpu_native_scene_command));
+    const auto pop = read<progpu_native_scene_command>(
+        first,
+        validated.header.command_offset +
+            2U * sizeof(progpu_native_scene_command));
+    return rounded_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        rounded_record.payload_size == sizeof(left) &&
+        coverage_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        coverage_record.payload_size == sizeof(coverage) &&
+        coverage_record.auxiliary_size == coverage_bytes.size() &&
+        chain_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        chain_record.payload_size ==
+            sizeof(progpu_native_scene_layer_mask_chain) &&
+        effect_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN &&
+        effect_record.payload_size ==
+            sizeof(progpu_native_scene_effect_chain) &&
+        effect_record.auxiliary_size == sizeof(blur) &&
+        state_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE &&
+        push.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+        push.payload_size == sizeof(layer) &&
+        draw.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
+        draw.state_index == state_index &&
+        pop.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+}
+
 } // namespace progpu::native::tests

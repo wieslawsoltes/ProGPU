@@ -222,4 +222,56 @@ bool is_valid_semantic_image_color_matrix(
         valid_row(matrix.offset);
 }
 
+bool is_valid_semantic_layer(
+    const progpu_native_scene_layer& layer) noexcept {
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    const bool bounds_are_canonical =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
+        (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
+            layer.bounds.width == 0.0F && layer.bounds.height == 0.0F);
+    return layer.struct_size == sizeof(layer) &&
+        (layer.flags & ~known_flags) == 0U &&
+        std::isfinite(layer.bounds.x) &&
+        std::isfinite(layer.bounds.y) &&
+        std::isfinite(layer.bounds.width) &&
+        std::isfinite(layer.bounds.height) &&
+        layer.bounds.width >= 0.0F && layer.bounds.height >= 0.0F &&
+        bounds_are_canonical && std::isfinite(layer.opacity) &&
+        layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
+        layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
+        layer.reserved0 == 0U && layer.reserved1 == 0U;
+}
+
+bool is_valid_semantic_effect(
+    const progpu_native_group_effect& effect) noexcept {
+    if (effect.struct_size != sizeof(effect) ||
+        (effect.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
+        effect.flags != 0U || effect.revision == 0U ||
+        effect.reserved != 0U || effect.reserved2 != 0U ||
+        !std::isfinite(effect.sigma_x) ||
+        !std::isfinite(effect.sigma_y) || effect.sigma_x < 0.0F ||
+        effect.sigma_y < 0.0F || !std::isfinite(effect.offset_x) ||
+        !std::isfinite(effect.offset_y) ||
+        !std::isfinite(effect.color_r) ||
+        !std::isfinite(effect.color_g) ||
+        !std::isfinite(effect.color_b) ||
+        !std::isfinite(effect.color_a)) {
+        return false;
+    }
+    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR) {
+        return effect.sigma_x > 0.01F && effect.sigma_y > 0.01F &&
+            effect.offset_x == 0.0F && effect.offset_y == 0.0F &&
+            effect.color_r == 0.0F && effect.color_g == 0.0F &&
+            effect.color_b == 0.0F && effect.color_a == 0.0F;
+    }
+    return effect.color_r >= 0.0F && effect.color_r <= 1.0F &&
+        effect.color_g >= 0.0F && effect.color_g <= 1.0F &&
+        effect.color_b >= 0.0F && effect.color_b <= 1.0F &&
+        effect.color_a >= 0.0F && effect.color_a <= 1.0F;
+}
+
 } // namespace progpu::native::semantic

@@ -1,0 +1,301 @@
+#include "progpu_native_scene_builder_internal.hpp"
+
+#include "progpu_native_scene.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_semantic_validation.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <new>
+#include <utility>
+
+namespace progpu::native {
+using scene_builder_detail::copy_bytes;
+
+bool semantic_scene_builder::add_rounded_rectangle_mask(
+    const progpu_native_scene_layer_mask& source,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_layer_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+    mask.flags = 0U;
+    mask.reserved = 0U;
+    mask.reserved0 = 0U;
+    mask.reserved1 = 0U;
+    mask.reserved2 = 0U;
+    if (!semantic::is_valid_semantic_layer_mask(mask) ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_mask>(&mask, 1U));
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_coverage_mask(
+    const progpu_native_scene_layer_coverage_mask& source,
+    std::span<const std::byte> coverage,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_layer_coverage_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP;
+    mask.flags = 0U;
+    mask.reserved0 = 0U;
+    mask.reserved1 = 0U;
+    if (!semantic::is_valid_semantic_layer_coverage_mask(
+            mask,
+            coverage.size()) ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_coverage_mask>(
+                &mask,
+                1U));
+        resource.auxiliary.assign(coverage.begin(), coverage.end());
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_analytic_mask_chain(
+    std::span<const progpu_native_scene_layer_mask> masks,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (masks.size() < 2U ||
+        masks.size() > PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_mask_chain chain{};
+    chain.struct_size = sizeof(chain);
+    chain.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN;
+    chain.mask_count = static_cast<std::uint32_t>(masks.size());
+    for (std::size_t index = 0U; index < masks.size(); ++index) {
+        auto mask = masks[index];
+        mask.struct_size = sizeof(mask);
+        mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE;
+        mask.flags = 0U;
+        mask.reserved = 0U;
+        mask.reserved0 = 0U;
+        mask.reserved1 = 0U;
+        mask.reserved2 = 0U;
+        chain.masks[index] = mask;
+    }
+    if (!semantic::is_valid_semantic_layer_mask_chain(chain)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_mask_chain>(
+                &chain,
+                1U));
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_effect_chain(
+    std::span<const progpu_native_group_effect> sources,
+    std::uint32_t revision,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (sources.empty() || sources.size() > PROGPU_NATIVE_MAX_GROUP_EFFECTS ||
+        revision == 0U || implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        std::vector<progpu_native_group_effect> effects;
+        effects.reserve(sources.size());
+        for (const auto& source : sources) {
+            auto effect = source;
+            effect.struct_size = sizeof(effect);
+            effect.flags = 0U;
+            effect.reserved = 0U;
+            effect.reserved2 = 0U;
+            if (!semantic::is_valid_semantic_effect(effect)) {
+                return implementation_->fail(
+                    scene_build_error::invalid_argument);
+            }
+            effects.push_back(effect);
+        }
+        const progpu_native_scene_effect_chain chain{
+            sizeof(progpu_native_scene_effect_chain),
+            static_cast<std::uint32_t>(effects.size()),
+            revision,
+            0U};
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_effect_chain>(&chain, 1U));
+        resource.auxiliary = copy_bytes(
+            std::span<const progpu_native_group_effect>(effects));
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::push_layer(
+    const progpu_native_scene_layer& source) noexcept {
+    progpu_native_scene_layer layer = source;
+    layer.struct_size = sizeof(layer);
+    layer.reserved0 = 0U;
+    layer.reserved1 = 0U;
+    const auto valid_resource = [&](std::uint32_t index,
+                                    std::uint32_t kind) noexcept {
+        return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
+            (index < implementation_->resources.size() &&
+                implementation_->resources[index].record.kind == kind);
+    };
+    const bool materialized = scene::layer_requires_materialization(layer);
+    if (!semantic::is_valid_semantic_layer(layer) ||
+        !valid_resource(
+            layer.mask_resource_index,
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
+        !valid_resource(
+            layer.effect_resource_index,
+            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    if (implementation_->stack_depth >=
+            PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH ||
+        (materialized && implementation_->materialized_layer_depth >=
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS) ||
+        implementation_->commands.size() >=
+            PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation_->commands.reserve(
+            implementation_->commands.size() + 1U);
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer>(&layer, 1U));
+        implementation_->commands.push_back(std::move(command));
+        implementation_->stack_kinds[implementation_->stack_depth] =
+            materialized ? 3U : 2U;
+        ++implementation_->stack_depth;
+        implementation_->materialized_layer_depth += materialized ? 1U : 0U;
+        implementation_->maximum_stack_depth = std::max(
+            implementation_->maximum_stack_depth,
+            implementation_->stack_depth);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::pop_layer() noexcept {
+    if (implementation_->stack_depth == 0U) {
+        return implementation_->fail(scene_build_error::unbalanced_stack);
+    }
+    const std::uint8_t kind =
+        implementation_->stack_kinds[implementation_->stack_depth - 1U];
+    if (kind != 2U && kind != 3U) {
+        return implementation_->fail(scene_build_error::unbalanced_stack);
+    }
+    if (implementation_->commands.size() >=
+        PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation_->commands.reserve(
+            implementation_->commands.size() + 1U);
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        implementation_->commands.push_back(std::move(command));
+        --implementation_->stack_depth;
+        implementation_->stack_kinds[implementation_->stack_depth] = 0U;
+        implementation_->materialized_layer_depth -= kind == 3U ? 1U : 0U;
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+} // namespace progpu::native

@@ -75,11 +75,27 @@ public:
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,
         std::uint32_t& resource_index) noexcept;
+    bool add_rounded_rectangle_mask(
+        const progpu_native_scene_layer_mask& mask,
+        std::uint32_t& resource_index) noexcept;
+    bool add_coverage_mask(
+        const progpu_native_scene_layer_coverage_mask& mask,
+        std::span<const std::byte> coverage,
+        std::uint32_t& resource_index) noexcept;
+    bool add_analytic_mask_chain(
+        std::span<const progpu_native_scene_layer_mask> masks,
+        std::uint32_t& resource_index) noexcept;
+    bool add_effect_chain(
+        std::span<const progpu_native_group_effect> effects,
+        std::uint32_t revision,
+        std::uint32_t& resource_index) noexcept;
 
     bool save(
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
     bool restore() noexcept;
+    bool push_layer(const progpu_native_scene_layer& layer) noexcept;
+    bool pop_layer() noexcept;
 
     bool draw_analytic(
         std::span<const progpu_native_analytic_primitive> primitives,

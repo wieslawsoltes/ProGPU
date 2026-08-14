@@ -108,6 +108,23 @@ bool valid_chain(const progpu_native_scene_layer_mask_chain& chain) noexcept {
 
 } // namespace
 
+bool is_valid_semantic_layer_mask(
+    const progpu_native_scene_layer_mask& mask) noexcept {
+    return valid_analytic(mask);
+}
+
+bool is_valid_semantic_layer_coverage_mask(
+    const progpu_native_scene_layer_coverage_mask& mask,
+    std::uint64_t auxiliary_size) noexcept {
+    return auxiliary_size <= std::numeric_limits<std::uint32_t>::max() &&
+        valid_coverage(mask, static_cast<std::uint32_t>(auxiliary_size));
+}
+
+bool is_valid_semantic_layer_mask_chain(
+    const progpu_native_scene_layer_mask_chain& chain) noexcept {
+    return valid_chain(chain);
+}
+
 bool validate_layer_mask_resource(
     const std::byte* bytes,
     const progpu_native_scene_resource& resource,

@@ -2,6 +2,7 @@
 
 #include "progpu_native_scene_builder.hpp"
 
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -38,7 +39,10 @@ struct semantic_scene_builder::implementation final {
     std::uint32_t brush_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t text_style_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t stack_depth = 0U;
+    std::uint32_t materialized_layer_depth = 0U;
     std::uint32_t maximum_stack_depth = 0U;
+    std::array<std::uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>
+        stack_kinds{};
     std::uint64_t arena_reserve = 0U;
     scene_build_error error = scene_build_error::none;
 

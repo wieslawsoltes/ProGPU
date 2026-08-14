@@ -80,7 +80,9 @@ bool semantic_scene_builder::reset(
     implementation_->text_style_resource_index =
         PROGPU_NATIVE_SCENE_NO_INDEX;
     implementation_->stack_depth = 0U;
+    implementation_->materialized_layer_depth = 0U;
     implementation_->maximum_stack_depth = 0U;
+    implementation_->stack_kinds.fill(0U);
     implementation_->arena_reserve = 0U;
     implementation_->error = scene_build_error::none;
     return true;
@@ -164,9 +166,14 @@ bool semantic_scene_builder::add_state(
         source.opacity > 1.0F ||
         (source.flags & ~(PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
             PROGPU_NATIVE_SCENE_STATE_MASK)) != 0U ||
-        (source.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             !finite_rect(source.clip_rect)) ||
+        ((source.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U &&
+            (source.mask_resource_index >=
+                    implementation_->resources.size() ||
+                implementation_->resources[source.mask_resource_index]
+                        .record.kind !=
+                    PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK)) ||
         implementation_->resources.size() >=
             PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -177,7 +184,10 @@ bool semantic_scene_builder::add_state(
         progpu_native_scene_state state = source;
         state.struct_size = sizeof(state);
         state.reserved = 0U;
-        state.mask_resource_index = 0U;
+        state.mask_resource_index =
+            (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
+            ? source.mask_resource_index
+            : 0U;
         state.reserved1 = 0U;
         implementation::resource_entry resource{};
         resource.record.struct_size = sizeof(resource.record);
@@ -221,6 +231,7 @@ bool semantic_scene_builder::save(
         command.record.state_index = state_resource_index;
         command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         implementation_->commands.push_back(std::move(command));
+        implementation_->stack_kinds[implementation_->stack_depth] = 1U;
         ++implementation_->stack_depth;
         implementation_->maximum_stack_depth = std::max(
             implementation_->maximum_stack_depth,
@@ -235,7 +246,9 @@ bool semantic_scene_builder::save(
 }
 
 bool semantic_scene_builder::restore() noexcept {
-    if (implementation_->stack_depth == 0U) {
+    if (implementation_->stack_depth == 0U ||
+        implementation_->stack_kinds[implementation_->stack_depth - 1U] !=
+            1U) {
         return implementation_->fail(scene_build_error::unbalanced_stack);
     }
     if (implementation_->commands.size() >=
@@ -254,6 +267,7 @@ bool semantic_scene_builder::restore() noexcept {
         command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         implementation_->commands.push_back(std::move(command));
         --implementation_->stack_depth;
+        implementation_->stack_kinds[implementation_->stack_depth] = 0U;
         implementation_->error = scene_build_error::none;
         return true;
     } catch (const std::bad_alloc&) {

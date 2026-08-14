@@ -27,6 +27,12 @@ if(PROGPU_NATIVE_ENABLE_CPP_MODULES
         "Ninja generator; Emscripten and Visual Studio builds remain on the "
         "shared header compatibility path until module scanning is available.")
 endif()
+if(NOT PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    # CMake 4 may otherwise scan every C++20 translation unit when a toolchain
+    # advertises a scanner, even though this build has no module file set.
+    # Emscripten installations do not consistently ship clang-scan-deps.
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+endif()
 
 set(PROGPU_NATIVE_WEBGPU_INCLUDE_DIR "" CACHE PATH
     "Directory containing the pinned wgpu-native webgpu.h and wgpu.h headers")
@@ -398,8 +404,11 @@ add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder_geometry.cpp
     src/progpu_native_scene_builder_glyph.cpp
     src/progpu_native_scene_builder_image.cpp
+    src/progpu_native_scene_builder_layer.cpp
     src/progpu_native_scene_builder_path.cpp
     src/progpu_native_scene_builder_internal.hpp
+    src/progpu_native_semantic_layer_mask.cpp
+    src/progpu_native_semantic_layer_mask.hpp
     src/progpu_native_semantic_validation.cpp
     src/progpu_native_semantic_validation.hpp
     include/progpu_native_scene_builder.hpp)
@@ -678,7 +687,6 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_color_glyph.hpp
         src/progpu_native_semantic_image.cpp
         src/progpu_native_semantic_image.hpp
-        src/progpu_native_semantic_layer_mask.cpp
         src/progpu_native_semantic_layer_mask.hpp
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp
