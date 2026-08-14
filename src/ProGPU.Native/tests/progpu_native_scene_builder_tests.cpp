@@ -546,8 +546,10 @@ bool semantic_scene_builder_records_native_shaped_runs() {
         text::shaping_glyph{7U, 0x42U, 1, text::shaping_glyph_flags::none,
             10, 0, 0, 0}};
     const std::array positioned{
-        text::positioned_text_glyph{0U, 0, 12.0F, 20.0F, 10.0F, 0.0F},
-        text::positioned_text_glyph{1U, 1, 22.0F, 20.0F, 10.0F, 0.0F}};
+        text::positioned_text_glyph{
+            0U, 5U, 0, 12.0F, 20.0F, 10.0F, 0.0F},
+        text::positioned_text_glyph{
+            1U, 7U, 1, 22.0F, 20.0F, 10.0F, 0.0F}};
     std::array<progpu_native_positioned_glyph, 2U> conversion{};
     std::array<std::uint32_t, 8U> glyph_to_outline{};
     const shaped_text_scene_options options{

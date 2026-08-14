@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 // Bulk shaped-run bridge from progpu_native_text into the existing semantic
@@ -46,12 +47,19 @@ bool semantic_scene_builder::draw_shaped_text_run(
 
     for (std::size_t index = 0U; index < positioned_glyphs.size(); ++index) {
         const auto& positioned = positioned_glyphs[index];
-        if (positioned.glyph_index >= shaped_glyphs.size() ||
+        if ((positioned.glyph_index !=
+                std::numeric_limits<std::uint32_t>::max() &&
+                positioned.glyph_index >= shaped_glyphs.size()) ||
             !finite(positioned.x) || !finite(positioned.y)) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
-        const std::uint32_t glyph_id =
-            shaped_glyphs[positioned.glyph_index].glyph_id;
+        if (positioned.glyph_index !=
+                std::numeric_limits<std::uint32_t>::max() &&
+            positioned.glyph_id !=
+                shaped_glyphs[positioned.glyph_index].glyph_id) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+        const std::uint32_t glyph_id = positioned.glyph_id;
         if (!glyph_to_outline.empty() && glyph_id >= glyph_to_outline.size()) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }

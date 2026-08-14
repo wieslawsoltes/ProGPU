@@ -940,16 +940,27 @@ bool try_resolve_unicode_line_breaks(
     std::span<text_line_break_kind> breaks_after,
     unicode_error* error = nullptr) noexcept;
 
+enum class text_trimming : std::uint8_t {
+    none = 0U,
+    character_ellipsis = 1U,
+    word_ellipsis = 2U
+};
+
 struct text_layout_options final {
     float scale = 1.0F;
     float maximum_width = 0.0F;
     float line_height = 0.0F;
     std::uint32_t maximum_lines = 0U;
     shaping_direction direction = shaping_direction::left_to_right;
+    text_trimming trimming = text_trimming::none;
+    std::uint16_t reserved = 0U;
+    std::uint32_t ellipsis_glyph_id = 0U;
+    float ellipsis_advance = 0.0F;
 };
 
 struct positioned_text_glyph final {
     std::uint32_t glyph_index = 0U;
+    std::uint32_t glyph_id = 0U;
     std::int32_t cluster = 0;
     float x = 0.0F;
     float y = 0.0F;

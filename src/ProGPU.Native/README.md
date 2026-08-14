@@ -411,6 +411,14 @@ clipping is reported rather than silently discarding state. Work is `O(G)` and
 internal storage is `O(1)` for `G` shaped glyphs; invalid options and short
 buffers leave output counts at zero.
 
+Character and word ellipsis use the same bounded layout pass. The caller
+supplies one already-shaped ellipsis glyph id and font-unit advance; layout
+removes only complete source clusters, uses resolved break boundaries for word
+trimming, and emits an explicit glyph id so the native scene bridge needs no
+shaping callback. The synthetic record replaces clipped source capacity, so
+requirements never exceed the source glyph count. Trimming remains `O(G)`
+time with `O(1)` internal storage.
+
 Native text interaction ports ProGPU's physical cluster-box model over those
 positioned lines. Explicit caller-owned logical cluster ends and UAX #9 levels
 produce visual caret stops, nearest-box point hit tests, and coalesced selection

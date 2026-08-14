@@ -98,6 +98,7 @@ using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
 using progpu::native::text::get_unicode_line_break_class;
 using progpu::native::text::try_resolve_unicode_line_breaks;
+using progpu::native::text::text_trimming;
 using progpu::native::text::unicode_indic_shaping_properties;
 using progpu::native::text::unicode_syllable_machine;
 using progpu::native::text::unicode_syllable_transition;
@@ -3071,6 +3072,45 @@ void native_positioned_text_layout_wraps_without_allocation() {
         line_count,
         &error));
     require(glyph_count == 2U && line_count == 1U && lines[0U].clipped);
+
+    auto ellipsis_options = clipped_options;
+    ellipsis_options.trimming = text_trimming::character_ellipsis;
+    ellipsis_options.ellipsis_glyph_id = 99U;
+    ellipsis_options.ellipsis_advance = 6.0F;
+    require(try_get_text_layout_requirements(
+        glyphs, breaks, ellipsis_options, requirements, &error));
+    require(requirements.glyph_capacity == 4U &&
+        requirements.line_capacity == 1U);
+    std::array<positioned_text_glyph, 5U> ellipsized{};
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        ellipsis_options,
+        ellipsized,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(glyph_count == 2U && line_count == 1U && lines[0U].clipped &&
+        lines[0U].glyph_count == 2U && lines[0U].width == 16.0F);
+    require(ellipsized[0U].glyph_id == 1U &&
+        ellipsized[1U].glyph_index ==
+            std::numeric_limits<std::uint32_t>::max() &&
+        ellipsized[1U].glyph_id == 99U && ellipsized[1U].x == 10.0F &&
+        ellipsized[1U].advance_x == 6.0F);
+
+    auto word_options = ellipsis_options;
+    word_options.trimming = text_trimming::word_ellipsis;
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        word_options,
+        ellipsized,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(glyph_count == 2U && ellipsized[1U].glyph_id == 99U);
 
     glyph_count = 99U;
     line_count = 99U;

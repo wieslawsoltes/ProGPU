@@ -25,7 +25,11 @@ bool valid_options(const text_layout_options& options) noexcept {
         std::isfinite(options.maximum_width) &&
         options.maximum_width >= 0.0F &&
         std::isfinite(options.line_height) && options.line_height >= 0.0F &&
-        options.direction != shaping_direction::unspecified;
+        options.direction != shaping_direction::unspecified &&
+        static_cast<std::uint8_t>(options.trimming) <=
+            static_cast<std::uint8_t>(text_trimming::word_ellipsis) &&
+        std::isfinite(options.ellipsis_advance) &&
+        options.ellipsis_advance >= 0.0F;
 }
 
 float horizontal_advance(
@@ -48,6 +52,56 @@ struct line_scan final {
     float width = 0.0F;
     bool clipped = false;
 };
+
+struct trimmed_line final {
+    std::size_t end = 0U;
+    float content_width = 0.0F;
+};
+
+trimmed_line trim_line(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::size_t start,
+    std::size_t end,
+    float width) noexcept {
+    const float ellipsis_width = options.ellipsis_advance * options.scale;
+    if (options.maximum_width <= 0.0F ||
+        width + ellipsis_width <= options.maximum_width) {
+        return trimmed_line{end, width};
+    }
+
+    std::size_t candidate = end;
+    float candidate_width = width;
+    while (candidate > start &&
+        candidate_width + ellipsis_width > options.maximum_width) {
+        const std::int32_t cluster = glyphs[candidate - 1U].cluster;
+        do {
+            --candidate;
+            candidate_width -= horizontal_advance(
+                glyphs[candidate], options.scale);
+        } while (candidate > start &&
+            glyphs[candidate - 1U].cluster == cluster);
+    }
+    if (options.trimming != text_trimming::word_ellipsis ||
+        candidate == start) {
+        return trimmed_line{candidate, candidate_width};
+    }
+
+    std::size_t word_end = start;
+    float word_width = 0.0F;
+    float scan_width = 0.0F;
+    for (std::size_t index = start; index < candidate; ++index) {
+        scan_width += horizontal_advance(glyphs[index], options.scale);
+        if (can_break_after(glyphs, breaks_after, index)) {
+            word_end = index + 1U;
+            word_width = scan_width;
+        }
+    }
+    return word_end > start
+        ? trimmed_line{word_end, word_width}
+        : trimmed_line{candidate, candidate_width};
+}
 
 line_scan scan_line(
     std::span<const shaping_glyph> glyphs,
@@ -148,8 +202,13 @@ bool try_get_text_layout_requirements(
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    const std::uint64_t glyph_capacity = glyphs.size();
+    if (glyph_capacity > std::numeric_limits<std::uint32_t>::max()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     result = text_layout_requirements{
-        static_cast<std::uint32_t>(glyphs.size()), line_count};
+        static_cast<std::uint32_t>(glyph_capacity), line_count};
     set_error(error, font_error::none);
     return true;
 }
@@ -182,14 +241,26 @@ bool try_layout_shaped_text(
             line_count + 1U >= options.maximum_lines;
         const line_scan line = scan_line(
             glyphs, breaks_after, options, start, final_allowed);
+        const bool should_trim = options.trimming != text_trimming::none &&
+            (line.clipped || (final_allowed && line.end < glyphs.size()));
+        const trimmed_line visible = should_trim
+            ? trim_line(
+                glyphs,
+                breaks_after,
+                options,
+                start,
+                line.end,
+                line.width)
+            : trimmed_line{line.end, line.width};
         const float baseline = static_cast<float>(line_count) *
             options.line_height;
         float cursor_x = 0.0F;
         float cursor_y = baseline;
-        for (std::size_t index = start; index < line.end; ++index) {
+        for (std::size_t index = start; index < visible.end; ++index) {
             const shaping_glyph& glyph = glyphs[index];
             positioned_glyphs[index] = positioned_text_glyph{
                 static_cast<std::uint32_t>(index),
+                glyph.glyph_id,
                 glyph.cluster,
                 cursor_x + static_cast<float>(glyph.offset_x) * options.scale,
                 cursor_y + static_cast<float>(glyph.offset_y) * options.scale,
@@ -198,22 +269,42 @@ bool try_layout_shaped_text(
             cursor_x += static_cast<float>(glyph.advance_x) * options.scale;
             cursor_y += static_cast<float>(glyph.advance_y) * options.scale;
         }
+        std::size_t output_end = visible.end;
+        if (should_trim) {
+            const std::int32_t cluster = visible.end > start
+                ? glyphs[visible.end - 1U].cluster
+                : glyphs[start].cluster;
+            positioned_glyphs[output_end] = positioned_text_glyph{
+                std::numeric_limits<std::uint32_t>::max(),
+                options.ellipsis_glyph_id,
+                cluster,
+                cursor_x,
+                cursor_y,
+                options.ellipsis_advance * options.scale,
+                0.0F};
+            ++output_end;
+        }
         const std::int32_t input_start = glyphs[start].cluster;
-        const std::int32_t input_end = line.end < glyphs.size()
-            ? glyphs[line.end].cluster
-            : glyphs[line.end - 1U].cluster + 1;
+        const std::int32_t input_end = visible.end < glyphs.size()
+            ? glyphs[visible.end].cluster
+            : glyphs[visible.end - 1U].cluster + 1;
         lines[line_count] = positioned_text_line{
             static_cast<std::uint32_t>(start),
-            static_cast<std::uint32_t>(line.end - start),
+            static_cast<std::uint32_t>(output_end - start),
             input_start,
             input_end,
-            line.width,
+            visible.content_width + (should_trim
+                ? options.ellipsis_advance * options.scale
+                : 0.0F),
             baseline,
             options.line_height,
             line.clipped || (final_allowed && line.end < glyphs.size())};
         ++line_count;
         start = line.end;
         if (final_allowed) {
+            if (should_trim) {
+                start = output_end;
+            }
             break;
         }
     }
