@@ -368,6 +368,15 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h)
 
+add_library(progpu_native_scene_builder STATIC
+    src/progpu_native_scene_builder.cpp
+    include/progpu_native_scene_builder.hpp)
+target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
+target_include_directories(progpu_native_scene_builder
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+progpu_native_enable_warnings(progpu_native_scene_builder)
+progpu_native_enable_sanitizers(progpu_native_scene_builder)
+
 if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 add_library(progpu_native SHARED
     ${PROGPU_NATIVE_RENDERER_SOURCES})
@@ -546,6 +555,8 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${generated_directory}")
+    target_link_libraries(progpu_native_browser_smoke PRIVATE
+        progpu_native_scene_builder)
     target_compile_options(progpu_native_browser_smoke PRIVATE
         --use-port=emdawnwebgpu:cpp_bindings=false)
     target_link_options(progpu_native_browser_smoke PRIVATE
@@ -580,6 +591,8 @@ endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
+        tests/progpu_native_scene_builder_tests.cpp
+        tests/progpu_native_scene_builder_tests.hpp
         tests/progpu_native_semantic_brush_tests.cpp
         tests/progpu_native_semantic_brush_tests.hpp
         tests/progpu_native_semantic_image_tests.cpp
@@ -620,6 +633,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(progpu_native_internal_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(progpu_native_internal_tests PRIVATE
+        progpu_native_scene_builder)
     progpu_native_enable_warnings(progpu_native_internal_tests)
     progpu_native_enable_sanitizers(progpu_native_internal_tests)
     add_test(
@@ -665,6 +680,7 @@ if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TA
         "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
     target_link_libraries(progpu_native_sample PRIVATE
         progpu_native
+        progpu_native_scene_builder
         "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
     progpu_native_enable_warnings(progpu_native_sample)
     if(APPLE OR UNIX)

@@ -1102,7 +1102,19 @@ ordered semantic layers now own bounded backdrop input.
 
 ### Tranche D — native scene and platform integration
 
-- versioned semantic scene builder and incremental updates from .NET;
+- the first standalone C++20 semantic scene-builder slice is implemented as
+  `progpu_native_scene_builder`: it records/deduplicates solid brushes,
+  transform/opacity/rectangle-clip states, balanced save/restore scopes, and
+  analytic batches, then deterministically emits the same bounded,
+  pointer-free version-one stream consumed by the native compiler. The
+  desktop sample now uses this builder end to end, and the Emscripten gate
+  compiles, submits, and stable-replays the same native-owned builder path.
+  Path/geometry/stroke/image/glyph/layer/effect recording and incremental
+  range updates remain. This is a direct parallel port of the ProGPU-owned
+  `NativeSceneStreamBuilder.cs` contract at source checkpoint
+  `4450f04561a91597a43de572ca2a5a68634faa8f`, with the existing native header
+  remaining the generated wire-layout authority;
+- versioned semantic scene updates from .NET;
 - WebScene Dawn-provider adapter and zero-copy canvas composition;
 - native presentation for Metal, D3D12, Vulkan/X11/Wayland, Android, and iOS;
 - Emscripten/Emdawnwebgpu browser adapter compiling the same renderer modules,

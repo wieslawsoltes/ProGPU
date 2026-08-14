@@ -1,7 +1,7 @@
 # ProGPU.Native
 
-`ProGPU.Native` is the first clean-room C++ rendering slice parallel to the
-managed ProGPU compositor. It owns native command encoding, pipeline and buffer
+`ProGPU.Native` is the parallel C++ rendering implementation of the proven,
+ProGPU-owned managed compositor contracts. It owns native command encoding, pipeline and buffer
 lifetime, batching, submission, and validation while consuming the exact same
 [`Vector.wgsl`](../ProGPU.Backend/Shaders/Vector.wgsl) source as the managed
 renderer.
@@ -16,6 +16,11 @@ another.
 
 Production implementation is split behind the unchanged public C ABI. The
 main translation unit owns exported entry points and device lifetime;
+`progpu_native_scene_builder.cpp` owns the standalone C++20 retained recorder
+and deterministic pointer-free compiler used directly by both the desktop and
+browser samples. Its static C++ API never crosses the stable C ABI and its
+compiled stream is retained across frames; one update is submitted only when
+the caller changes the scene generation.
 `progpu_native_scene.cpp` owns pointer-free stream validation,
 `progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
 `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget

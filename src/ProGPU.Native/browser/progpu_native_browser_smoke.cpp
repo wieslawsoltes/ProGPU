@@ -1,5 +1,6 @@
 #include "progpu_native_browser.h"
 #include "progpu_native_browser_evidence.hpp"
+#include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
@@ -13,9 +14,13 @@
 #include <emscripten/html5.h>
 #include <webgpu/webgpu.h>
 
+#include <array>
 #include <cinttypes>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <span>
+#include <vector>
 
 namespace {
 
@@ -72,6 +77,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeStateMasks = "passed";
         document.body.dataset.progpuNativeStateMaskMedia = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
+        document.body.dataset.progpuNativeSceneBuilder = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
             "offscreen-texture-readback";
@@ -117,6 +123,83 @@ bool render_browser_frame(double, void*) {
     semantic_frame.dpi_scale = 1.0F;
     semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+
+    progpu::native::semantic_scene_builder native_builder(700U, 1U);
+    std::uint32_t builder_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto builder_state =
+        progpu::native::semantic_scene_builder::identity_state();
+    builder_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    builder_state.clip_rect = {32.0F, 32.0F, 192.0F, 112.0F};
+    std::uint32_t builder_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    const auto builder_identity =
+        progpu::native::semantic_scene_builder::identity_transform();
+    const std::array builder_primitives{
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
+            0U,
+            24.0F,
+            24.0F,
+            216.0F,
+            128.0F,
+            12.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            builder_identity}};
+    if (!native_builder.reserve(3U, 3U, 1024U) ||
+        !native_builder.add_solid_brush(
+            {0.2F, 0.55F, 1.0F, 1.0F}, 0.9F, builder_brush) ||
+        !native_builder.add_state(builder_state, builder_state_index) ||
+        !native_builder.save(builder_state_index) ||
+        !native_builder.draw_analytic(
+            builder_primitives,
+            std::span<const std::uint32_t>(&builder_brush, 1U),
+            {24.0F, 24.0F, 216.0F, 128.0F}) ||
+        !native_builder.restore()) {
+        fail("The browser native C++ scene builder could not record.");
+    }
+    std::vector<std::byte> builder_scene;
+    if (!native_builder.build(builder_scene)) {
+        fail("The browser native C++ scene builder could not compile.");
+    }
+    progpu_native_scene_metrics builder_update_metrics{};
+    builder_update_metrics.struct_size = sizeof(builder_update_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            builder_scene.data(),
+            builder_scene.size(),
+            &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        builder_update_metrics.command_count != 3U ||
+        builder_update_metrics.resource_count != 3U ||
+        builder_update_metrics.draw_count != 1U) {
+        fail_engine("The browser native C++ scene update failed.");
+    }
+    semantic_frame.scene_id = native_builder.scene_id();
+    semantic_frame.generation = native_builder.generation();
+    progpu_native_scene_frame_metrics builder_frame_metrics{};
+    builder_frame_metrics.struct_size = sizeof(builder_frame_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        builder_frame_metrics.command_count != 3U ||
+        builder_frame_metrics.draw_call_count != 1U ||
+        builder_frame_metrics.submission_count != 1U ||
+        builder_frame_metrics.brush_upload_bytes == 0U ||
+        builder_frame_metrics.vertex_upload_bytes == 0U) {
+        fail_engine("The browser native C++ scene render failed.");
+    }
+    builder_frame_metrics = {};
+    builder_frame_metrics.struct_size = sizeof(builder_frame_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        builder_frame_metrics.brush_upload_bytes != 0U ||
+        builder_frame_metrics.vertex_upload_bytes != 0U ||
+        builder_frame_metrics.index_upload_bytes != 0U) {
+        fail_engine("The stable browser native C++ scene was rebuilt.");
+    }
+
     auto geometry_scene =
         progpu::native::tests::create_semantic_geometry_scene_stream(
             width,

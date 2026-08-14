@@ -51,6 +51,8 @@ try {
     stateMaskMedia: document.body.dataset.progpuNativeStateMaskMedia,
     semanticGeometry:
       document.body.dataset.progpuNativeSemanticGeometry,
+    nativeSceneBuilder:
+      document.body.dataset.progpuNativeSceneBuilder,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
     error: document.body.dataset.progpuNativeError ?? ""
   }));
@@ -68,6 +70,7 @@ try {
     stateMasks: "passed",
     stateMaskMedia: "passed",
     semanticGeometry: "passed",
+    nativeSceneBuilder: "passed",
     deviceRecovery: "passed",
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));

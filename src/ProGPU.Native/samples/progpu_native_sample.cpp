@@ -1,4 +1,5 @@
 #include "progpu_native.h"
+#include "progpu_native_scene_builder.hpp"
 
 #include <wgpu.h>
 
@@ -177,7 +178,7 @@ bool write_ppm(
 bool write_evidence(
     const std::string& path,
     const WGPUAdapterProperties& properties,
-    const progpu_native_frame_metrics& metrics,
+    const progpu_native_scene_frame_metrics& metrics,
     const std::string& capture_path) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) {
@@ -195,7 +196,7 @@ bool write_evidence(
            << "vendor_id=" << properties.vendorID << '\n'
            << "device_id=" << properties.deviceID << '\n'
            << "draw_calls=" << metrics.draw_call_count << '\n'
-           << "vertices=" << metrics.vertex_count << '\n'
+           << "vertex_upload_bytes=" << metrics.vertex_upload_bytes << '\n'
            << "capture=" << capture_path << '\n';
     return output.good();
 }
@@ -290,24 +291,73 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    const std::array<progpu_native_rect, 3U> rectangles{{
-        {48.0F, 48.0F, 180.0F, 120.0F, {0.08F, 0.42F, 0.95F, 1.0F}},
-        {280.0F, 64.0F, 280.0F, 132.0F, {0.98F, 0.52F, 0.08F, 1.0F}},
-        {128.0F, 224.0F, 384.0F, 72.0F, {0.20F, 0.82F, 0.48F, 0.90F}}
-    }};
-    progpu_native_frame frame{};
+    progpu::native::semantic_scene_builder scene_builder(501U, 1U);
+    if (!scene_builder.reserve(1U, 2U, 2048U)) {
+        std::cerr << "Could not reserve the native retained scene builder.\n";
+        return EXIT_FAILURE;
+    }
+    std::array<std::uint32_t, 3U> brush_indices{};
+    if (!scene_builder.add_solid_brush(
+            {0.08F, 0.42F, 0.95F, 1.0F}, 1.0F, brush_indices[0]) ||
+        !scene_builder.add_solid_brush(
+            {0.98F, 0.52F, 0.08F, 1.0F}, 1.0F, brush_indices[1]) ||
+        !scene_builder.add_solid_brush(
+            {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2])) {
+        std::cerr << "Could not record native retained brushes.\n";
+        return EXIT_FAILURE;
+    }
+    const auto identity =
+        progpu::native::semantic_scene_builder::identity_transform();
+    const std::array primitives{
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            48.0F, 48.0F, 180.0F, 120.0F, 0.0F, 0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F}, identity},
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            280.0F, 64.0F, 280.0F, 132.0F, 0.0F, 0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F}, identity},
+        progpu_native_analytic_primitive{
+            PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE, 0U,
+            128.0F, 224.0F, 384.0F, 72.0F, 12.0F, 0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F}, identity}};
+    if (!scene_builder.draw_analytic(
+            primitives,
+            brush_indices,
+            {48.0F, 48.0F, 512.0F, 248.0F})) {
+        std::cerr << "Could not record native retained primitives.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<std::byte> scene_stream;
+    progpu::native::scene_build_metrics build_metrics{};
+    if (!scene_builder.build(scene_stream, &build_metrics)) {
+        std::cerr << "Could not compile the native retained scene.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_metrics update_metrics{};
+    update_metrics.struct_size = sizeof(update_metrics);
+    if (progpu_native_engine_update_scene(
+            engine,
+            scene_stream.data(),
+            scene_stream.size(),
+            &update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        std::cerr << "Could not install the native retained scene.\n";
+        return EXIT_FAILURE;
+    }
+
+    progpu_native_scene_frame frame{};
     frame.struct_size = sizeof(frame);
+    frame.scene_id = scene_builder.scene_id();
+    frame.generation = scene_builder.generation();
     frame.width = width;
     frame.height = height;
     frame.dpi_scale = 1.0F;
     frame.target_view = reinterpret_cast<std::uintptr_t>(target_view);
     frame.clear_color = {0.02F, 0.025F, 0.04F, 1.0F};
-    frame.rects = rectangles.data();
-    frame.rect_count = rectangles.size();
-    progpu_native_frame_metrics metrics{};
+    progpu_native_scene_frame_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
     const progpu_native_status render_status =
-        progpu_native_engine_render(engine, &frame, &metrics);
+        progpu_native_engine_render_scene(engine, &frame, &metrics);
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         std::array<char, 512U> error{};
         progpu_native_engine_get_last_error(
@@ -393,8 +443,9 @@ int main(int argc, char** argv) {
               << backend_name(adapter_properties.backendType)
               << " adapter '"
               << adapter_name
-              << "' rendered " << metrics.vertex_count
-              << " vertices in " << metrics.draw_call_count
-              << " draw call; wrote " << output_path << '\n';
+              << "' uploaded " << metrics.vertex_upload_bytes
+              << " vertex bytes in " << metrics.draw_call_count
+              << " draw call from " << build_metrics.command_count
+              << " native retained command; wrote " << output_path << '\n';
     return EXIT_SUCCESS;
 }
