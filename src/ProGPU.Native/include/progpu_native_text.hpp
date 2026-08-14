@@ -723,6 +723,43 @@ struct open_type_shape_run_requirements final {
     std::uint32_t script_action_capacity = 0U;
 };
 
+struct font_fallback_candidate final {
+    const sfnt_font_view* font = nullptr;
+    std::uint64_t identity = 0U;
+};
+
+struct font_fallback_run final {
+    std::uint32_t scalar_index = 0U;
+    std::uint32_t scalar_count = 0U;
+    std::uint32_t input_index = 0U;
+    std::uint32_t input_length = 0U;
+    std::uint32_t font_index = 0U;
+    bool has_missing_glyphs = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved2 = 0U;
+};
+
+bool try_get_font_fallback_run_count(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_grapheme_cluster> graphemes,
+    std::span<const font_fallback_candidate> candidates,
+    std::uint32_t preferred_font_index,
+    std::uint32_t& result,
+    font_error* error = nullptr) noexcept;
+
+/* Grapheme-preserving fallback over borrowed parsed faces. Platform font
+ * discovery stays outside the hot path; this bulk stage performs no callbacks,
+ * allocation, file access, or managed/native crossings. */
+bool try_itemize_font_fallback(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_grapheme_cluster> graphemes,
+    std::span<const font_fallback_candidate> candidates,
+    std::uint32_t preferred_font_index,
+    std::span<font_fallback_run> output,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_open_type_shape_run_requirements(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,

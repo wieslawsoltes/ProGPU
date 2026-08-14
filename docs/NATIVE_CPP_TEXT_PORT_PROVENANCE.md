@@ -158,6 +158,15 @@ GSUB expansion/ligature replacement, targets `isol`/`fina`/`fin2`/`fin3`/
 `medi`/`med2`/`init` lookups at exact eligible glyph positions, then clears the
 internal bits before the public bulk glyph result crosses the ABI.
 
+Font fallback now ports the grapheme-preserving ownership boundary from
+ProGPU-owned `FontManager` and `OpenTypeTextShaper`: platform discovery resolves
+and parses faces before shaping, then one borrowed candidate span is searched
+without callbacks or file access. The preferred face stays first, fallback never
+splits an extended grapheme, missing coverage remains explicit, and adjacent
+graphemes with the same face/state coalesce into reusable runs. Selection is
+`O(G * F * S)` worst case for `G` graphemes, `F` faces, and `S` scalars in a
+grapheme, with `O(1)` internal storage and caller-owned output.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

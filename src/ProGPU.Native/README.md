@@ -332,6 +332,13 @@ matching glyph positions, and are removed before the 32-byte public glyph
 records return. Exact-feature lookup selection excludes required features so a
 staged form pass cannot accidentally replay required substitutions.
 
+Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
+the platform provider boundary. It preserves extended graphemes, tries the
+preferred face first, coalesces adjacent face runs, reports unresolved coverage
+explicitly, and performs no discovery callbacks, I/O, or allocation while
+itemizing. Variation selectors and join controls remain attached to their base
+cluster for the later cmap-format-14/script stage.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

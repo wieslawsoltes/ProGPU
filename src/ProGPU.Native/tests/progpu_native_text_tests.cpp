@@ -80,6 +80,10 @@ using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
 using progpu::native::text::try_shape_open_type_run;
+using progpu::native::text::font_fallback_candidate;
+using progpu::native::text::font_fallback_run;
+using progpu::native::text::try_get_font_fallback_run_count;
+using progpu::native::text::try_itemize_font_fallback;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -2592,6 +2596,44 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
     require(applied && glyphs[0U].advance_x == 520);
 }
 
+void native_font_fallback_preserves_graphemes_and_missing_state() {
+    const auto data = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x42U, 1U, 1U}};
+    const std::array<unicode_grapheme_cluster, 2U> graphemes{
+        unicode_grapheme_cluster{0U, 1U, 0U, 1U},
+        unicode_grapheme_cluster{1U, 1U, 1U, 1U}};
+    const std::array<font_fallback_candidate, 2U> candidates{
+        font_fallback_candidate{nullptr, 10U},
+        font_fallback_candidate{&font, 20U}};
+    std::uint32_t run_count = 0U;
+    require(try_get_font_fallback_run_count(
+        input, graphemes, candidates, 0U, run_count, &error));
+    require(run_count == 2U);
+    std::array<font_fallback_run, 2U> runs{};
+    std::uint32_t written = 0U;
+    require(try_itemize_font_fallback(
+        input, graphemes, candidates, 0U, runs, written, &error));
+    require(written == 2U && runs[0U].font_index == 1U &&
+        !runs[0U].has_missing_glyphs && runs[1U].font_index == 1U &&
+        runs[1U].has_missing_glyphs && runs[1U].input_index == 1U);
+
+    written = 99U;
+    require(!try_itemize_font_fallback(
+        input,
+        graphemes,
+        candidates,
+        0U,
+        std::span<font_fallback_run>{runs}.first(1U),
+        written,
+        &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+}
+
 void variation_axes_are_borrowed_bounded_and_transactional() {
     const auto data = make_font(0U, 22U, 0U, true);
     sfnt_font_view font{};
@@ -4802,6 +4844,7 @@ int main() {
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_gpos_device_and_variation_deltas_are_applied();
+    native_font_fallback_preserves_graphemes_and_missing_state();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
