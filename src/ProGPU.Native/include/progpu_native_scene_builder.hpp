@@ -61,6 +61,12 @@ public:
     bool add_state(
         const progpu_native_scene_state& state,
         std::uint32_t& resource_index) noexcept;
+    bool add_rgba8_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
 
     bool save(
         std::uint32_t state_resource_index =
@@ -97,6 +103,17 @@ public:
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_image(
+        std::uint32_t image_resource_index,
+        const progpu_native_scene_image_draw& image,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_scene_image_sampling_options*
+            sampling_options = nullptr,
+        const progpu_native_scene_image_color_matrix*
+            color_matrix = nullptr) noexcept;
 
     bool build(
         std::vector<std::byte>& stream,

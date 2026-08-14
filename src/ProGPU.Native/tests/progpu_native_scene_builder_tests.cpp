@@ -229,4 +229,114 @@ bool semantic_scene_builder_rejects_invalid_state() {
         stream == std::vector<std::byte>{std::byte{0x5a}};
 }
 
+bool semantic_scene_builder_reuses_retained_images() {
+    semantic_scene_builder builder(703U, 2U);
+    constexpr std::array<std::byte, 16U> pixels{
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_rgba8_image(2U, 2U, 8U, pixels, image_index)) {
+        return false;
+    }
+    progpu_native_scene_image_draw image{};
+    image.image_width = 2U;
+    image.image_height = 2U;
+    image.row_bytes = 8U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.destination_rect = {8.0F, 10.0F, 32.0F, 32.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F;
+    if (!builder.draw_image(
+            image_index,
+            image,
+            {8.0F, 10.0F, 32.0F, 32.0F})) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+    image.destination_rect = {48.0F, 10.0F, 32.0F, 32.0F};
+    const progpu_native_scene_image_sampling_options sampling{
+        sizeof(progpu_native_scene_image_sampling_options),
+        0U,
+        1.0F / 3.0F,
+        1.0F / 3.0F};
+    const progpu_native_scene_image_color_matrix matrix{
+        sizeof(progpu_native_scene_image_color_matrix),
+        0U,
+        {1.0F, 0.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {0U, 0U}};
+    if (!builder.draw_image(
+            image_index,
+            image,
+            {48.0F, 10.0F, 32.0F, 32.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            &sampling,
+            &matrix)) {
+        return false;
+    }
+
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics) || metrics.command_count != 2U ||
+        metrics.resource_count != 1U) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.draw_count != 2U) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset);
+    const auto first_command = read<progpu_native_scene_command>(
+        stream,
+        validated.header.command_offset);
+    const auto second_command = read<progpu_native_scene_command>(
+        stream,
+        validated.header.command_offset +
+            sizeof(progpu_native_scene_command));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+        resource.payload_size != pixels.size() ||
+        first_command.resource_index != 0U ||
+        second_command.resource_index != 0U ||
+        first_command.payload_size != sizeof(progpu_native_scene_image_draw) ||
+        second_command.payload_size != sizeof(progpu_native_scene_image_draw) +
+            sizeof(progpu_native_scene_image_sampling_options) +
+            sizeof(progpu_native_scene_image_color_matrix)) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(704U, 1U);
+    std::uint32_t invalid_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (invalid.add_rgba8_image(
+            2U,
+            2U,
+            8U,
+            std::span<const std::byte>(pixels).first(15U),
+            invalid_index) ||
+        invalid.last_error() != scene_build_error::invalid_argument) {
+        return false;
+    }
+    if (!invalid.add_rgba8_image(2U, 2U, 8U, pixels, invalid_index)) {
+        return false;
+    }
+    image.image_width = 3U;
+    return !invalid.draw_image(
+            invalid_index,
+            image,
+            {0.0F, 0.0F, 10.0F, 10.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            &sampling,
+            &matrix) &&
+        invalid.last_error() == scene_build_error::invalid_argument;
+}
+
 } // namespace progpu::native::tests

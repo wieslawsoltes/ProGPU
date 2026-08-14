@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(4U, 5U, 6144U)) {
+    if (!scene_builder.reserve(5U, 6U, 6144U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -403,6 +403,34 @@ int main(int argc, char** argv) {
             std::span<const std::uint32_t>(&brush_indices[4], 1U),
             {562.0F, 224.0F, 58.0F, 78.0F})) {
         std::cerr << "Could not record native retained paths.\n";
+        return EXIT_FAILURE;
+    }
+    constexpr std::array<std::byte, 16U> native_image_pixels{
+        std::byte{0xff}, std::byte{0x20}, std::byte{0x70}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe8}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe8}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x20}, std::byte{0x70}, std::byte{0xff}};
+    std::uint32_t native_image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw native_image{};
+    native_image.image_width = 2U;
+    native_image.image_height = 2U;
+    native_image.row_bytes = 8U;
+    native_image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    native_image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    native_image.destination_rect = {430.0F, 92.0F, 88.0F, 64.0F};
+    native_image.transform = identity;
+    native_image.opacity = 1.0F;
+    if (!scene_builder.add_rgba8_image(
+            2U,
+            2U,
+            8U,
+            native_image_pixels,
+            native_image_index) ||
+        !scene_builder.draw_image(
+            native_image_index,
+            native_image,
+            {430.0F, 92.0F, 88.0F, 64.0F})) {
+        std::cerr << "Could not record native retained image.\n";
         return EXIT_FAILURE;
     }
     std::vector<std::byte> scene_stream;

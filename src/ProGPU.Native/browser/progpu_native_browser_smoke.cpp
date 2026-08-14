@@ -189,7 +189,22 @@ bool render_browser_frame(double, void*) {
         builder_identity,
         PROGPU_NATIVE_FILL_RULE_NON_ZERO,
         8U};
-    if (!native_builder.reserve(6U, 6U, 3072U) ||
+    constexpr std::array<std::byte, 16U> builder_image_pixels{
+        std::byte{0xff}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe0}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe0}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff}};
+    std::uint32_t builder_image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw builder_image{};
+    builder_image.image_width = 2U;
+    builder_image.image_height = 2U;
+    builder_image.row_bytes = 8U;
+    builder_image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    builder_image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    builder_image.destination_rect = {104.0F, 48.0F, 36.0F, 36.0F};
+    builder_image.transform = builder_identity;
+    builder_image.opacity = 1.0F;
+    if (!native_builder.reserve(7U, 7U, 3072U) ||
         !native_builder.add_solid_brush(
             {0.2F, 0.55F, 1.0F, 1.0F}, 0.9F, builder_brush) ||
         !native_builder.add_state(builder_state, builder_state_index) ||
@@ -219,6 +234,16 @@ bool render_browser_frame(double, void*) {
             builder_path_segments,
             std::span<const std::uint32_t>(&builder_brush, 1U),
             {146.0F, 40.0F, 64.0F, 52.0F}) ||
+        !native_builder.add_rgba8_image(
+            2U,
+            2U,
+            8U,
+            builder_image_pixels,
+            builder_image_index) ||
+        !native_builder.draw_image(
+            builder_image_index,
+            builder_image,
+            {104.0F, 48.0F, 36.0F, 36.0F}) ||
         !native_builder.restore()) {
         fail("The browser native C++ scene builder could not record.");
     }
@@ -233,9 +258,9 @@ bool render_browser_frame(double, void*) {
             builder_scene.data(),
             builder_scene.size(),
             &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_update_metrics.command_count != 6U ||
-        builder_update_metrics.resource_count != 6U ||
-        builder_update_metrics.draw_count != 4U) {
+        builder_update_metrics.command_count != 7U ||
+        builder_update_metrics.resource_count != 7U ||
+        builder_update_metrics.draw_count != 5U) {
         fail_engine("The browser native C++ scene update failed.");
     }
     semantic_frame.scene_id = native_builder.scene_id();
@@ -246,11 +271,12 @@ bool render_browser_frame(double, void*) {
             resources.engine,
             &semantic_frame,
             &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_frame_metrics.command_count != 6U ||
-        builder_frame_metrics.draw_call_count != 4U ||
+        builder_frame_metrics.command_count != 7U ||
+        builder_frame_metrics.draw_call_count != 5U ||
         builder_frame_metrics.submission_count != 1U ||
         builder_frame_metrics.brush_upload_bytes == 0U ||
         builder_frame_metrics.vertex_upload_bytes == 0U ||
+        builder_frame_metrics.texture_upload_bytes != 16U ||
         builder_frame_metrics.coverage_staging_bytes == 0U) {
         fail_engine("The browser native C++ scene render failed.");
     }
@@ -263,6 +289,7 @@ bool render_browser_frame(double, void*) {
         builder_frame_metrics.brush_upload_bytes != 0U ||
         builder_frame_metrics.vertex_upload_bytes != 0U ||
         builder_frame_metrics.index_upload_bytes != 0U ||
+        builder_frame_metrics.texture_upload_bytes != 0U ||
         builder_frame_metrics.coverage_staging_bytes != 0U) {
         fail_engine("The stable browser native C++ scene was rebuilt.");
     }

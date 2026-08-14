@@ -16,6 +16,10 @@ struct semantic_scene_builder::implementation final {
         std::vector<std::byte> payload{};
         std::vector<std::byte> auxiliary{};
         bool brush_table = false;
+        bool rgba8_image = false;
+        std::uint32_t image_width = 0U;
+        std::uint32_t image_height = 0U;
+        std::uint32_t image_row_bytes = 0U;
     };
 
     struct command_entry final {

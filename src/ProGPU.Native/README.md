@@ -27,7 +27,10 @@ polyline/NURBS stroke recording and canonical auxiliary arenas. New command
 families extend through their own similarly scoped translation units;
 `progpu_native_scene_builder_path.cpp` owns retained path/segment recording and
 reuses the native path-rasterizer validation contract without a parallel
-builder-only approximation.
+builder-only approximation. `progpu_native_scene_builder_image.cpp` owns
+retained RGBA8 resources and nearest/linear/cubic image commands, including
+optional color matrices; multiple draws may reference the same pixels and
+stable replay performs no texture upload.
 `progpu_native_scene.cpp` owns pointer-free stream validation,
 `progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
 `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget

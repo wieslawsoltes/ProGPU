@@ -2,17 +2,12 @@
 
 #include "progpu_native_semantic_validation.hpp"
 
-#include <cmath>
 #include <cstring>
 
 namespace progpu::native::semantic {
 
 static_assert(sizeof(progpu_native_scene_image_sampling_options) == 16U);
 static_assert(sizeof(progpu_native_scene_image_color_matrix) == 96U);
-
-static bool valid_matrix_component(float value) noexcept {
-    return std::isfinite(value) && std::abs(value) <= 1024.0F;
-}
 
 bool validate_image_draw_payload(
     const std::byte* bytes,
@@ -34,11 +29,7 @@ bool validate_image_draw_payload(
         }
         progpu_native_scene_image_sampling_options source{};
         std::memcpy(&source, bytes + cursor, sizeof(source));
-        if (source.struct_size != sizeof(source) || source.flags != 0U ||
-            !std::isfinite(source.cubic_b) ||
-            !std::isfinite(source.cubic_c) ||
-            std::abs(source.cubic_b) > 16.0F ||
-            std::abs(source.cubic_c) > 16.0F) {
+        if (!is_valid_semantic_image_sampling_options(source)) {
             return false;
         }
         options.cubic_b = source.cubic_b;
@@ -54,21 +45,7 @@ bool validate_image_draw_payload(
         std::memcpy(&options.color_matrix, bytes + cursor,
             sizeof(options.color_matrix));
         const auto& matrix = options.color_matrix;
-        if (matrix.struct_size != sizeof(matrix) || matrix.flags != 0U ||
-            matrix.reserved[0] != 0U || matrix.reserved[1] != 0U) {
-            return false;
-        }
-        const auto valid_row = [](const float (&row)[4]) noexcept {
-            for (float value : row) {
-                if (!valid_matrix_component(value)) {
-                    return false;
-                }
-            }
-            return true;
-        };
-        if (!valid_row(matrix.red) || !valid_row(matrix.green) ||
-            !valid_row(matrix.blue) || !valid_row(matrix.alpha) ||
-            !valid_row(matrix.offset)) {
+        if (!is_valid_semantic_image_color_matrix(matrix)) {
             return false;
         }
         options.has_color_matrix = true;

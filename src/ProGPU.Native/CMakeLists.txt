@@ -371,6 +371,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
 add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder.cpp
     src/progpu_native_scene_builder_geometry.cpp
+    src/progpu_native_scene_builder_image.cpp
     src/progpu_native_scene_builder_path.cpp
     src/progpu_native_scene_builder_internal.hpp
     src/progpu_native_semantic_validation.cpp

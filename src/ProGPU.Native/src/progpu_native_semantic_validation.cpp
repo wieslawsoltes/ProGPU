@@ -186,4 +186,32 @@ bool is_valid_semantic_image(
         image.opacity <= 1.0F;
 }
 
+bool is_valid_semantic_image_sampling_options(
+    const progpu_native_scene_image_sampling_options& options) noexcept {
+    return options.struct_size == sizeof(options) && options.flags == 0U &&
+        std::isfinite(options.cubic_b) && std::isfinite(options.cubic_c) &&
+        std::abs(options.cubic_b) <= 16.0F &&
+        std::abs(options.cubic_c) <= 16.0F;
+}
+
+bool is_valid_semantic_image_color_matrix(
+    const progpu_native_scene_image_color_matrix& matrix) noexcept {
+    const auto valid_component = [](float value) noexcept {
+        return std::isfinite(value) && std::abs(value) <= 1024.0F;
+    };
+    const auto valid_row = [&valid_component](const float (&row)[4]) noexcept {
+        for (float value : row) {
+            if (!valid_component(value)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return matrix.struct_size == sizeof(matrix) && matrix.flags == 0U &&
+        matrix.reserved[0] == 0U && matrix.reserved[1] == 0U &&
+        valid_row(matrix.red) && valid_row(matrix.green) &&
+        valid_row(matrix.blue) && valid_row(matrix.alpha) &&
+        valid_row(matrix.offset);
+}
+
 } // namespace progpu::native::semantic

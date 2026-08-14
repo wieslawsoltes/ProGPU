@@ -754,6 +754,8 @@ int main() {
         semantic_scene_builder_is_deterministic_and_valid());
     require(progpu::native::tests::
         semantic_scene_builder_rejects_invalid_state());
+    require(progpu::native::tests::
+        semantic_scene_builder_reuses_retained_images());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();

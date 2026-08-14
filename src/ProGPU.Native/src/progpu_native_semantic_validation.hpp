@@ -31,4 +31,10 @@ bool is_valid_semantic_image(
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes) noexcept;
 
+bool is_valid_semantic_image_sampling_options(
+    const progpu_native_scene_image_sampling_options& options) noexcept;
+
+bool is_valid_semantic_image_color_matrix(
+    const progpu_native_scene_image_color_matrix& matrix) noexcept;
+
 } // namespace progpu::native::semantic
