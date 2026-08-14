@@ -359,7 +359,13 @@ syllable machines. Native property lookup is fixed-depth `O(1)` and machine
 transition lookup is `O(1)` with no parsing, allocation, or foreign runtime
 dependency. The generated-data verification gate rejects drift between the
 managed and C++ contracts; these typed tables are the shared foundation for
-native syllable classification and script-specific reordering.
+native syllable classification and script-specific reordering. The native
+classifier now executes all four machines into caller-owned byte spans and
+supports an optional monotonic glyph-index view for USE's filtered-machine
+input while assigning skipped glyphs to their surrounding cluster. Execution
+is `O(G)` time, `O(1)` internal storage, and transactional for invalid spans;
+the low nibble is the machine-specific syllable type and the high nibble is
+the wrapping nonzero serial, exactly matching managed ProGPU.
 
 Common pre-GSUB preparation is now part of the native uniform-run path rather
 than a managed callback. It inserts a font-supported dotted circle for an

@@ -344,6 +344,11 @@ bool try_get_unicode_syllable_eof_transition(
     unicode_syllable_machine machine,
     std::uint16_t state,
     unicode_syllable_transition& result) noexcept;
+bool try_assign_unicode_syllables(
+    unicode_syllable_machine machine,
+    std::span<const std::uint8_t> categories,
+    std::span<const std::uint32_t> machine_indices,
+    std::span<std::uint8_t> syllables) noexcept;
 
 enum class unicode_arabic_joining_type : std::uint8_t {
     non_joining = 0U,

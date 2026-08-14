@@ -103,6 +103,7 @@ using progpu::native::text::get_unicode_syllable_machine_state_count;
 using progpu::native::text::get_unicode_syllable_machine_start_state;
 using progpu::native::text::try_get_unicode_syllable_transition;
 using progpu::native::text::try_get_unicode_syllable_eof_transition;
+using progpu::native::text::try_assign_unicode_syllables;
 using progpu::native::text::text_layout_options;
 using progpu::native::text::positioned_text_glyph;
 using progpu::native::text::positioned_text_line;
@@ -3167,6 +3168,43 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
         require(transition.target == 0U && transition.action == 0U &&
             transition.reserved == 0U);
     }
+
+    constexpr std::array<std::uint8_t, 1U> consonant_category{1U};
+    std::array<std::uint8_t, 1U> assigned{0U};
+    require(try_assign_unicode_syllables(
+        unicode_syllable_machine::indic, consonant_category, {}, assigned));
+    require(assigned[0U] == 0x10U);
+    require(try_assign_unicode_syllables(
+        unicode_syllable_machine::myanmar, consonant_category, {}, assigned));
+    require(assigned[0U] == 0x10U);
+    require(try_assign_unicode_syllables(
+        unicode_syllable_machine::khmer, consonant_category, {}, assigned));
+    require(assigned[0U] == 0x10U);
+    require(try_assign_unicode_syllables(
+        unicode_syllable_machine::use, consonant_category, {}, assigned));
+    require(assigned[0U] == 0x12U);
+
+    constexpr std::array<std::uint8_t, 3U> filtered_categories{
+        1U, 6U, 22U};
+    constexpr std::array<std::uint32_t, 3U> filtered_indices{0U, 2U, 3U};
+    std::array<std::uint8_t, 3U> filtered_assigned{};
+    require(try_assign_unicode_syllables(
+        unicode_syllable_machine::use,
+        filtered_categories,
+        filtered_indices,
+        filtered_assigned));
+    require(filtered_assigned ==
+        std::array<std::uint8_t, 3U>{0x12U, 0x12U, 0x12U});
+
+    constexpr std::array<std::uint32_t, 3U> invalid_indices{0U, 0U, 3U};
+    filtered_assigned.fill(99U);
+    require(!try_assign_unicode_syllables(
+        unicode_syllable_machine::use,
+        filtered_categories,
+        invalid_indices,
+        filtered_assigned));
+    require(filtered_assigned ==
+        std::array<std::uint8_t, 3U>{99U, 99U, 99U});
 }
 
 void variation_axes_are_borrowed_bounded_and_transactional() {

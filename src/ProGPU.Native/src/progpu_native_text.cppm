@@ -51,6 +51,7 @@ using ::progpu::native::text::get_unicode_syllable_machine_state_count;
 using ::progpu::native::text::get_unicode_syllable_machine_start_state;
 using ::progpu::native::text::try_get_unicode_syllable_transition;
 using ::progpu::native::text::try_get_unicode_syllable_eof_transition;
+using ::progpu::native::text::try_assign_unicode_syllables;
 using ::progpu::native::text::unicode_arabic_joining_type;
 using ::progpu::native::text::get_unicode_arabic_joining_type;
 using ::progpu::native::text::open_type_arabic_action;
