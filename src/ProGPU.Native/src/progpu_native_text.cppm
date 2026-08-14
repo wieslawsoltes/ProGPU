@@ -10,6 +10,7 @@ using ::progpu::native::text::font_error;
 using ::progpu::native::text::open_type_tag;
 using ::progpu::native::text::sfnt_font_view;
 using ::progpu::native::text::sfnt_bitmap_glyph_data_view;
+using ::progpu::native::text::sfnt_svg_glyph_document_view;
 using ::progpu::native::text::sfnt_composite_component;
 using ::progpu::native::text::sfnt_composite_glyph_decode_requirements;
 using ::progpu::native::text::sfnt_composite_glyph_variation_requirements;

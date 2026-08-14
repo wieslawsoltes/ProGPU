@@ -27,6 +27,7 @@ using progpu::native::text::sfnt_cff1_font_view;
 using progpu::native::text::sfnt_cff1_outline_requirements;
 using progpu::native::text::sfnt_cff1_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
+using progpu::native::text::sfnt_svg_glyph_document_view;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -304,6 +305,27 @@ std::vector<std::byte> make_sbix() {
         strike_40.begin(),
         strike_40.end(),
         result.begin() + static_cast<std::ptrdiff_t>(16U + strike_20.size()));
+    return result;
+}
+
+std::vector<std::byte> make_svg_glyph_table(bool gzip) {
+    const std::array<std::byte, 6U> plain{
+        std::byte{0x3CU}, std::byte{0x73U}, std::byte{0x76U},
+        std::byte{0x67U}, std::byte{0x2FU}, std::byte{0x3EU}};
+    const std::array<std::byte, 6U> compressed{
+        std::byte{0x1FU}, std::byte{0x8BU}, std::byte{0x08U},
+        std::byte{0x00U}, std::byte{0x01U}, std::byte{0x02U}};
+    std::vector<std::byte> result(24U + plain.size());
+    write_u16(result, 0U, 0U);
+    write_u32(result, 2U, 10U);
+    write_u32(result, 6U, 0U);
+    write_u16(result, 10U, 1U);
+    write_u16(result, 12U, 1U);
+    write_u16(result, 14U, 2U);
+    write_u32(result, 16U, 14U);
+    write_u32(result, 20U, static_cast<std::uint32_t>(plain.size()));
+    const auto& document = gzip ? compressed : plain;
+    std::copy(document.begin(), document.end(), result.begin() + 24);
     return result;
 }
 
@@ -1668,6 +1690,27 @@ void sbix_strikes_and_duplicates_remain_borrowed() {
     require(error == font_error::invalid_argument && glyph.bytes.empty());
 }
 
+void svg_glyph_documents_remain_borrowed_and_bounded() {
+    for (const auto gzip : {false, true}) {
+        const std::array<table_data, 1U> extra{
+            table_data{
+                open_type_tag::from_chars('S', 'V', 'G', ' '),
+                make_svg_glyph_table(gzip)}};
+        const auto data = make_font(
+            0U, 22U, 0U, false, false, false, extra);
+        sfnt_font_view font{};
+        require(sfnt_font_view::try_create(data, 0U, font));
+        sfnt_svg_glyph_document_view document{};
+        font_error error = font_error::none;
+        require(font.try_get_svg_glyph_document(1U, document, &error));
+        require(error == font_error::none && document.bytes.size() == 6U);
+        require(document.first_glyph == 1U && document.last_glyph == 2U);
+        require(document.gzip_compressed == gzip);
+        require(!font.try_get_svg_glyph_document(3U, document, &error));
+        require(error == font_error::invalid_glyph && document.bytes.empty());
+    }
+}
+
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -2243,6 +2286,7 @@ int main() {
     cff1_fd_select_formats_are_borrowed_and_searchable();
     cff1_type2_outline_is_transactional_and_closes_figures();
     sbix_strikes_and_duplicates_remain_borrowed();
+    svg_glyph_documents_remain_borrowed_and_bounded();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

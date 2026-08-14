@@ -347,6 +347,13 @@ struct sfnt_bitmap_glyph_data_view final {
     std::int16_t origin_offset_y = 0;
 };
 
+struct sfnt_svg_glyph_document_view final {
+    std::span<const std::byte> bytes{};
+    std::uint16_t first_glyph = 0U;
+    std::uint16_t last_glyph = 0U;
+    bool gzip_compressed = false;
+};
+
 class sfnt_cff_data final {
 public:
     static bool try_read_index(
@@ -705,6 +712,10 @@ public:
         std::uint16_t glyph_index,
         float target_pixels_per_em,
         sfnt_bitmap_glyph_data_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_svg_glyph_document(
+        std::uint16_t glyph_index,
+        sfnt_svg_glyph_document_view& result,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
