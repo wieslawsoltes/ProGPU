@@ -347,6 +347,31 @@ public:
         open_type_lookup_view& result,
         font_error* error = nullptr) const noexcept;
 
+    struct lookup_selection_requirements final {
+        std::uint32_t lookup_capacity = 0U;
+    };
+
+    /*
+     * Selects the required and explicitly requested LangSys features for an
+     * exact script/language, falling back to DFLT and the default LangSys.
+     * Requirements reports a safe caller-buffer upper bound; selection
+     * deduplicates lookup indices in feature order without allocation.
+     */
+    bool try_get_lookup_selection_requirements(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        lookup_selection_requirements& result,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_select_lookups(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
 private:
     std::span<const std::byte> table_{};
     std::size_t script_list_offset_ = 0U;

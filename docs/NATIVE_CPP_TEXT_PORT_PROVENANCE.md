@@ -75,6 +75,13 @@ in place while visible input positions are resolved without temporary arrays.
 Chaining Context formats 1 and 2 use the corresponding glyph and three-ClassDef
 rule layouts for backtrack, input, and lookahead matching. They share the same
 bounded nested-record executor and preserve reverse-order backtrack semantics.
+The native shaping-plan boundary also walks ScriptList, Script, LangSys,
+FeatureList, and Feature tables directly from the borrowed layout data. It
+selects the required feature plus explicitly requested features, falls back to
+DFLT/default LangSys, preserves feature and lookup order, and deduplicates
+lookup indices into caller storage. The requirements pass reports a safe
+upper-bound capacity in `O(S + F + L)` time; selection is `O(S + F + L^2)` in
+the worst case because deduplication intentionally uses no heap scratch.
 
 ## Delivered borrowed SFNT/TTC foundation
 

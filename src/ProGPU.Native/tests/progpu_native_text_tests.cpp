@@ -1013,6 +1013,87 @@ void open_type_gsub_chaining_glyph_rules_apply_nested_lookup() {
     require(!applied && glyphs[1U].glyph_id == 5U);
 }
 
+void open_type_script_language_feature_selection_is_bounded() {
+    std::array<std::byte, 88U> layout{};
+    write_u16(layout, 0U, 1U);
+    write_u16(layout, 4U, 10U);
+    write_u16(layout, 6U, 32U);
+    write_u16(layout, 8U, 62U);
+    write_u16(layout, 10U, 1U);
+    write_u16(layout, 12U, 0x6C61U);
+    write_u16(layout, 14U, 0x746EU);
+    write_u16(layout, 16U, 8U);
+    write_u16(layout, 18U, 4U);
+    write_u16(layout, 22U, 0U);
+    write_u16(layout, 24U, 0U);
+    write_u16(layout, 26U, 2U);
+    write_u16(layout, 28U, 0U);
+    write_u16(layout, 30U, 1U);
+    write_u16(layout, 32U, 2U);
+    write_u16(layout, 34U, 0x726CU);
+    write_u16(layout, 36U, 0x6967U);
+    write_u16(layout, 38U, 14U);
+    write_u16(layout, 40U, 0x6C69U);
+    write_u16(layout, 42U, 0x6761U);
+    write_u16(layout, 44U, 22U);
+    write_u16(layout, 48U, 2U);
+    write_u16(layout, 50U, 0U);
+    write_u16(layout, 52U, 1U);
+    write_u16(layout, 56U, 2U);
+    write_u16(layout, 58U, 1U);
+    write_u16(layout, 60U, 2U);
+    write_u16(layout, 62U, 3U);
+    write_u16(layout, 64U, 8U);
+    write_u16(layout, 66U, 14U);
+    write_u16(layout, 68U, 20U);
+    write_u16(layout, 70U, 1U);
+    write_u16(layout, 76U, 1U);
+    write_u16(layout, 82U, 1U);
+
+    open_type_layout_table_view table{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(layout, table, &error));
+    constexpr std::array<open_type_tag, 1U> requested{
+        open_type_tag::from_chars('l', 'i', 'g', 'a')};
+    open_type_layout_table_view::lookup_selection_requirements requirements{};
+    require(table.try_get_lookup_selection_requirements(
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        {},
+        requested,
+        requirements,
+        &error));
+    require(requirements.lookup_capacity == 4U);
+    std::array<std::uint16_t, 4U> selected{99U, 99U, 99U, 99U};
+    std::uint32_t written = 99U;
+    require(table.try_select_lookups(
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        {},
+        requested,
+        selected,
+        written,
+        &error));
+    require(written == 3U && selected[0U] == 0U && selected[1U] == 1U &&
+        selected[2U] == 2U && selected[3U] == 99U);
+
+    written = 99U;
+    require(!table.try_select_lookups(
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        {},
+        requested,
+        std::span<std::uint16_t>{selected}.first(3U),
+        written,
+        &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+
+    require(table.try_get_lookup_selection_requirements(
+        open_type_tag::from_chars('c', 'y', 'r', 'l'),
+        {},
+        requested,
+        requirements,
+        &error));
+    require(requirements.lookup_capacity == 0U);
+}
+
 std::uint64_t hash_path_segments(
     std::span<const progpu_native_path_segment> segments) {
     std::uint64_t hash = 1469598103934665603ULL;
@@ -3933,6 +4014,7 @@ int main() {
     open_type_gsub_context_format3_applies_bounded_nested_lookups();
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
+    open_type_script_language_feature_selection_is_bounded();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
