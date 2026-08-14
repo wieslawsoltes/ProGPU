@@ -521,6 +521,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_VERTEX_MESH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
@@ -536,6 +538,7 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_effect_chain) == 16U);
     PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 56U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_stroke) == 160U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_brush) == 256U);
@@ -1411,6 +1414,139 @@ void semantic_point_batch_compiles_compact_retained_points() {
     PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
+void semantic_stroke_batch_preserves_retained_stroke_contracts() {
+    const std::array points{
+        progpu_native_point{0.0F, 0.0F},
+        progpu_native_point{10.0F, 0.0F},
+        progpu_native_point{10.0F, 10.0F},
+        progpu_native_point{10.0F, 0.0F},
+        progpu_native_point{10.0F, 10.0F},
+        progpu_native_point{0.0F, 10.0F}
+    };
+    const std::array doubles{
+        2.0, 2.0,
+        0.0, 0.0, 0.0, 1.0, 1.0, 1.0,
+        1.0, 0.7071067811865476, 1.0
+    };
+    std::array<progpu_native_scene_stroke, 2U> strokes{};
+    auto& polyline = strokes[0];
+    polyline.struct_size = sizeof(polyline);
+    polyline.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    polyline.flags = PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+    polyline.point_count = 3U;
+    polyline.dash_interval_count = 2U;
+    polyline.color = {1.0F, 0.25F, 0.5F, 1.0F};
+    polyline.transform = {1.0F, 0.0F, 0.0F, 1.0F, 2.0F, 3.0F};
+    polyline.stroke_thickness = 4.0F;
+    polyline.miter_limit = 10.0F;
+    polyline.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    polyline.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+    polyline.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    polyline.dash_cap = PROGPU_NATIVE_STROKE_CAP_SQUARE;
+
+    auto& spline = strokes[1];
+    spline.struct_size = sizeof(spline);
+    spline.kind = PROGPU_NATIVE_SCENE_STROKE_SPLINE;
+    spline.flags = PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE;
+    spline.degree = 2U;
+    spline.point_offset = 3U;
+    spline.point_count = 3U;
+    spline.knot_offset = 2U;
+    spline.knot_count = 6U;
+    spline.weight_offset = 8U;
+    spline.weight_count = 3U;
+    spline.dash_interval_offset = 11U;
+    spline.color = {0.25F, 1.0F, 0.5F, 1.0F};
+    spline.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    spline.stroke_thickness = 0.0F;
+    spline.miter_limit = 10.0F;
+    spline.start_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+    spline.end_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+    spline.line_join = PROGPU_NATIVE_STROKE_JOIN_MITER;
+    spline.dash_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+
+    std::size_t point_count = 0U;
+    std::size_t double_count = 0U;
+    PROGPU_REQUIRE(progpu::native::semantic_stroke_resource_layout(
+        strokes.data(),
+        strokes.size(),
+        sizeof(points) + sizeof(doubles),
+        point_count,
+        double_count));
+    PROGPU_REQUIRE(point_count == points.size());
+    PROGPU_REQUIRE(double_count == doubles.size());
+
+    std::array<progpu_native_point, 101U> sampled_points{};
+    std::vector<progpu::native::spline_homogeneous_point> work;
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    PROGPU_REQUIRE(progpu::native::append_semantic_stroke(
+        polyline,
+        points.data(),
+        doubles.data(),
+        doubles.size(),
+        7.0F,
+        sampled_points,
+        work,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(!vertices.empty() && !indices.empty());
+    PROGPU_REQUIRE(nearly_equal(vertices.front().brush_index, 7.0F));
+    const auto polyline_vertex_count = vertices.size();
+    PROGPU_REQUIRE(progpu::native::append_semantic_stroke(
+        spline,
+        points.data() + spline.point_offset,
+        doubles.data(),
+        doubles.size(),
+        8.0F,
+        sampled_points,
+        work,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() > polyline_vertex_count);
+    PROGPU_REQUIRE(nearly_equal(vertices.back().brush_index, 8.0F));
+
+    auto invalid_layout = strokes;
+    invalid_layout[1].point_offset = 4U;
+    point_count = 17U;
+    double_count = 19U;
+    PROGPU_REQUIRE(!progpu::native::semantic_stroke_resource_layout(
+        invalid_layout.data(),
+        invalid_layout.size(),
+        sizeof(points) + sizeof(doubles),
+        point_count,
+        double_count));
+    PROGPU_REQUIRE(point_count == 0U && double_count == 0U);
+
+    auto overflowing_layout = strokes;
+    overflowing_layout[0].point_count =
+        std::numeric_limits<std::uint64_t>::max();
+    overflowing_layout[1].point_offset =
+        std::numeric_limits<std::uint64_t>::max();
+    PROGPU_REQUIRE(!progpu::native::semantic_stroke_resource_layout(
+        overflowing_layout.data(),
+        overflowing_layout.size(),
+        sizeof(points) + sizeof(doubles),
+        point_count,
+        double_count));
+
+    auto invalid_doubles = doubles;
+    invalid_doubles[0] = -1.0;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(!progpu::native::append_semantic_stroke(
+        polyline,
+        points.data(),
+        invalid_doubles.data(),
+        invalid_doubles.size(),
+        0.0F,
+        sampled_points,
+        work,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty() && indices.empty());
+}
+
 void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
     const std::array source_vertices{
         progpu_native_scene_mesh_vertex{
@@ -2034,6 +2170,7 @@ int main() {
     geometry_batch_encodes_periodic_dot_grid_as_one_quad();
     semantic_point_batch_compiles_compact_retained_points();
     semantic_vertex_mesh_preserves_topology_color_and_coordinates();
+    semantic_stroke_batch_preserves_retained_stroke_contracts();
     geometry_batch_preserves_cap_order_and_space();
     connected_strokes_encode_caps_joins_and_closed_contours();
     dashed_strokes_preserve_pattern_space_caps_and_closed_seams();

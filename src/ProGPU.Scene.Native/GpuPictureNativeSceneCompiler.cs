@@ -24,7 +24,8 @@ public static class GpuPictureNativeSceneCompiler
         Geometry,
         Path,
         PointBatch,
-        VertexMesh
+        VertexMesh,
+        Stroke
     }
 
     private enum OperationKind : byte
@@ -112,6 +113,10 @@ public static class GpuPictureNativeSceneCompiler
         var meshVertices = new List<NativeSceneMeshVertex>();
         var meshIndices = new List<ushort>();
         var vertexMeshBrushIndices = new List<uint>();
+        var strokes = new List<NativeSceneStroke>();
+        var strokePoints = new List<Vector2>();
+        var strokeDoubles = new List<double>();
+        var strokeBrushIndices = new List<uint>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
         var states = new List<NativeSceneState>();
@@ -147,6 +152,7 @@ public static class GpuPictureNativeSceneCompiler
                 return false;
             }
             if (!TryAppendCommand(
+                    picture,
                     command,
                     transform,
                     analytics,
@@ -163,6 +169,10 @@ public static class GpuPictureNativeSceneCompiler
                     meshVertices,
                     meshIndices,
                     vertexMeshBrushIndices,
+                    strokes,
+                    strokePoints,
+                    strokeDoubles,
+                    strokeBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -204,6 +214,9 @@ public static class GpuPictureNativeSceneCompiler
                 vertexMeshes.Count * Unsafe.SizeOf<NativeSceneVertexMesh>() +
                 meshVertices.Count * Unsafe.SizeOf<NativeSceneMeshVertex>() +
                 meshIndices.Count * sizeof(ushort) +
+                strokes.Count * Unsafe.SizeOf<NativeSceneStroke>() +
+                strokePoints.Count * Unsafe.SizeOf<Vector2>() +
+                strokeDoubles.Count * sizeof(double) +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
@@ -211,7 +224,7 @@ public static class GpuPictureNativeSceneCompiler
                 operations.Count * 64 +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count + paths.Count +
-                    pointBatches.Count + vertexMeshes.Count) *
+                    pointBatches.Count + vertexMeshes.Count + strokes.Count) *
                     sizeof(uint) + 14);
             int resourceCount = checked(batches.Count + 1 + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
@@ -241,6 +254,12 @@ public static class GpuPictureNativeSceneCompiler
             Span<NativeSceneMeshVertex> meshVertexSpan =
                 CollectionsMarshal.AsSpan(meshVertices);
             Span<ushort> meshIndexSpan = CollectionsMarshal.AsSpan(meshIndices);
+            Span<NativeSceneStroke> strokeSpan =
+                CollectionsMarshal.AsSpan(strokes);
+            Span<Vector2> strokePointSpan =
+                CollectionsMarshal.AsSpan(strokePoints);
+            Span<double> strokeDoubleSpan =
+                CollectionsMarshal.AsSpan(strokeDoubles);
             Span<uint> analyticBrushSpan =
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
@@ -251,6 +270,8 @@ public static class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(pointBatchBrushIndices);
             Span<uint> vertexMeshBrushSpan =
                 CollectionsMarshal.AsSpan(vertexMeshBrushIndices);
+            Span<uint> strokeBrushSpan =
+                CollectionsMarshal.AsSpan(strokeBrushIndices);
             for (int index = 0; index < batches.Count; index++)
             {
                 Batch batch = batches[index];
@@ -284,7 +305,8 @@ public static class GpuPictureNativeSceneCompiler
                             batch.AuxiliaryStart,
                             batch.AuxiliaryCount),
                         out batch.ResourceIndex)
-                    : builder.TryAddVertexMeshResource(
+                    : batch.Kind == BatchKind.VertexMesh
+                    ? builder.TryAddVertexMeshResource(
                         checked((ulong)index + 1U),
                         generation,
                         vertexMeshSpan.Slice(batch.Start, batch.Count),
@@ -292,6 +314,17 @@ public static class GpuPictureNativeSceneCompiler
                             batch.AuxiliaryStart,
                             batch.AuxiliaryCount),
                         meshIndexSpan.Slice(
+                            batch.SecondaryStart,
+                            batch.SecondaryCount),
+                        out batch.ResourceIndex)
+                    : builder.TryAddStrokeResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        strokeSpan.Slice(batch.Start, batch.Count),
+                        strokePointSpan.Slice(
+                            batch.AuxiliaryStart,
+                            batch.AuxiliaryCount),
+                        strokeDoubleSpan.Slice(
                             batch.SecondaryStart,
                             batch.SecondaryCount),
                         out batch.ResourceIndex);
@@ -383,12 +416,21 @@ public static class GpuPictureNativeSceneCompiler
                             pointBatchBrushSpan.Slice(
                                 batch.BrushStart,
                                 batch.Count))
-                        : builder.TryDrawVertexMesh(
+                        : batch.Kind == BatchKind.VertexMesh
+                        ? builder.TryDrawVertexMesh(
                             commandId,
                             batch.ResourceIndex,
                             batch.Bounds,
                             brushResourceIndex,
                             vertexMeshBrushSpan.Slice(
+                                batch.BrushStart,
+                                batch.Count))
+                        : builder.TryDrawStrokeBatch(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            brushResourceIndex,
+                            strokeBrushSpan.Slice(
                                 batch.BrushStart,
                                 batch.Count));
                 }
@@ -426,6 +468,9 @@ public static class GpuPictureNativeSceneCompiler
                 vertexMeshes.Count,
                 meshVertices.Count,
                 meshIndices.Count,
+                strokes.Count,
+                strokePoints.Count,
+                strokeDoubles.Count,
                 materials.BrushCount,
                 materials.GradientStopCount);
             return true;
@@ -557,6 +602,7 @@ public static class GpuPictureNativeSceneCompiler
     }
 
     private static bool TryAppendCommand(
+        GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
         List<NativeAnalyticPrimitive> analytics,
@@ -573,6 +619,10 @@ public static class GpuPictureNativeSceneCompiler
         List<NativeSceneMeshVertex> meshVertices,
         List<ushort> meshIndices,
         List<uint> vertexMeshBrushIndices,
+        List<NativeSceneStroke> strokes,
+        List<Vector2> strokePoints,
+        List<double> strokeDoubles,
+        List<uint> strokeBrushIndices,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
@@ -763,6 +813,35 @@ public static class GpuPictureNativeSceneCompiler
                     meshVertices,
                     meshIndices,
                     vertexMeshBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
+            case RenderCommandType.DrawPolyline:
+                return TryAppendStroke(
+                    picture,
+                    command,
+                    transform,
+                    NativeSceneStrokeKind.Polyline,
+                    strokes,
+                    strokePoints,
+                    strokeDoubles,
+                    strokeBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId == CompositorBuiltInExtensions.Spline:
+                return TryAppendStroke(
+                    picture,
+                    command,
+                    transform,
+                    NativeSceneStrokeKind.Spline,
+                    strokes,
+                    strokePoints,
+                    strokeDoubles,
+                    strokeBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -1275,6 +1354,230 @@ public static class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryAppendStroke(
+        GpuPicture picture,
+        in RenderCommand command,
+        Matrix3x2 transform,
+        NativeSceneStrokeKind kind,
+        List<NativeSceneStroke> nativeStrokes,
+        List<Vector2> nativePoints,
+        List<double> nativeDoubles,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        Pen? pen = command.Pen;
+        if (pen is null || !command.IsPenThicknessLocal ||
+            !float.IsFinite(pen.Thickness) ||
+            (!pen.IsHairline && pen.Thickness <= 0f) ||
+            !float.IsFinite(pen.MiterLimit) || pen.MiterLimit < 1f ||
+            !double.IsFinite(pen.DashOffset))
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+
+        ReadOnlySpan<Vector2> sourcePoints =
+            command.PolylinePoints is { Length: > 0 } inlinePoints
+                ? inlinePoints
+                : command.PointBufferCount > 0
+                    ? picture.GetPoints(
+                        command.PointBufferOffset,
+                        command.PointBufferCount)
+                    : ReadOnlySpan<Vector2>.Empty;
+        if (sourcePoints.Length < 2)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        Vector2 transformed = Vector2.Transform(sourcePoints[0], transform);
+        if (!IsFinite(sourcePoints[0]) || !IsFinite(transformed))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        float minX = transformed.X;
+        float minY = transformed.Y;
+        float maxX = transformed.X;
+        float maxY = transformed.Y;
+        for (int index = 1; index < sourcePoints.Length; index++)
+        {
+            transformed = Vector2.Transform(sourcePoints[index], transform);
+            if (!IsFinite(sourcePoints[index]) || !IsFinite(transformed))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            minX = MathF.Min(minX, transformed.X);
+            minY = MathF.Min(minY, transformed.Y);
+            maxX = MathF.Max(maxX, transformed.X);
+            maxY = MathF.Max(maxY, transformed.Y);
+        }
+
+        ReadOnlySpan<double> knots = default;
+        ReadOnlySpan<double> weights = default;
+        uint degree = 0U;
+        if (kind == NativeSceneStrokeKind.Spline)
+        {
+            if (command.SplineDegree < 0 || command.DoubleBufferCount <= 0)
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            knots = command.SplineKnots is { Length: > 0 } inlineKnots
+                ? inlineKnots
+                : picture.GetDoubles(
+                    command.DoubleBufferOffset,
+                    command.DoubleBufferCount);
+            weights = command.SplineWeights is { Length: > 0 } inlineWeights
+                ? inlineWeights
+                : command.WeightBufferCount > 0
+                    ? picture.GetDoubles(
+                        command.WeightBufferOffset,
+                        command.WeightBufferCount)
+                    : ReadOnlySpan<double>.Empty;
+            if (knots.IsEmpty ||
+                (!weights.IsEmpty && weights.Length != sourcePoints.Length))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            degree = checked((uint)command.SplineDegree);
+            if (degree > (1U << 20))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            foreach (double value in knots)
+            {
+                if (!double.IsFinite(value))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+            }
+            foreach (double value in weights)
+            {
+                if (!double.IsFinite(value))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+            }
+        }
+
+        double[]? dashStorage = pen.DashArrayStorage;
+        ReadOnlySpan<double> dashes = dashStorage is null
+            ? ReadOnlySpan<double>.Empty
+            : dashStorage;
+        foreach (double value in dashes)
+        {
+            if (!double.IsFinite(value) || value < 0.0)
+            {
+                error = NativePictureCompileError.UnsupportedStroke;
+                return false;
+            }
+        }
+        if (!materials.TryRegister(pen.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+
+        bool continuing = batches.Count > 0 && operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1 &&
+            batches[^1].Kind == BatchKind.Stroke;
+        ulong resourcePointOffset = continuing
+            ? checked((ulong)batches[^1].AuxiliaryCount)
+            : 0U;
+        ulong resourceDoubleOffset = continuing
+            ? checked((ulong)batches[^1].SecondaryCount)
+            : 0U;
+        ulong knotOffset = kind == NativeSceneStrokeKind.Spline
+            ? resourceDoubleOffset
+            : 0U;
+        ulong weightOffset = kind == NativeSceneStrokeKind.Spline
+            ? checked(knotOffset + (ulong)knots.Length)
+            : 0U;
+        ulong dashOffset = checked(
+            resourceDoubleOffset + (ulong)knots.Length +
+                (ulong)weights.Length);
+
+        int pointStart = nativePoints.Count;
+        int doubleStart = nativeDoubles.Count;
+        int strokeStart = nativeStrokes.Count;
+        foreach (Vector2 point in sourcePoints)
+            nativePoints.Add(point);
+        foreach (double value in knots)
+            nativeDoubles.Add(value);
+        foreach (double value in weights)
+            nativeDoubles.Add(value);
+        foreach (double value in dashes)
+            nativeDoubles.Add(value);
+        NativePolylineFlags flags = command.IsEdgeAliased
+            ? NativePolylineFlags.EdgeAliased
+            : NativePolylineFlags.None;
+        if (pen.IsHairline)
+            flags |= NativePolylineFlags.Hairline;
+        else if (pen.IsFixed)
+            flags |= NativePolylineFlags.FixedDeviceStroke;
+        if (command.IsClosed)
+            flags |= NativePolylineFlags.Closed;
+        nativeStrokes.Add(new(
+            kind,
+            resourcePointOffset,
+            checked((ulong)sourcePoints.Length),
+            transform,
+            pen.IsHairline ? 0f : pen.Thickness,
+            pen.MiterLimit,
+            flags,
+            degree,
+            knotOffset,
+            checked((ulong)knots.Length),
+            weightOffset,
+            checked((ulong)weights.Length),
+            dashOffset,
+            checked((ulong)dashes.Length),
+            pen.DashOffset,
+            MapCap(pen.StartLineCap),
+            MapCap(pen.EndLineCap),
+            MapJoin(pen.LineJoin),
+            MapCap(pen.DashCap),
+            Vector4.One));
+        brushIndices.Add(brushIndex);
+
+        float deviceThickness = pen.IsHairline ? 1f : pen.Thickness;
+        float strokeExtent = (pen.IsHairline || pen.IsFixed
+            ? deviceThickness
+            : deviceThickness * MaxScale(transform)) *
+            MathF.Max(1f, pen.MiterLimit);
+        if (!command.IsEdgeAliased)
+            strokeExtent += 1.5f;
+        var bounds = Inflate(
+            new NativeImageRect(
+                minX,
+                minY,
+                maxX - minX,
+                maxY - minY),
+            strokeExtent);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Stroke,
+            strokeStart,
+            strokeStart,
+            1,
+            bounds,
+            pointStart,
+            sourcePoints.Length,
+            doubleStart,
+            knots.Length + weights.Length + dashes.Length);
+        return true;
+    }
+
     private static bool TryAppendPathFill(
         in RenderCommand command,
         Matrix3x2 transform,
@@ -1442,6 +1745,11 @@ public static class GpuPictureNativeSceneCompiler
                     (previous.AuxiliaryStart + previous.AuxiliaryCount ==
                         auxiliaryStart &&
                      previous.SecondaryStart + previous.SecondaryCount ==
+                        secondaryStart)) &&
+                (kind != BatchKind.Stroke ||
+                    (previous.AuxiliaryStart + previous.AuxiliaryCount ==
+                        auxiliaryStart &&
+                     previous.SecondaryStart + previous.SecondaryCount ==
                         secondaryStart)))
             {
                 previous.Count += count;
@@ -1515,6 +1823,14 @@ public static class GpuPictureNativeSceneCompiler
         PenLineCap.Round => NativeStrokeCap.Round,
         PenLineCap.Triangle => NativeStrokeCap.Triangle,
         _ => NativeStrokeCap.Flat
+    };
+
+    private static NativeStrokeJoin MapJoin(PenLineJoin join) => join switch
+    {
+        PenLineJoin.Miter => NativeStrokeJoin.Miter,
+        PenLineJoin.Bevel => NativeStrokeJoin.Bevel,
+        PenLineJoin.Round => NativeStrokeJoin.Round,
+        _ => NativeStrokeJoin.Miter
     };
 
     private static bool IsFinite(Vector4 value) =>

@@ -56,6 +56,12 @@ public enum NativeVertexMeshTopology : uint
     TriangleFan = 2
 }
 
+public enum NativeSceneStrokeKind : uint
+{
+    Polyline = 0,
+    Spline = 1
+}
+
 public enum NativeVertexColorBlendMode : uint
 {
     Clear,
@@ -239,7 +245,8 @@ public enum NativeRendererCapabilities : ulong
     DeviceLossRecreation = 1UL << 34,
     SemanticGeometryBatch = 1UL << 35,
     SemanticPointBatch = 1UL << 36,
-    SemanticVertexMesh = 1UL << 37
+    SemanticVertexMesh = 1UL << 37,
+    SemanticStrokeBatch = 1UL << 38
 }
 
 public enum NativeSceneResourceKind : uint
@@ -255,7 +262,8 @@ public enum NativeSceneResourceKind : uint
     TextStyleTable = 9,
     GeometryBatch = 10,
     PointBatch = 11,
-    VertexMesh = 12
+    VertexMesh = 12,
+    StrokeBatch = 13
 }
 
 public enum NativeSceneTextRenderingMode : uint
@@ -311,7 +319,8 @@ public enum NativeSceneCommandKind : uint
     DrawImage = 19,
     DrawGeometry = 20,
     DrawPointBatch = 21,
-    DrawVertexMesh = 22
+    DrawVertexMesh = 22,
+    DrawStrokeBatch = 23
 }
 
 [Flags]
@@ -1948,6 +1957,87 @@ public readonly struct NativeSceneMeshVertex
     public readonly Vector2 Position;
     public readonly Vector2 TextureCoordinate;
     public readonly Vector4 Color;
+}
+
+[StructLayout(LayoutKind.Explicit, Size = 160)]
+public readonly struct NativeSceneStroke
+{
+    public NativeSceneStroke(
+        NativeSceneStrokeKind kind,
+        ulong pointOffset,
+        ulong pointCount,
+        Matrix3x2 transform,
+        float strokeThickness,
+        float miterLimit,
+        NativePolylineFlags flags = NativePolylineFlags.None,
+        uint degree = 0U,
+        ulong knotOffset = 0U,
+        ulong knotCount = 0U,
+        ulong weightOffset = 0U,
+        ulong weightCount = 0U,
+        ulong dashIntervalOffset = 0U,
+        ulong dashIntervalCount = 0U,
+        double dashOffset = 0.0,
+        NativeStrokeCap startCap = NativeStrokeCap.Flat,
+        NativeStrokeCap endCap = NativeStrokeCap.Flat,
+        NativeStrokeJoin lineJoin = NativeStrokeJoin.Miter,
+        NativeStrokeCap dashCap = NativeStrokeCap.Flat,
+        Vector4 color = default)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneStroke>();
+        Kind = kind;
+        Flags = flags & ~(
+            NativePolylineFlags.StartCapMask |
+            NativePolylineFlags.EndCapMask |
+            NativePolylineFlags.JoinMask);
+        Degree = degree;
+        PointOffset = pointOffset;
+        PointCount = pointCount;
+        KnotOffset = knotOffset;
+        KnotCount = knotCount;
+        WeightOffset = weightOffset;
+        WeightCount = weightCount;
+        DashIntervalOffset = dashIntervalOffset;
+        DashIntervalCount = dashIntervalCount;
+        Color = color;
+        Transform = transform;
+        StrokeThickness = strokeThickness;
+        MiterLimit = miterLimit;
+        DashOffset = dashOffset;
+        StartCap = startCap;
+        EndCap = endCap;
+        LineJoin = lineJoin;
+        DashCap = dashCap;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    [FieldOffset(0)] public readonly uint StructSize;
+    [FieldOffset(4)] public readonly NativeSceneStrokeKind Kind;
+    [FieldOffset(8)] public readonly NativePolylineFlags Flags;
+    [FieldOffset(12)] public readonly uint Degree;
+    [FieldOffset(16)] public readonly ulong PointOffset;
+    [FieldOffset(24)] public readonly ulong PointCount;
+    [FieldOffset(32)] public readonly ulong KnotOffset;
+    [FieldOffset(40)] public readonly ulong KnotCount;
+    [FieldOffset(48)] public readonly ulong WeightOffset;
+    [FieldOffset(56)] public readonly ulong WeightCount;
+    [FieldOffset(64)] public readonly ulong DashIntervalOffset;
+    [FieldOffset(72)] public readonly ulong DashIntervalCount;
+    [FieldOffset(80)] public readonly Vector4 Color;
+    [FieldOffset(96)] public readonly Matrix3x2 Transform;
+    [FieldOffset(120)] public readonly float StrokeThickness;
+    [FieldOffset(124)] public readonly float MiterLimit;
+    [FieldOffset(128)] public readonly double DashOffset;
+    [FieldOffset(136)] public readonly NativeStrokeCap StartCap;
+    [FieldOffset(140)] public readonly NativeStrokeCap EndCap;
+    [FieldOffset(144)] public readonly NativeStrokeJoin LineJoin;
+    [FieldOffset(148)] public readonly NativeStrokeCap DashCap;
+    [FieldOffset(152)] private readonly uint Reserved0;
+    [FieldOffset(156)] private readonly uint Reserved1;
+
+    internal readonly bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -87,6 +87,19 @@ drawing.DrawPath(
     new SolidColorBrush(new Vector4(0.16f, 0.92f, 0.66f, 1f)),
     null,
     path);
+drawing.DrawPolyline(
+    new Pen(
+        new SolidColorBrush(new Vector4(0.16f, 0.92f, 0.66f, 1f)),
+        5f,
+        PenLineJoin.Round,
+        4f,
+        PenLineCap.Round,
+        PenLineCap.Triangle,
+        PenLineCap.Square,
+        [2.0, 1.0],
+        0.25,
+        PenStrokeTransformMode.Fixed),
+    [new(48f, 210f), new(208f, 198f), new(320f, 216f), new(560f, 208f)]);
 drawing.PushOpacity(0.75f);
 drawing.PushClip(new Rect(128f, 224f, 256f, 72f));
 drawing.DrawRectangle(
@@ -133,20 +146,28 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 10U ||
-    updateMetrics.ResourceCount != 9U ||
-    updateMetrics.DrawCount != 6U ||
+if (updateMetrics.CommandCount != 11U ||
+    updateMetrics.ResourceCount != 10U ||
+    updateMetrics.DrawCount != 7U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 12 ||
-    compiled.NativeCommandCount != 10 ||
-    compiled.NativeDrawCount != 6 ||
+    compiled.SourceCommandCount != 13 ||
+    compiled.NativeCommandCount != 11 ||
+    compiled.NativeDrawCount != 7 ||
     compiled.PathCount != 1 ||
     compiled.PathSegmentCount != 3 ||
-    compiled.BrushCount != 8 ||
+    compiled.StrokeCount != 1 ||
+    compiled.StrokePointCount != 4 ||
+    compiled.StrokeDoubleCount != 2 ||
+    compiled.BrushCount != 9 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
-        $"The compiled managed picture contract is invalid: {updateMetrics}.");
+        $"The compiled managed picture contract is invalid: {updateMetrics}; " +
+        $"source={compiled.SourceCommandCount}, native={compiled.NativeCommandCount}, " +
+        $"draws={compiled.NativeDrawCount}, paths={compiled.PathCount}/" +
+        $"{compiled.PathSegmentCount}, strokes={compiled.StrokeCount}/" +
+        $"{compiled.StrokePointCount}/{compiled.StrokeDoubleCount}, " +
+        $"brushes={compiled.BrushCount}, stops={compiled.GradientStopCount}.");
 }
 NativeSceneFrameMetrics metrics = compositor.RenderScene(
     target,

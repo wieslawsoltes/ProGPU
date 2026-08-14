@@ -111,6 +111,12 @@ void apply_semantic_transform(
     mesh.transform = compose_affine(mesh.transform, state.transform);
 }
 
+void apply_semantic_transform(
+    progpu_native_scene_stroke& stroke,
+    const progpu_native_scene_state& state) noexcept {
+    stroke.transform = compose_affine(stroke.transform, state.transform);
+}
+
 void apply_semantic_state(
     progpu_native_scene_path_fill& path,
     const progpu_native_scene_state& state) noexcept {

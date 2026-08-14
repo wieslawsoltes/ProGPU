@@ -122,9 +122,9 @@ bool render_browser_frame(double, void*) {
             geometry_scene.data(),
             geometry_scene.size(),
             &geometry_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        geometry_scene_metrics.command_count != 3U ||
-        geometry_scene_metrics.resource_count != 5U ||
-        geometry_scene_metrics.draw_count != 3U) {
+        geometry_scene_metrics.command_count != 4U ||
+        geometry_scene_metrics.resource_count != 6U ||
+        geometry_scene_metrics.draw_count != 4U) {
         fail_engine("The browser retained geometry scene update failed.");
     }
     semantic_frame.scene_id = 101U;
@@ -135,8 +135,8 @@ bool render_browser_frame(double, void*) {
             resources.engine,
             &semantic_frame,
             &geometry_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        geometry_metrics.command_count != 3U ||
-        geometry_metrics.draw_call_count != 3U ||
+        geometry_metrics.command_count != 4U ||
+        geometry_metrics.draw_call_count != 4U ||
         geometry_metrics.submission_count != 1U ||
         geometry_metrics.brush_upload_bytes !=
             2U * sizeof(progpu_native_scene_brush) ||

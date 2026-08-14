@@ -359,7 +359,7 @@ progpu_native_status render_scene(
             continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
             continue;
         }
         const auto resource = read_resource(command.resource_index);
@@ -619,6 +619,87 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH: {
+                valid = span_is_multiple(
+                    resource.payload_size,
+                    sizeof(progpu_native_scene_stroke));
+                const std::size_t stroke_count = resource.payload_size /
+                    sizeof(progpu_native_scene_stroke);
+                const auto* strokes = reinterpret_cast<
+                    const progpu_native_scene_stroke*>(
+                        bytes + resource.payload_offset);
+                std::size_t point_count = 0U;
+                std::size_t double_count = 0U;
+                valid = valid && stroke_count <=
+                        PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES &&
+                    progpu::native::semantic_stroke_resource_layout(
+                        strokes,
+                        stroke_count,
+                        resource.auxiliary_size,
+                        point_count,
+                        double_count);
+                const auto* points = reinterpret_cast<
+                    const progpu_native_point*>(
+                        bytes + resource.auxiliary_offset);
+                const auto* doubles = reinterpret_cast<const double*>(
+                    bytes + resource.auxiliary_offset +
+                        point_count * sizeof(progpu_native_point));
+                for (std::size_t double_index = 0U;
+                     valid && double_index < double_count;
+                     ++double_index) {
+                    valid = std::isfinite(doubles[double_index]);
+                }
+                for (std::size_t stroke_index = 0U;
+                     valid && budget_valid && stroke_index < stroke_count;
+                     ++stroke_index) {
+                    auto stroke = strokes[stroke_index];
+                    std::uint32_t brush_index = 0U;
+                    const progpu_native_scene_brush* brush = nullptr;
+                    valid = resolve_brush(
+                        index,
+                        command,
+                        static_cast<std::uint32_t>(stroke_index),
+                        brush_index,
+                        brush);
+                    if (!valid) {
+                        break;
+                    }
+                    apply_semantic_transform(stroke, state);
+                    if (brush == nullptr) {
+                        stroke.color.a *= state.opacity;
+                    } else if (brush->type ==
+                        PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                        stroke.color = brush->colors[0];
+                    }
+                    std::size_t vertex_count = 0U;
+                    std::size_t index_count = 0U;
+                    valid = progpu::native::semantic_stroke_capacity(
+                        stroke,
+                        points + stroke.point_offset,
+                        doubles,
+                        double_count,
+                        engine->spline_sampled_points,
+                        engine->spline_work,
+                        vertex_count,
+                        index_count);
+                    budget_valid = valid &&
+                        vertex_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_vertex_bytes) /
+                                sizeof(progpu::native::vector_vertex) &&
+                        index_count <=
+                            (std::numeric_limits<std::uint64_t>::max() -
+                                compiled_index_bytes) /
+                                sizeof(std::uint32_t);
+                    if (budget_valid) {
+                        compiled_vertex_bytes += vertex_count *
+                            sizeof(progpu::native::vector_vertex);
+                        compiled_index_bytes += index_count *
+                            sizeof(std::uint32_t);
+                    }
+                }
+                break;
+            }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
                 valid = span_is_multiple(
                         resource.payload_size,
@@ -832,6 +913,9 @@ progpu_native_status render_scene(
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
                                 ? "vertex-mesh"
+                            : command.kind ==
+                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH
+                                ? "stroke-batch"
                                 : "geometry";
             const std::string detail = std::string("A typed semantic ") +
                 family + " scene resource payload is invalid.";
@@ -851,7 +935,8 @@ progpu_native_status render_scene(
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
-            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
@@ -1155,7 +1240,9 @@ progpu_native_status render_scene(
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH &&
                     command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind !=
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
                     continue;
                 }
                 const auto resource = read_resource(command.resource_index);
@@ -1302,7 +1389,8 @@ progpu_native_status render_scene(
                                 "A preflighted semantic point-batch payload could not be compiled.");
                         }
                     }
-                } else {
+                } else if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
                     const std::size_t mesh_count = resource.payload_size /
                         sizeof(progpu_native_scene_vertex_mesh);
                     const auto* meshes = reinterpret_cast<
@@ -1357,6 +1445,68 @@ progpu_native_status render_scene(
                             return engine->fail(
                                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                                 "A preflighted semantic vertex-mesh payload could not be compiled.");
+                        }
+                    }
+                } else {
+                    const std::size_t stroke_count = resource.payload_size /
+                        sizeof(progpu_native_scene_stroke);
+                    const auto* strokes = reinterpret_cast<
+                        const progpu_native_scene_stroke*>(
+                            bytes + resource.payload_offset);
+                    std::size_t point_count = 0U;
+                    std::size_t double_count = 0U;
+                    if (!progpu::native::semantic_stroke_resource_layout(
+                            strokes,
+                            stroke_count,
+                            resource.auxiliary_size,
+                            point_count,
+                            double_count)) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "A preflighted semantic stroke-batch layout could not be resolved.");
+                    }
+                    const auto* points = reinterpret_cast<
+                        const progpu_native_point*>(
+                            bytes + resource.auxiliary_offset);
+                    const auto* doubles = reinterpret_cast<const double*>(
+                        bytes + resource.auxiliary_offset +
+                            point_count * sizeof(progpu_native_point));
+                    for (std::size_t stroke_index = 0U;
+                         stroke_index < stroke_count;
+                         ++stroke_index) {
+                        auto stroke = strokes[stroke_index];
+                        std::uint32_t brush_index = 0U;
+                        const progpu_native_scene_brush* brush = nullptr;
+                        if (!resolve_brush(
+                                index,
+                                command,
+                                static_cast<std::uint32_t>(stroke_index),
+                                brush_index,
+                                brush)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A validated semantic stroke-batch brush map could not be resolved.");
+                        }
+                        apply_semantic_transform(stroke, state);
+                        if (brush == nullptr) {
+                            stroke.color.a *= state.opacity;
+                        } else if (brush->type ==
+                            PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                            stroke.color = brush->colors[0];
+                        }
+                        if (!progpu::native::append_semantic_stroke(
+                                stroke,
+                                points + stroke.point_offset,
+                                doubles,
+                                double_count,
+                                static_cast<float>(brush_index),
+                                engine->spline_sampled_points,
+                                engine->spline_work,
+                                engine->vertices,
+                                engine->indices)) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A preflighted semantic stroke-batch payload could not be compiled.");
                         }
                     }
                 }
@@ -2961,7 +3111,7 @@ progpu_native_status render_scene(
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
                 continue;
             }
             const auto scissor = resolve_semantic_target_scissor(
@@ -2990,7 +3140,9 @@ progpu_native_status render_scene(
                         command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
                         command.kind ==
-                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH)
+                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                        command.kind ==
+                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH)
                     ? static_cast<std::uint32_t>(
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC)
                     : command.kind);
@@ -3058,6 +3210,24 @@ progpu_native_status render_scene(
                         return fail_bundle(engine->fail(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "The semantic vertex-mesh packed-page index is invalid."));
+                    }
+                    const auto draw_index = semantic_analytic_draw_index;
+                    ++semantic_analytic_draw_index;
+                    if (scissor.drawable) {
+                        status = encode_semantic_analytic_bundle_draw(
+                                *engine,
+                                bundle_encoder,
+                                semantic_analytic_page.draws[draw_index],
+                                current_target_layer);
+                    }
+                    break;
+                }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH: {
+                    if (semantic_analytic_draw_index >=
+                        semantic_analytic_page.draws.size()) {
+                        return fail_bundle(engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "The semantic stroke-batch packed-page index is invalid."));
                     }
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;

@@ -353,7 +353,9 @@ bool compile_brush_page(
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH &&
                     command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) ||
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind !=
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) ||
                 command.payload_size == 0U) {
                 continue;
             }

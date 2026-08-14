@@ -22,6 +22,9 @@ public sealed class NativeCompiledPicture
         int vertexMeshCount,
         int meshVertexCount,
         int meshIndexCount,
+        int strokeCount,
+        int strokePointCount,
+        int strokeDoubleCount,
         int brushCount,
         int gradientStopCount)
     {
@@ -41,6 +44,9 @@ public sealed class NativeCompiledPicture
         VertexMeshCount = vertexMeshCount;
         MeshVertexCount = meshVertexCount;
         MeshIndexCount = meshIndexCount;
+        StrokeCount = strokeCount;
+        StrokePointCount = strokePointCount;
+        StrokeDoubleCount = strokeDoubleCount;
         BrushCount = brushCount;
         GradientStopCount = gradientStopCount;
     }
@@ -76,6 +82,12 @@ public sealed class NativeCompiledPicture
     public int MeshVertexCount { get; }
 
     public int MeshIndexCount { get; }
+
+    public int StrokeCount { get; }
+
+    public int StrokePointCount { get; }
+
+    public int StrokeDoubleCount { get; }
 
     public int BrushCount { get; }
 

@@ -52,6 +52,10 @@ static_assert(sizeof(progpu_native_scene_vertex_mesh) == 64U);
 static_assert(offsetof(progpu_native_scene_vertex_mesh, transform) == 32U);
 static_assert(sizeof(progpu_native_scene_mesh_vertex) == 32U);
 static_assert(offsetof(progpu_native_scene_mesh_vertex, color) == 16U);
+static_assert(sizeof(progpu_native_scene_stroke) == 160U);
+static_assert(offsetof(progpu_native_scene_stroke, color) == 80U);
+static_assert(offsetof(progpu_native_scene_stroke, transform) == 96U);
+static_assert(offsetof(progpu_native_scene_stroke, dash_offset) == 128U);
 static_assert(sizeof(progpu_native_polyline) ==
     (sizeof(std::size_t) == 8U ? 72U : 64U));
 static_assert(sizeof(progpu_native_dash_style) ==

@@ -1267,16 +1267,63 @@ resource whose fixed-width records reference a contiguous line, quadratic,
 cubic, and analytic-arc segment arena. Nonzero/even-odd fill rules, 4x4/8x8
 coverage selection, affine transforms, and the shared solid/gradient brush
 table remain explicit. Every segment and transformed bound is finite-checked;
-singular transforms, combined boolean paths, and strokes fail with typed
+singular transforms, combined boolean paths, and `DrawPath` strokes fail with typed
 diagnostics until their dedicated continuation slices land. Changed lowering
 is `O(P + S)` time and storage for `P` paths and `S` segments; unchanged
 render-bundle replay performs no path translation, managed allocation,
 coverage recomputation, or upload.
 
+The connected-stroke continuation adds append-only `STROKE_BATCH` and
+`DRAW_STROKE_BATCH` records. Each exact 160-byte descriptor owns contiguous
+resource-local ranges into a packed point prefix and packed double suffix;
+the suffix contains spline knots, optional rational weights, then dash
+intervals without pointer-bearing state. Polyline and adaptive NURBS records
+preserve open/closed contours, ordinary source-space strokes, one-device-pixel
+hairlines, positive fixed-device strokes, miter/bevel/round joins, independent
+flat/square/round/triangle endpoint and dash caps, odd/even dash lists, and
+signed dash phase. Consecutive managed `DrawPolyline` and spline-extension
+commands coalesce into one retained resource and one packed vector draw with
+one brush-table index per source stroke. Changed compilation is `O(N + S + D)`
+time and retained storage for `N` input points, `S` adaptively sampled spline
+segments, and `D` emitted dash fragments. The engine-owned 101-point spline
+scratch and homogeneous evaluator workspace are reused across scene preflight
+and compilation, so stable replay does not create a per-frame native scratch
+allocation. Validation is transactional across descriptor contiguity, every
+finite point/double/transform, enum and flag domain, spline degree/ranges,
+dash ranges, and exact aggregate vertex/index budgets.
+
+This clean-room lowering follows the public [SVG stroke-dashing
+contract](https://www.w3.org/TR/svg-strokes/#StrokeDashing), the WebGPU
+buffer/index limits already used by the packed vector page, and the independent
+[`STROKE_TRANSFORM_RESEARCH.md`](STROKE_TRANSFORM_RESEARCH.md) decisions for
+ordinary versus hairline/fixed-device expansion. It reuses ProGPU's existing
+original C++ cap, join, dash, and NURBS engines and production `Vector.wgsl`;
+it does not reproduce another renderer's source organization or implementation
+text.
+
+The Apple M3 Pro matched `960x540` stroke checkpoint used one Release process,
+100 alternating warm-up pairs, and 1,000 alternating synchronized measurements.
+Its 384-command picture contained 32 connected stroke records (ordinary
+polylines, dashed fixed-device polylines, and rational hairline splines), 96
+stroke points, and 112 knot/weight/dash doubles; the native stream coalesced
+the family into one of six retained draws. Native versus managed submission
+p50/p95 was `0.0554/0.1075 ms` versus `0.2043/0.3786 ms`; total p50/p95 was
+`1.5812/4.6057 ms` versus `1.7332/4.7936 ms`. Both stable paths allocated zero
+managed bytes per frame and the native path uploaded zero retained bytes.
+Across 518,400 pixels the maximum channel delta was `1/255`, zero pixels
+exceeded `3/255`, and mean absolute channel delta was
+`0.0000043403/255`. The ignored evidence files are
+`managed-picture-stroke-1000.json`, `managed-picture-native-strokes.png`, and
+`managed-picture-managed-strokes.png`; the JSON SHA-256 is
+`a978fffeb819136b8fc8e180bc4069311bcbceacb569b500b2df37e0819fac67`.
+This is a local Metal checkpoint, not the final cross-platform or Instruments
+qualification.
+
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
-and coalesces consecutive analytic, geometry, path-fill, point, or mesh
+and coalesces consecutive analytic, geometry, path-fill, point, mesh, or
+connected-stroke
 commands into native batches. Compilation is deliberately one-time
 `O(C + P)` work with `O(P)` bounded
 managed/native stream storage for `C` source commands. The resulting
@@ -1292,8 +1339,9 @@ rejecting their source organization and implementation details. It also
 rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
 narrow: affine analytic primitives, affine geometry, periodic dot grids, and
-square/round point batches including one-device-pixel hairlines, and indexed or
-unindexed vertex meshes, plus non-combined retained path fills containing line,
+square/round point batches including one-device-pixel hairlines, indexed or
+unindexed vertex meshes, connected polylines and adaptive NURBS strokes, plus
+non-combined retained path fills containing line,
 quadratic, cubic, or analytic-arc segments, with solid,
 linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
@@ -1305,8 +1353,8 @@ existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips and mismatched or unterminated scopes fail with typed
-source-command diagnostics. Perlin/hatch brushes, vector clips, path
-strokes/boolean combinations, text, images, nested pictures, isolated layers,
+source-command diagnostics. Perlin/hatch brushes, vector clips, general
+`DrawPath` strokes/boolean combinations, text, images, nested pictures, isolated layers,
 effects, remaining extensions, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 

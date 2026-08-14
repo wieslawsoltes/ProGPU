@@ -202,6 +202,9 @@ internal static class ManagedPictureBenchmark
             VertexMeshCount: compiled.VertexMeshCount,
             MeshVertexCount: compiled.MeshVertexCount,
             MeshIndexCount: compiled.MeshIndexCount,
+            StrokeCount: compiled.StrokeCount,
+            StrokePointCount: compiled.StrokePointCount,
+            StrokeDoubleCount: compiled.StrokeDoubleCount,
             BrushCount: compiled.BrushCount,
             GradientStopCount: compiled.GradientStopCount,
             StreamBytes: compiled.Stream.Length,
@@ -311,6 +314,28 @@ internal static class ManagedPictureBenchmark
             StartLineCap = PenLineCap.Round,
             EndLineCap = PenLineCap.Round
         };
+        var connectedPen = new Pen(
+            brushes[1],
+            2f,
+            PenLineJoin.Round,
+            4f,
+            PenLineCap.Round,
+            PenLineCap.Square);
+        var fixedDashPen = new Pen(
+            brushes[2],
+            2f,
+            PenLineJoin.Bevel,
+            4f,
+            PenLineCap.Round,
+            PenLineCap.Triangle,
+            PenLineCap.Round,
+            [1.5, 0.75],
+            0.25,
+            PenStrokeTransformMode.Fixed);
+        var splinePen = new Pen(
+            brushes[3],
+            Pen.HairlineThickness,
+            PenLineJoin.Round);
         int columns = 24;
         int rows = Math.Max(1, (primitiveCount + columns - 1) / columns);
         float cellWidth = Width / (float)columns;
@@ -328,8 +353,12 @@ internal static class ManagedPictureBenchmark
         int pathCount = Math.Min(
             primitiveCount - pointBatchCount - vertexMeshCount - 1,
             Math.Max(1, primitiveCount / 12));
+        int strokeCount = Math.Min(
+            primitiveCount - pointBatchCount - vertexMeshCount - pathCount - 1,
+            Math.Max(1, primitiveCount / 12));
         int graphicCommandCount =
-            primitiveCount - pointBatchCount - vertexMeshCount - pathCount;
+            primitiveCount - pointBatchCount - vertexMeshCount - pathCount -
+                strokeCount;
         int analyticCount = Math.Max(1, graphicCommandCount * 5 / 6);
         int dotGridCount = Math.Min(
             analyticCount,
@@ -427,8 +456,43 @@ internal static class ManagedPictureBenchmark
             path.Figures.Add(figure);
             drawing.DrawPath(brushes[index % brushes.Length], null, path);
         }
-        int pointBatchEnd = pathEnd + pointBatchCount;
-        for (int index = pathEnd; index < pointBatchEnd; index++)
+        int strokeEnd = pathEnd + strokeCount;
+        for (int index = pathEnd; index < strokeEnd; index++)
+        {
+            int xIndex = index % columns;
+            int yIndex = index / columns;
+            float left = xIndex * cellWidth + inset;
+            float top = yIndex * cellHeight + inset;
+            float right = (xIndex + 1) * cellWidth - inset;
+            float bottom = (yIndex + 1) * cellHeight - inset;
+            Vector2 start = new(left, bottom);
+            Vector2 control = new((left + right) * 0.5f, top);
+            Vector2 end = new(right, bottom);
+            switch (index % 3)
+            {
+                case 0:
+                    drawing.DrawPolyline(
+                        connectedPen,
+                        [start, control, end]);
+                    break;
+                case 1:
+                    drawing.DrawPolyline(
+                        fixedDashPen,
+                        [start, control, end]);
+                    break;
+                default:
+                    drawing.DrawSpline(
+                        splinePen,
+                        [start, control, end],
+                        [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                        [1.0, 0.7071067811865476, 1.0],
+                        2,
+                        false);
+                    break;
+            }
+        }
+        int pointBatchEnd = strokeEnd + pointBatchCount;
+        for (int index = strokeEnd; index < pointBatchEnd; index++)
         {
             int xIndex = index % columns;
             int yIndex = index / columns;
@@ -638,6 +702,9 @@ internal static class ManagedPictureBenchmark
         int VertexMeshCount,
         int MeshVertexCount,
         int MeshIndexCount,
+        int StrokeCount,
+        int StrokePointCount,
+        int StrokeDoubleCount,
         int BrushCount,
         int GradientStopCount,
         int StreamBytes,

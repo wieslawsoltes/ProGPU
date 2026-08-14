@@ -646,6 +646,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             137438953472UL,
             (ulong)NativeRendererCapabilities.SemanticVertexMesh);
+        Assert.Equal(
+            274877906944UL,
+            (ulong)NativeRendererCapabilities.SemanticStrokeBatch);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -657,6 +660,9 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneMeshVertex>());
         Assert.Equal(12U, (uint)NativeSceneResourceKind.VertexMesh);
         Assert.Equal(22U, (uint)NativeSceneCommandKind.DrawVertexMesh);
+        Assert.Equal(160, Unsafe.SizeOf<NativeSceneStroke>());
+        Assert.Equal(13U, (uint)NativeSceneResourceKind.StrokeBatch);
+        Assert.Equal(23U, (uint)NativeSceneCommandKind.DrawStrokeBatch);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
     }
@@ -992,6 +998,125 @@ public class NativeRendererInteropTests
             (uint)(3 * Unsafe.SizeOf<NativeSceneMeshVertex>() +
                 3 * sizeof(ushort)),
             resource.AuxiliarySize);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderValidatesPackedStrokeBatchesTransactionally()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<Vector2> points = stackalloc Vector2[3]
+        {
+            new(2f, 3f),
+            new(22f, 5f),
+            new(34f, 18f)
+        };
+        Span<double> doubles = stackalloc double[2] { 2.0, 1.0 };
+        Span<NativeSceneStroke> strokes = stackalloc NativeSceneStroke[1]
+        {
+            new(
+                NativeSceneStrokeKind.Polyline,
+                0U,
+                3U,
+                Matrix3x2.Identity,
+                2f,
+                4f,
+                NativePolylineFlags.FixedDeviceStroke,
+                dashIntervalCount: 2U,
+                startCap: NativeStrokeCap.Round,
+                endCap: NativeStrokeCap.Triangle,
+                lineJoin: NativeStrokeJoin.Round,
+                dashCap: NativeStrokeCap.Square,
+                color: Vector4.One)
+        };
+        Span<NativeSceneBrush> brushes = stackalloc NativeSceneBrush[1]
+        {
+            NativeSceneBrush.Solid(Vector4.One)
+        };
+        Span<uint> brushIndices = stackalloc uint[1] { 0U };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 54U,
+            generation: 1U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            1U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            dashIntervalCount: 2U);
+        Assert.False(builder.TryAddStrokeResource(
+            100U, 1U, strokes, points, doubles, out _));
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            NativePolylineFlags.FixedDeviceStroke,
+            dashIntervalCount: 2U,
+            startCap: NativeStrokeCap.Round,
+            endCap: NativeStrokeCap.Triangle,
+            lineJoin: NativeStrokeJoin.Round,
+            dashCap: NativeStrokeCap.Square,
+            color: Vector4.One);
+        doubles[1] = double.NaN;
+        Assert.False(builder.TryAddStrokeResource(
+            100U, 1U, strokes, points, doubles, out _));
+        doubles[1] = 1.0;
+        Span<NativeSceneStroke> overflowingStrokes =
+            stackalloc NativeSceneStroke[2]
+            {
+                new(
+                    NativeSceneStrokeKind.Polyline,
+                    0U,
+                    ulong.MaxValue,
+                    Matrix3x2.Identity,
+                    2f,
+                    4f),
+                new(
+                    NativeSceneStrokeKind.Polyline,
+                    ulong.MaxValue,
+                    2U,
+                    Matrix3x2.Identity,
+                    2f,
+                    4f)
+            };
+        Assert.False(builder.TryAddStrokeResource(
+            100U, 1U, overflowingStrokes, points, doubles, out _));
+        Assert.True(builder.TryAddStrokeResource(
+            100U, 1U, strokes, points, doubles, out uint strokeBatch));
+        Assert.True(builder.TryAddBrushTableResource(
+            101U,
+            1U,
+            brushes,
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint brushTable));
+        Assert.True(builder.TryDrawStrokeBatch(
+            1000U,
+            strokeBatch,
+            new NativeImageRect(0f, 0f, 40f, 24f),
+            brushTable,
+            brushIndices));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        Assert.Equal(NativeSceneResourceKind.StrokeBatch, resource.Kind);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeSceneStroke>(),
+            resource.PayloadSize);
+        Assert.Equal(
+            (uint)(3 * Unsafe.SizeOf<Vector2>() + 2 * sizeof(double)),
+            resource.AuxiliarySize);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        Assert.Equal(NativeSceneCommandKind.DrawStrokeBatch, command.Kind);
     }
 
     [Fact]

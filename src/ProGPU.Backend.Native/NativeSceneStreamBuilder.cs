@@ -369,6 +369,134 @@ public ref struct NativeSceneStreamBuilder
         return true;
     }
 
+    /// <summary>
+    /// Adds connected polyline or NURBS stroke records followed by one packed
+    /// point array and one packed double array (knots, weights, and dashes).
+    /// Every retained range is canonical and contiguous within this resource.
+    /// </summary>
+    public bool TryAddStrokeResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneStroke> strokes,
+        scoped ReadOnlySpan<Vector2> points,
+        scoped ReadOnlySpan<double> doubles,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (_built || _resourceCount == _resourceCapacity ||
+            resourceId == 0U || resourceId <= _lastResourceId ||
+            generation == 0U || flags != NativeSceneRecordFlags.Required ||
+            strokes.IsEmpty || points.IsEmpty ||
+            (uint)strokes.Length > NativeMethods.SceneMaximumDrawBrushIndices)
+        {
+            return false;
+        }
+        foreach (ref readonly Vector2 point in points)
+        {
+            if (!IsFinite(point))
+                return false;
+        }
+        foreach (double value in doubles)
+        {
+            if (!double.IsFinite(value))
+                return false;
+        }
+
+        const NativePolylineFlags allowedFlags =
+            NativePolylineFlags.EdgeAliased |
+            NativePolylineFlags.Hairline |
+            NativePolylineFlags.FixedDeviceStroke |
+            NativePolylineFlags.Closed;
+        ulong expectedPoints = 0U;
+        ulong expectedDoubles = 0U;
+        foreach (ref readonly NativeSceneStroke stroke in strokes)
+        {
+            if (stroke.StructSize != Unsafe.SizeOf<NativeSceneStroke>() ||
+                (uint)stroke.Kind > (uint)NativeSceneStrokeKind.Spline ||
+                (stroke.Flags & ~allowedFlags) != 0 ||
+                stroke.PointOffset != expectedPoints ||
+                stroke.PointCount < 2U ||
+                (uint)stroke.StartCap > (uint)NativeStrokeCap.Triangle ||
+                (uint)stroke.EndCap > (uint)NativeStrokeCap.Triangle ||
+                (uint)stroke.DashCap > (uint)NativeStrokeCap.Triangle ||
+                (uint)stroke.LineJoin > (uint)NativeStrokeJoin.Round ||
+                !IsFinite(stroke.Color) || !IsFinite(stroke.Transform) ||
+                !float.IsFinite(stroke.StrokeThickness) ||
+                !float.IsFinite(stroke.MiterLimit) ||
+                stroke.MiterLimit < 1f || !double.IsFinite(stroke.DashOffset) ||
+                !stroke.HasCanonicalReservedFields ||
+                stroke.PointCount > ulong.MaxValue - expectedPoints)
+            {
+                return false;
+            }
+            expectedPoints += stroke.PointCount;
+            if (stroke.Kind == NativeSceneStrokeKind.Spline)
+            {
+                if (stroke.KnotOffset != expectedDoubles ||
+                    stroke.KnotCount == 0U || stroke.Degree > (1U << 20) ||
+                    stroke.KnotCount > ulong.MaxValue - expectedDoubles)
+                {
+                    return false;
+                }
+                expectedDoubles += stroke.KnotCount;
+                if (stroke.WeightOffset != expectedDoubles ||
+                    (stroke.WeightCount != 0U &&
+                        stroke.WeightCount != stroke.PointCount) ||
+                    stroke.WeightCount > ulong.MaxValue - expectedDoubles)
+                {
+                    return false;
+                }
+                expectedDoubles += stroke.WeightCount;
+            }
+            else if (stroke.Degree != 0U || stroke.KnotOffset != 0U ||
+                stroke.KnotCount != 0U || stroke.WeightOffset != 0U ||
+                stroke.WeightCount != 0U)
+            {
+                return false;
+            }
+            if (stroke.DashIntervalOffset != expectedDoubles ||
+                stroke.DashIntervalCount > ulong.MaxValue - expectedDoubles)
+                return false;
+            expectedDoubles += stroke.DashIntervalCount;
+        }
+        if (expectedPoints != (ulong)points.Length ||
+            expectedDoubles != (ulong)doubles.Length)
+        {
+            return false;
+        }
+
+        int originalArenaSize = _arenaSize;
+        ReadOnlySpan<byte> payload = MemoryMarshal.AsBytes(strokes);
+        ReadOnlySpan<byte> pointBytes = MemoryMarshal.AsBytes(points);
+        ReadOnlySpan<byte> doubleBytes = MemoryMarshal.AsBytes(doubles);
+        if (!TryWriteArena(payload, out uint payloadOffset) ||
+            !TryWriteArena(pointBytes, out uint auxiliaryOffset) ||
+            (!doubleBytes.IsEmpty &&
+                (!TryWriteArena(doubleBytes, out uint doubleOffset) ||
+                    doubleOffset != auxiliaryOffset + (uint)pointBytes.Length)))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        var resource = new NativeMethods.SceneResource
+        {
+            StructSize = ResourceSize,
+            Kind = NativeSceneResourceKind.StrokeBatch,
+            Flags = flags,
+            ResourceId = resourceId,
+            Generation = generation,
+            PayloadOffset = payloadOffset,
+            PayloadSize = (uint)payload.Length,
+            AuxiliaryOffset = auxiliaryOffset,
+            AuxiliarySize = checked((uint)(pointBytes.Length + doubleBytes.Length))
+        };
+        Write(_resourceOffset + _resourceCount * ResourceSize, resource);
+        resourceIndex = (uint)_resourceCount++;
+        _lastResourceId = resourceId;
+        return true;
+    }
+
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
@@ -789,6 +917,25 @@ public ref struct NativeSceneStreamBuilder
         uint stateIndex = uint.MaxValue) =>
         TryDrawWithBrushes(
             NativeSceneCommandKind.DrawVertexMesh,
+            commandId,
+            resourceIndex,
+            bounds,
+            brushResourceIndex,
+            brushIndices,
+            stateIndex);
+
+    /// <summary>
+    /// Draws retained connected strokes with one brush-table index per record.
+    /// </summary>
+    public bool TryDrawStrokeBatch(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawWithBrushes(
+            NativeSceneCommandKind.DrawStrokeBatch,
             commandId,
             resourceIndex,
             bounds,
@@ -1409,6 +1556,9 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawVertexMesh => checked((int)
                 GetResourceRecordCount<NativeSceneVertexMesh>(
                     resourceIndex)),
+            NativeSceneCommandKind.DrawStrokeBatch => checked((int)
+                GetResourceRecordCount<NativeSceneStroke>(
+                    resourceIndex)),
             NativeSceneCommandKind.DrawPath => checked((int)
                 GetResourceRecordCount<NativeScenePathFill>(
                     resourceIndex)),
@@ -1439,12 +1589,14 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.PointBatch,
             NativeSceneCommandKind.DrawVertexMesh =>
                 NativeSceneResourceKind.VertexMesh,
+            NativeSceneCommandKind.DrawStrokeBatch =>
+                NativeSceneResourceKind.StrokeBatch,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.VertexMesh;
+            <= NativeSceneResourceKind.StrokeBatch;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

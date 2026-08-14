@@ -25,8 +25,8 @@ std::uint32_t append(
 std::vector<std::byte> create_semantic_geometry_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height) {
-    constexpr std::uint32_t command_count = 3U;
-    constexpr std::uint32_t resource_count = 5U;
+    constexpr std::uint32_t command_count = 4U;
+    constexpr std::uint32_t resource_count = 6U;
     constexpr std::uint32_t command_offset =
         sizeof(progpu_native_scene_header);
     constexpr std::uint32_t resource_offset = command_offset +
@@ -120,6 +120,37 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         {0U, 0U}};
     const std::uint32_t mesh_offset = append(stream, &mesh, 1U);
 
+    const std::array stroke_points{
+        progpu_native_point{
+            target_width * 0.15F, target_height * 0.82F},
+        progpu_native_point{
+            target_width * 0.42F, target_height * 0.72F},
+        progpu_native_point{
+            target_width * 0.68F, target_height * 0.88F}
+    };
+    const std::uint32_t stroke_points_offset = append(
+        stream,
+        stroke_points.data(),
+        stroke_points.size());
+    constexpr std::array<double, 2U> stroke_doubles{2.0, 1.0};
+    append(stream, stroke_doubles.data(), stroke_doubles.size());
+    progpu_native_scene_stroke stroke{};
+    stroke.struct_size = sizeof(stroke);
+    stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    stroke.flags = PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE;
+    stroke.point_count = static_cast<std::uint32_t>(stroke_points.size());
+    stroke.dash_interval_count =
+        static_cast<std::uint32_t>(stroke_doubles.size());
+    stroke.color = {0.2F, 0.8F, 1.0F, 1.0F};
+    stroke.transform = identity;
+    stroke.stroke_thickness = 5.0F;
+    stroke.miter_limit = 10.0F;
+    stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_TRIANGLE;
+    stroke.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    stroke.dash_cap = PROGPU_NATIVE_STROKE_CAP_SQUARE;
+    const std::uint32_t stroke_offset = append(stream, &stroke, 1U);
+
     progpu_native_scene_brush brush{};
     brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
     brush.opacity = 0.8F;
@@ -164,6 +195,17 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         1U);
     constexpr std::uint32_t mesh_brush_index = 0U;
     append(stream, &mesh_brush_index, 1U);
+    const progpu_native_scene_draw_brushes stroke_draw_brushes{
+        sizeof(progpu_native_scene_draw_brushes),
+        1U,
+        1U,
+        0U};
+    const std::uint32_t stroke_draw_offset = append(
+        stream,
+        &stroke_draw_brushes,
+        1U);
+    constexpr std::uint32_t stroke_brush_index = 0U;
+    append(stream, &stroke_brush_index, 1U);
 
     progpu_native_scene_header header{};
     header.struct_size = sizeof(header);
@@ -208,7 +250,14 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
             mesh_offset, sizeof(mesh),
             mesh_vertices_offset,
             static_cast<std::uint32_t>(
-                sizeof(mesh_vertices) + sizeof(mesh_indices))}
+                sizeof(mesh_vertices) + sizeof(mesh_indices))},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 1106U, 1U,
+            stroke_offset, sizeof(stroke),
+            stroke_points_offset,
+            static_cast<std::uint32_t>(
+                sizeof(stroke_points) + sizeof(stroke_doubles))}
     }};
     std::memcpy(
         stream.data() + resource_offset,
@@ -255,6 +304,21 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
             4U,
             mesh_draw_offset,
             sizeof(mesh_draw_brushes) + sizeof(mesh_brush_index),
+            0.0F,
+            0.0F,
+            static_cast<float>(target_width),
+            static_cast<float>(target_height),
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            1114U,
+            2U,
+            5U,
+            stroke_draw_offset,
+            sizeof(stroke_draw_brushes) + sizeof(stroke_brush_index),
             0.0F,
             0.0F,
             static_cast<float>(target_width),

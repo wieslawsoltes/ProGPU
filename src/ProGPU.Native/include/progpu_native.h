@@ -66,6 +66,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH (UINT64_C(1) << 35U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH (UINT64_C(1) << 36U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VERTEX_MESH (UINT64_C(1) << 37U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH (UINT64_C(1) << 38U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -104,7 +105,8 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE = 9,
     PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH = 10,
     PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH = 11,
-    PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH = 12
+    PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH = 12,
+    PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -156,7 +158,8 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE = 19,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY = 20,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH = 21,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH = 22
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH = 22,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -874,6 +877,41 @@ typedef struct progpu_native_scene_mesh_vertex {
     progpu_native_point texture_coordinate;
     progpu_native_color color;
 } progpu_native_scene_mesh_vertex;
+
+typedef enum progpu_native_scene_stroke_kind {
+    PROGPU_NATIVE_SCENE_STROKE_POLYLINE = 0,
+    PROGPU_NATIVE_SCENE_STROKE_SPLINE = 1
+} progpu_native_scene_stroke_kind;
+
+/*
+ * Pointer-free retained connected-stroke descriptor. Points address the
+ * resource auxiliary point prefix. Knots, optional rational weights, and dash
+ * intervals address its contiguous double suffix in that canonical order.
+ */
+typedef struct progpu_native_scene_stroke {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t degree;
+    uint64_t point_offset;
+    uint64_t point_count;
+    uint64_t knot_offset;
+    uint64_t knot_count;
+    uint64_t weight_offset;
+    uint64_t weight_count;
+    uint64_t dash_interval_offset;
+    uint64_t dash_interval_count;
+    progpu_native_color color;
+    progpu_native_affine_2d transform;
+    float stroke_thickness;
+    float miter_limit;
+    double dash_offset;
+    uint32_t start_cap;
+    uint32_t end_cap;
+    uint32_t line_join;
+    uint32_t dash_cap;
+    uint32_t reserved[2];
+} progpu_native_scene_stroke;
 
 /*
  * A connected stroke borrows a contiguous range from geometry_frame.points.

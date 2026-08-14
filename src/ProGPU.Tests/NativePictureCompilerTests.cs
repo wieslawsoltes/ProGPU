@@ -417,6 +417,121 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerCoalescesPolylineAndSplineStrokeContracts()
+    {
+        var fixedPen = new Pen(
+            new SolidColorBrush(new Vector4(0.2f, 0.7f, 0.9f, 1f)),
+            3f,
+            PenLineJoin.Round,
+            5f,
+            PenLineCap.Round,
+            PenLineCap.Triangle,
+            PenLineCap.Square,
+            [2.0, 1.0],
+            0.5,
+            PenStrokeTransformMode.Fixed);
+        var hairlinePen = new Pen(
+            new LinearGradientBrush(
+                new Vector2(0f, 0f),
+                new Vector2(96f, 0f),
+                [
+                    new GradientStop(Vector4.One, 0f),
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1f)
+                ]),
+            Pen.HairlineThickness,
+            PenLineJoin.Bevel);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 96f, 64f));
+        drawing.DrawPolyline(
+            fixedPen,
+            [new(4f, 8f), new(28f, 10f), new(38f, 28f)],
+            isClosed: true);
+        drawing.DrawSpline(
+            hairlinePen,
+            [new(48f, 28f), new(62f, 6f), new(82f, 28f)],
+            [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            [1.0, 0.7071067811865476, 1.0],
+            degree: 2,
+            isClosed: false);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            8U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.StrokeCount);
+        Assert.Equal(6, compiled.StrokePointCount);
+        Assert.Equal(11, compiled.StrokeDoubleCount);
+        Assert.Equal(2, compiled.BrushCount);
+        Assert.Equal(2, compiled.GradientStopCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.StrokeBatch, resource.Kind);
+        Assert.Equal(
+            2 * Unsafe.SizeOf<NativeSceneStroke>(),
+            checked((int)resource.PayloadSize));
+        Assert.Equal(
+            6 * Unsafe.SizeOf<Vector2>() + 11 * sizeof(double),
+            checked((int)resource.AuxiliarySize));
+
+        ReadOnlySpan<NativeSceneStroke> strokes =
+            MemoryMarshal.Cast<byte, NativeSceneStroke>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.Equal(NativeSceneStrokeKind.Polyline, strokes[0].Kind);
+        Assert.Equal(0UL, strokes[0].PointOffset);
+        Assert.Equal(3UL, strokes[0].PointCount);
+        Assert.Equal(0UL, strokes[0].DashIntervalOffset);
+        Assert.Equal(2UL, strokes[0].DashIntervalCount);
+        Assert.Equal(
+            NativePolylineFlags.FixedDeviceStroke |
+                NativePolylineFlags.Closed,
+            strokes[0].Flags);
+        Assert.Equal(NativeStrokeCap.Round, strokes[0].StartCap);
+        Assert.Equal(NativeStrokeCap.Triangle, strokes[0].EndCap);
+        Assert.Equal(NativeStrokeJoin.Round, strokes[0].LineJoin);
+        Assert.Equal(NativeStrokeCap.Square, strokes[0].DashCap);
+        Assert.Equal(NativeSceneStrokeKind.Spline, strokes[1].Kind);
+        Assert.Equal(3UL, strokes[1].PointOffset);
+        Assert.Equal(2UL, strokes[1].KnotOffset);
+        Assert.Equal(6UL, strokes[1].KnotCount);
+        Assert.Equal(8UL, strokes[1].WeightOffset);
+        Assert.Equal(3UL, strokes[1].WeightCount);
+        Assert.Equal(11UL, strokes[1].DashIntervalOffset);
+        Assert.Equal(NativePolylineFlags.Hairline, strokes[1].Flags);
+        Assert.Equal(2U, strokes[1].Degree);
+
+        ReadOnlySpan<Vector2> points = MemoryMarshal.Cast<byte, Vector2>(
+            compiled.Stream.Slice(
+                checked((int)resource.AuxiliaryOffset),
+                6 * Unsafe.SizeOf<Vector2>()));
+        Assert.Equal(new Vector2(4f, 8f), points[0]);
+        Assert.Equal(new Vector2(82f, 28f), points[5]);
+        ReadOnlySpan<double> doubles = MemoryMarshal.Cast<byte, double>(
+            compiled.Stream.Slice(
+                checked((int)resource.AuxiliaryOffset) +
+                    6 * Unsafe.SizeOf<Vector2>(),
+                11 * sizeof(double)));
+        Assert.True(doubles.SequenceEqual(new double[]
+        {
+            2.0, 1.0,
+            0.0, 0.0, 0.0, 1.0, 1.0, 1.0,
+            1.0, 0.7071067811865476, 1.0
+        }));
+    }
+
+    [Fact]
     public void CompilerCoalescesRetainedPathFillsAndPreservesSegments()
     {
         var firstPath = new PathGeometry();
