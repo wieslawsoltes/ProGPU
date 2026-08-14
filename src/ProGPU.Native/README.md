@@ -120,7 +120,13 @@ metrics, and selected cmap format 4/12/13 lookup. It performs no file I/O,
 decompression, WebGPU initialization, or managed/native call per character.
 The same borrowed view resolves short/long `loca` offsets into zero-copy
 `glyf` slices and exposes contour count plus exact font-unit bounds without
-materializing an outline graph.
+materializing an outline graph. Simple glyphs use a two-pass caller-buffer API:
+the first pass validates instructions, contour endpoints, repeated flags, and
+coordinate byte ranges while reporting exact point/contour counts; the second
+expands signed deltas directly into caller-owned point records. Empty,
+simple, and composite records are classified explicitly. The library performs
+no heap allocation in either pass. Composite expansion, variation deltas, and
+point-to-quadratic-path conversion remain subsequent slices.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

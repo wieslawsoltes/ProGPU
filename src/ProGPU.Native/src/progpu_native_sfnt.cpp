@@ -1,4 +1,5 @@
 #include "progpu_native_text.hpp"
+#include "progpu_native_font_bytes.hpp"
 
 #include <limits>
 
@@ -9,6 +10,11 @@
 
 namespace progpu::native::text {
 namespace {
+
+using detail::can_read;
+using detail::read_i16;
+using detail::read_u16;
+using detail::read_u32;
 
 constexpr auto collection_tag = open_type_tag::from_chars('t', 't', 'c', 'f');
 constexpr auto woff1_tag = open_type_tag::from_chars('w', 'O', 'F', 'F');
@@ -25,37 +31,6 @@ void set_error(font_error* destination, font_error value) noexcept {
     if (destination != nullptr) {
         *destination = value;
     }
-}
-
-bool can_read(
-    std::span<const std::byte> data,
-    std::size_t offset,
-    std::size_t length) noexcept {
-    return offset <= data.size() && length <= data.size() - offset;
-}
-
-std::uint16_t read_u16(
-    std::span<const std::byte> data,
-    std::size_t offset) noexcept {
-    return static_cast<std::uint16_t>(
-        (std::to_integer<std::uint16_t>(data[offset]) << 8U) |
-        std::to_integer<std::uint16_t>(data[offset + 1U]));
-}
-
-std::int16_t read_i16(
-    std::span<const std::byte> data,
-    std::size_t offset) noexcept {
-    return static_cast<std::int16_t>(read_u16(data, offset));
-}
-
-std::uint32_t read_u32(
-    std::span<const std::byte> data,
-    std::size_t offset) noexcept {
-    return
-        (std::to_integer<std::uint32_t>(data[offset]) << 24U) |
-        (std::to_integer<std::uint32_t>(data[offset + 1U]) << 16U) |
-        (std::to_integer<std::uint32_t>(data[offset + 2U]) << 8U) |
-        std::to_integer<std::uint32_t>(data[offset + 3U]);
 }
 
 bool is_unicode_cmap(

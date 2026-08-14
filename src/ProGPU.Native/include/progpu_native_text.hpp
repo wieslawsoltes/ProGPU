@@ -13,7 +13,9 @@ enum class font_error : std::uint32_t {
     unsupported_container,
     invalid_collection,
     invalid_face,
-    truncated_directory
+    truncated_directory,
+    invalid_glyph,
+    insufficient_buffer
 };
 
 struct open_type_tag final {
@@ -81,12 +83,38 @@ struct sfnt_glyph_data_view final {
     }
 };
 
+enum class sfnt_glyph_kind : std::uint8_t {
+    empty = 0U,
+    simple,
+    composite
+};
+
+struct sfnt_glyph_decode_requirements final {
+    sfnt_glyph_kind kind = sfnt_glyph_kind::empty;
+    std::uint16_t contour_count = 0U;
+    std::uint32_t point_count = 0U;
+    std::uint16_t instruction_bytes = 0U;
+};
+
+struct sfnt_outline_point final {
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::uint8_t flags = 0U;
+
+    bool on_curve() const noexcept {
+        return (flags & 0x01U) != 0U;
+    }
+};
+
 /*
  * Allocation-free borrowed view over one SFNT or TrueType Collection face.
  * The caller owns the byte span and must keep it alive for the view lifetime.
  * Construction and table lookup are O(T) for T directory records with O(1)
  * storage. Character lookup is O(log G) for format 12/13 groups and O(S) for
- * format 4 segments, with no heap allocation or WebGPU initialization.
+ * format 4 segments. Simple-glyph decoding is two-pass O(C + P + B) for C
+ * contours, P points, and B encoded flag/coordinate bytes: the first call
+ * reports exact caller-buffer requirements and the second writes directly to
+ * those spans. No operation allocates or initializes WebGPU.
  */
 class sfnt_font_view final {
 public:
@@ -115,6 +143,15 @@ public:
     bool try_get_glyph_data(
         std::uint16_t glyph_index,
         sfnt_glyph_data_view& result) const noexcept;
+    bool try_get_glyph_decode_requirements(
+        std::uint16_t glyph_index,
+        sfnt_glyph_decode_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_simple_glyph(
+        std::uint16_t glyph_index,
+        std::span<std::uint16_t> contour_end_points,
+        std::span<sfnt_outline_point> points,
+        font_error* error = nullptr) const noexcept;
     bool try_get_glyph_index(
         std::uint32_t code_point,
         std::uint16_t& result) const noexcept;

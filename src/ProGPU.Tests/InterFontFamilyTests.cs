@@ -11,6 +11,41 @@ namespace ProGPU.Tests;
 public sealed class InterFontFamilyTests
 {
     [Fact]
+    public void NativeSfntCheckpointMatchesManagedMediumFaceMetrics()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("Inter-Medium.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+        using var memory = new MemoryStream();
+        resource.CopyTo(memory);
+        byte[] data = memory.ToArray();
+        SfntFontFace face = SfntFontFace.Load(data);
+        var font = new TtfFont(data);
+
+        Assert.Equal((ushort)2048, font.UnitsPerEm);
+        Assert.Equal((short)-1546, font.XMin);
+        Assert.Equal((short)-668, font.YMin);
+        Assert.Equal((short)5290, font.XMax);
+        Assert.Equal((short)2272, font.YMax);
+        Assert.Equal((short)1984, font.Ascender);
+        Assert.Equal((short)-494, font.Descender);
+        Assert.Equal((short)0, font.LineGap);
+        Assert.Equal((ushort)2937, font.NumGlyphs);
+        Assert.True(face.TryGetGlyphIndex(0x53, out ushort glyphIndex));
+        Assert.Equal((ushort)397, glyphIndex);
+        Assert.True(face.TryGetHorizontalGlyphMetrics(glyphIndex, out var metrics));
+        Assert.Equal((ushort)1323, metrics.AdvanceWidth);
+        Assert.Equal((short)106, metrics.LeftSideBearing);
+        Assert.True(face.TryGetGlyphBounds(glyphIndex, out var bounds));
+        Assert.Equal((short)106, bounds.XMin);
+        Assert.Equal((short)-25, bounds.YMin);
+        Assert.Equal((short)1217, bounds.XMax);
+        Assert.Equal((short)1510, bounds.YMax);
+    }
+
+    [Fact]
     public void RegularFaceIsUnmodifiedOfficialInter41Asset()
     {
         var font = InterFontFamily.Regular;

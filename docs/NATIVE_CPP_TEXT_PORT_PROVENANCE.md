@@ -61,6 +61,25 @@ Short and long `loca` tables resolve into borrowed `glyf` byte spans in `O(1)`
 time and storage per glyph; empty glyphs preserve an empty successful result,
 and non-empty records expose their contour count and exact font-unit bounds
 without parsing or allocating an outline graph.
+Simple TrueType records now continue through an allocation-free two-pass
+decoder. Pass one validates strictly increasing contour endpoints, instruction
+ranges, repeated-flag expansion, and the complete X/Y delta byte budget while
+reporting exact caller-buffer requirements. Pass two writes raw flags and
+signed accumulated coordinates directly into caller spans. Its complexity is
+`O(C + P + B)` time and `O(1)` internal storage for `C` contours, `P` points,
+and `B` encoded bytes. Empty, simple, and composite glyphs are distinct typed
+results; composite expansion, `gvar` application, and contour-to-path lowering
+remain open rather than silently approximated.
+
+The managed and native tests share the repository's exact `Inter-Medium.ttf`
+asset as a differential checkpoint. Both assert 2,048 units per em, 2,937
+glyphs, scalar U+0053 to glyph 397, advance/side-bearing `1323/106`, and glyph
+bounds `(106,-25)-(1217,1510)`. The native test additionally verifies the
+same glyph's one contour, 46 decoded points, 59 instruction bytes, mixed
+on/off-curve flags, repeated-flag behavior, insufficient caller buffers,
+truncated coordinates, excessive repeats, decreasing endpoints, and explicit
+composite classification. This is parser/point evidence only; matched final
+quadratic segments and screenshots wait for the path-lowering slice.
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.
