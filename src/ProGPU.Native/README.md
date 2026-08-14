@@ -288,6 +288,19 @@ the existing stale-data gate. Counting and writing are separate linear passes,
 use `O(1)` internal state, preserve original source/scalar ranges, and leave the
 caller output untouched on insufficient capacity.
 
+Default line-break resolution follows Unicode 17 UAX #14 revision 55 over
+property ranges generated from the pinned official `LineBreak.txt`,
+`UnicodeData.txt`, and `EastAsianWidth.txt` inputs. It covers mandatory and
+indirect breaks, combining sequences, contextual quotation, numeric and Hangul
+runs, Brahmic orthographic syllables, regional-indicator pairs, and emoji
+modifiers. All 19,338 cases in the official Unicode 17 `LineBreakTest.txt`
+corpus pass. Property lookup is `O(log R)` for `R` packed ranges; the ordinary
+resolver path is `O(N)` and its deliberately graph-free contextual scans are
+`O(N^2)` only for adversarial repeated look-behind sequences. Resolved classes
+and break decisions use caller-owned `O(N)` spans, with no heap allocation and
+transactional capacity failure. The resulting decisions feed positioned line
+layout without coupling reusable Unicode analysis to viewport width.
+
 The first shared OpenType execution primitive is a granular borrowed layout
 unit for Coverage formats 1/2, ClassDef formats 1/2, GSUB/GPOS headers, and lazy
 LookupList records. Construction validates complete sorted arrays, disjoint

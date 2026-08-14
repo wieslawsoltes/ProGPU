@@ -87,7 +87,10 @@ using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
 using progpu::native::text::try_itemize_font_fallback;
+using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
+using progpu::native::text::get_unicode_line_break_class;
+using progpu::native::text::try_resolve_unicode_line_breaks;
 using progpu::native::text::text_layout_options;
 using progpu::native::text::positioned_text_glyph;
 using progpu::native::text::positioned_text_line;
@@ -2927,6 +2930,59 @@ void native_positioned_text_layout_wraps_without_allocation() {
         glyph_count == 0U && line_count == 0U);
 }
 
+void unicode_line_breaks_feed_native_layout_without_allocation() {
+    static_assert(sizeof(unicode_line_break_class) == 1U);
+    static_assert(sizeof(text_line_break_kind) == 1U);
+    require(get_unicode_line_break_class(0x20U) ==
+        unicode_line_break_class::space);
+    require(get_unicode_line_break_class(0x4E00U) ==
+        unicode_line_break_class::ideographic);
+    require(get_unicode_line_break_class(0x1F1E6U) ==
+        unicode_line_break_class::regional_indicator);
+
+    const std::array<unicode_scalar, 17U> input{
+        unicode_scalar{0x41U}, unicode_scalar{0x20U},
+        unicode_scalar{0x42U}, unicode_scalar{0x0DU},
+        unicode_scalar{0x0AU}, unicode_scalar{0x43U},
+        unicode_scalar{0x0301U}, unicode_scalar{0xA0U},
+        unicode_scalar{0x44U}, unicode_scalar{0x4E00U},
+        unicode_scalar{0x4E01U}, unicode_scalar{0x31U},
+        unicode_scalar{0x2EU}, unicode_scalar{0x32U},
+        unicode_scalar{0x1F1E6U}, unicode_scalar{0x1F1E7U},
+        unicode_scalar{0x1F1E8U}};
+    std::array<unicode_line_break_class, input.size()> classes{};
+    std::array<text_line_break_kind, input.size()> breaks{};
+    unicode_error error = unicode_error::none;
+    require(try_resolve_unicode_line_breaks(
+        input, classes, breaks, &error));
+    require(breaks[0U] == text_line_break_kind::prohibited);
+    require(breaks[1U] == text_line_break_kind::opportunity);
+    require(breaks[3U] == text_line_break_kind::prohibited);
+    require(breaks[4U] == text_line_break_kind::mandatory);
+    require(breaks[5U] == text_line_break_kind::prohibited);
+    require(breaks[6U] == text_line_break_kind::prohibited);
+    require(breaks[8U] == text_line_break_kind::opportunity);
+    require(breaks[9U] == text_line_break_kind::opportunity);
+    require(breaks[11U] == text_line_break_kind::prohibited);
+    require(breaks[12U] == text_line_break_kind::prohibited);
+    require(breaks[14U] == text_line_break_kind::prohibited);
+    require(breaks[15U] == text_line_break_kind::opportunity);
+    require(breaks.back() == text_line_break_kind::mandatory);
+
+    breaks.fill(text_line_break_kind::mandatory);
+    require(!try_resolve_unicode_line_breaks(
+        input,
+        std::span<unicode_line_break_class>{classes}.first(input.size() - 1U),
+        breaks,
+        &error));
+    require(error == unicode_error::insufficient_buffer);
+    require(std::ranges::all_of(
+        breaks,
+        [](text_line_break_kind item) {
+            return item == text_line_break_kind::mandatory;
+        }));
+}
+
 void variation_axes_are_borrowed_bounded_and_transactional() {
     const auto data = make_font(0U, 22U, 0U, true);
     sfnt_font_view font{};
@@ -5197,6 +5253,7 @@ int main() {
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
     native_positioned_text_layout_wraps_without_allocation();
+    unicode_line_breaks_feed_native_layout_without_allocation();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_selector_cmap_is_borrowed_and_bounded();

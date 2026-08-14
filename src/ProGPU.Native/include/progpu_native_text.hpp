@@ -769,11 +769,76 @@ bool try_itemize_font_fallback(
     std::uint32_t& written,
     font_error* error = nullptr) noexcept;
 
+enum class unicode_line_break_class : std::uint8_t {
+    unknown = 0U,
+    ambiguous = 1U,
+    aksara = 2U,
+    alphabetic = 3U,
+    aksara_prebase = 4U,
+    aksara_start = 5U,
+    break_both = 6U,
+    break_after = 7U,
+    break_before = 8U,
+    mandatory = 9U,
+    contingent = 10U,
+    conditional_japanese = 11U,
+    close_punctuation = 12U,
+    combining_mark = 13U,
+    close_parenthesis = 14U,
+    carriage_return = 15U,
+    emoji_base = 16U,
+    emoji_modifier = 17U,
+    exclamation = 18U,
+    glue = 19U,
+    hangul_lv = 20U,
+    hangul_lvt = 21U,
+    unambiguous_hyphen = 22U,
+    hebrew_letter = 23U,
+    hyphen = 24U,
+    ideographic = 25U,
+    inseparable = 26U,
+    infix_numeric = 27U,
+    hangul_l = 28U,
+    hangul_t = 29U,
+    hangul_v = 30U,
+    line_feed = 31U,
+    next_line = 32U,
+    nonstarter = 33U,
+    numeric = 34U,
+    open_punctuation = 35U,
+    postfix_numeric = 36U,
+    prefix_numeric = 37U,
+    quotation = 38U,
+    regional_indicator = 39U,
+    complex_context = 40U,
+    surrogate = 41U,
+    space = 42U,
+    break_symbol = 43U,
+    virama_final = 44U,
+    virama = 45U,
+    word_joiner = 46U,
+    zero_width_space = 47U,
+    zero_width_joiner = 48U
+};
+
 enum class text_line_break_kind : std::uint8_t {
     prohibited = 0U,
     opportunity = 1U,
     mandatory = 2U
 };
+
+unicode_line_break_class get_unicode_line_break_class(
+    std::uint32_t code_point) noexcept;
+
+/* Unicode 17 UAX #14 default line-break resolution over decoded logical
+ * scalars. Output is indexed by scalar and describes the boundary after it;
+ * the final boundary is mandatory. The caller owns the resolved-class scratch
+ * and output spans, keeping the stage allocation-free and bulk-interoperable. */
+bool try_resolve_unicode_line_breaks(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_line_break_class> class_scratch,
+    std::span<text_line_break_kind> breaks_after,
+    unicode_error* error = nullptr) noexcept;
 
 struct text_layout_options final {
     float scale = 1.0F;
