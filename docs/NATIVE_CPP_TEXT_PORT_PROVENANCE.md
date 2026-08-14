@@ -181,7 +181,28 @@ managed invalid/zero-peak behavior and piecewise ramps in `O(A)` time and
 `O(1)` storage for `A` axes. Synthetic embedded/intermediate/private-point
 coverage plus real Inter shared tuples pass normal, named-module, and
 ASan/UBSan gates. Packed tuple payload application and untouched-point
-interpolation remain the active slice.
+interpolation follow in the next checkpoints.
+
+Allocation-free IUP interpolation follows at checkpoint
+`83cc056eb2311a6ba23bdd2b003de91c15576002` in
+`progpu_native_gvar_interpolate.cpp`. It validates complete contour ownership
+before mutation, then scans each circular contour in `O(P)` time and `O(1)`
+internal storage, preserving the managed one-touch propagation, two-touch
+piecewise interpolation, equal-coordinate min/max rule, and wraparound pairs.
+
+Simple-glyph tuple application follows at checkpoint
+`ca9e9d22250b09035906c42814fafa6ef35ab898` in the granular
+`progpu_native_gvar_apply.cpp` unit. It preflights all shared/private point and
+X/Y delta streams before writing output, uses exact caller-owned scratch spans,
+evaluates each tuple region, applies all-point or sparse deltas, and invokes the
+IUP pass for untouched points. Work is `O(T * (A + P + D))` with bounded
+caller storage and `O(1)` internal storage for tuples `T`, axes `A`, points
+`P`, and packed deltas `D`. Fractional varied points lower directly to the
+canonical line/quadratic path ABI without rounding. The managed and native
+InterVariable `opsz=23` glyph-397 checkpoint matches start `(648.5,-25)`, 39
+segments, and exact full-stream hash `12343280691057163238` under normal,
+named-module, ASan/UBSan, and focused managed gates. Composite component and
+phantom-metric variation application remain later slices.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
