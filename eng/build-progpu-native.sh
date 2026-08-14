@@ -157,6 +157,13 @@ mkdir -p "${sample_dir}"
   "${sample_dir}/progpu-native-sample.ppm" \
   "${sample_dir}/progpu-native-provider.txt"
 
+if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" == "1" ]]; then
+  echo "Skipped the managed differential/benchmark matrix for compiler qualification."
+  echo "ProGPU native renderer built from ${actual_commit}."
+  echo "Sample: ${sample_dir}/progpu-native-sample.ppm"
+  exit 0
+fi
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \

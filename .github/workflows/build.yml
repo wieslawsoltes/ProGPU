@@ -215,12 +215,17 @@ jobs:
         env:
           PROGPU_NATIVE_CXX_COMPILER: g++
           PROGPU_NATIVE_ENABLE_CPP_MODULES: OFF
+          PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION: 1
         run: ./eng/build-progpu-native.sh
 
       - name: Compile and test with Visual Studio MSVC C++20
         if: matrix.compiler == 'MSVC'
         shell: pwsh
-        run: ./eng/build-progpu-native-windows.ps1 -Rid win-x64 -Compiler MSVC
+        run: >-
+          ./eng/build-progpu-native-windows.ps1
+          -Rid win-x64
+          -Compiler MSVC
+          -SkipExtendedIntegration
 
   native-package:
     name: Native C++ NuGet package

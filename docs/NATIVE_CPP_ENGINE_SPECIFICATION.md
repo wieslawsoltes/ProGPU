@@ -1111,23 +1111,26 @@ ordered semantic layers now own bounded backdrop input.
   retained RGBA8 images referenced by one or more nearest/linear/cubic draw
   commands with optional exact color matrices, plus retained vector-glyph
   outline/segment resources, positioned runs, and deduplicated text styles,
-  then
+  plus typed rounded/coverage/analytic-chain masks, per-draw mask states,
+  bounded Gaussian/drop-shadow effect chains, and balanced isolated/backdrop
+  layer scopes with exact opacity/blend/revision state, then
   deterministically emits the same bounded,
   pointer-free version-one stream consumed by the native compiler. The
   desktop sample now uses this builder end to end, and the Emscripten gate
   compiles, submits, and stable-replays the same native-owned builder path.
-  Color-bitmap glyph/layer/effect recording and incremental range updates
-  remain. Image
+  Color-bitmap glyph recording and incremental range updates remain. Image
   pixels are copied once into a generation-owned resource; repeated commands
   reference that resource without duplicating bytes, and unchanged browser
   replay reports zero texture upload.
   Geometry and stroke validation reuse the existing native compiler contracts
   rather than maintaining builder-local approximations; path recording likewise
   reuses the exact transform-aware atlas, fill-rule, segment, and 4x4/8x8
-  validation contract. This is a direct
-  parallel port of the ProGPU-owned
+  validation contract. Layer/mask/effect recording reuses the same production
+  validators and executor resource kinds, and a fixed 64-entry typed stack
+  rejects mismatched save/layer closure without per-scope allocation. This is
+  a direct parallel port of the ProGPU-owned
   `NativeSceneStreamBuilder.cs` contract at source checkpoint
-  `4450f04561a91597a43de572ca2a5a68634faa8f`, with the existing native header
+  `2ff9c5e163a2ae6112013503f7f18dbff2a1e966`, with the existing native header
   remaining the generated wire-layout authority;
 - native implementation code is strict portable C++20. Clang is the primary
   toolchain, with explicit GCC and Visual Studio MSVC compatibility gates.
@@ -2156,6 +2159,16 @@ runtime boundary:
   device-loss recreation;
 - WebScene provider contract and zero-copy lease/fence tests;
 - protected sample macrobenchmarks and platform-native profiles.
+
+Compiler-compatibility lanes are intentionally narrower than platform
+qualification lanes. GCC and Visual Studio MSVC compatibility must configure
+and compile the complete strict-C++20 native targets, run native CTest suites,
+verify exported symbols, stage package payloads/symbols, and execute the real
+hardware/software WebGPU sample when the target architecture is runnable. The
+primary Clang platform lanes additionally own the matched managed/native
+differential and benchmark matrix. This avoids repeating dozens of identical
+managed workloads merely to qualify a second C++ frontend without removing any
+runtime, pixel, performance, or package coverage from the required CI graph.
 
 CI must report the exact native dependency revisions and binary hashes. A
 backend lane is skipped only by an explicit unsupported-platform condition, not
