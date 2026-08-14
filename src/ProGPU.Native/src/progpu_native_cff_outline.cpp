@@ -207,6 +207,59 @@ bool try_evaluate_cff1_outline(
     return true;
 }
 
+bool try_evaluate_cff2_outline(
+    sfnt_cff2_font_view font,
+    std::uint32_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<progpu_native_path_segment> segments,
+    bool count_only,
+    std::uint32_t& written,
+    font_error* error) noexcept {
+    written = 0U;
+    if (glyph_index >= font.char_strings.count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (normalized_coordinates.size() < font.axis_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    std::span<const std::byte> char_string{};
+    sfnt_cff_index_view local_subroutines{};
+    std::uint16_t initial_vsindex = 0U;
+    if (!sfnt_cff_data::try_get_index_item(
+            font.char_strings, glyph_index, char_string, error) ||
+        char_string.size() > 65535U ||
+        !try_get_cff2_glyph_private(
+            font,
+            glyph_index,
+            local_subroutines,
+            initial_vsindex,
+            error)) {
+        return false;
+    }
+    std::array<double, 513U> operands{};
+    std::array<double, 32U> transient{};
+    cff_path_writer writer{segments, count_only};
+    cff_type2_evaluator evaluator{
+        writer,
+        font.global_subroutines,
+        local_subroutines,
+        font.variation_store,
+        normalized_coordinates,
+        initial_vsindex,
+        operands,
+        transient,
+        glyph_index + 1U};
+    if (!evaluator.try_evaluate(char_string)) {
+        set_error(error, font_error::invalid_glyph);
+        return false;
+    }
+    written = writer.count();
+    set_error(error, font_error::none);
+    return true;
+}
+
 } // namespace detail
 
 bool sfnt_cff_data::try_get_outline_requirements(
@@ -243,6 +296,54 @@ bool sfnt_cff_data::try_decode_outline(
     return detail::try_evaluate_cff1_outline(
         font,
         glyph_index,
+        segments,
+        false,
+        written,
+        error);
+}
+
+bool sfnt_cff_data::try_get_outline_requirements(
+    sfnt_cff2_font_view font,
+    std::uint32_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    sfnt_cff2_outline_requirements& result,
+    font_error* error) noexcept {
+    result = {};
+    return detail::try_evaluate_cff2_outline(
+        font,
+        glyph_index,
+        normalized_coordinates,
+        {},
+        true,
+        result.path_segment_count,
+        error);
+}
+
+bool sfnt_cff_data::try_decode_outline(
+    sfnt_cff2_font_view font,
+    std::uint32_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<progpu_native_path_segment> segments,
+    std::uint32_t& written,
+    font_error* error) noexcept {
+    written = 0U;
+    sfnt_cff2_outline_requirements requirements{};
+    if (!try_get_outline_requirements(
+            font,
+            glyph_index,
+            normalized_coordinates,
+            requirements,
+            error)) {
+        return false;
+    }
+    if (segments.size() < requirements.path_segment_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    return detail::try_evaluate_cff2_outline(
+        font,
+        glyph_index,
+        normalized_coordinates,
         segments,
         false,
         written,

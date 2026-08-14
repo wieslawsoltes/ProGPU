@@ -3,6 +3,7 @@
 
 #include "progpu_native_text.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -78,6 +79,16 @@ public:
         std::span<double> operands,
         std::span<double> transient,
         std::uint32_t random_seed) noexcept;
+    cff_type2_evaluator(
+        cff_path_writer& writer,
+        sfnt_cff_index_view global_subroutines,
+        sfnt_cff_index_view local_subroutines,
+        sfnt_item_variation_store_view variation_store,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t initial_vsindex,
+        std::span<double> operands,
+        std::span<double> transient,
+        std::uint32_t random_seed) noexcept;
 
     bool try_evaluate(std::span<const std::byte> char_string) noexcept;
 
@@ -91,6 +102,9 @@ private:
     bool execute_escaped(std::uint8_t operation) noexcept;
     bool consume_stems() noexcept;
     bool consume_width(std::size_t expected_operands) noexcept;
+    bool select_variation_data() noexcept;
+    bool blend_variation_data() noexcept;
+    bool ensure_variation_scalars() noexcept;
     void remove_first_operand() noexcept;
     bool execute_vv_or_hh_curve(bool horizontal) noexcept;
     bool execute_alternating_curve(bool horizontal) noexcept;
@@ -119,11 +133,20 @@ private:
     cff_path_writer& writer_;
     sfnt_cff_index_view global_subroutines_{};
     sfnt_cff_index_view local_subroutines_{};
+    sfnt_item_variation_store_view variation_store_{};
+    std::span<const std::int16_t> normalized_coordinates_{};
     std::span<double> operands_{};
     std::span<double> transient_{};
+    std::array<float, 512U> variation_scalars_{};
     std::size_t operand_count_ = 0U;
     std::uint32_t stem_count_ = 0U;
+    std::uint16_t active_vsindex_ = 0U;
+    std::uint16_t variation_scalar_count_ = 0U;
     bool width_seen_ = false;
+    bool cff2_ = false;
+    bool vsindex_seen_ = false;
+    bool blend_seen_ = false;
+    bool variation_scalars_ready_ = false;
     double x_ = 0.0;
     double y_ = 0.0;
     std::uint32_t random_state_ = 0U;
@@ -132,6 +155,22 @@ private:
 bool try_evaluate_cff1_outline(
     sfnt_cff1_font_view font,
     std::uint32_t glyph_index,
+    std::span<progpu_native_path_segment> segments,
+    bool count_only,
+    std::uint32_t& written,
+    font_error* error) noexcept;
+
+bool try_get_cff2_glyph_private(
+    sfnt_cff2_font_view font,
+    std::uint32_t glyph_index,
+    sfnt_cff_index_view& local_subroutines,
+    std::uint16_t& initial_vsindex,
+    font_error* error) noexcept;
+
+bool try_evaluate_cff2_outline(
+    sfnt_cff2_font_view font,
+    std::uint32_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
     std::span<progpu_native_path_segment> segments,
     bool count_only,
     std::uint32_t& written,

@@ -13,6 +13,7 @@ namespace {
 
 using detail::can_read;
 using detail::read_u16;
+using detail::read_u32;
 
 void set_error(font_error* destination, font_error value) noexcept {
     if (destination != nullptr) {
@@ -43,21 +44,23 @@ bool try_read_offset(
     return true;
 }
 
-} // namespace
-
-bool sfnt_cff_data::try_read_index(
+bool try_read_index_core(
     std::span<const std::byte> bytes,
     std::size_t& cursor,
+    std::size_t count_size,
     sfnt_cff_index_view& result,
     font_error* error) noexcept {
     result = {};
     set_error(error, font_error::none);
-    if (!can_read(bytes, cursor, 2U)) {
+    if ((count_size != 2U && count_size != 4U) ||
+        !can_read(bytes, cursor, count_size)) {
         set_error(error, font_error::invalid_face);
         return false;
     }
-    const auto count = read_u16(bytes, cursor);
-    cursor += 2U;
+    const auto count = count_size == 2U
+        ? static_cast<std::uint32_t>(read_u16(bytes, cursor))
+        : read_u32(bytes, cursor);
+    cursor += count_size;
     if (count == 0U) {
         result = {bytes, cursor, cursor, cursor, 0U, 0U};
         return true;
@@ -68,9 +71,13 @@ bool sfnt_cff_data::try_read_index(
     }
     const auto offset_size =
         std::to_integer<std::uint8_t>(bytes[cursor++]);
-    const auto offset_count = static_cast<std::size_t>(count) + 1U;
     if (offset_size < 1U || offset_size > 4U ||
-        offset_count >
+        count == std::numeric_limits<std::uint32_t>::max()) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    const auto offset_count = static_cast<std::size_t>(count) + 1U;
+    if (offset_count >
             std::numeric_limits<std::size_t>::max() / offset_size ||
         !can_read(bytes, cursor, offset_count * offset_size)) {
         set_error(error, font_error::invalid_face);
@@ -87,7 +94,7 @@ bool sfnt_cff_data::try_read_index(
         offset_size};
     std::uint32_t first = 0U;
     std::uint32_t previous = 0U;
-    if (!try_read_offset(candidate, 0U, first) || first < 1U) {
+    if (!try_read_offset(candidate, 0U, first) || first != 1U) {
         set_error(error, font_error::invalid_face);
         return false;
     }
@@ -110,6 +117,24 @@ bool sfnt_cff_data::try_read_index(
     result = candidate;
     cursor = candidate.end_offset;
     return true;
+}
+
+} // namespace
+
+bool sfnt_cff_data::try_read_index(
+    std::span<const std::byte> bytes,
+    std::size_t& cursor,
+    sfnt_cff_index_view& result,
+    font_error* error) noexcept {
+    return try_read_index_core(bytes, cursor, 2U, result, error);
+}
+
+bool sfnt_cff_data::try_read_cff2_index(
+    std::span<const std::byte> bytes,
+    std::size_t& cursor,
+    sfnt_cff_index_view& result,
+    font_error* error) noexcept {
+    return try_read_index_core(bytes, cursor, 4U, result, error);
 }
 
 bool sfnt_cff_data::try_get_index_item(

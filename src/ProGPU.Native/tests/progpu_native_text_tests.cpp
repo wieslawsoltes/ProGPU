@@ -30,6 +30,9 @@ using progpu::native::text::sfnt_cff_index_view;
 using progpu::native::text::sfnt_cff1_font_view;
 using progpu::native::text::sfnt_cff1_outline_requirements;
 using progpu::native::text::sfnt_cff1_top_dictionary;
+using progpu::native::text::sfnt_cff2_font_view;
+using progpu::native::text::sfnt_cff2_outline_requirements;
+using progpu::native::text::sfnt_cff2_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_color_glyph_layer;
 using progpu::native::text::sfnt_svg_glyph_document_view;
@@ -627,6 +630,54 @@ std::vector<std::byte> make_cpal() {
     result[29U] = std::byte{255U};
     result[30U] = std::byte{255U};
     result[31U] = std::byte{128U};
+    return result;
+}
+
+std::vector<std::byte> make_cff2_table() {
+    constexpr std::size_t top_size = 13U;
+    constexpr std::size_t char_strings_offset = 22U;
+    constexpr std::size_t font_dictionaries_offset = 116U;
+    constexpr std::array<std::byte, 10U> char_string{
+        std::byte{0x8B}, std::byte{0x8B}, std::byte{0x15},
+        std::byte{0xEF}, std::byte{0x8B}, std::byte{0x8B},
+        std::byte{0xEF}, std::byte{0x27}, std::byte{0x8B},
+        std::byte{0x05}};
+    std::vector<std::byte> result(126U);
+    result[0U] = std::byte{2U};
+    result[1U] = std::byte{0U};
+    result[2U] = std::byte{5U};
+    write_u16(result, 3U, static_cast<std::uint16_t>(top_size));
+    result[5U] = std::byte{29U};
+    write_u32(result, 6U, static_cast<std::uint32_t>(char_strings_offset));
+    result[10U] = std::byte{17U};
+    result[11U] = std::byte{29U};
+    write_u32(
+        result, 12U, static_cast<std::uint32_t>(font_dictionaries_offset));
+    result[16U] = std::byte{12U};
+    result[17U] = std::byte{36U};
+    write_u32(result, 18U, 0U);
+
+    write_u32(result, char_strings_offset, 8U);
+    result[char_strings_offset + 4U] = std::byte{1U};
+    for (std::size_t index = 0U; index <= 8U; ++index) {
+        result[char_strings_offset + 5U + index] =
+            static_cast<std::byte>(1U + index * char_string.size());
+    }
+    auto char_cursor = char_strings_offset + 14U;
+    for (std::size_t glyph = 0U; glyph < 8U; ++glyph) {
+        std::copy(
+            char_string.begin(), char_string.end(),
+            result.begin() + static_cast<std::ptrdiff_t>(char_cursor));
+        char_cursor += char_string.size();
+    }
+
+    write_u32(result, font_dictionaries_offset, 1U);
+    result[font_dictionaries_offset + 4U] = std::byte{1U};
+    result[font_dictionaries_offset + 5U] = std::byte{1U};
+    result[font_dictionaries_offset + 6U] = std::byte{4U};
+    result[font_dictionaries_offset + 7U] = std::byte{0x8BU};
+    result[font_dictionaries_offset + 8U] = std::byte{0x8BU};
+    result[font_dictionaries_offset + 9U] = std::byte{18U};
     return result;
 }
 
@@ -1972,6 +2023,160 @@ void cff1_type2_outline_is_transactional_and_closes_figures() {
     require(short_segments[0].kind == 99U);
 }
 
+void cff2_indexes_blends_and_outlines_are_borrowed_and_bounded() {
+    const std::array<std::byte, 17U> static_char_strings{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x0B},
+        std::byte{0x8B}, std::byte{0x8B}, std::byte{0x15},
+        std::byte{0xEF}, std::byte{0x8B}, std::byte{0x8B},
+        std::byte{0xEF}, std::byte{0x27}, std::byte{0x8B},
+        std::byte{0x05}};
+    const std::array<std::byte, 10U> font_dictionaries{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x04},
+        std::byte{0x8B}, std::byte{0x8B}, std::byte{0x12}};
+    std::size_t cursor = 0U;
+    sfnt_cff_index_view char_strings{};
+    sfnt_cff_index_view dictionaries{};
+    font_error error = font_error::none;
+    require(sfnt_cff_data::try_read_cff2_index(
+        static_char_strings, cursor, char_strings, &error));
+    require(cursor == static_char_strings.size() &&
+        char_strings.count == 1U);
+    cursor = 0U;
+    require(sfnt_cff_data::try_read_cff2_index(
+        font_dictionaries, cursor, dictionaries, &error));
+
+    const std::array<std::byte, 8U> top_dictionary{
+        std::byte{0xBD}, std::byte{0x11},
+        std::byte{0xD1}, std::byte{0x0C}, std::byte{0x24},
+        std::byte{0xE5}, std::byte{0x18}, std::byte{0x00}};
+    sfnt_cff2_top_dictionary top{};
+    require(!sfnt_cff_data::try_get_cff2_top_dictionary(
+        top_dictionary, top, &error));
+    const auto valid_top =
+        std::span<const std::byte>{top_dictionary}.first(7U);
+    require(sfnt_cff_data::try_get_cff2_top_dictionary(
+        valid_top, top, &error));
+    require(top.char_strings_offset == 50U &&
+        top.font_dictionary_offset == 70U &&
+        top.variation_store_offset == 90U &&
+        !top.has_font_matrix);
+
+    sfnt_cff2_font_view font{};
+    font.char_strings = char_strings;
+    font.font_dictionaries = dictionaries;
+    sfnt_cff2_outline_requirements requirements{};
+    require(sfnt_cff_data::try_get_outline_requirements(
+        font, 0U, {}, requirements, &error));
+    require(error == font_error::none &&
+        requirements.path_segment_count == 4U);
+    std::array<progpu_native_path_segment, 4U> static_segments{};
+    std::uint32_t written = 0U;
+    require(sfnt_cff_data::try_decode_outline(
+        font, 0U, {}, static_segments, written, &error));
+    require(written == static_segments.size());
+    require(static_segments[0U].p1.x == 100.0F &&
+        static_segments[1U].p1.y == 100.0F &&
+        static_segments[3U].p1.x == 0.0F &&
+        static_segments[3U].p1.y == 0.0F);
+
+    std::vector<std::byte> variation_bytes(30U);
+    write_u16(variation_bytes, 0U, 1U);
+    write_u32(variation_bytes, 2U, 12U);
+    write_u16(variation_bytes, 6U, 1U);
+    write_u32(variation_bytes, 8U, 22U);
+    write_u16(variation_bytes, 12U, 1U);
+    write_u16(variation_bytes, 14U, 1U);
+    write_i16(variation_bytes, 16U, 0);
+    write_i16(variation_bytes, 18U, 8192);
+    write_i16(variation_bytes, 20U, 16384);
+    write_u16(variation_bytes, 22U, 0U);
+    write_u16(variation_bytes, 24U, 0U);
+    write_u16(variation_bytes, 26U, 1U);
+    write_u16(variation_bytes, 28U, 0U);
+    sfnt_item_variation_store_view store{};
+    require(sfnt_item_variation_data::try_get_store(
+        variation_bytes, 0U, 1U, store, &error));
+    std::uint16_t scalar_count = 0U;
+    require(sfnt_item_variation_data::try_get_region_scalar_count(
+        store, 0U, scalar_count, &error));
+    require(scalar_count == 1U);
+
+    const std::array<std::byte, 19U> varied_char_strings{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x01}, std::byte{0x0C},
+        std::byte{0x8B}, std::byte{0x0F},
+        std::byte{0x8B}, std::byte{0x8B}, std::byte{0x15},
+        std::byte{0xEF}, std::byte{0xB3}, std::byte{0x8C},
+        std::byte{0x10}, std::byte{0x8B}, std::byte{0x05},
+        std::byte{0x00}};
+    cursor = 0U;
+    require(sfnt_cff_data::try_read_cff2_index(
+        std::span<const std::byte>{varied_char_strings}.first(18U),
+        cursor,
+        char_strings,
+        &error));
+    font.char_strings = char_strings;
+    font.variation_store = store;
+    font.axis_count = 1U;
+    const std::array<std::int16_t, 1U> default_coordinates{0};
+    const std::array<std::int16_t, 1U> peak_coordinates{8192};
+    require(sfnt_cff_data::try_get_outline_requirements(
+        font, 0U, default_coordinates, requirements, &error));
+    require(requirements.path_segment_count == 2U);
+    std::array<progpu_native_path_segment, 2U> default_segments{};
+    std::array<progpu_native_path_segment, 2U> peak_segments{};
+    require(sfnt_cff_data::try_decode_outline(
+        font,
+        0U,
+        default_coordinates,
+        default_segments,
+        written,
+        &error));
+    require(default_segments[0U].p1.x == 100.0F);
+    require(sfnt_cff_data::try_decode_outline(
+        font,
+        0U,
+        peak_coordinates,
+        peak_segments,
+        written,
+        &error));
+    require(peak_segments[0U].p1.x == 140.0F);
+
+    auto forbidden_endchar = varied_char_strings;
+    forbidden_endchar[17U] = std::byte{0x0E};
+    forbidden_endchar[6U] = std::byte{0x0C};
+    cursor = 0U;
+    require(sfnt_cff_data::try_read_cff2_index(
+        std::span<const std::byte>{forbidden_endchar}.first(18U),
+        cursor,
+        char_strings,
+        &error));
+    font.char_strings = char_strings;
+    require(!sfnt_cff_data::try_get_outline_requirements(
+        font, 0U, peak_coordinates, requirements, &error));
+    require(error == font_error::invalid_glyph);
+
+    const std::array<table_data, 1U> extra{
+        table_data{
+            open_type_tag::from_chars('C', 'F', 'F', '2'),
+            make_cff2_table()}};
+    const auto sfnt = make_font(
+        0U, 22U, 0U, false, false, false, extra);
+    sfnt_font_view face{};
+    require(sfnt_font_view::try_create(sfnt, 0U, face, &error));
+    require(face.try_get_cff2_font(8U, font, &error));
+    require(error == font_error::none && font.char_strings.count == 8U &&
+        font.font_dictionaries.count == 1U && font.axis_count == 0U);
+    require(sfnt_cff_data::try_get_outline_requirements(
+        font, 7U, {}, requirements, &error));
+    require(requirements.path_segment_count == 4U);
+    sfnt_cff2_font_view mismatch{};
+    require(!face.try_get_cff2_font(7U, mismatch, &error));
+    require(error == font_error::invalid_face && mismatch.bytes.empty());
+}
+
 void sbix_strikes_and_duplicates_remain_borrowed() {
     const std::array<table_data, 1U> extra{
         table_data{
@@ -2799,6 +3004,7 @@ int main() {
     cff1_indexes_and_dictionaries_are_borrowed_and_bounded();
     cff1_fd_select_formats_are_borrowed_and_searchable();
     cff1_type2_outline_is_transactional_and_closes_figures();
+    cff2_indexes_blends_and_outlines_are_borrowed_and_bounded();
     sbix_strikes_and_duplicates_remain_borrowed();
     svg_glyph_documents_remain_borrowed_and_bounded();
     cbdt_index_and_image_formats_remain_borrowed_and_bounded();

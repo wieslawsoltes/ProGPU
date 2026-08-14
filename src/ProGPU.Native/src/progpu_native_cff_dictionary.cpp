@@ -273,4 +273,87 @@ bool sfnt_cff_data::try_get_top_dictionary(
     return true;
 }
 
+bool sfnt_cff_data::try_get_cff2_top_dictionary(
+    std::span<const std::byte> bytes,
+    sfnt_cff2_top_dictionary& result,
+    font_error* error) noexcept {
+    result = {};
+    set_error(error, font_error::none);
+    std::array<double, 48U> operands{};
+    std::size_t operand_count = 0U;
+    std::size_t cursor = 0U;
+    bool saw_char_strings = false;
+    bool saw_font_dictionaries = false;
+    bool saw_fd_select = false;
+    bool saw_variation_store = false;
+    bool saw_font_matrix = false;
+    while (cursor < bytes.size()) {
+        const auto value = std::to_integer<std::uint8_t>(bytes[cursor++]);
+        double number = 0.0;
+        if (try_read_dictionary_number(bytes, cursor, value, number)) {
+            if (operand_count >= operands.size()) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            operands[operand_count++] = number;
+            continue;
+        }
+        std::uint16_t operation = value;
+        if (value == 12U) {
+            if (cursor >= bytes.size()) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            operation = static_cast<std::uint16_t>(0x0C00U |
+                std::to_integer<std::uint8_t>(bytes[cursor++]));
+        }
+        if (operation == 17U && operand_count == 1U &&
+            !saw_char_strings) {
+            result.char_strings_offset = to_offset(operands[0U]);
+            saw_char_strings = true;
+        } else if (operation == 24U && operand_count == 1U &&
+            !saw_variation_store) {
+            result.variation_store_offset = to_offset(operands[0U]);
+            saw_variation_store = true;
+        } else if (operation == 0x0C24U && operand_count == 1U &&
+            !saw_font_dictionaries) {
+            result.font_dictionary_offset = to_offset(operands[0U]);
+            saw_font_dictionaries = true;
+        } else if (operation == 0x0C25U && operand_count == 1U &&
+            !saw_fd_select) {
+            result.fd_select_offset = to_offset(operands[0U]);
+            saw_fd_select = true;
+        } else if (operation == 0x0C07U && operand_count == 6U &&
+            !saw_font_matrix && operands[0U] == operands[3U] &&
+            operands[1U] == 0.0 && operands[2U] == 0.0 &&
+            operands[4U] == 0.0 && operands[5U] == 0.0 &&
+            operands[0U] > 0.0 && std::isfinite(operands[0U])) {
+            result.font_matrix_scale = operands[0U];
+            result.has_font_matrix = true;
+            saw_font_matrix = true;
+        } else {
+            result = {};
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        operand_count = 0U;
+    }
+    if (operand_count != 0U || !saw_char_strings ||
+        !saw_font_dictionaries || result.char_strings_offset == 0U ||
+        result.font_dictionary_offset == 0U ||
+        result.char_strings_offset ==
+            std::numeric_limits<std::uint32_t>::max() ||
+        result.font_dictionary_offset ==
+            std::numeric_limits<std::uint32_t>::max() ||
+        result.fd_select_offset ==
+            std::numeric_limits<std::uint32_t>::max() ||
+        result.variation_store_offset ==
+            std::numeric_limits<std::uint32_t>::max()) {
+        result = {};
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    return true;
+}
+
 } // namespace progpu::native::text

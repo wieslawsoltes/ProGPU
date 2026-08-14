@@ -256,6 +256,91 @@ bool sfnt_item_variation_data::try_get_delta(
     return true;
 }
 
+bool sfnt_item_variation_data::try_get_region_scalar_count(
+    sfnt_item_variation_store_view store,
+    std::uint16_t outer_index,
+    std::uint16_t& result,
+    font_error* error) noexcept {
+    result = 0U;
+    set_error(error, font_error::none);
+    std::size_t table_offset = 0U;
+    if (!try_get_subtable_offset(store, outer_index, table_offset)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    const auto item_count = read_u16(store.bytes, table_offset);
+    const auto packed_word_count = read_u16(store.bytes, table_offset + 2U);
+    const auto region_index_count = read_u16(store.bytes, table_offset + 4U);
+    if (item_count != 0U || packed_word_count != 0U) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    const auto indices_offset = table_offset + 6U;
+    for (std::uint16_t region = 0U;
+        region < region_index_count;
+        ++region) {
+        if (read_u16(
+                store.bytes,
+                indices_offset + static_cast<std::size_t>(region) * 2U) >=
+            store.region_count) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    }
+    result = region_index_count;
+    return true;
+}
+
+bool sfnt_item_variation_data::try_get_region_scalar(
+    sfnt_item_variation_store_view store,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint16_t outer_index,
+    std::uint16_t region_position,
+    float& result,
+    font_error* error) noexcept {
+    result = 0.0F;
+    set_error(error, font_error::none);
+    if (normalized_coordinates.size() < store.axis_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    std::uint16_t region_count = 0U;
+    if (!try_get_region_scalar_count(
+            store, outer_index, region_count, error)) {
+        return false;
+    }
+    if (region_position >= region_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::size_t table_offset = 0U;
+    if (!try_get_subtable_offset(store, outer_index, table_offset)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    const auto region_index = read_u16(
+        store.bytes,
+        table_offset + 6U +
+            static_cast<std::size_t>(region_position) * 2U);
+    const auto axes_offset = store.region_list_offset + 4U +
+        static_cast<std::size_t>(region_index) * store.axis_count * 6U;
+    constexpr float coordinate_scale = 1.0F / 16384.0F;
+    float scalar = 1.0F;
+    for (std::uint16_t axis = 0U; axis < store.axis_count; ++axis) {
+        const auto offset = axes_offset + static_cast<std::size_t>(axis) * 6U;
+        scalar *= axis_scalar(
+            normalized_coordinates[axis] * coordinate_scale,
+            read_i16(store.bytes, offset) * coordinate_scale,
+            read_i16(store.bytes, offset + 2U) * coordinate_scale,
+            read_i16(store.bytes, offset + 4U) * coordinate_scale);
+        if (scalar == 0.0F) {
+            break;
+        }
+    }
+    result = scalar;
+    return true;
+}
+
 bool sfnt_item_variation_data::try_get_delta_set_index_map(
     std::span<const std::byte> bytes,
     std::size_t map_offset,

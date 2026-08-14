@@ -366,6 +366,35 @@ struct sfnt_cff1_outline_requirements final {
     std::uint32_t path_segment_count = 0U;
 };
 
+struct sfnt_cff2_top_dictionary final {
+    std::uint32_t char_strings_offset = 0U;
+    std::uint32_t font_dictionary_offset = 0U;
+    std::uint32_t fd_select_offset = 0U;
+    std::uint32_t variation_store_offset = 0U;
+    double font_matrix_scale = 0.001;
+    bool has_font_matrix = false;
+};
+
+/*
+ * Borrowed CFF2 container state. INDEX objects retain their encoded uint32
+ * count/offset arrays, and the optional variation store is bounded to its
+ * declared length. Normalized coordinates use the shared F2Dot14 axis order.
+ */
+struct sfnt_cff2_font_view final {
+    std::span<const std::byte> bytes{};
+    sfnt_cff_index_view char_strings{};
+    sfnt_cff_index_view global_subroutines{};
+    sfnt_cff_index_view font_dictionaries{};
+    sfnt_cff_fd_select_view fd_select{};
+    sfnt_item_variation_store_view variation_store{};
+    sfnt_cff2_top_dictionary top_dictionary{};
+    std::uint16_t axis_count = 0U;
+};
+
+struct sfnt_cff2_outline_requirements final {
+    std::uint32_t path_segment_count = 0U;
+};
+
 struct sfnt_bitmap_glyph_data_view final {
     std::span<const std::byte> bytes{};
     open_type_tag graphic_type{};
@@ -417,6 +446,11 @@ public:
         std::size_t& cursor,
         sfnt_cff_index_view& result,
         font_error* error = nullptr) noexcept;
+    static bool try_read_cff2_index(
+        std::span<const std::byte> bytes,
+        std::size_t& cursor,
+        sfnt_cff_index_view& result,
+        font_error* error = nullptr) noexcept;
     static bool try_get_index_item(
         sfnt_cff_index_view index,
         std::uint32_t item,
@@ -430,6 +464,10 @@ public:
     static bool try_get_top_dictionary(
         std::span<const std::byte> bytes,
         sfnt_cff1_top_dictionary& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_cff2_top_dictionary(
+        std::span<const std::byte> bytes,
+        sfnt_cff2_top_dictionary& result,
         font_error* error = nullptr) noexcept;
     static bool try_read_local_subroutines(
         std::span<const std::byte> bytes,
@@ -465,6 +503,19 @@ public:
         std::span<progpu_native_path_segment> segments,
         std::uint32_t& written,
         font_error* error = nullptr) noexcept;
+    static bool try_get_outline_requirements(
+        sfnt_cff2_font_view font,
+        std::uint32_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        sfnt_cff2_outline_requirements& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_decode_outline(
+        sfnt_cff2_font_view font,
+        std::uint32_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& written,
+        font_error* error = nullptr) noexcept;
 };
 
 class sfnt_item_variation_data final {
@@ -480,6 +531,18 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         std::uint16_t outer_index,
         std::uint16_t inner_index,
+        float& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_region_scalar_count(
+        sfnt_item_variation_store_view store,
+        std::uint16_t outer_index,
+        std::uint16_t& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_region_scalar(
+        sfnt_item_variation_store_view store,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t outer_index,
+        std::uint16_t region_position,
         float& result,
         font_error* error = nullptr) noexcept;
     static bool try_get_delta_set_index_map(
@@ -763,6 +826,10 @@ public:
     bool try_get_cff1_font(
         std::uint16_t expected_glyph_count,
         sfnt_cff1_font_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_cff2_font(
+        std::uint16_t expected_glyph_count,
+        sfnt_cff2_font_view& result,
         font_error* error = nullptr) const noexcept;
     bool try_get_sbix_glyph(
         std::uint16_t glyph_index,

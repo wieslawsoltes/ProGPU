@@ -382,7 +382,26 @@ for tables `T`, input/output bytes `I`/`O`, and maximum table result `M`.
 Malformed compressed data is transactional. Raw SFNT/TTC remains a bounded
 pass-through, while WOFF2 is rejected explicitly pending the native
 Brotli/transform slice. Legacy symbol-page tables, COLR version-1 paint graphs,
-SVG vector lowering, and CFF2 remain later phase-1/2 work.
+and SVG vector lowering remain later phase work.
+
+CFF2 container and variable-outline parity follows the WOFF1 checkpoint. It
+ports the proven ProGPU CFF path writer and Type 2 evaluator behind an explicit
+CFF2 execution mode while deriving format differences from the
+[OpenType 1.9.1 CFF2 table contract](https://learn.microsoft.com/en-us/typography/opentype/spec/cff2)
+and
+[CFF2 CharString contract](https://learn.microsoft.com/en-us/typography/opentype/otspec190/cff2charstr).
+The borrowed container validates the five-byte header, uint32 INDEX objects,
+required TopDICT/FontDICT/PrivateDICT graph, optional FDSelect, FontMatrix, and
+the exact length-bounded VariationStore. CFF2 execution rejects widths,
+`endchar`, `return`, and removed Type 2 logic/storage operators, uses implicit
+program/subroutine termination, and evaluates `vsindex`/`blend` from normalized
+F2Dot14 coordinates. Active region scalars are computed once per selected
+ItemVariationData into fixed 512-value evaluator storage. Opening is `O(F + V)`
+for FontDICTs `F` and variation subtables `V`; decode is `O(B + S + A*R)` for
+executed bytes `B`, emitted segments `S`, axes `A`, and active regions `R`,
+with borrowed table storage, fixed parser/evaluator stacks, and caller-owned
+transactional path output. Static, default-instance, peak-instance, malformed
+operator, complete SFNT-container, LLVM named-module, and ASan/UBSan tests pass.
 
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real

@@ -13,6 +13,10 @@ namespace progpu::native::text::detail {
 
 bool cff_type2_evaluator::execute_escaped(
     std::uint8_t operation) noexcept {
+    if (cff2_ && operation != 34U && operation != 35U &&
+        operation != 36U && operation != 37U) {
+        return false;
+    }
     switch (operation) {
     case 0U:
         clear();

@@ -226,6 +226,19 @@ and aligned table payloads. Work is `O(T + I + O)` with `O(M)` caller scratch
 for tables `T`, compressed bytes `I`, output bytes `O`, and largest compressed
 table result `M`; the implementation has no heap or platform codec dependency.
 WOFF2 remains explicitly unsupported pending the bounded Brotli/transform slice.
+
+The same text library now opens borrowed CFF2 tables with uint32 INDEX counts,
+required TopDICT/FontDICT/PrivateDICT ownership, optional FDSelect, and a
+length-bounded VariationStore. The shared Type 2 evaluator has an explicit
+CFF2 mode: it rejects widths, `endchar`, `return`, and removed logic/storage
+operators; accepts implicit CharString/subroutine termination; and evaluates
+`vsindex`/`blend` from caller-provided normalized F2Dot14 coordinates. Region
+scalars are computed once per selected variation-data subtable into fixed
+stack storage. Container validation is `O(F + V)`, and outline decode is
+`O(B + S + A*R)` for FontDICTs `F`, variation subtables `V`, executed bytes
+`B`, emitted segments `S`, axes `A`, and active regions `R`, with borrowed
+tables and caller-owned output.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

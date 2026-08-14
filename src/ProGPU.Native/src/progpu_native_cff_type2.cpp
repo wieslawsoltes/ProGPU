@@ -30,6 +30,30 @@ cff_type2_evaluator::cff_type2_evaluator(
     std::fill(transient_.begin(), transient_.end(), 0.0);
 }
 
+cff_type2_evaluator::cff_type2_evaluator(
+    cff_path_writer& writer,
+    sfnt_cff_index_view global_subroutines,
+    sfnt_cff_index_view local_subroutines,
+    sfnt_item_variation_store_view variation_store,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint16_t initial_vsindex,
+    std::span<double> operands,
+    std::span<double> transient,
+    std::uint32_t random_seed) noexcept
+    : writer_(writer),
+      global_subroutines_(global_subroutines),
+      local_subroutines_(local_subroutines),
+      variation_store_(variation_store),
+      normalized_coordinates_(normalized_coordinates),
+      operands_(operands),
+      transient_(transient),
+      active_vsindex_(initial_vsindex),
+      width_seen_(true),
+      cff2_(true),
+      random_state_(random_seed) {
+    std::fill(transient_.begin(), transient_.end(), 0.0);
+}
+
 bool cff_type2_evaluator::try_evaluate(
     std::span<const std::byte> char_string) noexcept {
     return execute(char_string, 0U, false) ==
@@ -177,6 +201,9 @@ cff_execution_result cff_type2_evaluator::execute(
             break;
         }
         case 11U:
+            if (cff2_) {
+                return cff_execution_result::failed;
+            }
             return is_subroutine
                 ? cff_execution_result::returned
                 : cff_execution_result::failed;
@@ -187,7 +214,20 @@ cff_execution_result cff_type2_evaluator::execute(
                 return cff_execution_result::failed;
             }
             break;
+        case 15U:
+            if (!cff2_ || !select_variation_data()) {
+                return cff_execution_result::failed;
+            }
+            break;
+        case 16U:
+            if (!cff2_ || !blend_variation_data()) {
+                return cff_execution_result::failed;
+            }
+            break;
         case 14U: {
+            if (cff2_) {
+                return cff_execution_result::failed;
+            }
             const auto expected = operand_count_ == 1U || operand_count_ == 5U
                 ? operand_count_ - 1U
                 : operand_count_;
@@ -281,13 +321,18 @@ cff_execution_result cff_type2_evaluator::execute(
             return cff_execution_result::failed;
         }
     }
+    if (cff2_) {
+        return is_subroutine
+            ? cff_execution_result::returned
+            : cff_execution_result::end_glyph;
+    }
     return is_subroutine
         ? cff_execution_result::returned
         : cff_execution_result::failed;
 }
 
 bool cff_type2_evaluator::consume_stems() noexcept {
-    if (!width_seen_ && (operand_count_ & 1U) != 0U) {
+    if (!cff2_ && !width_seen_ && (operand_count_ & 1U) != 0U) {
         remove_first_operand();
         width_seen_ = true;
     }
@@ -301,6 +346,9 @@ bool cff_type2_evaluator::consume_stems() noexcept {
 
 bool cff_type2_evaluator::consume_width(
     std::size_t expected_operands) noexcept {
+    if (cff2_) {
+        return operand_count_ == expected_operands;
+    }
     if (!width_seen_ && operand_count_ == expected_operands + 1U) {
         remove_first_operand();
         width_seen_ = true;
@@ -308,6 +356,94 @@ bool cff_type2_evaluator::consume_width(
         width_seen_ = true;
     }
     return operand_count_ == expected_operands;
+}
+
+bool cff_type2_evaluator::select_variation_data() noexcept {
+    double encoded_index = 0.0;
+    std::int32_t index = 0;
+    if (vsindex_seen_ || blend_seen_ || operand_count_ != 1U ||
+        !pop(encoded_index) || !try_to_i32(encoded_index, index) ||
+        encoded_index != static_cast<double>(index) || index < 0 ||
+        index > std::numeric_limits<std::uint16_t>::max() ||
+        variation_store_.bytes.empty()) {
+        return false;
+    }
+    active_vsindex_ = static_cast<std::uint16_t>(index);
+    variation_scalars_ready_ = false;
+    vsindex_seen_ = true;
+    return ensure_variation_scalars();
+}
+
+bool cff_type2_evaluator::blend_variation_data() noexcept {
+    if (operand_count_ == 0U || !ensure_variation_scalars()) {
+        return false;
+    }
+    std::int32_t encoded_values = 0;
+    const auto value_operand = operands_[operand_count_ - 1U];
+    if (!try_to_i32(value_operand, encoded_values) ||
+        value_operand != static_cast<double>(encoded_values) ||
+        encoded_values <= 0) {
+        return false;
+    }
+    const auto value_count = static_cast<std::size_t>(encoded_values);
+    const auto scalar_count =
+        static_cast<std::size_t>(variation_scalar_count_);
+    if (scalar_count != 0U &&
+        value_count >
+            (std::numeric_limits<std::size_t>::max() - 1U) /
+                (scalar_count + 1U)) {
+        return false;
+    }
+    const auto consumed = value_count * (scalar_count + 1U) + 1U;
+    if (consumed > operand_count_) {
+        return false;
+    }
+    const auto start = operand_count_ - consumed;
+    const auto deltas = start + value_count;
+    for (std::size_t value = 0U; value < value_count; ++value) {
+        auto blended = operands_[start + value];
+        for (std::size_t region = 0U; region < scalar_count; ++region) {
+            blended += operands_[
+                deltas + value * scalar_count + region] *
+                variation_scalars_[region];
+        }
+        if (!std::isfinite(blended)) {
+            return false;
+        }
+        operands_[start + value] = blended;
+    }
+    operand_count_ = start + value_count;
+    blend_seen_ = true;
+    return true;
+}
+
+bool cff_type2_evaluator::ensure_variation_scalars() noexcept {
+    if (variation_scalars_ready_) {
+        return true;
+    }
+    if (variation_store_.bytes.empty() ||
+        normalized_coordinates_.size() < variation_store_.axis_count ||
+        !sfnt_item_variation_data::try_get_region_scalar_count(
+            variation_store_,
+            active_vsindex_,
+            variation_scalar_count_) ||
+        variation_scalar_count_ > variation_scalars_.size()) {
+        return false;
+    }
+    for (std::uint16_t region = 0U;
+        region < variation_scalar_count_;
+        ++region) {
+        if (!sfnt_item_variation_data::try_get_region_scalar(
+                variation_store_,
+                normalized_coordinates_,
+                active_vsindex_,
+                region,
+                variation_scalars_[region])) {
+            return false;
+        }
+    }
+    variation_scalars_ready_ = true;
+    return true;
 }
 
 void cff_type2_evaluator::remove_first_operand() noexcept {
