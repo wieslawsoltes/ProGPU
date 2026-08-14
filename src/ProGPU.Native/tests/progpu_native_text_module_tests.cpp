@@ -26,6 +26,7 @@ int main() {
     const progpu::native::text::sfnt_cff_fd_select_view fd_select{};
     const progpu::native::text::sfnt_cff1_font_view cff_font{};
     const progpu::native::text::sfnt_cff1_outline_requirements cff_outline{};
+    const progpu::native::text::sfnt_bitmap_glyph_data_view bitmap_glyph{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -52,7 +53,7 @@ int main() {
     }
     if (cff_index.count != 0U || fd_select.range_count != 0U ||
         cff_outline.path_segment_count != 0U ||
-        !cff_font.bytes.empty()) {
+        !cff_font.bytes.empty() || !bitmap_glyph.bytes.empty()) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -25,6 +26,7 @@ using progpu::native::text::sfnt_cff_index_view;
 using progpu::native::text::sfnt_cff1_font_view;
 using progpu::native::text::sfnt_cff1_outline_requirements;
 using progpu::native::text::sfnt_cff1_top_dictionary;
+using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -253,13 +255,66 @@ std::vector<std::byte> make_gvar() {
     return result;
 }
 
+std::vector<std::byte> make_sbix_strike(
+    std::uint16_t pixels_per_em,
+    std::int16_t origin_x,
+    std::int16_t origin_y,
+    std::array<std::byte, 3U> image) {
+    constexpr std::uint32_t data_start = 40U;
+    constexpr std::uint32_t duplicate_start = data_start + 11U;
+    constexpr std::uint32_t end = duplicate_start + 10U;
+    std::vector<std::byte> result(end);
+    write_u16(result, 0U, pixels_per_em);
+    write_u16(result, 2U, 72U);
+    write_u32(result, 4U, data_start);
+    write_u32(result, 8U, data_start);
+    write_u32(result, 12U, duplicate_start);
+    for (std::size_t glyph = 3U; glyph <= 8U; ++glyph) {
+        write_u32(result, 4U + glyph * 4U, end);
+    }
+    write_i16(result, data_start, origin_x);
+    write_i16(result, data_start + 2U, origin_y);
+    write_u32(result, data_start + 4U,
+        open_type_tag::from_chars('p', 'n', 'g', ' ').value);
+    result[data_start + 8U] = image[0U];
+    result[data_start + 9U] = image[1U];
+    result[data_start + 10U] = image[2U];
+    write_i16(result, duplicate_start, 7);
+    write_i16(result, duplicate_start + 2U, 8);
+    write_u32(result, duplicate_start + 4U,
+        open_type_tag::from_chars('d', 'u', 'p', 'e').value);
+    write_u16(result, duplicate_start + 8U, 1U);
+    return result;
+}
+
+std::vector<std::byte> make_sbix() {
+    const auto strike_20 = make_sbix_strike(
+        20U, -2, 6, {std::byte{20U}, std::byte{21U}, std::byte{22U}});
+    const auto strike_40 = make_sbix_strike(
+        40U, -4, 12, {std::byte{40U}, std::byte{41U}, std::byte{42U}});
+    std::vector<std::byte> result(16U + strike_20.size() + strike_40.size());
+    write_u16(result, 0U, 1U);
+    write_u16(result, 2U, 1U);
+    write_u32(result, 4U, 2U);
+    write_u32(result, 8U, 16U);
+    write_u32(result, 12U,
+        static_cast<std::uint32_t>(16U + strike_20.size()));
+    std::copy(strike_20.begin(), strike_20.end(), result.begin() + 16);
+    std::copy(
+        strike_40.begin(),
+        strike_40.end(),
+        result.begin() + static_cast<std::ptrdiff_t>(16U + strike_20.size()));
+    return result;
+}
+
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
     std::size_t glyph_size = 22U,
     std::size_t second_glyph_size = 0U,
     bool include_variations = false,
     bool include_axis_mapping = false,
-    bool include_glyph_variations = false) {
+    bool include_glyph_variations = false,
+    std::span<const table_data> extra_tables = {}) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -335,6 +390,9 @@ std::vector<std::byte> make_font(
     if (include_glyph_variations) {
         tables.push_back(table_data{
             open_type_tag::from_chars('g', 'v', 'a', 'r'), make_gvar()});
+    }
+    for (const auto& table : extra_tables) {
+        tables.push_back(table);
     }
 
     const auto directory_size = 12U + tables.size() * 16U;
@@ -1576,6 +1634,40 @@ void cff1_type2_outline_is_transactional_and_closes_figures() {
     require(short_segments[0].kind == 99U);
 }
 
+void sbix_strikes_and_duplicates_remain_borrowed() {
+    const std::array<table_data, 1U> extra{
+        table_data{
+            open_type_tag::from_chars('s', 'b', 'i', 'x'), make_sbix()}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, extra);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_bitmap_glyph_data_view glyph{};
+    font_error error = font_error::none;
+    require(font.try_get_sbix_glyph(1U, 35.0F, glyph, &error));
+    require(error == font_error::none);
+    require(glyph.pixels_per_em == 40U && glyph.pixels_per_inch == 72U);
+    require(glyph.origin_offset_x == -4 && glyph.origin_offset_y == 12);
+    require(glyph.graphic_type ==
+        open_type_tag::from_chars('p', 'n', 'g', ' '));
+    require(glyph.bytes.size() == 3U &&
+        glyph.bytes[0U] == std::byte{40U} &&
+        glyph.bytes[1U] == std::byte{41U} &&
+        glyph.bytes[2U] == std::byte{42U});
+
+    require(font.try_get_sbix_glyph(2U, 19.0F, glyph, &error));
+    require(glyph.pixels_per_em == 20U);
+    require(glyph.origin_offset_x == 7 && glyph.origin_offset_y == 8);
+    require(glyph.bytes.size() == 3U &&
+        glyph.bytes[0U] == std::byte{20U});
+
+    require(font.try_get_sbix_glyph(1U, 30.0F, glyph, &error));
+    require(glyph.pixels_per_em == 40U);
+
+    require(!font.try_get_sbix_glyph(8U, 20.0F, glyph, &error));
+    require(error == font_error::invalid_argument && glyph.bytes.empty());
+}
+
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -2150,6 +2242,7 @@ int main() {
     cff1_indexes_and_dictionaries_are_borrowed_and_bounded();
     cff1_fd_select_formats_are_borrowed_and_searchable();
     cff1_type2_outline_is_transactional_and_closes_figures();
+    sbix_strikes_and_duplicates_remain_borrowed();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

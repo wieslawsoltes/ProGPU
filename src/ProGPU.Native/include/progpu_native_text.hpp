@@ -338,6 +338,15 @@ struct sfnt_cff1_outline_requirements final {
     std::uint32_t path_segment_count = 0U;
 };
 
+struct sfnt_bitmap_glyph_data_view final {
+    std::span<const std::byte> bytes{};
+    open_type_tag graphic_type{};
+    std::uint16_t pixels_per_em = 0U;
+    std::uint16_t pixels_per_inch = 0U;
+    std::int16_t origin_offset_x = 0;
+    std::int16_t origin_offset_y = 0;
+};
+
 class sfnt_cff_data final {
 public:
     static bool try_read_index(
@@ -691,6 +700,11 @@ public:
     bool try_get_cff1_font(
         std::uint16_t expected_glyph_count,
         sfnt_cff1_font_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_sbix_glyph(
+        std::uint16_t glyph_index,
+        float target_pixels_per_em,
+        sfnt_bitmap_glyph_data_view& result,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;
