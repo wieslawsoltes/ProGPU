@@ -14,6 +14,94 @@ namespace ProGPU.Tests;
 public class NativePictureCompilerTests
 {
     [Fact]
+    public void CompilerLowersRepeatedBitmapGlyphsToOneDecodedColorResource()
+    {
+        var font = new TtfFont(SfntFontFaceTests.BuildSingleBitmapGlyphFont());
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = [1, 1],
+                    GlyphPositions =
+                    [new Vector2(8.25f, 24f), new Vector2(32.25f, 24f)],
+                    Font = font,
+                    FontSize = 20f,
+                    Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.5f)),
+                    TextRenderingMode = TextRenderingMode.Grayscale,
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            95U,
+            11U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(0, compiled.GlyphOutlineCount);
+        Assert.Equal(1, compiled.ColorGlyphBitmapCount);
+        Assert.Equal(4, compiled.ColorGlyphPixelBytes);
+        Assert.Equal(2, compiled.PositionedGlyphCount);
+        Assert.Equal(1, compiled.TextStyleCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        Assert.Equal(NativeSceneResourceKind.GlyphRun, resources[0].Kind);
+        Assert.True((resources[0].Flags &
+            NativeSceneRecordFlags.ColorGlyphBitmaps) != 0);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeSceneColorGlyphBitmap>(),
+            resources[0].PayloadSize);
+        Assert.Equal(4U, resources[0].AuxiliarySize);
+        NativeSceneColorGlyphBitmap bitmap =
+            MemoryMarshal.Read<NativeSceneColorGlyphBitmap>(
+                compiled.Stream.Slice(
+                    checked((int)resources[0].PayloadOffset)));
+        Assert.Equal(1U, bitmap.Width);
+        Assert.Equal(1U, bitmap.Height);
+        Assert.Equal(4U, bitmap.RowBytes);
+        Assert.Equal(2f, bitmap.BearX);
+        Assert.Equal(5f, bitmap.BearY);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        ReadOnlySpan<NativePositionedGlyph> positioned =
+            MemoryMarshal.Cast<byte, NativePositionedGlyph>(
+                compiled.Stream.Slice(
+                    checked((int)command.PayloadOffset + 24),
+                    2 * Unsafe.SizeOf<NativePositionedGlyph>()));
+        Assert.Equal(2f, positioned[0].AtlasToLogicalScale);
+        Assert.Equal(new Vector2(8f, 24f), positioned[0].Position);
+        Assert.Equal(new Vector2(32f, 24f), positioned[1].Position);
+        NativeSceneTextStyle style =
+            MemoryMarshal.Read<NativeSceneTextStyle>(
+                compiled.Stream.Slice(
+                    checked((int)resources[1].PayloadOffset)));
+        Assert.Equal(0.5f, style.Color.W);
+        Assert.Contains(
+            compiled.Stream.Slice(
+                checked((int)resources[0].AuxiliaryOffset),
+                checked((int)resources[0].AuxiliarySize)).ToArray(),
+            static value => value != 0);
+    }
+
+    [Fact]
     public void CompilerPreservesMixedMonochromeAndColorGlyphDrawOrder()
     {
         var font = new TtfFont(

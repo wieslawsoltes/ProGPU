@@ -29,6 +29,14 @@ public class SfntFontFaceTests
         vdiPDvbvfd8PdP/uk/rTwc4HAFZkMPwAAAH0AAAAMgAA
         """;
 
+    internal static byte[] BuildSingleBitmapGlyphFont() =>
+        BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("maxp", BuildMaxpTable(3)),
+            ("cmap", BuildCmapFormat4Table()),
+            ("sbix", BuildSingleSbixTable(
+                Convert.FromBase64String(OnePixelPngBase64))));
+
     [Fact]
     public void ReadsNamesFromSfntNameTable()
     {

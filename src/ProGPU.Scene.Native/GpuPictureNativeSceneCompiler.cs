@@ -28,7 +28,8 @@ public static partial class GpuPictureNativeSceneCompiler
         PointBatch,
         VertexMesh,
         Stroke,
-        Glyph
+        Glyph,
+        ColorGlyph
     }
 
     private enum OperationKind : byte
@@ -190,6 +191,8 @@ public static partial class GpuPictureNativeSceneCompiler
         var strokeBrushIndices = new List<uint>();
         var glyphOutlines = new List<NativeSceneGlyphOutline>();
         var glyphSegments = new List<NativePathSegment>();
+        var colorGlyphBitmaps = new List<NativeSceneColorGlyphBitmap>();
+        var colorGlyphPixels = new List<byte>();
         var positionedGlyphs = new List<NativePositionedGlyph>();
         var textStyles = new List<NativeSceneTextStyle>();
         var batches = new List<Batch>();
@@ -311,6 +314,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     strokeBrushIndices,
                     glyphOutlines,
                     glyphSegments,
+                    colorGlyphBitmaps,
+                    colorGlyphPixels,
                     positionedGlyphs,
                     textStyles,
                     batches,
@@ -363,6 +368,9 @@ public static partial class GpuPictureNativeSceneCompiler
                 strokeDoubles.Count * sizeof(double) +
                 glyphOutlines.Count * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
                 glyphSegments.Count * Unsafe.SizeOf<NativePathSegment>() +
+                colorGlyphBitmaps.Count *
+                    Unsafe.SizeOf<NativeSceneColorGlyphBitmap>() +
+                colorGlyphPixels.Count +
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
                 textStyles.Count * Unsafe.SizeOf<NativeSceneTextStyle>() +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
@@ -372,7 +380,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 stateMasks.Count * Unsafe.SizeOf<NativeSceneLayerMaskChain>() +
                 operations.Count * 64 +
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
-                batches.Count(static batch => batch.Kind == BatchKind.Glyph) *
+                batches.Count(static batch =>
+                    batch.Kind is BatchKind.Glyph or BatchKind.ColorGlyph) *
                     NativeSceneGlyphDrawSize +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count + paths.Count +
@@ -421,6 +430,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(glyphOutlines);
             Span<NativePathSegment> glyphSegmentSpan =
                 CollectionsMarshal.AsSpan(glyphSegments);
+            Span<NativeSceneColorGlyphBitmap> colorGlyphBitmapSpan =
+                CollectionsMarshal.AsSpan(colorGlyphBitmaps);
+            Span<byte> colorGlyphPixelSpan =
+                CollectionsMarshal.AsSpan(colorGlyphPixels);
             Span<NativePositionedGlyph> positionedGlyphSpan =
                 CollectionsMarshal.AsSpan(positionedGlyphs);
             Span<NativeSceneTextStyle> textStyleSpan =
@@ -493,6 +506,17 @@ public static partial class GpuPictureNativeSceneCompiler
                         strokeDoubleSpan.Slice(
                             batch.SecondaryStart,
                             batch.SecondaryCount),
+                        out batch.ResourceIndex)
+                    : batch.Kind == BatchKind.ColorGlyph
+                    ? builder.TryAddColorGlyphResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        colorGlyphBitmapSpan.Slice(
+                            batch.Start,
+                            batch.Count),
+                        colorGlyphPixelSpan.Slice(
+                            batch.AuxiliaryStart,
+                            batch.AuxiliaryCount),
                         out batch.ResourceIndex)
                     : builder.TryAddGlyphResource(
                         checked((ulong)index + 1U),
@@ -716,6 +740,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 strokeDoubles.Count,
                 glyphOutlines.Count,
                 glyphSegments.Count,
+                colorGlyphBitmaps.Count,
+                colorGlyphPixels.Count,
                 positionedGlyphs.Count,
                 textStyles.Count,
                 materials.BrushCount,
@@ -937,6 +963,8 @@ public static partial class GpuPictureNativeSceneCompiler
         List<uint> strokeBrushIndices,
         List<NativeSceneGlyphOutline> glyphOutlines,
         List<NativePathSegment> glyphSegments,
+        List<NativeSceneColorGlyphBitmap> colorGlyphBitmaps,
+        List<byte> colorGlyphPixels,
         List<NativePositionedGlyph> positionedGlyphs,
         List<NativeSceneTextStyle> textStyles,
         List<Batch> batches,
@@ -1173,6 +1201,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     pathBrushIndices,
                     glyphOutlines,
                     glyphSegments,
+                    colorGlyphBitmaps,
+                    colorGlyphPixels,
                     positionedGlyphs,
                     textStyles,
                     batches,

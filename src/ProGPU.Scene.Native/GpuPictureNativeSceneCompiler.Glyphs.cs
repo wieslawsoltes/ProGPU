@@ -31,6 +31,8 @@ public static partial class GpuPictureNativeSceneCompiler
         List<uint> pathBrushIndices,
         List<NativeSceneGlyphOutline> outlines,
         List<NativePathSegment> segments,
+        List<NativeSceneColorGlyphBitmap> colorBitmaps,
+        List<byte> colorPixels,
         List<NativePositionedGlyph> glyphs,
         List<NativeSceneTextStyle> styles,
         List<Batch> batches,
@@ -141,8 +143,16 @@ public static partial class GpuPictureNativeSceneCompiler
         var localGlyphs = new List<NativePositionedGlyph>(
             checked(rangeCount * (command.IsBold ? 2 : 1)));
         var outlineIndices = new Dictionary<GlyphOutlineKey, uint>();
+        var decodedBitmapGlyphs =
+            new Dictionary<ushort, DecodedBitmapGlyphData>();
+        var localColorBitmaps = new List<NativeSceneColorGlyphBitmap>();
+        var localColorPixels = new List<byte>();
+        var localColorGlyphs = new List<NativePositionedGlyph>();
+        var localColorBitmapIndices = new Dictionary<ushort, uint>();
         NativeImageRect bounds = default;
         bool hasBounds = false;
+        NativeImageRect colorBounds = default;
+        bool hasColorBounds = false;
         TextRenderingMode textRenderingMode = command.TextRenderingMode;
         Vector4 glyphStyleColor = solid.Color;
         glyphStyleColor.W *= solid.Opacity;
@@ -186,6 +196,45 @@ public static partial class GpuPictureNativeSceneCompiler
             return true;
         }
 
+        bool FlushColorGlyphChunk()
+        {
+            if (localColorGlyphs.Count == 0)
+            {
+                return true;
+            }
+
+            uint styleIndex = RegisterTextStyle(
+                styles,
+                glyphStyleColor,
+                ToNativeTextRenderingMode(textRenderingMode));
+            int bitmapStart = colorBitmaps.Count;
+            int pixelStart = colorPixels.Count;
+            int glyphStart = glyphs.Count;
+            colorBitmaps.AddRange(localColorBitmaps);
+            colorPixels.AddRange(localColorPixels);
+            glyphs.AddRange(localColorGlyphs);
+            batches.Add(new Batch
+            {
+                Kind = BatchKind.ColorGlyph,
+                Start = bitmapStart,
+                Count = localColorBitmaps.Count,
+                AuxiliaryStart = pixelStart,
+                AuxiliaryCount = localColorPixels.Count,
+                SecondaryStart = glyphStart,
+                SecondaryCount = localColorGlyphs.Count,
+                Bounds = colorBounds,
+                StyleIndex = styleIndex
+            });
+            operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
+            localColorBitmaps.Clear();
+            localColorPixels.Clear();
+            localColorGlyphs.Clear();
+            localColorBitmapIndices.Clear();
+            colorBounds = default;
+            hasColorBounds = false;
+            return true;
+        }
+
         int rangeEnd = rangeStart + rangeCount;
         for (int sourceIndex = rangeStart; sourceIndex < rangeEnd; sourceIndex++)
         {
@@ -201,7 +250,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 : null;
             if (colorLayers is { Count: > 0 })
             {
-                if (!FlushGlyphChunk())
+                if (!FlushGlyphChunk() || !FlushColorGlyphChunk())
                 {
                     return false;
                 }
@@ -225,16 +274,60 @@ public static partial class GpuPictureNativeSceneCompiler
                 }
                 continue;
             }
-            if (font.HasBitmapGlyphs &&
-                font.TryGetBitmapGlyph(glyphIndex, targetRasterSize, out _))
+
+            bool hasBitmapGlyph = false;
+            DecodedBitmapGlyphData decodedBitmap = default;
+            if (font.HasBitmapGlyphs)
             {
-                error = NativePictureCompileError.UnsupportedCommand;
-                return false;
+                hasBitmapGlyph = decodedBitmapGlyphs.TryGetValue(
+                    glyphIndex,
+                    out decodedBitmap);
+                if (!hasBitmapGlyph && font.TryDecodeBitmapGlyph(
+                        glyphIndex,
+                        targetRasterSize,
+                        out decodedBitmap))
+                {
+                    decodedBitmapGlyphs.Add(glyphIndex, decodedBitmap);
+                    hasBitmapGlyph = true;
+                }
+            }
+            if (hasBitmapGlyph)
+            {
+                if (!FlushGlyphChunk())
+                {
+                    return false;
+                }
+                if (!TryAppendBitmapGlyph(
+                        glyphIndex,
+                        decodedBitmap,
+                        sourcePosition,
+                        command,
+                        targetDpiScale,
+                        targetRasterSize,
+                        atlasToLogicalScale,
+                        fontScaleX,
+                        nativeItalicSkew,
+                        boldOffset,
+                        basisX,
+                        basisY,
+                        activeTransform,
+                        transformedPlacement,
+                        localColorBitmaps,
+                        localColorPixels,
+                        localColorGlyphs,
+                        localColorBitmapIndices,
+                        ref colorBounds,
+                        ref hasColorBounds,
+                        out error))
+                {
+                    return false;
+                }
+                continue;
             }
             if (command.UseVectorGlyphRendering ||
                 (font.HasCffOutlines && !command.PreferGlyphAtlas))
             {
-                if (!FlushGlyphChunk())
+                if (!FlushGlyphChunk() || !FlushColorGlyphChunk())
                 {
                     return false;
                 }
@@ -257,6 +350,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     return false;
                 }
                 continue;
+            }
+
+            if (!FlushColorGlyphChunk())
+            {
+                return false;
             }
 
             Vector2 transformedPosition = Vector2.Transform(
@@ -362,7 +460,7 @@ public static partial class GpuPictureNativeSceneCompiler
             }
         }
 
-        return FlushGlyphChunk();
+        return FlushGlyphChunk() && FlushColorGlyphChunk();
     }
 
     private static bool TryAppendColorGlyphLayers(
@@ -776,4 +874,5 @@ public static partial class GpuPictureNativeSceneCompiler
             maximumX - minimumX + padding * 2f,
             maximumY - minimumY + padding * 2f);
     }
+
 }

@@ -28,6 +28,8 @@ public sealed class NativeCompiledPicture
         int strokeDoubleCount,
         int glyphOutlineCount,
         int glyphSegmentCount,
+        int colorGlyphBitmapCount,
+        int colorGlyphPixelBytes,
         int positionedGlyphCount,
         int textStyleCount,
         int brushCount,
@@ -55,6 +57,8 @@ public sealed class NativeCompiledPicture
         StrokeDoubleCount = strokeDoubleCount;
         GlyphOutlineCount = glyphOutlineCount;
         GlyphSegmentCount = glyphSegmentCount;
+        ColorGlyphBitmapCount = colorGlyphBitmapCount;
+        ColorGlyphPixelBytes = colorGlyphPixelBytes;
         PositionedGlyphCount = positionedGlyphCount;
         TextStyleCount = textStyleCount;
         BrushCount = brushCount;
@@ -112,6 +116,10 @@ public sealed class NativeCompiledPicture
     public int GlyphOutlineCount { get; }
 
     public int GlyphSegmentCount { get; }
+
+    public int ColorGlyphBitmapCount { get; }
+
+    public int ColorGlyphPixelBytes { get; }
 
     public int PositionedGlyphCount { get; }
 

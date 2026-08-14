@@ -6,7 +6,7 @@ ProGPU's native text implementation is a full parallel backend port of the prove
 original ProGPU-owned clean-room C# implementation. Managed and native builds share
 the same canonical production shader files rather than maintaining shader forks. The authoritative source
 checkpoint for the first managed-picture glyph-lowering slice is
-`2de7e5c618ce9515a46b915fb7ef91642b6fdfcb`. The repository policy in
+`d5a41e169f19f2da103a7cd8001f35f3b250198d`. The repository policy in
 `agents.md` permits this cross-language/backend work when each slice records
 its in-repository source provenance, preserves public and performance
 contracts, and adds matched differential tests. No third-party implementation
@@ -59,7 +59,7 @@ typed generation ownership. It rejects per-glyph native calls, character
 remapping in the renderer, runtime reflection, unbounded caches, CPU texture
 readback, and foreign source organization or implementation text.
 
-## Delivered first bridge
+## Delivered managed-picture bridge
 
 `GpuPictureNativeSceneCompiler.Glyphs.cs` lowers already-shaped monochrome
 `DrawGlyphRun` records to native outline/segment resources, positioned glyph
@@ -67,8 +67,15 @@ instances, and a deduplicated solid text-style page. Compilation is target-DPI
 sensitive and explicitly records that dependency. It preserves transforms,
 four-way subpixel placement, bold, italic, font stretch/skew, brush opacity,
 and grayscale/aliased/ClearType selection. Color layers, embedded bitmap
-glyphs, vector-fallback semantics, decorations, and text masks fail closed
-until their dedicated lowering paths land.
+glyphs, and vector fallback now lower at the same one-time revision boundary:
+COLR/OpenType-SVG vector layers and explicit/CFF glyphs reuse retained native
+paths/materials, while sbix/CBDT payloads reuse the managed decoder and metric
+resolver before transferring tightly packed decoded RGBA8 records into the
+native color atlas. Mixed presentation families preserve source order, and
+repeated bitmap instances share one decoded resource. Compressed font bytes,
+decoder state, path objects, and per-glyph calls never cross the native ABI.
+Decorations and text-specific masks remain fail closed until their dedicated
+lowering paths land.
 
 For `G` positioned instances, `U` unique phase/raster outline variants, and `S`
 outline segments, compilation is `O(G + S)` time with `O(U + G + S)` bounded

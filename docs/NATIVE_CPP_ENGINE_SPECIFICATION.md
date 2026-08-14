@@ -1068,9 +1068,13 @@ ordered semantic layers now own bounded backdrop input.
   generation/growth counters. The managed-picture compiler also lowers
   explicit/CFF vector fallback and COLR/OpenType-SVG vector layers into the
   retained native path/material lane, preserves mixed monochrome/color draw
-  order, and deduplicates equal solid layer materials. Standalone native text
-  compilation, bitmap glyphs, multi-page eviction/recovery, complete
-  phase/scale cache policy, decorations, and text-specific masks remain;
+  order, and deduplicates equal solid layer materials. Embedded sbix/CBDT
+  bitmap glyphs reuse the managed atlas decoder/metric resolver once per scene
+  revision, then transfer only tightly packed decoded RGBA8 records into the
+  retained native color atlas; repeated instances share one payload and stable
+  replay uploads nothing. Standalone native text compilation, multi-page
+  eviction/recovery, complete phase/scale cache policy, decorations, and
+  text-specific masks remain;
 - straight-alpha RGBA8 upload, source/destination rectangles, affine transform,
   opacity, persistent nearest/linear sampling, independent image/content
   revisions, and zero-upload stable replay are implemented with production
@@ -1998,8 +2002,12 @@ and Parley. The managed picture compiler now transfers its already-shaped glyph
 IDs and positions directly into the retained native outline/text-style ABI;
 native rasterization, culling, atlas upload, batching, and composition proceed
 in C++. Its vector/CFF fallback and COLR/OpenType-SVG vector presentations are
-lowered once into the same pointer-free native path and material resources;
-stable replay still crosses the ABI only for the batched render call. The
+lowered once into the same pointer-free native path and material resources.
+Embedded bitmap glyphs use the same ProGPU decoder and resolved metrics as the
+managed atlas, but only decoded RGBA8 bytes and fixed metadata cross into the
+native retained color-atlas resource; compressed font data and decoder objects
+never cross the ABI. Stable replay still crosses the ABI only for the batched
+render call. The
 authoritative ProGPU-owned source provenance and upcoming parallel native
 parser/shaper/layout plan are recorded in
 `NATIVE_CPP_TEXT_PORT_PROVENANCE.md`. Native shaping remains a separately gated
