@@ -168,9 +168,20 @@ Normal Clang, named C++20 module, and ASan/UBSan builds cover malformed runs,
 undersized outputs, duplicate points, signed byte/word deltas, and all-point
 encoding. The real InterVariable checkpoint matches 2 axes, 5 shared tuples,
 2,937 glyphs, long offsets, exact shared tuple coordinates, and exact 594/60
-byte glyph payloads for glyphs 397/618. Tuple-header scalar evaluation,
-interpolation/application to outlines, HVAR/MVAR/GDEF variation stores, named
-instances, and per-instance caching remain explicit later slices.
+byte glyph payloads for glyphs 397/618. Tuple regions, scalar evaluation, and
+outline application were sequenced as the following granular slices.
+
+Tuple regions and scalar evaluation follow at checkpoint
+`1c31a45d271543a919b1397ba2a18f83f3f24cc1` in the granular
+`progpu_native_gvar_tuples.cpp` unit. A validating count pass resolves shared
+or embedded peaks, explicit or implicit start/end regions, private-point flags,
+and total tuple payload bounds before the write pass touches caller-owned
+header and F2Dot14 coordinate spans. Region scalar evaluation preserves the
+managed invalid/zero-peak behavior and piecewise ramps in `O(A)` time and
+`O(1)` storage for `A` axes. Synthetic embedded/intermediate/private-point
+coverage plus real Inter shared tuples pass normal, named-module, and
+ASan/UBSan gates. Packed tuple payload application and untouched-point
+interpolation remain the active slice.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

@@ -153,8 +153,10 @@ user coordinates and applies optional piecewise `avar` mappings in a bounded
 scan. Granular `progpu_native_gvar.cpp` and
 `progpu_native_gvar_packed.cpp` units now expose borrowed glyph tuple slices,
 shared tuples, and transactional packed point/delta decoding with no internal
-allocation. Tuple scalar evaluation and outline/metric/layout variation
-application remain explicitly sequenced later work.
+allocation. A third granular unit validates and decodes shared/embedded tuple
+regions and evaluates exact managed piecewise scalars directly from F2Dot14
+caller spans. Packed tuple payload application, untouched-point interpolation,
+and metric/layout variation application remain explicitly sequenced later work.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
