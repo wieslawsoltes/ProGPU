@@ -42,9 +42,37 @@ parallel handwritten field layouts while keeping managed ownership and ergonomic
 outside the wire contract. Every new eligible record must add its generator marker and
 pass the stale-output plus native/C# size-and-offset gates in the same slice.
 
+## Delivered borrowed SFNT/TTC foundation
+
+The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at
+checkpoint `2f2a92c4286da763d4e4be0908b0f6b706a86c3f` into the standalone
+`progpu_native_text` C++20 library. `sfnt_font_view` borrows a caller-owned byte
+span and retains no file, mapping, decoder, or heap ownership. It validates the
+SFNT/TTC header and directory bounds once, preserves TTC absolute table offsets
+and last-record-wins duplicate-tag behavior, and skips an individually invalid
+table record as the managed implementation does. Table lookup and construction
+are `O(T)` time with `O(1)` storage for `T` table records.
+
+The same view reads `head`, `hhea`, `hmtx`, and `maxp` metrics without copying
+and selects cmap format 4, 12, and 13 subtables using the managed Unicode and
+Microsoft-symbol precedence. Format 12/13 lookup is `O(log G)` for `G` groups;
+format 4 is `O(S)` for `S` segments. All paths are allocation-free and CPU-only.
+WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
+container normalization, compressed ownership, legacy symbol-page tables,
+outlines, variations, and color glyph data remain later phase-1/2 work.
+
+The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
+is part of the Emscripten all-target build, and adds a real
+`import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.
+Focused synthetic tests cover SFNT metrics, BMP and supplementary cmap lookup,
+TTC face selection, borrowed identity, invalid face indices, truncated
+directories, invalid collection counts, and explicit WOFF rejection.
+
 ## Cross-engine research gate
 
 The architecture was checked against primary sources for
+[OpenType file organization and table-directory contracts](https://learn.microsoft.com/typography/opentype/spec/otff),
+[OpenType character mapping](https://learn.microsoft.com/typography/opentype/spec/cmap),
 [Skia shaping/SkParagraph](https://skia.org/docs/dev/design/text_shaper/),
 [DirectWrite text formatting](https://learn.microsoft.com/windows/win32/directwrite/text-formatting-and-layout),
 [HarfBuzz shaping plans](https://harfbuzz.github.io/shaping-and-shape-plans.html),

@@ -401,6 +401,21 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_webgpu_compat.hpp
     include/progpu_native.h)
 
+add_library(progpu_native_text STATIC
+    src/progpu_native_sfnt.cpp
+    include/progpu_native_text.hpp)
+target_compile_features(progpu_native_text PUBLIC cxx_std_20)
+target_include_directories(progpu_native_text
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    target_sources(progpu_native_text
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/progpu_native_text.cppm)
+endif()
+progpu_native_enable_warnings(progpu_native_text)
+progpu_native_enable_sanitizers(progpu_native_text)
+
 add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder.cpp
     src/progpu_native_scene_builder_geometry.cpp
@@ -609,7 +624,8 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${generated_directory}")
     target_link_libraries(progpu_native_browser_smoke PRIVATE
-        progpu_native_scene_builder)
+        progpu_native_scene_builder
+        progpu_native_text)
     target_compile_options(progpu_native_browser_smoke PRIVATE
         --use-port=emdawnwebgpu:cpp_bindings=false)
     target_link_options(progpu_native_browser_smoke PRIVATE
@@ -658,7 +674,32 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         set_tests_properties(
             progpu_native_scene_builder_module_tests
             PROPERTIES TIMEOUT 60)
+
+        add_executable(progpu_native_text_module_tests
+            tests/progpu_native_text_module_tests.cpp)
+        target_link_libraries(
+            progpu_native_text_module_tests
+            PRIVATE progpu_native_text)
+        progpu_native_enable_warnings(
+            progpu_native_text_module_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_text_module_tests)
+        add_test(
+            NAME progpu_native_text_module_tests
+            COMMAND progpu_native_text_module_tests)
+        set_tests_properties(
+            progpu_native_text_module_tests
+            PROPERTIES TIMEOUT 60)
     endif()
+
+    add_executable(progpu_native_text_tests
+        tests/progpu_native_text_tests.cpp)
+    target_link_libraries(progpu_native_text_tests PRIVATE
+        progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_text_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_tests)
+    add_test(NAME progpu_native_text_tests COMMAND progpu_native_text_tests)
+    set_tests_properties(progpu_native_text_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp

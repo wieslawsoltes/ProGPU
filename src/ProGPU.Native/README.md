@@ -41,7 +41,14 @@ per-glyph managed/native call.
 
 Native code is strict portable C++20. Clang is the primary toolchain; GCC and
 Visual Studio MSVC compile/test the same header compatibility implementation in
-CI. Module-capable LLVM Clang/Ninja builds additionally expose and test
+CI. Windows enters the selected Visual Studio compiler environment but uses a
+parallel single-configuration Ninja build by default; `-Generator VisualStudio`
+is retained as a local compatibility fallback. The independent MSVC
+qualification lane builds the directly linked renderer and all CPU/native unit
+tests, while the ClangCL Windows runtime lanes own the duplicate Dawn-ABI build,
+package staging, D3D12 sample, and managed differential matrix. This avoids
+compiling the same renderer twice in the compatibility lane without removing a
+compiler, ABI, runtime, or package gate. Module-capable LLVM Clang/Ninja builds additionally expose and test
 `import progpu.native.scene_builder;` through a CMake `CXX_MODULES` file set.
 Apple Clang, Emscripten, and other configurations without standard-module
 dependency scanning use the thin installed header over the same library; no
@@ -105,6 +112,15 @@ metadata/range validation, while `progpu_native_color_glyph_resources.cpp`
 owns transactional RGBA atlas creation, shelf packing, upload, and text bind
 group replacement. Neither module parses a font, SVG, PNG, JPEG, or other
 compressed input.
+The first standalone text-core slice now lives in `progpu_native_text`.
+`progpu_native_sfnt.cpp` is a direct native port of ProGPU's owned
+`SfntFontFace` contracts: it exposes a caller-owned, allocation-free borrowed
+SFNT/TTC face view with bounded directory lookup, `head`/`hhea`/`hmtx`/`maxp`
+metrics, and selected cmap format 4/12/13 lookup. It performs no file I/O,
+decompression, WebGPU initialization, or managed/native call per character.
+WOFF1/WOFF2 are rejected explicitly until the native container-normalization
+slice lands. C++ clients can use the header surface or, on the supported LLVM
+configuration, `import progpu.native.text;`.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.
