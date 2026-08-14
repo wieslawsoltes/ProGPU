@@ -2,6 +2,7 @@
 #define PROGPU_NATIVE_SCENE_BUILDER_HPP
 
 #include "progpu_native.h"
+#include "progpu_native_text.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,15 @@ struct scene_build_metrics final {
     std::uint32_t maximum_stack_depth = 0U;
     std::uint64_t arena_bytes = 0U;
     std::uint64_t stream_bytes = 0U;
+};
+
+struct shaped_text_scene_options final {
+    progpu_native_point basis_x{1.0F, 0.0F};
+    progpu_native_point basis_y{0.0F, 1.0F};
+    progpu_native_color color{1.0F, 1.0F, 1.0F, 1.0F};
+    float atlas_to_logical_scale = 1.0F;
+    float bold_offset = 0.0F;
+    float italic_skew = 0.0F;
 };
 
 /*
@@ -159,6 +169,19 @@ public:
         std::uint32_t glyph_resource_index,
         std::span<const progpu_native_positioned_glyph> glyphs,
         progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        std::uint32_t text_style_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_shaped_text_run(
+        std::uint32_t glyph_resource_index,
+        std::span<const text::shaping_glyph> shaped_glyphs,
+        std::span<const text::positioned_text_glyph> positioned_glyphs,
+        std::span<progpu_native_positioned_glyph> conversion_scratch,
+        const shaped_text_scene_options& options,
+        progpu_native_image_rect bounds,
+        std::span<const std::uint32_t> glyph_to_outline = {},
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX,
         std::uint32_t text_style_index =

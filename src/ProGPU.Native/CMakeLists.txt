@@ -529,6 +529,7 @@ add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder_image.cpp
     src/progpu_native_scene_builder_layer.cpp
     src/progpu_native_scene_builder_path.cpp
+    src/progpu_native_scene_builder_text.cpp
     src/progpu_native_scene_builder_internal.hpp
     src/progpu_native_semantic_layer_mask.cpp
     src/progpu_native_semantic_layer_mask.hpp

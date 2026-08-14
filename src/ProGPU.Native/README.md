@@ -35,9 +35,12 @@ scene generation and transactionally replace a same-layout RGBA8 resource
 while preserving its stable id; the replacement must advance that resource's
 generation.
 `progpu_native_scene_builder_glyph.cpp` owns retained vector-glyph outline
-resources, positioned runs, and deduplicated text styles. It is the direct
-native destination for the planned C++ shaper/layout output and does not add a
-per-glyph managed/native call.
+resources, positioned runs, and deduplicated text styles.
+`progpu_native_scene_builder_text.cpp` bulk-converts native shaped and
+positioned text directly into that existing GPU glyph command. The caller owns
+the conversion span and optional glyph-id-to-outline map; the bridge performs
+`O(G)` fixed-record writes with no allocation, retained intermediate, managed
+callback, or per-glyph managed/native call.
 
 Native code is strict portable C++20. Clang is the primary toolchain; GCC and
 Visual Studio MSVC compile/test the same header compatibility implementation in
