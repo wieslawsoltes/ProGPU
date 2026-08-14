@@ -30,6 +30,17 @@ int main() {
     const progpu::native::text::sfnt_color_glyph_layer color_layer{};
     const progpu::native::text::sfnt_svg_glyph_document_view svg_glyph{};
     const progpu::native::text::sfnt_container_requirements container{};
+    const auto latin_script =
+        progpu::native::text::get_unicode_script(0x41U);
+    const progpu::native::text::shaping_glyph shaping_glyph{
+        42U,
+        0x41U,
+        0,
+        progpu::native::text::shaping_glyph_flags::unsafe_to_break,
+        600,
+        0,
+        0,
+        0};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -78,5 +89,7 @@ int main() {
         written != 2U) {
         return 1;
     }
-    return tag.value == 0x636D6170U ? 0 : 1;
+    return tag.value == 0x636D6170U &&
+        latin_script.value == 0x6C61746EU &&
+        shaping_glyph.advance_x == 600 ? 0 : 1;
 }

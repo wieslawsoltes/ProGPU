@@ -17,6 +17,18 @@ namespace {
 
 using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
+using progpu::native::text::unicode_error;
+using progpu::native::text::unicode_decode_requirements;
+using progpu::native::text::unicode_scalar;
+using progpu::native::text::shaping_feature;
+using progpu::native::text::shaping_glyph;
+using progpu::native::text::shaping_glyph_flags;
+using progpu::native::text::get_unicode_script;
+using progpu::native::text::get_unicode_canonical_combining_class;
+using progpu::native::text::try_get_utf8_decode_requirements;
+using progpu::native::text::try_decode_utf8;
+using progpu::native::text::try_get_utf16_decode_requirements;
+using progpu::native::text::try_decode_utf16;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -73,6 +85,82 @@ void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+void unicode_contract_and_strict_decoders_are_transactional() {
+    static_assert(sizeof(shaping_feature) == 16U);
+    static_assert(sizeof(shaping_glyph) == 32U);
+    static_assert(sizeof(unicode_scalar) == 16U);
+
+    const shaping_feature feature{
+        open_type_tag::from_chars('l', 'i', 'g', 'a'), 1U, 2U, 8U};
+    require(!feature.applies_to(1U) && feature.applies_to(2U) &&
+        feature.applies_to(7U) && !feature.applies_to(8U));
+    const shaping_glyph glyph{
+        42U, 0x41U, 3, shaping_glyph_flags::unsafe_to_break,
+        600, 0, 4, -2};
+    require(glyph.glyph_id == 42U && glyph.advance_x == 600 &&
+        glyph.offset_y == -2);
+
+    require(get_unicode_script(0x41U) ==
+        open_type_tag::from_chars('l', 'a', 't', 'n'));
+    require(get_unicode_script(0x3042U) ==
+        open_type_tag::from_chars('k', 'a', 'n', 'a'));
+    require(get_unicode_script(0x0E81U) ==
+        open_type_tag::from_chars('l', 'a', 'o', ' '));
+    require(get_unicode_script(0x0301U) ==
+        open_type_tag::from_chars('D', 'F', 'L', 'T'));
+    require(get_unicode_canonical_combining_class(0x0301U) == 230U);
+    require(get_unicode_canonical_combining_class(0x41U) == 0U);
+
+    constexpr std::array<std::byte, 7U> utf8{
+        std::byte{0x41U},
+        std::byte{0xCCU}, std::byte{0x81U},
+        std::byte{0xF0U}, std::byte{0x9FU},
+        std::byte{0x98U}, std::byte{0x80U}};
+    unicode_decode_requirements requirements{};
+    unicode_error error = unicode_error::invalid_argument;
+    require(try_get_utf8_decode_requirements(utf8, requirements, &error));
+    require(error == unicode_error::none && requirements.scalar_count == 3U);
+    std::array<unicode_scalar, 3U> scalars{};
+    std::uint32_t written = 99U;
+    require(try_decode_utf8(utf8, scalars, written, &error));
+    require(written == 3U && scalars[0U].code_point == 0x41U &&
+        scalars[0U].input_index == 0U && scalars[0U].input_length == 1U &&
+        scalars[1U].code_point == 0x0301U &&
+        scalars[1U].input_index == 1U && scalars[1U].input_length == 2U &&
+        scalars[1U].canonical_combining_class == 230U &&
+        scalars[2U].code_point == 0x1F600U &&
+        scalars[2U].input_index == 3U && scalars[2U].input_length == 4U);
+
+    constexpr std::array<std::uint16_t, 4U> utf16{
+        0x0041U, 0xD83DU, 0xDE00U, 0x0E81U};
+    require(try_get_utf16_decode_requirements(utf16, requirements, &error));
+    require(requirements.scalar_count == 3U);
+    std::array<unicode_scalar, 3U> utf16_scalars{};
+    require(try_decode_utf16(utf16, utf16_scalars, written, &error));
+    require(written == 3U && utf16_scalars[1U].code_point == 0x1F600U &&
+        utf16_scalars[1U].input_index == 1U &&
+        utf16_scalars[1U].input_length == 2U &&
+        utf16_scalars[2U].script ==
+            open_type_tag::from_chars('l', 'a', 'o', ' '));
+
+    constexpr std::array<std::byte, 2U> overlong{
+        std::byte{0xC0U}, std::byte{0x80U}};
+    std::array<unicode_scalar, 3U> untouched{
+        unicode_scalar{99U}, unicode_scalar{99U}, unicode_scalar{99U}};
+    require(!try_decode_utf8(overlong, untouched, written, &error));
+    require(error == unicode_error::invalid_encoding && written == 0U &&
+        untouched[0U].code_point == 99U);
+    require(!try_decode_utf8(utf8, std::span<unicode_scalar>{untouched}.first(2U),
+        written, &error));
+    require(error == unicode_error::insufficient_buffer && written == 0U &&
+        untouched[0U].code_point == 99U);
+
+    constexpr std::array<std::uint16_t, 1U> lone_high{0xD800U};
+    require(!try_decode_utf16(lone_high, untouched, written, &error));
+    require(error == unicode_error::invalid_encoding && written == 0U &&
+        untouched[0U].code_point == 99U);
 }
 
 std::uint64_t hash_path_segments(
@@ -2985,6 +3073,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 } // namespace
 
 int main() {
+    unicode_contract_and_strict_decoders_are_transactional();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

@@ -239,6 +239,17 @@ stack storage. Container validation is `O(F + V)`, and outline decode is
 `B`, emitted segments `S`, axes `A`, and active regions `R`, with borrowed
 tables and caller-owned output.
 
+The Unicode/shaping port begins with the fixed native equivalents of ProGPU's
+`OpenTypeTag`, feature, glyph, direction, cluster-level, and flag records plus
+strict two-pass UTF-8 and UTF-16 decoding. Every successful scalar retains its
+original input-unit offset and length, Unicode 17 script tag, and canonical
+combining class. The decoder validates the complete input before touching a
+caller span, rejects overlong UTF-8, surrogate scalars, truncated sequences,
+and unpaired UTF-16 surrogates, and performs `O(N)` work with `O(1)` internal
+storage. Script and combining-class tables are generated from the same managed
+packed data and are verified by the native contract CI gate; the native text
+library does not maintain a handwritten Unicode table fork.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

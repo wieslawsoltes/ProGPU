@@ -72,6 +72,125 @@ struct open_type_tag final {
         open_type_tag) noexcept = default;
 };
 
+enum class unicode_error : std::uint32_t {
+    none = 0U,
+    invalid_argument,
+    invalid_encoding,
+    insufficient_buffer
+};
+
+enum class shaping_direction : std::uint8_t {
+    unspecified = 0U,
+    left_to_right = 1U,
+    right_to_left = 2U,
+    top_to_bottom = 3U,
+    bottom_to_top = 4U
+};
+
+enum class shaping_cluster_level : std::uint8_t {
+    monotone_graphemes = 0U,
+    monotone_characters = 1U,
+    characters = 2U,
+    graphemes = 3U
+};
+
+enum class shaping_buffer_flags : std::uint8_t {
+    none = 0U,
+    beginning_of_text = 0x01U,
+    end_of_text = 0x02U,
+    preserve_default_ignorables = 0x04U,
+    remove_default_ignorables = 0x08U,
+    do_not_insert_dotted_circle = 0x10U,
+    verify = 0x20U,
+    produce_unsafe_to_concat = 0x40U,
+    produce_safe_to_insert_tatweel = 0x80U
+};
+
+enum class shaping_glyph_flags : std::uint32_t {
+    none = 0U,
+    unsafe_to_break = 0x01U,
+    unsafe_to_concat = 0x02U,
+    safe_to_insert_tatweel = 0x04U
+};
+
+struct shaping_feature final {
+    open_type_tag tag{};
+    std::uint32_t value = 1U;
+    std::uint32_t start = 0U;
+    std::uint32_t end = 0xFFFFFFFFU;
+
+    bool applies_to(std::uint32_t input_index) const noexcept {
+        return input_index >= start && input_index < end;
+    }
+};
+
+/*
+ * The native equivalent of ProGPU.Text.Shaping.ShapingGlyph. Its fixed
+ * value-only layout is suitable for bulk managed/native transfer and direct
+ * GPU-plan upload; no per-glyph interop call is required.
+ */
+struct shaping_glyph final {
+    std::uint32_t glyph_id = 0U;
+    std::uint32_t code_point = 0U;
+    std::int32_t cluster = 0;
+    shaping_glyph_flags flags = shaping_glyph_flags::none;
+    std::int32_t advance_x = 0;
+    std::int32_t advance_y = 0;
+    std::int32_t offset_x = 0;
+    std::int32_t offset_y = 0;
+};
+
+struct unicode_decode_requirements final {
+    std::uint32_t scalar_count = 0U;
+};
+
+/*
+ * One decoded scalar retains the original input-unit range. Script is the
+ * Unicode 17 Script property translated to ProGPU's OpenType tag convention;
+ * Common, Inherited, and Unknown use DFLT. The canonical combining class is
+ * shared with the managed shaper's generated table.
+ */
+struct unicode_scalar final {
+    std::uint32_t code_point = 0U;
+    std::uint32_t input_index = 0U;
+    std::uint16_t input_length = 0U;
+    std::uint8_t canonical_combining_class = 0U;
+    std::uint8_t reserved = 0U;
+    open_type_tag script{};
+};
+
+open_type_tag get_unicode_script(std::uint32_t code_point) noexcept;
+std::uint8_t get_unicode_canonical_combining_class(
+    std::uint32_t code_point) noexcept;
+
+/*
+ * Strict, transactional UTF decoding. The requirements pass validates the
+ * entire input in O(N) time and O(1) storage. Decode repeats validation before
+ * writing, requires exact-or-larger caller storage, writes one value record per
+ * scalar, and leaves the destination untouched on failure.
+ */
+bool try_get_utf8_decode_requirements(
+    std::span<const std::byte> input,
+    unicode_decode_requirements& result,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_decode_utf8(
+    std::span<const std::byte> input,
+    std::span<unicode_scalar> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_get_utf16_decode_requirements(
+    std::span<const std::uint16_t> input,
+    unicode_decode_requirements& result,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_decode_utf16(
+    std::span<const std::uint16_t> input,
+    std::span<unicode_scalar> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;

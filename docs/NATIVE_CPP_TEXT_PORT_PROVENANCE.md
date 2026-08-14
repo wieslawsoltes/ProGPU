@@ -403,6 +403,33 @@ with borrowed table storage, fixed parser/evaluator stacks, and caller-owned
 transactional path output. Static, default-instance, peak-instance, malformed
 operator, complete SFNT-container, LLVM named-module, and ASan/UBSan tests pass.
 
+The first Unicode/shaping checkpoint ports the value-only records from
+`src/ProGPU.Text.Shaping/ShapingContracts.cs` and the strict scalar-input
+boundary used by `src/ProGPU.Text/OpenTypeTextShaper.cs`, both at source
+checkpoint `3623a26c41d34e514a948a4694233e6514cf14a4`. The C++20 records retain
+the managed field order and 4-byte layout for bulk transfer and future direct
+GPU-plan upload. UTF-8 and UTF-16 use a validating count pass followed by a
+transactional caller-span write pass; both are `O(N)` time and `O(1)` internal
+storage for `N` input units. Invalid, overlong, truncated, surrogate, and
+out-of-range encodings are rejected without replacement scalars or partial
+output. Each decoded record preserves code point, original input offset and
+unit length, Unicode 17 script tag, and canonical combining class.
+
+`eng/generate-native-unicode-tables.py` derives the native script and combining
+class tables from ProGPU's existing managed generated tables and the CI native
+contract gate rejects stale output. This makes the already-generated managed
+data the shared semantic source rather than introducing parallel handwritten
+arrays. Script lookup retains ProGPU's `hira -> kana` and `laoo -> lao `
+OpenType mappings; Common, Inherited, Unknown, and invalid scalars resolve to
+`DFLT`. The architecture follows the official
+[Unicode 17 Script Property](https://www.unicode.org/reports/tr24/),
+[Unicode Text Segmentation](https://www.unicode.org/reports/tr29/),
+[Unicode Normalization](https://www.unicode.org/reports/tr15/), and
+[Unicode Bidirectional Algorithm](https://www.unicode.org/reports/tr9/)
+boundaries. This checkpoint deliberately does not claim grapheme,
+normalization, or bidi completion; those algorithms build on these exact
+scalar records in subsequent slices.
+
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
 `import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.

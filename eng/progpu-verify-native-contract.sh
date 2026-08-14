@@ -8,3 +8,5 @@ dotnet run --project \
   --verify \
   "${repo_root}/src/ProGPU.Native/include/progpu_native.h" \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeContract.g.cs"
+
+"${repo_root}/eng/generate-native-unicode-tables.py" --verify
