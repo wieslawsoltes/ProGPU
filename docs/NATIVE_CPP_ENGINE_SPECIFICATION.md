@@ -1357,15 +1357,33 @@ work or allocation.
 
 The Apple M3 Pro retained-picture qualification renders the same 14-command
 sample through direct `wgpu-native`/Metal and the exact packaged
-WebScene/Dawn/Metal provider. Both produce the same SHA-256 image hash while
+WebScene/Dawn/Metal provider. The sample compiles to 11 semantic commands,
+10 resources, and seven GPU draws. Both providers produce the same PPM SHA-256
+`58890d4b1e21cdf022753e42103b206cdfd26262085ef5a9cd3d15cc9fe3a271` while
 the Dawn run also forces device loss and recreates the renderer. The matched
 uncontended 100-warm-up/1,000-frame mixed-picture benchmark preserves the
 non-nested compile fast path at 178,464 allocated bytes (16 bytes above the
 178,448-byte pre-slice checkpoint) and 0 bytes per stable frame. Native versus
-managed submission p50/p95 is 0.0435/0.0729 ms versus 0.2326/0.3872 ms;
-synchronized total p50/p95 is 1.5587/4.5982 ms versus 1.7631/4.8675 ms. The
+managed submission p50/p95 is 0.0435/0.0765 ms versus 0.2368/0.3371 ms;
+synchronized total p50/p95 is 1.5576/4.5916 ms versus 1.7658/4.9971 ms. The
 three independently rasterized edge pixels above 3/255 and mean absolute
 channel difference of 0.000163/255 remain unchanged.
+
+The browser/Emscripten target now constructs an independent pointer-free
+analytic rounded-mask scene in C++, renders its three semantic commands as two
+physical GPU draws, verifies the rounded-mask layer metrics and first-frame
+uniform upload, then proves stable replay performs no vertex, texture, or
+uniform upload. Its existing retained coverage-mask and device-recovery gates
+continue to pass in the same browser run.
+
+This analytic resource currently retains isolated-layer mask semantics; it is
+not used to lower managed `PushGeometryClip`. A geometry clip multiplies each
+draw's coverage, whereas multiplying an already composited isolated group can
+differ at anti-aliased edges when translucent draws overlap. Exact substitution
+therefore requires a typed per-draw mask reference in semantic state, masked
+pipeline variants for every draw family, and bounded intersection of nested
+clip masks. Until that contract lands, geometry clips remain typed fail-closed
+instead of silently accepting the group approximation.
 
 The Apple M3 Pro matched `960x540` mask checkpoint used one Release process,
 100 alternating warm-up pairs, and 1,000 alternating synchronized

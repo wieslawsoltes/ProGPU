@@ -516,6 +516,8 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_geometry_scene.hpp
         tests/progpu_native_semantic_image_scene.cpp
         tests/progpu_native_semantic_image_scene.hpp
+        tests/progpu_native_semantic_rounded_mask_scene.cpp
+        tests/progpu_native_semantic_rounded_mask_scene.hpp
         tests/progpu_native_semantic_text_scene.cpp
         tests/progpu_native_semantic_text_scene.hpp
         browser/progpu_native_browser_smoke.cpp)

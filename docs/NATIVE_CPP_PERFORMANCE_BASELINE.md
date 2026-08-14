@@ -2262,20 +2262,49 @@ not a whole-engine replacement claim.
 
 The source-independent Apple M3 Pro gate now packages the complete transitive
 `ProGPU.Scene.Native` dependency closure, restores the managed sample without
-project references, and records a twelve-command public `GpuPicture`. Nested
-opacity and transformed axis-aligned clip scopes lower with two solids plus
-one clipped linear gradient, one periodic dot grid, adjacent round/hairline
-point batches, an indexed vertex-color triangle, and one curved retained path
-fill into ten ordered native commands, six native draws, nine retained
-resources, eight brush records,
-two gradient stops, and a maximum native stack depth of two.
+project references, and records a fourteen-command public `GpuPicture` tree.
+The root transforms a retained child picture, then combines nested opacity and
+transformed axis-aligned clip scopes with two solids, one clipped linear
+gradient, one periodic dot grid, adjacent round/hairline point batches, an
+indexed vertex-color triangle, one curved retained path fill, and one connected
+dashed polyline. It lowers to eleven ordered semantic commands, seven native
+draws, ten retained resources, nine brush records, two gradient stops, and a
+maximum native stack depth of two.
 Dawn/Metal renders the expected pixels, including the clipped background
 region and dot/gap samples; stable replay uploads zero
 vertex/index/brush/stop bytes, and forced device loss plus replacement-device
 recreation reproduces the output. The Dawn/Metal PPM SHA-256 is
-`47d40852e9ec8b01063cfde5729b55656968ae3c960715dddd6852e22015fd9b`;
+`58890d4b1e21cdf022753e42103b206cdfd26262085ef5a9cd3d15cc9fe3a271`;
 the inspected PNG is retained at
-`artifacts/progpu-native/sample/progpu-native-managed-path-fill.png`.
+`artifacts/progpu-native/sample/progpu-native-managed-nested.png`.
+
+The exact provider gate uses WebScene revision
+`02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
+`710c33013c53ab2700d332c25ff51430251a8cc4`. Direct wgpu-native and packaged
+Dawn produce the same sample hash. The Emscripten/browser integration also
+passes independent analytic rounded-mask and retained coverage-mask scenes;
+each uses three semantic commands and two physical GPU draws, and stable replay
+uploads no rebuilt resources. This proves provider/packaging parity for the
+common C++ ABI; it does not claim that browser .NET has adopted the managed
+picture compiler yet.
+
+The analytic browser fixture validates isolated-layer masking only. Managed
+geometry clips remain excluded because exact clip coverage must be applied per
+draw; an isolated group mask is observably different for overlapping
+translucent content at anti-aliased edges. The next clip substitution phase
+must add typed semantic-state mask references, masked pipelines for analytic,
+path, text, glyph, and image families, and bounded nested-mask composition.
+
+The unchanged mixed-picture benchmark remains the regression
+guard for compiler and stable replay overhead. On Apple M3 Pro/Metal with 100
+warm-up and 1,000 measured frames, one-time compilation took `22.1722 ms` and
+allocated exactly `178,464 bytes`; native update took `0.9143 ms` and 48 bytes.
+Native versus managed submission p50/p95 was `0.0435/0.0765 ms` versus
+`0.2368/0.3371 ms`, and synchronized total p50/p95 was `1.5576/4.5916 ms`
+versus `1.7658/4.9971 ms`. Both paths allocated zero bytes per stable frame;
+native stable replay uploaded zero retained bytes. Pixel parity remained at
+three edge pixels over 3/255, maximum channel delta 58/255, and mean absolute
+channel delta `0.0001630015/255`.
 
 ### Matched public-picture benchmark
 

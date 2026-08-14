@@ -5,6 +5,7 @@
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
 #include "progpu_native_semantic_geometry_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
+#include "progpu_native_semantic_rounded_mask_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
 #include <emscripten.h>
@@ -66,6 +67,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
         document.body.dataset.progpuNativeCoverageMasks = "passed";
+        document.body.dataset.progpuNativeRoundedMasks = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
@@ -73,7 +75,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU semantic backend active — retained coverage mask verified";
+            "C++ / WebGPU semantic backend active — retained analytic and coverage masks verified";
     });
     // The test page owns the offscreen texture until navigation releases the
     // WebAssembly instance and its Emdawnwebgpu handle table. The visible
@@ -357,6 +359,61 @@ bool render_browser_frame(double, void*) {
         stable_metrics.gradient_stop_upload_bytes != 0U) {
         fail_engine(
             "The stable browser semantic brush page was uploaded again.");
+    }
+
+    auto rounded_scene =
+        progpu::native::tests::create_semantic_rounded_mask_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics rounded_scene_metrics{};
+    rounded_scene_metrics.struct_size = sizeof(rounded_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            rounded_scene.data(),
+            rounded_scene.size(),
+            &rounded_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        rounded_scene_metrics.command_count != 3U ||
+        rounded_scene_metrics.resource_count != 2U ||
+        rounded_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser rounded-mask scene update failed.");
+    }
+    semantic_frame.scene_id = 101U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics rounded_metrics{};
+    rounded_metrics.struct_size = sizeof(rounded_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &rounded_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        rounded_metrics.command_count != 3U ||
+        rounded_metrics.draw_call_count != 2U ||
+        rounded_metrics.submission_count != 1U ||
+        rounded_metrics.texture_upload_bytes != 0U ||
+        rounded_metrics.uniform_upload_bytes < 24U * sizeof(float)) {
+        fail_engine("The browser rounded-mask render failed.");
+    }
+    progpu_native_layer_metrics rounded_layer_metrics{};
+    rounded_layer_metrics.struct_size = sizeof(rounded_layer_metrics);
+    if (progpu_native_engine_get_layer_metrics(
+            resources.engine,
+            &rounded_layer_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        rounded_layer_metrics.mask_kind !=
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
+        rounded_layer_metrics.content_pass_count != 1U ||
+        rounded_layer_metrics.composite_pass_count != 1U ||
+        rounded_layer_metrics.mask_uniform_upload_bytes == 0U) {
+        fail_engine("The browser rounded-mask metrics are invalid.");
+    }
+    rounded_metrics = {};
+    rounded_metrics.struct_size = sizeof(rounded_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &rounded_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        rounded_metrics.texture_upload_bytes != 0U ||
+        rounded_metrics.vertex_upload_bytes != 0U ||
+        rounded_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser rounded mask was rebuilt.");
     }
 
     auto coverage_scene =

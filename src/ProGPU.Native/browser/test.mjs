@@ -46,6 +46,7 @@ try {
     explicitTimeline:
       document.body.dataset.progpuNativeExplicitTimeline,
     coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
+    roundedMasks: document.body.dataset.progpuNativeRoundedMasks,
     semanticGeometry:
       document.body.dataset.progpuNativeSemanticGeometry,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
@@ -61,6 +62,7 @@ try {
     backendAbi: "3",
     explicitTimeline: "0",
     coverageMasks: "passed",
+    roundedMasks: "passed",
     semanticGeometry: "passed",
     deviceRecovery: "passed",
     error: ""
@@ -120,7 +122,8 @@ try {
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
-    `${contract.semanticDraws} GPU draws, retained coverage mask verified.\n`);
+    `${contract.semanticDraws} GPU draws, retained analytic rounded and ` +
+    `coverage masks verified.\n`);
 } finally {
   await browser.close();
 }
