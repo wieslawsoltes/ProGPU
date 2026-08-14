@@ -1732,8 +1732,9 @@ lost managed inlining, and cross-runtime synchronization.
 ### Required substitution modes
 
 1. **Managed baseline** — current `Compositor` and backend.
-2. **Managed scene / native compile+submit** — first .NET integration; public
-   objects remain unchanged and serialize incremental semantic updates.
+2. **Managed scene / native compile+submit** — active .NET integration; public
+   objects remain unchanged, supported immutable `GpuPicture` records compile
+   once, and later mutations serialize incremental semantic updates.
 3. **Native retained scene / native submit** — managed objects publish stable
    IDs and mutations directly to native builders.
 4. **Native full core** — layout/text/scene policy moves only after independent
@@ -1836,8 +1837,9 @@ path with WebGPU validation and bounded resource policies.
 1. Land the independently reproducible native ABI, typed .NET owner, sample,
    exact rectangle differential, and bounded Instruments baseline as one
    opt-in foundation. This work must not change the default renderer.
-2. Move indexed solid primitive compilation, packed brush storage, transforms,
-   opacity, clipping, and retained reuse into C++ as one wider 2D tranche.
+2. Extend the completed indexed primitive and packed gradient-material bridge
+   with retained save/restore, opacity, rectangular/vector clips, and layers as
+   one wider 2D state tranche.
 3. Expand the differential to transformed and stroked primitives, multiple DPI
    values, opacity, clipping, resize, invalid input, lifetime, and device loss.
 4. Add the versioned mixed-scene stream and nested save/clip/opacity/mask/layer

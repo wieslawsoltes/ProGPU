@@ -2374,6 +2374,10 @@ public class NativeRendererInteropTests
             ".github", "workflows", "release.yml"));
         string packageProject = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend.Native", "ProGPU.Backend.Native.csproj"));
+        string nativeBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native.sh"));
+        string windowsBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native-windows.ps1"));
 
         Assert.Contains(
             "add_library(progpu_native_dawn ${PROGPU_NATIVE_DAWN_LIBRARY_TYPE}",
@@ -2466,6 +2470,8 @@ public class NativeRendererInteropTests
             "GradientStopUploadBytes",
             managedSample,
             StringComparison.Ordinal);
+        Assert.Contains("--managed-picture", nativeBuild, StringComparison.Ordinal);
+        Assert.Contains("--managed-picture", windowsBuild, StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));

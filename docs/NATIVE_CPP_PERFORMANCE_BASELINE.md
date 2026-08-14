@@ -2240,12 +2240,13 @@ five-command compiler contract lowers to three native draws (analytic,
 geometry, analytic); the sample's family-grouped workload lowers hundreds or
 thousands of managed commands to two native draws.
 
-This checkpoint is functional and packaging evidence, not yet a replacement
-performance claim. The next matched benchmark must compare the identical
-publicly recorded picture through managed `Compositor` and compiled C++ paths,
-report one-time compilation separately from warm replay, retain GPU-completion
-and pixel-difference evidence, and pass the established 5% p95/no-allocation
-gate before this lane can be called a .NET substitute.
+The dedicated `--managed-picture` benchmark now sends the identical public
+picture through managed `Compositor` replay and the compiled C++ scene. It
+reports one-time compilation/update work separately from warm submission and
+GPU-completion waits, enforces zero stable managed allocation on both paths,
+and retains native, managed, and amplified-difference images. This is the
+first direct .NET substitution proof for the supported command subset; it is
+not a whole-engine replacement claim.
 
 The source-independent Apple M3 Pro gate now packages the complete transitive
 `ProGPU.Scene.Native` dependency closure, restores the managed sample without
@@ -2258,6 +2259,48 @@ The PPM SHA-256 is
 `b56487fc89f2d4f12908e0841603dea3ffadc63a16b62a00e343767e35ea3fcf`;
 the inspected PNG is retained at
 `artifacts/progpu-native/sample/progpu-native-managed-dawn.png`.
+
+### Matched public-picture benchmark
+
+The Apple M3 Pro/Metal Release qualification records 384 public drawing
+commands: 320 solid/linear/radial/two-point-conical/sweep gradient analytic
+fills and 64 gradient-stroked lines. The managed compiler lowers the immutable
+picture once to two retained native draws, three resources, five brushes,
+eight gradient stops, and a 32,128-byte pointer-free stream. Compilation took
+`9.8936 ms` and allocated `127,424 bytes`; the initial C++ scene update took
+`0.3143 ms` and allocated `48 bytes`. Neither cost is included in steady
+replay timing.
+
+After 60 warm-up and 300 alternating synchronized frames:
+
+| Metric | Compiled C++ | Managed compositor |
+|---|---:|---:|
+| p50 CPU submission | 0.0410 ms | 0.1732 ms |
+| p95 CPU submission | 0.1170 ms | 0.3214 ms |
+| p50 GPU completion wait | 1.5120 ms | 1.5127 ms |
+| p95 GPU completion wait | 3.0432 ms | 3.0753 ms |
+| p50 synchronized end to end | 1.5565 ms | 1.7130 ms |
+| p95 synchronized end to end | 3.1190 ms | 3.5835 ms |
+| managed allocation / stable frame | 0 bytes | 0 bytes |
+
+Native submission p95 is 63.6% lower and synchronized p95 is 13.0% lower.
+GPU-completion waits are on par because both paths execute the same two draws
+on the same Metal queue; the improvement is retained CPU compilation and
+submission overhead. A managed identity-transform fast path removed a measured
+12,288 bytes/frame of redundant gradient-brush and pen clones from the managed
+baseline before the final comparison.
+
+All 518,400 pixels are byte-identical: maximum channel difference `0`, no
+pixels over `3/255`, mean absolute difference `0`, and native/managed FNV-1a
+hash `A1206347C8787438`. The JSON distribution and inspected PNGs are retained
+under `artifacts/progpu-native/performance/managed-picture/`.
+
+Matched before/after Xcode Time Profiler, Allocations/VM Tracker, and Metal
+System Trace runs confirm the application counters and contain both
+`ProGPU retained semantic bundle replay pass` and
+`Offscreen Compositor Encoder`. Exported tables and a correlation summary are
+retained under `artifacts/progpu-native/profiles/managed-picture-final/`; the
+large raw trace bundles were removed after export to reclaim local disk space.
 
 ## Representative aggregate qualification checkpoint
 

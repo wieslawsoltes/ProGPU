@@ -139,6 +139,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
+      --managed-picture --rectangles 384 --warmup 4 --iterations 8
+  DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+    dotnet run \
+      --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+      -c Release -- \
       --group-opacity --rectangles 384 --warmup 4 --iterations 8
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \

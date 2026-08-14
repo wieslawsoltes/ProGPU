@@ -7,9 +7,21 @@ using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
+            "--managed-picture",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    ManagedPictureBenchmark.Run(args);
+    return;
+}
 
 const uint width = 960;
 const uint height = 540;

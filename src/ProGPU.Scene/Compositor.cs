@@ -6107,6 +6107,15 @@ SceneStateUploadComplete:
 
     private static Brush? TransformCommandBrush(Brush? brush, Matrix4x4 inverseCommandTransform)
     {
+        // Picture replay commonly reaches this path with the identity visual
+        // transform. Preserve the immutable brush reference in that case: a
+        // gradient/pen clone per command would otherwise allocate O(C) on
+        // every stable frame for C retained commands.
+        if (inverseCommandTransform == Matrix4x4.Identity)
+        {
+            return brush;
+        }
+
         return brush switch
         {
             LinearGradientBrush linear => new LinearGradientBrush(linear.StartPoint, linear.EndPoint, linear.Stops)
