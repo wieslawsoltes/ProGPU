@@ -108,6 +108,22 @@ struct sfnt_outline_point final {
     }
 };
 
+struct sfnt_composite_glyph_decode_requirements final {
+    std::uint32_t component_count = 0U;
+    std::uint16_t instruction_bytes = 0U;
+};
+
+struct sfnt_composite_component final {
+    std::uint16_t flags = 0U;
+    std::uint16_t glyph_index = 0U;
+    std::int32_t argument1 = 0;
+    std::int32_t argument2 = 0;
+    float m00 = 1.0F;
+    float m01 = 0.0F;
+    float m10 = 0.0F;
+    float m11 = 1.0F;
+};
+
 /*
  * Allocation-free lowering of decoded TrueType contours to the renderer's
  * canonical line/quadratic path ABI. The count pass and write pass are both
@@ -173,6 +189,14 @@ public:
         std::uint16_t glyph_index,
         std::span<std::uint16_t> contour_end_points,
         std::span<sfnt_outline_point> points,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_composite_glyph_decode_requirements(
+        std::uint16_t glyph_index,
+        sfnt_composite_glyph_decode_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_composite_glyph(
+        std::uint16_t glyph_index,
+        std::span<sfnt_composite_component> components,
         font_error* error = nullptr) const noexcept;
     bool try_get_glyph_index(
         std::uint32_t code_point,

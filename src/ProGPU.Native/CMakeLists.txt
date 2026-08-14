@@ -404,6 +404,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
 add_library(progpu_native_text STATIC
     src/progpu_native_font_bytes.hpp
     src/progpu_native_sfnt.cpp
+    src/progpu_native_true_type_composite.cpp
     src/progpu_native_true_type_glyph.cpp
     src/progpu_native_true_type_path.cpp
     include/progpu_native_text.hpp)

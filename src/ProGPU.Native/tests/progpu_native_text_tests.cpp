@@ -15,6 +15,8 @@ namespace {
 
 using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
+using progpu::native::text::sfnt_composite_component;
+using progpu::native::text::sfnt_composite_glyph_decode_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_glyph_decode_requirements;
@@ -110,7 +112,9 @@ std::vector<std::byte> make_cmap() {
     return result;
 }
 
-std::vector<std::byte> make_font(std::size_t face_offset = 0U) {
+std::vector<std::byte> make_font(
+    std::size_t face_offset = 0U,
+    std::size_t glyph_size = 22U) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -146,13 +150,13 @@ std::vector<std::byte> make_font(std::size_t face_offset = 0U) {
     tables.push_back(std::move(maxp));
     table_data loca{open_type_tag::from_chars('l', 'o', 'c', 'a'),
         std::vector<std::byte>(36U)};
-    write_u32(loca.bytes, 20U, 22U);
-    write_u32(loca.bytes, 24U, 22U);
-    write_u32(loca.bytes, 28U, 22U);
-    write_u32(loca.bytes, 32U, 22U);
+    write_u32(loca.bytes, 20U, static_cast<std::uint32_t>(glyph_size));
+    write_u32(loca.bytes, 24U, static_cast<std::uint32_t>(glyph_size));
+    write_u32(loca.bytes, 28U, static_cast<std::uint32_t>(glyph_size));
+    write_u32(loca.bytes, 32U, static_cast<std::uint32_t>(glyph_size));
     tables.push_back(std::move(loca));
     table_data glyf{open_type_tag::from_chars('g', 'l', 'y', 'f'),
-        std::vector<std::byte>(22U)};
+        std::vector<std::byte>(glyph_size)};
     write_i16(glyf.bytes, 0U, 1);
     write_i16(glyf.bytes, 2U, 10);
     write_i16(glyf.bytes, 4U, 0);
@@ -432,12 +436,123 @@ void simple_glyph_repeat_composite_and_malformed_paths_are_explicit() {
 
     auto composite = make_font();
     write_i16(composite, glyph_offset, -1);
+    write_u16(composite, glyph_offset + 10U, 0x000BU);
+    write_u16(composite, glyph_offset + 12U, 4U);
+    write_i16(composite, glyph_offset + 14U, 12);
+    write_i16(composite, glyph_offset + 16U, -7);
+    write_i16(composite, glyph_offset + 18U, 8192);
     require(sfnt_font_view::try_create(composite, 0U, font));
     require(font.try_get_glyph_decode_requirements(
         4U, requirements, &error));
     require(requirements.kind == sfnt_glyph_kind::composite);
     require(!font.try_decode_simple_glyph(
         4U, contour_ends, points, &error));
+    require(error == font_error::invalid_glyph);
+    sfnt_composite_glyph_decode_requirements composite_requirements{};
+    require(font.try_get_composite_glyph_decode_requirements(
+        4U, composite_requirements, &error));
+    require(composite_requirements.component_count == 1U);
+    require(composite_requirements.instruction_bytes == 0U);
+    std::array<sfnt_composite_component, 1U> component{};
+    require(font.try_decode_composite_glyph(
+        4U, component, &error));
+    require(component[0].flags == 0x000BU);
+    require(component[0].glyph_index == 4U);
+    require(component[0].argument1 == 12);
+    require(component[0].argument2 == -7);
+    require(component[0].m00 == 0.5F && component[0].m11 == 0.5F);
+    require(component[0].m01 == 0.0F && component[0].m10 == 0.0F);
+    require(!font.try_decode_composite_glyph(
+        4U, std::span<sfnt_composite_component>{}, &error));
+    require(error == font_error::insufficient_buffer);
+
+    auto two_components = make_font();
+    write_i16(two_components, glyph_offset, -1);
+    write_u16(two_components, glyph_offset + 10U, 0x0020U);
+    write_u16(two_components, glyph_offset + 12U, 4U);
+    two_components[glyph_offset + 14U] = static_cast<std::byte>(3U);
+    two_components[glyph_offset + 15U] = static_cast<std::byte>(0xFEU);
+    write_u16(two_components, glyph_offset + 16U, 0x0002U);
+    write_u16(two_components, glyph_offset + 18U, 5U);
+    two_components[glyph_offset + 20U] = static_cast<std::byte>(0xFDU);
+    two_components[glyph_offset + 21U] = static_cast<std::byte>(4U);
+    require(sfnt_font_view::try_create(two_components, 0U, font));
+    require(font.try_get_composite_glyph_decode_requirements(
+        4U, composite_requirements, &error));
+    require(composite_requirements.component_count == 2U);
+    std::array<sfnt_composite_component, 2U> decoded_components{};
+    require(font.try_decode_composite_glyph(
+        4U, decoded_components, &error));
+    require(decoded_components[0].argument1 == 3);
+    require(decoded_components[0].argument2 == 254);
+    require(decoded_components[1].glyph_index == 5U);
+    require(decoded_components[1].argument1 == -3);
+    require(decoded_components[1].argument2 == 4);
+
+    auto instructed_composite = make_font();
+    write_i16(instructed_composite, glyph_offset, -1);
+    write_u16(instructed_composite, glyph_offset + 10U, 0x0102U);
+    write_u16(instructed_composite, glyph_offset + 12U, 4U);
+    instructed_composite[glyph_offset + 14U] = static_cast<std::byte>(1U);
+    instructed_composite[glyph_offset + 15U] = static_cast<std::byte>(2U);
+    write_u16(instructed_composite, glyph_offset + 16U, 4U);
+    require(sfnt_font_view::try_create(instructed_composite, 0U, font));
+    require(font.try_get_composite_glyph_decode_requirements(
+        4U, composite_requirements, &error));
+    require(composite_requirements.component_count == 1U);
+    require(composite_requirements.instruction_bytes == 4U);
+
+    auto truncated_instructions = instructed_composite;
+    write_u16(truncated_instructions, glyph_offset + 16U, 5U);
+    require(sfnt_font_view::try_create(truncated_instructions, 0U, font));
+    require(!font.try_get_composite_glyph_decode_requirements(
+        4U, composite_requirements, &error));
+    require(error == font_error::invalid_glyph);
+
+    auto axis_composite = make_font();
+    write_i16(axis_composite, glyph_offset, -1);
+    write_u16(axis_composite, glyph_offset + 10U, 0x0043U);
+    write_u16(axis_composite, glyph_offset + 12U, 4U);
+    write_i16(axis_composite, glyph_offset + 14U, 1);
+    write_i16(axis_composite, glyph_offset + 16U, 2);
+    write_i16(axis_composite, glyph_offset + 18U, 8192);
+    write_i16(axis_composite, glyph_offset + 20U, -8192);
+    require(sfnt_font_view::try_create(axis_composite, 0U, font));
+    require(font.try_decode_composite_glyph(4U, component, &error));
+    require(component[0].m00 == 0.5F && component[0].m11 == -0.5F);
+
+    auto matrix_composite = make_font(0U, 24U);
+    require(sfnt_font_view::try_create(matrix_composite, 0U, font));
+    sfnt_table_view matrix_glyf{};
+    require(font.try_get_table(
+        open_type_tag::from_chars('g', 'l', 'y', 'f'), matrix_glyf));
+    const auto matrix_glyph_offset = static_cast<std::size_t>(
+        matrix_glyf.bytes.data() - matrix_composite.data());
+    write_i16(matrix_composite, matrix_glyph_offset, -1);
+    write_u16(matrix_composite, matrix_glyph_offset + 10U, 0x0082U);
+    write_u16(matrix_composite, matrix_glyph_offset + 12U, 4U);
+    matrix_composite[matrix_glyph_offset + 14U] = static_cast<std::byte>(0U);
+    matrix_composite[matrix_glyph_offset + 15U] = static_cast<std::byte>(0U);
+    write_i16(matrix_composite, matrix_glyph_offset + 16U, 8192);
+    write_i16(matrix_composite, matrix_glyph_offset + 18U, 4096);
+    write_i16(matrix_composite, matrix_glyph_offset + 20U, -4096);
+    write_i16(matrix_composite, matrix_glyph_offset + 22U, 16384);
+    require(sfnt_font_view::try_create(matrix_composite, 0U, font));
+    require(font.try_decode_composite_glyph(4U, component, &error));
+    require(component[0].m00 == 0.5F && component[0].m01 == 0.25F);
+    require(component[0].m10 == -0.25F && component[0].m11 == 1.0F);
+
+    auto truncated_composite = composite;
+    sfnt_table_view composite_loca{};
+    require(sfnt_font_view::try_create(truncated_composite, 0U, font));
+    require(font.try_get_table(
+        open_type_tag::from_chars('l', 'o', 'c', 'a'), composite_loca));
+    const auto composite_loca_offset = static_cast<std::size_t>(
+        composite_loca.bytes.data() - truncated_composite.data());
+    write_u32(truncated_composite, composite_loca_offset + 20U, 15U);
+    require(sfnt_font_view::try_create(truncated_composite, 0U, font));
+    require(!font.try_get_composite_glyph_decode_requirements(
+        4U, composite_requirements, &error));
     require(error == font_error::invalid_glyph);
 
     auto truncated_coordinates = make_font();
@@ -598,6 +713,28 @@ void production_inter_font_decodes_real_simple_outline() {
         : segments.back().p2;
     require(segments.front().p0.x == last_end.x);
     require(segments.front().p0.y == last_end.y);
+
+    std::uint16_t composite_index = 0U;
+    require(font.try_get_glyph_index(0x00E9U, composite_index));
+    sfnt_glyph_decode_requirements composite_kind{};
+    require(font.try_get_glyph_decode_requirements(
+        composite_index, composite_kind));
+    sfnt_composite_glyph_decode_requirements composite_requirements{};
+    require(composite_index == 618U);
+    require(composite_kind.kind == sfnt_glyph_kind::composite);
+    require(font.try_get_composite_glyph_decode_requirements(
+        composite_index, composite_requirements));
+    require(composite_requirements.component_count == 2U);
+    require(composite_requirements.instruction_bytes == 0U);
+    std::array<sfnt_composite_component, 2U> decoded{};
+    require(font.try_decode_composite_glyph(composite_index, decoded));
+    require(decoded[0].flags == 550U);
+    require(decoded[0].glyph_index == 614U);
+    require(decoded[0].argument1 == 0 && decoded[0].argument2 == 0);
+    require(decoded[0].m00 == 1.0F && decoded[0].m11 == 1.0F);
+    require(decoded[1].flags == 7U);
+    require(decoded[1].glyph_index == 1770U);
+    require(decoded[1].argument1 == 349 && decoded[1].argument2 == 0);
 }
 
 } // namespace

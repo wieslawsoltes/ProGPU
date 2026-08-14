@@ -89,6 +89,17 @@ line/quadratic records for Inter Medium glyph 397 with an exact shared 64-bit
 hash of `13245664145576799719`, including the
 start point `(665,-25)` and closed endpoint. A GPU-rendered native-font
 screenshot waits for composite expansion and the font-to-scene connection.
+Composite record parsing ports the descriptor loop in
+`TtfFont.ParseCompositeGlyphOutline` at checkpoint
+`3abbec85d749466130538c8371dc772f1ef08671`. A first pass validates every
+component, signed/unsigned byte/word arguments, F2Dot14 uniform, axis, or 2x2
+transforms, continuation flags, and optional instruction range while reporting
+the exact component count. A second pass writes fixed caller-owned component
+records. Both passes are `O(K + B)` time and `O(1)` internal storage for `K`
+components and `B` component/instruction bytes. The Inter Medium U+00E9
+checkpoint resolves to composite glyph 618 and exactly reproduces its two
+component records (glyphs 614 and 1770). Recursive transform/point-attachment
+expansion remains the next slice.
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.

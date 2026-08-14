@@ -14,6 +14,10 @@ int main() {
         return 1;
     }
     progpu_native_path_segment segments[2]{};
+    const progpu::native::text::sfnt_composite_component component{};
+    if (component.m00 != 1.0F || component.m11 != 1.0F) {
+        return 1;
+    }
     unsigned int written = 0U;
     if (!progpu::native::text::sfnt_simple_glyph_path::try_write_segments(
             contour_ends, points, segments, written) ||
