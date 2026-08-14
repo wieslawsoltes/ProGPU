@@ -82,6 +82,17 @@ fields, order, or primitive widths. New pointer-free ABI records should use this
 and existing eligible records migrate incrementally as their native parity slices are
 revisited.
 
+The C# / C++ boundary is deliberately coarse. An immutable scene generation crosses once
+through `UpdateScene`; a frame crosses once through `RenderScene`. Source-generated
+`LibraryImport`, disabled runtime marshalling, synchronous borrowed spans, native-owned
+retained snapshots, explicit same-device leases/fences, and caller-owned metrics buffers
+keep steady replay allocation-free. Per-command/per-glyph calls, retained managed pins,
+runtime object/string marshalling, and C++ object layouts are prohibited. Adapter name/symbol
+UTF-8 conversion is initialization/diagnostic work and is not permitted to migrate into the
+frame, shaping, layout, upload, or cache hot paths. Every new boundary record and entry point
+must report and gate call count, copied/pinned bytes, allocations, upload bytes, and CPU
+submission percentiles in its matched managed/native qualification.
+
 ## 3. Primary-source research record
 
 | System | Observable architecture | ProGPU decision |

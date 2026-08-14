@@ -53,6 +53,47 @@ Third-party dependencies may be consumed only through the repository's normal re
 package, submodule, or explicitly vendored-dependency process with compatible licensing;
 that does not permit copying their source into ordinary ProGPU implementation files.
 
+### A-2. Mandatory High-Performance C# / C++ Boundary
+
+Treat every managed/native crossing as a measured rendering hot path and keep the native
+contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
+
+* Batch work by immutable scene/resource generation. Normal retained operation performs at
+  most one scene update call when content changes and one render/submission call per frame;
+  never add per-command, per-primitive, per-glyph, per-font-table, or per-cache-entry P/Invoke.
+* Make the public C header the source of truth for eligible blittable enums, flags, constants,
+  and fixed-layout records. Generate matching internal C# wire declarations from marked
+  native contracts, keep checked-in output deterministic, and fail PR/release CI when it is
+  stale. Handwritten C# may provide typed partial wrappers, validation, spans, ownership,
+  and convenience APIs, but must not duplicate opted-in field layouts or numeric values.
+* Use source-generated `LibraryImport` with runtime marshalling disabled, an explicit calling
+  convention, and blittable primitives/pointers. Do not use reflection, object marshalling,
+  COM-style variant transport, per-call delegates, strings, arrays, or wrapper allocation in
+  render, update, shaping, layout, upload, cache, or submission paths. UTF-8 conversion and
+  reverse callbacks are limited to initialization, symbol resolution, diagnostics, or bounded
+  asynchronous completion seams and must use cached state or `UnmanagedCallersOnly` where
+  applicable.
+* Pass caller-owned contiguous data as pinned `Span<T>`/`ReadOnlySpan<T>` only for synchronous
+  calls whose native implementation cannot retain the pointer. Persistent pointer-free streams
+  use fixed-width little-endian offsets and counts, never process-sized pointers or `size_t`.
+  Native retention requires an explicit owned snapshot or typed lease; same-device GPU resources
+  carry device-domain identity and remain leased through their submission/fence completion.
+* Prefer bounded `stackalloc`, ref structs, `MemoryMarshal`, generated sequential/explicit
+  records, reusable arenas, and native-owned caches. Do not copy a scene merely to cross the
+  boundary, pin an object beyond its documented synchronous lifetime, allocate a `SafeHandle`
+  or delegate per frame, or return variable native data through repeated size-probe calls when
+  a caller-provided bounded buffer or immutable snapshot can be used.
+* No C++ exception, STL object, compiler-specific class layout, or backend WebGPU descriptor may
+  cross the stable C ABI. Return typed status codes and populate caller-owned metrics/error
+  buffers. Validate structure size, ABI version, alignment, enum/flag ranges, reserved zeros,
+  offsets, overflow, and device domain before native handle use; cover both 32-bit and 64-bit
+  layouts where the contract is portable.
+* Gate boundary changes with matched Release measurements: crossings per update/frame, bytes
+  copied, pin duration, upload bytes, managed/native allocations, and CPU submission p50/p95/p99.
+  Stable replay must remain zero managed allocation and zero retained upload. Compare the same
+  final managed/native binaries and investigate statistically repeatable regressions before
+  integration.
+
 ### A0. Reflection-Free WPF Port Support
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 
