@@ -35,6 +35,8 @@ using ::progpu::native::text::sfnt_packed_point_requirements;
 using ::progpu::native::text::sfnt_packed_variation_data;
 using ::progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using ::progpu::native::text::sfnt_simple_glyph_variation_scratch;
+using ::progpu::native::text::sfnt_varied_glyph_requirements;
+using ::progpu::native::text::sfnt_varied_glyph_scratch;
 
 } // namespace progpu::native::text
 

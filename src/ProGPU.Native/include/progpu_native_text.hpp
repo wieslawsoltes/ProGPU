@@ -265,6 +265,30 @@ struct sfnt_composite_glyph_variation_scratch final {
 };
 
 /*
+ * Exact maximum caller storage for recursive variable TrueType expansion.
+ * Measurement is O(G + C) for G reachable glyphs and C components; decoding
+ * is O(G + C + T * (A + P + D)) and performs no internal heap allocation.
+ * Component offsets reserve only the maximum active recursion path, not the
+ * full expanded tree.
+ */
+struct sfnt_varied_glyph_requirements final {
+    sfnt_expanded_glyph_requirements outline{};
+    sfnt_simple_glyph_variation_requirements simple_variation{};
+    sfnt_composite_glyph_variation_requirements composite_variation{};
+    std::uint32_t varied_simple_point_count = 0U;
+    std::uint32_t component_offset_count = 0U;
+};
+
+struct sfnt_varied_glyph_scratch final {
+    std::span<std::uint16_t> simple_contour_end_points{};
+    std::span<sfnt_outline_point> simple_points{};
+    std::span<progpu_native_point> varied_simple_points{};
+    std::span<progpu_native_point> component_offsets{};
+    sfnt_simple_glyph_variation_scratch simple_variation{};
+    sfnt_composite_glyph_variation_scratch composite_variation{};
+};
+
+/*
  * Transactional two-pass decoders for gvar packed point and delta streams.
  * Each pass is O(N) time with O(1) internal storage for N encoded values. The
  * caller owns every output span; insufficient or malformed input writes no
@@ -389,6 +413,19 @@ public:
         std::uint16_t glyph_index,
         std::span<std::uint16_t> simple_contour_scratch,
         std::span<sfnt_outline_point> simple_point_scratch,
+        std::span<progpu_native_point> points,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& points_written,
+        std::uint32_t& segments_written,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_varied_glyph_requirements(
+        std::uint16_t glyph_index,
+        sfnt_varied_glyph_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_varied_glyph_outline(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        sfnt_varied_glyph_scratch scratch,
         std::span<progpu_native_point> points,
         std::span<progpu_native_path_segment> segments,
         std::uint32_t& points_written,

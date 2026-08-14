@@ -40,6 +40,8 @@ using progpu::native::text::sfnt_packed_variation_data;
 using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using progpu::native::text::sfnt_simple_glyph_variation_scratch;
+using progpu::native::text::sfnt_varied_glyph_requirements;
+using progpu::native::text::sfnt_varied_glyph_scratch;
 using progpu::native::text::sfnt_table_view;
 using progpu::native::text::sfnt_variation_axis;
 
@@ -1593,6 +1595,115 @@ void production_inter_variable_font_matches_fvar_axes() {
         component_offsets[0].y == 0.0F &&
         component_offsets[1].x == 15.0F &&
         component_offsets[1].y == 0.0F);
+
+    sfnt_varied_glyph_requirements varied_composite_requirements{};
+    require(font.try_get_varied_glyph_requirements(
+        618U, varied_composite_requirements));
+    require(varied_composite_requirements.component_offset_count == 2U);
+    const auto& simple_variation =
+        varied_composite_requirements.simple_variation;
+    const auto& composite_variation =
+        varied_composite_requirements.composite_variation;
+    std::vector<std::uint16_t> varied_contours(
+        varied_composite_requirements.outline.simple_contour_scratch_count);
+    std::vector<sfnt_outline_point> varied_original_points(
+        varied_composite_requirements.outline.simple_point_scratch_count);
+    std::vector<progpu_native_point> varied_point_scratch(
+        varied_composite_requirements.varied_simple_point_count);
+    std::vector<progpu_native_point> varied_component_offsets(
+        varied_composite_requirements.component_offset_count);
+    std::vector<sfnt_gvar_tuple_header> varied_simple_headers(
+        simple_variation.tuple_header_count);
+    std::vector<std::int16_t> varied_simple_regions(
+        simple_variation.region_coordinate_count);
+    std::vector<std::uint32_t> varied_simple_shared(
+        simple_variation.point_number_count);
+    std::vector<std::uint32_t> varied_simple_private(
+        simple_variation.point_number_count);
+    std::vector<std::int16_t> varied_simple_x(simple_variation.delta_count);
+    std::vector<std::int16_t> varied_simple_y(simple_variation.delta_count);
+    std::vector<float> varied_tuple_x(simple_variation.tuple_point_count);
+    std::vector<float> varied_tuple_y(simple_variation.tuple_point_count);
+    std::vector<std::uint8_t> varied_touched(
+        simple_variation.tuple_point_count);
+    std::vector<sfnt_gvar_tuple_header> varied_composite_headers(
+        composite_variation.tuple_header_count);
+    std::vector<std::int16_t> varied_composite_regions(
+        composite_variation.region_coordinate_count);
+    std::vector<std::uint32_t> varied_composite_shared(
+        composite_variation.point_number_count);
+    std::vector<std::uint32_t> varied_composite_private(
+        composite_variation.point_number_count);
+    std::vector<std::int16_t> varied_composite_x(
+        composite_variation.delta_count);
+    std::vector<std::int16_t> varied_composite_y(
+        composite_variation.delta_count);
+    sfnt_varied_glyph_scratch varied_scratch{
+        varied_contours,
+        varied_original_points,
+        varied_point_scratch,
+        varied_component_offsets,
+        sfnt_simple_glyph_variation_scratch{
+            varied_simple_headers,
+            varied_simple_regions,
+            varied_simple_shared,
+            varied_simple_private,
+            varied_simple_x,
+            varied_simple_y,
+            varied_tuple_x,
+            varied_tuple_y,
+            varied_touched},
+        sfnt_composite_glyph_variation_scratch{
+            varied_composite_headers,
+            varied_composite_regions,
+            varied_composite_shared,
+            varied_composite_private,
+            varied_composite_x,
+            varied_composite_y}};
+    std::vector<progpu_native_point> varied_composite_points(
+        varied_composite_requirements.outline.point_count);
+    std::vector<progpu_native_path_segment> varied_composite_segments(
+        varied_composite_requirements.outline.path_segment_count);
+    std::uint32_t varied_composite_points_written = 0U;
+    std::uint32_t varied_composite_segments_written = 0U;
+    require(font.try_decode_varied_glyph_outline(
+        618U,
+        optical_coordinates,
+        varied_scratch,
+        varied_composite_points,
+        varied_composite_segments,
+        varied_composite_points_written,
+        varied_composite_segments_written));
+    require(varied_composite_points_written ==
+        varied_composite_requirements.outline.point_count);
+    require(varied_composite_segments_written == 36U);
+    require(varied_composite_segments[0].p0.x == 595.0F);
+    require(varied_composite_segments[0].p0.y == -24.0F);
+    require(hash_path_segments(varied_composite_segments) ==
+        12064242707506207632ULL);
+
+    auto short_varied_scratch = varied_scratch;
+    short_varied_scratch.component_offsets =
+        std::span<progpu_native_point>{varied_component_offsets}.first(1U);
+    std::vector<progpu_native_point> untouched_points(
+        varied_composite_requirements.outline.point_count,
+        progpu_native_point{99.0F, 99.0F});
+    std::uint32_t short_points_written = 99U;
+    std::uint32_t short_segments_written = 99U;
+    font_error short_error = font_error::none;
+    require(!font.try_decode_varied_glyph_outline(
+        618U,
+        optical_coordinates,
+        short_varied_scratch,
+        untouched_points,
+        varied_composite_segments,
+        short_points_written,
+        short_segments_written,
+        &short_error));
+    require(short_error == font_error::insufficient_buffer);
+    require(short_points_written == 0U && short_segments_written == 0U);
+    require(untouched_points[0].x == 99.0F &&
+        untouched_points[0].y == 99.0F);
 }
 
 } // namespace
