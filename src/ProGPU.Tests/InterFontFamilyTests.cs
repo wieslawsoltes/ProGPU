@@ -90,6 +90,15 @@ public sealed class InterFontFamilyTests
                 Assert.Equal(900f, axis.Maximum);
                 Assert.False(axis.IsHidden);
             });
+
+        TtfFont optical = font.WithVariations(
+            new FontVariationSetting("opsz", 23f));
+        var opticalOutline = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            optical.GetGlyphOutline(397));
+        Assert.Equal(
+            new Vector2(648.5f, -25f),
+            Assert.Single(opticalOutline.Figures).StartPoint);
+        Assert.Equal(12343280691057163238UL, HashOutline(opticalOutline));
     }
 
     private static ulong HashOutline(ProGPU.Vector.PathGeometry outline)

@@ -36,6 +36,8 @@ using progpu::native::text::sfnt_packed_delta_requirements;
 using progpu::native::text::sfnt_packed_point_requirements;
 using progpu::native::text::sfnt_packed_variation_data;
 using progpu::native::text::sfnt_simple_glyph_path;
+using progpu::native::text::sfnt_simple_glyph_variation_requirements;
+using progpu::native::text::sfnt_simple_glyph_variation_scratch;
 using progpu::native::text::sfnt_table_view;
 using progpu::native::text::sfnt_variation_axis;
 
@@ -178,7 +180,7 @@ std::vector<std::byte> make_avar() {
 }
 
 std::vector<std::byte> make_gvar() {
-    std::vector<std::byte> result(64U);
+    std::vector<std::byte> result(72U);
     write_u16(result, 0U, 1U);
     write_u16(result, 2U, 0U);
     write_u16(result, 4U, 2U);
@@ -187,14 +189,14 @@ std::vector<std::byte> make_gvar() {
     write_u16(result, 12U, 8U);
     write_u16(result, 14U, 0U);
     write_u32(result, 16U, 42U);
-    for (std::size_t index = 1U; index <= 8U; ++index) {
-        write_u16(result, 20U + index * 2U, 11U);
+    for (std::size_t index = 5U; index <= 8U; ++index) {
+        write_u16(result, 20U + index * 2U, 15U);
     }
     write_i16(result, 38U, -16384);
     write_i16(result, 40U, 8192);
     write_u16(result, 42U, 1U);
     write_u16(result, 44U, 20U);
-    write_u16(result, 46U, 2U);
+    write_u16(result, 46U, 10U);
     write_u16(result, 48U, 0xE000U);
     write_i16(result, 50U, 8192);
     write_i16(result, 52U, -4096);
@@ -203,7 +205,15 @@ std::vector<std::byte> make_gvar() {
     write_i16(result, 58U, 16384);
     write_i16(result, 60U, 0);
     result[62U] = std::byte{0U};
-    result[63U] = std::byte{0U};
+    result[63U] = std::byte{6U};
+    result[64U] = std::byte{2U};
+    result[65U] = std::byte{0U};
+    result[66U] = std::byte{0U};
+    result[67U] = std::byte{0U};
+    result[68U] = std::byte{0U};
+    result[69U] = std::byte{0U};
+    result[70U] = std::byte{0U};
+    result[71U] = std::byte{0x86U};
     return result;
 }
 
@@ -470,7 +480,7 @@ void glyph_variation_tuple_headers_are_bounded_and_exact() {
     sfnt_gvar_tuple_requirements requirements{};
     font_error error = font_error::none;
     require(font.try_get_glyph_variation_tuple_requirements(
-        0U, requirements, &error));
+        4U, requirements, &error));
     require(error == font_error::none);
     require(requirements.tuple_count == 1U);
     require(requirements.region_coordinate_count == 6U);
@@ -479,7 +489,7 @@ void glyph_variation_tuple_headers_are_bounded_and_exact() {
     std::uint16_t headers_written = 99U;
     std::uint32_t coordinates_written = 99U;
     require(!font.try_decode_glyph_variation_tuple_headers(
-        0U,
+        4U,
         headers,
         short_coordinates,
         headers_written,
@@ -490,14 +500,14 @@ void glyph_variation_tuple_headers_are_bounded_and_exact() {
     require(headers[0].flags == 0U && short_coordinates[0] == 0);
     std::array<std::int16_t, 6U> coordinates{};
     require(font.try_decode_glyph_variation_tuple_headers(
-        0U,
+        4U,
         headers,
         coordinates,
         headers_written,
         coordinates_written,
         &error));
     require(headers_written == 1U && coordinates_written == 6U);
-    require(headers[0].serialized_data_size == 2U);
+    require(headers[0].serialized_data_size == 10U);
     require(headers[0].flags == 0xE000U);
     require(headers[0].has_private_point_numbers());
     require(coordinates ==
@@ -550,6 +560,77 @@ void untouched_glyph_deltas_interpolate_without_allocation() {
     require(!sfnt_gvar_deltas::try_infer_untouched(
         points, contour_ends, short_x, y, one_touched, &error));
     require(error == font_error::insufficient_buffer);
+}
+
+void simple_glyph_variations_apply_packed_tuple_deltas() {
+    const auto data = make_font(0U, 22U, 0U, true, true, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_glyph_decode_requirements glyph_requirements{};
+    require(font.try_get_glyph_decode_requirements(
+        4U, glyph_requirements));
+    require(glyph_requirements.point_count == 3U);
+    std::array<std::uint16_t, 1U> contour_ends{};
+    std::array<sfnt_outline_point, 3U> original_points{};
+    require(font.try_decode_simple_glyph(
+        4U, contour_ends, original_points));
+
+    sfnt_simple_glyph_variation_requirements requirements{};
+    require(font.try_get_simple_glyph_variation_requirements(
+        4U, 3U, requirements));
+    require(requirements.tuple_header_count == 1U);
+    require(requirements.region_coordinate_count == 6U);
+    require(requirements.point_number_count == 7U);
+    require(requirements.delta_count == 7U);
+    require(requirements.tuple_point_count == 3U);
+
+    std::array<sfnt_gvar_tuple_header, 1U> headers{};
+    std::array<std::int16_t, 6U> regions{};
+    std::array<std::uint32_t, 7U> shared_points{};
+    std::array<std::uint32_t, 7U> private_points{};
+    std::array<std::int16_t, 7U> x_deltas{};
+    std::array<std::int16_t, 7U> y_deltas{};
+    std::array<float, 3U> tuple_x{};
+    std::array<float, 3U> tuple_y{};
+    std::array<std::uint8_t, 3U> touched{};
+    sfnt_simple_glyph_variation_scratch scratch{
+        headers,
+        regions,
+        shared_points,
+        private_points,
+        x_deltas,
+        y_deltas,
+        tuple_x,
+        tuple_y,
+        touched};
+    const std::array<std::int16_t, 2U> normalized{4096, -4096};
+    std::array<progpu_native_point, 3U> varied{};
+    font_error error = font_error::none;
+    require(font.try_apply_simple_glyph_variations(
+        4U,
+        normalized,
+        contour_ends,
+        original_points,
+        varied,
+        scratch,
+        &error));
+    require(error == font_error::none);
+    require(varied[0].x == 11.0F && varied[0].y == 0.0F);
+    require(varied[1].x == 30.0F && varied[1].y == 30.0F);
+    require(varied[2].x == 25.0F && varied[2].y == 40.0F);
+
+    std::array<progpu_native_point, 2U> short_varied{{
+        {99.0F, 99.0F}, {99.0F, 99.0F}}};
+    require(!font.try_apply_simple_glyph_variations(
+        4U,
+        normalized,
+        contour_ends,
+        original_points,
+        short_varied,
+        scratch,
+        &error));
+    require(error == font_error::insufficient_buffer);
+    require(short_varied[0].x == 99.0F && short_varied[0].y == 99.0F);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1355,6 +1436,71 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(glyph_variation.bytes.size() == 60U);
     require(glyph_variation.tuple_count == 5U);
     require(glyph_variation.serialized_data_offset == 24U);
+
+    sfnt_glyph_decode_requirements outline_requirements{};
+    require(font.try_get_glyph_decode_requirements(
+        397U, outline_requirements));
+    std::vector<std::uint16_t> contour_ends(
+        outline_requirements.contour_count);
+    std::vector<sfnt_outline_point> original_points(
+        outline_requirements.point_count);
+    require(font.try_decode_simple_glyph(
+        397U, contour_ends, original_points));
+    sfnt_simple_glyph_variation_requirements variation_requirements{};
+    require(font.try_get_simple_glyph_variation_requirements(
+        397U,
+        outline_requirements.point_count,
+        variation_requirements));
+    std::vector<sfnt_gvar_tuple_header> varied_headers(
+        variation_requirements.tuple_header_count);
+    std::vector<std::int16_t> varied_regions(
+        variation_requirements.region_coordinate_count);
+    std::vector<std::uint32_t> shared_point_numbers(
+        variation_requirements.point_number_count);
+    std::vector<std::uint32_t> private_point_numbers(
+        variation_requirements.point_number_count);
+    std::vector<std::int16_t> varied_x(
+        variation_requirements.delta_count);
+    std::vector<std::int16_t> varied_y(
+        variation_requirements.delta_count);
+    std::vector<float> tuple_x(variation_requirements.tuple_point_count);
+    std::vector<float> tuple_y(variation_requirements.tuple_point_count);
+    std::vector<std::uint8_t> touched(
+        variation_requirements.tuple_point_count);
+    sfnt_simple_glyph_variation_scratch variation_scratch{
+        varied_headers,
+        varied_regions,
+        shared_point_numbers,
+        private_point_numbers,
+        varied_x,
+        varied_y,
+        tuple_x,
+        tuple_y,
+        touched};
+    std::vector<progpu_native_point> varied_points(
+        outline_requirements.point_count);
+    const std::array<std::int16_t, 2U> optical_coordinates{8192, 0};
+    require(font.try_apply_simple_glyph_variations(
+        397U,
+        optical_coordinates,
+        contour_ends,
+        original_points,
+        varied_points,
+        variation_scratch));
+    std::vector<progpu_native_path_segment> varied_segments(
+        outline_requirements.path_segment_count);
+    std::uint32_t varied_written = 0U;
+    require(sfnt_simple_glyph_path::try_write_varied_segments(
+        contour_ends,
+        original_points,
+        varied_points,
+        varied_segments,
+        varied_written));
+    require(varied_written == 39U);
+    require(varied_segments[0].p0.x == 648.5F);
+    require(varied_segments[0].p0.y == -25.0F);
+    require(hash_path_segments(varied_segments) ==
+        12343280691057163238ULL);
 }
 
 } // namespace
@@ -1366,6 +1512,7 @@ int main() {
     packed_variation_streams_are_transactional_and_exact();
     glyph_variation_tuple_headers_are_bounded_and_exact();
     untouched_glyph_deltas_interpolate_without_allocation();
+    simple_glyph_variations_apply_packed_tuple_deltas();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

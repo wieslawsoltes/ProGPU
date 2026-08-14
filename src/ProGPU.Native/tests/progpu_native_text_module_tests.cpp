@@ -20,6 +20,8 @@ int main() {
     const progpu::native::text::sfnt_gvar_header gvar{};
     const progpu::native::text::sfnt_gvar_tuple_header gvar_tuple{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
+    const progpu::native::text::sfnt_simple_glyph_variation_requirements
+        variation_requirements{};
     const progpu::native::text::sfnt_packed_point_requirements packed{};
     if (component.m00 != 1.0F || component.m11 != 1.0F) {
         return 1;
@@ -35,6 +37,9 @@ int main() {
         return 1;
     }
     (void)sizeof(gvar_deltas);
+    if (variation_requirements.delta_count != 0U) {
+        return 1;
+    }
     unsigned int written = 0U;
     if (!progpu::native::text::sfnt_simple_glyph_path::try_write_segments(
             contour_ends, points, segments, written) ||

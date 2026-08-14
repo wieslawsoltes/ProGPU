@@ -31,6 +31,8 @@ using ::progpu::native::text::sfnt_glyph_variation_data_view;
 using ::progpu::native::text::sfnt_packed_delta_requirements;
 using ::progpu::native::text::sfnt_packed_point_requirements;
 using ::progpu::native::text::sfnt_packed_variation_data;
+using ::progpu::native::text::sfnt_simple_glyph_variation_requirements;
+using ::progpu::native::text::sfnt_simple_glyph_variation_scratch;
 
 } // namespace progpu::native::text
 
