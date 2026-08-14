@@ -279,6 +279,66 @@ void semantic_brush_page_is_bounded_deduplicated_and_retained() {
         storage.data(), brush_resource, error_offset));
 }
 
+void semantic_mesh_brush_preserves_source_opacity_before_color_blend() {
+    std::array<std::byte, 1024U> storage{};
+    progpu_native_scene_header header{};
+    header.resource_offset = 64U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.resource_count = 2U;
+    header.command_offset = 192U;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.command_count = 1U;
+
+    progpu_native_scene_resource brush_resource{};
+    brush_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE;
+    brush_resource.payload_offset = 320U;
+    brush_resource.payload_size = sizeof(progpu_native_scene_brush);
+    std::memcpy(storage.data() + header.resource_offset, &brush_resource,
+        sizeof(brush_resource));
+    progpu_native_scene_resource state_resource{};
+    state_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+    state_resource.payload_offset = 576U;
+    state_resource.payload_size = sizeof(progpu_native_scene_state);
+    std::memcpy(storage.data() + header.resource_offset +
+            sizeof(progpu_native_scene_resource),
+        &state_resource, sizeof(state_resource));
+
+    progpu_native_scene_brush brush{};
+    brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    brush.opacity = 0.8F;
+    brush.colors[0] = {0.25F, 0.5F, 0.75F, 1.0F};
+    brush.coordinate_transform0[0] = 1.0F;
+    brush.coordinate_transform1[1] = 1.0F;
+    std::memcpy(storage.data() + brush_resource.payload_offset, &brush,
+        sizeof(brush));
+    auto state = progpu::native::semantic::semantic_identity_state();
+    state.opacity = 0.5F;
+    std::memcpy(storage.data() + state_resource.payload_offset, &state,
+        sizeof(state));
+
+    progpu_native_scene_command command{};
+    command.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH;
+    command.state_index = 1U;
+    command.payload_offset = 672U;
+    command.payload_size = sizeof(progpu_native_scene_draw_brushes) +
+        sizeof(std::uint32_t);
+    std::memcpy(storage.data() + header.command_offset, &command,
+        sizeof(command));
+    const progpu_native_scene_draw_brushes draw{
+        sizeof(progpu_native_scene_draw_brushes), 0U, 1U, 0U};
+    const std::uint32_t brush_index = 0U;
+    std::memcpy(storage.data() + command.payload_offset, &draw, sizeof(draw));
+    std::memcpy(storage.data() + command.payload_offset + sizeof(draw),
+        &brush_index, sizeof(brush_index));
+
+    progpu::native::semantic::semantic_brush_page page{};
+    require(progpu::native::semantic::compile_brush_page(
+        storage.data(), header, 456U, page));
+    require(page.brushes.size() == 2U);
+    require(page.remapped_indices.size() == 1U);
+    require(page.brushes[1].opacity == 0.8F);
+}
+
 void semantic_text_style_page_is_validated_deduplicated_and_retained() {
     std::array<std::byte, 1536U> storage{};
     progpu_native_scene_header header{};
@@ -682,6 +742,7 @@ int main() {
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
     semantic_brush_page_is_bounded_deduplicated_and_retained();
+    semantic_mesh_brush_preserves_source_opacity_before_color_blend();
     require(progpu::native::tests::
         semantic_perlin_brush_table_is_exact_and_bounded());
     require(progpu::native::tests::

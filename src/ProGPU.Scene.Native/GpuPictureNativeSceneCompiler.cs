@@ -16,7 +16,7 @@ namespace ProGPU.Scene.Native;
 /// become one native draw. Stable replay reads only <see cref="NativeCompiledPicture.Stream"/>
 /// and allocates no managed memory.
 /// </remarks>
-public static class GpuPictureNativeSceneCompiler
+public static partial class GpuPictureNativeSceneCompiler
 {
     private enum BatchKind : byte
     {
@@ -38,7 +38,8 @@ public static class GpuPictureNativeSceneCompiler
     private enum StateScopeKind : byte
     {
         Opacity,
-        Clip
+        Clip,
+        OpacityMask
     }
 
     private struct Batch
@@ -540,6 +541,24 @@ public static class GpuPictureNativeSceneCompiler
                     scopes,
                     states,
                     operations);
+            case RenderCommandType.PushOpacityMask:
+                if (!TryGetSolidOpacityMaskState(
+                        command,
+                        current,
+                        out StateSnapshot maskState,
+                        out error))
+                {
+                    return false;
+                }
+                return PushState(
+                    StateScopeKind.OpacityMask,
+                    maskState,
+                    sourceCommandIndex,
+                    command.Type,
+                    ref current,
+                    scopes,
+                    states,
+                    operations);
             case RenderCommandType.PopOpacity:
                 return TryRestoreState(
                     StateScopeKind.Opacity,
@@ -550,6 +569,13 @@ public static class GpuPictureNativeSceneCompiler
             case RenderCommandType.PopClip:
                 return TryRestoreState(
                     StateScopeKind.Clip,
+                    ref current,
+                    scopes,
+                    operations,
+                    out error);
+            case RenderCommandType.PopOpacityMask:
+                return TryRestoreState(
+                    StateScopeKind.OpacityMask,
                     ref current,
                     scopes,
                     operations,

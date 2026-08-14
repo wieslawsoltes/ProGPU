@@ -127,6 +127,7 @@ inline bool append_vertex_mesh(
     std::size_t available_vertex_count,
     const std::uint16_t* source_indices,
     std::size_t available_index_count,
+    float opacity,
     float brush_index,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices) {
@@ -144,6 +145,7 @@ inline bool append_vertex_mesh(
             vertex_count,
             maximum_index_count) ||
         (mesh.index_count != 0U && source_indices == nullptr) ||
+        !std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F ||
         vertices.size() >
             std::numeric_limits<std::uint32_t>::max() - vertex_count ||
         vertices.size() >
@@ -175,6 +177,10 @@ inline bool append_vertex_mesh(
         vertex.texture_coordinate[1] = source.texture_coordinate.y;
         vertex.brush_index = brush_index;
         vertex.corner_radius = static_cast<float>(mesh.color_blend_mode);
+        // Shape 18 reserves stroke_thickness for post-blend state opacity.
+        // Every vertex in a retained mesh receives the same value, so the
+        // fragment interpolation is exact and adds no resource payload.
+        vertex.stroke_thickness = opacity;
         vertex.shape_type = shape_type;
         vertices.push_back(vertex);
     }

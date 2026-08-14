@@ -379,7 +379,13 @@ bool compile_brush_page(
                     bytes,
                     command.payload_offset + sizeof(draw) +
                         static_cast<std::size_t>(index) * sizeof(std::uint32_t));
-                const float opacity = state.opacity;
+                // Vertex-color blending must receive the retained brush at
+                // its source opacity. The mesh carries semantic state opacity
+                // separately and applies it after the selected blend mode.
+                const float opacity = command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                    ? 1.0F
+                    : state.opacity;
                 const brush_variant_key key{
                     draw.brush_resource_index,
                     local_index,

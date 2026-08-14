@@ -2412,7 +2412,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         finalColor = blend_mesh_colors(finalColor, input.color, u32(round(input.cornerRadius)));
     }
 
-    return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha);
+    // Vertex meshes apply semantic state opacity after brush/vertex blending.
+    // Applying it to the brush first is not equivalent for Porter-Duff and
+    // advanced color blend modes. Other shapes retain their existing alpha.
+    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u);
+    return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
 }
 
 @fragment

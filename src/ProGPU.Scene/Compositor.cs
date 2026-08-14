@@ -11286,7 +11286,10 @@ SceneStateUploadComplete:
         var positions = mesh.PositionArray;
         var textureCoordinates = mesh.TextureCoordinateArray;
         var colors = mesh.ColorArray;
-        var brushIndex = RegisterBrush(cmd.Brush);
+        // Vertex-color blend modes must see the retained brush before semantic
+        // opacity. The shared mesh shader applies active opacity after the
+        // selected blend mode, alongside any independent opacity mask.
+        var brushIndex = RegisterBrush(cmd.Brush, 1f);
         var shapeType = EncodeShapeType(cmd, VertexMeshShapeType);
         var startVertex = _vectorVerticesList.Count;
         var originalVertexCount = _vectorVerticesList.Count;
@@ -11307,7 +11310,7 @@ SceneStateUploadComplete:
                 brushIndex,
                 default,
                 (float)cmd.VertexColorBlendMode,
-                0f,
+                _activeOpacity,
                 shapeType);
         }
 
@@ -11853,13 +11856,16 @@ SceneStateUploadComplete:
         return path;
     }
 
-    internal float RegisterBrush(Brush? brush)
+    internal float RegisterBrush(Brush? brush) =>
+        RegisterBrush(brush, _activeOpacity);
+
+    private float RegisterBrush(Brush? brush, float semanticOpacity)
     {
         if (brush == null) return 0f;
 
         GpuBrush gpuBrush = new GpuBrush();
         PerlinNoiseBrush? perlinNoiseBrush = null;
-        gpuBrush.Opacity = brush.Opacity * _activeOpacity;
+        gpuBrush.Opacity = brush.Opacity * semanticOpacity;
         SetBrushCoordinateTransform(ref gpuBrush, Matrix4x4.Identity);
         var gradientStopStart = _activeGradientStops.Count;
 

@@ -1319,6 +1319,45 @@ exceeded `3/255`, and mean absolute channel delta was
 This is a local Metal checkpoint, not the final cross-platform or Instruments
 qualification.
 
+The next substitution increment lowers the exact direct-mask subset already
+observable in the managed compositor: an axis-aligned, invertibly transformed
+solid-brush `PushOpacityMask` becomes one absolute semantic state containing
+the intersected target clip and `currentOpacity * clamp(colorAlpha *
+brushOpacity)`. Its matching pop restores the previous state. This is not an
+isolated-layer approximation: opacity remains per draw, preserving overlap
+behavior and avoiding an offscreen allocation. Rotated/sheared solid masks,
+gradient masks, retained-picture masks, and stroked-path masks fail closed
+until the pointer-free scene ABI can express their exact per-fragment coverage.
+Compilation adds one fixed 64-byte state resource and paired save/restore
+commands; stable replay adds no upload or managed allocation.
+
+The mask differential also identified and fixed a shared vertex-mesh opacity
+ordering defect. Vertex-color blend modes now consume the retained brush at
+source opacity, then multiply semantic state opacity after brush/vertex color
+blending in production `Vector.wgsl`; an independent opacity mask is applied at
+the same final coverage boundary. C++ stores that scalar in the mesh shape's
+otherwise-unused packed `stroke_thickness` vertex lane, so neither the scene
+ABI nor GPU vertex stride grows. The managed compositor writes the same lane
+and no longer folds active opacity into the mesh brush before a Porter-Duff or
+advanced color blend.
+
+The Apple M3 Pro matched `960x540` mask checkpoint used one Release process,
+100 alternating warm-up pairs, and 1,000 alternating synchronized
+measurements. Its 386-command picture retained the prior 384 mixed draws inside
+one `0.92` solid opacity mask; C++ emitted eight commands, eight resources, and
+six draws in a 46,872-byte stream. Native versus managed submission p50/p95
+was `0.0562/0.1172 ms` versus `0.2716/0.4102 ms`; total p50/p95 was
+`1.5806/4.6105 ms` versus `1.8210/4.8929 ms`. Both paths allocated zero managed
+bytes per stable frame and native replay uploaded zero retained bytes. Across
+518,400 pixels the maximum channel delta was `58/255` at three independent-AA
+edge pixels, only three pixels exceeded `3/255`, and mean absolute channel
+delta was `0.0001630015/255`. The ignored evidence files are
+`managed-picture-mask-1000.json`, `managed-picture-native-masks.png`, and
+`managed-picture-managed-masks.png`; the JSON SHA-256 is
+`36d38338a7db145ab2aaa9e9603e9435fec3f96261ae3cfa50b2f08def21cce0`.
+This is a local Metal checkpoint, not the final cross-platform or Instruments
+qualification.
+
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
@@ -1347,15 +1386,17 @@ linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
-retained brush page. Nested `PushOpacity`/`PopOpacity` and affine axis-aligned
-`PushClip`/`PopClip` scopes are lowered in exact display-list order to the
+retained brush page. Nested `PushOpacity`/`PopOpacity`, affine axis-aligned
+`PushClip`/`PopClip`, and axis-aligned solid-brush
+`PushOpacityMask`/`PopOpacityMask` scopes are lowered in exact display-list order to the
 existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
-rectangle clips and mismatched or unterminated scopes fail with typed
+rectangle clips/masks and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, vector clips, general
-`DrawPath` strokes/boolean combinations, text, images, nested pictures, isolated layers,
-effects, remaining extensions, and 3D remain
+`DrawPath` strokes/boolean combinations, non-solid/picture/path opacity masks,
+text, images, nested pictures, isolated layers, effects, remaining extensions,
+and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and

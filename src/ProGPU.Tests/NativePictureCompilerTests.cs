@@ -754,6 +754,7 @@ public class NativePictureCompilerTests
     [Theory]
     [InlineData(RenderCommandType.PopOpacity)]
     [InlineData(RenderCommandType.PopClip)]
+    [InlineData(RenderCommandType.PopOpacityMask)]
     public void CompilerFailsClosedForUnbalancedStatePop(RenderCommandType pop)
     {
         using var picture = new GpuPicture(
@@ -778,20 +779,30 @@ public class NativePictureCompilerTests
     [Theory]
     [InlineData(RenderCommandType.PushOpacity)]
     [InlineData(RenderCommandType.PushClip)]
+    [InlineData(RenderCommandType.PushOpacityMask)]
     public void CompilerFailsClosedForUnterminatedStatePush(RenderCommandType push)
     {
-        RenderCommand command = push == RenderCommandType.PushOpacity
-            ? new RenderCommand
+        RenderCommand command = push switch
+        {
+            RenderCommandType.PushOpacity => new RenderCommand
             {
                 Type = push,
                 FontSize = 0.5f
-            }
-            : new RenderCommand
+            },
+            RenderCommandType.PushClip => new RenderCommand
             {
                 Type = push,
                 Rect = new Rect(0f, 0f, 10f, 10f),
                 Transform = Matrix4x4.Identity
-            };
+            },
+            _ => new RenderCommand
+            {
+                Type = push,
+                Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.5f)),
+                Rect = new Rect(0f, 0f, 10f, 10f),
+                Transform = Matrix4x4.Identity
+            }
+        };
         using var picture = new GpuPicture(
             [command],
             Array.Empty<Vector2>(),
@@ -809,6 +820,180 @@ public class NativePictureCompilerTests
         Assert.Equal(NativePictureCompileError.UnbalancedState, failure.Error);
         Assert.Equal(0, failure.CommandIndex);
         Assert.Equal(push, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerLowersAxisAlignedSolidOpacityMaskToNativeState()
+    {
+        Matrix4x4 transform = Matrix4x4.CreateScale(1.5f, 0.75f, 1f) *
+            Matrix4x4.CreateTranslation(11f, 7f, 0f);
+        var mask = new SolidColorBrush(new Vector4(0.2f, 0.4f, 0.8f, 0.5f))
+        {
+            Opacity = 0.6f
+        };
+        var fill = new SolidColorBrush(new Vector4(1f, 0.2f, 0.1f, 1f));
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = mask,
+                    Rect = new Rect(4f, 6f, 80f, 50f),
+                    Transform = transform
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = fill,
+                    Rect = new Rect(0f, 0f, 100f, 70f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            90U,
+            7U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(3, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        Assert.Equal(3U, header.CommandCount);
+        Assert.Equal(3U, header.ResourceCount);
+        ReadOnlySpan<NativeMethods.SceneCommand> commands =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(
+                    checked((int)header.CommandOffset),
+                    checked((int)header.CommandCount *
+                        Unsafe.SizeOf<NativeMethods.SceneCommand>())));
+        Assert.Equal(NativeSceneCommandKind.Save, commands[0].Kind);
+        Assert.Equal(NativeSceneCommandKind.DrawAnalytic, commands[1].Kind);
+        Assert.Equal(NativeSceneCommandKind.Restore, commands[2].Kind);
+        Assert.Equal(2U, commands[0].StateIndex);
+
+        int resourceOffset = checked((int)header.ResourceOffset +
+            2 * Unsafe.SizeOf<NativeMethods.SceneResource>());
+        var stateResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(resourceOffset));
+        Assert.Equal(NativeSceneResourceKind.State, stateResource.Kind);
+        var state = MemoryMarshal.Read<NativeSceneState>(
+            compiled.Stream.Slice(checked((int)stateResource.PayloadOffset)));
+        Assert.Equal(0.3f, state.Opacity, 5);
+        Assert.Equal(NativeSceneStateFlags.ClipRect, state.Flags);
+        Assert.Equal(17f, state.ClipRect.X, 5);
+        Assert.Equal(11.5f, state.ClipRect.Y, 5);
+        Assert.Equal(120f, state.ClipRect.Width, 5);
+        Assert.Equal(37.5f, state.ClipRect.Height, 5);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForNonSolidOpacityMask()
+    {
+        var gradient = new LinearGradientBrush(
+            Vector2.Zero,
+            Vector2.One,
+            [
+                new GradientStop(Vector4.One, 0f),
+                new GradientStop(Vector4.Zero, 1f)
+            ]);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = gradient,
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.PushOpacityMask, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForRotatedSolidOpacityMask()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.CreateRotationZ(0.2f)
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.InvalidState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.PushOpacityMask, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForNonFiniteSolidOpacityMask()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = new SolidColorBrush(
+                        new Vector4(1f, 1f, 1f, float.NaN)),
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.InvalidState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.PushOpacityMask, failure.CommandType);
     }
 
     [Fact]

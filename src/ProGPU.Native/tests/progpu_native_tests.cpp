@@ -1589,6 +1589,7 @@ void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
         source_vertices.size(),
         nullptr,
         0U,
+        0.65F,
         3.0F,
         vertices,
         indices));
@@ -1601,6 +1602,7 @@ void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
     PROGPU_REQUIRE(nearly_equal(vertices[0].color[3], 0.5F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], 0.1F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, 21.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 0.65F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1018.0F));
     PROGPU_REQUIRE(indices[0] == 0U && indices[1] == 1U &&
         indices[2] == 2U && indices[3] == 2U &&
@@ -1619,6 +1621,7 @@ void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
         source_vertices.size(),
         fan_indices.data(),
         fan_indices.size(),
+        1.0F,
         0.0F,
         vertices,
         indices));
@@ -1635,6 +1638,7 @@ void semantic_vertex_mesh_preserves_topology_color_and_coordinates() {
         invalid_vertices.size(),
         nullptr,
         0U,
+        1.0F,
         0.0F,
         vertices,
         indices));

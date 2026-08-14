@@ -1439,6 +1439,7 @@ progpu_native_status render_scene(
                                 source_vertex_count,
                                 source_indices,
                                 source_index_count,
+                                state.opacity,
                                 static_cast<float>(brush_index),
                                 engine->vertices,
                                 engine->indices)) {

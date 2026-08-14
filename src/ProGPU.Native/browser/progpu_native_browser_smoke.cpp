@@ -11,6 +11,7 @@
 #include <emscripten/html5.h>
 #include <webgpu/webgpu.h>
 
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 
@@ -131,16 +132,28 @@ bool render_browser_frame(double, void*) {
     semantic_frame.generation = 1U;
     progpu_native_scene_frame_metrics geometry_metrics{};
     geometry_metrics.struct_size = sizeof(geometry_metrics);
-    if (progpu_native_engine_render_scene(
+    const auto geometry_status = progpu_native_engine_render_scene(
             resources.engine,
             &semantic_frame,
-            &geometry_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            &geometry_metrics);
+    if (geometry_status != PROGPU_NATIVE_STATUS_SUCCESS ||
         geometry_metrics.command_count != 4U ||
         geometry_metrics.draw_call_count != 4U ||
         geometry_metrics.submission_count != 1U ||
         geometry_metrics.brush_upload_bytes !=
-            2U * sizeof(progpu_native_scene_brush) ||
+            3U * sizeof(progpu_native_scene_brush) ||
         geometry_metrics.vertex_upload_bytes == 0U) {
+        std::fprintf(
+            stderr,
+            "ProGPU browser geometry metrics: status=%u commands=%u "
+            "draws=%u submissions=%" PRIu64 " brushes=%" PRIu64
+            " vertices=%" PRIu64 "\n",
+            static_cast<unsigned>(geometry_status),
+            geometry_metrics.command_count,
+            geometry_metrics.draw_call_count,
+            geometry_metrics.submission_count,
+            geometry_metrics.brush_upload_bytes,
+            geometry_metrics.vertex_upload_bytes);
         fail_engine("The browser retained geometry render failed.");
     }
     geometry_metrics = {};

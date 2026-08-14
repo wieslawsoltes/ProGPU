@@ -161,14 +161,9 @@ internal static class ManagedPictureBenchmark
         byte[] managedPixels = managedTarget.ReadPixels();
         PixelComparison pixels = ComparePixels(nativePixels, managedPixels);
         int changedPixelLimit = Math.Max(1, pixels.PixelCount / 100);
-        if (pixels.MaximumChannelDifference > 96 ||
+        bool pixelParityFailed = pixels.MaximumChannelDifference > 96 ||
             pixels.PixelsOverThree > changedPixelLimit ||
-            pixels.MeanAbsoluteChannelDifference > 0.15)
-        {
-            throw new InvalidOperationException(
-                "Matched GpuPicture pixel parity exceeded its independent-AA " +
-                $"budget: {pixels}.");
-        }
+            pixels.MeanAbsoluteChannelDifference > 0.15;
 
         string? nativeImagePath = null;
         string? managedImagePath = null;
@@ -184,6 +179,13 @@ internal static class ManagedPictureBenchmark
             WritePpm(nativeImagePath, nativePixels);
             WritePpm(managedImagePath, managedPixels);
             WriteDifferencePpm(differenceImagePath, nativePixels, managedPixels, 32);
+        }
+        if (pixelParityFailed)
+        {
+            throw new InvalidOperationException(
+                "Matched GpuPicture pixel parity exceeded its independent-AA " +
+                $"budget: {pixels}. Images: native={nativeImagePath}, " +
+                $"managed={managedImagePath}, difference={differenceImagePath}.");
         }
 
         var report = new ManagedPictureBenchmarkReport(
@@ -344,6 +346,10 @@ internal static class ManagedPictureBenchmark
 
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, Width, Height));
+        var opacityMask = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.92f));
+        drawing.PushOpacityMask(
+            opacityMask,
+            new Rect(14f, 10f, Width - 28f, Height - 20f));
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
             Math.Max(1, primitiveCount / 12));
@@ -553,6 +559,7 @@ internal static class ManagedPictureBenchmark
                 (VertexColorBlendMode)(index % 29),
                 isEdgeAliased: (index & 1) != 0);
         }
+        drawing.PopOpacityMask();
         return recorder.EndRecording();
     }
 
