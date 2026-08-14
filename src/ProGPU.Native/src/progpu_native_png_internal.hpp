@@ -10,6 +10,24 @@
 
 namespace progpu::native::image::detail {
 
+struct png_pass_layout final {
+    std::uint32_t start_x = 0U;
+    std::uint32_t start_y = 0U;
+    std::uint32_t step_x = 1U;
+    std::uint32_t step_y = 1U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+    std::size_t row_bytes = 0U;
+    std::size_t filtered_bytes = 0U;
+};
+
+struct png_layout final {
+    std::array<png_pass_layout, 7U> passes{};
+    std::size_t filtered_bytes = 0U;
+    std::size_t filter_bytes_per_pixel = 1U;
+    std::uint8_t pass_count = 0U;
+};
+
 struct png_metadata final {
     png_decode_requirements requirements{};
     std::span<const std::byte> palette{};
@@ -33,11 +51,13 @@ bool try_parse_png(
     bool copy_compressed,
     image_error& error) noexcept;
 
+bool try_build_png_layout(
+    const png_decode_requirements& requirements,
+    png_layout& layout) noexcept;
+
 bool try_unfilter_png(
-    std::span<std::byte> filtered,
-    std::uint32_t height,
-    std::size_t row_bytes,
-    std::size_t bytes_per_pixel) noexcept;
+    const png_layout& layout,
+    std::span<std::byte> filtered) noexcept;
 
 bool try_convert_png_to_rgba(
     const png_metadata& metadata,

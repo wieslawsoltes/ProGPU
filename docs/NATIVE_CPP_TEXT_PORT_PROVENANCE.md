@@ -358,21 +358,22 @@ into the standalone `progpu_native_image` C++20 library while deriving the wire
 format exclusively from [W3C PNG Third Edition](https://www.w3.org/TR/png-3/).
 It validates signature, critical-chunk order, CRC-32, palette/transparency
 metadata, consecutive `IDAT` payloads, and the exact zlib result before writing
-straight RGBA8. The current explicit profile covers non-interlaced 8-bit
-grayscale, RGB, indexed, grayscale-alpha, and RGBA plus filters 0–4. Parsing and
-decode are `O(C + B + W*H)` time with caller-owned compressed, filtered, and
-RGBA spans and `O(1)` internal state. Unknown critical chunks, malformed
-palette indices, unsupported depth/interlace, CRC/Adler failures, and short
+straight RGBA8. The completed profile covers every legal grayscale, RGB,
+indexed, grayscale-alpha, and RGBA depth, including packed 1/2/4-bit samples,
+16-bit full-range normalization, sequential scanlines, Adam7, and filters 0–4.
+Parsing and decode are `O(C + B + W*H)` time with caller-owned compressed,
+filtered, and RGBA spans and `O(1)` internal state. Adam7 uses a fixed seven-pass
+layout and scatters directly into the destination without a temporary frame.
+Unknown critical chunks, malformed palette indices, illegal depth/interlace,
+CRC/Adler failures, and short
 buffers fail transactionally. Normal Apple Clang warnings-as-errors, LLVM named
 modules, ASan/UBSan, and a real Emscripten/Emdawnwebgpu/Chromium execution gate
-exercise this same library. Sub-byte/16-bit samples and Adam7 remain explicit
-follow-up work; the implementation does not label the current subset as full
-PNG parity.
+exercise this same library.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
-COLR version-1 paint graphs, PNG/SVG decoding, and CFF2 remain later phase-1/2
-work.
+COLR version-1 paint graphs, SVG vector lowering, and CFF2 remain later
+phase-1/2 work.
 
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real

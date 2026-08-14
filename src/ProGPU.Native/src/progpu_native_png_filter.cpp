@@ -27,7 +27,7 @@ std::uint8_t paeth(
 
 } // namespace
 
-bool try_unfilter_png(
+bool try_unfilter_pass(
     std::span<std::byte> filtered,
     std::uint32_t height,
     std::size_t row_bytes,
@@ -80,6 +80,27 @@ bool try_unfilter_png(
         }
     }
     return true;
+}
+
+bool try_unfilter_png(
+    const png_layout& layout,
+    std::span<std::byte> filtered) noexcept {
+    if (filtered.size() != layout.filtered_bytes) {
+        return false;
+    }
+    std::size_t offset = 0U;
+    for (std::size_t index = 0U; index < layout.pass_count; ++index) {
+        const auto& pass = layout.passes[index];
+        if (!try_unfilter_pass(
+                filtered.subspan(offset, pass.filtered_bytes),
+                pass.height,
+                pass.row_bytes,
+                layout.filter_bytes_per_pixel)) {
+            return false;
+        }
+        offset += pass.filtered_bytes;
+    }
+    return offset == filtered.size();
 }
 
 } // namespace progpu::native::image::detail

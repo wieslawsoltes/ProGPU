@@ -27,6 +27,7 @@ struct png_decode_requirements final {
     std::uint8_t bit_depth = 0U;
     std::uint8_t color_type = 0U;
     std::uint8_t channel_count = 0U;
+    std::uint8_t interlace_method = 0U;
 };
 
 bool try_get_png_decode_requirements(

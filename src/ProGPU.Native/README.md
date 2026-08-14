@@ -206,15 +206,17 @@ The first consumer is the standalone `progpu_native_image` C++20 library and
 `progpu.native.image` module. Its dependency-free PNG path validates the
 signature, ordered critical chunks, per-chunk CRC-32, palette/transparency
 metadata, consecutive `IDAT` payloads, zlib checksum, and exact caller buffer
-requirements before producing pixels. The current bounded profile accepts
-non-interlaced 8-bit grayscale, RGB, indexed, grayscale-alpha, and RGBA images,
-reconstructs all five standard PNG filters in place, and emits straight RGBA8.
+requirements before producing pixels. The bounded profile accepts every legal
+PNG grayscale, RGB, indexed, grayscale-alpha, and RGBA bit depth, including
+packed 1/2/4-bit samples, 16-bit samples, and both sequential and Adam7 scan
+orders. It reconstructs all five standard filters in place and emits straight
+RGBA8 using exact full-range sample normalization.
 Parsing and decode are `O(C + B + W*H)` for chunks `C`, encoded bytes `B`, and
 pixels `W*H`; all compressed, filtered, and output storage is caller-owned.
-Malformed input, unsupported bit depth/interlace, short scratch, palette index,
+Malformed input, illegal bit depth/interlace, short scratch, palette index,
 and checksum failures are explicit, and the RGBA destination is unchanged on
-failure. Lower bit depths, 16-bit conversion, and Adam7 remain tracked PNG
-parity work rather than silent approximations.
+failure. Adam7 uses seven fixed pass descriptors and scatters samples directly
+from filtered caller scratch without a temporary full-frame image.
 
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surfaces or, on the supported LLVM

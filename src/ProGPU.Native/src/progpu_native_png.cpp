@@ -90,21 +90,9 @@ bool try_decode_png_rgba(
         set_error(error, map_compression_error(compression_failure));
         return false;
     }
-    const auto row_bytes =
-        static_cast<std::size_t>(requirements.width) *
-        requirements.channel_count;
-    for (std::size_t row = 0U; row < requirements.height; ++row) {
-        if (std::to_integer<std::uint8_t>(
-                filtered[row * (row_bytes + 1U)]) > 4U) {
-            set_error(error, image_error::invalid_compressed_data);
-            return false;
-        }
-    }
-    if (!detail::try_unfilter_png(
-            filtered,
-            requirements.height,
-            row_bytes,
-            requirements.channel_count)) {
+    detail::png_layout layout{};
+    if (!detail::try_build_png_layout(requirements, layout) ||
+        !detail::try_unfilter_png(layout, filtered)) {
         set_error(error, image_error::invalid_compressed_data);
         return false;
     }
@@ -222,29 +210,41 @@ bool try_parse_png(
             const auto filter = std::to_integer<std::uint8_t>(data[11U]);
             const auto interlace = std::to_integer<std::uint8_t>(data[12U]);
             std::uint8_t channels = 0U;
+            bool supported_depth = false;
             switch (color_type) {
-            case 0U: channels = 1U; break;
-            case 2U: channels = 3U; break;
-            case 3U: channels = 1U; break;
-            case 4U: channels = 2U; break;
-            case 6U: channels = 4U; break;
+            case 0U:
+                channels = 1U;
+                supported_depth = bit_depth == 1U || bit_depth == 2U ||
+                    bit_depth == 4U || bit_depth == 8U || bit_depth == 16U;
+                break;
+            case 2U:
+                channels = 3U;
+                supported_depth = bit_depth == 8U || bit_depth == 16U;
+                break;
+            case 3U:
+                channels = 1U;
+                supported_depth = bit_depth == 1U || bit_depth == 2U ||
+                    bit_depth == 4U || bit_depth == 8U;
+                break;
+            case 4U:
+                channels = 2U;
+                supported_depth = bit_depth == 8U || bit_depth == 16U;
+                break;
+            case 6U:
+                channels = 4U;
+                supported_depth = bit_depth == 8U || bit_depth == 16U;
+                break;
             default: break;
             }
-            if (width == 0U || height == 0U || bit_depth != 8U ||
+            if (width == 0U || height == 0U || !supported_depth ||
                 channels == 0U || compression != 0U || filter != 0U ||
-                interlace != 0U) {
+                interlace > 1U) {
                 error = image_error::unsupported_format;
                 return false;
             }
-            std::size_t row_bytes = 0U;
-            std::size_t filtered_stride = 0U;
-            std::size_t filtered_bytes = 0U;
             std::size_t pixels = 0U;
             std::size_t rgba_bytes = 0U;
-            if (!checked_multiply(width, channels, row_bytes) ||
-                !checked_add(row_bytes, 1U, filtered_stride) ||
-                !checked_multiply(height, filtered_stride, filtered_bytes) ||
-                !checked_multiply(width, height, pixels) ||
+            if (!checked_multiply(width, height, pixels) ||
                 !checked_multiply(pixels, 4U, rgba_bytes)) {
                 error = image_error::unsupported_format;
                 return false;
@@ -253,16 +253,26 @@ bool try_parse_png(
                 width,
                 height,
                 0U,
-                filtered_bytes,
+                0U,
                 rgba_bytes,
                 bit_depth,
                 color_type,
-                channels};
+                channels,
+                interlace};
+            png_layout layout{};
+            if (!try_build_png_layout(metadata.requirements, layout)) {
+                error = image_error::unsupported_format;
+                return false;
+            }
+            metadata.requirements.filtered_bytes = layout.filtered_bytes;
         } else if (type == plte) {
             if (saw_palette || saw_data || length == 0U ||
                 length > 768U || length % 3U != 0U ||
                 metadata.requirements.color_type == 0U ||
-                metadata.requirements.color_type == 4U) {
+                metadata.requirements.color_type == 4U ||
+                (metadata.requirements.color_type == 3U &&
+                    length / 3U >
+                        (1U << metadata.requirements.bit_depth))) {
                 error = image_error::invalid_chunk;
                 return false;
             }

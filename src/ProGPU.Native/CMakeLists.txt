@@ -424,6 +424,7 @@ add_library(progpu_native_image STATIC
     src/progpu_native_png.cpp
     src/progpu_native_png_crc.cpp
     src/progpu_native_png_filter.cpp
+    src/progpu_native_png_layout.cpp
     src/progpu_native_png_pixels.cpp
     src/progpu_native_png_internal.hpp
     include/progpu_native_image.hpp)
