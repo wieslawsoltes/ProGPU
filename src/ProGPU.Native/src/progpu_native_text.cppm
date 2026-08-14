@@ -78,6 +78,7 @@ using ::progpu::native::text::open_type_shape_run_scratch;
 using ::progpu::native::text::open_type_shape_run_requirements;
 using ::progpu::native::text::try_get_open_type_shape_run_requirements;
 using ::progpu::native::text::try_shape_open_type_run;
+using ::progpu::native::text::try_prepare_open_type_hangul;
 using ::progpu::native::text::font_fallback_candidate;
 using ::progpu::native::text::font_fallback_run;
 using ::progpu::native::text::try_get_font_fallback_run_count;

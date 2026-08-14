@@ -58,7 +58,14 @@ line_scan scan_line(
     float width = 0.0F;
     float break_width = 0.0F;
     std::size_t last_break = start;
+    float cluster_width = 0.0F;
+    std::size_t last_cluster_break = start;
     for (std::size_t index = start; index < glyphs.size(); ++index) {
+        if (index > start &&
+            glyphs[index - 1U].cluster != glyphs[index].cluster) {
+            last_cluster_break = index;
+            cluster_width = width;
+        }
         const float next_width = width + horizontal_advance(
             glyphs[index], options.scale);
         const bool break_here = can_break_after(glyphs, breaks_after, index);
@@ -67,22 +74,31 @@ line_scan scan_line(
         if (mandatory) {
             return line_scan{index + 1U, next_width, false};
         }
+        if (options.maximum_width > 0.0F &&
+            next_width > options.maximum_width && index > start) {
+            if (last_break > start) {
+                return line_scan{
+                    last_break, break_width, final_allowed_line};
+            }
+            if (last_cluster_break > start) {
+                return line_scan{
+                    last_cluster_break, cluster_width, final_allowed_line};
+            }
+            std::size_t hard_end = index + 1U;
+            float hard_width = next_width;
+            while (hard_end < glyphs.size() &&
+                glyphs[hard_end - 1U].cluster ==
+                    glyphs[hard_end].cluster) {
+                hard_width += horizontal_advance(
+                    glyphs[hard_end], options.scale);
+                ++hard_end;
+            }
+            return line_scan{
+                hard_end, hard_width, final_allowed_line};
+        }
         if (break_here) {
             last_break = index + 1U;
             break_width = next_width;
-        }
-        if (options.maximum_width > 0.0F &&
-            next_width > options.maximum_width && index > start) {
-            if (final_allowed_line) {
-                return line_scan{
-                    last_break > start ? last_break : index,
-                    last_break > start ? break_width : width,
-                    true};
-            }
-            return line_scan{
-                last_break > start ? last_break : index,
-                last_break > start ? break_width : width,
-                false};
         }
         width = next_width;
     }

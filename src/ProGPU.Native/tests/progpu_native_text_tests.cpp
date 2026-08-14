@@ -6,9 +6,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <span>
+#include <source_location>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -80,6 +82,7 @@ using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
 using progpu::native::text::try_shape_open_type_run;
+using progpu::native::text::try_prepare_open_type_hangul;
 using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
@@ -143,8 +146,16 @@ using progpu::native::text::sfnt_varied_glyph_scratch;
 using progpu::native::text::sfnt_table_view;
 using progpu::native::text::sfnt_variation_axis;
 
-void require(bool condition) {
+void require(
+    bool condition,
+    const std::source_location location =
+        std::source_location::current()) {
     if (!condition) {
+        std::fprintf(
+            stderr,
+            "require failed at %s:%u\n",
+            location.file_name(),
+            location.line());
         std::abort();
     }
 }
@@ -2444,6 +2455,7 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
     require(try_get_open_type_shape_run_requirements(
         font, input, requirements, &error));
     require(requirements.initial_glyph_count == 2U &&
+        requirements.glyph_capacity == 6U &&
         requirements.grapheme_capacity == 2U &&
         requirements.gsub_lookup_capacity == 0U &&
         requirements.gpos_lookup_capacity == 0U);
@@ -2484,6 +2496,64 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
         &error));
     require(error == font_error::insufficient_buffer && glyph_count == 0U &&
         glyphs[0U].glyph_id == 99U);
+}
+
+void open_type_hangul_preparation_composes_and_decomposes() {
+    std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> data(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        data[index] = static_cast<std::byte>(source[index]);
+    }
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    std::uint16_t leading = 0U;
+    std::uint16_t vowel = 0U;
+    std::uint16_t syllable = 0U;
+    require(font.try_get_glyph_index(0x1100U, leading));
+    require(font.try_get_glyph_index(0x1161U, vowel));
+    require(font.try_get_glyph_index(0xAC00U, syllable));
+    require(leading != 0U && vowel != 0U && syllable != 0U);
+
+    std::array<shaping_glyph, 6U> composed_storage{
+        shaping_glyph{leading, 0x1100U, 2},
+        shaping_glyph{vowel, 0x1161U, 3}};
+    std::uint32_t glyph_count = 2U;
+    require(try_prepare_open_type_hangul(
+        font, composed_storage, glyph_count, &error));
+    require(glyph_count == 1U && composed_storage[0U].glyph_id == syllable &&
+        composed_storage[0U].code_point == 0xAC00U &&
+        composed_storage[0U].cluster == 2);
+
+    std::array<shaping_glyph, 3U> decomposed_storage{
+        shaping_glyph{0U, 0xAC00U, 7}};
+    glyph_count = 1U;
+    require(try_prepare_open_type_hangul(
+        font, decomposed_storage, glyph_count, &error));
+    require(glyph_count == 2U &&
+        decomposed_storage[0U].code_point == 0x1100U &&
+        decomposed_storage[0U].glyph_id == leading &&
+        decomposed_storage[1U].code_point == 0x1161U &&
+        decomposed_storage[1U].glyph_id == vowel &&
+        decomposed_storage[1U].cluster == 7);
+
+    const auto before = composed_storage;
+    glyph_count = 2U;
+    require(!try_prepare_open_type_hangul(
+        font,
+        std::span<shaping_glyph>{composed_storage}.first(2U),
+        glyph_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 2U &&
+        composed_storage[0U].glyph_id == before[0U].glyph_id &&
+        composed_storage[0U].code_point == before[0U].code_point &&
+        composed_storage[1U].glyph_id == before[1U].glyph_id &&
+        composed_storage[1U].code_point == before[1U].code_point);
 }
 
 void open_type_gpos_device_and_variation_deltas_are_applied() {
@@ -4954,6 +5024,7 @@ int main() {
     open_type_gpos_context_format3_applies_nested_lookup();
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
+    open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
     native_positioned_text_layout_wraps_without_allocation();

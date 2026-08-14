@@ -332,6 +332,14 @@ matching glyph positions, and are removed before the 32-byte public glyph
 records return. Exact-feature lookup selection excludes required features so a
 staged form pass cannot accidentally replay required substitutions.
 
+Hangul shaping ports ProGPU's modern-Jamo composition, precomposed-syllable
+plus trailing-Jamo composition, and missing-syllable decomposition. Uncomposed
+records carry bounded transient `ljmo`, `vjmo`, and `tjmo` selectors into
+targeted GSUB lookup-at-position execution, then clear them before returning
+the public glyph ABI. The preparation pass is `O(G)` with `O(1)` internal
+storage and uses a caller-owned conservative three-record capacity per input
+glyph; insufficient capacity leaves the input unchanged.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

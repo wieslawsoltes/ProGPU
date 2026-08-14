@@ -24,6 +24,15 @@ constexpr open_type_tag gpos_tag =
     open_type_tag::from_chars('G', 'P', 'O', 'S');
 constexpr std::uint32_t arabic_action_mask = 0x00000700U;
 constexpr std::uint32_t arabic_action_shift = 8U;
+constexpr std::uint32_t hangul_feature_mask = 0x00001800U;
+constexpr std::uint32_t hangul_feature_shift = 11U;
+
+enum class hangul_feature : std::uint32_t {
+    none = 0U,
+    leading = 1U,
+    vowel = 2U,
+    trailing = 3U
+};
 
 bool uses_arabic_joining(open_type_tag script) noexcept {
     constexpr std::array scripts{
@@ -41,6 +50,10 @@ bool uses_arabic_joining(open_type_tag script) noexcept {
         open_type_tag::from_chars('s', 'o', 'g', 'd'),
         open_type_tag::from_chars('s', 'y', 'r', 'c')};
     return std::find(scripts.begin(), scripts.end(), script) != scripts.end();
+}
+
+bool uses_hangul(open_type_tag script) noexcept {
+    return script == open_type_tag::from_chars('h', 'a', 'n', 'g');
 }
 
 void set_arabic_action(
@@ -64,6 +77,19 @@ void clear_arabic_actions(
     for (auto& glyph : glyphs) {
         glyph.flags = static_cast<shaping_glyph_flags>(
             static_cast<std::uint32_t>(glyph.flags) & ~arabic_action_mask);
+    }
+}
+
+hangul_feature get_hangul_feature(const shaping_glyph& glyph) noexcept {
+    return static_cast<hangul_feature>(
+        (static_cast<std::uint32_t>(glyph.flags) & hangul_feature_mask) >>
+        hangul_feature_shift);
+}
+
+void clear_hangul_features(std::span<shaping_glyph> glyphs) noexcept {
+    for (auto& glyph : glyphs) {
+        glyph.flags = static_cast<shaping_glyph_flags>(
+            static_cast<std::uint32_t>(glyph.flags) & ~hangul_feature_mask);
     }
 }
 
@@ -92,6 +118,56 @@ bool apply_arabic_form_feature(
         std::uint32_t position = 0U;
         while (position < glyph_count) {
             if (get_arabic_action(glyph_storage[position]) != action) {
+                ++position;
+                continue;
+            }
+            const std::uint32_t count_before = glyph_count;
+            bool applied = false;
+            if (!try_apply_open_type_gsub_lookup_at(
+                    gsub,
+                    lookup_scratch[lookup],
+                    glyph_storage,
+                    glyph_count,
+                    position,
+                    options,
+                    applied,
+                    error)) {
+                return false;
+            }
+            position += 1U + (glyph_count > count_before
+                ? glyph_count - count_before
+                : 0U);
+        }
+    }
+    return true;
+}
+
+bool apply_hangul_feature(
+    const open_type_layout_table_view& gsub,
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    hangul_feature required_feature,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gsub_apply_options& options,
+    font_error* error) noexcept {
+    std::uint32_t lookup_count = 0U;
+    if (!gsub.try_select_feature_lookups(
+            script,
+            language,
+            feature,
+            lookup_scratch,
+            lookup_count,
+            error)) {
+        return false;
+    }
+    for (std::uint32_t lookup = 0U; lookup < lookup_count; ++lookup) {
+        std::uint32_t position = 0U;
+        while (position < glyph_count) {
+            if (get_hangul_feature(glyph_storage[position]) !=
+                required_feature) {
                 ++position;
                 continue;
             }
@@ -172,6 +248,10 @@ bool try_get_open_type_shape_run_requirements(
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    if (input.size() > std::numeric_limits<std::uint32_t>::max() / 3U) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     open_type_layout_table_view gsub{};
     open_type_layout_table_view gpos{};
     std::size_t gsub_length = 0U;
@@ -187,8 +267,10 @@ bool try_get_open_type_shape_run_requirements(
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    const std::uint32_t input_count = static_cast<std::uint32_t>(input.size());
     result = open_type_shape_run_requirements{
-        static_cast<std::uint32_t>(input.size()),
+        input_count,
+        input_count * 3U,
         grapheme_count,
         gsub.lookup_count(),
         gpos.lookup_count(),
@@ -212,7 +294,11 @@ bool try_shape_open_type_run(
         return false;
     }
     const bool arabic_joining = uses_arabic_joining(options.script);
-    if (glyph_storage.size() < requirements.initial_glyph_count ||
+    const bool hangul = uses_hangul(options.script);
+    const std::size_t glyph_capacity = hangul
+        ? requirements.glyph_capacity
+        : requirements.initial_glyph_count;
+    if (glyph_storage.size() < glyph_capacity ||
         scratch.grapheme_clusters.size() < requirements.grapheme_capacity ||
         scratch.gsub_lookups.size() < requirements.gsub_lookup_capacity ||
         scratch.gpos_lookups.size() < requirements.gpos_lookup_capacity ||
@@ -267,6 +353,12 @@ bool try_shape_open_type_run(
         }
     }
     glyph_count = requirements.initial_glyph_count;
+
+    if (hangul && !try_prepare_open_type_hangul(
+            font, glyph_storage, glyph_count, error)) {
+        glyph_count = 0U;
+        return false;
+    }
 
     if (arabic_joining) {
         std::uint32_t action_count = 0U;
@@ -362,10 +454,40 @@ bool try_shape_open_type_run(
                 }
             }
         }
+        if (hangul) {
+            const open_type_gsub_apply_options apply_options{
+                gdef_pointer, options.alternate_value};
+            constexpr std::array jamo_features{
+                std::pair{open_type_tag::from_chars('l', 'j', 'm', 'o'),
+                    hangul_feature::leading},
+                std::pair{open_type_tag::from_chars('v', 'j', 'm', 'o'),
+                    hangul_feature::vowel},
+                std::pair{open_type_tag::from_chars('t', 'j', 'm', 'o'),
+                    hangul_feature::trailing}};
+            for (const auto& [feature, kind] : jamo_features) {
+                if (!apply_hangul_feature(
+                        gsub,
+                        options.script,
+                        options.language,
+                        feature,
+                        kind,
+                        scratch.gsub_lookups.first(gsub.lookup_count()),
+                        glyph_storage,
+                        glyph_count,
+                        apply_options,
+                        error)) {
+                    clear_hangul_features(glyph_storage.first(glyph_count));
+                    return false;
+                }
+            }
+        }
     }
 
     if (arabic_joining) {
         clear_arabic_actions(glyph_storage.first(glyph_count));
+    }
+    if (hangul) {
+        clear_hangul_features(glyph_storage.first(glyph_count));
     }
 
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {

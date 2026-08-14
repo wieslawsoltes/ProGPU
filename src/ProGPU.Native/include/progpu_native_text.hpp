@@ -717,11 +717,20 @@ struct open_type_shape_run_scratch final {
 
 struct open_type_shape_run_requirements final {
     std::uint32_t initial_glyph_count = 0U;
+    std::uint32_t glyph_capacity = 0U;
     std::uint32_t grapheme_capacity = 0U;
     std::uint32_t gsub_lookup_capacity = 0U;
     std::uint32_t gpos_lookup_capacity = 0U;
     std::uint32_t script_action_capacity = 0U;
 };
+
+/* Applies the ProGPU Hangul composition/decomposition preparation in place.
+ * The caller supplies expandable storage; capacity failure is transactional. */
+bool try_prepare_open_type_hangul(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error = nullptr) noexcept;
 
 struct font_fallback_candidate final {
     const sfnt_font_view* font = nullptr;
