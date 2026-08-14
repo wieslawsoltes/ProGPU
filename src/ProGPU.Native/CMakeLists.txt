@@ -459,6 +459,7 @@ add_library(progpu_native_text STATIC
     src/progpu_native_open_type_hangul.cpp
     src/progpu_native_font_fallback.cpp
     src/progpu_native_text_layout.cpp
+    src/progpu_native_text_interaction.cpp
     src/progpu_native_unicode_data.generated.hpp
     src/progpu_native_font_variations.cpp
     src/progpu_native_font_bytes.hpp

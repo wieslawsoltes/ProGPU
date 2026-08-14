@@ -94,6 +94,15 @@ using progpu::native::text::positioned_text_line;
 using progpu::native::text::text_layout_requirements;
 using progpu::native::text::try_get_text_layout_requirements;
 using progpu::native::text::try_layout_shaped_text;
+using progpu::native::text::text_cluster_box;
+using progpu::native::text::text_caret_stop;
+using progpu::native::text::text_rectangle;
+using progpu::native::text::text_hit_test_result;
+using progpu::native::text::text_interaction_requirements;
+using progpu::native::text::try_get_text_interaction_requirements;
+using progpu::native::text::try_build_text_interaction;
+using progpu::native::text::try_hit_test_text;
+using progpu::native::text::try_get_text_selection_rectangles;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -2755,6 +2764,64 @@ void native_positioned_text_layout_wraps_without_allocation() {
         lines[0U].width == 20.0F && !lines[0U].clipped);
     require(lines[1U].glyph_start == 2U && lines[1U].glyph_count == 2U &&
         lines[1U].baseline_y == 12.0F);
+
+    const std::array<std::int32_t, 4U> cluster_ends{1, 2, 3, 4};
+    const std::array<std::int8_t, 4U> bidi_levels{0, 0, 1, 1};
+    text_interaction_requirements interaction_requirements{};
+    require(try_get_text_interaction_requirements(
+        positioned,
+        lines,
+        cluster_ends,
+        bidi_levels,
+        interaction_requirements,
+        &error));
+    require(interaction_requirements.cluster_box_capacity == 4U &&
+        interaction_requirements.caret_stop_capacity == 8U);
+    std::array<text_cluster_box, 4U> boxes{};
+    std::array<text_caret_stop, 8U> carets{};
+    std::uint32_t box_count = 0U;
+    std::uint32_t caret_count = 0U;
+    require(try_build_text_interaction(
+        positioned,
+        lines,
+        cluster_ends,
+        bidi_levels,
+        boxes,
+        carets,
+        box_count,
+        caret_count,
+        &error));
+    require(box_count == 4U && caret_count == 8U &&
+        boxes[1U].input_start == 1 && boxes[1U].input_end == 2 &&
+        boxes[2U].line_index == 1U && boxes[2U].bidi_level == 1);
+    require(carets[4U].input_position == 3 && carets[4U].trailing &&
+        carets[5U].input_position == 2 && !carets[5U].trailing);
+
+    text_hit_test_result hit{};
+    require(try_hit_test_text(boxes, 16.0F, 2.0F, hit, &error));
+    require(hit.input_position == 2 && hit.trailing && hit.inside &&
+        hit.line_index == 0U && hit.bounds.width == 10.0F);
+    std::array<text_rectangle, 4U> selection{};
+    std::uint32_t selection_count = 0U;
+    require(try_get_text_selection_rectangles(
+        boxes, 1, 3, selection, selection_count, &error));
+    require(selection_count == 2U && selection[0U].x == 10.0F &&
+        selection[0U].width == 10.0F && selection[1U].y == 12.0F);
+
+    box_count = 99U;
+    caret_count = 99U;
+    require(!try_build_text_interaction(
+        positioned,
+        lines,
+        cluster_ends,
+        bidi_levels,
+        std::span<text_cluster_box>{boxes}.first(3U),
+        carets,
+        box_count,
+        caret_count,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        box_count == 0U && caret_count == 0U);
 
     auto clustered = glyphs;
     clustered[1U].cluster = 0;

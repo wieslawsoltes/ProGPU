@@ -357,6 +357,13 @@ clipping is reported rather than silently discarding state. Work is `O(G)` and
 internal storage is `O(1)` for `G` shaped glyphs; invalid options and short
 buffers leave output counts at zero.
 
+Native text interaction ports ProGPU's physical cluster-box model over those
+positioned lines. Explicit caller-owned logical cluster ends and UAX #9 levels
+produce visual caret stops, nearest-box point hit tests, and coalesced selection
+rectangles without a hidden dictionary or list. Requirements and write passes
+are `O(G)` with `O(1)` internal storage; hit testing is `O(C)` for `C` visible
+cluster boxes, and all capacity failures are transactional.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.
