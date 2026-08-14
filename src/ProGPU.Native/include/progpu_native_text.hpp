@@ -737,6 +737,14 @@ bool try_resolve_open_type_attachments(
     std::span<std::uint8_t> state_scratch,
     font_error* error = nullptr) noexcept;
 
+enum class open_type_complex_script : std::uint8_t {
+    none = 0U,
+    indic = 1U,
+    use = 2U,
+    myanmar = 3U,
+    khmer = 4U
+};
+
 struct open_type_shape_run_options final {
     open_type_tag script{};
     open_type_tag language{};
@@ -749,6 +757,7 @@ struct open_type_shape_run_options final {
         shaping_cluster_level::monotone_graphemes;
     shaping_buffer_flags buffer_flags = shaping_buffer_flags::none;
     bool compose_hebrew_presentation_forms = true;
+    open_type_complex_script complex_script = open_type_complex_script::none;
 };
 
 struct open_type_shape_run_scratch final {
@@ -758,6 +767,9 @@ struct open_type_shape_run_scratch final {
     std::span<shaping_attachment> attachments{};
     std::span<std::uint8_t> attachment_states{};
     std::span<open_type_arabic_action> arabic_actions{};
+    std::span<std::uint8_t> script_categories{};
+    std::span<std::uint8_t> script_syllables{};
+    std::span<std::uint32_t> script_indices{};
 };
 
 struct open_type_shape_run_requirements final {
@@ -767,6 +779,8 @@ struct open_type_shape_run_requirements final {
     std::uint32_t gsub_lookup_capacity = 0U;
     std::uint32_t gpos_lookup_capacity = 0U;
     std::uint32_t script_action_capacity = 0U;
+    std::uint32_t complex_script_capacity = 0U;
+    std::uint32_t complex_script_index_capacity = 0U;
 };
 
 struct open_type_shape_plan_requirements final {

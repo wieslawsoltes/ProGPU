@@ -83,6 +83,7 @@ using ::progpu::native::text::shaping_attachment_kind;
 using ::progpu::native::text::shaping_attachment;
 using ::progpu::native::text::try_apply_open_type_gpos_lookup;
 using ::progpu::native::text::try_resolve_open_type_attachments;
+using ::progpu::native::text::open_type_complex_script;
 using ::progpu::native::text::open_type_shape_run_options;
 using ::progpu::native::text::open_type_shape_run_scratch;
 using ::progpu::native::text::open_type_shape_run_requirements;

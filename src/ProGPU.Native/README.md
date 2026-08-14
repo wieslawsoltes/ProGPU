@@ -378,6 +378,17 @@ is `O(G)` time, `O(1)` internal storage, and transactional for invalid spans;
 the low nibble is the machine-specific syllable type and the high nibble is
 the wrapping nonzero serial, exactly matching managed ProGPU.
 
+The first machine is integrated into the uniform shaper: Khmer assigns packed
+category/syllable metadata in reserved transient flag bits, marks interior
+syllable clusters unsafe, inserts a supported dotted circle for broken
+clusters, moves coeng-ro and pre-base vowels, merges source clusters, and
+records `pref`/post-base/`cfar` eligibility. Arabic/Hangul transient actions
+share the high flag bits only with mutually exclusive script routes, and every
+internal bit is cleared on success or failure before the public 32-byte glyph
+records leave the shaper. Preparation is `O(G)` with caller-owned category and
+syllable spans; movement is bounded in-place `O(G^2)` only for adversarial
+repeated pre-base moves.
+
 Common pre-GSUB preparation is now part of the native uniform-run path rather
 than a managed callback. It inserts a font-supported dotted circle for an
 initial mark when requested, applies ProGPU's modified combining-class order

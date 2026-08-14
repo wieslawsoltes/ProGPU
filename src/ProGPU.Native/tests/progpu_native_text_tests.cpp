@@ -80,6 +80,7 @@ using progpu::native::text::shaping_attachment_kind;
 using progpu::native::text::try_apply_open_type_gpos_lookup;
 using progpu::native::text::try_resolve_open_type_attachments;
 using progpu::native::text::open_type_shape_run_options;
+using progpu::native::text::open_type_complex_script;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
@@ -2711,6 +2712,63 @@ void open_type_common_preprocessing_matches_managed_stages() {
     require(error == font_error::insufficient_buffer && count == 2U &&
         short_storage[0U].code_point == 0x0301U &&
         short_storage[1U].code_point == 0x0316U);
+}
+
+void open_type_khmer_preparation_reorders_prebase_vowels() {
+    constexpr std::array mappings{
+        std::pair{0x1780U, 2U},
+        std::pair{0x17C1U, 3U},
+        std::pair{0x25CCU, 1U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x1780U, 0U, 1U},
+        unicode_scalar{0x17C1U, 1U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    require(requirements.complex_script_capacity == 2U &&
+        requirements.complex_script_index_capacity == 3U);
+
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::array<std::uint8_t, 2U> categories{};
+    std::array<std::uint8_t, 2U> syllables{};
+    auto options = open_type_shape_run_options{
+        open_type_tag::from_chars('k', 'h', 'm', 'r')};
+    options.complex_script = open_type_complex_script::khmer;
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = graphemes,
+            .attachments = attachments,
+            .attachment_states = states,
+            .script_categories = categories,
+            .script_syllables = syllables},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0U].code_point == 0x17C1U &&
+        glyphs[1U].code_point == 0x1780U && glyphs[0U].cluster == 0 &&
+        glyphs[1U].cluster == 0);
+    constexpr std::uint32_t public_flags =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat) |
+        static_cast<std::uint32_t>(
+            shaping_glyph_flags::safe_to_insert_tatweel);
+    require((static_cast<std::uint32_t>(glyphs[0U].flags) & ~public_flags) ==
+        0U);
+    require((static_cast<std::uint32_t>(glyphs[1U].flags) & ~public_flags) ==
+        0U);
 }
 
 void open_type_hangul_preparation_composes_and_decomposes() {
@@ -5547,6 +5605,7 @@ int main() {
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_common_preprocessing_matches_managed_stages();
+    open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();

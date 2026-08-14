@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_open_type_complex_internal.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -22,10 +24,10 @@ constexpr open_type_tag gsub_tag =
     open_type_tag::from_chars('G', 'S', 'U', 'B');
 constexpr open_type_tag gpos_tag =
     open_type_tag::from_chars('G', 'P', 'O', 'S');
-constexpr std::uint32_t arabic_action_mask = 0x00000700U;
-constexpr std::uint32_t arabic_action_shift = 8U;
-constexpr std::uint32_t hangul_feature_mask = 0x00001800U;
-constexpr std::uint32_t hangul_feature_shift = 11U;
+constexpr std::uint32_t arabic_action_mask = 0x70000000U;
+constexpr std::uint32_t arabic_action_shift = 28U;
+constexpr std::uint32_t hangul_feature_mask = 0x30000000U;
+constexpr std::uint32_t hangul_feature_shift = 28U;
 
 enum class hangul_feature : std::uint32_t {
     none = 0U,
@@ -109,6 +111,19 @@ void clear_hangul_features(std::span<shaping_glyph> glyphs) noexcept {
             static_cast<std::uint32_t>(glyph.flags) & ~hangul_feature_mask);
     }
 }
+
+struct complex_metadata_guard final {
+    std::span<shaping_glyph> storage{};
+    const std::uint32_t* count = nullptr;
+    bool enabled = false;
+
+    ~complex_metadata_guard() {
+        if (enabled && count != nullptr) {
+            complex_detail::clear_metadata(storage.first(
+                std::min<std::size_t>(*count, storage.size())));
+        }
+    }
+};
 
 bool apply_arabic_form_feature(
     const open_type_layout_table_view& gsub,
@@ -291,7 +306,9 @@ bool try_get_open_type_shape_run_requirements(
         grapheme_count,
         gsub.lookup_count(),
         gpos.lookup_count(),
-        static_cast<std::uint32_t>(input.size())};
+        input_count,
+        input_count,
+        input_count + 1U};
     set_error(error, font_error::none);
     return true;
 }
@@ -306,6 +323,7 @@ bool try_shape_open_type_run(
     font_error* error,
     const open_type_shape_plan* plan) noexcept {
     glyph_count = 0U;
+    complex_metadata_guard complex_guard{glyph_storage, &glyph_count, false};
     if (plan != nullptr && !plan->matches(font, options)) {
         set_error(error, font_error::invalid_argument);
         return false;
@@ -317,8 +335,15 @@ bool try_shape_open_type_run(
     }
     const bool arabic_joining = uses_arabic_joining(options.script);
     const bool hangul = uses_hangul(options.script);
+    const bool complex_script =
+        options.complex_script != open_type_complex_script::none;
+    if (static_cast<std::uint8_t>(options.complex_script) >
+        static_cast<std::uint8_t>(open_type_complex_script::khmer)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     const std::size_t glyph_capacity = may_expand_preprocessing(
-        options.script, options.buffer_flags)
+        options.script, options.buffer_flags) || complex_script
         ? requirements.glyph_capacity
         : requirements.initial_glyph_count;
     if (glyph_storage.size() < glyph_capacity ||
@@ -327,6 +352,14 @@ bool try_shape_open_type_run(
         scratch.gpos_lookups.size() < requirements.gpos_lookup_capacity ||
         (arabic_joining && scratch.arabic_actions.size() <
             requirements.script_action_capacity) ||
+        (complex_script &&
+            (scratch.script_categories.size() <
+                    requirements.complex_script_capacity ||
+                scratch.script_syllables.size() <
+                    requirements.complex_script_capacity ||
+                (options.complex_script == open_type_complex_script::use &&
+                    scratch.script_indices.size() <
+                        requirements.complex_script_index_capacity))) ||
         scratch.attachments.size() < glyph_storage.size() ||
         scratch.attachment_states.size() < glyph_storage.size()) {
         set_error(error, font_error::insufficient_buffer);
@@ -417,6 +450,24 @@ bool try_shape_open_type_run(
             glyph_storage,
             glyph_count,
             error)) {
+        glyph_count = 0U;
+        return false;
+    }
+    if (options.complex_script == open_type_complex_script::khmer) {
+        if (!complex_detail::try_prepare_khmer(
+                font,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                scratch.script_categories,
+                scratch.script_syllables,
+                error)) {
+            glyph_count = 0U;
+            return false;
+        }
+        complex_guard.enabled = true;
+    } else if (complex_script) {
+        set_error(error, font_error::invalid_argument);
         glyph_count = 0U;
         return false;
     }
