@@ -71,6 +71,11 @@ using progpu::native::text::shaping_attachment;
 using progpu::native::text::shaping_attachment_kind;
 using progpu::native::text::try_apply_open_type_gpos_lookup;
 using progpu::native::text::try_resolve_open_type_attachments;
+using progpu::native::text::open_type_shape_run_options;
+using progpu::native::text::open_type_shape_run_scratch;
+using progpu::native::text::open_type_shape_run_requirements;
+using progpu::native::text::try_get_open_type_shape_run_requirements;
+using progpu::native::text::try_shape_open_type_run;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -2215,6 +2220,60 @@ std::vector<std::byte> make_font(
         }
     }
     return result;
+}
+
+void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
+    const auto data = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x41U, 1U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    require(requirements.initial_glyph_count == 2U &&
+        requirements.grapheme_capacity == 2U &&
+        requirements.gsub_lookup_capacity == 0U &&
+        requirements.gpos_lookup_capacity == 0U);
+
+    std::array<shaping_glyph, 4U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 4U> attachments{};
+    std::array<std::uint8_t, 4U> states{};
+    std::uint32_t glyph_count = 99U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        open_type_shape_run_options{
+            open_type_tag::from_chars('l', 'a', 't', 'n')},
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0U].glyph_id == 3U &&
+        glyphs[1U].glyph_id == 3U && glyphs[0U].cluster == 0 &&
+        glyphs[1U].cluster == 1 && glyphs[0U].advance_x > 0 &&
+        glyphs[0U].advance_x == glyphs[1U].advance_x);
+
+    glyphs.fill(shaping_glyph{99U});
+    require(!try_shape_open_type_run(
+        font,
+        input,
+        {},
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes,
+            {},
+            {},
+            std::span<shaping_attachment>{attachments}.first(3U),
+            states},
+        glyph_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U &&
+        glyphs[0U].glyph_id == 99U);
 }
 
 void variation_axes_are_borrowed_bounded_and_transactional() {
@@ -4423,6 +4482,7 @@ int main() {
     open_type_script_language_feature_selection_is_bounded();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
     open_type_gpos_attachments_are_caller_owned_and_resolved();
+    open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

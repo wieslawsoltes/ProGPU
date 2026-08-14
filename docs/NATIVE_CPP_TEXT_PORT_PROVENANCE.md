@@ -125,6 +125,18 @@ and regional-indicator rules in `O(N)` time and `O(1)` internal storage. The
 count/write boundary is transactional and returns both source and decoded
 scalar ranges for shaping and caret reuse.
 
+Uniform-run orchestration ports the stage ownership from ProGPU-owned
+`CpuOpenTypeShaper.cs` and `OpenTypeTextShaper.cs` at checkpoint `3b9ade5f`.
+It assigns grapheme-preserving source clusters, maps cmap glyphs, applies base
+and HVAR advances, executes caller-selected Script/LangSys GSUB and GPOS plans,
+honors the shared GDEF blocklist/mark policy, and resolves attachment chains.
+Glyph capacity remains caller-selected because legal MultipleSubst expansion is
+font-dependent; all lookup, grapheme, attachment, and state buffers are explicit
+typed spans. The boundary is one bulk call over a uniform run and never performs
+per-glyph managed/native crossings. Script-specific joining/reordering,
+fallback selection, and paragraph layout intentionally remain subsequent
+reusable CPU stages rather than being hidden in rendering.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

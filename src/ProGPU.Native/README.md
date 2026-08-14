@@ -308,6 +308,15 @@ coverage/anchor search work, and `A` is the advances crossed by attached marks.
 Anchor formats 1-3 are validated; device/variation deltas remain a later GPOS
 slice rather than being silently approximated.
 
+The first uniform-run shaping orchestrator now connects decoded/normalized
+Unicode scalars and grapheme clusters to cmap, base/HVAR advances, selected
+Script/LangSys GSUB and GPOS plans, GDEF mark policy, and attachment resolution.
+The caller owns expandable glyph storage and every lookup, grapheme, attachment,
+and state span; there is no per-glyph interop or hidden allocation. This stage
+deliberately accepts an already uniform script/language/bidi run: fallback,
+script-specific joining/reordering, and paragraph layout remain independent
+stages so reusable shaping results do not inherit UI or renderer ownership.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

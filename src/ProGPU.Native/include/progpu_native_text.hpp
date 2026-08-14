@@ -9,6 +9,8 @@
 
 namespace progpu::native::text {
 
+class sfnt_font_view;
+
 enum class font_error : std::uint32_t {
     none = 0U,
     invalid_argument,
@@ -634,6 +636,52 @@ bool try_resolve_open_type_attachments(
     std::span<const shaping_attachment> attachments,
     shaping_direction direction,
     std::span<std::uint8_t> state_scratch,
+    font_error* error = nullptr) noexcept;
+
+struct open_type_shape_run_options final {
+    open_type_tag script{};
+    open_type_tag language{};
+    shaping_direction direction = shaping_direction::left_to_right;
+    std::span<const open_type_tag> requested_features{};
+    std::span<const std::int16_t> normalized_coordinates{};
+    std::uint32_t alternate_value = 1U;
+    bool zero_mark_advances = true;
+};
+
+struct open_type_shape_run_scratch final {
+    std::span<unicode_grapheme_cluster> grapheme_clusters{};
+    std::span<std::uint16_t> gsub_lookups{};
+    std::span<std::uint16_t> gpos_lookups{};
+    std::span<shaping_attachment> attachments{};
+    std::span<std::uint8_t> attachment_states{};
+};
+
+struct open_type_shape_run_requirements final {
+    std::uint32_t initial_glyph_count = 0U;
+    std::uint32_t grapheme_capacity = 0U;
+    std::uint32_t gsub_lookup_capacity = 0U;
+    std::uint32_t gpos_lookup_capacity = 0U;
+};
+
+bool try_get_open_type_shape_run_requirements(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    open_type_shape_run_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+/*
+ * Allocation-free uniform-run shaping orchestration. The caller supplies the
+ * decoded/normalized scalar run, requested OpenType features, expandable glyph
+ * storage, lookup scratch, and attachment scratch. Script itemization, bidi,
+ * fallback selection, and paragraph layout remain independent reusable stages.
+ */
+bool try_shape_open_type_run(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::span<shaping_glyph> glyph_storage,
+    open_type_shape_run_scratch scratch,
+    std::uint32_t& glyph_count,
     font_error* error = nullptr) noexcept;
 
 struct sfnt_table_view final {
