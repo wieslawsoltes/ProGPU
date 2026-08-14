@@ -21,7 +21,7 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
 
 bool semantic_scene_builder_is_deterministic_and_valid() {
     semantic_scene_builder builder(701U, 4U);
-    if (!builder.reserve(3U, 3U, 1024U)) {
+    if (!builder.reserve(5U, 5U, 2048U)) {
         return false;
     }
     std::uint32_t blue = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -75,7 +75,46 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
     if (!builder.draw_analytic(
             primitives,
             brush_indices,
-            {10.0F, 12.0F, 78.0F, 36.0F}) ||
+            {10.0F, 12.0F, 78.0F, 36.0F})) {
+        return false;
+    }
+    progpu_native_geometry_primitive line{};
+    line.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+    line.p0 = {12.0F, 54.0F};
+    line.p1 = {86.0F, 54.0F};
+    line.stroke_thickness = 3.0F;
+    line.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    line.transform = identity;
+    if (!builder.draw_geometry(
+            std::span<const progpu_native_geometry_primitive>(&line, 1U),
+            std::span<const std::uint32_t>(&amber, 1U),
+            {10.0F, 50.0F, 80.0F, 8.0F})) {
+        return false;
+    }
+    const std::array stroke_points{
+        progpu_native_point{12.0F, 64.0F},
+        progpu_native_point{48.0F, 76.0F},
+        progpu_native_point{86.0F, 62.0F}};
+    const std::array stroke_doubles{2.0, 1.0};
+    progpu_native_scene_stroke stroke{};
+    stroke.struct_size = sizeof(stroke);
+    stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    stroke.point_count = stroke_points.size();
+    stroke.dash_interval_count = stroke_doubles.size();
+    stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    stroke.transform = identity;
+    stroke.stroke_thickness = 3.0F;
+    stroke.miter_limit = 10.0F;
+    stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    stroke.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    stroke.dash_cap = PROGPU_NATIVE_STROKE_CAP_SQUARE;
+    if (!builder.draw_strokes(
+            std::span<const progpu_native_scene_stroke>(&stroke, 1U),
+            stroke_points,
+            stroke_doubles,
+            std::span<const std::uint32_t>(&blue, 1U),
+            {10.0F, 60.0F, 80.0F, 20.0F}) ||
         !builder.restore()) {
         return false;
     }
@@ -84,8 +123,8 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
     std::vector<std::byte> second;
     scene_build_metrics metrics{};
     if (!builder.build(first, &metrics) || !builder.build(second) ||
-        first != second || metrics.command_count != 3U ||
-        metrics.resource_count != 3U || metrics.brush_count != 2U ||
+        first != second || metrics.command_count != 5U ||
+        metrics.resource_count != 5U || metrics.brush_count != 2U ||
         metrics.maximum_stack_depth != 1U || metrics.arena_bytes == 0U) {
         return false;
     }
@@ -93,7 +132,7 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
     if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
         validated.header.scene_id != 701U ||
         validated.header.generation != 4U ||
-        validated.draw_count != 1U ||
+        validated.draw_count != 3U ||
         validated.maximum_stack_depth != 1U) {
         return false;
     }
@@ -109,13 +148,29 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
         first,
         validated.header.resource_offset +
             2U * sizeof(progpu_native_scene_resource));
+    const auto geometry_resource = read<progpu_native_scene_resource>(
+        first,
+        validated.header.resource_offset +
+            3U * sizeof(progpu_native_scene_resource));
+    const auto stroke_resource = read<progpu_native_scene_resource>(
+        first,
+        validated.header.resource_offset +
+            4U * sizeof(progpu_native_scene_resource));
     return brush_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE &&
         brush_resource.payload_size ==
             2U * sizeof(progpu_native_scene_brush) &&
         state_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE &&
         analytic_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        analytic_resource.payload_size == sizeof(primitives);
+        analytic_resource.payload_size == sizeof(primitives) &&
+        geometry_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH &&
+        geometry_resource.payload_size == sizeof(line) &&
+        stroke_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH &&
+        stroke_resource.payload_size == sizeof(stroke) &&
+        stroke_resource.auxiliary_size ==
+            sizeof(stroke_points) + sizeof(stroke_doubles);
 }
 
 bool semantic_scene_builder_rejects_invalid_state() {

@@ -370,10 +370,13 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
 
 add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder.cpp
+    src/progpu_native_scene_builder_geometry.cpp
+    src/progpu_native_scene_builder_internal.hpp
     include/progpu_native_scene_builder.hpp)
 target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
 target_include_directories(progpu_native_scene_builder
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
 

@@ -145,7 +145,30 @@ bool render_browser_frame(double, void*) {
             0.0F,
             {1.0F, 1.0F, 1.0F, 1.0F},
             builder_identity}};
-    if (!native_builder.reserve(3U, 3U, 1024U) ||
+    progpu_native_geometry_primitive builder_line{};
+    builder_line.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+    builder_line.p0 = {40.0F, 100.0F};
+    builder_line.p1 = {210.0F, 100.0F};
+    builder_line.stroke_thickness = 3.0F;
+    builder_line.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    builder_line.transform = builder_identity;
+    const std::array builder_stroke_points{
+        progpu_native_point{40.0F, 120.0F},
+        progpu_native_point{100.0F, 132.0F},
+        progpu_native_point{200.0F, 112.0F}};
+    progpu_native_scene_stroke builder_stroke{};
+    builder_stroke.struct_size = sizeof(builder_stroke);
+    builder_stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    builder_stroke.point_count = builder_stroke_points.size();
+    builder_stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    builder_stroke.transform = builder_identity;
+    builder_stroke.stroke_thickness = 3.0F;
+    builder_stroke.miter_limit = 10.0F;
+    builder_stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    builder_stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    builder_stroke.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    builder_stroke.dash_cap = PROGPU_NATIVE_STROKE_CAP_FLAT;
+    if (!native_builder.reserve(5U, 5U, 2048U) ||
         !native_builder.add_solid_brush(
             {0.2F, 0.55F, 1.0F, 1.0F}, 0.9F, builder_brush) ||
         !native_builder.add_state(builder_state, builder_state_index) ||
@@ -154,6 +177,20 @@ bool render_browser_frame(double, void*) {
             builder_primitives,
             std::span<const std::uint32_t>(&builder_brush, 1U),
             {24.0F, 24.0F, 216.0F, 128.0F}) ||
+        !native_builder.draw_geometry(
+            std::span<const progpu_native_geometry_primitive>(
+                &builder_line,
+                1U),
+            std::span<const std::uint32_t>(&builder_brush, 1U),
+            {38.0F, 96.0F, 174.0F, 8.0F}) ||
+        !native_builder.draw_strokes(
+            std::span<const progpu_native_scene_stroke>(
+                &builder_stroke,
+                1U),
+            builder_stroke_points,
+            std::span<const double>(),
+            std::span<const std::uint32_t>(&builder_brush, 1U),
+            {38.0F, 108.0F, 164.0F, 28.0F}) ||
         !native_builder.restore()) {
         fail("The browser native C++ scene builder could not record.");
     }
@@ -168,9 +205,9 @@ bool render_browser_frame(double, void*) {
             builder_scene.data(),
             builder_scene.size(),
             &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_update_metrics.command_count != 3U ||
-        builder_update_metrics.resource_count != 3U ||
-        builder_update_metrics.draw_count != 1U) {
+        builder_update_metrics.command_count != 5U ||
+        builder_update_metrics.resource_count != 5U ||
+        builder_update_metrics.draw_count != 3U) {
         fail_engine("The browser native C++ scene update failed.");
     }
     semantic_frame.scene_id = native_builder.scene_id();
@@ -181,8 +218,8 @@ bool render_browser_frame(double, void*) {
             resources.engine,
             &semantic_frame,
             &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_frame_metrics.command_count != 3U ||
-        builder_frame_metrics.draw_call_count != 1U ||
+        builder_frame_metrics.command_count != 5U ||
+        builder_frame_metrics.draw_call_count != 3U ||
         builder_frame_metrics.submission_count != 1U ||
         builder_frame_metrics.brush_upload_bytes == 0U ||
         builder_frame_metrics.vertex_upload_bytes == 0U) {

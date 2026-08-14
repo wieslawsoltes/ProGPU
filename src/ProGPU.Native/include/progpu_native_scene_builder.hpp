@@ -74,6 +74,22 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
+    bool draw_geometry(
+        std::span<const progpu_native_geometry_primitive> primitives,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_strokes(
+        std::span<const progpu_native_scene_stroke> strokes,
+        std::span<const progpu_native_point> points,
+        std::span<const double> doubles,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool build(
         std::vector<std::byte>& stream,
         scene_build_metrics* metrics = nullptr) const noexcept;

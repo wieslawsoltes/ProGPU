@@ -292,17 +292,19 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(1U, 2U, 2048U)) {
+    if (!scene_builder.reserve(3U, 4U, 4096U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
-    std::array<std::uint32_t, 3U> brush_indices{};
+    std::array<std::uint32_t, 4U> brush_indices{};
     if (!scene_builder.add_solid_brush(
             {0.08F, 0.42F, 0.95F, 1.0F}, 1.0F, brush_indices[0]) ||
         !scene_builder.add_solid_brush(
             {0.98F, 0.52F, 0.08F, 1.0F}, 1.0F, brush_indices[1]) ||
         !scene_builder.add_solid_brush(
-            {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2])) {
+            {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2]) ||
+        !scene_builder.add_solid_brush(
+            {0.20F, 0.82F, 0.95F, 1.0F}, 1.0F, brush_indices[3])) {
         std::cerr << "Could not record native retained brushes.\n";
         return EXIT_FAILURE;
     }
@@ -323,9 +325,53 @@ int main(int argc, char** argv) {
             {1.0F, 1.0F, 1.0F, 1.0F}, identity}};
     if (!scene_builder.draw_analytic(
             primitives,
-            brush_indices,
+            std::span<const std::uint32_t>(brush_indices.data(), 3U),
             {48.0F, 48.0F, 512.0F, 248.0F})) {
         std::cerr << "Could not record native retained primitives.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_geometry_primitive separator{};
+    separator.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+    separator.p0 = {48.0F, 204.0F};
+    separator.p1 = {560.0F, 204.0F};
+    separator.stroke_thickness = 3.0F;
+    separator.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    separator.transform = identity;
+    if (!scene_builder.draw_geometry(
+            std::span<const progpu_native_geometry_primitive>(
+                &separator,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {46.0F, 200.0F, 516.0F, 8.0F})) {
+        std::cerr << "Could not record native retained geometry.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array native_stroke_points{
+        progpu_native_point{64.0F, 326.0F},
+        progpu_native_point{196.0F, 310.0F},
+        progpu_native_point{332.0F, 334.0F},
+        progpu_native_point{548.0F, 314.0F}};
+    const std::array native_stroke_dashes{8.0, 4.0};
+    progpu_native_scene_stroke native_stroke{};
+    native_stroke.struct_size = sizeof(native_stroke);
+    native_stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    native_stroke.point_count = native_stroke_points.size();
+    native_stroke.dash_interval_count = native_stroke_dashes.size();
+    native_stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    native_stroke.transform = identity;
+    native_stroke.stroke_thickness = 3.0F;
+    native_stroke.miter_limit = 10.0F;
+    native_stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    native_stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    native_stroke.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    native_stroke.dash_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    if (!scene_builder.draw_strokes(
+            std::span<const progpu_native_scene_stroke>(&native_stroke, 1U),
+            native_stroke_points,
+            native_stroke_dashes,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {60.0F, 304.0F, 492.0F, 34.0F})) {
+        std::cerr << "Could not record native retained strokes.\n";
         return EXIT_FAILURE;
     }
     std::vector<std::byte> scene_stream;

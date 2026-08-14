@@ -20,7 +20,11 @@ main translation unit owns exported entry points and device lifetime;
 and deterministic pointer-free compiler used directly by both the desktop and
 browser samples. Its static C++ API never crosses the stable C ABI and its
 compiled stream is retained across frames; one update is submitted only when
-the caller changes the scene generation.
+the caller changes the scene generation. Shared builder ownership and bounded
+transactional state live in `progpu_native_scene_builder_internal.hpp`, while
+`progpu_native_scene_builder_geometry.cpp` owns general geometry plus connected
+polyline/NURBS stroke recording and canonical auxiliary arenas. New command
+families extend through their own similarly scoped translation units.
 `progpu_native_scene.cpp` owns pointer-free stream validation,
 `progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
 `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget
