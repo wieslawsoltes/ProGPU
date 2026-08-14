@@ -1341,6 +1341,32 @@ ABI nor GPU vertex stride grows. The managed compositor writes the same lane
 and no longer folds active opacity into the mesh brush before a Porter-Duff or
 advanced color blend.
 
+Retained `DrawPicture` is now recursively flattened during the one-time
+managed-to-native compile. Child affine transforms compose in System.Numerics
+row-vector order, child buffered polyline/spline data remains resolved against
+its owning picture, and supported commands still coalesce across a picture
+boundary when no ordered state boundary intervenes. State scopes are tagged
+with their owning picture, so a child cannot pop a parent scope and an
+unterminated child scope reports the containing root `DrawPicture` command.
+Recursion is cycle-checked and capped at 64 picture levels; camera/GPU-transform
+pictures remain typed fail-closed because the current semantic scene is 2D
+affine. Compilation is `O(C + P)` time/storage for C commands across the full
+retained picture tree and P emitted payload records. The resulting stream is
+pointer-free, reports the total tree command count, and adds no stable-replay
+work or allocation.
+
+The Apple M3 Pro retained-picture qualification renders the same 14-command
+sample through direct `wgpu-native`/Metal and the exact packaged
+WebScene/Dawn/Metal provider. Both produce the same SHA-256 image hash while
+the Dawn run also forces device loss and recreates the renderer. The matched
+uncontended 100-warm-up/1,000-frame mixed-picture benchmark preserves the
+non-nested compile fast path at 178,464 allocated bytes (16 bytes above the
+178,448-byte pre-slice checkpoint) and 0 bytes per stable frame. Native versus
+managed submission p50/p95 is 0.0435/0.0729 ms versus 0.2326/0.3872 ms;
+synchronized total p50/p95 is 1.5587/4.5982 ms versus 1.7631/4.8675 ms. The
+three independently rasterized edge pixels above 3/255 and mean absolute
+channel difference of 0.000163/255 remain unchanged.
+
 The Apple M3 Pro matched `960x540` mask checkpoint used one Release process,
 100 alternating warm-up pairs, and 1,000 alternating synchronized
 measurements. Its 386-command picture retained the prior 384 mixed draws inside
@@ -1395,7 +1421,7 @@ the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips/masks and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, vector clips, general
 `DrawPath` strokes/boolean combinations, non-solid/picture/path opacity masks,
-text, images, nested pictures, isolated layers, effects, remaining extensions,
+text, images, embedded visuals, isolated layers, effects, remaining extensions,
 and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 

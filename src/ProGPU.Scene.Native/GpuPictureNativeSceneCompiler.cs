@@ -78,6 +78,7 @@ public static partial class GpuPictureNativeSceneCompiler
     private readonly record struct StateScope(
         StateScopeKind Kind,
         StateSnapshot Previous,
+        int OwnerId,
         int SourceCommandIndex,
         RenderCommandType SourceCommandType);
 
@@ -124,12 +125,76 @@ public static partial class GpuPictureNativeSceneCompiler
         var stateScopes = new Stack<StateScope>();
         StateSnapshot currentState = StateSnapshot.Identity;
         var materials = new NativeBrushTableBuilder();
-        for (int index = 0; index < picture.CommandCount; index++)
+        List<FlattenedCommand>? flattenedCommands = null;
+        int sourceCommandCount = picture.CommandCount;
+        if (ContainsNestedPicture(picture))
         {
-            RenderCommand command = picture.GetCommand(index);
+            flattenedCommands = new List<FlattenedCommand>(picture.CommandCount);
+            if (!TryFlattenPicture(
+                    picture,
+                    flattenedCommands,
+                    out sourceCommandCount,
+                    out failure))
+            {
+                return false;
+            }
+        }
+        int flattenedCommandCount = flattenedCommands?.Count ?? picture.CommandCount;
+        for (int index = 0; index < flattenedCommandCount; index++)
+        {
+            GpuPicture sourcePicture;
+            int sourceCommandIndex;
+            RenderCommandType sourceCommandType;
+            int ownerId;
+            Matrix3x2 transform;
+            RenderCommand command;
+            if (flattenedCommands is null)
+            {
+                sourcePicture = picture;
+                sourceCommandIndex = index;
+                ownerId = 0;
+                command = picture.GetCommand(index);
+                sourceCommandType = command.Type;
+                if (command.UseGpuTransforms ||
+                    !TryGetAffine(command.Transform, out transform))
+                {
+                    failure = new(
+                        NativePictureCompileError.UnsupportedTransform,
+                        sourceCommandIndex,
+                        sourceCommandType);
+                    return false;
+                }
+            }
+            else
+            {
+                FlattenedCommand source = flattenedCommands[index];
+                if (source.IsBoundary)
+                {
+                    if (stateScopes.Count != 0 &&
+                        stateScopes.Peek().OwnerId == source.OwnerId)
+                    {
+                        failure = new(
+                            NativePictureCompileError.UnbalancedState,
+                            source.SourceCommandIndex,
+                            source.SourceCommandType);
+                        return false;
+                    }
+                    continue;
+                }
+                sourcePicture = source.Picture;
+                sourceCommandIndex = source.SourceCommandIndex;
+                sourceCommandType = source.SourceCommandType;
+                ownerId = source.OwnerId;
+                transform = source.Transform;
+                command = source.Picture.GetCommand(source.CommandIndex);
+            }
+            command.Transform = transform == Matrix3x2.Identity
+                ? default
+                : ToMatrix4x4(transform);
             if (!TryAppendStateCommand(
                     command,
-                    index,
+                    ownerId,
+                    sourceCommandIndex,
                     ref currentState,
                     stateScopes,
                     states,
@@ -137,23 +202,18 @@ public static partial class GpuPictureNativeSceneCompiler
                     out bool handled,
                     out NativePictureCompileError stateError))
             {
-                failure = new(stateError, index, command.Type);
+                failure = new(
+                    stateError,
+                    sourceCommandIndex,
+                    sourceCommandType);
                 return false;
             }
             if (handled)
             {
                 continue;
             }
-            if (!TryGetAffine(command.Transform, out Matrix3x2 transform))
-            {
-                failure = new(
-                    NativePictureCompileError.UnsupportedTransform,
-                    index,
-                    command.Type);
-                return false;
-            }
             if (!TryAppendCommand(
-                    picture,
+                    sourcePicture,
                     command,
                     transform,
                     analytics,
@@ -179,7 +239,10 @@ public static partial class GpuPictureNativeSceneCompiler
                     materials,
                     out NativePictureCompileError error))
             {
-                failure = new(error, index, command.Type);
+                failure = new(
+                    error,
+                    sourceCommandIndex,
+                    sourceCommandType);
                 return false;
             }
         }
@@ -457,7 +520,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 stream.Length,
                 sceneId,
                 generation,
-                picture.CommandCount,
+                sourceCommandCount,
                 operations.Count,
                 batches.Count,
                 analytics.Count,
@@ -489,6 +552,7 @@ public static partial class GpuPictureNativeSceneCompiler
 
     private static bool TryAppendStateCommand(
         in RenderCommand command,
+        int ownerId,
         int sourceCommandIndex,
         ref StateSnapshot current,
         Stack<StateScope> scopes,
@@ -511,6 +575,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 return PushState(
                     StateScopeKind.Opacity,
                     current with { Opacity = current.Opacity * command.FontSize },
+                    ownerId,
                     sourceCommandIndex,
                     command.Type,
                     ref current,
@@ -535,6 +600,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 return PushState(
                     StateScopeKind.Clip,
                     current with { HasClip = true, ClipRect = clip },
+                    ownerId,
                     sourceCommandIndex,
                     command.Type,
                     ref current,
@@ -553,6 +619,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 return PushState(
                     StateScopeKind.OpacityMask,
                     maskState,
+                    ownerId,
                     sourceCommandIndex,
                     command.Type,
                     ref current,
@@ -562,6 +629,7 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.PopOpacity:
                 return TryRestoreState(
                     StateScopeKind.Opacity,
+                    ownerId,
                     ref current,
                     scopes,
                     operations,
@@ -569,6 +637,7 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.PopClip:
                 return TryRestoreState(
                     StateScopeKind.Clip,
+                    ownerId,
                     ref current,
                     scopes,
                     operations,
@@ -576,6 +645,7 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.PopOpacityMask:
                 return TryRestoreState(
                     StateScopeKind.OpacityMask,
+                    ownerId,
                     ref current,
                     scopes,
                     operations,
@@ -589,6 +659,7 @@ public static partial class GpuPictureNativeSceneCompiler
     private static bool PushState(
         StateScopeKind kind,
         StateSnapshot next,
+        int ownerId,
         int sourceCommandIndex,
         RenderCommandType sourceCommandType,
         ref StateSnapshot current,
@@ -602,6 +673,7 @@ public static partial class GpuPictureNativeSceneCompiler
         scopes.Push(new(
             kind,
             current,
+            ownerId,
             sourceCommandIndex,
             sourceCommandType));
         current = next;
@@ -610,12 +682,14 @@ public static partial class GpuPictureNativeSceneCompiler
 
     private static bool TryRestoreState(
         StateScopeKind expected,
+        int ownerId,
         ref StateSnapshot current,
         Stack<StateScope> scopes,
         List<Operation> operations,
         out NativePictureCompileError error)
     {
-        if (scopes.Count == 0 || scopes.Peek().Kind != expected)
+        if (scopes.Count == 0 || scopes.Peek().Kind != expected ||
+            scopes.Peek().OwnerId != ownerId)
         {
             error = NativePictureCompileError.UnbalancedState;
             return false;

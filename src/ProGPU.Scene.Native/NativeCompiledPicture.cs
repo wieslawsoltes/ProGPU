@@ -59,6 +59,10 @@ public sealed class NativeCompiledPicture
 
     public ulong Generation { get; }
 
+    /// <summary>
+    /// Gets the total command count across the root picture and every
+    /// recursively flattened retained child picture.
+    /// </summary>
     public int SourceCommandCount { get; }
 
     public int NativeCommandCount { get; }

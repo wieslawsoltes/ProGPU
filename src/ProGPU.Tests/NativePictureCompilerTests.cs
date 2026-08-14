@@ -997,6 +997,281 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerFlattensNestedPicturesWithOwnerBuffersAndTransforms()
+    {
+        var fill = new SolidColorBrush(new Vector4(0.8f, 0.2f, 0.1f, 1f));
+        var pen = new Pen(
+            new SolidColorBrush(new Vector4(0.1f, 0.7f, 1f, 1f)),
+            3f);
+        Matrix4x4 local = Matrix4x4.CreateTranslation(2f, 3f, 0f);
+        Matrix4x4 parent = Matrix4x4.CreateScale(2f, 3f, 1f) *
+            Matrix4x4.CreateTranslation(11f, 13f, 0f);
+        Vector2[] retainedPoints =
+        [
+            new(1f, 2f),
+            new(6f, 4f),
+            new(9f, 8f)
+        ];
+        using var nested = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacity,
+                    FontSize = 0.5f
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(1f, 2f, 8f, 6f),
+                    Brush = fill,
+                    Transform = local
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPolyline,
+                    Pen = pen,
+                    PointBufferOffset = 0,
+                    PointBufferCount = retainedPoints.Length,
+                    IsPenThicknessLocal = true,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacity }
+            ],
+            retainedPoints,
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var outer = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = nested,
+                    Transform = parent
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            outer,
+            93U,
+            5U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(5, compiled.SourceCommandCount);
+        Assert.Equal(4, compiled.NativeCommandCount);
+        Assert.Equal(2, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(retainedPoints.Length, compiled.StrokePointCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        int resourceSize = Unsafe.SizeOf<NativeMethods.SceneResource>();
+        int resourceOffset = checked((int)header.ResourceOffset);
+        var analyticResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(resourceOffset));
+        var strokeResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(resourceOffset + resourceSize));
+        var analytic = MemoryMarshal.Read<NativeAnalyticPrimitive>(
+            compiled.Stream.Slice(checked((int)analyticResource.PayloadOffset)));
+        var stroke = MemoryMarshal.Read<NativeSceneStroke>(
+            compiled.Stream.Slice(checked((int)strokeResource.PayloadOffset)));
+        Matrix3x2 expectedParent = new(
+            parent.M11,
+            parent.M12,
+            parent.M21,
+            parent.M22,
+            parent.M41,
+            parent.M42);
+        Matrix3x2 expectedLocal = new(
+            local.M11,
+            local.M12,
+            local.M21,
+            local.M22,
+            local.M41,
+            local.M42);
+        Assert.Equal(expectedLocal * expectedParent, analytic.Transform);
+        Assert.Equal(expectedParent, stroke.Transform);
+    }
+
+    [Fact]
+    public void CompilerReportsNestedFailureAtContainingPictureCommand()
+    {
+        using var nested = new GpuPicture(
+            [new RenderCommand { Type = RenderCommandType.DrawTexture }],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var outer = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = nested
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            outer,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
+        Assert.Equal(1, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawPicture, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerRejectsStateScopeCrossingNestedPictureBoundary()
+    {
+        using var nested = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacity,
+                    FontSize = 0.5f
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var outer = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = nested
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            outer,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnbalancedState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawPicture, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerRejectsPicturesBeyondMaximumNestedDepth()
+    {
+        var pictures = new List<GpuPicture>();
+        try
+        {
+            GpuPicture child = new(
+                [
+                    new RenderCommand
+                    {
+                        Type = RenderCommandType.DrawRect,
+                        Rect = new Rect(0f, 0f, 1f, 1f),
+                        Brush = new SolidColorBrush(Vector4.One)
+                    }
+                ],
+                Array.Empty<Vector2>(),
+                Array.Empty<double>(),
+                Array.Empty<Line3D>(),
+                Array.Empty<float>());
+            pictures.Add(child);
+            for (int depth = 0; depth < 64; depth++)
+            {
+                child = new GpuPicture(
+                    [
+                        new RenderCommand
+                        {
+                            Type = RenderCommandType.DrawPicture,
+                            Picture = child
+                        }
+                    ],
+                    Array.Empty<Vector2>(),
+                    Array.Empty<double>(),
+                    Array.Empty<Line3D>(),
+                    Array.Empty<float>());
+                pictures.Add(child);
+            }
+
+            Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+                child,
+                1U,
+                1U,
+                out NativeCompiledPicture? compiled,
+                out NativePictureCompileFailure failure));
+            Assert.Null(compiled);
+            Assert.Equal(
+                NativePictureCompileError.CapacityExceeded,
+                failure.Error);
+            Assert.Equal(0, failure.CommandIndex);
+            Assert.Equal(RenderCommandType.DrawPicture, failure.CommandType);
+        }
+        finally
+        {
+            foreach (GpuPicture picture in pictures)
+            {
+                picture.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void CompilerRejectsGpuLateTransforms()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                    UseGpuTransforms = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(
+            NativePictureCompileError.UnsupportedTransform,
+            failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawRect, failure.CommandType);
+    }
+
+    [Fact]
     public void CompilerFailsClosedForNonAxisAlignedClip()
     {
         using var picture = new GpuPicture(

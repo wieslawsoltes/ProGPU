@@ -47,12 +47,21 @@ using var compositor = dawnContext is null
         dawnContext,
         TextureFormat.Rgba8Unorm);
 
-var recorder = new GpuPictureRecorder();
-DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, width, height));
-drawing.DrawRectangle(
+var nestedRecorder = new GpuPictureRecorder();
+DrawingContext nestedDrawing = nestedRecorder.BeginRecording(
+    new Rect(0f, 0f, 90f, 60f));
+nestedDrawing.DrawRectangle(
     new SolidColorBrush(new Vector4(0.08f, 0.42f, 0.95f, 1f)),
     null,
-    new Rect(48f, 48f, 180f, 120f));
+    new Rect(0f, 0f, 90f, 60f));
+using GpuPicture nestedPicture = nestedRecorder.EndRecording();
+
+var recorder = new GpuPictureRecorder();
+DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, width, height));
+drawing.DrawPictureTransformed(
+    nestedPicture,
+    Matrix4x4.CreateScale(2f, 2f, 1f) *
+        Matrix4x4.CreateTranslation(48f, 48f, 0f));
 drawing.DrawRectangle(
     new SolidColorBrush(new Vector4(0.98f, 0.52f, 0.08f, 1f)),
     null,
@@ -150,7 +159,7 @@ if (updateMetrics.CommandCount != 11U ||
     updateMetrics.ResourceCount != 10U ||
     updateMetrics.DrawCount != 7U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 13 ||
+    compiled.SourceCommandCount != 14 ||
     compiled.NativeCommandCount != 11 ||
     compiled.NativeDrawCount != 7 ||
     compiled.PathCount != 1 ||
