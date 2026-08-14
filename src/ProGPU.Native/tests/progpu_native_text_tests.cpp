@@ -23,6 +23,7 @@ using progpu::native::text::sfnt_cff_data;
 using progpu::native::text::sfnt_cff_fd_select_view;
 using progpu::native::text::sfnt_cff_index_view;
 using progpu::native::text::sfnt_cff1_font_view;
+using progpu::native::text::sfnt_cff1_outline_requirements;
 using progpu::native::text::sfnt_cff1_top_dictionary;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
@@ -76,6 +77,27 @@ std::uint64_t hash_path_segments(
         append(std::bit_cast<std::uint32_t>(segment.p1.y));
         append(std::bit_cast<std::uint32_t>(segment.p2.x));
         append(std::bit_cast<std::uint32_t>(segment.p2.y));
+    }
+    return hash;
+}
+
+std::uint64_t hash_complete_path_segments(
+    std::span<const progpu_native_path_segment> segments) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    const auto append = [&](std::uint32_t value) {
+        hash = (hash ^ value) * prime;
+    };
+    for (const auto& segment : segments) {
+        append(segment.kind);
+        append(std::bit_cast<std::uint32_t>(segment.p0.x));
+        append(std::bit_cast<std::uint32_t>(segment.p0.y));
+        append(std::bit_cast<std::uint32_t>(segment.p1.x));
+        append(std::bit_cast<std::uint32_t>(segment.p1.y));
+        append(std::bit_cast<std::uint32_t>(segment.p2.x));
+        append(std::bit_cast<std::uint32_t>(segment.p2.y));
+        append(std::bit_cast<std::uint32_t>(segment.p3.x));
+        append(std::bit_cast<std::uint32_t>(segment.p3.y));
     }
     return hash;
 }
@@ -1513,6 +1535,47 @@ void cff1_fd_select_formats_are_borrowed_and_searchable() {
     require(error == font_error::invalid_face && view.bytes.empty());
 }
 
+void cff1_type2_outline_is_transactional_and_closes_figures() {
+    const std::array<std::byte, 16U> encoded{
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x0C},
+        std::byte{0x8B}, std::byte{0x8B}, std::byte{0x15},
+        std::byte{0xEF}, std::byte{0x8B}, std::byte{0x8B},
+        std::byte{0xEF}, std::byte{0x27}, std::byte{0x8B},
+        std::byte{0x05}, std::byte{0x0E}};
+    std::size_t cursor = 0U;
+    sfnt_cff_index_view char_strings{};
+    font_error error = font_error::none;
+    require(sfnt_cff_data::try_read_index(
+        encoded, cursor, char_strings, &error));
+    sfnt_cff1_font_view font{};
+    font.bytes = encoded;
+    font.char_strings = char_strings;
+
+    sfnt_cff1_outline_requirements requirements{};
+    require(sfnt_cff_data::try_get_outline_requirements(
+        font, 0U, requirements, &error));
+    require(error == font_error::none &&
+        requirements.path_segment_count == 4U);
+    std::array<progpu_native_path_segment, 4U> segments{};
+    std::uint32_t written = 0U;
+    require(sfnt_cff_data::try_decode_outline(
+        font, 0U, segments, written, &error));
+    require(error == font_error::none && written == segments.size());
+    require(segments[0].p0.x == 0.0F && segments[0].p0.y == 0.0F);
+    require(segments[0].p1.x == 100.0F && segments[0].p1.y == 0.0F);
+    require(segments[2].p1.x == 0.0F && segments[2].p1.y == 100.0F);
+    require(segments[3].p1.x == 0.0F && segments[3].p1.y == 0.0F);
+
+    std::array<progpu_native_path_segment, 3U> short_segments{};
+    short_segments[0].kind = 99U;
+    written = 99U;
+    require(!sfnt_cff_data::try_decode_outline(
+        font, 0U, short_segments, written, &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+    require(short_segments[0].kind == 99U);
+}
+
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -1532,6 +1595,32 @@ void production_noto_cff1_container_matches_sfnt_glyph_count() {
     font_error error = font_error::none;
     require(font.try_get_cff1_font(glyph_count, cff, &error));
     require(error == font_error::none);
+
+    constexpr std::array<std::uint32_t, 2U> codepoints{0x41U, 0x65E5U};
+    constexpr std::array<std::uint16_t, 2U> glyphs{34U, 20220U};
+    constexpr std::array<std::uint32_t, 2U> segment_counts{14U, 16U};
+    constexpr std::array<std::uint64_t, 2U> hashes{
+        1714381338565491643ULL,
+        5620540281806238275ULL};
+    for (std::size_t checkpoint = 0U;
+        checkpoint < codepoints.size();
+        ++checkpoint) {
+        const auto codepoint = codepoints[checkpoint];
+        std::uint16_t glyph = 0U;
+        require(font.try_get_glyph_index(codepoint, glyph));
+        require(glyph == glyphs[checkpoint]);
+        sfnt_cff1_outline_requirements requirements{};
+        require(sfnt_cff_data::try_get_outline_requirements(
+            cff, glyph, requirements, &error));
+        require(requirements.path_segment_count == segment_counts[checkpoint]);
+        std::vector<progpu_native_path_segment> segments(
+            requirements.path_segment_count);
+        std::uint32_t written = 0U;
+        require(sfnt_cff_data::try_decode_outline(
+            cff, glyph, segments, written, &error));
+        require(written == segments.size());
+        require(hash_complete_path_segments(segments) == hashes[checkpoint]);
+    }
     require(cff.char_strings.count == glyph_count);
     require(!cff.bytes.empty() && cff.top_dictionary.char_strings_offset > 0U);
     require(cff.font_dictionaries.count > 0U &&
@@ -2060,6 +2149,7 @@ int main() {
     expanded_composite_glyphs_preserve_transforms_and_point_attachment();
     cff1_indexes_and_dictionaries_are_borrowed_and_bounded();
     cff1_fd_select_formats_are_borrowed_and_searchable();
+    cff1_type2_outline_is_transactional_and_closes_figures();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

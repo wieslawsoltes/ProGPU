@@ -39,6 +39,7 @@ using ::progpu::native::text::sfnt_cff_data;
 using ::progpu::native::text::sfnt_cff_fd_select_view;
 using ::progpu::native::text::sfnt_cff_index_view;
 using ::progpu::native::text::sfnt_cff1_font_view;
+using ::progpu::native::text::sfnt_cff1_outline_requirements;
 using ::progpu::native::text::sfnt_cff1_top_dictionary;
 using ::progpu::native::text::sfnt_packed_delta_requirements;
 using ::progpu::native::text::sfnt_packed_point_requirements;

@@ -334,6 +334,10 @@ struct sfnt_cff1_font_view final {
     sfnt_cff1_top_dictionary top_dictionary{};
 };
 
+struct sfnt_cff1_outline_requirements final {
+    std::uint32_t path_segment_count = 0U;
+};
+
 class sfnt_cff_data final {
 public:
     static bool try_read_index(
@@ -377,6 +381,17 @@ public:
         sfnt_cff1_font_view font,
         std::uint32_t glyph_index,
         sfnt_cff_index_view& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_outline_requirements(
+        sfnt_cff1_font_view font,
+        std::uint32_t glyph_index,
+        sfnt_cff1_outline_requirements& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_decode_outline(
+        sfnt_cff1_font_view font,
+        std::uint32_t glyph_index,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& written,
         font_error* error = nullptr) noexcept;
 };
 
