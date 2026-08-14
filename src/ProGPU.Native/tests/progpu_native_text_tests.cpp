@@ -1503,6 +1503,168 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
             shaping_attachment_kind::cursive_horizontal);
 }
 
+void open_type_gpos_context_format3_applies_nested_lookup() {
+    std::array<std::byte, 82U> table{};
+    write_u16(table, 0U, 1U);
+    write_u16(table, 4U, 10U);
+    write_u16(table, 6U, 12U);
+    write_u16(table, 8U, 14U);
+    write_u16(table, 14U, 2U);
+    write_u16(table, 16U, 6U);
+    write_u16(table, 18U, 44U);
+
+    write_u16(table, 20U, 7U);
+    write_u16(table, 24U, 1U);
+    write_u16(table, 26U, 8U);
+    write_u16(table, 28U, 3U);
+    write_u16(table, 30U, 2U);
+    write_u16(table, 32U, 1U);
+    write_u16(table, 34U, 18U);
+    write_u16(table, 36U, 24U);
+    write_u16(table, 38U, 1U);
+    write_u16(table, 40U, 1U);
+    write_u16(table, 42U, 1U);
+    write_u16(table, 46U, 1U);
+    write_u16(table, 48U, 1U);
+    write_u16(table, 50U, 5U);
+    write_u16(table, 52U, 1U);
+    write_u16(table, 54U, 1U);
+    write_u16(table, 56U, 6U);
+
+    write_u16(table, 58U, 1U);
+    write_u16(table, 62U, 1U);
+    write_u16(table, 64U, 8U);
+    write_u16(table, 66U, 1U);
+    write_u16(table, 68U, 10U);
+    write_u16(table, 70U, 0x0004U);
+    write_u16(table, 72U, 0xFFFEU);
+    write_u16(table, 76U, 1U);
+    write_u16(table, 78U, 1U);
+    write_u16(table, 80U, 6U);
+
+    open_type_layout_table_view gpos{};
+    font_error error = font_error::none;
+    require(open_type_layout_table_view::try_create(table, gpos, &error));
+    std::array<shaping_glyph, 2U> glyphs{
+        shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U, 0U, 1, shaping_glyph_flags::none, 10}};
+    bool applied = false;
+    require(try_apply_open_type_gpos_lookup(
+        gpos, 0U, glyphs, {}, applied, &error));
+    require(applied && glyphs[0U].advance_x == 10 &&
+        glyphs[1U].advance_x == 8 &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) &
+            static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) != 0U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) &
+            static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) != 0U);
+}
+
+void open_type_gpos_rule_and_chain_contexts_are_bounded() {
+    std::array<std::byte, 84U> context{};
+    write_u16(context, 0U, 1U);
+    write_u16(context, 4U, 10U);
+    write_u16(context, 6U, 12U);
+    write_u16(context, 8U, 14U);
+    write_u16(context, 14U, 2U);
+    write_u16(context, 16U, 6U);
+    write_u16(context, 18U, 46U);
+    write_u16(context, 20U, 7U);
+    write_u16(context, 24U, 1U);
+    write_u16(context, 26U, 8U);
+    write_u16(context, 28U, 1U);
+    write_u16(context, 30U, 26U);
+    write_u16(context, 32U, 1U);
+    write_u16(context, 34U, 8U);
+    write_u16(context, 36U, 1U);
+    write_u16(context, 38U, 4U);
+    write_u16(context, 40U, 2U);
+    write_u16(context, 42U, 1U);
+    write_u16(context, 44U, 6U);
+    write_u16(context, 46U, 1U);
+    write_u16(context, 48U, 1U);
+    write_u16(context, 54U, 1U);
+    write_u16(context, 56U, 1U);
+    write_u16(context, 58U, 5U);
+    write_u16(context, 60U, 1U);
+    write_u16(context, 64U, 1U);
+    write_u16(context, 66U, 8U);
+    write_u16(context, 68U, 1U);
+    write_u16(context, 70U, 10U);
+    write_u16(context, 72U, 0x0004U);
+    write_u16(context, 74U, 0xFFFEU);
+    write_u16(context, 78U, 1U);
+    write_u16(context, 80U, 1U);
+    write_u16(context, 82U, 6U);
+
+    open_type_layout_table_view gpos{};
+    font_error error = font_error::none;
+    require(open_type_layout_table_view::try_create(context, gpos, &error));
+    std::array<shaping_glyph, 2U> glyphs{
+        shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U, 0U, 1, shaping_glyph_flags::none, 10}};
+    bool applied = false;
+    require(try_apply_open_type_gpos_lookup(
+        gpos, 0U, glyphs, {}, applied, &error));
+    require(applied && glyphs[1U].advance_x == 8);
+
+    std::array<std::byte, 100U> chain{};
+    write_u16(chain, 0U, 1U);
+    write_u16(chain, 4U, 10U);
+    write_u16(chain, 6U, 12U);
+    write_u16(chain, 8U, 14U);
+    write_u16(chain, 14U, 2U);
+    write_u16(chain, 16U, 6U);
+    write_u16(chain, 18U, 62U);
+    write_u16(chain, 20U, 8U);
+    write_u16(chain, 24U, 1U);
+    write_u16(chain, 26U, 8U);
+    write_u16(chain, 28U, 3U);
+    write_u16(chain, 30U, 1U);
+    write_u16(chain, 32U, 30U);
+    write_u16(chain, 34U, 1U);
+    write_u16(chain, 36U, 36U);
+    write_u16(chain, 38U, 1U);
+    write_u16(chain, 40U, 42U);
+    write_u16(chain, 42U, 1U);
+    write_u16(chain, 44U, 0U);
+    write_u16(chain, 46U, 1U);
+    write_u16(chain, 58U, 1U);
+    write_u16(chain, 60U, 1U);
+    write_u16(chain, 62U, 4U);
+    write_u16(chain, 64U, 1U);
+    write_u16(chain, 66U, 1U);
+    write_u16(chain, 68U, 5U);
+    write_u16(chain, 70U, 1U);
+    write_u16(chain, 72U, 1U);
+    write_u16(chain, 74U, 6U);
+    write_u16(chain, 76U, 1U);
+    write_u16(chain, 80U, 1U);
+    write_u16(chain, 82U, 8U);
+    write_u16(chain, 84U, 1U);
+    write_u16(chain, 86U, 10U);
+    write_u16(chain, 88U, 0x0004U);
+    write_u16(chain, 90U, 0xFFFEU);
+    write_u16(chain, 94U, 1U);
+    write_u16(chain, 96U, 1U);
+    write_u16(chain, 98U, 5U);
+    require(open_type_layout_table_view::try_create(chain, gpos, &error));
+    std::array<shaping_glyph, 3U> chain_glyphs{
+        shaping_glyph{4U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{5U, 0U, 1, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U, 0U, 2, shaping_glyph_flags::none, 10}};
+    require(try_apply_open_type_gpos_lookup(
+        gpos, 0U, chain_glyphs, {}, applied, &error));
+    require(applied && chain_glyphs[1U].advance_x == 8 &&
+        (static_cast<std::uint32_t>(chain_glyphs[0U].flags) &
+            static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) != 0U &&
+        (static_cast<std::uint32_t>(chain_glyphs[2U].flags) &
+            static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) != 0U);
+}
+
 std::uint64_t hash_path_segments(
     std::span<const progpu_native_path_segment> segments) {
     std::uint64_t hash = 1469598103934665603ULL;
@@ -4482,6 +4644,8 @@ int main() {
     open_type_script_language_feature_selection_is_bounded();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
     open_type_gpos_attachments_are_caller_owned_and_resolved();
+    open_type_gpos_context_format3_applies_nested_lookup();
+    open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();

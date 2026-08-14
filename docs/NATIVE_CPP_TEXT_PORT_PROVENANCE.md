@@ -137,6 +137,11 @@ per-glyph managed/native crossings. Script-specific joining/reordering,
 fallback selection, and paragraph layout intentionally remain subsequent
 reusable CPU stages rather than being hidden in rendering.
 
+The raw GPOS executor now covers rule-, class-, and coverage-based Context and
+Chaining Context formats 1-3. Nested position records reuse the same borrowed
+lookup table and caller glyph/attachment buffers with a fixed 64-level cycle
+bound, preserving GDEF filtering and unsafe-to-break ranges.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

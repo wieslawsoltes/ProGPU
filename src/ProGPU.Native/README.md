@@ -308,6 +308,12 @@ coverage/anchor search work, and `A` is the advances crossed by attached marks.
 Anchor formats 1-3 are validated; device/variation deltas remain a later GPOS
 slice rather than being silently approximated.
 
+GPOS Context and Chaining Context formats 1-3 now execute nested position
+lookups with a fixed 64-level recursion bound, GDEF-aware eligible-sequence
+mapping, and unsafe-to-break propagation across the matched context. This
+includes rule-, class-, and coverage-based matching without retained parser
+graphs or hidden scratch allocation.
+
 The first uniform-run shaping orchestrator now connects decoded/normalized
 Unicode scalars and grapheme clusters to cmap, base/HVAR advances, selected
 Script/LangSys GSUB and GPOS plans, GDEF mark policy, and attachment resolution.

@@ -619,7 +619,8 @@ struct open_type_gpos_apply_options final {
 /*
  * Allocation-free GPOS execution over the same caller-owned shaped glyph
  * records. The executor covers Single, Pair, Cursive, Mark-to-Base,
- * Mark-to-Ligature, and Mark-to-Mark positioning plus Extension wrappers.
+ * Mark-to-Ligature, and Mark-to-Mark positioning plus Extension wrappers and
+ * Context/Chaining Context formats 1-3 with bounded nested lookups.
  * Anchor relationships use caller-owned attachment records and values remain
  * in font units for later run scaling.
  */
