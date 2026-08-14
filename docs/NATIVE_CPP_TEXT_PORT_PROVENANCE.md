@@ -459,6 +459,21 @@ invalid scalars and short output are transactional. This is intentionally the
 managed first-strong shaping boundary, not a claim that Unicode
 Script_Extensions or locale tailoring is complete.
 
+The reusable OpenType execution boundary begins in
+`progpu_native_open_type_layout.cpp`, porting ProGPU-owned
+`OpenTypeTextShaper.FindCoverage`, `GetGlyphClass`, and lazy raw lookup access at
+checkpoint `89d610c2`. It follows the official
+[OpenType 1.9.1 common layout table formats](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2).
+Borrowed Coverage formats 1/2 and ClassDef formats 1/2 validate their complete
+sorted arrays and disjoint ranges once, then answer in `O(log R)` time and
+`O(1)` storage for `R` records. A shared GSUB/GPOS header view validates version
+1.0/1.1 top-level arrays, then lazily validates each requested Lookup record,
+all subtable offsets, flags, and optional mark-filtering-set index. This keeps
+startup proportional to requested work and establishes one malformed-font
+boundary for both substitution and positioning. Synthetic dense/range
+coverage, class, mark-filter, subtable, sorting, and transactional failure
+cases pass the focused native gate.
+
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
 `import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.

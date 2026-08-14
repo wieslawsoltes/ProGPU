@@ -37,6 +37,10 @@ using progpu::native::text::unicode_normalization_requirements;
 using progpu::native::text::unicode_normalization_data;
 using progpu::native::text::try_get_unicode_normalization_requirements;
 using progpu::native::text::try_normalize_unicode;
+using progpu::native::text::open_type_coverage_view;
+using progpu::native::text::open_type_class_definition_view;
+using progpu::native::text::open_type_lookup_view;
+using progpu::native::text::open_type_layout_table_view;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -94,6 +98,11 @@ void require(bool condition) {
         std::abort();
     }
 }
+
+void write_u16(
+    std::span<std::byte> destination,
+    std::size_t offset,
+    std::uint16_t value);
 
 void unicode_contract_and_strict_decoders_are_transactional() {
     static_assert(sizeof(shaping_feature) == 16U);
@@ -319,6 +328,103 @@ void unicode_script_itemization_preserves_source_ranges() {
     require(try_itemize_unicode_scripts(common, runs, written, &error));
     require(written == 1U && runs[0U].script == dflt &&
         runs[0U].input_length == 3U);
+}
+
+void open_type_common_layout_views_are_borrowed_and_bounded() {
+    std::array<std::byte, 10U> coverage1{};
+    write_u16(coverage1, 0U, 1U);
+    write_u16(coverage1, 2U, 3U);
+    write_u16(coverage1, 4U, 3U);
+    write_u16(coverage1, 6U, 5U);
+    write_u16(coverage1, 8U, 9U);
+    open_type_coverage_view coverage{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_coverage_view::try_create(
+        coverage1, 0U, coverage, &error));
+    require(error == font_error::none && coverage.find(3U) == 0 &&
+        coverage.find(5U) == 1 && coverage.find(9U) == 2 &&
+        coverage.find(4U) == -1);
+
+    std::array<std::byte, 16U> coverage2{};
+    write_u16(coverage2, 0U, 2U);
+    write_u16(coverage2, 2U, 2U);
+    write_u16(coverage2, 4U, 10U);
+    write_u16(coverage2, 6U, 12U);
+    write_u16(coverage2, 8U, 0U);
+    write_u16(coverage2, 10U, 20U);
+    write_u16(coverage2, 12U, 20U);
+    write_u16(coverage2, 14U, 3U);
+    require(open_type_coverage_view::try_create(
+        coverage2, 0U, coverage, &error));
+    require(coverage.find(10U) == 0 && coverage.find(12U) == 2 &&
+        coverage.find(20U) == 3 && coverage.find(13U) == -1);
+
+    std::array<std::byte, 12U> class1{};
+    write_u16(class1, 0U, 1U);
+    write_u16(class1, 2U, 5U);
+    write_u16(class1, 4U, 3U);
+    write_u16(class1, 6U, 1U);
+    write_u16(class1, 8U, 2U);
+    write_u16(class1, 10U, 2U);
+    open_type_class_definition_view classes{};
+    require(open_type_class_definition_view::try_create(
+        class1, 0U, classes, &error));
+    require(classes.get(4U) == 0U && classes.get(5U) == 1U &&
+        classes.get(7U) == 2U && classes.get(8U) == 0U);
+
+    std::array<std::byte, 16U> class2{};
+    write_u16(class2, 0U, 2U);
+    write_u16(class2, 2U, 2U);
+    write_u16(class2, 4U, 10U);
+    write_u16(class2, 6U, 12U);
+    write_u16(class2, 8U, 4U);
+    write_u16(class2, 10U, 20U);
+    write_u16(class2, 12U, 21U);
+    write_u16(class2, 14U, 7U);
+    require(open_type_class_definition_view::try_create(
+        class2, 0U, classes, &error));
+    require(classes.get(11U) == 4U && classes.get(20U) == 7U &&
+        classes.get(30U) == 0U);
+
+    std::array<std::byte, 30U> layout{};
+    write_u16(layout, 0U, 1U);
+    write_u16(layout, 2U, 0U);
+    write_u16(layout, 4U, 10U);
+    write_u16(layout, 6U, 12U);
+    write_u16(layout, 8U, 14U);
+    write_u16(layout, 10U, 0U);
+    write_u16(layout, 12U, 0U);
+    write_u16(layout, 14U, 1U);
+    write_u16(layout, 16U, 4U);
+    write_u16(layout, 18U, 1U);
+    write_u16(layout, 20U, 0x0010U);
+    write_u16(layout, 22U, 1U);
+    write_u16(layout, 24U, 10U);
+    write_u16(layout, 26U, 7U);
+    write_u16(layout, 28U, 1U);
+    open_type_layout_table_view table{};
+    require(open_type_layout_table_view::try_create(
+        layout, table, &error));
+    require(error == font_error::none && table.lookup_count() == 1U);
+    open_type_lookup_view lookup{};
+    require(table.try_get_lookup(0U, lookup, &error));
+    require(lookup.type == 1U && lookup.flags == 0x0010U &&
+        lookup.subtable_count == 1U && lookup.mark_filtering_set == 7U);
+    std::size_t subtable = 0U;
+    require(lookup.try_get_subtable(0U, subtable, &error));
+    require(subtable == 28U);
+
+    auto malformed = coverage1;
+    write_u16(malformed, 6U, 2U);
+    require(!open_type_coverage_view::try_create(
+        malformed, 0U, coverage, &error));
+    require(error == font_error::invalid_face && coverage.find(3U) == -1);
+    auto malformed_layout = layout;
+    write_u16(malformed_layout, 24U, 0U);
+    require(open_type_layout_table_view::try_create(
+        malformed_layout, table, &error));
+    require(!table.try_get_lookup(0U, lookup, &error));
+    require(error == font_error::invalid_face && lookup.table.empty());
 }
 
 std::uint64_t hash_path_segments(
@@ -3234,6 +3340,7 @@ int main() {
     unicode_contract_and_strict_decoders_are_transactional();
     canonical_unicode_normalization_uses_shared_borrowed_data();
     unicode_script_itemization_preserves_source_ranges();
+    open_type_common_layout_views_are_borrowed_and_bounded();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

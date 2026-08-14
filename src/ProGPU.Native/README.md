@@ -268,6 +268,14 @@ separate `O(N)` passes with `O(1)` internal state and transactional short-buffer
 failure. Script_Extensions and language tailoring remain explicit later stages
 rather than being guessed inside the decoder.
 
+The first shared OpenType execution primitive is a granular borrowed layout
+unit for Coverage formats 1/2, ClassDef formats 1/2, GSUB/GPOS headers, and lazy
+LookupList records. Construction validates complete sorted arrays, disjoint
+ranges, coverage indices, offsets, subtable references, and mark-filtering-set
+storage before exposing binary-search lookup. Views allocate nothing; creation
+is `O(R)`, lookup is `O(log R)`, and malformed records fail explicitly. GSUB
+and GPOS will consume this one parser rather than maintaining separate helpers.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

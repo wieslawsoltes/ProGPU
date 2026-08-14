@@ -277,6 +277,85 @@ bool try_normalize_unicode(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+class open_type_coverage_view final {
+public:
+    static bool try_create(
+        std::span<const std::byte> table,
+        std::size_t offset,
+        open_type_coverage_view& result,
+        font_error* error = nullptr) noexcept;
+
+    std::int32_t find(std::uint16_t glyph_id) const noexcept;
+
+private:
+    std::span<const std::byte> table_{};
+    std::size_t offset_ = 0U;
+    std::uint16_t count_ = 0U;
+    std::uint16_t format_ = 0U;
+};
+
+class open_type_class_definition_view final {
+public:
+    static bool try_create(
+        std::span<const std::byte> table,
+        std::size_t offset,
+        open_type_class_definition_view& result,
+        font_error* error = nullptr) noexcept;
+
+    std::uint16_t get(std::uint16_t glyph_id) const noexcept;
+
+private:
+    std::span<const std::byte> table_{};
+    std::size_t offset_ = 0U;
+    std::uint16_t count_ = 0U;
+    std::uint16_t start_glyph_ = 0U;
+    std::uint16_t format_ = 0U;
+};
+
+struct open_type_lookup_view final {
+    std::span<const std::byte> table{};
+    std::size_t offset = 0U;
+    std::uint16_t type = 0U;
+    std::uint16_t flags = 0U;
+    std::uint16_t subtable_count = 0U;
+    std::uint16_t mark_filtering_set = 0xFFFFU;
+
+    bool try_get_subtable(
+        std::uint16_t index,
+        std::size_t& subtable_offset,
+        font_error* error = nullptr) const noexcept;
+};
+
+/*
+ * Borrowed common GSUB/GPOS table header and LookupList. Creation validates
+ * the version and top-level offset arrays. Individual Lookup records are
+ * validated transactionally when requested, keeping startup lazy and bounded.
+ */
+class open_type_layout_table_view final {
+public:
+    static bool try_create(
+        std::span<const std::byte> table,
+        open_type_layout_table_view& result,
+        font_error* error = nullptr) noexcept;
+
+    std::uint16_t lookup_count() const noexcept {
+        return lookup_count_;
+    }
+
+    bool try_get_lookup(
+        std::uint16_t index,
+        open_type_lookup_view& result,
+        font_error* error = nullptr) const noexcept;
+
+private:
+    std::span<const std::byte> table_{};
+    std::size_t script_list_offset_ = 0U;
+    std::size_t feature_list_offset_ = 0U;
+    std::size_t lookup_list_offset_ = 0U;
+    std::size_t feature_variations_offset_ = 0U;
+    std::uint16_t lookup_count_ = 0U;
+};
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;
