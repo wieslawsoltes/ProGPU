@@ -229,13 +229,13 @@ void semantic_brush_page_is_bounded_deduplicated_and_retained() {
         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
         944U,
         analytic_indices.data(),
-        analytic_indices.size());
+        static_cast<std::uint32_t>(analytic_indices.size()));
     write_draw(
         1U,
         PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH,
         968U,
         path_indices.data(),
-        path_indices.size());
+        static_cast<std::uint32_t>(path_indices.size()));
 
     std::uint32_t error_offset = 0U;
     require(progpu::native::semantic::validate_brush_table(

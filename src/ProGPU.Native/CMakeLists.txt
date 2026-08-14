@@ -470,7 +470,10 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     set_target_properties(progpu_native_dawn PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN YES)
-    if(UNIX AND NOT APPLE)
+    # A sanitizer-instrumented shared library deliberately resolves the ASan/
+    # UBSan runtime from its instrumented test executable. --no-undefined is
+    # still mandatory for every production configuration.
+    if(UNIX AND NOT APPLE AND NOT PROGPU_NATIVE_ENABLE_SANITIZERS)
         target_link_options(progpu_native_dawn PRIVATE
             "-Wl,--no-undefined")
     endif()
@@ -684,7 +687,6 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_replay.hpp
         src/progpu_native_semantic_state.cpp
         src/progpu_native_semantic_state.hpp
-        src/progpu_native_semantic_validation.cpp
         src/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_internal_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_internal_tests PRIVATE
