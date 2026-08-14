@@ -17,8 +17,36 @@ enum class font_error : std::uint32_t {
     invalid_face,
     truncated_directory,
     invalid_glyph,
-    insufficient_buffer
+    insufficient_buffer,
+    invalid_container,
+    invalid_compressed_data
 };
+
+struct sfnt_container_requirements final {
+    std::size_t normalized_bytes = 0U;
+    std::size_t table_scratch_bytes = 0U;
+    std::uint16_t table_count = 0U;
+    bool requires_normalization = false;
+};
+
+/*
+ * Dependency-free WOFF1-to-SFNT normalization. The requirements pass is O(T)
+ * for T tables and reports exact caller-owned output plus maximum-table scratch
+ * storage. Normalization preflights every compressed table before touching the
+ * destination, then performs O(I + O) bounded decode/copy work. WOFF2 remains
+ * an explicit unsupported container until its Brotli transform slice lands.
+ */
+bool try_get_sfnt_container_requirements(
+    std::span<const std::byte> input,
+    sfnt_container_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_normalize_sfnt_container(
+    std::span<const std::byte> input,
+    std::span<std::byte> table_scratch,
+    std::span<std::byte> output,
+    sfnt_container_requirements& result,
+    font_error* error = nullptr) noexcept;
 
 struct open_type_tag final {
     std::uint32_t value = 0U;

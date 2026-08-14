@@ -365,22 +365,32 @@ Parsing and decode are `O(C + B + W*H)` time with caller-owned compressed,
 filtered, and RGBA spans and `O(1)` internal state. Adam7 uses a fixed seven-pass
 layout and scatters directly into the destination without a temporary frame.
 Unknown critical chunks, malformed palette indices, illegal depth/interlace,
-CRC/Adler failures, and short
-buffers fail transactionally. Normal Apple Clang warnings-as-errors, LLVM named
+CRC/Adler failures, and short buffers fail transactionally. Normal Apple Clang
+warnings-as-errors, LLVM named
 modules, ASan/UBSan, and a real Emscripten/Emdawnwebgpu/Chromium execution gate
 exercise this same library.
 
-WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
-container normalization, compressed ownership, legacy symbol-page tables,
-COLR version-1 paint graphs, SVG vector lowering, and CFF2 remain later
-phase-1/2 work.
+WOFF1 normalization follows the ProGPU-owned managed
+`SfntFontContainer.DecodeWoff1` contract and the
+[W3C WOFF 1.0 recommendation](https://www.w3.org/TR/WOFF/). A first O(T)
+requirements pass validates all directory/source/target bounds and reports the
+exact SFNT output plus maximum-table scratch. Normalization preflights every
+zlib-compressed table before touching the output, writes canonical SFNT search
+parameters and directory records, and then decodes/copies each aligned table.
+The result is `O(T + I + O)` time with `O(M)` caller-owned scratch and no heap,
+for tables `T`, input/output bytes `I`/`O`, and maximum table result `M`.
+Malformed compressed data is transactional. Raw SFNT/TTC remains a bounded
+pass-through, while WOFF2 is rejected explicitly pending the native
+Brotli/transform slice. Legacy symbol-page tables, COLR version-1 paint graphs,
+SVG vector lowering, and CFF2 remain later phase-1/2 work.
 
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
 `import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.
 Focused synthetic tests cover SFNT metrics, BMP and supplementary cmap lookup,
 TTC face selection, borrowed identity, invalid face indices, truncated
-directories, invalid collection counts, and explicit WOFF rejection.
+directories, invalid collection counts, explicit direct-view WOFF rejection,
+and bounded WOFF1 normalization with compressed/uncompressed tables.
 
 ## Cross-engine research gate
 

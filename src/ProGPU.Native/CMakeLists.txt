@@ -476,6 +476,7 @@ add_library(progpu_native_text STATIC
     src/progpu_native_cpal.cpp
     src/progpu_native_colr_internal.hpp
     src/progpu_native_svg_glyph.cpp
+    src/progpu_native_woff1.cpp
     src/progpu_native_sfnt.cpp
     src/progpu_native_true_type_composite.cpp
     src/progpu_native_true_type_composite_internal.hpp

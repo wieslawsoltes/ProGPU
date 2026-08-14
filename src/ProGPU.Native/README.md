@@ -218,8 +218,15 @@ and checksum failures are explicit, and the RGBA destination is unchanged on
 failure. Adam7 uses seven fixed pass descriptors and scatters samples directly
 from filtered caller scratch without a temporary full-frame image.
 
-WOFF1/WOFF2 are rejected explicitly until the native container-normalization
-slice lands. C++ clients can use the header surfaces or, on the supported LLVM
+The text module now normalizes WOFF1 through an exact two-call caller-buffer
+contract. The requirements pass validates the directory and reports the final
+SFNT size plus maximum-table scratch. Normalization preflights every compressed
+table before touching the destination, then writes the canonical SFNT directory
+and aligned table payloads. Work is `O(T + I + O)` with `O(M)` caller scratch
+for tables `T`, compressed bytes `I`, output bytes `O`, and largest compressed
+table result `M`; the implementation has no heap or platform codec dependency.
+WOFF2 remains explicitly unsupported pending the bounded Brotli/transform slice.
+C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.
 Additional renderer domains will move behind similarly typed internal modules

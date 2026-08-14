@@ -29,6 +29,7 @@ int main() {
     const progpu::native::text::sfnt_bitmap_glyph_data_view bitmap_glyph{};
     const progpu::native::text::sfnt_color_glyph_layer color_layer{};
     const progpu::native::text::sfnt_svg_glyph_document_view svg_glyph{};
+    const progpu::native::text::sfnt_container_requirements container{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -58,7 +59,7 @@ int main() {
         !cff_font.bytes.empty() || !bitmap_glyph.bytes.empty() ||
         bitmap_glyph.uses_horizontal_metrics ||
         color_layer.color.alpha != 255U ||
-        !svg_glyph.bytes.empty()) {
+        !svg_glyph.bytes.empty() || container.requires_normalization) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

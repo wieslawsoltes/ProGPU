@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iterator>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -16,6 +17,9 @@ namespace {
 
 using progpu::native::text::font_error;
 using progpu::native::text::open_type_tag;
+using progpu::native::text::sfnt_container_requirements;
+using progpu::native::text::try_get_sfnt_container_requirements;
+using progpu::native::text::try_normalize_sfnt_container;
 using progpu::native::text::sfnt_composite_component;
 using progpu::native::text::sfnt_composite_glyph_decode_requirements;
 using progpu::native::text::sfnt_composite_glyph_variation_requirements;
@@ -131,6 +135,120 @@ void write_u32(
     destination[offset + 1U] = static_cast<std::byte>(value >> 16U);
     destination[offset + 2U] = static_cast<std::byte>(value >> 8U);
     destination[offset + 3U] = static_cast<std::byte>(value);
+}
+
+std::vector<std::byte> make_woff1_fixture() {
+    constexpr std::array<unsigned char, 26U> compressed_values{
+        0x78U, 0x01U, 0x4BU, 0xCBU, 0xACU, 0x48U, 0x4DU, 0xD1U,
+        0xCDU, 0x28U, 0x4DU, 0x4BU, 0xCBU, 0x4DU, 0xCCU, 0xD3U,
+        0x4DU, 0x1BU, 0xE5U, 0x41U, 0x79U, 0x00U, 0x62U, 0xC2U,
+        0x6AU, 0x2DU};
+    constexpr std::size_t first_source = 84U;
+    constexpr std::size_t second_source = 112U;
+    constexpr std::size_t declared_length = 116U;
+    constexpr std::size_t normalized_size = 328U;
+    std::vector<std::byte> result(declared_length);
+    write_u32(result, 0U, 0x774F4646U);
+    write_u32(result, 4U, 0x00010000U);
+    write_u32(result, 8U, static_cast<std::uint32_t>(declared_length));
+    write_u16(result, 12U, 2U);
+    write_u32(result, 16U, static_cast<std::uint32_t>(normalized_size));
+    write_u32(result, 44U,
+        open_type_tag::from_chars('T', 'E', 'S', 'T').value);
+    write_u32(result, 48U, first_source);
+    write_u32(result, 52U,
+        static_cast<std::uint32_t>(compressed_values.size()));
+    write_u32(result, 56U, 280U);
+    write_u32(result, 60U, 0x10203040U);
+    write_u32(result, 64U,
+        open_type_tag::from_chars('D', 'A', 'T', 'A').value);
+    write_u32(result, 68U, second_source);
+    write_u32(result, 72U, 4U);
+    write_u32(result, 76U, 4U);
+    write_u32(result, 80U, 0x50607080U);
+    for (std::size_t index = 0U; index < compressed_values.size(); ++index) {
+        result[first_source + index] =
+            static_cast<std::byte>(compressed_values[index]);
+    }
+    result[second_source] = std::byte{1U};
+    result[second_source + 1U] = std::byte{2U};
+    result[second_source + 2U] = std::byte{3U};
+    result[second_source + 3U] = std::byte{4U};
+    return result;
+}
+
+void woff1_normalization_is_bounded_and_transactional() {
+    auto woff = make_woff1_fixture();
+    sfnt_container_requirements requirements{};
+    font_error error = font_error::invalid_container;
+    require(try_get_sfnt_container_requirements(
+        woff, requirements, &error));
+    require(error == font_error::none &&
+        requirements.requires_normalization &&
+        requirements.table_count == 2U &&
+        requirements.normalized_bytes == 328U &&
+        requirements.table_scratch_bytes == 280U);
+    std::vector<std::byte> scratch(requirements.table_scratch_bytes);
+    std::vector<std::byte> normalized(
+        requirements.normalized_bytes, std::byte{0xA5U});
+    sfnt_container_requirements normalized_requirements{};
+    require(try_normalize_sfnt_container(
+        woff,
+        scratch,
+        normalized,
+        normalized_requirements,
+        &error));
+    require(normalized_requirements.normalized_bytes == normalized.size());
+    require(normalized[0U] == std::byte{0U} &&
+        normalized[1U] == std::byte{1U} &&
+        normalized[4U] == std::byte{0U} &&
+        normalized[5U] == std::byte{2U} &&
+        normalized[6U] == std::byte{0U} &&
+        normalized[7U] == std::byte{32U} &&
+        normalized[8U] == std::byte{0U} &&
+        normalized[9U] == std::byte{1U});
+    constexpr std::string_view pattern = "fixed-huffman-";
+    for (std::size_t index = 0U; index < 280U; ++index) {
+        require(normalized[44U + index] ==
+            static_cast<std::byte>(pattern[index % pattern.size()]));
+    }
+    require(normalized[324U] == std::byte{1U} &&
+        normalized[327U] == std::byte{4U});
+    sfnt_font_view face{};
+    require(sfnt_font_view::try_create(normalized, 0U, face, &error));
+    sfnt_table_view table{};
+    require(face.try_get_table(
+        open_type_tag::from_chars('T', 'E', 'S', 'T'), table));
+    require(table.bytes.size() == 280U &&
+        table.checksum == 0x10203040U);
+
+    std::array<std::byte, 4U> raw{
+        std::byte{0U}, std::byte{1U}, std::byte{0U}, std::byte{0U}};
+    std::array<std::byte, 4U> raw_copy{};
+    require(try_normalize_sfnt_container(
+        raw, {}, raw_copy, normalized_requirements, &error));
+    require(!normalized_requirements.requires_normalization &&
+        raw == raw_copy);
+
+    auto invalid = woff;
+    invalid[84U] ^= std::byte{1U};
+    std::fill(normalized.begin(), normalized.end(), std::byte{0xA5U});
+    require(!try_normalize_sfnt_container(
+        invalid,
+        scratch,
+        normalized,
+        normalized_requirements,
+        &error));
+    require(error == font_error::invalid_compressed_data &&
+        std::all_of(normalized.begin(), normalized.end(), [](std::byte value) {
+            return value == std::byte{0xA5U};
+        }));
+
+    invalid = woff;
+    write_u32(invalid, 0U, 0x774F4632U);
+    require(!try_get_sfnt_container_requirements(
+        invalid, requirements, &error));
+    require(error == font_error::unsupported_container);
 }
 
 struct table_data final {
@@ -2662,6 +2780,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 } // namespace
 
 int main() {
+    woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
     variation_coordinates_apply_bounded_avar_mapping();
