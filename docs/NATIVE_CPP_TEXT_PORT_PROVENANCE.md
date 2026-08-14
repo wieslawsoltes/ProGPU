@@ -61,15 +61,21 @@ Short and long `loca` tables resolve into borrowed `glyf` byte spans in `O(1)`
 time and storage per glyph; empty glyphs preserve an empty successful result,
 and non-empty records expose their contour count and exact font-unit bounds
 without parsing or allocating an outline graph.
-Simple TrueType records now continue through an allocation-free two-pass
+The simple decoder and contour lowerer port `src/ProGPU.Text/TtfFont.cs` at
+checkpoint `ba6b5588afff85203b64d48c534c4780afb8d75c`. Simple TrueType
+records continue through an allocation-free two-pass
 decoder. Pass one validates strictly increasing contour endpoints, instruction
 ranges, repeated-flag expansion, and the complete X/Y delta byte budget while
 reporting exact caller-buffer requirements. Pass two writes raw flags and
 signed accumulated coordinates directly into caller spans. Its complexity is
 `O(C + P + B)` time and `O(1)` internal storage for `C` contours, `P` points,
 and `B` encoded bytes. Empty, simple, and composite glyphs are distinct typed
-results; composite expansion, `gvar` application, and contour-to-path lowering
-remain open rather than silently approximated.
+results. A second allocation-free count/write pair ports
+`TtfFont.DecodeContourToFigure` directly into the canonical
+`progpu_native_path_segment` ABI. It preserves line closure, explicit
+on-curve points, implied midpoints between consecutive off-curve points, and
+quadratic controls in `O(C + P)` time with `O(1)` internal storage. Composite
+expansion and `gvar` application remain open rather than silently approximated.
 
 The managed and native tests share the repository's exact `Inter-Medium.ttf`
 asset as a differential checkpoint. Both assert 2,048 units per em, 2,937
@@ -78,8 +84,11 @@ bounds `(106,-25)-(1217,1510)`. The native test additionally verifies the
 same glyph's one contour, 46 decoded points, 59 instruction bytes, mixed
 on/off-curve flags, repeated-flag behavior, insufficient caller buffers,
 truncated coordinates, excessive repeats, decreasing endpoints, and explicit
-composite classification. This is parser/point evidence only; matched final
-quadratic segments and screenshots wait for the path-lowering slice.
+composite classification. Matched final path evidence covers all 34
+line/quadratic records for Inter Medium glyph 397 with an exact shared 64-bit
+hash of `13245664145576799719`, including the
+start point `(665,-25)` and closed endpoint. A GPU-rendered native-font
+screenshot waits for composite expansion and the font-to-scene connection.
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
 outlines, variations, and color glyph data remain later phase-1/2 work.

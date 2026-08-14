@@ -125,8 +125,11 @@ the first pass validates instructions, contour endpoints, repeated flags, and
 coordinate byte ranges while reporting exact point/contour counts; the second
 expands signed deltas directly into caller-owned point records. Empty,
 simple, and composite records are classified explicitly. The library performs
-no heap allocation in either pass. Composite expansion, variation deltas, and
-point-to-quadratic-path conversion remain subsequent slices.
+no heap allocation in either pass. Decoded simple contours then use another
+allocation-free count/write pair to produce the renderer's canonical line and
+quadratic `progpu_native_path_segment` records with exact implied-midpoint and
+closed-contour behavior. Composite expansion and variation deltas remain
+subsequent slices.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

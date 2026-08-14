@@ -1,6 +1,8 @@
 #ifndef PROGPU_NATIVE_TEXT_HPP
 #define PROGPU_NATIVE_TEXT_HPP
 
+#include "progpu_native.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -104,6 +106,26 @@ struct sfnt_outline_point final {
     bool on_curve() const noexcept {
         return (flags & 0x01U) != 0U;
     }
+};
+
+/*
+ * Allocation-free lowering of decoded TrueType contours to the renderer's
+ * canonical line/quadratic path ABI. The count pass and write pass are both
+ * O(C + P) for C contours and P decoded points with O(1) internal storage.
+ */
+class sfnt_simple_glyph_path final {
+public:
+    static bool try_get_segment_count(
+        std::span<const std::uint16_t> contour_end_points,
+        std::span<const sfnt_outline_point> points,
+        std::uint32_t& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_write_segments(
+        std::span<const std::uint16_t> contour_end_points,
+        std::span<const sfnt_outline_point> points,
+        std::span<progpu_native_path_segment> segments,
+        std::uint32_t& written,
+        font_error* error = nullptr) noexcept;
 };
 
 /*

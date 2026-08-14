@@ -43,6 +43,48 @@ public sealed class InterFontFamilyTests
         Assert.Equal((short)-25, bounds.YMin);
         Assert.Equal((short)1217, bounds.XMax);
         Assert.Equal((short)1510, bounds.YMax);
+        var outline = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            font.GetGlyphOutline(glyphIndex));
+        var figure = Assert.Single(outline.Figures);
+        Assert.Equal(new Vector2(665f, -25f), figure.StartPoint);
+        Assert.Equal(34, figure.Segments.Count);
+        ulong hash = 1469598103934665603UL;
+        static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);
+        static ulong Append(ulong value, uint field) =>
+            unchecked((value ^ field) * 1099511628211UL);
+        Vector2 current = figure.StartPoint;
+        foreach (ProGPU.Vector.PathSegment segment in figure.Segments)
+        {
+            Vector2 p0 = current;
+            uint kind;
+            Vector2 p1;
+            Vector2 p2;
+            switch (segment)
+            {
+                case ProGPU.Vector.LineSegment line:
+                    kind = 0;
+                    p1 = line.Point;
+                    p2 = default;
+                    current = line.Point;
+                    break;
+                case ProGPU.Vector.QuadraticBezierSegment quadratic:
+                    kind = 1;
+                    p1 = quadratic.ControlPoint;
+                    p2 = quadratic.Point;
+                    current = quadratic.Point;
+                    break;
+                default:
+                    throw new InvalidOperationException(segment.GetType().Name);
+            }
+            hash = Append(hash, kind);
+            hash = Append(hash, Bits(p0.X));
+            hash = Append(hash, Bits(p0.Y));
+            hash = Append(hash, Bits(p1.X));
+            hash = Append(hash, Bits(p1.Y));
+            hash = Append(hash, Bits(p2.X));
+            hash = Append(hash, Bits(p2.Y));
+        }
+        Assert.Equal(13245664145576799719UL, hash);
     }
 
     [Fact]

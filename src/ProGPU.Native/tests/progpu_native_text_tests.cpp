@@ -1,6 +1,7 @@
 #include "progpu_native_text.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -22,12 +23,32 @@ using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
 using progpu::native::text::sfnt_outline_point;
+using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_table_view;
 
 void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+std::uint64_t hash_path_segments(
+    std::span<const progpu_native_path_segment> segments) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    const auto append = [&](std::uint32_t value) {
+        hash = (hash ^ value) * prime;
+    };
+    for (const auto& segment : segments) {
+        append(segment.kind);
+        append(std::bit_cast<std::uint32_t>(segment.p0.x));
+        append(std::bit_cast<std::uint32_t>(segment.p0.y));
+        append(std::bit_cast<std::uint32_t>(segment.p1.x));
+        append(std::bit_cast<std::uint32_t>(segment.p1.y));
+        append(std::bit_cast<std::uint32_t>(segment.p2.x));
+        append(std::bit_cast<std::uint32_t>(segment.p2.y));
+    }
+    return hash;
 }
 
 void write_u16(
@@ -247,6 +268,27 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(outline_points[1].on_curve());
     require(outline_points[2].x == 25 && outline_points[2].y == 40);
     require(!outline_points[2].on_curve());
+    std::uint32_t segment_count = 0U;
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        contour_ends, outline_points, segment_count, &error));
+    require(segment_count == 2U);
+    std::array<progpu_native_path_segment, 2U> path_segments{};
+    std::uint32_t written = 0U;
+    require(sfnt_simple_glyph_path::try_write_segments(
+        contour_ends, outline_points, path_segments, written, &error));
+    require(written == 2U);
+    require(path_segments[0].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+    require(path_segments[0].p0.x == 10.0F &&
+        path_segments[0].p0.y == 0.0F);
+    require(path_segments[0].p1.x == 30.0F &&
+        path_segments[0].p1.y == 30.0F);
+    require(path_segments[1].kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+    require(path_segments[1].p0.x == 30.0F &&
+        path_segments[1].p0.y == 30.0F);
+    require(path_segments[1].p1.x == 25.0F &&
+        path_segments[1].p1.y == 40.0F);
+    require(path_segments[1].p2.x == 10.0F &&
+        path_segments[1].p2.y == 0.0F);
     require(!font.try_decode_simple_glyph(
         4U,
         contour_ends,
@@ -352,6 +394,19 @@ void simple_glyph_repeat_composite_and_malformed_paths_are_explicit() {
         require(point.x == 0 && point.y == 0 && point.on_curve());
     }
 
+    std::uint32_t segment_count = 0U;
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        contour_ends, points, segment_count, &error));
+    require(segment_count == 3U);
+    std::array<progpu_native_path_segment, 3U> repeated_segments{};
+    std::uint32_t written = 0U;
+    require(sfnt_simple_glyph_path::try_write_segments(
+        contour_ends, points, repeated_segments, written, &error));
+    require(written == 3U);
+    for (const auto& segment : repeated_segments) {
+        require(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+    }
+
     auto excessive_repeat = repeated;
     excessive_repeat[glyph_offset + 15U] = static_cast<std::byte>(3U);
     require(sfnt_font_view::try_create(excessive_repeat, 0U, font));
@@ -399,6 +454,74 @@ void simple_glyph_repeat_composite_and_malformed_paths_are_explicit() {
     require(!font.try_get_glyph_decode_requirements(
         4U, requirements, &error));
     require(error == font_error::invalid_glyph);
+}
+
+void simple_glyph_path_preserves_implicit_midpoints_and_is_transactional() {
+    const std::array<std::uint16_t, 1U> contour_ends{{2U}};
+    const std::array<sfnt_outline_point, 3U> points{{
+        {0, 0, 0U},
+        {20, 0, 0U},
+        {20, 20, 1U}}};
+    std::uint32_t count = 0U;
+    font_error error = font_error::none;
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        contour_ends, points, count, &error));
+    require(count == 2U);
+    std::array<progpu_native_path_segment, 2U> segments{};
+    std::uint32_t written = 99U;
+    require(sfnt_simple_glyph_path::try_write_segments(
+        contour_ends, points, segments, written, &error));
+    require(written == 2U);
+    require(segments[0].kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+    require(segments[0].p0.x == 20.0F && segments[0].p0.y == 20.0F);
+    require(segments[0].p1.x == 0.0F && segments[0].p1.y == 0.0F);
+    require(segments[0].p2.x == 10.0F && segments[0].p2.y == 0.0F);
+    require(segments[1].kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+    require(segments[1].p0.x == 10.0F && segments[1].p0.y == 0.0F);
+    require(segments[1].p1.x == 20.0F && segments[1].p1.y == 0.0F);
+    require(segments[1].p2.x == 20.0F && segments[1].p2.y == 20.0F);
+
+    written = 99U;
+    require(!sfnt_simple_glyph_path::try_write_segments(
+        contour_ends,
+        points,
+        std::span<progpu_native_path_segment>{},
+        written,
+        &error));
+    require(written == 0U);
+    require(error == font_error::insufficient_buffer);
+
+    const std::array<std::uint16_t, 1U> invalid_ends{{1U}};
+    require(!sfnt_simple_glyph_path::try_get_segment_count(
+        invalid_ends, points, count, &error));
+    require(count == 0U);
+    require(error == font_error::invalid_argument);
+
+    const std::array<std::uint16_t, 1U> singleton_end{{0U}};
+    const std::array<sfnt_outline_point, 1U> singleton{{{4, 9, 1U}}};
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        singleton_end, singleton, count, &error));
+    require(count == 0U);
+
+    const std::array<std::uint16_t, 2U> two_contours{{1U, 3U}};
+    const std::array<sfnt_outline_point, 4U> contour_points{{
+        {0, 0, 1U},
+        {5, 0, 1U},
+        {20, 20, 1U},
+        {25, 20, 1U}}};
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        two_contours, contour_points, count, &error));
+    require(count == 4U);
+    std::array<progpu_native_path_segment, 4U> contour_segments{};
+    require(sfnt_simple_glyph_path::try_write_segments(
+        two_contours,
+        contour_points,
+        contour_segments,
+        written,
+        &error));
+    require(written == 4U);
+    require(contour_segments[2].p0.x == 20.0F);
+    require(contour_segments[2].p0.y == 20.0F);
 }
 
 void production_inter_font_decodes_real_simple_outline() {
@@ -457,6 +580,24 @@ void production_inter_font_decodes_real_simple_outline() {
         has_off_curve = has_off_curve || !point.on_curve();
     }
     require(has_on_curve && has_off_curve);
+    std::uint32_t segment_count = 0U;
+    require(sfnt_simple_glyph_path::try_get_segment_count(
+        contours, points, segment_count));
+    require(segment_count == 34U);
+    std::vector<progpu_native_path_segment> segments(segment_count);
+    std::uint32_t written = 0U;
+    require(sfnt_simple_glyph_path::try_write_segments(
+        contours, points, segments, written));
+    require(written == segment_count);
+    require(segments.front().p0.x == 665.0F);
+    require(segments.front().p0.y == -25.0F);
+    require(hash_path_segments(segments) == 13245664145576799719ULL);
+    const auto last_end = segments.back().kind ==
+            PROGPU_NATIVE_PATH_SEGMENT_LINE
+        ? segments.back().p1
+        : segments.back().p2;
+    require(segments.front().p0.x == last_end.x);
+    require(segments.front().p0.y == last_end.y);
 }
 
 } // namespace
@@ -466,6 +607,7 @@ int main() {
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
+    simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();
     production_inter_font_decodes_real_simple_outline();
     return 0;
 }

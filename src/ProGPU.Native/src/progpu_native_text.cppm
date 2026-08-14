@@ -17,5 +17,8 @@ using ::progpu::native::text::sfnt_horizontal_glyph_metrics;
 using ::progpu::native::text::sfnt_horizontal_header_metrics;
 using ::progpu::native::text::sfnt_table_view;
 using ::progpu::native::text::sfnt_outline_point;
+using ::progpu::native::text::sfnt_simple_glyph_path;
 
 } // namespace progpu::native::text
+
+export using ::progpu_native_path_segment;
