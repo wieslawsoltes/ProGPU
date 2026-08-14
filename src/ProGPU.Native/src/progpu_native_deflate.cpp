@@ -47,12 +47,15 @@ bool try_build_fixed(
     huffman_table& literal,
     huffman_table& distance) noexcept {
     std::array<std::uint8_t, 288U> literal_lengths{};
-    std::fill_n(literal_lengths.begin(), 144U, 8U);
-    std::fill_n(literal_lengths.begin() + 144U, 112U, 9U);
-    std::fill_n(literal_lengths.begin() + 256U, 24U, 7U);
-    std::fill_n(literal_lengths.begin() + 280U, 8U, 8U);
+    std::fill_n(literal_lengths.begin(), 144U, std::uint8_t{8U});
+    std::fill_n(
+        literal_lengths.begin() + 144U, 112U, std::uint8_t{9U});
+    std::fill_n(
+        literal_lengths.begin() + 256U, 24U, std::uint8_t{7U});
+    std::fill_n(
+        literal_lengths.begin() + 280U, 8U, std::uint8_t{8U});
     std::array<std::uint8_t, 32U> distance_lengths{};
-    distance_lengths.fill(5U);
+    distance_lengths.fill(std::uint8_t{5U});
     return try_build_huffman(literal_lengths, literal) &&
         try_build_huffman(distance_lengths, distance);
 }
