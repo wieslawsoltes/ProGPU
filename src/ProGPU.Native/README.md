@@ -172,8 +172,9 @@ advance fallback now reuses the same tuple walker and returns the exact
 right-minus-left phantom X delta without internal allocation. HVAR precedence,
 borrowed item-variation stores, long/short delta rows, and delta-set maps now
 execute allocation-free; InterVariable glyph 397 matches the managed HVAR
-delta `-28`. MVAR and GDEF layout-store consumers remain sequenced work over
-the shared store parser.
+delta `-28`. The native MVAR consumer now matches InterVariable
+`xhgt=-31` (`1118 -> 1087`), and the GDEF 1.3 consumer evaluates its borrowed
+layout store for the later GPOS port.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.

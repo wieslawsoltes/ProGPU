@@ -252,8 +252,18 @@ only when the managed implementation would. InterVariable glyph 397 at
 `opsz=23` resolves exact native delta `-28`, matching the managed 2048-em
 advance `1314 -> 1286`. Synthetic map clamping, row selection, missing-HVAR,
 truncation, normal, named-module, ASan/UBSan, and 29/29 managed Inter gates
-pass. MVAR and GDEF layout-store consumers remain sequenced work over this
-shared parser.
+pass.
+
+MVAR and GDEF layout-store consumers follow at checkpoint
+`aed98a9921ad36864ee95687747629b195a42dc4`. The granular MVAR unit validates
+record stride/count/store bounds, preserves the managed last-duplicate-tag
+rule, and evaluates each metric record through its own borrowed store. The
+GDEF 1.3 unit resolves layout variation indices through the same parser and
+returns an explicit absent-store state for earlier table versions. Native
+InterVariable `opsz=23` resolves exact `xhgt=-31`, matching managed X-height
+`1118 -> 1087`, and successfully evaluates its real GDEF layout store. Normal,
+named-module, ASan/UBSan, and 29/29 managed Inter gates pass. Wiring these
+layout deltas into the later native GPOS port remains sequenced with shaping.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,
