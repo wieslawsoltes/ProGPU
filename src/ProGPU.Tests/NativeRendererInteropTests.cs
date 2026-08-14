@@ -2427,6 +2427,14 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("ANDROID_PLATFORM=android-30", builder,
             StringComparison.Ordinal);
+        Assert.Contains("darwin-arm64 darwin-x86_64", builder,
+            StringComparison.Ordinal);
+        Assert.Contains("linux-x86_64 linux-aarch64", builder,
+            StringComparison.Ordinal);
+        Assert.Contains("bin/llvm-readelf", builder,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("-type f -name llvm-readelf", builder,
+            StringComparison.Ordinal);
         Assert.Contains("xcodebuild -create-xcframework", builder,
             StringComparison.Ordinal);
         Assert.Contains("provider-resolved-dawn", builder,

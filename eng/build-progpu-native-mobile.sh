@@ -85,15 +85,52 @@ resolve_ndk_root() {
   printf '%s\n' "${best}"
 }
 
+resolve_ndk_readelf() {
+  local ndk_root="$1"
+  local candidate=""
+  local host_tag=""
+
+  case "$(uname -s)" in
+    Darwin)
+      for host_tag in darwin-arm64 darwin-x86_64; do
+        candidate="${ndk_root}/toolchains/llvm/prebuilt/${host_tag}/bin/llvm-readelf"
+        if [[ -x "${candidate}" ]]; then
+          printf '%s\n' "${candidate}"
+          return 0
+        fi
+      done
+      ;;
+    Linux)
+      for host_tag in linux-x86_64 linux-aarch64; do
+        candidate="${ndk_root}/toolchains/llvm/prebuilt/${host_tag}/bin/llvm-readelf"
+        if [[ -x "${candidate}" ]]; then
+          printf '%s\n' "${candidate}"
+          return 0
+        fi
+      done
+      ;;
+  esac
+
+  # Keep custom NDK host distributions usable without relying on find's
+  # regular-file predicate: llvm-readelf is commonly an executable symlink.
+  for candidate in \
+      "${ndk_root}"/toolchains/llvm/prebuilt/*/bin/llvm-readelf; do
+    if [[ -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 build_android() {
   local ndk_root
   ndk_root="$(resolve_ndk_root)" || {
     echo "Android NDK was not found." >&2
     exit 1
   }
-  local readelf="${ndk_root}/toolchains/llvm/prebuilt"
-  readelf="$(find "${readelf}" -type f -name llvm-readelf -print -quit)"
-  [[ -x "${readelf}" ]] || {
+  local readelf
+  readelf="$(resolve_ndk_readelf "${ndk_root}")" || {
     echo "Android NDK llvm-readelf was not found." >&2
     exit 1
   }
