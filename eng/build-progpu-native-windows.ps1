@@ -3,6 +3,8 @@ param(
     [string] $Rid = $(if ($env:PROGPU_NATIVE_RID) { $env:PROGPU_NATIVE_RID } else { "win-x64" }),
     [ValidateSet("ClangCL", "MSVC")]
     [string] $Compiler = $(if ($env:PROGPU_NATIVE_WINDOWS_COMPILER) { $env:PROGPU_NATIVE_WINDOWS_COMPILER } else { "ClangCL" }),
+    [ValidateSet("Ninja", "VisualStudio")]
+    [string] $Generator = $(if ($env:PROGPU_NATIVE_WINDOWS_GENERATOR) { $env:PROGPU_NATIVE_WINDOWS_GENERATOR } else { "Ninja" }),
     [switch] $SkipExtendedIntegration
 )
 
@@ -30,6 +32,7 @@ switch ($Rid) {
         $DevCmdHostArchitecture = "x64"
         $ToolComponent = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
         $LibraryMachine = "X64"
+        $ClangTarget = "x86_64-pc-windows-msvc"
         $PackageRid = "win-x64"
         $RunnableArchitecture = [System.Runtime.InteropServices.Architecture]::X64
     }
@@ -39,6 +42,7 @@ switch ($Rid) {
         $DevCmdHostArchitecture = "arm64"
         $ToolComponent = "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
         $LibraryMachine = "ARM64"
+        $ClangTarget = "aarch64-pc-windows-msvc"
         $PackageRid = "win-arm64"
         $RunnableArchitecture = [System.Runtime.InteropServices.Architecture]::Arm64
     }
@@ -58,16 +62,18 @@ if ((git -C $SourceDir rev-parse HEAD).Trim() -ne $ExpectedCommit) {
 if ((git -C (Join-Path $SourceDir "ffi/webgpu-headers") rev-parse HEAD).Trim() -ne $ExpectedHeadersCommit) {
     throw "The pinned WebGPU headers checkout is incorrect."
 }
-if (-not (Test-Path (Join-Path $DawnHeadersDir ".git"))) {
-    git clone --filter=blob:none https://github.com/webgpu-native/webgpu-headers.git $DawnHeadersDir
-}
-if (git -C $DawnHeadersDir status --porcelain --untracked-files=no) {
-    throw "Refusing to change a modified Dawn WebGPU header checkout."
-}
-git -C $DawnHeadersDir fetch --depth 1 origin $ExpectedDawnHeadersCommit
-git -C $DawnHeadersDir checkout --detach $ExpectedDawnHeadersCommit
-if ((git -C $DawnHeadersDir rev-parse HEAD).Trim() -ne $ExpectedDawnHeadersCommit) {
-    throw "The pinned Dawn WebGPU headers checkout is incorrect."
+if (-not $SkipExtendedIntegration) {
+    if (-not (Test-Path (Join-Path $DawnHeadersDir ".git"))) {
+        git clone --filter=blob:none https://github.com/webgpu-native/webgpu-headers.git $DawnHeadersDir
+    }
+    if (git -C $DawnHeadersDir status --porcelain --untracked-files=no) {
+        throw "Refusing to change a modified Dawn WebGPU header checkout."
+    }
+    git -C $DawnHeadersDir fetch --depth 1 origin $ExpectedDawnHeadersCommit
+    git -C $DawnHeadersDir checkout --detach $ExpectedDawnHeadersCommit
+    if ((git -C $DawnHeadersDir rev-parse HEAD).Trim() -ne $ExpectedDawnHeadersCommit) {
+        throw "The pinned Dawn WebGPU headers checkout is incorrect."
+    }
 }
 
 $GlobalPackagesLine = (dotnet nuget locals global-packages --list | Select-Object -First 1)
@@ -108,35 +114,55 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ImportLibrary)) {
     throw "Failed to generate the pinned wgpu-native import library."
 }
 
-$ToolsetArguments = if ($Compiler -eq "ClangCL") { @("-T", "ClangCL") } else { @() }
-# CMake's Visual Studio generator currently supplies MSVC-only /interface and
-# /scanDependencies flags to clang-cl module units. Keep the identical C++20
-# public contract on the portable header path here; Linux LLVM Clang + Ninja is
-# the required named-module import gate.
+$GeneratorArguments = if ($Generator -eq "Ninja") {
+    if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
+        throw "Ninja is required for the default fast Windows native build. Use -Generator VisualStudio only as a compatibility fallback."
+    }
+    @("-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release")
+} else {
+    @("-A", $CMakeArchitecture)
+}
+$CompilerArguments = if ($Generator -eq "Ninja") {
+    if ($Compiler -eq "ClangCL") {
+        @(
+            "-DCMAKE_CXX_COMPILER=clang-cl",
+            "-DCMAKE_CXX_COMPILER_TARGET=$ClangTarget")
+    } else {
+        @("-DCMAKE_CXX_COMPILER=cl")
+    }
+} elseif ($Compiler -eq "ClangCL") {
+    @("-T", "ClangCL")
+} else {
+    @()
+}
+# Named-module import coverage remains on LLVM Clang + Ninja on Linux. The
+# Windows lanes compile the same portable C++20 surface through clang-cl and
+# MSVC while avoiding CMake/Visual Studio dependency-scanning incompatibilities.
 $ModuleArgument = "OFF"
-cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchitecture @ToolsetArguments `
+$DawnIncludeArgument = if ($SkipExtendedIntegration) { "" } else { $DawnHeadersDir }
+$BuildSampleArgument = if ($SkipExtendedIntegration) { "OFF" } else { "ON" }
+cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir @GeneratorArguments @CompilerArguments `
     -DPROGPU_NATIVE_ENABLE_CPP_MODULES="$ModuleArgument" `
     -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="$IncludeDir" `
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="$ImportLibrary" `
-    -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnHeadersDir" `
-    -DPROGPU_NATIVE_BUILD_SAMPLE=ON `
+    -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnIncludeArgument" `
+    -DPROGPU_NATIVE_BUILD_SAMPLE="$BuildSampleArgument" `
     -DBUILD_TESTING=ON
 if ($LASTEXITCODE -ne 0) {
     throw "CMake configuration failed for $Compiler/$Rid."
 }
-cmake --build $BuildDir --config Release --parallel
+$BuildConfigurationArguments = if ($Generator -eq "VisualStudio") { @("--config", "Release") } else { @() }
+cmake --build $BuildDir @BuildConfigurationArguments --parallel
 if ($LASTEXITCODE -ne 0) {
     throw "CMake build failed for $Compiler/$Rid."
 }
 
-$NativeDll = Join-Path $BuildDir "Release/progpu_native.dll"
+$BinaryDirectory = if ($Generator -eq "VisualStudio") { Join-Path $BuildDir "Release" } else { $BuildDir }
+$NativeDll = Join-Path $BinaryDirectory "progpu_native.dll"
 if (-not (Test-Path $NativeDll)) {
     throw "The native renderer DLL was not produced: $NativeDll"
 }
-$DawnDll = Join-Path $BuildDir "Release/progpu_native_dawn.dll"
-if (-not (Test-Path $DawnDll)) {
-    throw "The provider-resolved Dawn renderer DLL was not produced: $DawnDll"
-}
+$DawnDll = Join-Path $BinaryDirectory "progpu_native_dawn.dll"
 $ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Sort-Object -Unique
@@ -152,59 +178,64 @@ if ($ExportDifference) {
     $ExportDifference | Format-Table | Out-String | Write-Error
     throw "The ProGPU native exported-symbol surface changed."
 }
-$ExpectedDawnExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-dawn-exports.txt") |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-    Sort-Object -Unique
-$ActualDawnExports = & dumpbin.exe /nologo /exports $DawnDll |
-    ForEach-Object {
-        if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_[A-Za-z0-9_]+)') {
-            $Matches[1]
-        }
-    } |
-    Sort-Object -Unique
-$DawnExportDifference = Compare-Object $ExpectedDawnExports $ActualDawnExports
-if ($DawnExportDifference) {
-    $DawnExportDifference | Format-Table | Out-String | Write-Error
-    throw "The ProGPU Dawn adapter exported-symbol surface changed."
-}
-$DawnImports = & dumpbin.exe /nologo /imports $DawnDll
-if ($DawnImports | Select-String -Pattern '\bwgpu[A-Z]' -CaseSensitive) {
-    throw "The ProGPU Dawn adapter imports WebGPU procedures directly."
-}
-Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
-Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
-$NativePdb = Join-Path $BuildDir "Release/progpu_native.pdb"
-$DawnPdb = Join-Path $BuildDir "Release/progpu_native_dawn.pdb"
-if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb)) {
-    $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
-    New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
-    if (Test-Path $NativePdb) {
-        Copy-Item $NativePdb $SymbolStage -Force
+if (-not $SkipExtendedIntegration) {
+    if (-not (Test-Path $DawnDll)) {
+        throw "The provider-resolved Dawn renderer DLL was not produced: $DawnDll"
     }
-    if (Test-Path $DawnPdb) {
-        Copy-Item $DawnPdb $SymbolStage -Force
+    $ExpectedDawnExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-dawn-exports.txt") |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Sort-Object -Unique
+    $ActualDawnExports = & dumpbin.exe /nologo /exports $DawnDll |
+        ForEach-Object {
+            if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_[A-Za-z0-9_]+)') {
+                $Matches[1]
+            }
+        } |
+        Sort-Object -Unique
+    $DawnExportDifference = Compare-Object $ExpectedDawnExports $ActualDawnExports
+    if ($DawnExportDifference) {
+        $DawnExportDifference | Format-Table | Out-String | Write-Error
+        throw "The ProGPU Dawn adapter exported-symbol surface changed."
+    }
+    $DawnImports = & dumpbin.exe /nologo /imports $DawnDll
+    if ($DawnImports | Select-String -Pattern '\bwgpu[A-Z]' -CaseSensitive) {
+        throw "The ProGPU Dawn adapter imports WebGPU procedures directly."
+    }
+    Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
+    Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
+    $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
+    $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
+    if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb)) {
+        $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
+        New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
+        if (Test-Path $NativePdb) {
+            Copy-Item $NativePdb $SymbolStage -Force
+        }
+        if (Test-Path $DawnPdb) {
+            Copy-Item $DawnPdb $SymbolStage -Force
+        }
     }
 }
 
 $CurrentArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
 if ($CurrentArchitecture -eq $RunnableArchitecture) {
-    $env:PATH = "$(Join-Path $BuildDir 'Release');$RuntimeDir;$env:PATH"
+    $env:PATH = "$BinaryDirectory;$RuntimeDir;$env:PATH"
     ctest --test-dir $BuildDir -C Release --output-on-failure
     if ($LASTEXITCODE -ne 0) {
         throw "Native C++20 tests failed for $Compiler/$Rid."
     }
-    $SampleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/sample"
-    New-Item -ItemType Directory -Force -Path $SampleDirectory | Out-Null
-    $NativeSample = Join-Path $BuildDir "Release/progpu_native_sample.exe"
-    $NativeSampleOutput = Join-Path $SampleDirectory "progpu-native-sample.ppm"
-    $NativeProviderEvidence = Join-Path $SampleDirectory "progpu-native-provider.txt"
-    & $NativeSample $NativeSampleOutput $NativeProviderEvidence
-    if ($LASTEXITCODE -ne 0) {
-        throw "The D3D12 native renderer backend sample failed."
-    }
     if ($SkipExtendedIntegration) {
-        Write-Host "Skipped the managed differential/benchmark matrix for compiler qualification."
+        Write-Host "MSVC compiler qualification passed without rebuilding the Dawn ABI, packaging, sample, or managed differential matrix."
     } else {
+        $SampleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/sample"
+        New-Item -ItemType Directory -Force -Path $SampleDirectory | Out-Null
+        $NativeSample = Join-Path $BinaryDirectory "progpu_native_sample.exe"
+        $NativeSampleOutput = Join-Path $SampleDirectory "progpu-native-sample.ppm"
+        $NativeProviderEvidence = Join-Path $SampleDirectory "progpu-native-provider.txt"
+        & $NativeSample $NativeSampleOutput $NativeProviderEvidence
+        if ($LASTEXITCODE -ne 0) {
+            throw "The D3D12 native renderer backend sample failed."
+        }
         $SampleOutput = Join-Path $RepoRoot "artifacts/progpu-native/sample/progpu-native-managed-$Rid.ppm"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SampleOutput) | Out-Null
         dotnet run --project (Join-Path $RepoRoot "src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj") -c Release -- $SampleOutput
@@ -270,4 +301,8 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
     Write-Host "Cross-compiled $Rid; execution is deferred to a matching-architecture CI lane."
 }
 
-Write-Host "Staged ProGPU native renderer for $Rid in $PackageStage"
+if ($SkipExtendedIntegration) {
+    Write-Host "Qualified the ProGPU native renderer with $Compiler/$Generator for $Rid."
+} else {
+    Write-Host "Staged ProGPU native renderer for $Rid in $PackageStage"
+}

@@ -76,6 +76,16 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Cache Windows native dependencies
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.nuget/packages
+            artifacts/wgpu-native-src
+            artifacts/webgpu-headers-dawn
+          key: progpu-native-windows-v2-${{ matrix.rid }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj') }}
+
       - name: Verify generated C# native contract
         if: matrix.rid == 'linux-x64'
         shell: bash
@@ -188,6 +198,15 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Cache MSVC qualification dependencies
+        if: matrix.compiler == 'MSVC'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.nuget/packages
+            artifacts/wgpu-native-src
+          key: progpu-native-msvc-v2-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj') }}
 
       - name: Install GCC compatibility dependencies
         if: matrix.compiler == 'GCC'
