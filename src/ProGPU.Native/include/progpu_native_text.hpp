@@ -298,6 +298,53 @@ struct sfnt_delta_set_index_map_view final {
     std::uint8_t inner_index_bits = 0U;
 };
 
+struct sfnt_cff_index_view final {
+    std::span<const std::byte> bytes{};
+    std::size_t offsets_offset = 0U;
+    std::size_t data_offset = 0U;
+    std::size_t end_offset = 0U;
+    std::uint32_t count = 0U;
+    std::uint8_t offset_size = 0U;
+};
+
+struct sfnt_cff1_top_dictionary final {
+    std::uint32_t char_strings_offset = 0U;
+    std::uint32_t private_size = 0U;
+    std::uint32_t private_offset = 0U;
+    std::uint32_t font_dictionary_offset = 0U;
+    std::uint32_t fd_select_offset = 0U;
+};
+
+struct sfnt_cff1_font_view final {
+    std::span<const std::byte> bytes{};
+    sfnt_cff_index_view char_strings{};
+    sfnt_cff_index_view global_subroutines{};
+    sfnt_cff1_top_dictionary top_dictionary{};
+};
+
+class sfnt_cff_data final {
+public:
+    static bool try_read_index(
+        std::span<const std::byte> bytes,
+        std::size_t& cursor,
+        sfnt_cff_index_view& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_index_item(
+        sfnt_cff_index_view index,
+        std::uint32_t item,
+        std::span<const std::byte>& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_read_dictionary_number(
+        std::span<const std::byte> bytes,
+        std::size_t& cursor,
+        std::uint8_t first,
+        double& result) noexcept;
+    static bool try_get_top_dictionary(
+        std::span<const std::byte> bytes,
+        sfnt_cff1_top_dictionary& result,
+        font_error* error = nullptr) noexcept;
+};
+
 class sfnt_item_variation_data final {
 public:
     static bool try_get_store(
@@ -590,6 +637,10 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         float& result,
         bool& uses_layout_store,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_cff1_font(
+        std::uint16_t expected_glyph_count,
+        sfnt_cff1_font_view& result,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;

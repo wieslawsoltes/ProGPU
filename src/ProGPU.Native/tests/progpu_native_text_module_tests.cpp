@@ -22,6 +22,8 @@ int main() {
     const progpu::native::text::sfnt_glyph_phantom_variation_requirements
         phantom_requirements{};
     const progpu::native::text::sfnt_item_variation_store_view item_store{};
+    const progpu::native::text::sfnt_cff_index_view cff_index{};
+    const progpu::native::text::sfnt_cff1_font_view cff_font{};
     using gvar_deltas = progpu::native::text::sfnt_gvar_deltas;
     const progpu::native::text::sfnt_simple_glyph_variation_requirements
         variation_requirements{};
@@ -44,6 +46,9 @@ int main() {
         return 1;
     }
     if (item_store.region_count != 0U) {
+        return 1;
+    }
+    if (cff_index.count != 0U || !cff_font.bytes.empty()) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

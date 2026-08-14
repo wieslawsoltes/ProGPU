@@ -1,0 +1,197 @@
+#include "progpu_native_text.hpp"
+
+#include "progpu_native_font_bytes.hpp"
+
+#include <array>
+#include <bit>
+#include <charconv>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+
+// Direct native port provenance: ProGPU-owned Cff1OutlineSource DICT number
+// and top-dictionary readers at checkpoint 2f152ddd. Parsing uses fixed stack
+// storage and locale-independent numeric conversion.
+namespace progpu::native::text {
+namespace {
+
+using detail::read_i16;
+using detail::read_u32;
+
+void set_error(font_error* destination, font_error value) noexcept {
+    if (destination != nullptr) {
+        *destination = value;
+    }
+}
+
+bool append_real_nibble(
+    std::uint8_t nibble,
+    std::span<char> destination,
+    std::size_t& length) noexcept {
+    if (nibble == 15U) {
+        return true;
+    }
+    std::array<char, 2U> encoded{};
+    std::size_t count = 0U;
+    if (nibble <= 9U) {
+        encoded[0] = static_cast<char>('0' + nibble);
+        count = 1U;
+    } else if (nibble == 10U) {
+        encoded[0] = '.';
+        count = 1U;
+    } else if (nibble == 11U) {
+        encoded[0] = 'E';
+        count = 1U;
+    } else if (nibble == 12U) {
+        encoded[0] = 'E';
+        encoded[1] = '-';
+        count = 2U;
+    } else if (nibble == 14U) {
+        encoded[0] = '-';
+        count = 1U;
+    }
+    if (count > destination.size() - length) {
+        return true;
+    }
+    for (std::size_t index = 0U; index < count; ++index) {
+        destination[length++] = encoded[index];
+    }
+    return false;
+}
+
+std::uint32_t to_offset(double value) noexcept {
+    return std::isfinite(value) && value >= 0.0 &&
+        value <= std::numeric_limits<std::int32_t>::max()
+        ? static_cast<std::uint32_t>(value)
+        : std::numeric_limits<std::uint32_t>::max();
+}
+
+} // namespace
+
+bool sfnt_cff_data::try_read_dictionary_number(
+    std::span<const std::byte> bytes,
+    std::size_t& cursor,
+    std::uint8_t first,
+    double& result) noexcept {
+    result = 0.0;
+    if (first >= 32U && first <= 246U) {
+        result = static_cast<double>(first) - 139.0;
+        return true;
+    }
+    if (first >= 247U && first <= 250U) {
+        if (cursor >= bytes.size()) {
+            return false;
+        }
+        result = static_cast<double>((first - 247U) * 256U +
+            std::to_integer<std::uint8_t>(bytes[cursor++]) + 108U);
+        return true;
+    }
+    if (first >= 251U && first <= 254U) {
+        if (cursor >= bytes.size()) {
+            return false;
+        }
+        result = -static_cast<double>((first - 251U) * 256U +
+            std::to_integer<std::uint8_t>(bytes[cursor++]) + 108U);
+        return true;
+    }
+    if (first == 28U) {
+        if (cursor > bytes.size() || bytes.size() - cursor < 2U) {
+            return false;
+        }
+        result = read_i16(bytes, cursor);
+        cursor += 2U;
+        return true;
+    }
+    if (first == 29U) {
+        if (cursor > bytes.size() || bytes.size() - cursor < 4U) {
+            return false;
+        }
+        result = std::bit_cast<std::int32_t>(read_u32(bytes, cursor));
+        cursor += 4U;
+        return true;
+    }
+    if (first != 30U) {
+        return false;
+    }
+
+    std::array<char, 96U> encoded{};
+    std::size_t length = 0U;
+    bool ended = false;
+    while (cursor < bytes.size() && !ended) {
+        const auto pair = std::to_integer<std::uint8_t>(bytes[cursor++]);
+        ended = append_real_nibble(pair >> 4U, encoded, length) ||
+            append_real_nibble(pair & 0x0FU, encoded, length);
+    }
+    if (!ended || length == 0U) {
+        return false;
+    }
+    const auto parsed = std::from_chars(
+        encoded.data(), encoded.data() + length, result,
+        std::chars_format::general);
+    return parsed.ec == std::errc{} &&
+        parsed.ptr == encoded.data() + length && std::isfinite(result);
+}
+
+bool sfnt_cff_data::try_get_top_dictionary(
+    std::span<const std::byte> bytes,
+    sfnt_cff1_top_dictionary& result,
+    font_error* error) noexcept {
+    result = {};
+    set_error(error, font_error::none);
+    std::array<double, 48U> operands{};
+    std::size_t operand_count = 0U;
+    std::size_t cursor = 0U;
+    while (cursor < bytes.size()) {
+        const auto value = std::to_integer<std::uint8_t>(bytes[cursor++]);
+        double number = 0.0;
+        if (try_read_dictionary_number(bytes, cursor, value, number)) {
+            if (operand_count >= operands.size()) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            operands[operand_count++] = number;
+            continue;
+        }
+        std::uint16_t operation = value;
+        if (value == 12U) {
+            if (cursor >= bytes.size()) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            operation = static_cast<std::uint16_t>(0x0C00U |
+                std::to_integer<std::uint8_t>(bytes[cursor++]));
+        }
+        if (operation == 17U && operand_count >= 1U) {
+            result.char_strings_offset = to_offset(
+                operands[operand_count - 1U]);
+        } else if (operation == 18U && operand_count >= 2U) {
+            result.private_size = to_offset(
+                operands[operand_count - 2U]);
+            result.private_offset = to_offset(
+                operands[operand_count - 1U]);
+        } else if (operation == 0x0C24U && operand_count >= 1U) {
+            result.font_dictionary_offset = to_offset(
+                operands[operand_count - 1U]);
+        } else if (operation == 0x0C25U && operand_count >= 1U) {
+            result.fd_select_offset = to_offset(
+                operands[operand_count - 1U]);
+        }
+        operand_count = 0U;
+    }
+    if (result.char_strings_offset == 0U ||
+        result.char_strings_offset ==
+            std::numeric_limits<std::uint32_t>::max() ||
+        result.private_size == std::numeric_limits<std::uint32_t>::max() ||
+        result.private_offset == std::numeric_limits<std::uint32_t>::max() ||
+        result.font_dictionary_offset ==
+            std::numeric_limits<std::uint32_t>::max() ||
+        result.fd_select_offset ==
+            std::numeric_limits<std::uint32_t>::max()) {
+        result = {};
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    return true;
+}
+
+} // namespace progpu::native::text

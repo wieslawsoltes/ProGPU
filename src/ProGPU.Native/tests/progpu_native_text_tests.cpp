@@ -19,6 +19,10 @@ using progpu::native::text::sfnt_composite_component;
 using progpu::native::text::sfnt_composite_glyph_decode_requirements;
 using progpu::native::text::sfnt_composite_glyph_variation_requirements;
 using progpu::native::text::sfnt_composite_glyph_variation_scratch;
+using progpu::native::text::sfnt_cff_data;
+using progpu::native::text::sfnt_cff_index_view;
+using progpu::native::text::sfnt_cff1_font_view;
+using progpu::native::text::sfnt_cff1_top_dictionary;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -1358,6 +1362,107 @@ void expanded_composite_glyphs_preserve_transforms_and_point_attachment() {
     require(points_written == 3U && segments_written == 2U);
 }
 
+void cff1_indexes_and_dictionaries_are_borrowed_and_bounded() {
+    const std::array<std::byte, 9U> index_bytes{
+        std::byte{0x00}, std::byte{0x02}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x03}, std::byte{0x04},
+        std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
+    std::size_t cursor = 0U;
+    sfnt_cff_index_view index{};
+    font_error error = font_error::none;
+    require(sfnt_cff_data::try_read_index(
+        index_bytes, cursor, index, &error));
+    require(error == font_error::none);
+    require(index.count == 2U && index.offset_size == 1U);
+    require(cursor == index_bytes.size());
+    std::span<const std::byte> item{};
+    require(sfnt_cff_data::try_get_index_item(index, 0U, item, &error));
+    require(item.size() == 2U && item[0] == std::byte{0xAA} &&
+        item[1] == std::byte{0xBB});
+    require(sfnt_cff_data::try_get_index_item(index, 1U, item, &error));
+    require(item.size() == 1U && item[0] == std::byte{0xCC});
+    require(!sfnt_cff_data::try_get_index_item(index, 2U, item, &error));
+    require(error == font_error::invalid_argument && item.empty());
+
+    const std::array<std::byte, 2U> empty_index{
+        std::byte{0x00}, std::byte{0x00}};
+    cursor = 0U;
+    require(sfnt_cff_data::try_read_index(
+        empty_index, cursor, index, &error));
+    require(index.count == 0U && cursor == empty_index.size());
+
+    const std::array<std::byte, 6U> descending_offsets{
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x02}, std::byte{0x01}, std::byte{0xAA}};
+    cursor = 0U;
+    require(!sfnt_cff_data::try_read_index(
+        descending_offsets, cursor, index, &error));
+    require(error == font_error::invalid_face && index.count == 0U);
+
+    const std::array<std::byte, 6U> truncated_data{
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x01},
+        std::byte{0x01}, std::byte{0x03}, std::byte{0xAA}};
+    cursor = 0U;
+    require(!sfnt_cff_data::try_read_index(
+        truncated_data, cursor, index, &error));
+    require(error == font_error::invalid_face && index.count == 0U);
+
+    const std::array<std::byte, 3U> real_number{
+        std::byte{0x1E}, std::byte{0x1A}, std::byte{0x5F}};
+    cursor = 1U;
+    double decoded = 0.0;
+    require(sfnt_cff_data::try_read_dictionary_number(
+        real_number, cursor, 30U, decoded));
+    require(decoded == 1.5 && cursor == real_number.size());
+
+    const std::array<std::byte, 16U> dictionary{
+        std::byte{0xF7}, std::byte{0xC0}, std::byte{0x11},
+        std::byte{0x95}, std::byte{0xF8}, std::byte{0x24}, std::byte{0x12},
+        std::byte{0xF8}, std::byte{0x88}, std::byte{0x0C}, std::byte{0x24},
+        std::byte{0xF8}, std::byte{0xEC}, std::byte{0x0C}, std::byte{0x25},
+        std::byte{0x00}};
+    sfnt_cff1_top_dictionary top{};
+    require(sfnt_cff_data::try_get_top_dictionary(
+        dictionary, top, &error));
+    require(error == font_error::none);
+    require(top.char_strings_offset == 300U);
+    require(top.private_size == 10U && top.private_offset == 400U);
+    require(top.font_dictionary_offset == 500U);
+    require(top.fd_select_offset == 600U);
+}
+
+void production_noto_cff1_container_matches_sfnt_glyph_count() {
+    std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> data(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        data[index] = static_cast<std::byte>(source[index]);
+    }
+
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    std::uint16_t glyph_count = 0U;
+    require(font.try_get_glyph_count(glyph_count));
+    sfnt_cff1_font_view cff{};
+    font_error error = font_error::none;
+    require(font.try_get_cff1_font(glyph_count, cff, &error));
+    require(error == font_error::none);
+    require(cff.char_strings.count == glyph_count);
+    require(!cff.bytes.empty() && cff.top_dictionary.char_strings_offset > 0U);
+    std::span<const std::byte> notdef{};
+    require(sfnt_cff_data::try_get_index_item(
+        cff.char_strings, 0U, notdef, &error));
+    require(error == font_error::none && !notdef.empty());
+
+    sfnt_cff1_font_view mismatch{};
+    require(!font.try_get_cff1_font(
+        static_cast<std::uint16_t>(glyph_count - 1U), mismatch, &error));
+    require(error == font_error::invalid_face && mismatch.bytes.empty());
+}
+
 void production_inter_font_decodes_real_simple_outline() {
     std::ifstream stream(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
     require(stream.good());
@@ -1861,6 +1966,8 @@ int main() {
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();
     expanded_composite_glyphs_preserve_transforms_and_point_attachment();
+    cff1_indexes_and_dictionaries_are_borrowed_and_bounded();
+    production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();
     return 0;
