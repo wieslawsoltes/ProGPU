@@ -52,7 +52,9 @@ Coverage and range-class queries are `O(log R)`, dense class queries are
 `O(1)` storage. This common validated layer is shared by the following native
 GSUB and GPOS executors so lookup flags do not fork or allocate per glyph.
 The first GSUB executor ports the managed raw bounded path for Single,
-Multiple, Alternate, Ligature, and Extension substitutions. It mutates a
+Multiple, Alternate, Ligature, Extension, and Reverse Chaining Single
+substitutions. Reverse lookups traverse the glyph buffer from end to start and
+validate ordered backtrack/lookahead coverages before mutation. The executor mutates a
 caller-owned fixed-capacity `shaping_glyph` span in place, preserves clusters
 and placement fields across expansion, applies GDEF base/ligature/mark and
 mark-set filtering, clamps one-based alternate feature values, and preflights

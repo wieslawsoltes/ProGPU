@@ -116,6 +116,39 @@ std::uint32_t next_eligible(
     return static_cast<std::uint32_t>(glyphs.size());
 }
 
+std::uint32_t previous_eligible(
+    std::span<const shaping_glyph> glyphs,
+    std::uint32_t before,
+    std::uint16_t flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gdef_view* gdef) noexcept {
+    while (before != 0U) {
+        --before;
+        if (is_eligible(glyphs[before], flags, mark_filtering_set, gdef)) {
+            return before;
+        }
+    }
+    return static_cast<std::uint32_t>(glyphs.size());
+}
+
+apply_result match_coverage_at(
+    std::span<const std::byte> table,
+    std::size_t parent,
+    std::uint16_t relative,
+    std::uint32_t glyph_id,
+    bool& matches) noexcept {
+    matches = false;
+    std::size_t offset = 0U;
+    open_type_coverage_view coverage{};
+    if (glyph_id > 0xFFFFU || relative == 0U ||
+        !try_add(parent, relative, offset) ||
+        !open_type_coverage_view::try_create(table, offset, coverage)) {
+        return apply_result::malformed;
+    }
+    matches = coverage.find(static_cast<std::uint16_t>(glyph_id)) >= 0;
+    return apply_result::no_match;
+}
+
 apply_result replace_multiple(
     std::span<const std::byte> table,
     std::size_t sequence,
@@ -249,6 +282,112 @@ apply_result apply_subtable(
             mark_filtering_set,
             options);
     }
+    if (type == 8U) {
+        if (!can_read(table, subtable, 6U) ||
+            read_u16(table, subtable) != 1U) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
+        std::size_t coverage_offset = 0U;
+        open_type_coverage_view coverage{};
+        if (coverage_relative == 0U ||
+            !try_add(subtable, coverage_relative, coverage_offset) ||
+            !open_type_coverage_view::try_create(
+                table, coverage_offset, coverage)) {
+            return apply_result::malformed;
+        }
+        const std::int32_t coverage_index = coverage.find(
+            static_cast<std::uint16_t>(storage[position].glyph_id));
+        if (coverage_index < 0) {
+            return apply_result::no_match;
+        }
+        const std::uint16_t backtrack_count = read_u16(table, subtable + 4U);
+        const std::size_t backtrack_offsets = subtable + 6U;
+        if (!can_read(table, backtrack_offsets,
+                static_cast<std::size_t>(backtrack_count) * 2U)) {
+            return apply_result::malformed;
+        }
+        std::size_t cursor =
+            backtrack_offsets + static_cast<std::size_t>(backtrack_count) * 2U;
+        if (!can_read(table, cursor, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t lookahead_count = read_u16(table, cursor);
+        cursor += 2U;
+        const std::size_t lookahead_offsets = cursor;
+        if (!can_read(table, lookahead_offsets,
+                static_cast<std::size_t>(lookahead_count) * 2U)) {
+            return apply_result::malformed;
+        }
+        cursor += static_cast<std::size_t>(lookahead_count) * 2U;
+        if (!can_read(table, cursor, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t substitute_count = read_u16(table, cursor);
+        cursor += 2U;
+        if (static_cast<std::uint32_t>(coverage_index) >= substitute_count ||
+            !can_read(table, cursor,
+                static_cast<std::size_t>(substitute_count) * 2U)) {
+            return apply_result::malformed;
+        }
+
+        std::uint32_t match = position;
+        for (std::uint16_t index = 0U; index < backtrack_count; ++index) {
+            match = previous_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                return apply_result::no_match;
+            }
+            bool matches = false;
+            const apply_result coverage_result = match_coverage_at(
+                table,
+                subtable,
+                read_u16(table, backtrack_offsets + index * 2U),
+                storage[match].glyph_id,
+                matches);
+            if (coverage_result == apply_result::malformed) {
+                return coverage_result;
+            }
+            if (!matches) {
+                return apply_result::no_match;
+            }
+        }
+        match = position;
+        for (std::uint16_t index = 0U; index < lookahead_count; ++index) {
+            match = next_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match + 1U,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                return apply_result::no_match;
+            }
+            bool matches = false;
+            const apply_result coverage_result = match_coverage_at(
+                table,
+                subtable,
+                read_u16(table, lookahead_offsets + index * 2U),
+                storage[match].glyph_id,
+                matches);
+            if (coverage_result == apply_result::malformed) {
+                return coverage_result;
+            }
+            if (!matches) {
+                return apply_result::no_match;
+            }
+        }
+        storage[position].glyph_id = read_u16(
+            table, cursor + static_cast<std::size_t>(coverage_index) * 2U);
+        storage[position].flags = static_cast<shaping_glyph_flags>(
+            static_cast<std::uint32_t>(storage[position].flags) |
+            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
+        return apply_result::applied;
+    }
     if (type < 1U || type > 4U || !can_read(table, subtable, 6U)) {
         return apply_result::malformed;
     }
@@ -354,6 +493,20 @@ apply_result apply_subtable(
     return apply_result::malformed;
 }
 
+bool is_reverse_lookup(const open_type_lookup_view& lookup) noexcept {
+    if (lookup.type == 8U) {
+        return true;
+    }
+    if (lookup.type != 7U || lookup.subtable_count == 0U) {
+        return false;
+    }
+    std::size_t subtable = 0U;
+    return lookup.try_get_subtable(0U, subtable) &&
+        can_read(lookup.table, subtable, 4U) &&
+        read_u16(lookup.table, subtable) == 1U &&
+        read_u16(lookup.table, subtable + 2U) == 8U;
+}
+
 } // namespace
 
 bool try_apply_open_type_gsub_lookup(
@@ -373,12 +526,19 @@ bool try_apply_open_type_gsub_lookup(
     if (!gsub.try_get_lookup(lookup_index, lookup, error)) {
         return false;
     }
-    if (lookup.type < 1U || (lookup.type > 4U && lookup.type != 7U)) {
+    if (lookup.type < 1U ||
+        (lookup.type > 4U && lookup.type != 7U && lookup.type != 8U)) {
         set_error(error, font_error::none);
         return true;
     }
 
-    for (std::uint32_t position = 0U; position < glyph_count; ++position) {
+    const bool reverse = is_reverse_lookup(lookup);
+    std::uint32_t iteration = 0U;
+    while (iteration < glyph_count) {
+        const std::uint32_t position = reverse
+            ? glyph_count - iteration - 1U
+            : iteration;
+        ++iteration;
         if (!is_eligible(
                 glyph_storage[position],
                 lookup.flags,
@@ -415,7 +575,7 @@ bool try_apply_open_type_gsub_lookup(
             if (result == apply_result::applied) {
                 applied = true;
                 if (glyph_count > count_before) {
-                    position += glyph_count - count_before;
+                    iteration += glyph_count - count_before;
                 }
                 break;
             }

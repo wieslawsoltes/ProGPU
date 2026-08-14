@@ -632,6 +632,63 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(error == font_error::invalid_face && glyphs[0U].glyph_id == 5U);
 }
 
+void open_type_gsub_reverse_chaining_matches_bounded_context() {
+    std::array<std::byte, 64U> reverse{};
+    write_u16(reverse, 0U, 1U);
+    write_u16(reverse, 4U, 10U);
+    write_u16(reverse, 6U, 12U);
+    write_u16(reverse, 8U, 14U);
+    write_u16(reverse, 14U, 1U);
+    write_u16(reverse, 16U, 4U);
+    write_u16(reverse, 18U, 8U);
+    write_u16(reverse, 22U, 1U);
+    write_u16(reverse, 24U, 8U);
+    write_u16(reverse, 26U, 1U);
+    write_u16(reverse, 28U, 20U);
+    write_u16(reverse, 30U, 1U);
+    write_u16(reverse, 32U, 26U);
+    write_u16(reverse, 34U, 1U);
+    write_u16(reverse, 36U, 32U);
+    write_u16(reverse, 38U, 1U);
+    write_u16(reverse, 40U, 12U);
+    write_u16(reverse, 46U, 1U);
+    write_u16(reverse, 48U, 1U);
+    write_u16(reverse, 50U, 5U);
+    write_u16(reverse, 52U, 1U);
+    write_u16(reverse, 54U, 1U);
+    write_u16(reverse, 56U, 1U);
+    write_u16(reverse, 58U, 1U);
+    write_u16(reverse, 60U, 1U);
+    write_u16(reverse, 62U, 7U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(reverse, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    std::uint32_t count = 3U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 3U && glyphs[0U].glyph_id == 1U &&
+        glyphs[1U].glyph_id == 12U && glyphs[2U].glyph_id == 7U);
+
+    glyphs = {shaping_glyph{2U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && glyphs[1U].glyph_id == 5U);
+
+    auto malformed = reverse;
+    write_u16(malformed, 36U, 0xFFFFU);
+    require(open_type_layout_table_view::try_create(malformed, gsub, &error));
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 3U;
+    require(!try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(error == font_error::invalid_face && glyphs[1U].glyph_id == 5U);
+}
+
 std::uint64_t hash_path_segments(
     std::span<const progpu_native_path_segment> segments) {
     std::uint64_t hash = 1469598103934665603ULL;
@@ -3548,6 +3605,7 @@ int main() {
     open_type_common_layout_views_are_borrowed_and_bounded();
     open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded();
     open_type_gsub_basic_lookups_use_caller_owned_storage();
+    open_type_gsub_reverse_chaining_matches_bounded_context();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
