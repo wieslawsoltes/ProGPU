@@ -804,13 +804,15 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     count = 1U;
     open_type_gsub_apply_options gated{};
     gated.required_glyph_flags = 1U << 21U;
+    gated.mark_substituted = true;
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, gated, applied, &error));
     require(!applied && glyphs[0U].glyph_id == 5U);
     glyphs[0U].flags = static_cast<shaping_glyph_flags>(1U << 21U);
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, gated, applied, &error));
-    require(applied && glyphs[0U].glyph_id == 9U);
+    require(applied && glyphs[0U].glyph_id == 9U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0x80000000U) != 0U);
 
     // One MultipleSubst: glyph 5 -> [8, 9], preserving source metadata.
     std::array<std::byte, 46U> multiple{};

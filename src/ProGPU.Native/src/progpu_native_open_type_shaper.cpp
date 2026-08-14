@@ -259,7 +259,8 @@ bool apply_complex_feature(
         run_options.alternate_value,
         required_private_mask == 0U
             ? 0U
-            : required_private_mask << complex_detail::feature_shift};
+            : required_private_mask << complex_detail::feature_shift,
+        true};
     for (std::uint32_t index = 0U; index < lookup_count; ++index) {
         bool applied = false;
         if (!try_apply_open_type_gsub_lookup(
@@ -319,6 +320,7 @@ bool apply_complex_feature_group(
 }
 
 bool apply_complex_script_features(
+    const sfnt_font_view& font,
     const open_type_layout_table_view& gsub,
     const open_type_shape_run_options& options,
     std::span<std::uint16_t> lookup_scratch,
@@ -383,11 +385,13 @@ bool apply_complex_script_features(
         open_type_tag::from_chars('p', 'r', 'e', 'f'),
         open_type_tag::from_chars('b', 'l', 'w', 'f'),
         open_type_tag::from_chars('p', 's', 't', 'f')};
+    constexpr std::array use_repha{
+        open_type_tag::from_chars('r', 'p', 'h', 'f')};
+    constexpr std::array use_prebase{
+        open_type_tag::from_chars('p', 'r', 'e', 'f')};
     constexpr std::array use_basic{
         open_type_tag::from_chars('n', 'u', 'k', 't'),
         open_type_tag::from_chars('a', 'k', 'h', 'n'),
-        open_type_tag::from_chars('r', 'p', 'h', 'f'),
-        open_type_tag::from_chars('p', 'r', 'e', 'f'),
         open_type_tag::from_chars('r', 'k', 'r', 'f'),
         open_type_tag::from_chars('a', 'b', 'v', 'f'),
         open_type_tag::from_chars('b', 'l', 'w', 'f'),
@@ -399,18 +403,54 @@ bool apply_complex_script_features(
         open_type_tag::from_chars('i', 'n', 'i', 't'),
         open_type_tag::from_chars('m', 'e', 'd', 'i'),
         open_type_tag::from_chars('f', 'i', 'n', 'a')};
-    const bool known_applied = options.complex_script ==
-            open_type_complex_script::khmer
-        ? apply_complex_feature_group(
+    bool known_applied = true;
+    if (options.complex_script == open_type_complex_script::khmer) {
+        known_applied = apply_complex_feature_group(
             gsub, options, khmer_basic, lookup_scratch, glyph_storage,
-            glyph_count, gdef, error)
-        : options.complex_script == open_type_complex_script::myanmar
-        ? apply_complex_feature_group(
-            gsub, options, myanmar_basic, lookup_scratch, glyph_storage,
-            glyph_count, gdef, error)
-        : apply_complex_feature_group(
-            gsub, options, use_basic, lookup_scratch, glyph_storage,
             glyph_count, gdef, error);
+    } else if (options.complex_script == open_type_complex_script::myanmar) {
+        known_applied = complex_detail::try_reorder_myanmar(
+            font,
+            options.buffer_flags,
+            glyph_storage,
+            glyph_count,
+            error);
+        if (known_applied) {
+            known_applied = apply_complex_feature_group(
+                gsub, options, myanmar_basic, lookup_scratch, glyph_storage,
+                glyph_count, gdef, error);
+        }
+    } else {
+        complex_detail::clear_substituted(
+            glyph_storage.first(glyph_count));
+        known_applied = apply_complex_feature_group(
+            gsub, options, use_repha, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error);
+        if (known_applied) {
+            complex_detail::record_use_repha(
+                glyph_storage.first(glyph_count));
+            complex_detail::clear_substituted(
+                glyph_storage.first(glyph_count));
+            known_applied = apply_complex_feature_group(
+                gsub, options, use_prebase, lookup_scratch, glyph_storage,
+                glyph_count, gdef, error);
+        }
+        if (known_applied) {
+            complex_detail::record_use_prebase(
+                glyph_storage.first(glyph_count));
+            known_applied = apply_complex_feature_group(
+                gsub, options, use_basic, lookup_scratch, glyph_storage,
+                glyph_count, gdef, error);
+        }
+        if (known_applied) {
+            known_applied = complex_detail::try_reorder_use(
+                font,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                error);
+        }
+    }
     if (!known_applied) {
         return false;
     }
@@ -420,6 +460,8 @@ bool apply_complex_script_features(
             contains_feature(preprocessing, feature) ||
             contains_feature(khmer_basic, feature) ||
             contains_feature(myanmar_basic, feature) ||
+            contains_feature(use_repha, feature) ||
+            contains_feature(use_prebase, feature) ||
             contains_feature(use_basic, feature)) {
             continue;
         }
@@ -731,6 +773,7 @@ bool try_shape_open_type_run(
     if (gsub.lookup_count() != 0U) {
         if (complex_script) {
             if (!apply_complex_script_features(
+                    font,
                     gsub,
                     options,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
@@ -835,6 +878,28 @@ bool try_shape_open_type_run(
                     return false;
                 }
             }
+        }
+    }
+    if (gsub.lookup_count() == 0U &&
+        complex_script) {
+        const bool reordered = options.complex_script ==
+                open_type_complex_script::use
+            ? complex_detail::try_reorder_use(
+                font,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                error)
+            : options.complex_script == open_type_complex_script::myanmar
+            ? complex_detail::try_reorder_myanmar(
+                font,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                error)
+            : true;
+        if (!reordered) {
+            return false;
         }
     }
 

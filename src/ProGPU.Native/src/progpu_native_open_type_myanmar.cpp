@@ -231,6 +231,8 @@ bool try_prepare_myanmar(
     std::span<std::uint8_t> category_scratch,
     std::span<std::uint8_t> syllable_scratch,
     font_error* error) noexcept {
+    static_cast<void>(font);
+    static_cast<void>(buffer_flags);
     if (glyph_count > glyph_storage.size() ||
         category_scratch.size() < glyph_count ||
         syllable_scratch.size() < glyph_count) {
@@ -255,6 +257,26 @@ bool try_prepare_myanmar(
         return false;
     }
 
+    for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+        set_category(glyph_storage[index], category_scratch[index]);
+        set_syllable(glyph_storage[index], syllable_scratch[index]);
+    }
+    mark_syllables_unsafe(glyph_storage.first(glyph_count));
+
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool try_reorder_myanmar(
+    const sfnt_font_view& font,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error) noexcept {
+    if (glyph_count > glyph_storage.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     std::uint16_t dotted_glyph = 0U;
     const bool insert_dotted = !has_flag(
         buffer_flags, shaping_buffer_flags::do_not_insert_dotted_circle) &&
@@ -264,7 +286,7 @@ bool try_prepare_myanmar(
     if (insert_dotted) {
         std::uint8_t previous = 0U;
         for (std::uint32_t index = 0U; index < glyph_count; ++index) {
-            const auto current = syllable_scratch[index];
+            const auto current = syllable(glyph_storage[index]);
             if (current != previous &&
                 (current & 0x0FU) == myanmar_broken_cluster) {
                 ++insertion_count;
@@ -276,12 +298,6 @@ bool try_prepare_myanmar(
             return false;
         }
     }
-
-    for (std::uint32_t index = 0U; index < glyph_count; ++index) {
-        set_category(glyph_storage[index], category_scratch[index]);
-        set_syllable(glyph_storage[index], syllable_scratch[index]);
-    }
-    mark_syllables_unsafe(glyph_storage.first(glyph_count));
 
     if (insert_dotted && insertion_count != 0U) {
         std::uint8_t previous = 0U;

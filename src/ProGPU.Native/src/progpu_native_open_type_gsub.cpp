@@ -1363,6 +1363,13 @@ bool try_apply_open_type_gsub_lookup(
             }
             if (result == apply_result::applied) {
                 applied = true;
+                if (options.mark_substituted && position < glyph_count) {
+                    glyph_storage[position].flags =
+                        static_cast<shaping_glyph_flags>(
+                            static_cast<std::uint32_t>(
+                                glyph_storage[position].flags) |
+                            0x80000000U);
+                }
                 if (glyph_count > count_before) {
                     iteration += glyph_count - count_before;
                 }
@@ -1411,6 +1418,11 @@ bool try_apply_open_type_gsub_lookup_at(
         return false;
     }
     applied = result == apply_result::applied;
+    if (applied && options.mark_substituted && position < glyph_count) {
+        glyph_storage[position].flags = static_cast<shaping_glyph_flags>(
+            static_cast<std::uint32_t>(glyph_storage[position].flags) |
+            0x80000000U);
+    }
     set_error(error, font_error::none);
     return true;
 }

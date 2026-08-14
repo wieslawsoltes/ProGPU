@@ -661,6 +661,7 @@ struct open_type_gsub_apply_options final {
     /* Optional private/script eligibility bits required on the lookup's
      * starting glyph. Zero preserves ordinary GSUB behavior. */
     std::uint32_t required_glyph_flags = 0U;
+    bool mark_substituted = false;
 };
 
 /*

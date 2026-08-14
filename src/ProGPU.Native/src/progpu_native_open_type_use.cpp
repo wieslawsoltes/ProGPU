@@ -200,6 +200,8 @@ bool try_prepare_use(
     std::span<std::uint8_t> syllable_scratch,
     std::span<std::uint32_t> index_scratch,
     font_error* error) noexcept {
+    static_cast<void>(font);
+    static_cast<void>(buffer_flags);
     if (glyph_count > glyph_storage.size() ||
         category_scratch.size() < glyph_count ||
         syllable_scratch.size() < glyph_count ||
@@ -248,27 +250,6 @@ bool try_prepare_use(
         }
     }
 
-    std::uint16_t dotted_glyph = 0U;
-    const bool insert_dotted = !has_flag(
-        buffer_flags, shaping_buffer_flags::do_not_insert_dotted_circle) &&
-        font.try_get_glyph_index(0x25CCU, dotted_glyph) &&
-        dotted_glyph != 0U;
-    std::uint32_t insertion_count = 0U;
-    if (insert_dotted) {
-        std::uint8_t previous = 0U;
-        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
-            const auto current = syllable_scratch[index];
-            if (current != previous && (current & 0x0FU) == use_broken) {
-                ++insertion_count;
-            }
-            previous = current;
-        }
-        if (insertion_count > glyph_storage.size() - glyph_count) {
-            set_error(error, font_error::insufficient_buffer);
-            return false;
-        }
-    }
-
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {
         set_category(glyph_storage[index], category_scratch[index]);
         set_syllable(glyph_storage[index], syllable_scratch[index]);
@@ -289,6 +270,76 @@ bool try_prepare_use(
         start = end;
     }
 
+    set_error(error, font_error::none);
+    return true;
+}
+
+void record_use_repha(std::span<shaping_glyph> glyphs) noexcept {
+    for (std::size_t start = 0U; start < glyphs.size();) {
+        const auto current = syllable(glyphs[start]);
+        std::size_t end = start + 1U;
+        while (end < glyphs.size() && syllable(glyphs[end]) == current) {
+            ++end;
+        }
+        for (std::size_t index = start; index < end &&
+             (get_field(glyphs[index], feature_mask, feature_shift) & 1U) != 0U;
+             ++index) {
+            if (substituted(glyphs[index])) {
+                set_category(glyphs[index], use_repha);
+                break;
+            }
+        }
+        start = end;
+    }
+}
+
+void record_use_prebase(std::span<shaping_glyph> glyphs) noexcept {
+    for (std::size_t start = 0U; start < glyphs.size();) {
+        const auto current = syllable(glyphs[start]);
+        std::size_t end = start + 1U;
+        while (end < glyphs.size() && syllable(glyphs[end]) == current) {
+            ++end;
+        }
+        for (std::size_t index = start; index < end; ++index) {
+            if (substituted(glyphs[index])) {
+                set_category(glyphs[index], use_vowel_pre);
+                break;
+            }
+        }
+        start = end;
+    }
+}
+
+bool try_reorder_use(
+    const sfnt_font_view& font,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error) noexcept {
+    if (glyph_count > glyph_storage.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::uint16_t dotted_glyph = 0U;
+    const bool insert_dotted = !has_flag(
+        buffer_flags, shaping_buffer_flags::do_not_insert_dotted_circle) &&
+        font.try_get_glyph_index(0x25CCU, dotted_glyph) &&
+        dotted_glyph != 0U;
+    std::uint32_t insertion_count = 0U;
+    if (insert_dotted) {
+        std::uint8_t previous = 0U;
+        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+            const auto current = syllable(glyph_storage[index]);
+            if (current != previous && (current & 0x0FU) == use_broken) {
+                ++insertion_count;
+            }
+            previous = current;
+        }
+        if (insertion_count > glyph_storage.size() - glyph_count) {
+            set_error(error, font_error::insufficient_buffer);
+            return false;
+        }
+    }
     if (insert_dotted && insertion_count != 0U) {
         std::uint8_t previous = 0U;
         for (std::uint32_t index = 0U; index < glyph_count; ++index) {
