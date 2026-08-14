@@ -98,109 +98,19 @@ internal static unsafe partial class NativeMethods
         internal ClipChain* ClipChain;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneHeader
+    internal partial struct SceneCommand
     {
-        internal uint StructSize;
-        internal uint Magic;
-        internal uint StreamVersion;
-        internal uint EndianMarker;
-        internal uint Flags;
-        internal uint TotalSize;
-        internal ulong SceneId;
-        internal ulong Generation;
-        internal uint CommandOffset;
-        internal uint CommandCount;
-        internal uint CommandStride;
-        internal uint ResourceOffset;
-        internal uint ResourceCount;
-        internal uint ResourceStride;
-        internal uint ArenaOffset;
-        internal uint ArenaSize;
-        internal uint Reserved0;
-        internal uint Reserved1;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneResource
-    {
-        internal uint StructSize;
-        internal NativeSceneResourceKind Kind;
-        internal NativeSceneRecordFlags Flags;
-        internal uint Reserved;
-        internal ulong ResourceId;
-        internal ulong Generation;
-        internal uint PayloadOffset;
-        internal uint PayloadSize;
-        internal uint AuxiliaryOffset;
-        internal uint AuxiliarySize;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneCommand
-    {
-        internal uint StructSize;
-        internal NativeSceneCommandKind Kind;
-        internal NativeSceneRecordFlags Flags;
-        internal uint Reserved;
-        internal ulong CommandId;
-        internal uint StateIndex;
-        internal uint ResourceIndex;
-        internal uint PayloadOffset;
-        internal uint PayloadSize;
-        internal NativeImageRect Bounds;
-        internal uint Reserved0;
-        internal uint Reserved1;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneMetrics
-    {
-        internal uint StructSize;
-        internal uint Flags;
-        internal uint CommandCount;
-        internal uint ResourceCount;
-        internal uint DrawCount;
-        internal uint MaximumStackDepth;
-        internal NativeSceneValidationError ValidationError;
-        internal uint ErrorOffset;
-        internal ulong SceneId;
-        internal ulong Generation;
-        internal ulong SnapshotBytes;
-        internal ulong PayloadBytes;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneFrame
-    {
-        internal uint StructSize;
-        internal uint Width;
-        internal uint Height;
-        internal float DpiScale;
-        internal nuint TargetView;
-        internal NativeColor ClearColor;
-        internal ulong SceneId;
-        internal ulong Generation;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct SceneFrameMetrics
-    {
-        internal uint StructSize;
-        internal uint CommandCount;
-        internal uint DrawCallCount;
-        internal uint FamilySwitchCount;
-        internal ulong SubmissionCount;
-        internal ulong VertexUploadBytes;
-        internal ulong IndexUploadBytes;
-        internal ulong TextureUploadBytes;
-        internal ulong UniformUploadBytes;
-        internal ulong CoverageStagingBytes;
-        internal ulong PayloadHash;
-        internal ulong BrushUploadBytes;
-        internal ulong GradientStopUploadBytes;
-        internal ulong TextStyleUploadBytes;
-        internal ulong ColorGlyphUploadBytes;
+        internal NativeImageRect Bounds
+        {
+            readonly get => new(BoundsX, BoundsY, BoundsWidth, BoundsHeight);
+            set
+            {
+                BoundsX = value.X;
+                BoundsY = value.Y;
+                BoundsWidth = value.Width;
+                BoundsHeight = value.Height;
+            }
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -212,27 +122,6 @@ internal static unsafe partial class NativeMethods
         internal nuint PathCount;
         internal NativePathSegment* Segments;
         internal nuint SegmentCount;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct EngineOptions
-    {
-        internal uint StructSize;
-        internal uint AbiVersion;
-        internal uint BackendAbi;
-        internal NativeRendererTextureFormat TargetFormat;
-        internal nuint Device;
-        internal nuint Queue;
-        internal ulong Flags;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeColor
-    {
-        internal float R;
-        internal float G;
-        internal float B;
-        internal float A;
     }
 
     [StructLayout(LayoutKind.Sequential)]

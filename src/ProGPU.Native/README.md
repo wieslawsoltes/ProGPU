@@ -74,6 +74,19 @@ Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.
 
+The public C header is the single source of truth for opted-in blittable C# ABI
+records. `PROGPU_CSHARP_STRUCT` markers generate the matching internal
+`NativeMethods` layouts while handwritten C# retains constructors, validation,
+ownership, and convenience properties. Regenerate and verify those records with:
+
+```sh
+./eng/progpu-generate-native-contract.sh
+./eng/progpu-verify-native-contract.sh
+```
+
+The verification command is also a pull-request and release gate; changing an
+opted-in native record without committing its exact generated C# layout fails CI.
+
 Build, test, and run the live offscreen sample from the repository root:
 
 ```sh

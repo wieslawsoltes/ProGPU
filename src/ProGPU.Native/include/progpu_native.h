@@ -323,6 +323,7 @@ typedef struct progpu_native_engine_info {
  * append-only record growth while the declared struct_size keeps readers from
  * interpreting a newer record layout as the version-one prefix.
  */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneHeader */
 typedef struct progpu_native_scene_header {
     uint32_t struct_size;
     uint32_t magic;
@@ -344,9 +345,12 @@ typedef struct progpu_native_scene_header {
     uint32_t reserved1;
 } progpu_native_scene_header;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneResource */
 typedef struct progpu_native_scene_resource {
     uint32_t struct_size;
+    /* PROGPU_CSHARP_TYPE: NativeSceneResourceKind */
     uint32_t kind;
+    /* PROGPU_CSHARP_TYPE: NativeSceneRecordFlags */
     uint32_t flags;
     uint32_t reserved;
     uint64_t resource_id;
@@ -357,9 +361,12 @@ typedef struct progpu_native_scene_resource {
     uint32_t auxiliary_size;
 } progpu_native_scene_resource;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneCommand */
 typedef struct progpu_native_scene_command {
     uint32_t struct_size;
+    /* PROGPU_CSHARP_TYPE: NativeSceneCommandKind */
     uint32_t kind;
+    /* PROGPU_CSHARP_TYPE: NativeSceneRecordFlags */
     uint32_t flags;
     uint32_t reserved;
     uint64_t command_id;
@@ -375,6 +382,7 @@ typedef struct progpu_native_scene_command {
     uint32_t reserved1;
 } progpu_native_scene_command;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneMetrics */
 typedef struct progpu_native_scene_metrics {
     uint32_t struct_size;
     uint32_t flags;
@@ -382,6 +390,7 @@ typedef struct progpu_native_scene_metrics {
     uint32_t resource_count;
     uint32_t draw_count;
     uint32_t maximum_stack_depth;
+    /* PROGPU_CSHARP_TYPE: NativeSceneValidationError */
     uint32_t validation_error;
     uint32_t error_offset;
     uint64_t scene_id;
@@ -395,16 +404,19 @@ typedef struct progpu_native_scene_metrics {
  * backend_abi. The engine retains both handles until it is destroyed. A build
  * must reject any other ABI rather than reinterpret incompatible descriptors.
  */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.EngineOptions */
 typedef struct progpu_native_engine_options {
     uint32_t struct_size;
     uint32_t abi_version;
     uint32_t backend_abi;
+    /* PROGPU_CSHARP_TYPE: NativeRendererTextureFormat */
     uint32_t target_format;
     uintptr_t device;
     uintptr_t queue;
     uint64_t flags;
 } progpu_native_engine_options;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.NativeColor */
 typedef struct progpu_native_color {
     float r;
     float g;
@@ -788,6 +800,7 @@ typedef struct progpu_native_scene_color_glyph_bitmap {
     uint32_t reserved2;
 } progpu_native_scene_color_glyph_bitmap;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrame */
 typedef struct progpu_native_scene_frame {
     uint32_t struct_size;
     uint32_t width;
@@ -799,6 +812,7 @@ typedef struct progpu_native_scene_frame {
     uint64_t generation;
 } progpu_native_scene_frame;
 
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrameMetrics */
 typedef struct progpu_native_scene_frame_metrics {
     uint32_t struct_size;
     uint32_t command_count;

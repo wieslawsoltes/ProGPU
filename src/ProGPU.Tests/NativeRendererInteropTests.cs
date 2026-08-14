@@ -350,7 +350,7 @@ public class NativeRendererInteropTests
             OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.CommandId)));
         Assert.Equal(
             40,
-            OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.Bounds)));
+            OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.BoundsX)));
         Assert.Equal(3U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
         Assert.Equal(2U, NativeMethods.DawnWebScene2026JulyBackendAbi);

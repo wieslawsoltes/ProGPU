@@ -76,6 +76,11 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Verify generated C# native contract
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: ./eng/progpu-verify-native-contract.sh
+
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
         run: |

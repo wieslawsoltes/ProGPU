@@ -70,6 +70,11 @@ jobs:
             libxcb-present0 \
             libxkbcommon0
 
+      - name: Verify generated C# native contract
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: ./eng/progpu-verify-native-contract.sh
+
       - name: Build and integration-test native renderer
         if: runner.os != 'Windows'
         shell: bash

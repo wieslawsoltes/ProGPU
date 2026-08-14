@@ -71,6 +71,17 @@ vendored implementation text, foreign attribution markers, generated external
 source outside ignored artifacts, and licenses not represented in package
 metadata.
 
+The public C header is also the authoritative source for blittable managed/native
+transport layouts. A `PROGPU_CSHARP_STRUCT` marker opts a stable native record into
+`ProGPU.NativeContractGenerator`; the checked-in `NativeContract.g.cs` output replaces
+the corresponding handwritten `NativeMethods` declaration. Managed constructors,
+validation, ownership, spans, caches, and public framework objects remain handwritten
+typed layers over those raw generated records. The CI and release gates run
+`progpu-verify-native-contract.sh`, so a header layout change cannot leave stale C#
+fields, order, or primitive widths. New pointer-free ABI records should use this path,
+and existing eligible records migrate incrementally as their native parity slices are
+revisited.
+
 ## 3. Primary-source research record
 
 | System | Observable architecture | ProGPU decision |

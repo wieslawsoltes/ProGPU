@@ -36,6 +36,12 @@ algorithms and observable, quality, complexity, and performance contracts are po
 full. Shader algorithms use the same canonical ProGPU resource files in both managed and
 native builds; only generated embedding or binding wrappers may differ.
 
+Blittable font, shaping, layout, and scene transport records added by this port use the
+same header-driven C# generation lane as existing native scene records. This removes
+parallel handwritten field layouts while keeping managed ownership and ergonomic APIs
+outside the wire contract. Every new eligible record must add its generator marker and
+pass the stale-output plus native/C# size-and-offset gates in the same slice.
+
 ## Cross-engine research gate
 
 The architecture was checked against primary sources for
