@@ -212,8 +212,22 @@ caller-owned component offsets transactionally with no internal allocation.
 The native InterVariable `opsz=23` glyph-618 checkpoint exactly resolves its
 two component offsets to `(0,0)` and `(15,0)`; the authoritative managed
 outline independently matches start `(595,-24)`, 2 figures, 36 segments, and
-hash `12064242707506207632`. Recursive application of those offsets to varied
-child outlines and phantom-metric variation remain later slices.
+hash `12064242707506207632`.
+
+Recursive varied-composite expansion follows at checkpoint
+`7c045a80d0b0509b71d402505a9345210f48b2dc`. The dedicated
+`progpu_native_true_type_varied_requirements.cpp` pass measures exact maximum
+simple-tuple, composite-tuple, varied-point, and active recursion-path offset
+storage. `progpu_native_true_type_varied_outline.cpp` then varies every simple
+child, applies parent component deltas before scaled-offset transformation,
+preserves point attachment and midpoint-to-even grid rounding, and emits the
+canonical path ABI directly. Both passes use a bounded 33-glyph ancestor stack
+and caller-owned spans with no internal heap allocation. Native InterVariable
+glyph 618 now matches the full managed `opsz=23` checkpoint: start
+`(595,-24)`, 36 segments, and exact hash `12064242707506207632`. Normal,
+named C++20 module, ASan/UBSan, short-scratch transactionality, and focused
+managed differential gates pass. Phantom-metric variation remains the next
+`gvar` slice.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

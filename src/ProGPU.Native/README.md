@@ -163,8 +163,12 @@ hash. A shared granular payload walker now also drives allocation-free
 composite-component tuple application. Native glyph 618 resolves the exact
 managed component offsets `(0,0)` and `(15,0)` while the managed reference
 outline is pinned at 2 figures, 36 segments, and its full-stream hash.
-Recursive varied-composite expansion, phantom metrics, and layout-store
-variation remain sequenced work.
+Granular requirement-measurement and decode units now recursively vary every
+simple child, retain parent offsets only for the active component stack, and
+apply scaled offsets, point attachment, and grid rounding directly into the
+canonical path ABI. The full native glyph-618 outline matches the same start,
+36 segments, and managed hash with caller-owned bounded scratch. Phantom
+metrics and layout-store variation remain sequenced work.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
