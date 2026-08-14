@@ -6,8 +6,8 @@
 #include <limits>
 #include <span>
 
-// Direct native port of ProGPU-owned raw Single/Pair GPOS execution in
-// OpenTypeTextShaper.cs at checkpoint 9d1c6417.
+// Direct native port of ProGPU-owned raw GPOS execution and attachment
+// resolution in OpenTypeTextShaper.cs at checkpoint e4d836b2.
 
 namespace progpu::native::text {
 namespace {
@@ -15,6 +15,7 @@ namespace {
 enum class apply_result : std::uint8_t {
     no_match,
     applied,
+    invalid_argument,
     malformed
 };
 
@@ -172,6 +173,297 @@ std::size_t next_eligible(
         }
     }
     return glyphs.size();
+}
+
+std::size_t previous_eligible(
+    std::span<const shaping_glyph> glyphs,
+    std::size_t before,
+    std::uint16_t flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gdef_view* gdef,
+    bool skip_marks) noexcept {
+    while (before != 0U) {
+        --before;
+        if (!is_eligible(glyphs[before], flags, mark_filtering_set, gdef)) {
+            continue;
+        }
+        if (skip_marks && gdef != nullptr &&
+            gdef->glyph_class(static_cast<std::uint16_t>(
+                glyphs[before].glyph_id)) == open_type_glyph_class::mark) {
+            continue;
+        }
+        return before;
+    }
+    return glyphs.size();
+}
+
+bool parse_anchor(
+    std::span<const std::byte> table,
+    std::size_t offset,
+    std::int32_t& x,
+    std::int32_t& y) noexcept {
+    x = 0;
+    y = 0;
+    if (!can_read(table, offset, 6U)) {
+        return false;
+    }
+    const std::uint16_t format = read_u16(table, offset);
+    if (format < 1U || format > 3U ||
+        (format == 2U && !can_read(table, offset, 8U)) ||
+        (format == 3U && !can_read(table, offset, 10U))) {
+        return false;
+    }
+    x = read_i16(table, offset + 2U);
+    y = read_i16(table, offset + 4U);
+    if (format == 3U) {
+        for (std::size_t record = offset + 6U; record < offset + 10U;
+             record += 2U) {
+            const std::uint16_t relative = read_u16(table, record);
+            std::size_t device = 0U;
+            if (relative != 0U &&
+                (!try_add(offset, relative, device) ||
+                    !can_read(table, device, 6U))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+apply_result apply_cursive(
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::span<shaping_glyph> glyphs,
+    std::size_t position,
+    std::uint16_t lookup_flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gpos_apply_options& options) noexcept {
+    if (!can_read(table, subtable, 6U) ||
+        read_u16(table, subtable) != 1U) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
+    std::size_t coverage_offset = 0U;
+    open_type_coverage_view coverage{};
+    if (coverage_relative == 0U ||
+        !try_add(subtable, coverage_relative, coverage_offset) ||
+        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        return apply_result::malformed;
+    }
+    const std::int32_t current_coverage = coverage.find(
+        static_cast<std::uint16_t>(glyphs[position].glyph_id));
+    const std::uint16_t record_count = read_u16(table, subtable + 4U);
+    if (current_coverage < 0) {
+        return apply_result::no_match;
+    }
+    if (static_cast<std::uint32_t>(current_coverage) >= record_count ||
+        !can_read(table, subtable + 6U,
+            static_cast<std::size_t>(record_count) * 4U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t entry_relative = read_u16(
+        table, subtable + 6U + current_coverage * 4U);
+    if (entry_relative == 0U) {
+        return apply_result::no_match;
+    }
+    const std::size_t previous = previous_eligible(
+        glyphs,
+        position,
+        lookup_flags,
+        mark_filtering_set,
+        options.gdef,
+        false);
+    if (previous >= glyphs.size()) {
+        return apply_result::no_match;
+    }
+    const std::int32_t previous_coverage = coverage.find(
+        static_cast<std::uint16_t>(glyphs[previous].glyph_id));
+    if (previous_coverage < 0 ||
+        static_cast<std::uint32_t>(previous_coverage) >= record_count) {
+        return apply_result::no_match;
+    }
+    const std::uint16_t exit_relative = read_u16(
+        table, subtable + 8U + previous_coverage * 4U);
+    std::size_t entry_offset = 0U;
+    std::size_t exit_offset = 0U;
+    std::int32_t entry_x = 0;
+    std::int32_t entry_y = 0;
+    std::int32_t exit_x = 0;
+    std::int32_t exit_y = 0;
+    if (exit_relative == 0U ||
+        !try_add(subtable, entry_relative, entry_offset) ||
+        !try_add(subtable, exit_relative, exit_offset) ||
+        !parse_anchor(table, entry_offset, entry_x, entry_y) ||
+        !parse_anchor(table, exit_offset, exit_x, exit_y)) {
+        return apply_result::malformed;
+    }
+    shaping_glyph& first = glyphs[previous];
+    shaping_glyph& current = glyphs[position];
+    const bool horizontal = options.direction == shaping_direction::left_to_right ||
+        options.direction == shaping_direction::right_to_left;
+    switch (options.direction) {
+        case shaping_direction::left_to_right: {
+            first.advance_x = exit_x + first.offset_x;
+            const std::int32_t delta = entry_x + current.offset_x;
+            current.advance_x -= delta;
+            current.offset_x -= delta;
+            break;
+        }
+        case shaping_direction::right_to_left: {
+            const std::int32_t delta = exit_x + first.offset_x;
+            first.advance_x -= delta;
+            first.offset_x -= delta;
+            current.advance_x = entry_x + current.offset_x;
+            break;
+        }
+        case shaping_direction::top_to_bottom: {
+            first.advance_y = exit_y + first.offset_y;
+            const std::int32_t delta = entry_y + current.offset_y;
+            current.advance_y -= delta;
+            current.offset_y -= delta;
+            break;
+        }
+        case shaping_direction::bottom_to_top: {
+            const std::int32_t delta = exit_y + first.offset_y;
+            first.advance_y -= delta;
+            first.offset_y -= delta;
+            current.advance_y = entry_y;
+            break;
+        }
+        default:
+            return apply_result::malformed;
+    }
+    const bool right_to_left = (lookup_flags & 0x0001U) != 0U;
+    const std::size_t child = right_to_left ? previous : position;
+    const std::size_t parent = right_to_left ? position : previous;
+    options.attachments[child].target = static_cast<std::int32_t>(parent);
+    options.attachments[child].kind = horizontal
+        ? shaping_attachment_kind::cursive_horizontal
+        : shaping_attachment_kind::cursive_vertical;
+    if (horizontal) {
+        glyphs[child].offset_y = right_to_left
+            ? entry_y - exit_y
+            : exit_y - entry_y;
+    } else {
+        glyphs[child].offset_x = right_to_left
+            ? entry_x - exit_x
+            : exit_x - entry_x;
+    }
+    if (options.attachments[parent].target == static_cast<std::int32_t>(child) &&
+        options.attachments[parent].kind == options.attachments[child].kind) {
+        options.attachments[parent] = {};
+        options.attachments[parent].target = -1;
+        if (horizontal) {
+            glyphs[parent].offset_y = 0;
+        } else {
+            glyphs[parent].offset_x = 0;
+        }
+    }
+    return apply_result::applied;
+}
+
+struct mark_attachment_header final {
+    std::int32_t mark_coverage_index = -1;
+    open_type_coverage_view target_coverage{};
+    std::uint16_t class_count = 0U;
+    std::size_t mark_array = 0U;
+    std::size_t target_array = 0U;
+};
+
+apply_result parse_mark_attachment_header(
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::uint16_t glyph,
+    mark_attachment_header& result) noexcept {
+    result = {};
+    if (!can_read(table, subtable, 12U) ||
+        read_u16(table, subtable) != 1U) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t mark_coverage_relative = read_u16(table, subtable + 2U);
+    const std::uint16_t target_coverage_relative = read_u16(table, subtable + 4U);
+    const std::uint16_t mark_array_relative = read_u16(table, subtable + 8U);
+    const std::uint16_t target_array_relative = read_u16(table, subtable + 10U);
+    std::size_t mark_coverage_offset = 0U;
+    std::size_t target_coverage_offset = 0U;
+    open_type_coverage_view mark_coverage{};
+    if (mark_coverage_relative == 0U || target_coverage_relative == 0U ||
+        mark_array_relative == 0U || target_array_relative == 0U ||
+        !try_add(subtable, mark_coverage_relative, mark_coverage_offset) ||
+        !try_add(subtable, target_coverage_relative, target_coverage_offset) ||
+        !try_add(subtable, mark_array_relative, result.mark_array) ||
+        !try_add(subtable, target_array_relative, result.target_array) ||
+        !open_type_coverage_view::try_create(
+            table, mark_coverage_offset, mark_coverage) ||
+        !open_type_coverage_view::try_create(
+            table, target_coverage_offset, result.target_coverage) ||
+        !can_read(table, result.mark_array, 2U) ||
+        !can_read(table, result.target_array, 2U)) {
+        return apply_result::malformed;
+    }
+    result.mark_coverage_index = mark_coverage.find(glyph);
+    if (result.mark_coverage_index < 0) {
+        return apply_result::no_match;
+    }
+    result.class_count = read_u16(table, subtable + 6U);
+    return result.class_count == 0U
+        ? apply_result::malformed
+        : apply_result::applied;
+}
+
+apply_result attach_mark(
+    std::span<const std::byte> table,
+    std::span<shaping_glyph> glyphs,
+    std::size_t mark_index,
+    std::size_t target_index,
+    const mark_attachment_header& header,
+    std::int32_t target_coverage_index,
+    std::size_t target_anchor_base,
+    std::size_t target_records,
+    const open_type_gpos_apply_options& options) noexcept {
+    const std::uint16_t mark_count = read_u16(table, header.mark_array);
+    if (static_cast<std::uint32_t>(header.mark_coverage_index) >= mark_count ||
+        !can_read(table, header.mark_array + 2U,
+            static_cast<std::size_t>(mark_count) * 4U)) {
+        return apply_result::malformed;
+    }
+    const std::size_t mark_record = header.mark_array + 2U +
+        static_cast<std::size_t>(header.mark_coverage_index) * 4U;
+    const std::uint16_t mark_class = read_u16(table, mark_record);
+    const std::uint16_t mark_anchor_relative = read_u16(table, mark_record + 2U);
+    if (mark_class >= header.class_count || mark_anchor_relative == 0U ||
+        target_coverage_index < 0) {
+        return apply_result::malformed;
+    }
+    const std::size_t target_record = target_records +
+        (static_cast<std::size_t>(target_coverage_index) * header.class_count +
+            mark_class) * 2U;
+    if (!can_read(table, target_record, 2U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t target_anchor_relative = read_u16(table, target_record);
+    std::size_t mark_anchor = 0U;
+    std::size_t target_anchor = 0U;
+    std::int32_t mark_x = 0;
+    std::int32_t mark_y = 0;
+    std::int32_t target_x = 0;
+    std::int32_t target_y = 0;
+    if (target_anchor_relative == 0U ||
+        !try_add(header.mark_array, mark_anchor_relative, mark_anchor) ||
+        !try_add(target_anchor_base, target_anchor_relative, target_anchor) ||
+        !parse_anchor(table, mark_anchor, mark_x, mark_y) ||
+        !parse_anchor(table, target_anchor, target_x, target_y)) {
+        return apply_result::malformed;
+    }
+    glyphs[mark_index].offset_x = target_x - mark_x;
+    glyphs[mark_index].offset_y = target_y - mark_y;
+    glyphs[mark_index].flags = static_cast<shaping_glyph_flags>(
+        static_cast<std::uint32_t>(glyphs[mark_index].flags) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
+    options.attachments[mark_index].target =
+        static_cast<std::int32_t>(target_index);
+    options.attachments[mark_index].kind = shaping_attachment_kind::mark;
+    return apply_result::applied;
 }
 
 apply_result apply_single(
@@ -361,6 +653,140 @@ apply_result apply_pair(
     return apply_result::applied;
 }
 
+apply_result apply_mark_to_base_or_mark(
+    std::span<const std::byte> table,
+    std::uint16_t type,
+    std::size_t subtable,
+    std::span<shaping_glyph> glyphs,
+    std::size_t mark_index,
+    std::uint16_t lookup_flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gpos_apply_options& options) noexcept {
+    mark_attachment_header header{};
+    const apply_result header_result = parse_mark_attachment_header(
+        table,
+        subtable,
+        static_cast<std::uint16_t>(glyphs[mark_index].glyph_id),
+        header);
+    if (header_result != apply_result::applied) {
+        return header_result;
+    }
+    const std::size_t target = previous_eligible(
+        glyphs,
+        mark_index,
+        lookup_flags,
+        mark_filtering_set,
+        options.gdef,
+        type == 4U);
+    if (target >= glyphs.size()) {
+        return apply_result::no_match;
+    }
+    if (options.gdef != nullptr) {
+        const auto target_class = options.gdef->glyph_class(
+            static_cast<std::uint16_t>(glyphs[target].glyph_id));
+        if ((type == 4U && target_class != open_type_glyph_class::base &&
+                target_class != open_type_glyph_class::unclassified) ||
+            (type == 6U && target_class != open_type_glyph_class::mark)) {
+            return apply_result::no_match;
+        }
+    }
+    const std::int32_t target_coverage = header.target_coverage.find(
+        static_cast<std::uint16_t>(glyphs[target].glyph_id));
+    if (target_coverage < 0) {
+        return apply_result::no_match;
+    }
+    const std::uint16_t target_count = read_u16(table, header.target_array);
+    if (static_cast<std::uint32_t>(target_coverage) >= target_count) {
+        return apply_result::malformed;
+    }
+    return attach_mark(
+        table,
+        glyphs,
+        mark_index,
+        target,
+        header,
+        target_coverage,
+        header.target_array,
+        header.target_array + 2U,
+        options);
+}
+
+apply_result apply_mark_to_ligature(
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::span<shaping_glyph> glyphs,
+    std::size_t mark_index,
+    std::uint16_t lookup_flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gpos_apply_options& options) noexcept {
+    mark_attachment_header header{};
+    const apply_result header_result = parse_mark_attachment_header(
+        table,
+        subtable,
+        static_cast<std::uint16_t>(glyphs[mark_index].glyph_id),
+        header);
+    if (header_result != apply_result::applied) {
+        return header_result;
+    }
+    const std::size_t target = previous_eligible(
+        glyphs,
+        mark_index,
+        lookup_flags,
+        mark_filtering_set,
+        options.gdef,
+        true);
+    if (target >= glyphs.size()) {
+        return apply_result::no_match;
+    }
+    if (options.gdef != nullptr &&
+        options.gdef->glyph_class(
+            static_cast<std::uint16_t>(glyphs[target].glyph_id)) !=
+            open_type_glyph_class::ligature) {
+        return apply_result::no_match;
+    }
+    const std::int32_t target_coverage = header.target_coverage.find(
+        static_cast<std::uint16_t>(glyphs[target].glyph_id));
+    const std::uint16_t ligature_count = read_u16(table, header.target_array);
+    if (target_coverage < 0) {
+        return apply_result::no_match;
+    }
+    if (static_cast<std::uint32_t>(target_coverage) >= ligature_count ||
+        !can_read(table, header.target_array + 2U,
+            static_cast<std::size_t>(ligature_count) * 2U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t ligature_relative = read_u16(
+        table,
+        header.target_array + 2U +
+            static_cast<std::size_t>(target_coverage) * 2U);
+    std::size_t ligature_attach = 0U;
+    if (ligature_relative == 0U ||
+        !try_add(header.target_array, ligature_relative, ligature_attach) ||
+        !can_read(table, ligature_attach, 2U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t component_count = read_u16(table, ligature_attach);
+    if (component_count == 0U) {
+        return apply_result::malformed;
+    }
+    // The public bulk glyph record intentionally omits transient ligature
+    // component metadata. The managed fallback selects the last component when
+    // no explicit component survives, which is the deterministic native rule.
+    const std::size_t component_records = ligature_attach + 2U +
+        static_cast<std::size_t>(component_count - 1U) *
+            header.class_count * 2U;
+    return attach_mark(
+        table,
+        glyphs,
+        mark_index,
+        target,
+        header,
+        0,
+        ligature_attach,
+        component_records,
+        options);
+}
+
 apply_result apply_subtable(
     std::span<const std::byte> table,
     std::uint16_t type,
@@ -370,6 +796,10 @@ apply_result apply_subtable(
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
     const open_type_gpos_apply_options& options) noexcept {
+    if (type >= 3U && type <= 6U &&
+        options.attachments.size() != glyphs.size()) {
+        return apply_result::invalid_argument;
+    }
     if (type == 9U) {
         if (!can_read(table, subtable, 8U) || read_u16(table, subtable) != 1U) {
             return apply_result::malformed;
@@ -405,7 +835,111 @@ apply_result apply_subtable(
             mark_filtering_set,
             options);
     }
+    if (type == 3U) {
+        return apply_cursive(
+            table,
+            subtable,
+            glyphs,
+            position,
+            lookup_flags,
+            mark_filtering_set,
+            options);
+    }
+    if (type == 4U || type == 6U) {
+        return apply_mark_to_base_or_mark(
+            table,
+            type,
+            subtable,
+            glyphs,
+            position,
+            lookup_flags,
+            mark_filtering_set,
+            options);
+    }
+    if (type == 5U) {
+        return apply_mark_to_ligature(
+            table,
+            subtable,
+            glyphs,
+            position,
+            lookup_flags,
+            mark_filtering_set,
+            options);
+    }
     return apply_result::no_match;
+}
+
+std::int32_t add_clamped(std::int32_t left, std::int64_t right) noexcept {
+    const std::int64_t sum = static_cast<std::int64_t>(left) + right;
+    if (sum < std::numeric_limits<std::int32_t>::min()) {
+        return std::numeric_limits<std::int32_t>::min();
+    }
+    if (sum > std::numeric_limits<std::int32_t>::max()) {
+        return std::numeric_limits<std::int32_t>::max();
+    }
+    return static_cast<std::int32_t>(sum);
+}
+
+bool resolve_attachment(
+    std::size_t index,
+    std::span<shaping_glyph> glyphs,
+    std::span<const shaping_attachment> attachments,
+    shaping_direction direction,
+    std::span<std::uint8_t> states,
+    std::uint32_t depth) noexcept {
+    if (states[index] == 2U) {
+        return true;
+    }
+    if (states[index] == 1U || depth >= 64U) {
+        return false;
+    }
+    states[index] = 1U;
+    const shaping_attachment attachment = attachments[index];
+    if (attachment.target >= 0 &&
+        static_cast<std::size_t>(attachment.target) < glyphs.size()) {
+        const std::size_t target = static_cast<std::size_t>(attachment.target);
+        if (!resolve_attachment(
+                target, glyphs, attachments, direction, states, depth + 1U)) {
+            return false;
+        }
+        shaping_glyph& glyph = glyphs[index];
+        const shaping_glyph& parent = glyphs[target];
+        if (attachment.kind == shaping_attachment_kind::mark) {
+            glyph.offset_x = add_clamped(glyph.offset_x, parent.offset_x);
+            glyph.offset_y = add_clamped(glyph.offset_y, parent.offset_y);
+            const bool forward = direction == shaping_direction::left_to_right ||
+                direction == shaping_direction::top_to_bottom;
+            if (target < index) {
+                const std::size_t start = forward ? target : target + 1U;
+                const std::size_t end = forward ? index : index + 1U;
+                const std::int64_t sign = forward ? -1 : 1;
+                for (std::size_t advance = start; advance < end; ++advance) {
+                    glyph.offset_x = add_clamped(
+                        glyph.offset_x, sign * glyphs[advance].advance_x);
+                    glyph.offset_y = add_clamped(
+                        glyph.offset_y, sign * glyphs[advance].advance_y);
+                }
+            } else if (target > index) {
+                const std::size_t start = forward ? index : index + 1U;
+                const std::size_t end = forward ? target : target + 1U;
+                const std::int64_t sign = forward ? 1 : -1;
+                for (std::size_t advance = start; advance < end; ++advance) {
+                    glyph.offset_x = add_clamped(
+                        glyph.offset_x, sign * glyphs[advance].advance_x);
+                    glyph.offset_y = add_clamped(
+                        glyph.offset_y, sign * glyphs[advance].advance_y);
+                }
+            }
+        } else if (attachment.kind ==
+            shaping_attachment_kind::cursive_vertical) {
+            glyph.offset_x = add_clamped(glyph.offset_x, parent.offset_x);
+        } else if (attachment.kind ==
+            shaping_attachment_kind::cursive_horizontal) {
+            glyph.offset_y = add_clamped(glyph.offset_y, parent.offset_y);
+        }
+    }
+    states[index] = 2U;
+    return true;
 }
 
 } // namespace
@@ -422,9 +956,14 @@ bool try_apply_open_type_gpos_lookup(
     if (!gpos.try_get_lookup(lookup_index, lookup, error)) {
         return false;
     }
-    if (lookup.type != 1U && lookup.type != 2U && lookup.type != 9U) {
+    if (lookup.type > 9U || lookup.type == 0U) {
         set_error(error, font_error::none);
         return true;
+    }
+    if (lookup.type >= 3U && lookup.type <= 6U &&
+        options.attachments.size() != glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
     }
     for (std::size_t position = 0U; position < glyphs.size(); ++position) {
         if (!is_eligible(
@@ -452,10 +991,47 @@ bool try_apply_open_type_gpos_lookup(
                 set_error(error, font_error::invalid_face);
                 return false;
             }
+            if (result == apply_result::invalid_argument) {
+                set_error(error, font_error::invalid_argument);
+                return false;
+            }
             if (result == apply_result::applied) {
                 applied = true;
                 break;
             }
+        }
+    }
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool try_resolve_open_type_attachments(
+    std::span<shaping_glyph> glyphs,
+    std::span<const shaping_attachment> attachments,
+    shaping_direction direction,
+    std::span<std::uint8_t> state_scratch,
+    font_error* error) noexcept {
+    if (attachments.size() != glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (state_scratch.size() < glyphs.size()) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) {
+        state_scratch[index] = 0U;
+    }
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) {
+        if (!resolve_attachment(
+                index,
+                glyphs,
+                attachments,
+                direction,
+                state_scratch,
+                0U)) {
+            set_error(error, font_error::invalid_face);
+            return false;
         }
     }
     set_error(error, font_error::none);

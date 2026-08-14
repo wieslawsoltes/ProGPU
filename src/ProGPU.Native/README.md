@@ -276,6 +276,18 @@ storage before exposing binary-search lookup. Views allocate nothing; creation
 is `O(R)`, lookup is `O(log R)`, and malformed records fail explicitly. GSUB
 and GPOS will consume this one parser rather than maintaining separate helpers.
 
+Native GPOS keeps the 32-byte bulk shaped-glyph ABI unchanged. Single and Pair
+positioning mutate that span directly; Cursive, Mark-to-Base,
+Mark-to-Ligature, and Mark-to-Mark additionally write one fixed eight-byte
+relationship into a caller-owned attachment span. A separate bounded pass
+resolves parent chains with caller-owned byte states, rejects cycles or depth
+beyond 64, and applies pen-advance compensation without a heap graph. Lookup
+execution is `O(P * S * K)` in the bounded worst case and attachment resolution
+is normally `O(P + A)`, where `P` is glyph count, `S` is subtable count, `K` is
+coverage/anchor search work, and `A` is the advances crossed by attached marks.
+Anchor formats 1-3 are validated; device/variation deltas remain a later GPOS
+slice rather than being silently approximated.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

@@ -449,14 +449,33 @@ bool try_apply_open_type_gsub_lookup(
     bool& applied,
     font_error* error = nullptr) noexcept;
 
+enum class shaping_attachment_kind : std::uint8_t {
+    none = 0U,
+    mark = 1U,
+    cursive_horizontal = 2U,
+    cursive_vertical = 3U
+};
+
+struct shaping_attachment final {
+    std::int32_t target = -1;
+    shaping_attachment_kind kind = shaping_attachment_kind::none;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved2 = 0U;
+};
+
 struct open_type_gpos_apply_options final {
     const open_type_gdef_view* gdef = nullptr;
+    shaping_direction direction = shaping_direction::left_to_right;
+    std::span<shaping_attachment> attachments{};
 };
 
 /*
  * Allocation-free GPOS execution over the same caller-owned shaped glyph
- * records. The initial executor covers Single and Pair positioning plus
- * Extension wrappers; values remain in font units for later run scaling.
+ * records. The executor covers Single, Pair, Cursive, Mark-to-Base,
+ * Mark-to-Ligature, and Mark-to-Mark positioning plus Extension wrappers.
+ * Anchor relationships use caller-owned attachment records and values remain
+ * in font units for later run scaling.
  */
 bool try_apply_open_type_gpos_lookup(
     const open_type_layout_table_view& gpos,
@@ -464,6 +483,13 @@ bool try_apply_open_type_gpos_lookup(
     std::span<shaping_glyph> glyphs,
     const open_type_gpos_apply_options& options,
     bool& applied,
+    font_error* error = nullptr) noexcept;
+
+bool try_resolve_open_type_attachments(
+    std::span<shaping_glyph> glyphs,
+    std::span<const shaping_attachment> attachments,
+    shaping_direction direction,
+    std::span<std::uint8_t> state_scratch,
     font_error* error = nullptr) noexcept;
 
 struct sfnt_table_view final {

@@ -47,7 +47,10 @@ using progpu::native::text::is_open_type_gdef_blocklisted;
 using progpu::native::text::open_type_gsub_apply_options;
 using progpu::native::text::try_apply_open_type_gsub_lookup;
 using progpu::native::text::open_type_gpos_apply_options;
+using progpu::native::text::shaping_attachment;
+using progpu::native::text::shaping_attachment_kind;
 using progpu::native::text::try_apply_open_type_gpos_lookup;
+using progpu::native::text::try_resolve_open_type_attachments;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -114,6 +117,7 @@ void write_u16(
 void unicode_contract_and_strict_decoders_are_transactional() {
     static_assert(sizeof(shaping_feature) == 16U);
     static_assert(sizeof(shaping_glyph) == 32U);
+    static_assert(sizeof(shaping_attachment) == 8U);
     static_assert(sizeof(unicode_scalar) == 16U);
 
     const shaping_feature feature{
@@ -1170,6 +1174,146 @@ void open_type_gpos_single_and_pair_adjustments_are_bounded() {
         {}, applied, &error));
     require(error == font_error::invalid_face &&
         glyphs[0U].advance_x == 0 && glyphs[1U].offset_x == 0);
+}
+
+void open_type_gpos_attachments_are_caller_owned_and_resolved() {
+    std::array<std::byte, 100U> mark{};
+    write_u16(mark, 0U, 1U);
+    write_u16(mark, 4U, 10U);
+    write_u16(mark, 6U, 12U);
+    write_u16(mark, 8U, 14U);
+    write_u16(mark, 14U, 1U);
+    write_u16(mark, 16U, 4U);
+    write_u16(mark, 18U, 4U);
+    write_u16(mark, 22U, 1U);
+    write_u16(mark, 24U, 8U);
+    constexpr std::size_t mark_subtable = 26U;
+    write_u16(mark, mark_subtable, 1U);
+    write_u16(mark, mark_subtable + 2U, 40U);
+    write_u16(mark, mark_subtable + 4U, 46U);
+    write_u16(mark, mark_subtable + 6U, 1U);
+    write_u16(mark, mark_subtable + 8U, 52U);
+    write_u16(mark, mark_subtable + 10U, 64U);
+    write_u16(mark, 66U, 1U);
+    write_u16(mark, 68U, 1U);
+    write_u16(mark, 70U, 6U);
+    write_u16(mark, 72U, 1U);
+    write_u16(mark, 74U, 1U);
+    write_u16(mark, 76U, 5U);
+    write_u16(mark, 78U, 1U);
+    write_u16(mark, 80U, 0U);
+    write_u16(mark, 82U, 6U);
+    write_u16(mark, 84U, 1U);
+    write_u16(mark, 86U, 2U);
+    write_u16(mark, 88U, 3U);
+    write_u16(mark, 90U, 1U);
+    write_u16(mark, 92U, 4U);
+    write_u16(mark, 94U, 1U);
+    write_u16(mark, 96U, 8U);
+    write_u16(mark, 98U, 10U);
+
+    open_type_layout_table_view gpos{};
+    font_error error = font_error::none;
+    require(open_type_layout_table_view::try_create(mark, gpos, &error));
+    std::array<shaping_glyph, 2U> glyphs{
+        shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U}};
+    std::array<shaping_attachment, 2U> attachments{};
+    bool applied = false;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied && glyphs[1U].offset_x == 6 &&
+        glyphs[1U].offset_y == 7);
+    require(attachments[1U].target == 0 &&
+        attachments[1U].kind == shaping_attachment_kind::mark);
+    std::array<std::uint8_t, 2U> states{};
+    require(try_resolve_open_type_attachments(
+        glyphs,
+        attachments,
+        progpu::native::text::shaping_direction::left_to_right,
+        states,
+        &error));
+    require(glyphs[1U].offset_x == -4 && glyphs[1U].offset_y == 7);
+
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U}};
+    require(!try_apply_open_type_gpos_lookup(
+        gpos, 0U, glyphs, {}, applied, &error));
+    require(error == font_error::invalid_argument &&
+        glyphs[1U].offset_x == 0);
+
+    std::array<std::byte, 108U> extension{};
+    std::copy(mark.begin(), mark.begin() + mark_subtable, extension.begin());
+    write_u16(extension, 18U, 9U);
+    write_u16(extension, mark_subtable, 1U);
+    write_u16(extension, mark_subtable + 2U, 4U);
+    write_u16(extension, mark_subtable + 4U, 0U);
+    write_u16(extension, mark_subtable + 6U, 8U);
+    std::copy(
+        mark.begin() + mark_subtable,
+        mark.end(),
+        extension.begin() + mark_subtable + 8U);
+    require(open_type_layout_table_view::try_create(extension, gpos, &error));
+    require(!try_apply_open_type_gpos_lookup(
+        gpos, 0U, glyphs, {}, applied, &error));
+    require(error == font_error::invalid_argument &&
+        glyphs[1U].offset_x == 0);
+
+    std::array<std::byte, 60U> cursive{};
+    write_u16(cursive, 0U, 1U);
+    write_u16(cursive, 4U, 10U);
+    write_u16(cursive, 6U, 12U);
+    write_u16(cursive, 8U, 14U);
+    write_u16(cursive, 14U, 1U);
+    write_u16(cursive, 16U, 4U);
+    write_u16(cursive, 18U, 3U);
+    write_u16(cursive, 22U, 1U);
+    write_u16(cursive, 24U, 8U);
+    write_u16(cursive, 26U, 1U);
+    write_u16(cursive, 28U, 14U);
+    write_u16(cursive, 30U, 2U);
+    write_u16(cursive, 32U, 0U);
+    write_u16(cursive, 34U, 22U);
+    write_u16(cursive, 36U, 28U);
+    write_u16(cursive, 38U, 0U);
+    write_u16(cursive, 40U, 1U);
+    write_u16(cursive, 42U, 2U);
+    write_u16(cursive, 44U, 5U);
+    write_u16(cursive, 46U, 6U);
+    write_u16(cursive, 48U, 1U);
+    write_u16(cursive, 50U, 8U);
+    write_u16(cursive, 52U, 10U);
+    write_u16(cursive, 54U, 1U);
+    write_u16(cursive, 56U, 2U);
+    write_u16(cursive, 58U, 3U);
+    require(open_type_layout_table_view::try_create(cursive, gpos, &error));
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U, 0U, 0, shaping_glyph_flags::none, 10}};
+    attachments = {};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied && glyphs[0U].advance_x == 8 &&
+        glyphs[1U].advance_x == 8 && glyphs[1U].offset_x == -2 &&
+        glyphs[1U].offset_y == 7);
+    require(attachments[1U].target == 0 &&
+        attachments[1U].kind ==
+            shaping_attachment_kind::cursive_horizontal);
 }
 
 std::uint64_t hash_path_segments(
@@ -4094,6 +4238,7 @@ int main() {
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     open_type_script_language_feature_selection_is_bounded();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
+    open_type_gpos_attachments_are_caller_owned_and_resolved();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

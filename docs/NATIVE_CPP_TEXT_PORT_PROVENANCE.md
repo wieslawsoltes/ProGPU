@@ -82,13 +82,21 @@ DFLT/default LangSys, preserves feature and lookup order, and deduplicates
 lookup indices into caller storage. The requirements pass reports a safe
 upper-bound capacity in `O(S + F + L)` time; selection is `O(S + F + L^2)` in
 the worst case because deduplication intentionally uses no heap scratch.
-The initial GPOS executor applies SinglePos formats 1/2 and PairPos glyph-set
-and ClassDef formats directly to the bulk `shaping_glyph` records, including
+The native GPOS executor ports `OpenTypeTextShaper.cs` through checkpoint
+`e4d836b2`. It applies SinglePos formats 1/2, PairPos glyph-set and ClassDef
+formats, CursivePos, MarkBasePos, MarkLigPos, and MarkMarkPos, including
 ExtensionPos wrappers and the shared GDEF lookup filter. Base placement and
-advance values remain signed font units; every variable-length ValueRecord and
-referenced device table is bounded before either glyph is mutated. A single
-lookup is `O(P * S * (log C + log K))` for positions `P`, subtables `S`,
-coverage size `C`, and pair-set size `K`, with `O(1)` internal storage.
+advance values remain signed font units; every variable-length ValueRecord,
+anchor, and referenced device table is bounded before mutation. The stable
+32-byte interop glyph record does not acquire transient shaping state. Instead,
+the caller provides one fixed eight-byte attachment record per glyph and one
+byte of resolution scratch. Parent chains are resolved without allocation,
+with cycle detection and a depth limit of 64. A lookup is
+`O(P * S * (log C + log K))` for positions `P`, subtables `S`, coverage size
+`C`, and pair/anchor search size `K`; resolving mark relationships adds
+`O(P + A)` work for the advances `A` crossed by attached marks. Anchor format-3
+device references are validated but their device/variation deltas remain an
+explicit subsequent slice.
 
 ## Delivered borrowed SFNT/TTC foundation
 
