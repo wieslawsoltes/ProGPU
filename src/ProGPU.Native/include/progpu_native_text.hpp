@@ -191,6 +191,31 @@ bool try_decode_utf16(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+struct unicode_script_run final {
+    std::uint32_t scalar_start = 0U;
+    std::uint32_t scalar_count = 0U;
+    std::uint32_t input_start = 0U;
+    std::uint32_t input_length = 0U;
+    open_type_tag script{};
+};
+
+/*
+ * Allocation-free initial script itemization. DFLT Common/Inherited scalars
+ * attach to the preceding resolved script, or the first following script for
+ * leading text, matching ProGPU's first-strong run inference. The caller may
+ * subsequently tailor boundaries with Script_Extensions/language policy.
+ */
+bool try_get_unicode_script_run_count(
+    std::span<const unicode_scalar> input,
+    std::uint32_t& run_count,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_itemize_unicode_scripts(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_script_run> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 enum class unicode_normalization_form : std::uint8_t {
     canonical_decomposition = 0U,
     canonical_composition = 1U

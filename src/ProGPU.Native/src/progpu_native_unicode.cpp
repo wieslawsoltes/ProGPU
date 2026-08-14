@@ -2,6 +2,7 @@
 
 #include "progpu_native_unicode_data.generated.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -173,6 +174,30 @@ unicode_scalar make_scalar(
         get_unicode_script(code_point)};
 }
 
+open_type_tag first_resolved_script(
+    std::span<const unicode_scalar> input) noexcept {
+    for (const auto& scalar : input) {
+        if (scalar.script != default_script) {
+            return scalar.script;
+        }
+    }
+    return default_script;
+}
+
+open_type_tag effective_script(
+    const unicode_scalar& scalar,
+    open_type_tag active) noexcept {
+    return scalar.script == default_script ? active : scalar.script;
+}
+
+std::uint32_t source_end(const unicode_scalar& scalar) noexcept {
+    const std::uint64_t end = static_cast<std::uint64_t>(scalar.input_index) +
+        scalar.input_length;
+    return static_cast<std::uint32_t>(std::min<std::uint64_t>(
+        end,
+        std::numeric_limits<std::uint32_t>::max()));
+}
+
 } // namespace
 
 open_type_tag get_unicode_script(std::uint32_t code_point) noexcept {
@@ -327,6 +352,94 @@ bool try_decode_utf16(
         offset += length;
     }
     written = index;
+    set_error(error, unicode_error::none);
+    return true;
+}
+
+bool try_get_unicode_script_run_count(
+    std::span<const unicode_scalar> input,
+    std::uint32_t& run_count,
+    unicode_error* error) noexcept {
+    run_count = 0U;
+    if (input.size() > std::numeric_limits<std::uint32_t>::max()) {
+        set_error(error, unicode_error::invalid_argument);
+        return false;
+    }
+    open_type_tag active = first_resolved_script(input);
+    open_type_tag previous = default_script;
+    for (const auto& scalar : input) {
+        if (!is_scalar(scalar.code_point)) {
+            set_error(error, unicode_error::invalid_argument);
+            return false;
+        }
+        const open_type_tag current = effective_script(scalar, active);
+        if (run_count == 0U || current != previous) {
+            ++run_count;
+            previous = current;
+        }
+        if (scalar.script != default_script) {
+            active = scalar.script;
+        }
+    }
+    set_error(error, unicode_error::none);
+    return true;
+}
+
+bool try_itemize_unicode_scripts(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_script_run> output,
+    std::uint32_t& written,
+    unicode_error* error) noexcept {
+    written = 0U;
+    std::uint32_t run_count = 0U;
+    if (!try_get_unicode_script_run_count(input, run_count, error)) {
+        return false;
+    }
+    if (output.size() < run_count) {
+        set_error(error, unicode_error::insufficient_buffer);
+        return false;
+    }
+    if (input.empty()) {
+        set_error(error, unicode_error::none);
+        return true;
+    }
+
+    open_type_tag active = first_resolved_script(input);
+    std::uint32_t run_index = 0U;
+    std::uint32_t run_start = 0U;
+    open_type_tag run_script = effective_script(input[0U], active);
+    if (input[0U].script != default_script) {
+        active = input[0U].script;
+    }
+    for (std::uint32_t index = 1U;
+         index < static_cast<std::uint32_t>(input.size());
+         ++index) {
+        const open_type_tag current = effective_script(input[index], active);
+        if (current != run_script) {
+            const std::uint32_t input_start = input[run_start].input_index;
+            const std::uint32_t input_end = source_end(input[index - 1U]);
+            output[run_index++] = unicode_script_run{
+                run_start,
+                index - run_start,
+                input_start,
+                input_end >= input_start ? input_end - input_start : 0U,
+                run_script};
+            run_start = index;
+            run_script = current;
+        }
+        if (input[index].script != default_script) {
+            active = input[index].script;
+        }
+    }
+    const std::uint32_t input_start = input[run_start].input_index;
+    const std::uint32_t input_end = source_end(input.back());
+    output[run_index++] = unicode_script_run{
+        run_start,
+        static_cast<std::uint32_t>(input.size()) - run_start,
+        input_start,
+        input_end >= input_start ? input_end - input_start : 0U,
+        run_script};
+    written = run_index;
     set_error(error, unicode_error::none);
     return true;
 }

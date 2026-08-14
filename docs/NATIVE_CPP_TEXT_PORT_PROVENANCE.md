@@ -449,6 +449,16 @@ multi-step decomposition, reordered combining marks, canonical composition,
 source-range merging, malformed-resource, and short-buffer cases use the real
 shared 450,920-byte Unicode plan.
 
+The same scalar unit now exposes an initial two-pass script itemizer matching
+`OpenTypeScriptResolver.Infer`: Common/Inherited `DFLT` scalars attach to the
+active preceding script, while leading Common/Inherited text adopts the first
+following resolved script. It reports exact run count before writing
+caller-owned `unicode_script_run` records and preserves both scalar and source
+input ranges. Counting and writing are `O(N)` with `O(1)` internal storage;
+invalid scalars and short output are transactional. This is intentionally the
+managed first-strong shaping boundary, not a claim that Unicode
+Script_Extensions or locale tailoring is complete.
+
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
 `import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.

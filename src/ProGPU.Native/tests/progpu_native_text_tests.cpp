@@ -29,6 +29,9 @@ using progpu::native::text::try_get_utf8_decode_requirements;
 using progpu::native::text::try_decode_utf8;
 using progpu::native::text::try_get_utf16_decode_requirements;
 using progpu::native::text::try_decode_utf16;
+using progpu::native::text::unicode_script_run;
+using progpu::native::text::try_get_unicode_script_run_count;
+using progpu::native::text::try_itemize_unicode_scripts;
 using progpu::native::text::unicode_normalization_form;
 using progpu::native::text::unicode_normalization_requirements;
 using progpu::native::text::unicode_normalization_data;
@@ -273,6 +276,49 @@ void canonical_unicode_normalization_uses_shared_borrowed_data() {
     require(!unicode_normalization_data::try_create(
         malformed, invalid, &error));
     require(error == unicode_error::invalid_argument);
+}
+
+void unicode_script_itemization_preserves_source_ranges() {
+    constexpr auto dflt = open_type_tag::from_chars('D', 'F', 'L', 'T');
+    constexpr auto latn = open_type_tag::from_chars('l', 'a', 't', 'n');
+    constexpr auto arab = open_type_tag::from_chars('a', 'r', 'a', 'b');
+    constexpr std::array<unicode_scalar, 6U> scalars{
+        unicode_scalar{0x0022U, 0U, 1U, 0U, 0U, dflt},
+        unicode_scalar{0x0041U, 1U, 1U, 0U, 0U, latn},
+        unicode_scalar{0x0020U, 2U, 1U, 0U, 0U, dflt},
+        unicode_scalar{0x0627U, 3U, 2U, 0U, 0U, arab},
+        unicode_scalar{0x0651U, 5U, 2U, 33U, 0U, dflt},
+        unicode_scalar{0x002EU, 7U, 1U, 0U, 0U, dflt}};
+    unicode_error error = unicode_error::invalid_argument;
+    std::uint32_t count = 99U;
+    require(try_get_unicode_script_run_count(scalars, count, &error));
+    require(error == unicode_error::none && count == 2U);
+    std::array<unicode_script_run, 2U> runs{};
+    std::uint32_t written = 99U;
+    require(try_itemize_unicode_scripts(scalars, runs, written, &error));
+    require(written == 2U && runs[0U].scalar_start == 0U &&
+        runs[0U].scalar_count == 3U && runs[0U].input_start == 0U &&
+        runs[0U].input_length == 3U && runs[0U].script == latn &&
+        runs[1U].scalar_start == 3U && runs[1U].scalar_count == 3U &&
+        runs[1U].input_start == 3U && runs[1U].input_length == 5U &&
+        runs[1U].script == arab);
+
+    std::array<unicode_script_run, 2U> untouched{
+        unicode_script_run{99U}, unicode_script_run{99U}};
+    require(!try_itemize_unicode_scripts(
+        scalars,
+        std::span<unicode_script_run>{untouched}.first(1U),
+        written,
+        &error));
+    require(error == unicode_error::insufficient_buffer && written == 0U &&
+        untouched[0U].scalar_start == 99U);
+
+    constexpr std::array<unicode_scalar, 2U> common{
+        unicode_scalar{0x1F600U, 0U, 2U, 0U, 0U, dflt},
+        unicode_scalar{0x0021U, 2U, 1U, 0U, 0U, dflt}};
+    require(try_itemize_unicode_scripts(common, runs, written, &error));
+    require(written == 1U && runs[0U].script == dflt &&
+        runs[0U].input_length == 3U);
 }
 
 std::uint64_t hash_path_segments(
@@ -3187,6 +3233,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 int main() {
     unicode_contract_and_strict_decoders_are_transactional();
     canonical_unicode_normalization_uses_shared_borrowed_data();
+    unicode_script_itemization_preserves_source_ranges();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

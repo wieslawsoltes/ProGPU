@@ -260,6 +260,14 @@ in-place stable ordering is `O(D)` for already ordered text and `O(D^2)` only
 for an adversarial reverse-ordered combining sequence. Storage is entirely
 caller-owned and validation or capacity failure leaves output untouched.
 
+An initial allocation-free script itemizer groups these scalar records into
+source-preserving OpenType runs. Common/Inherited (`DFLT`) scalars attach to the
+preceding resolved script, or the first following script at the beginning of a
+run, matching managed ProGPU's first-strong inference. Counting and writing are
+separate `O(N)` passes with `O(1)` internal state and transactional short-buffer
+failure. Script_Extensions and language tailoring remain explicit later stages
+rather than being guessed inside the decoder.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.
