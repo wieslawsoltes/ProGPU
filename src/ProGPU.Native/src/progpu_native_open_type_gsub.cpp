@@ -1320,6 +1320,12 @@ bool try_apply_open_type_gsub_lookup(
             ? glyph_count - iteration - 1U
             : iteration;
         ++iteration;
+        if (options.required_glyph_flags != 0U &&
+            (static_cast<std::uint32_t>(glyph_storage[position].flags) &
+                options.required_glyph_flags) !=
+                options.required_glyph_flags) {
+            continue;
+        }
         if (!is_eligible(
                 glyph_storage[position],
                 lookup.flags,
@@ -1381,6 +1387,12 @@ bool try_apply_open_type_gsub_lookup_at(
     if (glyph_count > glyph_storage.size() || position >= glyph_count) {
         set_error(error, font_error::invalid_argument);
         return false;
+    }
+    if (options.required_glyph_flags != 0U &&
+        (static_cast<std::uint32_t>(glyph_storage[position].flags) &
+            options.required_glyph_flags) != options.required_glyph_flags) {
+        set_error(error, font_error::none);
+        return true;
     }
     const apply_result result = apply_lookup_at(
         gsub,

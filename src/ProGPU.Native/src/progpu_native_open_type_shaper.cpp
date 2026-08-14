@@ -224,6 +224,214 @@ bool apply_hangul_feature(
     return true;
 }
 
+bool contains_feature(
+    std::span<const open_type_tag> features,
+    open_type_tag feature) noexcept {
+    return std::find(features.begin(), features.end(), feature) !=
+        features.end();
+}
+
+bool apply_complex_feature(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& run_options,
+    open_type_tag feature,
+    std::uint32_t required_private_mask,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    if (!contains_feature(run_options.requested_features, feature)) {
+        return true;
+    }
+    std::uint32_t lookup_count = 0U;
+    if (!gsub.try_select_feature_lookups(
+            run_options.script,
+            run_options.language,
+            feature,
+            lookup_scratch,
+            lookup_count,
+            error)) {
+        return false;
+    }
+    const open_type_gsub_apply_options apply_options{
+        gdef,
+        run_options.alternate_value,
+        required_private_mask == 0U
+            ? 0U
+            : required_private_mask << complex_detail::feature_shift};
+    for (std::uint32_t index = 0U; index < lookup_count; ++index) {
+        bool applied = false;
+        if (!try_apply_open_type_gsub_lookup(
+                gsub,
+                lookup_scratch[index],
+                glyph_storage,
+                glyph_count,
+                apply_options,
+                applied,
+                error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template<std::size_t N>
+bool apply_complex_feature_group(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& options,
+    const std::array<open_type_tag, N>& features,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    for (const auto feature : features) {
+        std::uint32_t mask = 0U;
+        if (options.complex_script == open_type_complex_script::khmer) {
+            if (feature == open_type_tag::from_chars('p', 'r', 'e', 'f')) {
+                mask = 1U;
+            } else if (feature == open_type_tag::from_chars('b', 'l', 'w', 'f') ||
+                feature == open_type_tag::from_chars('a', 'b', 'v', 'f') ||
+                feature == open_type_tag::from_chars('p', 's', 't', 'f')) {
+                mask = 2U;
+            } else if (feature == open_type_tag::from_chars('c', 'f', 'a', 'r')) {
+                mask = 4U;
+            }
+        } else if (options.complex_script == open_type_complex_script::use &&
+            feature == open_type_tag::from_chars('r', 'p', 'h', 'f')) {
+            mask = 1U;
+        }
+        if (!apply_complex_feature(
+                gsub,
+                options,
+                feature,
+                mask,
+                lookup_scratch,
+                glyph_storage,
+                glyph_count,
+                gdef,
+                error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool apply_complex_script_features(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    std::uint32_t required_count = 0U;
+    if (!gsub.try_select_lookups(
+            options.script,
+            options.language,
+            {},
+            lookup_scratch,
+            required_count,
+            error)) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < required_count; ++index) {
+        bool applied = false;
+        if (!try_apply_open_type_gsub_lookup(
+                gsub,
+                lookup_scratch[index],
+                glyph_storage,
+                glyph_count,
+                open_type_gsub_apply_options{
+                    gdef, options.alternate_value},
+                applied,
+                error)) {
+            return false;
+        }
+    }
+
+    constexpr std::array directional{
+        open_type_tag::from_chars('l', 't', 'r', 'a'),
+        open_type_tag::from_chars('l', 't', 'r', 'm'),
+        open_type_tag::from_chars('r', 't', 'l', 'a'),
+        open_type_tag::from_chars('r', 't', 'l', 'm')};
+    constexpr std::array preprocessing{
+        open_type_tag::from_chars('r', 'v', 'r', 'n'),
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('n', 'u', 'm', 'r'),
+        open_type_tag::from_chars('d', 'n', 'o', 'm'),
+        open_type_tag::from_chars('l', 'o', 'c', 'l'),
+        open_type_tag::from_chars('c', 'c', 'm', 'p')};
+    if (!apply_complex_feature_group(
+            gsub, options, directional, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error) ||
+        !apply_complex_feature_group(
+            gsub, options, preprocessing, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error)) {
+        return false;
+    }
+
+    constexpr std::array khmer_basic{
+        open_type_tag::from_chars('p', 'r', 'e', 'f'),
+        open_type_tag::from_chars('b', 'l', 'w', 'f'),
+        open_type_tag::from_chars('a', 'b', 'v', 'f'),
+        open_type_tag::from_chars('p', 's', 't', 'f'),
+        open_type_tag::from_chars('c', 'f', 'a', 'r')};
+    constexpr std::array myanmar_basic{
+        open_type_tag::from_chars('r', 'p', 'h', 'f'),
+        open_type_tag::from_chars('p', 'r', 'e', 'f'),
+        open_type_tag::from_chars('b', 'l', 'w', 'f'),
+        open_type_tag::from_chars('p', 's', 't', 'f')};
+    constexpr std::array use_basic{
+        open_type_tag::from_chars('n', 'u', 'k', 't'),
+        open_type_tag::from_chars('a', 'k', 'h', 'n'),
+        open_type_tag::from_chars('r', 'p', 'h', 'f'),
+        open_type_tag::from_chars('p', 'r', 'e', 'f'),
+        open_type_tag::from_chars('r', 'k', 'r', 'f'),
+        open_type_tag::from_chars('a', 'b', 'v', 'f'),
+        open_type_tag::from_chars('b', 'l', 'w', 'f'),
+        open_type_tag::from_chars('h', 'a', 'l', 'f'),
+        open_type_tag::from_chars('p', 's', 't', 'f'),
+        open_type_tag::from_chars('v', 'a', 't', 'u'),
+        open_type_tag::from_chars('c', 'j', 'c', 't'),
+        open_type_tag::from_chars('i', 's', 'o', 'l'),
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('m', 'e', 'd', 'i'),
+        open_type_tag::from_chars('f', 'i', 'n', 'a')};
+    const bool known_applied = options.complex_script ==
+            open_type_complex_script::khmer
+        ? apply_complex_feature_group(
+            gsub, options, khmer_basic, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error)
+        : options.complex_script == open_type_complex_script::myanmar
+        ? apply_complex_feature_group(
+            gsub, options, myanmar_basic, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error)
+        : apply_complex_feature_group(
+            gsub, options, use_basic, lookup_scratch, glyph_storage,
+            glyph_count, gdef, error);
+    if (!known_applied) {
+        return false;
+    }
+
+    for (const auto feature : options.requested_features) {
+        if (contains_feature(directional, feature) ||
+            contains_feature(preprocessing, feature) ||
+            contains_feature(khmer_basic, feature) ||
+            contains_feature(myanmar_basic, feature) ||
+            contains_feature(use_basic, feature)) {
+            continue;
+        }
+        if (!apply_complex_feature(
+                gsub, options, feature, 0U, lookup_scratch, glyph_storage,
+                glyph_count, gdef, error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
         *error = value;
@@ -521,36 +729,49 @@ bool try_shape_open_type_run(
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
 
     if (gsub.lookup_count() != 0U) {
-        std::uint32_t lookup_count = 0U;
-        std::span<const std::uint16_t> selected_lookups{};
-        if (plan != nullptr) {
-            selected_lookups = plan->gsub_lookups;
-            lookup_count = static_cast<std::uint32_t>(
-                selected_lookups.size());
-        } else {
-            if (!gsub.try_select_lookups(
-                    options.script,
-                    options.language,
-                    options.requested_features,
+        if (complex_script) {
+            if (!apply_complex_script_features(
+                    gsub,
+                    options,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
-                    lookup_count,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
                     error)) {
                 return false;
             }
-            selected_lookups = scratch.gsub_lookups.first(lookup_count);
-        }
-        for (std::uint32_t index = 0U; index < lookup_count; ++index) {
-            bool applied = false;
-            if (!try_apply_open_type_gsub_lookup(
-                    gsub,
-                    selected_lookups[index],
-                    glyph_storage,
-                    glyph_count,
-                    open_type_gsub_apply_options{
-                        gdef_pointer, options.alternate_value},
-                    applied,
-                    error)) {
-                return false;
+        } else {
+            std::uint32_t lookup_count = 0U;
+            std::span<const std::uint16_t> selected_lookups{};
+            if (plan != nullptr) {
+                selected_lookups = plan->gsub_lookups;
+                lookup_count = static_cast<std::uint32_t>(
+                    selected_lookups.size());
+            } else {
+                if (!gsub.try_select_lookups(
+                        options.script,
+                        options.language,
+                        options.requested_features,
+                        scratch.gsub_lookups.first(gsub.lookup_count()),
+                        lookup_count,
+                        error)) {
+                    return false;
+                }
+                selected_lookups = scratch.gsub_lookups.first(lookup_count);
+            }
+            for (std::uint32_t index = 0U; index < lookup_count; ++index) {
+                bool applied = false;
+                if (!try_apply_open_type_gsub_lookup(
+                        gsub,
+                        selected_lookups[index],
+                        glyph_storage,
+                        glyph_count,
+                        open_type_gsub_apply_options{
+                            gdef_pointer, options.alternate_value},
+                        applied,
+                        error)) {
+                    return false;
+                }
             }
         }
         if (arabic_joining) {

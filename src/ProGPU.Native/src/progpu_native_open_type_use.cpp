@@ -274,6 +274,20 @@ bool try_prepare_use(
         set_syllable(glyph_storage[index], syllable_scratch[index]);
     }
     mark_syllables_unsafe(glyph_storage.first(glyph_count));
+    for (std::uint32_t start = 0U; start < glyph_count;) {
+        const auto current = syllable(glyph_storage[start]);
+        std::uint32_t end = start + 1U;
+        while (end < glyph_count && syllable(glyph_storage[end]) == current) {
+            ++end;
+        }
+        const std::uint32_t limit = category(glyph_storage[start]) == use_repha
+            ? 1U
+            : std::min<std::uint32_t>(3U, end - start);
+        for (std::uint32_t index = start; index < start + limit; ++index) {
+            add_feature(glyph_storage[index], 1U);
+        }
+        start = end;
+    }
 
     if (insert_dotted && insertion_count != 0U) {
         std::uint8_t previous = 0U;

@@ -658,6 +658,9 @@ bool is_open_type_gdef_blocklisted(
 struct open_type_gsub_apply_options final {
     const open_type_gdef_view* gdef = nullptr;
     std::uint32_t alternate_value = 1U;
+    /* Optional private/script eligibility bits required on the lookup's
+     * starting glyph. Zero preserves ordinary GSUB behavior. */
+    std::uint32_t required_glyph_flags = 0U;
 };
 
 /*
