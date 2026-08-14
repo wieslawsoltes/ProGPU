@@ -24,6 +24,7 @@ using ::progpu::native::text::sfnt_simple_glyph_path;
 using ::progpu::native::text::sfnt_variation_axis;
 using ::progpu::native::text::sfnt_gvar_header;
 using ::progpu::native::text::sfnt_gvar_tuple_data;
+using ::progpu::native::text::sfnt_gvar_deltas;
 using ::progpu::native::text::sfnt_gvar_tuple_header;
 using ::progpu::native::text::sfnt_gvar_tuple_requirements;
 using ::progpu::native::text::sfnt_glyph_variation_data_view;

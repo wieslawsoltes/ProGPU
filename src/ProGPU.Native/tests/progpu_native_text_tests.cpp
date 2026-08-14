@@ -24,6 +24,7 @@ using progpu::native::text::sfnt_glyph_decode_requirements;
 using progpu::native::text::sfnt_glyph_kind;
 using progpu::native::text::sfnt_glyph_variation_data_view;
 using progpu::native::text::sfnt_gvar_header;
+using progpu::native::text::sfnt_gvar_deltas;
 using progpu::native::text::sfnt_gvar_tuple_data;
 using progpu::native::text::sfnt_gvar_tuple_header;
 using progpu::native::text::sfnt_gvar_tuple_requirements;
@@ -510,6 +511,45 @@ void glyph_variation_tuple_headers_are_bounded_and_exact() {
     const std::array<std::int16_t, 2U> outside{8192, 4096};
     require(sfnt_gvar_tuple_data::calculate_scalar(outside, coordinates) ==
         0.0F);
+}
+
+void untouched_glyph_deltas_interpolate_without_allocation() {
+    const std::array<progpu_native_point, 5U> points{{
+        {0.0F, 0.0F},
+        {10.0F, 10.0F},
+        {20.0F, 20.0F},
+        {30.0F, 30.0F},
+        {40.0F, 40.0F}}};
+    const std::array<std::uint16_t, 1U> contour_ends{4U};
+    std::array<float, 5U> x{0.0F, 2.0F, 0.0F, 6.0F, 0.0F};
+    std::array<float, 5U> y{0.0F, 10.0F, 0.0F, 20.0F, 0.0F};
+    const std::array<std::uint8_t, 5U> touched{0U, 1U, 0U, 1U, 0U};
+    font_error error = font_error::none;
+    require(sfnt_gvar_deltas::try_infer_untouched(
+        points, contour_ends, x, y, touched, &error));
+    require(error == font_error::none);
+    require(x == std::array<float, 5U>{2.0F, 2.0F, 4.0F, 6.0F, 6.0F});
+    require(y ==
+        std::array<float, 5U>{10.0F, 10.0F, 15.0F, 20.0F, 20.0F});
+
+    x = {0.0F, 0.0F, 7.0F, 0.0F, 0.0F};
+    y = {0.0F, 0.0F, -3.0F, 0.0F, 0.0F};
+    const std::array<std::uint8_t, 5U> one_touched{0U, 0U, 1U, 0U, 0U};
+    require(sfnt_gvar_deltas::try_infer_untouched(
+        points, contour_ends, x, y, one_touched, &error));
+    require(x == std::array<float, 5U>{7.0F, 7.0F, 7.0F, 7.0F, 7.0F});
+    require(y ==
+        std::array<float, 5U>{-3.0F, -3.0F, -3.0F, -3.0F, -3.0F});
+
+    const std::array<std::uint16_t, 1U> invalid_contour{5U};
+    const auto original_x = x;
+    require(!sfnt_gvar_deltas::try_infer_untouched(
+        points, invalid_contour, x, y, one_touched, &error));
+    require(error == font_error::invalid_glyph && x == original_x);
+    std::array<float, 4U> short_x{};
+    require(!sfnt_gvar_deltas::try_infer_untouched(
+        points, contour_ends, short_x, y, one_touched, &error));
+    require(error == font_error::insufficient_buffer);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1325,6 +1365,7 @@ int main() {
     variation_coordinates_apply_bounded_avar_mapping();
     packed_variation_streams_are_transactional_and_exact();
     glyph_variation_tuple_headers_are_bounded_and_exact();
+    untouched_glyph_deltas_interpolate_without_allocation();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

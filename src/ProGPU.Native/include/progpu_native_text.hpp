@@ -213,6 +213,22 @@ public:
 };
 
 /*
+ * Allocation-free TrueType IUP interpolation for one tuple's sparse deltas.
+ * Validation is transactional; interpolation is O(P) time and O(1) internal
+ * storage for P contour points.
+ */
+class sfnt_gvar_deltas final {
+public:
+    static bool try_infer_untouched(
+        std::span<const progpu_native_point> original_points,
+        std::span<const std::uint16_t> contour_end_points,
+        std::span<float> x_deltas,
+        std::span<float> y_deltas,
+        std::span<const std::uint8_t> touched,
+        font_error* error = nullptr) noexcept;
+};
+
+/*
  * Transactional two-pass decoders for gvar packed point and delta streams.
  * Each pass is O(N) time with O(1) internal storage for N encoded values. The
  * caller owns every output span; insufficient or malformed input writes no
