@@ -95,6 +95,16 @@ bool try_prepare_myanmar(
     std::span<std::uint8_t> syllable_scratch,
     font_error* error) noexcept;
 
+bool try_prepare_use(
+    const sfnt_font_view& font,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    std::span<std::uint8_t> category_scratch,
+    std::span<std::uint8_t> syllable_scratch,
+    std::span<std::uint32_t> index_scratch,
+    font_error* error) noexcept;
+
 } // namespace progpu::native::text::complex_detail
 
 #endif

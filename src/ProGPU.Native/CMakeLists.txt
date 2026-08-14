@@ -462,6 +462,7 @@ add_library(progpu_native_text STATIC
     src/progpu_native_open_type_complex_internal.hpp
     src/progpu_native_open_type_khmer.cpp
     src/progpu_native_open_type_myanmar.cpp
+    src/progpu_native_open_type_use.cpp
     src/progpu_native_open_type_hangul.cpp
     src/progpu_native_open_type_preprocess.cpp
     src/progpu_native_font_fallback.cpp

@@ -479,6 +479,20 @@ bool try_shape_open_type_run(
             return false;
         }
         complex_guard.enabled = true;
+    } else if (options.complex_script == open_type_complex_script::use) {
+        if (!complex_detail::try_prepare_use(
+                font,
+                options.buffer_flags,
+                glyph_storage,
+                glyph_count,
+                scratch.script_categories,
+                scratch.script_syllables,
+                scratch.script_indices,
+                error)) {
+            glyph_count = 0U;
+            return false;
+        }
+        complex_guard.enabled = true;
     } else if (complex_script) {
         set_error(error, font_error::invalid_argument);
         glyph_count = 0U;
